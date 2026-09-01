@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from threading import Event, Thread
 from types import SimpleNamespace
 
@@ -209,11 +210,19 @@ class _Scalar:
 class FakeIngestSession:
     """Routes selects by entity, records added rows; no real persistence."""
 
-    def __init__(self, *, connection=None, pessoa=None, conversation=None) -> None:
+    def __init__(
+        self,
+        *,
+        connection=None,
+        pessoa=None,
+        conversation=None,
+        message=None,
+    ) -> None:
         self._by_entity = {
             WhatsappConnection: connection,
             Pessoa: pessoa,
             Conversation: conversation,
+            Message: message,
         }
         self.added: list = []
         self.committed = False
@@ -258,6 +267,16 @@ class FakeIngestSession:
 
     def close(self) -> None:
         pass
+
+
+class _PersistingMessageIdSession(FakeIngestSession):
+    """Simulate the server UUID populated by PostgreSQL during commit."""
+
+    def commit(self) -> None:
+        for obj in self.added:
+            if isinstance(obj, Message) and obj.id is None:
+                obj.id = uuid.uuid4()
+        super().commit()
 
 
 def _parsed_payload(message_id: str = "MSG1") -> dict:
@@ -496,11 +515,49 @@ def test_ingest_persists_provider_message_id() -> None:
     índice único parcial `messages_inbound_provider_id_uidx` (Postgres real,
     ver test_messages_inbound_idempotency.py) usa como 2ª barreira de dedupe."""
     connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
-    session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
+    session = _PersistingMessageIdSession(
+        connection=connection,
+        pessoa=None,
+        conversation=None,
+    )
     parsed = parse_message_event(_parsed_payload("PID1"))
-    ingest_message_event_ex(session, parsed)
+    outcome = ingest_message_event_ex(session, parsed)
     msg = next(o for o in session.added if isinstance(o, Message))
     assert msg.provider_message_id == "PID1"
+    assert type(msg.id) is uuid.UUID
+    assert outcome.inbound_message_id == msg.id
+
+
+def test_ingest_duplicate_propagates_existing_inbound_message_id(
+    monkeypatch,
+) -> None:
+    from app.workers import queue_worker as worker_module
+
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    message_id = uuid.uuid4()
+    existing = Message(
+        id=message_id,
+        igreja_id=uuid.UUID(_IGREJA),
+        conversation_id=uuid.uuid4(),
+        direcao="in",
+        autor="contato",
+        tipo="texto",
+        provider_message_id="PID-DUPLICATE",
+    )
+    session = FakeIngestSession(connection=connection, message=existing)
+    monkeypatch.setattr(
+        worker_module,
+        "_provider_message_after_fence",
+        lambda *_args, **_kwargs: existing,
+    )
+
+    outcome = ingest_message_event_ex(
+        session,
+        parse_message_event(_parsed_payload("PID-DUPLICATE")),
+    )
+
+    assert outcome.result is IngestionResult.DUPLICATE
+    assert outcome.inbound_message_id == message_id
 
 
 class _CommitIntegrityErrorSession(FakeIngestSession):
@@ -537,6 +594,40 @@ def test_ingest_treats_provider_id_index_violation_as_duplicate() -> None:
 
     assert outcome.result is IngestionResult.DUPLICATE
     assert session.rolled_back is True
+
+
+def test_ingest_conflict_duplicate_propagates_reloaded_inbound_message_id(
+    monkeypatch,
+) -> None:
+    from app.workers import queue_worker as worker_module
+
+    session = _CommitIntegrityErrorSession(
+        constraint_name="messages_inbound_provider_id_uidx"
+    )
+    message_id = uuid.uuid4()
+    existing = Message(
+        id=message_id,
+        igreja_id=uuid.UUID(_IGREJA),
+        conversation_id=uuid.uuid4(),
+        direcao="in",
+        autor="contato",
+        tipo="texto",
+        provider_message_id="PID-CONFLICT",
+    )
+    fenced_rows = iter((None, existing))
+    monkeypatch.setattr(
+        worker_module,
+        "_provider_message_after_fence",
+        lambda *_args, **_kwargs: next(fenced_rows),
+    )
+
+    outcome = ingest_message_event_ex(
+        session,
+        parse_message_event(_parsed_payload("PID-CONFLICT")),
+    )
+
+    assert outcome.result is IngestionResult.DUPLICATE
+    assert outcome.inbound_message_id == message_id
 
 
 def test_ingest_treats_outbound_provider_index_violation_as_duplicate() -> None:
@@ -661,8 +752,9 @@ def test_ingest_outbound_to_known_contact_still_records() -> None:
     payload = _parsed_payload()
     payload["data"]["key"]["fromMe"] = True
     parsed = parse_message_event(payload)
-    result = ingest_message_event(session, parsed)
-    assert result is IngestionResult.REGISTERED
+    outcome = ingest_message_event_ex(session, parsed)
+    assert outcome.result is IngestionResult.REGISTERED
+    assert outcome.inbound_message_id is None
     assert not any(isinstance(o, Pessoa) for o in session.added)
 
 

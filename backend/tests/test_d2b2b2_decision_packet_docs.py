@@ -77,6 +77,12 @@ DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH = (
     / "decisions"
     / "2026-08-31-dev-connect-tls-auth-transport-probe.md"
 )
+WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-08-27-whatsapp-first-tenant-agent-architecture.md"
+)
 DEV_CONNECT_TLS_AUTH_PROBE_PLAN_PATH = (
     REPO_ROOT
     / "docs"
@@ -115,8 +121,32 @@ DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE = (
 OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE = (
     "REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE = (
     "REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR"
+)
+D3_TURN_IDENTITY_SUPERSEDED_GATE = (
+    "REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR"
+)
+D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE = (
+    "REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR"
+)
+D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE = (
+    "REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR"
+)
+D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE = (
+    "REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR"
+)
+CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE = (
+    "REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR"
+)
+CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE = (
+    "REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR"
+)
+CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE = (
+    "REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -156,6 +186,10 @@ DEV_CONNECT_TLS_AUTH_CURRENT_DOCS = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DO
     DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH,
     DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH,
 }
+D3_TURN_PLAN_ADAPTER_DOCS = DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
+    WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH,
+}
+D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS = D3_TURN_PLAN_ADAPTER_DOCS
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
     {
@@ -468,7 +502,13 @@ def _assert_current_preflight_gate(path: Path, normalized: str) -> None:
 
 
 def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
-    consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    foundation_consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    d3_consumed = D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+    identity_superseded = D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
+    execution_superseded = (
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+    )
+    replay_superseded = D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
     current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     required = {
         "gate historico",
@@ -476,19 +516,46 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "nao autorizou o merge posterior",
         "permanece somente como evidencia historica",
         "nao e um segundo gate corrente",
+        "foi consumido pelo push, abertura, ci e preview da pr #352",
+        "merge e o deployment automatico do frontend production foram autorizados separadamente",
+        "esse gate nao os autorizou",
+        "apos o consumo",
+        "gate anterior",
+        "foi substituido localmente, sem consumo, pelo lote combinado",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        "nao e evidencia historica de uma acao externa",
+        "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
+        "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "batch permanece exclusivamente offline",
-        "este gate nao autoriza merge, vercel production",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
+        "qualquer efeito vivo",
     }
     missing = sorted(item for item in required if item not in normalized)
     assert not missing, f"D3 gate reconciliation missing in {path}: {missing}"
     assert normalized.count("proximo gate unico") == 1
-    assert normalized.count(consumed) == 1
+    assert normalized.count(foundation_consumed) == 1
+    assert normalized.count(d3_consumed) == 1
+    assert normalized.count(identity_superseded) == 1
+    assert normalized.count(execution_superseded) == 1
+    assert normalized.count(replay_superseded) == 1
     assert normalized.count(current) == 1
-    assert normalized.index(consumed) < normalized.index("proximo gate unico")
+    assert normalized.index(foundation_consumed) < normalized.index(d3_consumed)
+    assert normalized.index(d3_consumed) < normalized.index(identity_superseded)
+    assert normalized.index(identity_superseded) < normalized.index("proximo gate unico")
+    assert normalized.index(identity_superseded) < normalized.index(
+        execution_superseded
+    )
+    assert normalized.index(execution_superseded) < normalized.index(
+        replay_superseded
+    )
+    assert normalized.index(replay_superseded) < normalized.index(current)
+    assert normalized.index(execution_superseded) < normalized.index(
+        "proximo gate unico"
+    )
     assert normalized.index("proximo gate unico") < normalized.index(current)
 
 
@@ -2736,7 +2803,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "recommendation_only_not_approved",
         "comprova somente o desenho offline",
         OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
-        "batch permanece exclusivamente offline",
+        "permanece exclusivamente offline",
         "nao autoriza merge",
         "acesso a dev ou prod",
     }
@@ -2770,12 +2837,37 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "nao prova backend, banco ou runtime",
         "preparacao d3 de estado efemero desta branch permanece candidata offline",
         "nao integra a evidencia pos-merge da pr #351",
+        "pr #352",
+        "c5b2b4c775592641b308de6b2ac3cd069f34dcb3",
+        "6c807717010a41edf3bfd3d1b2405c2f3527a696",
+        "arvore e identica a do head da pr",
+        "33428905043",
+        "33428905057",
+        "33428905042",
+        "33428905234",
+        "33428905212",
+        "33428905114",
+        "33428905041",
+        "6187746800",
+        "17584957483",
+        "2026-08-31t19:09:09z",
+        "nao prova saude funcional, backend, banco, saver, migration, memoria ativa",
+        "preparacao d3 integrada e inativa",
+        D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold(),
+        "foi consumido pelo push, abertura, ci e preview da pr #352",
+        "merge e o deployment automatico do frontend production foram autorizados separadamente",
+        "esse gate nao os autorizou",
+        D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold(),
+        "foi substituido localmente, sem consumo, pelo lote combinado",
+        "nao houve push, pr, ci ou preview sob esse gate",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "nao autoriza merge, vercel production, probe vivo",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
+        "qualquer efeito vivo",
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
@@ -2859,6 +2951,44 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         ) == 1
         for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
             assert stale_claim not in normalized
+
+    architecture_adr = _normalized_prose(
+        WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH.read_text(encoding="utf-8")
+    )
+    architecture_required = {
+        "preparacao d3 offline: fronteira efemera por turno",
+        "agentturninput",
+        "agentturnoutput",
+        "agentturneffects",
+        "untrackedvalue",
+        "fallback automatico para o caminho direto",
+        "ausencia de checkpointer e store",
+        "nao instala saver",
+        "memoria privada duravel de d3 permanece ausente",
+        "pr #352",
+        "c5b2b4c775592641b308de6b2ac3cd069f34dcb3",
+        "6c807717010a41edf3bfd3d1b2405c2f3527a696",
+        "33428905043",
+        "33428905057",
+        "33428905042",
+        "33428905234",
+        "33428905212",
+        "33428905114",
+        "33428905041",
+        "6187746800",
+        "17584957483",
+        "2026-08-31t19:09:09z",
+        "prova somente o deployment do frontend",
+        "nao prova saude funcional, backend, banco, saver, migration, memoria ativa",
+        "preparacao d3 integrada e inativa",
+    }
+    architecture_missing = sorted(
+        item for item in architecture_required if item not in architecture_adr
+    )
+    assert not architecture_missing, (
+        "D3 architecture postmerge reconciliation missing: "
+        f"{architecture_missing}"
+    )
 
     phase_adr = _normalized_prose(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH.read_text(encoding="utf-8")
@@ -3048,6 +3178,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
     assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
     assert plan["next_gate"] != OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE
+    assert plan["next_gate"] != D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE
     assert plan["next_gate"] != DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE
     assert plan["next_gate"] != DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE
     assert plan["historical_result"]["precise_timestamp_preserved"] is False
@@ -3101,6 +3232,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "consumido pela pr #346" in readme
     assert "nao e um segundo gate corrente" in readme
     assert OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold() in readme
+    assert D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold() in readme
     assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
     assert DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold() in readme
     assert "pr #348" in readme
@@ -3125,6 +3257,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert not readme_missing, f"migration README reconciliation missing: {readme_missing}"
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
     assert readme.count(OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()) == 1
+    assert readme.count(D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()) == 1
     assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
     _assert_reconciled_d3_gate(readme_path, readme)
     assert readme.count(DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()) == 1
@@ -3170,6 +3303,1201 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         ),
     }
     for path, expected_sha256 in historical_artifacts.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
+
+
+def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
+    identity_commit = "14b3d7ba15e88032cd53714008d36badd4578e80"
+    wiring_commit = "f82f76927ba8a6a265478ad7f21eae07b0d6504c"
+    execution_commit = "7d1ed00d0add18162a89f3a9c39da6039e74017c"
+    execution_source_commit = "576de558983622146a91417c65a85a2a321f585b"
+    plan_adapter_commit = "abafdffdc8252fa6dff7c9d1975cb6c241141971"
+    snapshot_commit = "4988de11566f8f0675256b9958ca242e5a009fa3"
+    workflow_commit = "452aa6ff591b80dcbd3da90f1e5c18367cffd72b"
+    hardening_commits = (
+        "f40d39efeb847b84b30e495ba78f6d218437e8ad",
+        "a84bb7d5f00bae6bb472d02c4a33d14442a294a2",
+        "ef4aa00797e11bbbaa0189faa2c299bf9ace8a5b",
+        "9ea14000065117bda4aa8e7627e78c07dd5d1b2a",
+        "45323a64b17cd9f1fa4d4a86f3a32d769f525660",
+    )
+    turn_identity_sha256 = (
+        "5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d"
+    )
+    identity_test_sha256 = (
+        "4072b76688552b6f870e89876426d3c608b34a362ec895315d733691dff101c5"
+    )
+    turn_execution_sha256 = (
+        "72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b"
+    )
+    execution_test_sha256 = (
+        "7e22814f1715b7bdfc7f83431bf4e15cdf6d8f7d13d0d8d3afaa6811e95e0b2d"
+    )
+    plan_adapter_sha256 = (
+        "c81dafec100734ee9a219d8c99a636636b6317b94c93c87cb89ba0f9af581002"
+    )
+    plan_adapter_test_sha256 = (
+        "328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e"
+    )
+    snapshot_source_sha256 = (
+        "19adb057c9f002776e3ad99d87de636de4975f5cf602a8fb06d2d8401a7d2aaa"
+    )
+    snapshot_source_test_sha256 = (
+        "08464997fa55cb9319d095f672fe0d78693280104d8b4247390e3e75d80ad7f9"
+    )
+    workflow_source_sha256 = (
+        "87ec5691774eab1b2711fea0f07f9f311ddacf7f321fe36646730742b02569b5"
+    )
+    workflow_source_test_sha256 = (
+        "a5a542f6b0192964a0bdd238b8306a1b8ca162be4ec6e2f824773020300508c6"
+    )
+    plan_adapter_final_sha256 = (
+        "2d2adde74dd2bea21aa7a1a3a0e3551ebc62ab269885531162ffc0681e3c7629"
+    )
+    plan_adapter_final_test_sha256 = (
+        "380bf43ea70020ad30134ac56b1ff42823c3219c1950ee3c46c508acdd3290b8"
+    )
+    snapshot_final_sha256 = (
+        "95a9c4f5ea68b3027b42416d858c5cfc3eed858198bf38f8bab638c1b293a53f"
+    )
+    snapshot_final_test_sha256 = (
+        "21c9799aed4d79003c5b3d3018fa5c6c61ff11c6452409056309e5b74d3b76ee"
+    )
+    workflow_final_sha256 = (
+        "3213bcc9949661bd3db56717492babfc7b9a9c0d79c20b8da9ddc039ab1b129d"
+    )
+    workflow_final_test_sha256 = (
+        "7887a930b8d2fbf7f508acae0d6b256927ab52534a726b2a54fec7224c897dd6"
+    )
+    limits_sha256 = (
+        "cb0acd562ebd4e91f2f3170d59ff67cea3ac45f9b4a73f370b1c78522b330412"
+    )
+    limits_test_sha256 = (
+        "7f11003b18b0159815f54306002e87624045282d775de08d1ba47da1b6822e86"
+    )
+    cell_meetings_sha256 = (
+        "e72c1e8366a45ab487b38e1d04b110583b4825645daadaccf1957a04b913ddf5"
+    )
+    cell_lider_test_sha256 = (
+        "07ffabd0260b573bad0fbd8ba572064d0acaaa3b361524dea06a35d8ac781b4d"
+    )
+    final_review_evidence = (
+        "na revisao integrada final do head "
+        "45323a64b17cd9f1fa4d4a86f3a32d769f525660, passaram 512 passed, "
+        "5 warnings; 633 passed, 7 skipped, 2 warnings; 398 passed, "
+        "18 warnings; e 34 passed documentais. links locais 89/89, matriz "
+        "de pins e gates 13/13, py_compile, secret scan e git diff --check "
+        "ficaram verdes. o parecer foi go, com p0, p1 e p2 iguais a zero. "
+        "a evidencia e exclusivamente local e pre-pr; nao prova runtime, "
+        "dev, prod, banco, deploy ou efeito vivo."
+    )
+    application_source_commit = "c24b910bcd4bf4015eda14847e9695497b5b8ef6"
+    application_head_commit = "bcabbae0cf96a9b6e2cd47e8ff041b5aeaffbc84"
+    application_docs_base_commit = "e0cb280"
+    application_file_sha256 = {
+        "backend/app/domain/cell_report_limits.py": (
+            "8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42"
+        ),
+        "backend/app/domain/cell_report_pending_proposal.py": (
+            "53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056"
+        ),
+        "backend/app/domain/cell_report_snapshot.py": (
+            "24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51"
+        ),
+        "backend/app/domain/cell_report_workflow.py": (
+            "da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877"
+        ),
+        "backend/app/routers/cell_meetings.py": (
+            "59de2e7b9d12a4c9d36e16edf28c8a74ea590244b778dae8da44ac8f47f49067"
+        ),
+        "backend/app/services/cell_report_application.py": (
+            "7dc9d0d9cc7bf09c3d8963e956bd60500038004c5e8d882c7d37dd30c3a3389b"
+        ),
+        "backend/tests/test_cell_health_service.py": (
+            "19fbe602a4943fa76a3583e1e9e61a3e7979169caba5de15e157072262c8be69"
+        ),
+        "backend/tests/test_cell_lider.py": (
+            "a0265297ec29895399bf4ea0bfac37f554ec935ae5fd6e157c4f348bd69cc6a5"
+        ),
+        "backend/tests/test_cell_report_application.py": (
+            "30139bffee6be9c00f7068255c6150ee8507506a14ccb9649bebadbf39dc136e"
+        ),
+        "backend/tests/test_cell_report_limits.py": (
+            "c1d4c2b89e3863e10fed7a3e84eb27b2cece6447c8a63e05237d24fff26196aa"
+        ),
+        "backend/tests/test_cell_report_pending_proposal.py": (
+            "299b23c0795d9a1e70ac0e6ed46b4124c64a94e567f2e8a6d03732fde6165a3c"
+        ),
+        "backend/tests/test_cell_report_snapshot.py": (
+            "7cbd65505095c7821bbb8328da9b6d22760fce0544ab80861ca765c82bbd87fb"
+        ),
+        "backend/tests/test_cell_report_workflow.py": (
+            "704f036d1fd5632c7c33dd5c446e80e6f303fa712adacee892dde822b83f53a9"
+        ),
+        "backend/tests/test_reports.py": (
+            "fb511601265dfa374a7d9fbec35f913a7e4bdbde615ce82c1c7996e2d51177d2"
+        ),
+    }
+    reply_reservation_source_commit = (
+        "4d08e783c2de1bb20dfeb29ffb8ee6a43c7a444f"
+    )
+    reply_reservation_integrated_commit = (
+        "d6ee2323d658a91bb92724aaa13adea7222538b4"
+    )
+    turn_uow_source_commit = "58b77a84e38ba7be4d3968d32834ef1b415b3a89"
+    turn_uow_integrated_commit = "17305af54e52aea74948e275ad68fae50427ae67"
+    human_writers_source_commit = "83b4810008f37250b9a9d00f9c9a83f04a3d0399"
+    human_writers_integrated_commit = (
+        "b6a763cbcab41a78815a7777f2c9b682a6af1ddb"
+    )
+    transactional_staging_head_commit = (
+        "dac3a14cdd2bf857f84609518dd96050e203b4b3"
+    )
+    transactional_file_sha256 = {
+        "backend/app/agent/turn_execution.py": (
+            "b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351"
+        ),
+        "backend/app/agent/turn_identity.py": (
+            "59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998"
+        ),
+        "backend/app/domain/cell_report_legacy_snapshot.py": (
+            "22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869"
+        ),
+        "backend/app/routers/cell_meetings.py": (
+            "9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e"
+        ),
+        "backend/app/services/cell_report_application.py": (
+            "0c8ddd4040b83e09fd496eeea3594c68309f0446b97b2466d5f32204babcc347"
+        ),
+        "backend/app/services/cell_report_turn_uow.py": (
+            "1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399"
+        ),
+        "backend/tests/test_agent_turn_execution.py": (
+            "911cc7743b073c78b6d5eaffc29eee1171bdf25d1526bd94a32542302c92420e"
+        ),
+        "backend/tests/test_agent_turn_identity.py": (
+            "6d60a2668810bf8c62e23658d95c54b886079e4e7ecf120f349e989de710e1cf"
+        ),
+        "backend/tests/test_cell_lider.py": (
+            "0732667504127fb4bcdc163187b9b137e77f645e81a743413d8a7c4332f1ee0e"
+        ),
+        "backend/tests/test_cell_report_application.py": (
+            "278e3d506ca5c0853b957529013991bb676320381727f33183afcadc7768f430"
+        ),
+        "backend/tests/test_cell_report_legacy_snapshot.py": (
+            "57586f81accd27145d5877ce91fa9d98f82f29b1ee4f73828768cfe93134c354"
+        ),
+        "backend/tests/test_cell_report_turn_uow.py": (
+            "5ce3d8b37f672adfeaf04839183d43f7f67b51f5cf6d81b37b663bf9c2128db9"
+        ),
+    }
+    four_input_rebinding_required = {
+        "antes da primeira consulta",
+        "runtime rederiva a identidade com quatro entradas confiaveis e separadas",
+        "`igreja_id`, `conversation_id`, o uuid inbound persistido de `message.id`",
+        "`provider_message_id` exato",
+        "igualdade integral dos quatro vinculos com a identidade construida pelo worker",
+        "qualquer divergencia aborta",
+    }
+    required = {
+        identity_commit,
+        wiring_commit,
+        execution_commit,
+        execution_source_commit,
+        plan_adapter_commit,
+        "contrato puro `agentturnidentity` e `agenteffectintent`",
+        "`agent_trusted_inbound_identity_enabled=false` por padrao",
+        "`message.id` da entrada persistida agora chega em `ingestionoutcome`",
+        "nos caminhos novo e duplicado",
+        "antes de sessao, reserva, lease, runtime ou qualquer outro i/o",
+        "`claim_id` permanece requisito separado de recuperacao",
+        "nunca entra no `turn_id`",
+        "caminho legacy e preservado somente com a flag desligada",
+        "estado do grafo continua recusando aliases de autoridade",
+        "nao recebe essa identidade",
+        "contrato puro e inativo `turn_execution`",
+        "plano canonico",
+        "ordem versionada de efeitos",
+        "escopo opaco por tenant e conversa",
+        "recibos estruturais",
+        "maquina pura da futura outbox de resposta",
+        "chave atual `v2`",
+        "nada disso persiste plano ou recibo",
+        "autentica uma store",
+        "garante fifo",
+        "atomicidade entre commit de dominio e outbox",
+        "`accepted` significa somente aceite do transporte",
+        "`ambiguous` e terminal",
+        "legacy `v1` ou `v0` nao e derivada nem autenticada pelo contrato",
+        "backend/app/agent/turn_identity.py",
+        turn_identity_sha256,
+        "backend/tests/test_agent_turn_identity.py",
+        identity_test_sha256,
+        "backend/app/agent/turn_execution.py",
+        turn_execution_sha256,
+        "backend/tests/test_agent_turn_execution.py",
+        execution_test_sha256,
+        "245/245",
+        "401 passed, 7 skipped",
+        "86/86",
+        "190/190",
+        "462 passed, 7 skipped",
+        "adaptador puro e replay-only `turn_plan_adapter`",
+        "nao oferece status `executable`, callback injetavel",
+        "plano armazenado ausente ou qualquer receipt terminal ausente",
+        "`first_execution_unsupported` e bloqueia a primeira execucao",
+        "plano armazenado estruturalmente exato e vinculado ao digest",
+        "receipt terminal valido para cada efeito",
+        "retorna `replay_terminal`",
+        "nao concede execucao, persistencia, transporte, retry ou mutacao de dominio",
+        "`tool_calls` permanecem bloqueados",
+        "finita, nao negativa e exata em centavos",
+        "inteiro `oferta_centavos`",
+        "backend/app/agent/turn_plan_adapter.py",
+        plan_adapter_sha256,
+        "backend/tests/test_agent_turn_plan_adapter.py",
+        plan_adapter_test_sha256,
+        "291/291",
+        "625 passed, 7 skipped",
+        "p0, p1 e p2 iguais a zero",
+        "go`, sem p0, p1 ou p2",
+        "evidencia e local e pre-pr",
+        "lote ampliado permanece exclusivamente offline",
+        "flag fica desligada por padrao e nenhuma ativacao ocorreu",
+        "`turn_execution` e `turn_plan_adapter` nao possuem consumer de runtime",
+        "executam zero i/o",
+        "nao existem saver, checkpoint duravel, migration",
+        "receipt persistido, fifo, bloqueio serial real",
+        "atomicidade entre efeitos, retomada, primeira execucao ou memoria ativa",
+        (
+            "lote d3 offline ampliado localmente / replay-only / flag default "
+            "false / candidato nao integrado no main / runtime nao ativado"
+        ),
+        "foi substituido localmente, sem consumo, pelo lote combinado",
+        "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
+        "qualquer efeito vivo",
+    } | four_input_rebinding_required
+    stale_claims = {
+        "pr #353",
+        "contrato d3 de identidade integrado",
+        "idempotencia operacional implementada",
+        "runtime conectado",
+        "flag-on autorizado",
+        "ci da fatia candidata concluiu",
+        "deployment da fatia candidata",
+        (
+            "nao ha import ou conexao com webhook, worker, runtime, banco ou "
+            "langgraph"
+        ),
+        "no runtime atual, `message.id` ainda nao e propagado",
+        (
+            "contrato d3 de identidade congelado offline / candidato nao "
+            "integrado / runtime bloqueado"
+        ),
+    }
+
+    for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(item for item in required if item not in normalized)
+        assert not missing, f"D3 combined offline freeze missing in {path}: {missing}"
+        for stale_claim in stale_claims:
+            assert stale_claim not in normalized
+        for pinned_value in (
+            identity_commit,
+            wiring_commit,
+            execution_commit,
+            execution_source_commit,
+            plan_adapter_commit,
+            turn_identity_sha256,
+            identity_test_sha256,
+            turn_execution_sha256,
+            execution_test_sha256,
+            plan_adapter_sha256,
+            plan_adapter_test_sha256,
+        ):
+            assert normalized.count(pinned_value) == 1
+        assert normalized.count(
+            D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+        ) == 1
+        assert normalized.count(D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()) == 1
+        assert normalized.count(
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.index("pr #352") < normalized.index(identity_commit)
+        assert normalized.index(identity_commit) < normalized.index(wiring_commit)
+        assert normalized.index(wiring_commit) < normalized.index(execution_commit)
+        assert normalized.index(execution_commit) < normalized.index(plan_adapter_commit)
+        assert normalized.index(plan_adapter_commit) < normalized.index(
+            D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        )
+
+    architecture = _normalized_prose(
+        WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH.read_text(encoding="utf-8")
+    )
+    architecture_required = {
+        identity_commit,
+        wiring_commit,
+        execution_commit,
+        execution_source_commit,
+        "preparacao d3 offline: identidade estavel e intencoes deterministicas",
+        "agentturnidentity` vincula os uuids nao nulos",
+        "mensagem inbound ja persistida",
+        "provedor fechado `evolution`",
+        "`provider_message_id` exato",
+        "`claim_id` fica deliberadamente fora dos campos e do hash",
+        "agenteffectintent` separa a identidade do efeito de seu conteudo",
+        "`effect_id` deriva do turno",
+        "`payload_digest` vincula separadamente o efeito",
+        "`ordinal` devera vir de um plano futuro, deterministico e persistido",
+        "identidade esperada de uma fonte confiavel",
+        "namespaces deterministicos, nao autenticadores",
+        "`agent_trusted_inbound_identity_enabled=false` por padrao",
+        "uuid de `message.id` ja persistido tanto no registro novo",
+        "nos caminhos de duplicata",
+        "`claim_id` utf-8 imprimivel de ate 128 bytes",
+        "claim permanece requisito separado de recuperacao",
+        "nunca altera o `turn_id`",
+        "identidade e construida antes de coercao de tenant",
+        "caminho ligado nunca volta ao fluxo legacy",
+        "com a flag desligada, a assinatura e o comportamento legacy sao preservados",
+        "`agentstate` continua recusando `turn_identity`",
+        "nao ao grafo, checkpointer ou modelo",
+        "wiring nao foi ativado nem testado em ambiente compartilhado",
+        "preflight de compatibilidade dos ids persistidos e requisito obrigatorio",
+        "preparacao d3 offline: plano estrutural de execucao",
+        "contrato puro `turn_execution`",
+        "nenhum codigo de producao o importa",
+        "ordena deterministicamente o conjunto completo de intencoes",
+        "por ultimo, no maximo uma resposta",
+        "efeitos singleton exigem ordinal zero",
+        "nao adquire lock, nao agenda turnos e nao garante fifo",
+        "valores estruturais imutaveis",
+        "nao sao linhas duraveis nem prova de uma store confiavel",
+        "`accepted` significa somente que transporte ou provedor aceitou",
+        "sem provar entrega ou leitura",
+        "`ambiguous` e terminal",
+        "compatibilidade `v2` deriva do `effect_id`",
+        "chaves vivas `v1` e `v0` incluem material instavel",
+        "nao as deriva, autentica ou aceita como correlacao suficiente",
+        "nao existe persistencia de plano, receipt ou outbox",
+        "fronteira atomica entre commit de dominio e outbox",
+        "runtime ativado",
+        turn_identity_sha256,
+        identity_test_sha256,
+        turn_execution_sha256,
+        execution_test_sha256,
+        "245/245",
+        "401 passed, 7 skipped",
+        "86/86",
+        "190/190",
+        "462 passed, 7 skipped",
+        plan_adapter_commit,
+        "preparacao d3 offline: adaptador replay-only da saida do turno",
+        "modulo puro `turn_plan_adapter`",
+        "nao oferece status `executable`, callback injetavel, i/o ou consumer de runtime",
+        "worker, grafo e runtime nao o importam",
+        "reconciliacao e exclusivamente replay-only",
+        "`first_execution_unsupported`, que bloqueia a primeira execucao",
+        "exatamente um receipt terminal valido por efeito",
+        "retorna `replay_terminal`",
+        "nao concede autoridade para executar, persistir, transportar, repetir ou mutar dominio",
+        "receipt sem plano, plano conflitante, recibo inesperado ou duplicado falham fechados",
+        "`tool_calls` sao bloqueados",
+        "precisa ser finito, nao negativo e exato em centavos",
+        "inteiro `oferta_centavos`",
+        plan_adapter_sha256,
+        plan_adapter_test_sha256,
+        "291/291",
+        "625 passed, 7 skipped",
+        "p0, p1 e p2 iguais a zero",
+        "lote d3 offline ampliado localmente / replay-only / flag default false",
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
+    } | four_input_rebinding_required
+    architecture_missing = sorted(
+        item for item in architecture_required if item not in architecture
+    )
+    assert not architecture_missing, (
+        f"D3 combined offline architecture missing: {architecture_missing}"
+    )
+    for stale_claim in stale_claims:
+        assert stale_claim not in architecture
+    for pinned_value in (
+        plan_adapter_commit,
+        plan_adapter_sha256,
+        plan_adapter_test_sha256,
+        execution_test_sha256,
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+    ):
+        assert architecture.count(pinned_value) == 1
+
+    replay_only_required = {
+        plan_adapter_commit,
+        plan_adapter_sha256,
+        plan_adapter_test_sha256,
+        execution_test_sha256,
+        "turn_plan_adapter",
+        "replay-only",
+        "`executable`",
+        "callback injetavel",
+        "consumer de runtime",
+        "first_execution_unsupported",
+        "replay_terminal",
+        "receipt terminal",
+        "tool_calls",
+        "oferta_centavos",
+        "291/291",
+        "625 passed, 7 skipped",
+        "p0, p1 e p2 iguais a zero",
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+        "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        "nome nao constitui autorizacao ja concedida",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
+        "qualquer efeito vivo",
+    }
+    for path in D3_TURN_PLAN_ADAPTER_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(
+            item for item in replay_only_required if item not in normalized
+        )
+        assert not missing, f"D3 replay-only adapter stale in {path}: {missing}"
+        for pinned_value in (
+            plan_adapter_commit,
+            plan_adapter_sha256,
+            plan_adapter_test_sha256,
+            execution_test_sha256,
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        ):
+            assert normalized.count(pinned_value) == 1
+
+    cell_report_required = {
+        snapshot_commit,
+        workflow_commit,
+        *hardening_commits,
+        snapshot_source_sha256,
+        snapshot_source_test_sha256,
+        workflow_source_sha256,
+        workflow_source_test_sha256,
+        plan_adapter_final_sha256,
+        plan_adapter_final_test_sha256,
+        snapshot_final_sha256,
+        snapshot_final_test_sha256,
+        workflow_final_sha256,
+        workflow_final_test_sha256,
+        limits_sha256,
+        limits_test_sha256,
+        cell_meetings_sha256,
+        cell_lider_test_sha256,
+        final_review_evidence,
+        "snapshot agregado `cell-report/v2`",
+        "snapshot nao inventa pessoas",
+        "workflow puro de coleta, revisao e confirmacao",
+        "nao autentica o ator, nao concede autoridade e nao executa efeito",
+        "`committed` projeta uma comprovacao externa futura",
+        "hardening posterior foi composto pelos commits",
+        "sem reescrever os freezes anteriores",
+        "`max_report_count=1_000_000`",
+        "limite e2 de oferta em `r$ 999.999,99`",
+        "ainda nao existe bridge ou wiring entre `turn_plan_adapter`, workflow e snapshot",
+        "`replay_terminal` nao prova relatorio persistido",
+        "plano atual de `report_capture` contem somente intake, auditorias e resposta",
+        "sem efeito de gravacao do relatorio",
+        "escopo vinculado ao tenant",
+        "mesmo limite de produto e2 do painel",
+        "marcar `committed` somente depois",
+        "commit externo atomico",
+        "nenhum runtime ou worker foi acionado",
+        "nao houve acesso a banco, migration, rede, persistencia, mensagem",
+        (
+            "fundacao offline do relatorio de celula ampliada localmente / "
+            "snapshot v2 agregado / workflow puro / candidato nao integrado "
+            "no main / efeitos vivos bloqueados"
+        ),
+        "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
+    }
+    historical_and_final_pins = (
+        snapshot_commit,
+        workflow_commit,
+        *hardening_commits[:-1],
+        snapshot_source_sha256,
+        snapshot_source_test_sha256,
+        workflow_source_sha256,
+        workflow_source_test_sha256,
+        plan_adapter_final_sha256,
+        plan_adapter_final_test_sha256,
+        snapshot_final_sha256,
+        snapshot_final_test_sha256,
+        workflow_final_sha256,
+        workflow_final_test_sha256,
+        limits_sha256,
+        limits_test_sha256,
+        cell_meetings_sha256,
+        cell_lider_test_sha256,
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+    )
+    for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(item for item in cell_report_required if item not in normalized)
+        assert not missing, f"D3 cell report offline foundation stale in {path}: {missing}"
+        for pinned_value in historical_and_final_pins:
+            assert normalized.count(pinned_value) == 1
+        assert normalized.count(hardening_commits[-1]) == 2
+        assert normalized.count(final_review_evidence) == 1
+        assert normalized.index(snapshot_commit) < normalized.index(workflow_commit)
+        assert normalized.index(workflow_commit) < normalized.index(
+            hardening_commits[0]
+        )
+        assert normalized.index(hardening_commits[-1]) < normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        )
+
+    application_required = {
+        application_source_commit,
+        application_head_commit,
+        application_docs_base_commit,
+        "envelope fechado `cell-report-pending-proposal/v1`",
+        "servico `cell_report_application`",
+        "`relatorio_snapshot` apenas enquanto o relatorio esta pendente",
+        "bindings opacos de tenant, reuniao, conversa e ator",
+        "expiracao maxima de 24 horas",
+        "no maximo 32 operacoes estruturais",
+        "jsonb nao guarda uuids brutos",
+        "hashes nao sao autenticadores",
+        "transacao tenant-scoped ja ativa e pertencente ao caller",
+        "adquire locks em ordem canonica",
+        "conversa oficial sem handoff",
+        "reuniao passada e nao cancelada",
+        "novas propostas e materializacoes exigem relatorio pendente",
+        "replay final exato e permitido para enviado",
+        "exatamente um `appuser` utilizavel",
+        "ao menos um papel ministerial",
+        "`agentturnidentity` e `agenteffectintent` com payload exato",
+        "troca o envelope por `cell-report/v2`",
+        "faz somente `flush`",
+        "caller continua responsavel por commit ou rollback",
+        "`submission_effect_id` original",
+        "`submission_payload_digest` separado",
+        "nao prova proveniencia, autorizacao, primeira execucao nem unicidade global",
+        "nao substitui plano, receipt duravel autenticado ou outbox",
+        "`max_cell_report_observations_length=2_000`",
+        "`max_cell_report_observations_bytes=8_000`",
+        "fetch de rows, fetch de scalars e `flush` sanitizam `sqlalchemyerror`",
+        "nao existe caller no grafo, worker, webhook, router humano ou `turn_plan_adapter`",
+        "primeira execucao do agente e `tool_calls` continuam bloqueados",
+        "router humano ainda nao compartilha o servico nem o lock",
+        "nao substituem o consentimento `tarefas_operacionais`",
+        "fonte juridica e do controlador segue nao aprovada",
+        "esta fatia nao le nem grava consentimento",
+        "nao houve migration, banco compartilhado, dev, prod, rede, mensagem ou efeito vivo",
+        "292 passed",
+        "633 passed, 7 skipped, 2 warnings",
+        "730 passed, 18 skipped, 35 warnings",
+        "4601 passed, 325 skipped, 499 deselected, 66 warnings",
+        "suite ampla do backend, com `migration_history` e redis fora da selecao",
+        "uma assercao documental do pin anterior",
+        "duas falhas baseline de modo group-writable `0664`",
+        "apos esta reconciliacao, a matriz documental passou em `34 passed`",
+        "729 passed",
+        "1363 passed, 25 skipped",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        (
+            "fronteira transacional offline do relatorio ampliada localmente / "
+            "proposta pendente fechada / flush sem commit / candidato nao "
+            "integrado no main / runtime e efeitos vivos bloqueados"
+        ),
+        "foi substituido localmente, sem consumo, pela fatia offline do servico de aplicacao",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
+    }
+    for file_path, digest in application_file_sha256.items():
+        application_required.add(file_path)
+        application_required.add(digest)
+
+    architecture_application_required = {
+        application_source_commit,
+        application_head_commit,
+        application_docs_base_commit,
+        "preparacao d6 offline: proposta pendente e servico transacional",
+        "envelope fechado `cell-report-pending-proposal/v1`",
+        "servico `cell_report_application`",
+        "transacao tenant-scoped ja ativa e pertencente ao caller",
+        "locks em ordem canonica",
+        "reuniao passada e nao cancelada",
+        "novas propostas e materializacoes exigem relatorio pendente",
+        "replay final exato e permitido para enviado",
+        "exatamente um `appuser` utilizavel",
+        "ao menos um papel em `ministerial_roles`",
+        "`agentturnidentity`",
+        "`agenteffectintent` do tipo `tool_call` com payload exato",
+        "substitui o envelope pelo `cell-report/v2`",
+        "executa somente `flush`",
+        "nunca inicia, confirma ou reverte a transacao",
+        "`requires_caller_commit=true`",
+        "`submission_effect_id` original",
+        "`submission_payload_digest` separado",
+        "nao prova proveniencia",
+        "primeira execucao ou unicidade global",
+        "nao substitui plano persistido, receipt duravel autenticado ou outbox",
+        "`max_cell_report_observations_length=2_000`",
+        "`max_cell_report_observations_bytes=8_000`",
+        "fetch de rows, fetch de scalars e `flush`",
+        "nao existe caller no grafo, worker, webhook, router humano ou `turn_plan_adapter`",
+        "adaptador replay-only continua recusando `tool_calls`",
+        "`first_execution_unsupported`",
+        "nao equivale ao consentimento `tarefas_operacionais`",
+        "ledger d2b2a segue sem caller",
+        "esta fatia nao le nem grava consentimento",
+        "router web humano ainda nao usa o servico nem adquire o mesmo lock",
+        "4601 passed, 325 skipped, 499 deselected, 66 warnings",
+        "suite ampla do backend, com `migration_history` e redis fora da selecao",
+        "duas falhas baseline dos verificadores",
+        "modo group-writable `0664`",
+        "apos esta reconciliacao, a matriz documental passou em `34 passed`",
+        "729 passed",
+        "1363 passed, 25 skipped",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        (
+            "fronteira transacional offline do relatorio ampliada localmente / "
+            "proposta pendente fechada / flush sem commit / candidato nao "
+            "integrado no main / runtime e efeitos vivos bloqueados"
+        ),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
+    }
+    for file_path, digest in application_file_sha256.items():
+        architecture_application_required.add(file_path)
+        architecture_application_required.add(digest)
+
+    for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        expected = (
+            architecture_application_required
+            if path == WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
+            else application_required
+        )
+        missing = sorted(item for item in expected if item not in normalized)
+        assert not missing, f"Cell report application docs stale in {path}: {missing}"
+        for digest in application_file_sha256.values():
+            assert normalized.count(digest) == 1
+        assert normalized.count(application_source_commit) == 1
+        assert normalized.count(application_head_commit) == 1
+        assert normalized.count(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.index(application_source_commit) < normalized.index(
+            application_head_commit
+        )
+        assert normalized.index(application_head_commit) < normalized.index(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        )
+        for stale_claim in (
+            "servico conectado ao runtime",
+            "consentimento `tarefas_operacionais` aprovado",
+            "idempotencia global comprovada",
+            "suite integral verde",
+            "reuniao passada e pendente",
+        ):
+            assert stale_claim not in normalized
+
+    transactional_staging_required = {
+        reply_reservation_source_commit,
+        reply_reservation_integrated_commit,
+        turn_uow_source_commit,
+        turn_uow_integrated_commit,
+        human_writers_source_commit,
+        human_writers_integrated_commit,
+        transactional_staging_head_commit,
+        "`expected_replayed` explicito",
+        "a revisao tecnica consolidada posterior concluiu `go`",
+        "`agentoutboundreplyreservationv2`",
+        "derivado somente de `agentturnidentity`",
+        "antes de payload ou plano",
+        "`outbound_reply` ordinal zero",
+        "mesma chave de compatibilidade v2",
+        "sem usar `claim_id`",
+        "nao reserva linha",
+        "nao prova outbox, autenticacao, idempotencia global",
+        "compatibilidade v1/v0 continua somente como drain",
+        "linha legacy ja bloqueada",
+        "sem deriva-la nem promove-la",
+        "`edit_meeting`",
+        "`set_real_attendance`",
+        "`register_visitor`",
+        "`add_record`",
+        "`save_report`",
+        "`submit_report`",
+        "boundary sanitizada",
+        "locks tenant-bound",
+        "takeover humano explicito",
+        "uuids canonicos nao nulos",
+        "`report_conflict`",
+        "`data_integrity`",
+        "compartilhar locks nao equivale a compartilhar servico",
+        "`cell_report_turn_uow`",
+        "transacao tenant-scoped externa",
+        "`tool_call`, `audit_event` e `outbound_reply`",
+        "`message` de reply pre-reservada",
+        "valida a chave v2 antes do banco",
+        "evidencia exata depois do lock",
+        "requer concordancia entre relatorio, audit sem conteudo e reply",
+        "`agentconversationlog` sem texto pastoral",
+        "estado `ia_pendente`",
+        "todo sucesso da uow retorna `requires_caller_commit=true`",
+        "faz somente `flush`",
+        "nao inicia, confirma ou reverte transacao",
+        "nao cria outbox generica, receipt global autenticado",
+        "nao existe caller",
+        "consentimento `tarefas_operacionais`, `agentconfig`",
+        "commit, send, primeira execucao generica",
+        "nao houve banco compartilhado, dev, prod, rede, mensagem ou deployment",
+        "`682 passed, 5 warnings`",
+        "`649 passed, 7 skipped, 2 warnings`",
+        "`960 passed, 18 skipped, 35 warnings`",
+        "200 vetores da reserva v2",
+        "8 casos de corrupcao legacy",
+        "`d37d528..dac3a14` ficaram verdes",
+        "ausencia de caller em runtime, worker ou webhook",
+        "de `begin`, `commit` ou `rollback` na uow",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        (
+            "staging transacional offline composto e revisado localmente / reserva "
+            "v2 "
+            "claim-independent / writers serializados / flush sem commit / "
+            "go tecnico p0=p1=p2=0 / sem caller / runtime e efeitos vivos "
+            "bloqueados"
+        ),
+        "foi substituido localmente, sem consumo, pelo lote de staging transacional",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        "foi consumido pela autorizacao humana nominal da rodada de pr",
+        "pr #354",
+        "69f9eecdfb95691b4633a42ef597452f63e82e48",
+        "6c807717010a41edf3bfd3d1b2405c2f3527a696",
+        "sete workflows github concluiram com `success`",
+        "33456753518",
+        "33456753672",
+        "33456753444",
+        "33456753406",
+        "33456753394",
+        "33456753452",
+        "33456753430",
+        "vercel preview automatico do frontend",
+        "6192384421",
+        "17596918017",
+        "preview nao e vercel production",
+        CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        (
+            "autoriza somente um merge futuro da pr #354 e o vercel production "
+            "automatico decorrente"
+        ),
+        (
+            "nao autoriza caller, runtime, worker, consentimento, banco, "
+            "migration, commit, send"
+        ),
+        "commit, send, drain v1/v0, receipt global",
+        "qualquer efeito vivo",
+    }
+    for file_path, digest in transactional_file_sha256.items():
+        transactional_staging_required.add(file_path)
+        transactional_staging_required.add(digest)
+
+    architecture_transactional_required = {
+        reply_reservation_source_commit,
+        reply_reservation_integrated_commit,
+        turn_uow_source_commit,
+        turn_uow_integrated_commit,
+        human_writers_source_commit,
+        human_writers_integrated_commit,
+        transactional_staging_head_commit,
+        (
+            "preparacao d6 offline: reserva v2, writers serializados e "
+            "staging atomico"
+        ),
+        "`derive_agent_outbound_reply_effect_id` fixa o unico slot",
+        "mesma chave que `build_agent_effect_compatibility_key` produzira",
+        "vetor e claim-independent",
+        "nao cria linha, lease, outbox, receipt, unicidade global",
+        "evidencia exata lida da `message` legacy ja bloqueada",
+        "os seis writers humanos",
+        "`_report_writer_storage_boundary`",
+        "`populate_existing`",
+        "snapshot pendente desconhecido permanece intacto",
+        "falhas sqlalchemy sao convertidas em erro estatico",
+        "rollback best-effort",
+        "`cell_report_legacy_snapshot` aceita somente a projecao schema-less completa",
+        "uuids canonicos nao nulos",
+        "`report_conflict`",
+        "`data_integrity`",
+        "nao uma unificacao de servicos",
+        "`cell_report_turn_uow` recebe exatamente tres efeitos",
+        "`tool_call` para confirmar o relatorio, `audit_event` sem conteudo pastoral",
+        "`outbound_reply`",
+        "transacao tenant-scoped ja ativa",
+        "`message` outbound de ia pre-reservada",
+        "a chave esperada precisa coincidir antes de qualquer consulta",
+        "evidencia exata e vinculada somente depois do lock da linha",
+        "`expected_replayed`",
+        "snapshot final exato",
+        "`message` `ia_pendente` com o mesmo texto",
+        "`plan_digest`",
+        "nao prova commit anterior",
+        "`requires_caller_commit=true` em todo sucesso",
+        "faz somente `flush`",
+        "nunca chama runtime, worker, grafo ou provedor",
+        "nunca envia a mensagem",
+        "sem criar outbox generica, receipt global autenticado",
+        "nao existe caller",
+        "`agentconfig`",
+        "primeira execucao generica pelo `turn_plan_adapter`",
+        "`682 passed, 5 warnings`",
+        "`649 passed, 7 skipped, 2 warnings`",
+        "`960 passed, 18 skipped, 35 warnings`",
+        "200 vetores da reserva v2",
+        "8 casos de corrupcao legacy",
+        "`d37d528..dac3a14` ficaram verdes",
+        "ausencia de caller em runtime, worker ou webhook",
+        "de `begin`, `commit` ou `rollback` na uow",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        "foi consumido pela autorizacao humana nominal da rodada de pr",
+        "pr #354",
+        "sete workflows github concluiram com `success`",
+        "vercel preview automatico do frontend",
+        (
+            "autoriza somente um merge futuro da pr #354 e o vercel production "
+            "automatico decorrente"
+        ),
+    }
+    for file_path, digest in transactional_file_sha256.items():
+        architecture_transactional_required.add(file_path)
+        architecture_transactional_required.add(digest)
+
+    for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        expected = (
+            architecture_transactional_required
+            if path == WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
+            else transactional_staging_required
+        )
+        missing = sorted(item for item in expected if item not in normalized)
+        assert not missing, (
+            f"Cell report transactional staging stale in {path}: {missing}"
+        )
+        for digest in transactional_file_sha256.values():
+            assert normalized.count(digest) == 1
+        for commit in (
+            reply_reservation_source_commit,
+            reply_reservation_integrated_commit,
+            turn_uow_source_commit,
+            turn_uow_integrated_commit,
+            human_writers_source_commit,
+            human_writers_integrated_commit,
+        ):
+            assert normalized.count(commit) == 1
+        assert normalized.count(transactional_staging_head_commit) == 3
+        assert normalized.count(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.index(application_head_commit) < normalized.index(
+            reply_reservation_source_commit
+        )
+        assert normalized.index(
+            transactional_staging_head_commit
+        ) < normalized.index(reply_reservation_source_commit)
+        assert normalized.index(reply_reservation_source_commit) < normalized.index(
+            reply_reservation_integrated_commit
+        )
+        assert normalized.index(reply_reservation_integrated_commit) < normalized.index(
+            turn_uow_source_commit
+        )
+        assert normalized.index(turn_uow_source_commit) < normalized.index(
+            turn_uow_integrated_commit
+        )
+        assert normalized.index(turn_uow_integrated_commit) < normalized.index(
+            human_writers_source_commit
+        )
+        assert normalized.index(human_writers_source_commit) < normalized.index(
+            human_writers_integrated_commit
+        )
+        assert normalized.index(
+            human_writers_integrated_commit
+        ) < normalized.rindex(transactional_staging_head_commit)
+        assert normalized.index(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
+        )
+        assert normalized.index(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
+        ) < normalized.index(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
+        )
+        for stale_claim in (
+            "reserva v2 persistida",
+            "uow faz commit",
+            "runtime conectado ao staging",
+            "receipt global implementado",
+            "drain v1/v0 executado",
+            "revisao tecnica consolidada pendente",
+            "nao constitui freeze final",
+        ):
+            assert stale_claim not in normalized
+
+    prd_coverage = _normalized_prose(
+        (REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md").read_text(
+            encoding="utf-8"
+        )
+    )
+    for current_claim in (
+        "relatorio de celula web | `implementado / writers serializados localmente`",
+        "os seis writers web mantem o fluxo humano",
+        "router humano ainda nao usa o mesmo servico de aplicacao do agente",
+        "relatorio pelo whatsapp | `parcial / staging transacional offline candidato`",
+        "`message` `ia_pendente` com flush sem commit",
+    ):
+        assert current_claim in prd_coverage
+
+    architecture_cell_report_required = {
+        "submission_effect_id` opaco de correlacao",
+        "nao e tenant, autorizacao, recibo duravel ou prova de idempotencia",
+        "qualquer material individual falha fechado",
+        "sem autenticar ator, consentimento, tenant ou capacidade",
+        "revalidar autoridade",
+    }
+    missing = sorted(
+        item for item in architecture_cell_report_required if item not in architecture
+    )
+    assert not missing, f"D3 cell report architecture stale: {missing}"
+
+    for path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
+        WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
+    }:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(
+            item for item in four_input_rebinding_required if item not in normalized
+        )
+        assert not missing, f"D3 four-input runtime rebinding missing in {path}: {missing}"
+
+    technical_files = {
+        REPO_ROOT / "backend" / "app" / "agent" / "turn_identity.py": (
+            transactional_file_sha256["backend/app/agent/turn_identity.py"]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_turn_identity.py": (
+            transactional_file_sha256[
+                "backend/tests/test_agent_turn_identity.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "turn_execution.py": (
+            transactional_file_sha256[
+                "backend/app/agent/turn_execution.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_turn_execution.py": (
+            transactional_file_sha256[
+                "backend/tests/test_agent_turn_execution.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "turn_plan_adapter.py": (
+            plan_adapter_final_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_turn_plan_adapter.py": (
+            plan_adapter_final_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "domain" / "cell_report_snapshot.py": (
+            application_file_sha256[
+                "backend/app/domain/cell_report_snapshot.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_snapshot.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_report_snapshot.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "app" / "domain" / "cell_report_workflow.py": (
+            application_file_sha256[
+                "backend/app/domain/cell_report_workflow.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_workflow.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_report_workflow.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "app" / "domain" / "cell_report_limits.py": (
+            application_file_sha256[
+                "backend/app/domain/cell_report_limits.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_limits.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_report_limits.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "app" / "routers" / "cell_meetings.py": (
+            transactional_file_sha256[
+                "backend/app/routers/cell_meetings.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_lider.py": (
+            transactional_file_sha256["backend/tests/test_cell_lider.py"]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "domain"
+        / "cell_report_pending_proposal.py": (
+            application_file_sha256[
+                "backend/app/domain/cell_report_pending_proposal.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "services"
+        / "cell_report_application.py": (
+            transactional_file_sha256[
+                "backend/app/services/cell_report_application.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_health_service.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_health_service.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_application.py": (
+            transactional_file_sha256[
+                "backend/tests/test_cell_report_application.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "domain"
+        / "cell_report_legacy_snapshot.py": (
+            transactional_file_sha256[
+                "backend/app/domain/cell_report_legacy_snapshot.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "services"
+        / "cell_report_turn_uow.py": (
+            transactional_file_sha256[
+                "backend/app/services/cell_report_turn_uow.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "tests"
+        / "test_cell_report_legacy_snapshot.py": (
+            transactional_file_sha256[
+                "backend/tests/test_cell_report_legacy_snapshot.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_turn_uow.py": (
+            transactional_file_sha256[
+                "backend/tests/test_cell_report_turn_uow.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "tests"
+        / "test_cell_report_pending_proposal.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_report_pending_proposal.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_reports.py": (
+            application_file_sha256["backend/tests/test_reports.py"]
+        ),
+        REPO_ROOT / "backend" / "app" / "config.py": (
+            "c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3"
+        ),
+        REPO_ROOT / "backend" / "app" / "workers" / "queue_worker.py": (
+            "54b15a3ceb60bf05eee66a88971d25cafb56f5b9e8e2d3d10ce7fcb8793a861c"
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "runtime.py": (
+            "28208ccdd3dcfb13e24c48400cb8495d55e382c1af4829b6c68d6394d2903085"
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "context.py": (
+            "35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08"
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_tenant_runtime.py": (
+            "bca0708077d6f3e065445c6b3ca97bb49c46461c8335ea871b045bbbd9cd437b"
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_trusted_context.py": (
+            "880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8"
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_whatsapp_worker.py": (
+            "c1d2a0600e41fe44e23cba89929bbfa29f0e951312f1b6735124a2d39a1b08fd"
+        ),
+    }
+    for path, expected_sha256 in technical_files.items():
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
 
 

@@ -30,9 +30,14 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.sql import operators
 
 from app.db.models import (
@@ -48,10 +53,17 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import CurrentUser
+from app.domain.cell_report_pending_proposal import (
+    CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+)
+from app.domain.cell_report_snapshot import build_cell_report_snapshot_v2
+from app.routers import cell_meetings as cell_meetings_router
+from app.routers.cell_meetings import SaveReportRequest
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
+_PAYLOAD_DIGEST = "agent_payload_v1_" + ("c" * 64)
 
 _APPUSER = "00000000-0000-0000-0000-0000000000a1"  # id de make_app_user()
 _TENANT = "00000000-0000-0000-0000-000000000001"
@@ -69,18 +81,35 @@ _EXP = "00000000-0000-0000-0000-0000000000f7"  # expectativa de visitante
 # Fake session (espelha WHERE + filtro ativo + ORDER BY do router Líder)
 # ===========================================================================
 class _R:
-    def __init__(self, *, scalar=None, scalars=None, rows=None) -> None:
+    def __init__(
+        self,
+        *,
+        scalar=None,
+        scalars=None,
+        rows=None,
+        fetch_error: Exception | None = None,
+    ) -> None:
         self._scalar = scalar
         self._scalars = scalars or []
         self._rows = rows or []
+        self._fetch_error = fetch_error
 
     def scalar_one_or_none(self):
+        if self._fetch_error is not None:
+            raise self._fetch_error
         return self._scalar
 
     def scalars(self):
-        return SimpleNamespace(all=lambda: list(self._scalars))
+        def all_rows():
+            if self._fetch_error is not None:
+                raise self._fetch_error
+            return list(self._scalars)
+
+        return SimpleNamespace(all=all_rows)
 
     def all(self):
+        if self._fetch_error is not None:
+            raise self._fetch_error
         return list(self._rows)
 
 
@@ -99,6 +128,18 @@ class LiderSession:
         visitantes=None,
         registros=None,
         pessoas=None,
+        locked_access_status: str | None = "ativo",
+        locked_access_count: int = 1,
+        locked_actor_pessoa_id: str | None = None,
+        locked_access_clerk_user_id: str | None = None,
+        locked_access_tenant_id: str | None = None,
+        locked_execute_error: Exception | None = None,
+        locked_fetch_error: Exception | None = None,
+        locked_error_at: int = 1,
+        writer_execute_error_at: int | None = None,
+        writer_fetch_error_at: int | None = None,
+        writer_operation_error: tuple[str, Exception] | None = None,
+        rollback_error: Exception | None = None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles
@@ -111,8 +152,29 @@ class LiderSession:
         self.visitantes = visitantes or []
         self.registros = registros or []
         self.pessoas = pessoas or []
+        self.locked_access_status = locked_access_status
+        self.locked_access_count = locked_access_count
+        self.locked_actor_pessoa_id = (
+            actor_pessoa_id
+            if locked_actor_pessoa_id is None
+            else locked_actor_pessoa_id
+        )
+        self.locked_access_clerk_user_id = locked_access_clerk_user_id
+        self.locked_access_tenant_id = locked_access_tenant_id
+        self.locked_execute_error = locked_execute_error
+        self.locked_fetch_error = locked_fetch_error
+        self.locked_error_at = locked_error_at
+        self.writer_execute_error_at = writer_execute_error_at
+        self.writer_fetch_error_at = writer_fetch_error_at
+        self.writer_operation_error = writer_operation_error
+        self.rollback_error = rollback_error
+        self._writer_lock_complete = False
+        self._writer_lock_queries = 0
+        self._writer_query_calls = 0
         self.added: list = []
+        self.executed_statements: list = []
         self.committed = False
+        self.rollback_calls = 0
 
     @staticmethod
     def _eq_predicates(statement) -> dict[str, str]:
@@ -174,55 +236,122 @@ class LiderSession:
         return rows
 
     def execute(self, statement, params=None) -> _R:
+        self.executed_statements.append(statement)
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         name = descs[0].get("name") if descs else None
+        is_locked = getattr(statement, "_for_update_arg", None) is not None
+        post_lock_fetch_error: Exception | None = None
+        lock_fetch_error: Exception | None = None
 
+        if is_locked:
+            self._writer_lock_queries += 1
+            if (
+                self.locked_execute_error is not None
+                and self.locked_error_at == self._writer_lock_queries
+            ):
+                raise self.locked_execute_error
+            if self.locked_error_at == self._writer_lock_queries:
+                lock_fetch_error = self.locked_fetch_error
+
+        if self._writer_lock_complete and not is_locked:
+            self._writer_query_calls += 1
+            if self.writer_execute_error_at == self._writer_query_calls:
+                assert self.writer_operation_error is not None
+                raise self.writer_operation_error[1]
+            if self.writer_fetch_error_at == self._writer_query_calls:
+                assert self.writer_operation_error is not None
+                post_lock_fetch_error = self.writer_operation_error[1]
+
+        def result(**kwargs) -> _R:
+            return _R(fetch_error=post_lock_fetch_error, **kwargs)
+
+        if ent is AppUser and len(descs) == 5:
+            app_user = self.app_user
+            preds = self._eq_predicates(statement)
+            matches = all(
+                str(getattr(app_user, key, None)) == value
+                for key, value in preds.items()
+            )
+            rows: list[tuple[object, ...]] = []
+            if matches:
+                rows.extend(
+                    [
+                        (
+                            app_user.id,
+                            self.locked_access_tenant_id or app_user.igreja_id,
+                            self.locked_actor_pessoa_id,
+                            self.locked_access_clerk_user_id
+                            or app_user.clerk_user_id,
+                            self.locked_access_status,
+                        )
+                        for _ in range(self.locked_access_count)
+                    ]
+                )
+            self._writer_lock_complete = True
+            return _R(
+                rows=rows,
+                fetch_error=lock_fetch_error,
+            )
         if ent is AppUser and name == "pessoa_id":
-            return _R(scalar=self.actor_pessoa_id)
+            return result(scalar=self.actor_pessoa_id)
         if ent is AppUser:
-            return _R(scalar=self.app_user)
+            return result(scalar=self.app_user)
         if ent is Pessoa:
             # select(Pessoa.id, Pessoa.nome) -> linhas (id, nome); senão scalar id.
             if len(descs) >= 2:
-                return _R(rows=[(p.id, p.nome) for p in self.pessoas])
+                return result(rows=[(p.id, p.nome) for p in self.pessoas])
             rows = self._filter(self.pessoas, statement)
-            return _R(scalar=(rows[0].id if rows else None))
+            return result(scalar=(rows[0].id if rows else None))
         if ent is Celula:
             rows = self._filter(self.cells, statement)
             if self._wants_active(statement):
                 rows = [r for r in rows if getattr(r, "ativo", True) is True]
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            if is_locked:
+                return _R(
+                    scalar=(rows[0] if rows else None),
+                    scalars=rows,
+                    fetch_error=lock_fetch_error,
+                )
+            return result(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaReuniao:
             rows = self._filter(self.reunioes, statement)
             rows = self._apply_order(rows, self._order_specs(statement))
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            return _R(
+                scalar=(rows[0] if rows else None),
+                scalars=rows,
+                fetch_error=lock_fetch_error,
+            )
         if ent is CelulaMembro:
             rows = self._filter(self.membros, statement)
             if self._wants_active(statement):
                 rows = [r for r in rows if getattr(r, "ativo", True) is True]
             rows = self._apply_order(rows, self._order_specs(statement))
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            return result(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaPresenca:
             rows = self._filter(self.presencas, statement)
             rows = self._apply_order(rows, self._order_specs(statement))
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            return result(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaExpectativaVisitante:
             rows = self._filter(self.expectativas, statement)
             rows = self._apply_order(rows, self._order_specs(statement))
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            return result(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaVisitante:
             rows = self._filter(self.visitantes, statement)
             rows = self._apply_order(rows, self._order_specs(statement))
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            return result(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaReuniaoRegistro:
             rows = self._filter(self.registros, statement)
             rows = self._apply_order(rows, self._order_specs(statement))
-            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+            return result(scalar=(rows[0] if rows else None), scalars=rows)
         # set_config text / UserRole.papel projection.
-        return _R(scalars=self.roles)
+        return result(scalars=self.roles)
 
     def add(self, obj) -> None:
+        if self.writer_operation_error is not None:
+            phase, error = self.writer_operation_error
+            if phase == "add":
+                raise error
         if getattr(obj, "id", None) is None:
             obj.id = uuid.uuid4()
         self.added.append(obj)
@@ -238,16 +367,28 @@ class LiderSession:
             self.registros.append(obj)
 
     def flush(self) -> None:
-        pass
+        if self.writer_operation_error is not None:
+            phase, error = self.writer_operation_error
+            if phase == "flush":
+                raise error
 
     def refresh(self, obj) -> None:
-        pass
+        if self.writer_operation_error is not None:
+            phase, error = self.writer_operation_error
+            if phase == "refresh":
+                raise error
 
     def commit(self) -> None:
+        if self.writer_operation_error is not None:
+            phase, error = self.writer_operation_error
+            if phase == "commit":
+                raise error
         self.committed = True
 
-    def rollback(self) -> None:  # pragma: no cover - sem corrida real nos testes
-        pass
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+        if self.rollback_error is not None:
+            raise self.rollback_error
 
     def close(self) -> None:  # pragma: no cover
         pass
@@ -458,6 +599,55 @@ def _leader_session(**kwargs) -> LiderSession:
         ],
     )
     return LiderSession(**kwargs)
+
+
+_REPORT_WRITERS = (
+    "edit_meeting",
+    "set_real_attendance",
+    "register_visitor",
+    "add_record",
+    "save_report",
+    "submit_report",
+)
+
+
+def _invoke_report_writer(client, writer: str):
+    if writer == "edit_meeting":
+        return client.put(
+            f"/cell-meetings/{_REU}",
+            headers=_AUTH,
+            json={"data": "2026-03-19", "hora": "19:30", "tema": "Tema"},
+        )
+    if writer == "set_real_attendance":
+        return client.put(
+            f"/cell-meetings/{_REU}/attendance",
+            headers=_AUTH,
+            json={"presencas": [{"pessoa_id": _MEMBER, "compareceu": True}]},
+        )
+    if writer == "register_visitor":
+        return client.post(
+            f"/cell-meetings/{_REU}/visitors",
+            headers=_AUTH,
+            json={"nome_visitante": "Visitante"},
+        )
+    if writer == "add_record":
+        return client.post(
+            f"/cell-meetings/{_REU}/records",
+            headers=_AUTH,
+            json={"tipo": "observacao", "conteudo": "Registro"},
+        )
+    if writer == "save_report":
+        return client.put(
+            f"/cell-meetings/{_REU}/report",
+            headers=_AUTH,
+            json={"oferta_valor": 1, "observacoes": "Painel"},
+        )
+    if writer == "submit_report":
+        return client.post(
+            f"/cell-meetings/{_REU}/report/submit",
+            headers=_AUTH,
+        )
+    raise AssertionError(f"unknown writer case: {writer}")
 
 
 # ===========================================================================
@@ -673,7 +863,15 @@ def test_attendance_422_pessoa_other_tenant(app) -> None:
 
 
 def test_attendance_422_without_active_membership(app) -> None:
-    reu = make_reuniao(reuniao_id=_REU, celula_id=_CELL)
+    pending = {
+        "schema": CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+        "proposal": "preserve-on-validation-error",
+    }
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        celula_id=_CELL,
+        relatorio_snapshot=pending,
+    )
     # _MEMBER ativo em OUTRA célula não vale para a reunião (E11).
     session = _leader_session(
         reunioes=[reu],
@@ -686,6 +884,7 @@ def test_attendance_422_without_active_membership(app) -> None:
     )
     assert resp.status_code == 422
     assert session.presencas == []
+    assert reu.relatorio_snapshot is pending
 
 
 def test_attendance_404_other_leader(app) -> None:
@@ -746,7 +945,11 @@ def test_register_visitor_links_expectativa(app) -> None:
 
 
 def test_register_visitor_422_expectativa_mismatch(app) -> None:
-    reu = make_reuniao(reuniao_id=_REU)
+    pending = {
+        "schema": CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+        "proposal": "preserve-on-validation-error",
+    }
+    reu = make_reuniao(reuniao_id=_REU, relatorio_snapshot=pending)
     # Expectativa de OUTRA reunião → não pertence a esta → 422.
     exp = make_expectativa(expectativa_id=_EXP, reuniao_id="other-reu")
     session = _leader_session(reunioes=[reu], expectativas=[exp], visitantes=[])
@@ -757,6 +960,7 @@ def test_register_visitor_422_expectativa_mismatch(app) -> None:
     )
     assert resp.status_code == 422
     assert session.visitantes == []
+    assert reu.relatorio_snapshot is pending
 
 
 @pytest.mark.parametrize(
@@ -869,7 +1073,11 @@ def test_add_record_422_invalid_tipo(app) -> None:
 
 
 def test_add_record_422_pessoa_other_tenant(app) -> None:
-    reu = make_reuniao(reuniao_id=_REU)
+    pending = {
+        "schema": CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+        "proposal": "preserve-on-validation-error",
+    }
+    reu = make_reuniao(reuniao_id=_REU, relatorio_snapshot=pending)
     session = _leader_session(
         reunioes=[reu], registros=[], pessoas=[make_pessoa(_LEADER, "Líder")]
     )
@@ -880,6 +1088,7 @@ def test_add_record_422_pessoa_other_tenant(app) -> None:
     )
     assert resp.status_code == 422
     assert session.registros == []
+    assert reu.relatorio_snapshot is pending
 
 
 def test_add_record_404_other_leader(app) -> None:
@@ -961,10 +1170,519 @@ def test_save_report_keeps_pending(app) -> None:
     assert reu.oferta_valor == 150.50
 
 
+def test_save_report_explicitly_invalidates_malformed_pending_v1_by_marker(
+    app,
+) -> None:
+    # Human takeover is intentionally keyed by the exact version marker. The
+    # panel remains the recovery path even when the private proposal body is
+    # malformed and cannot be rehydrated.
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_snapshot={
+            "schema": CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+            "private_candidate": "must-not-survive-human-takeover",
+        },
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).put(
+        _REP_PATH,
+        headers=_AUTH,
+        json={"oferta_valor": 21.50, "observacoes": "Revisado no painel"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert reu.relatorio_snapshot is None
+    assert reu.oferta_valor == 21.50
+    assert reu.observacoes == "Revisado no painel"
+    assert session.committed is True
+
+
+@pytest.mark.parametrize("writer", _REPORT_WRITERS)
+def test_every_human_writer_explicitly_takes_over_pending_v1(
+    app,
+    writer: str,
+) -> None:
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_snapshot={
+            "schema": CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+            "private_candidate": "must-not-survive-human-takeover",
+        },
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code in {200, 201}, resp.text
+    if writer == "submit_report":
+        assert reu.relatorio_status == "enviado"
+        assert reu.relatorio_snapshot is not None
+        assert "schema" not in reu.relatorio_snapshot
+    else:
+        assert reu.relatorio_status == "pendente"
+        assert reu.relatorio_snapshot is None
+    assert session.committed is True
+
+
+@pytest.mark.parametrize("writer", _REPORT_WRITERS)
+def test_every_report_writer_locks_tenant_meeting_cell_and_access_in_order(
+    app,
+    writer: str,
+) -> None:
+    reu = make_reuniao(reuniao_id=_REU)
+    session = _leader_session(reunioes=[reu])
+
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code in {200, 201}, resp.text
+    locked = [
+        statement
+        for statement in session.executed_statements
+        if getattr(statement, "_for_update_arg", None) is not None
+    ]
+    assert [
+        statement.column_descriptions[0]["entity"] for statement in locked
+    ] == [CelulaReuniao, Celula, AppUser]
+    sql = [
+        str(statement.compile(dialect=postgresql.dialect()))
+        for statement in locked
+    ]
+    assert "FOR UPDATE OF celula_reuniao" in sql[0]
+    assert "celula_reuniao.igreja_id" in sql[0]
+    assert "celula_reuniao.id" in sql[0]
+    assert "FOR UPDATE OF celulas" in sql[1]
+    assert "celulas.igreja_id" in sql[1]
+    assert "celulas.id" in sql[1]
+    assert "FOR UPDATE OF app_users" in sql[2]
+    assert "app_users.igreja_id" in sql[2]
+    assert "app_users.id" in sql[2]
+
+
+def test_save_report_revalidates_locked_access_status(app) -> None:
+    reu = make_reuniao(reuniao_id=_REU)
+    session = _leader_session(
+        locked_access_status="revogado",
+        reunioes=[reu],
+    )
+
+    resp = _wire(app, session=session).put(
+        _REP_PATH,
+        headers=_AUTH,
+        json={"oferta_valor": 1},
+    )
+
+    assert resp.status_code == 404
+    assert session.committed is False
+
+
+@pytest.mark.parametrize("locked_access_count", [0, 2])
+def test_save_report_requires_exactly_one_locked_access_row(
+    app,
+    locked_access_count: int,
+) -> None:
+    reu = make_reuniao(reuniao_id=_REU)
+    session = _leader_session(
+        locked_access_count=locked_access_count,
+        reunioes=[reu],
+    )
+
+    resp = _wire(app, session=session).put(
+        _REP_PATH,
+        headers=_AUTH,
+        json={"oferta_valor": 1},
+    )
+
+    assert resp.status_code == 404
+    assert session.committed is False
+
+
+@pytest.mark.parametrize(
+    "locked_change",
+    [
+        {"locked_actor_pessoa_id": _OUTSIDER},
+        {"locked_access_clerk_user_id": "clerk_changed_concurrently"},
+        {"locked_access_tenant_id": _OTHER},
+    ],
+)
+def test_save_report_rejects_locked_identity_change_after_authentication(
+    app,
+    locked_change: dict[str, object],
+) -> None:
+    reu = make_reuniao(reuniao_id=_REU)
+    session = _leader_session(reunioes=[reu], **locked_change)
+
+    resp = _wire(app, session=session).put(
+        _REP_PATH,
+        headers=_AUTH,
+        json={"oferta_valor": 1},
+    )
+
+    assert resp.status_code == 404
+    assert session.committed is False
+
+
+def test_save_report_preserves_historical_inactive_cell_behavior(app) -> None:
+    reu = make_reuniao(reuniao_id=_REU)
+    session = _leader_session(
+        cells=[make_cell(lider_id=_LEADER, ativo=False)],
+        reunioes=[reu],
+    )
+
+    resp = _wire(app, session=session).put(
+        _REP_PATH,
+        headers=_AUTH,
+        json={"oferta_valor": 1},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert session.committed is True
+
+
+@pytest.mark.parametrize("writer", _REPORT_WRITERS)
+@pytest.mark.parametrize("failure_phase", ["execute", "fetch"])
+@pytest.mark.parametrize("lock_query_number", [1, 2, 3])
+def test_every_writer_lock_database_error_is_static_without_private_data(
+    app,
+    writer: str,
+    failure_phase: str,
+    lock_query_number: int,
+) -> None:
+    private = "private-person@example.invalid"
+    error = StatementError(
+        "lock failed",
+        "SELECT celula_reuniao WHERE private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    kwargs = {
+        "locked_execute_error": error if failure_phase == "execute" else None,
+        "locked_fetch_error": error if failure_phase == "fetch" else None,
+        "locked_error_at": lock_query_number,
+    }
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        **kwargs,
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.committed is False
+    assert session.rollback_calls == 1
+
+
+@pytest.mark.parametrize("writer", _REPORT_WRITERS)
+@pytest.mark.parametrize("phase", ["flush", "commit"])
+def test_every_writer_sanitizes_shared_write_phase_failures(
+    app,
+    writer: str,
+    phase: str,
+) -> None:
+    private = f"private-{writer}-{phase}@example.invalid"
+    error = StatementError(
+        f"{phase} failed",
+        "WRITE report_fact SET private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=(phase, error),
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.committed is False
+    assert session.rollback_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("writer", "phase"),
+    [
+        ("edit_meeting", "refresh"),
+        ("set_real_attendance", "add"),
+        ("register_visitor", "add"),
+        ("register_visitor", "refresh"),
+        ("add_record", "add"),
+        ("add_record", "refresh"),
+        ("save_report", "refresh"),
+        ("submit_report", "refresh"),
+    ],
+)
+def test_writer_sanitizes_writer_specific_persistence_phase_failures(
+    app,
+    writer: str,
+    phase: str,
+) -> None:
+    private = f"private-{writer}-{phase}@example.invalid"
+    error = StatementError(
+        f"{phase} failed",
+        "WRITE report_fact SET private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=(phase, error),
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.committed is False
+    assert session.rollback_calls == 1
+
+
+@pytest.mark.parametrize("failure_phase", ["execute", "fetch"])
+def test_attendance_sanitizes_domain_query_failures(
+    app,
+    failure_phase: str,
+) -> None:
+    private = f"private-attendance-{failure_phase}@example.invalid"
+    error = StatementError(
+        "attendance lookup failed",
+        "SELECT pessoa WHERE private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    kwargs = {
+        "writer_execute_error_at": 1 if failure_phase == "execute" else None,
+        "writer_fetch_error_at": 1 if failure_phase == "fetch" else None,
+    }
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=("query", error),
+        **kwargs,
+    )
+
+    resp = _invoke_report_writer(
+        _wire(app, session=session),
+        "set_real_attendance",
+    )
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.rollback_calls == 1
+
+
+@pytest.mark.parametrize("failure_phase", ["execute", "fetch"])
+def test_visitor_sanitizes_expectation_query_failures(
+    app,
+    failure_phase: str,
+) -> None:
+    private = f"private-visitor-{failure_phase}@example.invalid"
+    error = StatementError(
+        "visitor lookup failed",
+        "SELECT expectation WHERE private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    kwargs = {
+        "writer_execute_error_at": 1 if failure_phase == "execute" else None,
+        "writer_fetch_error_at": 1 if failure_phase == "fetch" else None,
+    }
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        expectativas=[make_expectativa()],
+        writer_operation_error=("query", error),
+        **kwargs,
+    )
+
+    resp = _wire(app, session=session).post(
+        _VIS_PATH,
+        headers=_AUTH,
+        json={"nome_visitante": "Visitante", "expectativa_id": _EXP},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.rollback_calls == 1
+
+
+@pytest.mark.parametrize("failure_phase", ["execute", "fetch"])
+def test_record_sanitizes_actor_query_failures(
+    app,
+    failure_phase: str,
+) -> None:
+    private = f"private-record-{failure_phase}@example.invalid"
+    error = StatementError(
+        "actor lookup failed",
+        "SELECT app_user WHERE private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    kwargs = {
+        "writer_execute_error_at": 1 if failure_phase == "execute" else None,
+        "writer_fetch_error_at": 1 if failure_phase == "fetch" else None,
+    }
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=("query", error),
+        **kwargs,
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), "add_record")
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.rollback_calls == 1
+
+
+@pytest.mark.parametrize("failure_phase", ["execute", "fetch"])
+@pytest.mark.parametrize("query_number", [1, 2, 3, 4])
+def test_submit_sanitizes_actor_and_every_snapshot_build_query_failure(
+    app,
+    failure_phase: str,
+    query_number: int,
+) -> None:
+    private = f"private-submit-{failure_phase}-{query_number}@example.invalid"
+    error = StatementError(
+        "snapshot build failed",
+        "SELECT report_fact WHERE private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    kwargs = {
+        "writer_execute_error_at": (
+            query_number if failure_phase == "execute" else None
+        ),
+        "writer_fetch_error_at": (
+            query_number if failure_phase == "fetch" else None
+        ),
+    }
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=("query", error),
+        **kwargs,
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), "submit_report")
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert private not in resp.text
+    assert session.rollback_calls == 1
+
+
+def test_failed_rollback_never_replaces_static_primary_storage_failure(app) -> None:
+    primary_private = "private-primary@example.invalid"
+    rollback_private = "private-rollback@example.invalid"
+    primary = StatementError(
+        "flush failed",
+        "UPDATE report SET private=:private",
+        {"private": primary_private},
+        RuntimeError(primary_private),
+    )
+    rollback = RuntimeError(rollback_private)
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=("flush", primary),
+        rollback_error=rollback,
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), "save_report")
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": {"code": "CELL_REPORT_WRITE_FAILED"}}
+    assert primary_private not in resp.text
+    assert rollback_private not in resp.text
+    assert session.rollback_calls == 1
+
+
+def test_storage_boundary_suppresses_private_sql_exception_chain() -> None:
+    private = "private-chain@example.invalid"
+    error = StatementError(
+        "flush failed",
+        "UPDATE report SET private=:private",
+        {"private": private},
+        RuntimeError(private),
+    )
+    session = _leader_session(
+        writer_operation_error=("flush", error),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        with cell_meetings_router._report_writer_storage_boundary(session):
+            session.flush()
+
+    assert getattr(raised.value, "detail") == {
+        "code": "CELL_REPORT_WRITE_FAILED"
+    }
+    assert private not in str(raised.value)
+    assert private not in repr(raised.value)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+    assert session.rollback_calls == 1
+
+
+def test_failed_rollback_never_replaces_specific_integrity_conflict(app) -> None:
+    primary_private = "private-integrity@example.invalid"
+    rollback_private = "private-rollback@example.invalid"
+    primary = IntegrityError(
+        "duplicate slot",
+        {"private": primary_private},
+        RuntimeError(primary_private),
+    )
+    rollback = RuntimeError(rollback_private)
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=("flush", primary),
+        rollback_error=rollback,
+    )
+
+    resp = _invoke_report_writer(_wire(app, session=session), "edit_meeting")
+
+    assert resp.status_code == 409
+    assert resp.json() == {"detail": "Já existe uma reunião nesta data/horário"}
+    assert primary_private not in resp.text
+    assert rollback_private not in resp.text
+    assert session.rollback_calls == 1
+
+
+def test_attendance_integrity_error_preserves_specific_sanitized_conflict(app) -> None:
+    private = "private-attendance-integrity@example.invalid"
+    error = IntegrityError(
+        "duplicate presence",
+        {"private": private},
+        RuntimeError(private),
+    )
+    session = _leader_session(
+        reunioes=[make_reuniao(reuniao_id=_REU)],
+        writer_operation_error=("flush", error),
+    )
+
+    resp = _invoke_report_writer(
+        _wire(app, session=session),
+        "set_real_attendance",
+    )
+
+    assert resp.status_code == 409
+    assert resp.json() == {
+        "detail": "Conflito ao gravar presença; tente novamente"
+    }
+    assert private not in resp.text
+    assert session.rollback_calls == 1
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {"oferta_valor": -1},
+        {"oferta_valor": -0.0},
+        {"oferta_valor": 1.001},
+        {"oferta_valor": True},
+        {"oferta_valor": "1.00"},
         {"oferta_valor": 1000000},
         {"observacoes": "x" * 2001},
     ],
@@ -984,6 +1702,12 @@ def test_save_report_accepts_boundaries(app) -> None:
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["oferta_valor"] == 999999.99
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_save_report_model_rejects_non_finite_amounts(value) -> None:
+    with pytest.raises(ValidationError):
+        SaveReportRequest.model_validate({"oferta_valor": value})
 
 
 def test_save_report_404_other_leader(app) -> None:
@@ -1013,6 +1737,86 @@ def test_submit_report_marks_sent(app) -> None:
     assert body["relatorio_enviado_em"] is not None
     assert body["relatorio_enviado_por"] == _LEADER
     assert reu.relatorio_status == "enviado"
+
+
+def test_submit_report_explicitly_takes_over_malformed_pending_v1_by_marker(
+    app,
+) -> None:
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="pendente",
+        relatorio_snapshot={
+            "schema": CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
+            "private_candidate": "must-not-survive-human-takeover",
+        },
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).post(_SUBMIT_PATH, headers=_AUTH)
+
+    assert resp.status_code == 200, resp.text
+    assert reu.relatorio_status == "enviado"
+    assert reu.relatorio_snapshot is not None
+    assert "schema" not in reu.relatorio_snapshot
+    assert "private_candidate" not in reu.relatorio_snapshot
+    assert session.committed is True
+
+
+@pytest.mark.parametrize("writer", _REPORT_WRITERS)
+def test_human_report_writer_rejects_unknown_pending_snapshot_without_overwrite(
+    app,
+    writer: str,
+) -> None:
+    unknown = {"schema": "cell-report-pending-proposal/v99", "private": "x"}
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="pendente",
+        relatorio_snapshot=unknown,
+        oferta_valor=Decimal("9.00"),
+        observacoes="preservar",
+    )
+    session = _leader_session(reunioes=[reu])
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code == 409
+    assert reu.relatorio_status == "pendente"
+    assert reu.relatorio_snapshot is unknown
+    assert reu.oferta_valor == Decimal("9.00")
+    assert reu.observacoes == "preservar"
+    assert reu.data == dt.date(2026, 3, 5)
+    assert reu.tema is None
+    assert session.added == []
+    assert session.presencas == []
+    assert session.visitantes == []
+    assert session.registros == []
+    assert session.committed is False
+
+
+@pytest.mark.parametrize("writer", _REPORT_WRITERS)
+def test_agent_wins_then_human_writer_gets_409_and_preserves_v2(
+    app,
+    writer: str,
+) -> None:
+    snapshot = build_cell_report_snapshot_v2(
+        presentes=1,
+        visitantes=0,
+        decisoes=0,
+        oferta_valor=Decimal("1.00"),
+        observacoes="confirmado pelo agente",
+        submission_effect_id="agent_effect_v1_" + ("e" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
+    )
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot=snapshot,
+    )
+    session = _leader_session(reunioes=[reu])
+    resp = _invoke_report_writer(_wire(app, session=session), writer)
+
+    assert resp.status_code == 409
+    assert reu.relatorio_snapshot is snapshot
+    assert session.committed is False
 
 
 def test_submit_report_409_already_sent(app) -> None:
@@ -1084,8 +1888,129 @@ def test_report_frozen_after_submit_via_snapshot(app) -> None:
     assert rep.status_code == 200, rep.text
     body = rep.json()
     assert body["relatorio_status"] == "enviado"
+    assert "schema" not in body
+    assert "totals" not in body
+    assert "schema" not in reu.relatorio_snapshot
     assert len(body["presencas"]) == 1
     assert body["presencas"][0]["estado"] == "compareceu"  # congelado, não 'ausente'
+
+
+def test_get_report_projects_valid_v2_without_inventing_people(app) -> None:
+    snapshot = build_cell_report_snapshot_v2(
+        presentes=9,
+        visitantes=2,
+        decisoes=1,
+        oferta_valor=Decimal("45.60"),
+        observacoes="Resumo agregado.",
+        submission_effect_id="agent_effect_v1_" + ("a" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
+    )
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        tema="Tema canônico",
+        relatorio_status="enviado",
+        relatorio_snapshot=snapshot,
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["schema"] == "cell-report/v2"
+    assert body["totals"] == {
+        "presentes": 9,
+        "visitantes": 2,
+        "decisoes": 1,
+    }
+    assert body["meeting_id"] == _REU
+    assert body["tema"] == "Tema canônico"
+    assert body["oferta_valor"] == 45.6
+    assert body["observacoes"] == "Resumo agregado."
+    assert body["presencas"] == []
+    assert body["visitantes"] == []
+    assert body["records"] == []
+    assert "submission_effect_id" not in body
+    assert "submission_payload_digest" not in body
+
+
+def test_get_report_malformed_v2_returns_static_500_without_fallback(app) -> None:
+    snapshot = build_cell_report_snapshot_v2(
+        presentes=1,
+        visitantes=0,
+        decisoes=0,
+        oferta_valor=None,
+        observacoes=None,
+        submission_effect_id="agent_effect_v1_" + ("b" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
+    )
+    snapshot["presencas"] = [
+        {"pessoa_id": "private-forged-person", "estado": "compareceu"}
+    ]
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot=snapshot,
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "INDIVIDUAL_DATA_FORBIDDEN",
+        }
+    }
+    assert "private-forged-person" not in resp.text
+
+
+def test_get_report_unknown_schema_never_falls_back_to_legacy(app) -> None:
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot={
+            "schema": "cell-report/v3",
+            "presencas": [
+                {
+                    "pessoa_id": "private-forged-person",
+                    "estado": "compareceu",
+                }
+            ],
+        },
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "UNSUPPORTED_SCHEMA",
+        }
+    }
+    assert "private-forged-person" not in resp.text
+
+
+def test_get_report_malformed_legacy_returns_classified_500(app) -> None:
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot={"presencas": "not-a-list"},
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "INVALID_LEGACY_SNAPSHOT",
+        }
+    }
 
 
 def test_edit_meeting_409_after_report_sent(app) -> None:

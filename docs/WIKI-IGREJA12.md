@@ -47,10 +47,10 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 OFFLINE` | Projetar estado persistível, idempotência, saver privado, retenção e exclusão antes de ativar memória |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | Revisar o lote offline e, depois, ligar o staging transacional a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O manifesto descreve somente a fonte versionada; revisão independente, atestação posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
-| Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
+| Relatório por WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | Conectar a UoW candidata ao agente, com consentimento, `AgentConfig`, commit externo, despacho e comprovante pós-commit |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
 | Agenda | `PARCIAL` | Consultas, confirmações e avisos pela plataforma unificada |
 | Consolidação | `PARCIAL` | Máquina de estados e progresso durável |
@@ -100,6 +100,22 @@ turno. Essa contenção reduz o risco de replay acidental, mas não preserva
 histórico, não retoma execução e não ativa memória. O fallback automático para
 o caminho direto só permanece disponível quando checkpointer e store estão
 comprovadamente ausentes.
+
+O lote local adiciona `AgentTurnIdentity`, `AgentEffectIntent`, plano estrutural
+e um adaptador replay-only da saída fechada do grafo. A identidade confiável
+está atrás de flag desligada; plano e receipts continuam valores puros sem
+persistência. O adaptador apenas reconhece replay já terminal quando plano e
+receipts exatos são fornecidos por uma futura fonte confiável. Ele não executa
+a primeira tentativa, não possui consumer de runtime e não torna o grafo
+retomável ou seguro para memória ativa.
+
+O mesmo lote local acrescenta o snapshot agregado `cell-report/v2`, o workflow,
+o envelope pendente, uma fronteira ORM e uma UoW de staging. Os seis writers
+web usam locks compatíveis e boundary sanitizado, embora continuem separados do
+serviço do agente. A UoW pode agrupar relatório, auditoria sem conteúdo e
+`Message` `ia_pendente` numa transação externa. Não existe caller de runtime;
+consentimento operacional, `AgentConfig`, commit, send, receipt global e
+resposta pós-commit continuam bloqueados.
 
 Mensagens ficam registradas e áudio pode ser armazenado, mas não foi encontrada
 transcrição operacional. O parser de relatório produz um evento de auditoria e
@@ -836,7 +852,7 @@ somente o frontend e não prova backend, banco ou runtime. A preparação D3 de
 estado efêmero desta branch permanece candidata offline, sem saver, migration
 ou retomada, e não integra a evidência pós-merge da PR #351.
 
-A preparação D3 seguinte mantém esse estado inativo. `AgentTurnInput` e
+A preparação D3 integrada mantém esse estado inativo. `AgentTurnInput` e
 `AgentTurnOutput` delimitam a entrada e a saída, enquanto `AgentTurnEffects` é
 reinicializado por turno, substituído sem reducer acumulativo e mantido em
 `UntrackedValue`. Ele representa somente intenções efêmeras entregues ao runtime
@@ -860,17 +876,417 @@ A focal terminou em `144/144`, e a seleção `tests/test_agent*.py` terminou em
 `309 passed, 7 skipped`. Essa evidência é local e pré-merge; não prova CI,
 integração, saver, migration, memória ativa, deploy ou runtime.
 
+A PR #352, HEAD `c5b2b4c775592641b308de6b2ac3cd069f34dcb3`, integrou essa
+preparação no merge `6c807717010a41edf3bfd3d1b2405c2f3527a696`, cuja árvore é
+idêntica à do HEAD da PR. Os `7/7` workflows pós-merge concluíram com
+`SUCCESS`: Backend Tests `33428905043`, Canonical Schema Derivation
+`33428905057`, E2E Critical `33428905042`, Environment Attestation PG17
+`33428905234`, Frontend CI `33428905212`, RLS Integration `33428905114` e
+Tooling Static Checks `33428905041`. A Vercel registrou o deployment automático
+do frontend Production `6187746800`, status `17584957483`, com `SUCCESS`, em
+`2026-08-31T19:09:09Z`. Essa metadata prova somente o frontend e não prova
+saúde funcional, backend, banco, saver, migration, memória ativa, deploy do
+backend, flag ou runtime. O estado permanece `PREPARAÇÃO D3 INTEGRADA E
+INATIVA`.
 
+Sobre esse merge, o commit técnico local
+`14b3d7ba15e88032cd53714008d36badd4578e80` congela exclusivamente offline o
+contrato puro `AgentTurnIdentity` e `AgentEffectIntent`. A identidade vincula
+`igreja_id`, conversa, mensagem inbound persistida, provedor Evolution e ID do
+provedor exato; `claim_id` não participa. O `effect_id` deriva do turno, do
+slot semântico versionado e de um ordinal estável, enquanto um digest separado
+vincula o payload JSON canônico. O ordinal ainda exige um futuro plano
+determinístico e persistido, e a validação recebe a identidade esperada de uma
+fonte confiável.
+
+Na branch local, o commit
+`f82f76927ba8a6a265478ad7f21eae07b0d6504c` adiciona somente o adaptador
+confiável de entrada, protegido por
+`agent_trusted_inbound_identity_enabled=false` por padrão. O `Message.id` da
+entrada persistida agora chega em `IngestionOutcome` nos caminhos novo e
+duplicado. Antes de sessão, reserva, lease, runtime ou qualquer outro I/O, o
+worker constrói a identidade com igreja, conversa, mensagem e ID Evolution
+persistidos. Antes da primeira consulta, o runtime rederiva a identidade com
+quatro entradas confiáveis e separadas: `igreja_id`, `conversation_id`, o UUID
+inbound persistido de `Message.id` e o `provider_message_id` exato. Ele exige
+igualdade integral dos quatro vínculos com a identidade construída pelo worker;
+qualquer divergência aborta.
+`claim_id` permanece requisito separado de recuperação, nunca entra no
+`turn_id`; o caminho legacy é preservado somente com a flag desligada. O
+estado do grafo continua recusando aliases de autoridade e não recebe essa
+identidade.
+
+O mesmo lote incorpora em
+`7d1ed00d0add18162a89f3a9c39da6039e74017c` o contrato puro e inativo
+`turn_execution`, originalmente revisado em
+`576de558983622146a91417c65a85a2a321f585b`. Ele define plano canônico,
+ordem versionada de efeitos, escopo opaco por tenant e conversa, recibos
+estruturais, máquina pura da futura outbox de resposta e chave atual `v2`.
+Nada disso persiste plano ou recibo, autentica uma store, serializa turnos,
+garante FIFO ou cria atomicidade entre commit de domínio e outbox. `ACCEPTED`
+significa somente aceite do transporte; `AMBIGUOUS` é terminal. Evidência
+legacy `v1` ou `v0` não é derivada nem autenticada pelo contrato.
+
+Os pins atuais são `backend/app/agent/turn_identity.py`, SHA-256
+`5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d`;
+`backend/tests/test_agent_turn_identity.py`, SHA-256
+`4072b76688552b6f870e89876426d3c608b34a362ec895315d733691dff101c5`;
+`backend/app/agent/turn_execution.py`, SHA-256
+`72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b`; e
+`backend/tests/test_agent_turn_execution.py`, SHA-256
+`7e22814f1715b7bdfc7f83431bf4e15cdf6d8f7d13d0d8d3afaa6811e95e0b2d`.
+O wiring passou em `245/245` e em `401 passed, 7 skipped` na seleção
+`tests/test_agent*.py`; o contrato de execução passou em `86/86`, na revisão
+independente `190/190` e em `462 passed, 7 skipped` na mesma seleção. As duas
+revisões terminaram `GO`, sem P0, P1 ou P2. A evidência é local e pré-PR.
+
+Na mesma branch, o commit técnico local
+`abafdffdc8252fa6dff7c9d1975cb6c241141971` adiciona o adaptador puro e
+replay-only `turn_plan_adapter`. Ele projeta a saída fechada do grafo em um
+plano determinístico, mas não oferece status `EXECUTABLE`, callback injetável
+ou consumer de runtime. Plano armazenado ausente ou qualquer receipt terminal
+ausente produz `FIRST_EXECUTION_UNSUPPORTED` e bloqueia a primeira execução.
+Somente um plano armazenado estruturalmente exato e vinculado ao digest, junto
+de um receipt terminal válido para cada efeito, retorna `REPLAY_TERMINAL`; esse
+resultado não concede execução, persistência, transporte, retry ou mutação de
+domínio. `tool_calls` permanecem bloqueados. A oferta do relatório é aceita
+somente quando finita, não negativa e exata em centavos, sendo vinculada como
+inteiro `oferta_centavos`.
+
+Os novos pins são `backend/app/agent/turn_plan_adapter.py`, SHA-256
+`c81dafec100734ee9a219d8c99a636636b6317b94c93c87cb89ba0f9af581002`;
+`backend/tests/test_agent_turn_plan_adapter.py`, SHA-256
+`328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e`.
+A revisão integrada passou em `291/291`; a seleção `tests/test_agent*.py`
+terminou em `625 passed, 7 skipped`. A revisão concluiu `GO`, com P0, P1 e P2
+iguais a zero. Essa evidência é local e pré-PR.
+
+O lote ampliado permanece exclusivamente offline. O wiring de identidade
+continua inativo porque a flag fica desligada por padrão e nenhuma ativação
+ocorreu. `turn_execution` e `turn_plan_adapter` não possuem consumer de runtime
+e executam zero I/O. Não existem saver, checkpoint durável, migration, plano ou
+receipt persistido, FIFO, bloqueio serial real, atomicidade entre efeitos,
+retomada, primeira execução ou memória ativa. Estado: `LOTE D3 OFFLINE
+AMPLIADO LOCALMENTE / REPLAY-ONLY / FLAG DEFAULT FALSE / CANDIDATO NÃO
+INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
+
+
+
+O commit técnico local `4988de11566f8f0675256b9958ca242e5a009fa3`
+integra ao lote o snapshot agregado `cell-report/v2`. Ele preserva apenas os
+totais de presentes, visitantes e decisões; `presencas`, `visitantes` e
+`records` individuais precisam permanecer arrays vazios, portanto o snapshot
+não inventa pessoas nem transforma totais em fatos individuais. Os pins são
+`backend/app/domain/cell_report_snapshot.py`, SHA-256
+`19adb057c9f002776e3ad99d87de636de4975f5cf602a8fb06d2d8401a7d2aaa`, e
+`backend/tests/test_cell_report_snapshot.py`, SHA-256
+`08464997fa55cb9319d095f672fe0d78693280104d8b4247390e3e75d80ad7f9`.
+
+O commit técnico local `452aa6ff591b80dcbd3da90f1e5c18367cffd72b`
+integra o workflow puro de coleta, revisão e confirmação do relatório. A
+confirmação literal apenas correlaciona a revisão corrente; o workflow não
+autentica o ator, não concede autoridade e não executa efeito. O estado
+`COMMITTED` projeta uma comprovação externa futura, sem gravar ou enviar nada.
+Os pins são `backend/app/domain/cell_report_workflow.py`, SHA-256
+`87ec5691774eab1b2711fea0f07f9f311ddacf7f321fe36646730742b02569b5`, e
+`backend/tests/test_cell_report_workflow.py`, SHA-256
+`a5a542f6b0192964a0bdd238b8306a1b8ca162be4ec6e2f824773020300508c6`.
+
+O hardening posterior foi composto pelos commits
+`f40d39efeb847b84b30e495ba78f6d218437e8ad`,
+`a84bb7d5f00bae6bb472d02c4a33d14442a294a2`,
+`ef4aa00797e11bbbaa0189faa2c299bf9ace8a5b`,
+`9ea14000065117bda4aa8e7627e78c07dd5d1b2a` e
+`45323a64b17cd9f1fa4d4a86f3a32d769f525660`, sem reescrever os freezes
+anteriores. Os pins finais são adaptador SHA-256
+`2d2adde74dd2bea21aa7a1a3a0e3551ebc62ab269885531162ffc0681e3c7629`,
+teste do adaptador SHA-256
+`380bf43ea70020ad30134ac56b1ff42823c3219c1950ee3c46c508acdd3290b8`,
+snapshot SHA-256
+`95a9c4f5ea68b3027b42416d858c5cfc3eed858198bf38f8bab638c1b293a53f`,
+teste do snapshot SHA-256
+`21c9799aed4d79003c5b3d3018fa5c6c61ff11c6452409056309e5b74d3b76ee`,
+workflow SHA-256
+`3213bcc9949661bd3db56717492babfc7b9a9c0d79c20b8da9ddc039ab1b129d`
+e teste do workflow SHA-256
+`7887a930b8d2fbf7f508acae0d6b256927ab52534a726b2a54fec7224c897dd6`.
+
+O hardening de paridade local centraliza `MAX_REPORT_COUNT=1_000_000` e o
+limite E2 de oferta em `R$ 999.999,99`; builder e revalidação do snapshot
+persistido usam os mesmos limites. O writer humano agora recusa `NaN`,
+infinito, booleano, string, `-0.0` e mais de duas casas decimais. Isso ainda é
+constante compartilhada mais validação humana endurecida, não um serviço de
+aplicação compartilhado. Os pins adicionais são
+`backend/app/domain/cell_report_limits.py`, SHA-256
+`cb0acd562ebd4e91f2f3170d59ff67cea3ac45f9b4a73f370b1c78522b330412`, e
+`backend/tests/test_cell_report_limits.py`, SHA-256
+`7f11003b18b0159815f54306002e87624045282d775de08d1ba47da1b6822e86`;
+`backend/app/routers/cell_meetings.py`, SHA-256
+`e72c1e8366a45ab487b38e1d04b110583b4825645daadaccf1957a04b913ddf5`; e
+`backend/tests/test_cell_lider.py`, SHA-256
+`07ffabd0260b573bad0fbd8ba572064d0acaaa3b361524dea06a35d8ac781b4d`.
+
+Na revisão integrada final do HEAD
+45323a64b17cd9f1fa4d4a86f3a32d769f525660, passaram 512 passed, 5 warnings;
+633 passed, 7 skipped, 2 warnings; 398 passed, 18 warnings; e 34 passed
+documentais. Links locais 89/89, matriz de pins e gates 13/13, py_compile,
+secret scan e git diff --check ficaram verdes. O parecer foi GO, com P0, P1 e
+P2 iguais a zero. A evidência é exclusivamente local e pré-PR; não prova
+runtime, DEV, PROD, banco, deploy ou efeito vivo.
+
+Ainda não existe bridge ou wiring entre `turn_plan_adapter`, workflow e
+snapshot. `REPLAY_TERMINAL` não prova relatório persistido: o plano atual de
+`report_capture` contém somente intake, auditorias e resposta, sem efeito de
+gravação do relatório. Um adapter futuro, em código confiável, deverá derivar o
+escopo vinculado ao tenant, mapear centavos e string sob o mesmo limite de
+produto E2 do painel e marcar `COMMITTED` somente depois de um commit externo
+atômico comprovado.
+
+As duas fatias permanecem restritas ao lote local. Nenhum runtime ou worker foi
+acionado; não houve acesso a banco, migration, rede, persistência, mensagem ou
+qualquer efeito vivo. Estado: `FUNDAÇÃO OFFLINE DO RELATÓRIO DE CÉLULA
+AMPLIADA LOCALMENTE / SNAPSHOT V2 AGREGADO / WORKFLOW PURO / CANDIDATO NÃO
+INTEGRADO NO MAIN / EFEITOS VIVOS BLOQUEADOS`.
 
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
 posterior, permanece somente como evidência histórica e não é um segundo gate
 corrente.
 
+O gate histórico `REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR` foi consumido
+pelo push, abertura, CI e Preview da PR #352. O merge e o deployment automático
+do frontend Production foram autorizados separadamente; esse gate não os
+autorizou. Após o consumo, ele permanece somente como evidência histórica e
+não é um segundo gate corrente.
+
+O gate anterior `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR` foi substituído
+localmente, sem consumo, pelo lote combinado. Não houve push, PR, CI ou Preview
+sob esse gate, portanto ele não é evidência histórica de uma ação externa.
+
+O gate anterior
+`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR` foi
+substituído localmente, sem consumo, pelo lote ampliado replay-only. Não houve
+push, PR, CI ou Preview sob esse gate, portanto ele não é evidência histórica
+de uma ação externa.
+
+O gate anterior `REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR` foi
+substituído localmente, sem consumo, pela fundação offline do relatório de
+célula. Não houve push, PR, CI ou Preview sob esse gate, portanto ele não é
+evidência histórica de uma ação externa.
+
+A fatia offline posterior foi congelada no commit tecnico original
+`c24b910bcd4bf4015eda14847e9695497b5b8ef6` e consolidada, sem alteracao da
+arvore tecnica, no HEAD local
+`bcabbae0cf96a9b6e2cd47e8ff041b5aeaffbc84`, sobre a reconciliacao
+documental `e0cb280`. Ela acrescenta o envelope fechado
+`cell-report-pending-proposal/v1` e o servico
+`cell_report_application`. A proposta usa `relatorio_snapshot` apenas
+enquanto o relatorio esta pendente, com bindings opacos de tenant, reuniao,
+conversa e ator, expiracao maxima de 24 horas, no maximo 32 operacoes
+estruturais e digest do estado-base. O JSONB nao guarda UUIDs brutos, mas os
+hashes nao sao autenticadores e o conteudo privado nao pode ser logado.
+
+O servico exige transacao tenant-scoped ja ativa e pertencente ao caller,
+adquire locks em ordem canonica e revalida conversa oficial sem handoff,
+reuniao passada e nao cancelada; novas propostas e materializacoes exigem
+relatorio pendente, enquanto replay final exato e permitido para enviado;
+celula, lider e Pessoa ativos, opt-out,
+`sem_interesse`, exatamente um `AppUser` utilizavel e ao menos um papel
+ministerial. Proposta e confirmacao exigem `AgentTurnIdentity` e
+`AgentEffectIntent` com payload exato. A confirmacao literal corrente troca o
+envelope por `cell-report/v2`, atualiza `celula_reuniao` e faz somente
+`flush`. O caller continua responsavel por commit ou rollback.
+
+O hardening final persiste o `submission_effect_id` original e o
+`submission_payload_digest` separado. A dupla nao prova proveniencia,
+autorizacao, primeira execucao nem unicidade global, e o historico limitado da
+proposta nao substitui plano, receipt duravel autenticado ou outbox. Os limites
+compartilhados fixam `MAX_CELL_REPORT_OBSERVATIONS_LENGTH=2_000` caracteres e
+`MAX_CELL_REPORT_OBSERVATIONS_BYTES=8_000` bytes UTF-8. Fetch de rows, fetch
+de scalars e `flush` sanitizam `SQLAlchemyError` sem encadear a excecao
+privada.
+
+Nao existe caller no grafo, worker, webhook, router humano ou
+`turn_plan_adapter`; a primeira execucao do agente e `tool_calls` continuam
+bloqueados. O router humano ainda nao compartilha o servico nem o lock. Papel,
+lideranca e opt-out nao substituem o consentimento `tarefas_operacionais`: a
+fonte juridica e do controlador segue nao aprovada, o ledger D2B2a permanece
+sem caller e sem aplicacao, e esta fatia nao le nem grava consentimento. Nao
+houve migration, banco compartilhado, DEV, PROD, rede, mensagem ou efeito vivo.
+
+Pins integrais do HEAD: `backend/app/domain/cell_report_limits.py`
+`8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42`;
+`backend/app/domain/cell_report_pending_proposal.py`
+`53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056`;
+`backend/app/domain/cell_report_snapshot.py`
+`24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51`;
+`backend/app/domain/cell_report_workflow.py`
+`da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877`;
+`backend/app/routers/cell_meetings.py`
+`59de2e7b9d12a4c9d36e16edf28c8a74ea590244b778dae8da44ac8f47f49067`;
+`backend/app/services/cell_report_application.py`
+`7dc9d0d9cc7bf09c3d8963e956bd60500038004c5e8d882c7d37dd30c3a3389b`;
+`backend/tests/test_cell_health_service.py`
+`19fbe602a4943fa76a3583e1e9e61a3e7979169caba5de15e157072262c8be69`;
+`backend/tests/test_cell_lider.py`
+`a0265297ec29895399bf4ea0bfac37f554ec935ae5fd6e157c4f348bd69cc6a5`;
+`backend/tests/test_cell_report_application.py`
+`30139bffee6be9c00f7068255c6150ee8507506a14ccb9649bebadbf39dc136e`;
+`backend/tests/test_cell_report_limits.py`
+`c1d4c2b89e3863e10fed7a3e84eb27b2cece6447c8a63e05237d24fff26196aa`;
+`backend/tests/test_cell_report_pending_proposal.py`
+`299b23c0795d9a1e70ac0e6ed46b4124c64a94e567f2e8a6d03732fde6165a3c`;
+`backend/tests/test_cell_report_snapshot.py`
+`7cbd65505095c7821bbb8328da9b6d22760fce0544ab80861ca765c82bbd87fb`;
+`backend/tests/test_cell_report_workflow.py`
+`704f036d1fd5632c7c33dd5c446e80e6f303fa712adacee892dde822b83f53a9`;
+e `backend/tests/test_reports.py`
+`fb511601265dfa374a7d9fbec35f913a7e4bdbde615ce82c1c7996e2d51177d2`.
+
+A focal passou em `292 passed`; `tests/test_agent*.py` terminou em
+`633 passed, 7 skipped, 2 warnings`; e
+`tests/test_cell*.py tests/test_reports.py` terminou em
+`730 passed, 18 skipped, 35 warnings`. A suite ampla do backend, com
+`migration_history` e Redis fora da selecao, chegou a
+`4601 passed, 325 skipped, 499 deselected, 66 warnings`, sem classificacao
+verde por uma assercao documental do pin anterior e duas falhas baseline de
+modo group-writable `0664` no checkout `/tmp`. Apos esta reconciliacao, a
+matriz documental passou em `34 passed`. A revisao independente repetiu
+`729 passed` e `1363 passed, 25 skipped` e concluiu `GO`, com P0,
+P1 e P2 iguais a zero. A evidencia e local e pre-PR.
+
+Estado: `FRONTEIRA TRANSACIONAL OFFLINE DO RELATORIO AMPLIADA LOCALMENTE /
+PROPOSTA PENDENTE FECHADA / FLUSH SEM COMMIT / CANDIDATO NAO INTEGRADO NO MAIN
+/ RUNTIME E EFEITOS VIVOS BLOQUEADOS`.
+
+O gate anterior `REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR` foi
+substituido localmente, sem consumo, pela fatia offline do servico de aplicacao
+do relatorio. Nao houve push, PR, CI ou Preview sob esse gate, portanto ele nao
+e evidencia historica de uma acao externa.
+
+A composicao transacional posterior esta no HEAD local
+`dac3a14cdd2bf857f84609518dd96050e203b4b3`. A reserva V2 foi criada no
+commit tecnico original `4d08e783c2de1bb20dfeb29ffb8ee6a43c7a444f` e
+integrada como `d6ee2323d658a91bb92724aaa13adea7222538b4`; a UoW veio de
+`58b77a84e38ba7be4d3968d32834ef1b415b3a89` e foi integrada como
+`17305af54e52aea74948e275ad68fae50427ae67`; os locks dos writers vieram
+de `83b4810008f37250b9a9d00f9c9a83f04a3d0399` e foram integrados como
+`b6a763cbcab41a78815a7777f2c9b682a6af1ddb`. O commit
+`dac3a14cdd2bf857f84609518dd96050e203b4b3` reconciliou nos testes o
+`expected_replayed` explicito. A revisao tecnica consolidada posterior
+concluiu `GO`; a evidencia exata esta registrada abaixo.
+
+A reserva `AgentOutboundReplyReservationV2` e um contrato puro derivado
+somente de `AgentTurnIdentity`, antes de payload ou plano. Ela fixa o slot
+`OUTBOUND_REPLY` ordinal zero e produz a mesma chave de compatibilidade V2 do
+efeito posterior, sem usar `claim_id`. O valor nao reserva linha, nao prova
+outbox, autenticacao, idempotencia global, aceite do provedor ou envio.
+Compatibilidade V1/V0 continua somente como drain: a UoW pode vincular a chave
+exata observada numa linha legacy ja bloqueada, sem deriva-la nem promove-la.
+
+Os seis writers humanos `edit_meeting`, `set_real_attendance`,
+`register_visitor`, `add_record`, `save_report` e `submit_report`
+passam pela mesma boundary sanitizada e serializam a reuniao, a celula e o
+acesso do lider com locks tenant-bound. Um envelope pendente reconhecido pode
+ser invalidado por takeover humano explicito; snapshot pendente desconhecido
+falha fechado. O reconhecedor puro do snapshot humano legacy exige shape
+completo, metadados coerentes e UUIDs canonicos nao nulos. Assim, um submit
+humano concorrente vira `REPORT_CONFLICT` para o agente, enquanto shape
+malformado continua `DATA_INTEGRITY`. Os writers web continuam separados do
+servico de aplicacao do agente; compartilhar locks nao equivale a compartilhar
+servico.
+
+A `cell_report_turn_uow` exige uma transacao tenant-scoped externa, um plano
+fechado com `TOOL_CALL`, `AUDIT_EVENT` e `OUTBOUND_REPLY`, e uma
+`Message` de reply pre-reservada. Ela bloqueia a mensagem, valida a chave V2
+antes do banco ou, para V1/V0, a evidencia exata depois do lock; exige
+`expected_replayed` booleano no servico de confirmacao; e requer concordancia
+entre relatorio, audit sem conteudo e reply em replay. No caminho novo, agrupa o
+snapshot, um `AgentConversationLog` sem texto pastoral e a `Message` com
+estado `ia_pendente` na transacao do caller. Todo sucesso da UoW retorna
+`requires_caller_commit=true`, inclusive replay observado na transacao atual.
+A boundary faz somente `flush`: nao inicia, confirma ou reverte transacao, nao
+envia mensagem e nao chama runtime, worker, grafo ou rede.
+
+Esta fatia especifica fecha parte do staging atomico, mas nao cria outbox
+generica, receipt global autenticado ou comprovante pos-commit. Nao existe
+caller; consentimento `tarefas_operacionais`, `AgentConfig`, proveniencia
+operacional, commit, send, primeira execucao generica pelo
+`turn_plan_adapter`, migration, drain V1/V0 e efeitos vivos continuam
+bloqueados. Nao houve banco compartilhado, DEV, PROD, rede, mensagem ou
+deployment.
+
+Pins SHA-256 integrais do HEAD:
+`backend/app/agent/turn_execution.py`
+`b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351`;
+`backend/app/agent/turn_identity.py`
+`59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998`;
+`backend/app/domain/cell_report_legacy_snapshot.py`
+`22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869`;
+`backend/app/routers/cell_meetings.py`
+`9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e`;
+`backend/app/services/cell_report_application.py`
+`0c8ddd4040b83e09fd496eeea3594c68309f0446b97b2466d5f32204babcc347`;
+`backend/app/services/cell_report_turn_uow.py`
+`1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399`;
+`backend/tests/test_agent_turn_execution.py`
+`911cc7743b073c78b6d5eaffc29eee1171bdf25d1526bd94a32542302c92420e`;
+`backend/tests/test_agent_turn_identity.py`
+`6d60a2668810bf8c62e23658d95c54b886079e4e7ecf120f349e989de710e1cf`;
+`backend/tests/test_cell_lider.py`
+`0732667504127fb4bcdc163187b9b137e77f645e81a743413d8a7c4332f1ee0e`;
+`backend/tests/test_cell_report_application.py`
+`278e3d506ca5c0853b957529013991bb676320381727f33183afcadc7768f430`;
+`backend/tests/test_cell_report_legacy_snapshot.py`
+`57586f81accd27145d5877ce91fa9d98f82f29b1ee4f73828768cfe93134c354`;
+e `backend/tests/test_cell_report_turn_uow.py`
+`5ce3d8b37f672adfeaf04839183d43f7f67b51f5cf6d81b37b663bf9c2128db9`.
+
+A revisao tecnica integrada no HEAD
+`dac3a14cdd2bf857f84609518dd96050e203b4b3` concluiu `GO`, com P0, P1 e
+P2 iguais a zero. A focal integrada terminou em `682 passed, 5 warnings`;
+`tests/test_agent*.py` terminou em `649 passed, 7 skipped, 2 warnings`; e
+`tests/test_cell*.py tests/test_reports.py` terminou em
+`960 passed, 18 skipped, 35 warnings`. Tambem passaram 200 vetores da reserva
+V2 e 8 casos de corrupcao legacy. As validacoes de AST e `git diff --check`
+para `d37d528..dac3a14` ficaram verdes. A evidencia e local e pre-PR. Ela
+confirma ainda a ausencia de caller em runtime, worker ou webhook, de migration,
+rede ou send e de `begin`, `commit` ou `rollback` na UoW.
+
+Estado: `STAGING TRANSACIONAL OFFLINE COMPOSTO E REVISADO LOCALMENTE / RESERVA
+V2 CLAIM-INDEPENDENT / WRITERS SERIALIZADOS / FLUSH SEM COMMIT / GO TECNICO
+P0=P1=P2=0 / SEM CALLER / RUNTIME E EFEITOS VIVOS BLOQUEADOS`.
+
+O gate anterior
+`REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR` foi substituido
+localmente, sem consumo, pelo lote de staging transacional. Nao houve push, PR,
+CI ou Preview sob esse gate, portanto ele nao e evidencia historica de uma acao
+externa.
+
+**Gate anterior consumido:**
+O gate `REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR` exigia
+autorizacao humana posterior e separada que nomeie push, abertura da PR e
+GitHub CI e aceite o Vercel Preview automatico. O gate cobre somente revisao e
+CI do lote offline de staging transacional; nao autoriza merge, Vercel
+Production, flag-on, caller, `AgentConfig`, primeira execucao do agente,
+runtime, worker. Ele foi consumido pela autorizacao humana nominal da rodada
+de PR. Na PR #354, o head
+tecnico `69f9eecdfb95691b4633a42ef597452f63e82e48` contra `main`
+`6c807717010a41edf3bfd3d1b2405c2f3527a696` permaneceu aberto,
+`MERGEABLE/CLEAN`. Os sete workflows GitHub concluiram com `SUCCESS`: Backend
+Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
+`33456753444`, Environment Attestation PG17 `33456753406`, Frontend CI
+`33456753394`, RLS Integration `33456753452` e Tooling Static Checks
+`33456753430`. O Vercel Preview automatico do frontend, deployment
+`6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
+e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR`. O nome não constitui autorização
-já concedida. Seu consumo exige autorização humana posterior e separada que
-nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O batch permanece exclusivamente offline. Este gate não autoriza merge, Vercel
-Production, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration,
-deploy, flag ou runtime.
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
+autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
+posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
+Production automatico decorrente. Nao autoriza caller, runtime, worker,
+consentimento, banco, migration, commit, send, drain V1/V0,
+receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
+adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
+autoriza `AgentConfig`.

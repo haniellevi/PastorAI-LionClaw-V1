@@ -36,6 +36,11 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, CelulaReuniao
 from app.db.session import get_db
 from app.deps import CurrentUser, require_central
+from app.domain.cell_report_snapshot import (
+    CellReportSnapshotValidationError,
+    has_cell_report_snapshot_schema_marker,
+    validate_cell_report_snapshot_v2,
+)
 from app.domain.cell_meetings_schedule import now_in_sao_paulo, report_is_overdue
 from app.routers._common import Page, PaginationParams
 from app.services.cell_health_service import (
@@ -129,10 +134,12 @@ def _consolidado(reuniao: CelulaReuniao) -> _Consolidado:
     ``cell_meetings.get_report``): escritas posteriores em ``celula_presenca``
     não podem mexer no consolidado.
 
-    `presentes` conta SÓ ``estado == 'compareceu'`` — definição canônica de
+    Em ``cell-report/v2`` os totais agregados validados têm precedência e os
+    arrays individuais precisam estar vazios. No formato legado, `presentes`
+    conta SÓ ``estado == 'compareceu'`` — definição canônica de
     ``cell_health_service._attendance_count``; ``confirmada`` é intenção do
-    discípulo (PR2), não comparecimento. `decisoes` conta registros pastorais de
-    tipo ``decisao``.
+    discípulo (PR2), não comparecimento. `decisoes` conta registros pastorais
+    de tipo ``decisao``.
 
     Sem snapshot, os números ficam nulos (nada é inventado) e oferta/observações
     caem para as colunas da reunião. Na prática não ocorre: ``submit_report``
@@ -147,6 +154,19 @@ def _consolidado(reuniao: CelulaReuniao) -> _Consolidado:
                 else None
             ),
             observacoes=reuniao.observacoes,
+        )
+    if has_cell_report_snapshot_schema_marker(snapshot):
+        aggregate = validate_cell_report_snapshot_v2(snapshot)
+        return _Consolidado(
+            presentes=aggregate.totals.presentes,
+            visitantes=aggregate.totals.visitantes,
+            decisoes=aggregate.totals.decisoes,
+            oferta=(
+                float(aggregate.oferta_valor)
+                if aggregate.oferta_valor is not None
+                else None
+            ),
+            observacoes=aggregate.observacoes,
         )
     presencas = snapshot.get("presencas") or []
     visitantes = snapshot.get("visitantes") or []
@@ -228,9 +248,20 @@ def list_reports(
         item_status = _report_status(r)
         # Antes do envio o relatório não existe: nada de números, oferta ou
         # observações de rascunho vazando para o painel da Central.
-        dados = (
-            _consolidado(r) if item_status == STATUS_RECEBIDO else _Consolidado()
-        )
+        try:
+            dados = (
+                _consolidado(r)
+                if item_status == STATUS_RECEBIDO
+                else _Consolidado()
+            )
+        except CellReportSnapshotValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": "INVALID_CELL_REPORT_SNAPSHOT",
+                    "reason": exc.code.value,
+                },
+            ) from None
         items.append(
             ReportOut(
                 id=str(r.id),

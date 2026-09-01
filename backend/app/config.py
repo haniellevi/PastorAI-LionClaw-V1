@@ -161,6 +161,11 @@ class Settings(BaseSettings):
     # Reserved for a future durable LangGraph saver. A configured URL currently
     # emits a warning; the runtime stays stateless and never falls back to RAM.
     agent_graph_checkpoint_url: str = Field(default="")
+    # Offline D3 wiring gate.  While false, the worker and runtime preserve the
+    # existing stateless/legacy execution path.  Enabling it requires one
+    # trusted identity for the already-persisted inbound message before any
+    # agent session, reservation or effect.
+    agent_trusted_inbound_identity_enabled: bool = Field(default=False)
     # Default model used by the orchestrator when an igreja has not overridden it.
     agent_default_model: str = Field(default="gpt-5.6-luna")
     # Current LGPD consent term version (delta-040). Bumping it forces re-accept.

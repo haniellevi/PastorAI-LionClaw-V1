@@ -17,6 +17,7 @@ A fake NÃO tem store de ``Report``: qualquer leitura da tabela legada falharia.
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +25,11 @@ from sqlalchemy.sql import operators
 
 from app.db.models import AppUser, Celula, CelulaReuniao
 from app.db.session import get_db
+from app.domain.cell_report_snapshot import (
+    CellReportSnapshotErrorCode,
+    CellReportSnapshotValidationError,
+    build_cell_report_snapshot_v2,
+)
 from app.domain.cell_meetings_schedule import now_in_sao_paulo, report_is_overdue
 from app.routers import reports as reports_router
 from app.routers.reports import current_iso_week
@@ -31,6 +37,7 @@ from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
+_PAYLOAD_DIGEST = "agent_payload_v1_" + ("e" * 64)
 
 TENANT = "00000000-0000-0000-0000-000000000001"
 OTHER_TENANT = "00000000-0000-0000-0000-000000000002"
@@ -374,6 +381,150 @@ def test_sent_report_maps_snapshot_numbers(app) -> None:
     assert item["decisoes"] == 2  # só tipo 'decisao'
     assert item["oferta"] == 75.25
     assert item["observacoes"] == "Consolidado."
+
+
+def test_sent_report_v2_prefers_validated_totals_with_empty_arrays(app) -> None:
+    reu = make_reuniao(
+        reuniao_id="r-v2",
+        data=PAST,
+        relatorio_status="enviado",
+        # Colunas divergentes e arrays vazios: totals v2 são a fonte.
+        oferta_valor=999.0,
+        observacoes="rascunho antigo",
+        relatorio_snapshot=build_cell_report_snapshot_v2(
+            presentes=12,
+            visitantes=3,
+            decisoes=2,
+            oferta_valor=Decimal("75.20"),
+            observacoes="Agregado confirmado.",
+            submission_effect_id="agent_effect_v1_" + ("a" * 64),
+            submission_payload_digest=_PAYLOAD_DIGEST,
+        ),
+    )
+    session = _central(cells=[make_cell()], reunioes=[reu])
+
+    resp = _get(app, session, week_of(PAST))
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["items"][0]
+    assert item["presentes"] == 12
+    assert item["visitantes"] == 3
+    assert item["decisoes"] == 2
+    assert item["oferta"] == 75.2
+    assert item["observacoes"] == "Agregado confirmado."
+
+
+def test_sent_report_v2_preserves_explicit_zero_totals(app) -> None:
+    reu = make_reuniao(
+        reuniao_id="r-v2-zero",
+        data=PAST,
+        relatorio_status="enviado",
+        relatorio_snapshot=build_cell_report_snapshot_v2(
+            presentes=0,
+            visitantes=0,
+            decisoes=0,
+            oferta_valor=None,
+            observacoes=None,
+            submission_effect_id="agent_effect_v1_" + ("b" * 64),
+            submission_payload_digest=_PAYLOAD_DIGEST,
+        ),
+    )
+    session = _central(cells=[make_cell()], reunioes=[reu])
+
+    resp = _get(app, session, week_of(PAST))
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["items"][0]
+    assert item["presentes"] == 0
+    assert item["visitantes"] == 0
+    assert item["decisoes"] == 0
+    assert item["oferta"] is None
+    assert item["observacoes"] is None
+
+
+def test_v2_marker_never_falls_back_to_forged_individual_arrays() -> None:
+    forged = build_cell_report_snapshot_v2(
+        presentes=1,
+        visitantes=0,
+        decisoes=0,
+        oferta_valor=None,
+        observacoes=None,
+        submission_effect_id="agent_effect_v1_" + ("c" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
+    )
+    forged["presencas"] = [{"pessoa_id": "invented", "estado": "compareceu"}]
+    reu = make_reuniao(
+        reuniao_id="r-v2-forged",
+        data=PAST,
+        relatorio_status="enviado",
+        relatorio_snapshot=forged,
+    )
+
+    with pytest.raises(CellReportSnapshotValidationError) as exc_info:
+        reports_router._consolidado(reu)
+
+    assert (
+        exc_info.value.code
+        is CellReportSnapshotErrorCode.INDIVIDUAL_DATA_FORBIDDEN
+    )
+
+
+def test_malformed_v2_is_classified_by_reports_endpoint(app) -> None:
+    forged = build_cell_report_snapshot_v2(
+        presentes=1,
+        visitantes=0,
+        decisoes=0,
+        oferta_valor=None,
+        observacoes=None,
+        submission_effect_id="agent_effect_v1_" + ("d" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
+    )
+    forged["records"] = [{"conteudo": "private-forged-value"}]
+    reu = make_reuniao(
+        reuniao_id="r-v2-malformed-endpoint",
+        data=PAST,
+        relatorio_status="enviado",
+        relatorio_snapshot=forged,
+    )
+    session = _central(cells=[make_cell()], reunioes=[reu])
+
+    resp = _get(app, session, week_of(PAST))
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "INDIVIDUAL_DATA_FORBIDDEN",
+        }
+    }
+    assert "private-forged-value" not in resp.text
+
+
+def test_unknown_report_schema_never_falls_back_to_legacy_arrays(app) -> None:
+    future = snapshot(
+        presencas=["compareceu"],
+        visitantes=["private-visitor"],
+        records=["decisao"],
+    )
+    future["schema"] = "cell-report/v3"
+    reu = make_reuniao(
+        reuniao_id="r-v3-unsupported",
+        data=PAST,
+        relatorio_status="enviado",
+        relatorio_snapshot=future,
+    )
+    session = _central(cells=[make_cell()], reunioes=[reu])
+
+    resp = _get(app, session, week_of(PAST))
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "UNSUPPORTED_SCHEMA",
+        }
+    }
+    assert "private-visitor" not in resp.text
 
 
 def test_pending_report_exposes_no_numbers_or_draft_values(app) -> None:
