@@ -24,6 +24,10 @@ decision made by a future trusted transport adapter and is not itself proof.
 
 Compatibility keys support an explicit ``v2``/``v1``/``v0`` lookup migration.
 Only ``v2`` is derivable from this contract, using the stable ``effect_id``.
+The pre-payload outbound reservation derives that same v2 key directly from
+the fixed reply slot, before reply text or a plan exists.  It identifies only
+that slot: it does not prove a durable row, an outbox entry, global
+idempotency, provider acceptance, or a send.
 The live ``v1`` formula includes the queue claim ID and the older ``v0`` form
 also includes a response hash.  Both are outside stable turn identity, so this
 module can only bind an exact key observed by a future trusted historical-row
@@ -52,6 +56,7 @@ from app.agent.turn_identity import (
     AgentEffectKind,
     AgentTurnContractError,
     AgentTurnIdentity,
+    derive_agent_outbound_reply_effect_id,
     validate_agent_effect_intents,
 )
 
@@ -1059,12 +1064,82 @@ def _require_compatibility_key_version(
     return value
 
 
-def _derive_v2_compatibility_key(intent: AgentEffectIntent) -> str:
+def _derive_v2_compatibility_key_from_effect_id(effect_id: str) -> str:
     return _sha256_id(
         _compatibility_key_prefix(AgentCompatibilityKeyVersion.V2),
         _COMPATIBILITY_KEY_DOMAIN,
         AgentCompatibilityKeyVersion.V2.value,
-        intent.effect_id.encode("ascii"),
+        effect_id.encode("ascii"),
+    )
+
+
+def _derive_v2_compatibility_key(intent: AgentEffectIntent) -> str:
+    return _derive_v2_compatibility_key_from_effect_id(intent.effect_id)
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class AgentOutboundReplyReservationV2:
+    """Pre-payload identity for the sole outbound-reply reservation slot.
+
+    The value intentionally has no payload or plan digest.  It identifies the
+    compatibility namespace that a future trusted adapter may use while
+    reserving durable state, but it does not prove that any row or outbox entry
+    exists, provide global idempotency, authorize transport, or prove a send.
+    """
+
+    version: AgentCompatibilityKeyVersion
+    source: AgentCompatibilityKeySource
+    key: str
+    turn_id: str
+    effect_id: str
+    kind: AgentEffectKind
+
+    def __repr__(self) -> str:
+        return (
+            "AgentOutboundReplyReservationV2("
+            f"version={self.version.value!r}, source={self.source.value!r})"
+        )
+
+
+def _mint_outbound_reply_reservation_v2(
+    *,
+    turn_id: str,
+    effect_id: str,
+    key: str,
+) -> AgentOutboundReplyReservationV2:
+    value = object.__new__(AgentOutboundReplyReservationV2)
+    object.__setattr__(
+        value,
+        "version",
+        AgentCompatibilityKeyVersion.V2,
+    )
+    object.__setattr__(
+        value,
+        "source",
+        AgentCompatibilityKeySource.CURRENT_DERIVED,
+    )
+    object.__setattr__(value, "key", key)
+    object.__setattr__(value, "turn_id", turn_id)
+    object.__setattr__(value, "effect_id", effect_id)
+    object.__setattr__(value, "kind", AgentEffectKind.OUTBOUND_REPLY)
+    return value
+
+
+def build_agent_outbound_reply_reservation_v2(
+    identity: AgentTurnIdentity | object,
+) -> AgentOutboundReplyReservationV2:
+    """Derive the claim-independent provider key before payload or plan.
+
+    The builder accepts only the trusted turn identity.  The returned key is
+    byte-for-byte identical to the current v2 compatibility key for every
+    valid later plan containing that turn's outbound-reply ordinal-zero intent.
+    """
+    expected_identity = _require_expected_identity(identity)
+    effect_id = derive_agent_outbound_reply_effect_id(expected_identity)
+    return _mint_outbound_reply_reservation_v2(
+        turn_id=expected_identity.turn_id,
+        effect_id=effect_id,
+        key=_derive_v2_compatibility_key_from_effect_id(effect_id),
     )
 
 
@@ -1338,6 +1413,7 @@ __all__ = [
     "AgentEffectReceipt",
     "AgentEffectReceiptError",
     "AgentEffectReceiptOutcome",
+    "AgentOutboundReplyReservationV2",
     "AgentReplyOutboxEntry",
     "AgentReplyOutboxError",
     "AgentReplyOutboxEvent",
@@ -1350,6 +1426,7 @@ __all__ = [
     "build_agent_conversation_serial_scope",
     "build_agent_effect_compatibility_key",
     "build_agent_effect_receipt",
+    "build_agent_outbound_reply_reservation_v2",
     "build_agent_reply_outbox_entry",
     "build_agent_turn_execution_plan",
     "resolve_agent_effect_compatibility_keys",

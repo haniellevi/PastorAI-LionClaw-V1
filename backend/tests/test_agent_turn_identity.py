@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import datetime as dt
+import inspect
 import json
 import os
 import subprocess
@@ -41,6 +42,7 @@ from app.agent.turn_identity import (
     build_agent_effect_intent,
     build_agent_turn_identity,
     canonical_json_bytes,
+    derive_agent_outbound_reply_effect_id,
     digest_effect_payload,
     validate_agent_effect_intents,
 )
@@ -112,6 +114,35 @@ def test_effect_and_payload_have_fixed_independent_vectors() -> None:
     )
 
 
+def test_outbound_reply_effect_id_has_fixed_pre_payload_vector() -> None:
+    identity = _identity()
+    derived = derive_agent_outbound_reply_effect_id(identity)
+    built = _effect(
+        identity=identity,
+        kind=AgentEffectKind.OUTBOUND_REPLY,
+        payload={"reply": "material-created-later"},
+    )
+
+    assert derived == (
+        "agent_effect_v1_"
+        "158ebe516ade0fde41f338c2b67d622d476c3ec581a1196ae0cec7bbb057f2fb"
+    )
+    assert derived == built.effect_id
+
+
+def test_outbound_reply_effect_derivation_accepts_only_identity() -> None:
+    parameters = inspect.signature(
+        derive_agent_outbound_reply_effect_id
+    ).parameters
+    assert tuple(parameters) == ("identity",)
+
+    with pytest.raises(TypeError):
+        derive_agent_outbound_reply_effect_id(  # type: ignore[call-arg]
+            _identity(),
+            claim_id="transient-claim",
+        )
+
+
 def test_hash_vectors_are_stable_in_a_fresh_process() -> None:
     backend = Path(__file__).parents[1]
     script = """
@@ -121,6 +152,7 @@ from app.agent.turn_identity import (
     AgentEffectKind,
     build_agent_effect_intent,
     build_agent_turn_identity,
+    derive_agent_outbound_reply_effect_id,
 )
 
 identity = build_agent_turn_identity(
@@ -135,7 +167,13 @@ effect = build_agent_effect_intent(
     ordinal=7,
     payload={"tool": "consultar", "args": {"celula_id": "synthetic"}},
 )
-print(json.dumps([identity.turn_id, effect.effect_id, effect.payload_digest]))
+reply_effect_id = derive_agent_outbound_reply_effect_id(identity)
+print(json.dumps([
+    identity.turn_id,
+    effect.effect_id,
+    effect.payload_digest,
+    reply_effect_id,
+]))
 """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(backend)
@@ -159,6 +197,7 @@ print(json.dumps([identity.turn_id, effect.effect_id, effect.payload_digest]))
         identity.turn_id,
         effect.effect_id,
         effect.payload_digest,
+        derive_agent_outbound_reply_effect_id(identity),
     ]
 
 
@@ -175,6 +214,23 @@ def test_each_authoritative_component_isolates_turn_identity(
     changed: dict[str, object],
 ) -> None:
     assert _identity(**changed).turn_id != _identity().turn_id  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"igreja_id": TENANT_B},
+        {"conversation_id": CONVERSATION_B},
+        {"inbound_message_id": INBOUND_B},
+        {"provider_message_id": "3EB0123456789ABCDE0"},
+    ],
+)
+def test_each_authoritative_component_isolates_reserved_reply_effect(
+    changed: dict[str, object],
+) -> None:
+    assert derive_agent_outbound_reply_effect_id(
+        _identity(**changed)  # type: ignore[arg-type]
+    ) != derive_agent_outbound_reply_effect_id(_identity())
 
 
 def test_provider_message_id_is_opaque_and_never_normalized() -> None:
@@ -559,6 +615,13 @@ def test_structurally_adulterated_identity_or_effect_is_rejected() -> None:
         )
     assert (
         identity_error.value.code
+        is AgentTurnContractErrorCode.INVALID_TURN_IDENTITY
+    )
+
+    with pytest.raises(AgentTurnIdentityError) as reservation_error:
+        derive_agent_outbound_reply_effect_id(identity)
+    assert (
+        reservation_error.value.code
         is AgentTurnContractErrorCode.INVALID_TURN_IDENTITY
     )
 

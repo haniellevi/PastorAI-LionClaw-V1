@@ -11,8 +11,10 @@ canonical-JSON digest.
 ``ordinal`` is an occurrence allocated by a future deterministic, persisted
 effect plan.  It must never come from model output, list order, retry count, or
 an in-memory iteration index.  Until that plan and durable receipts exist, the
-current agent state remains replay-unsafe.  ``outbound_reply`` is only a future
-intent kind here and does not replace or connect the worker's live reply ledger.
+current agent state remains replay-unsafe.  The one public pre-payload helper
+derives only the fixed ``outbound_reply`` ordinal-zero effect slot.  It does not
+reserve a row, prove an outbox, or replace or connect the worker's live reply
+ledger.
 
 These opaque hashes are deterministic namespaces, not authenticators or tenant
 authority.  Durable execution still requires reviewed receipts, serialization,
@@ -553,6 +555,24 @@ def _require_turn_identity(value: object) -> AgentTurnIdentity:
     return value
 
 
+def derive_agent_outbound_reply_effect_id(
+    identity: AgentTurnIdentity | object,
+) -> str:
+    """Derive the sole outbound-reply slot before payload or plan exists.
+
+    The slot is permanently bound to ``OUTBOUND_REPLY`` ordinal ``0`` and is
+    derived with the same effect domain, version and semantic-slot grammar as
+    :func:`build_agent_effect_intent`.  This opaque identifier is not a claim,
+    lease, durable reservation, authorization, or proof of execution.
+    """
+    trusted_identity = _require_turn_identity(identity)
+    return _derive_effect_id(
+        trusted_identity.turn_id,
+        _semantic_slot(AgentEffectKind.OUTBOUND_REPLY),
+        0,
+    )
+
+
 def build_agent_effect_intent(
     identity: AgentTurnIdentity | object,
     *,
@@ -734,6 +754,7 @@ __all__ = [
     "build_agent_turn_identity",
     "build_effect_intent",
     "canonical_json_bytes",
+    "derive_agent_outbound_reply_effect_id",
     "digest_effect_payload",
     "validate_agent_effect_intents",
 ]

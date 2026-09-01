@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import inspect
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -23,6 +24,7 @@ from app.agent.turn_execution import (
     AgentEffectReceipt,
     AgentEffectReceiptError,
     AgentEffectReceiptOutcome,
+    AgentOutboundReplyReservationV2,
     AgentReplyOutboxEntry,
     AgentReplyOutboxError,
     AgentReplyOutboxEvent,
@@ -34,6 +36,7 @@ from app.agent.turn_execution import (
     build_agent_conversation_serial_scope,
     build_agent_effect_compatibility_key,
     build_agent_effect_receipt,
+    build_agent_outbound_reply_reservation_v2,
     build_agent_reply_outbox_entry,
     build_agent_turn_execution_plan,
     reconcile_agent_effect_receipt_replay,
@@ -393,6 +396,7 @@ def test_claim_material_is_absent_from_every_identity_boundary() -> None:
         AgentConversationSerialScope,
         AgentTurnExecutionPlan,
         AgentEffectReceipt,
+        AgentOutboundReplyReservationV2,
         AgentReplyOutboxEntry,
         AgentEffectCompatibilityKey,
         AgentCompatibilityKeyResolution,
@@ -401,6 +405,7 @@ def test_claim_material_is_absent_from_every_identity_boundary() -> None:
         build_agent_conversation_serial_scope,
         build_agent_turn_execution_plan,
         build_agent_effect_receipt,
+        build_agent_outbound_reply_reservation_v2,
         build_agent_reply_outbox_entry,
         transition_agent_reply_outbox,
         build_agent_effect_compatibility_key,
@@ -433,7 +438,8 @@ def test_execution_values_are_frozen_slotted_and_sanitized() -> None:
         reply,
         version=AgentCompatibilityKeyVersion.V2,
     )
-    values = (scope, plan, receipt, entry, key)
+    reservation = build_agent_outbound_reply_reservation_v2(identity)
+    values = (scope, plan, receipt, entry, key, reservation)
 
     for value in values:
         assert "__dict__" not in dir(value)
@@ -444,6 +450,9 @@ def test_execution_values_are_frozen_slotted_and_sanitized() -> None:
         assert "private-provider-id" not in rendered
         assert str(identity.igreja_id) not in rendered
         assert identity.turn_id not in rendered
+        if type(value) is AgentOutboundReplyReservationV2:
+            assert value.effect_id not in rendered
+            assert value.key not in rendered
 
 
 @pytest.mark.parametrize("outcome", list(AgentEffectReceiptOutcome))
@@ -985,6 +994,147 @@ def test_current_v2_compatibility_key_resolves_exactly() -> None:
     assert resolution.selected_key == key.key
 
 
+def test_pre_payload_reply_reservation_has_fixed_minimal_vector() -> None:
+    identity = _identity()
+    reservation = build_agent_outbound_reply_reservation_v2(identity)
+
+    assert reservation.version is AgentCompatibilityKeyVersion.V2
+    assert reservation.source is AgentCompatibilityKeySource.CURRENT_DERIVED
+    assert reservation.kind is AgentEffectKind.OUTBOUND_REPLY
+    assert reservation.turn_id == identity.turn_id
+    assert reservation.effect_id == (
+        "agent_effect_v1_"
+        "0ceb8d4004baa60e1e66be2489e9224b39a61918c8228a10c1a0d06f18f6b190"
+    )
+    assert reservation.key == (
+        "agent_effect_key_v2_"
+        "75946f43b2aa862cd0cd0d5b5d9779736d5418a6e2dbcea3315c0d8b54b26ab9"
+    )
+    assert {item.name for item in fields(type(reservation))} == {
+        "version",
+        "source",
+        "key",
+        "turn_id",
+        "effect_id",
+        "kind",
+    }
+    assert not hasattr(reservation, "payload_digest")
+    assert not hasattr(reservation, "plan_digest")
+
+
+def test_pre_payload_reply_reservation_rejects_future_material() -> None:
+    parameters = inspect.signature(
+        build_agent_outbound_reply_reservation_v2
+    ).parameters
+    assert tuple(parameters) == ("identity",)
+
+    with pytest.raises(TypeError):
+        build_agent_outbound_reply_reservation_v2(  # type: ignore[call-arg]
+            _identity(),
+            claim_id="transient-claim",
+        )
+
+
+def test_pre_payload_key_equals_post_plan_v2_key_for_valid_plan_variants() -> None:
+    identity = _identity()
+    reservation = build_agent_outbound_reply_reservation_v2(identity)
+    variants = (
+        (
+            _intent(
+                identity,
+                AgentEffectKind.OUTBOUND_REPLY,
+                value="first-payload",
+            ),
+            (),
+        ),
+        (
+            _intent(
+                identity,
+                AgentEffectKind.OUTBOUND_REPLY,
+                value="changed-payload",
+            ),
+            (
+                _intent(
+                    identity,
+                    AgentEffectKind.INTAKE_UPDATE,
+                    value="intake",
+                ),
+                _intent(
+                    identity,
+                    AgentEffectKind.AUDIT_EVENT,
+                    value="audit",
+                ),
+                _intent(
+                    identity,
+                    AgentEffectKind.TOOL_CALL,
+                    value="tool",
+                ),
+            ),
+        ),
+    )
+
+    for reply, other_intents in variants:
+        plan = build_agent_turn_execution_plan(
+            identity,
+            (reply, *other_intents),
+        )
+        post_plan = build_agent_effect_compatibility_key(
+            identity,
+            plan,
+            reply,
+            version=AgentCompatibilityKeyVersion.V2,
+        )
+
+        assert reservation.effect_id == reply.effect_id
+        assert reservation.key == post_plan.key
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"igreja": 2},
+        {"conversation": 3},
+        {"inbound": 4},
+        {"provider_message_id": "evolution-message-002"},
+    ],
+)
+def test_pre_payload_reply_reservation_separates_authoritative_turn_material(
+    changed: dict[str, object],
+) -> None:
+    expected = build_agent_outbound_reply_reservation_v2(_identity())
+    separated = build_agent_outbound_reply_reservation_v2(
+        _identity(**changed)  # type: ignore[arg-type]
+    )
+
+    assert separated.turn_id != expected.turn_id
+    assert separated.effect_id != expected.effect_id
+    assert separated.key != expected.key
+
+
+@pytest.mark.parametrize(
+    ("attribute", "forged"),
+    [
+        ("turn_id", "agent_turn_v1_" + "0" * 64),
+        ("provider", "other-provider"),
+        ("provider_message_id", "x" * 513),
+    ],
+)
+def test_pre_payload_reply_reservation_revalidates_full_identity(
+    attribute: str,
+    forged: object,
+) -> None:
+    identity = _identity()
+    object.__setattr__(identity, attribute, forged)
+
+    with pytest.raises(AgentTurnExecutionPlanError) as exc_info:
+        build_agent_outbound_reply_reservation_v2(identity)
+
+    _assert_code(
+        exc_info.value,
+        AgentTurnExecutionErrorCode.INVALID_EXPECTED_IDENTITY,
+    )
+
+
 @pytest.mark.parametrize(
     "version",
     [AgentCompatibilityKeyVersion.V1, AgentCompatibilityKeyVersion.V0],
@@ -1220,6 +1370,7 @@ def test_compatibility_api_cannot_infer_from_text_or_time() -> None:
     functions = (
         bind_agent_legacy_reply_key_evidence,
         build_agent_effect_compatibility_key,
+        build_agent_outbound_reply_reservation_v2,
         resolve_agent_effect_compatibility_keys,
     )
     forbidden = {
@@ -1296,6 +1447,7 @@ from app.agent.turn_execution import (
     AgentEffectReceiptOutcome,
     build_agent_effect_compatibility_key,
     build_agent_effect_receipt,
+    build_agent_outbound_reply_reservation_v2,
     build_agent_reply_outbox_entry,
     build_agent_turn_execution_plan,
 )
@@ -1310,6 +1462,7 @@ identity = build_agent_turn_identity(
     inbound_message_id=uuid.UUID(int=103),
     provider_message_id="cross-process-evolution-id",
 )
+reservation = build_agent_outbound_reply_reservation_v2(identity)
 reply = build_agent_effect_intent(
     identity,
     kind=AgentEffectKind.OUTBOUND_REPLY,
@@ -1343,21 +1496,29 @@ print(json.dumps({
     "receipt_digest": receipt.receipt_digest,
     "entry": entry.entry_digest,
     "key": key.key,
+    "reservation_effect": reservation.effect_id,
+    "reservation_key": reservation.key,
 }, sort_keys=True))
 """
+    first_env = dict(os.environ)
+    first_env["PYTHONHASHSEED"] = "1"
     first = subprocess.run(
         [sys.executable, "-c", script],
         cwd=BACKEND_ROOT,
         check=True,
         capture_output=True,
         text=True,
+        env=first_env,
     ).stdout.strip()
+    second_env = dict(os.environ)
+    second_env["PYTHONHASHSEED"] = "987654321"
     second = subprocess.run(
         [sys.executable, "-c", script],
         cwd=BACKEND_ROOT,
         check=True,
         capture_output=True,
         text=True,
+        env=second_env,
     ).stdout.strip()
 
     assert first == second
@@ -1381,6 +1542,14 @@ print(json.dumps({
         "receipt_id": (
             "agent_receipt_v1_"
             "8c34c47019ea0e8099fc9327dbd00b211ba571f316f8dd9bc931e9dc300b53c0"
+        ),
+        "reservation_effect": (
+            "agent_effect_v1_"
+            "98f15d6ffd45b8a850730934ab58ab36e4416fb89126f1177ade4fd9a6ca03ca"
+        ),
+        "reservation_key": (
+            "agent_effect_key_v2_"
+            "333b8ec19b83d04119f4d020578d96bcbbddd4e14a267fd56ae412600132a8ed"
         ),
         "scope": (
             "agent_serial_scope_v1_"
