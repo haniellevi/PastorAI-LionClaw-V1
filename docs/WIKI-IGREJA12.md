@@ -391,6 +391,25 @@ Brevo ou broadcast.
   versionada, RBAC e callers seguros;
 - PRDs próprios para Formação e máquina de estados da Jornada.
 
+## Catálogo evolutivo de migrations e CI, candidato offline
+
+A fundação offline separa o prefixo histórico de 75 migrations do head
+corrente append-only. Consumidores de evidência histórica usam somente esse
+prefixo depois de validar a correspondência do head completo com o diretório.
+Cada lote futuro continua limitado a uma migration e exige o head anterior no
+verificador estrito. Runner, SQL e artefatos históricos não foram alterados.
+
+O wiring M1C adiciona um workflow read-only para pull requests e push em
+`main`. O job valida o SHA e o ancestral do evento, obtém o head anterior
+somente do Git local quando há append e executa o head estrito, o manifesto
+histórico e a estrutura v3 bloqueada. Não há runner, DSN, segredo ou banco
+nesse caminho.
+
+O candidato está sem commit, não acessou banco, DEV, PROD ou rede e mantém
+`operational_authorization=false` e `next_stage_authorized=false`. O workflow
+remoto também não foi executado nesta missão. Consulte
+[`2026-09-02-migration-catalog-evolution.md`](decisions/2026-09-02-migration-catalog-evolution.md).
+
 ## Fontes de verdade
 
 Em divergência, use esta ordem:

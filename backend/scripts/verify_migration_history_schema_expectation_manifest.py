@@ -19,6 +19,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts import verify_migration_catalog_head as catalog_head
+except ImportError:  # pragma: no cover - direct script execution
+    import verify_migration_catalog_head as catalog_head
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = REPO_ROOT / "backend" / "migrations"
@@ -271,6 +276,20 @@ def _load_manifest(path: Path) -> dict[str, Any]:
 
 def _scan_catalog() -> tuple[list[dict[str, Any]], dict[str, int]]:
     try:
+        head, current_catalog = (
+            catalog_head._validated_snapshot_for_historical_consumers()
+        )
+    except catalog_head.VerificationError as exc:
+        raise CatalogDriftError from exc
+    historical = head.get("historical_prefix")
+    if type(historical) is not dict:
+        raise CatalogDriftError
+    expected_entries = historical.get("entries")
+    if type(expected_entries) is not list:
+        raise CatalogDriftError
+    historical_names = [entry.get("name") for entry in expected_entries]
+    current_names = [entry.get("name") for entry in current_catalog]
+    try:
         directory_info = MIGRATIONS_DIR.lstat()
         if not stat.S_ISDIR(directory_info.st_mode):
             raise CatalogDriftError
@@ -294,10 +313,15 @@ def _scan_catalog() -> tuple[list[dict[str, Any]], dict[str, int]]:
     ) != len(names):
         raise CatalogDriftError
 
+    if names != current_names:
+        raise CatalogDriftError
+    if any(type(name) is not str for name in historical_names):
+        raise CatalogDriftError
+
     entries: list[dict[str, Any]] = []
     capability_counts = {tag: 0 for tag in CAPABILITY_PATTERNS}
     total_size = 0
-    for position, name in enumerate(names):
+    for position, name in enumerate(historical_names):
         path = MIGRATIONS_DIR / name
         try:
             info = path.lstat()
@@ -347,6 +371,8 @@ def _scan_catalog() -> tuple[list[dict[str, Any]], dict[str, int]]:
     if names != final_names or _stat_snapshot(directory_info) != _stat_snapshot(
         final_directory_info
     ):
+        raise CatalogDriftError
+    if entries != expected_entries:
         raise CatalogDriftError
     return entries, capability_counts
 

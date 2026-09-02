@@ -1,0 +1,45 @@
+# Verificação source-only do catálogo evolutivo. O job usa somente o checkout
+# e objetos Git locais, sem banco, runner de migration ou credenciais.
+name: Migration Catalog Head
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-catalog-head-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-catalog-head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Verificar head, transição e consumidores históricos
+        working-directory: backend
+        env:
+          MIGRATION_CATALOG_CURRENT_SHA: ${{ github.sha }}
+          MIGRATION_CATALOG_EVENT_NAME: ${{ github.event_name }}
+          MIGRATION_CATALOG_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MIGRATION_CATALOG_PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python -B \
+            scripts/verify_migration_catalog_ci.py \
+            --event-name "$MIGRATION_CATALOG_EVENT_NAME" \
+            --current-sha "$MIGRATION_CATALOG_CURRENT_SHA" \
+            --pull-request-base-sha "$MIGRATION_CATALOG_PR_BASE_SHA" \
+            --push-before-sha "$MIGRATION_CATALOG_PUSH_BEFORE_SHA"

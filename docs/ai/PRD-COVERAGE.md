@@ -1198,6 +1198,26 @@ receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
 adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
 autoriza `AgentConfig`.
 
+## Catálogo evolutivo de migrations e CI, candidato offline
+
+Na base `e5d07e60c2eb9dafae671323bde60d1fa1be5749`, a M1A separa o
+prefixo histórico de 75 migrations do head corrente append-only. A M1B adapta
+o manifesto de expectativa, a derivação canônica e o verificador v3 para
+consumirem somente o prefixo histórico depois de validar o head local completo.
+O caminho estrito continua exigindo o head anterior aprovado para cada lote
+novo. O runner, as migrations e os artefatos históricos permanecem intactos.
+
+A M1C acrescenta um workflow dedicado para `pull_request` e push em `main`.
+Ele vincula o checkout ao SHA do evento, exige que a base ou `before` seja
+ancestral e, havendo append, lê o head anterior somente dos objetos Git locais.
+Depois valida o head estrito, o manifesto histórico source-only e a proposta v3
+ainda bloqueada. O job não chama o runner nem recebe segredo ou DSN.
+
+Estado: `CANDIDATO OFFLINE / NÃO COMMITADO / SEM MIGRATION NOVA / BANCO E
+AMBIENTES NÃO CONSULTADOS / CI REMOTO NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`. A
+decisão técnica e os limites estão em
+[`2026-09-02-migration-catalog-evolution.md`](../decisions/2026-09-02-migration-catalog-evolution.md).
+
 ## Fontes principais
 
 - `docs/Docs20260611_163530/PRD20260611_163530.md`

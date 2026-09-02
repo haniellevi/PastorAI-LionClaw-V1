@@ -16,6 +16,11 @@ import stat
 import sys
 from typing import Any
 
+try:
+    from scripts import verify_migration_catalog_head as catalog_head
+except ImportError:  # pragma: no cover - direct script execution
+    import verify_migration_catalog_head as catalog_head
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOVERNANCE_DIR = REPO_ROOT / "docs" / "governance" / "migrations"
@@ -763,42 +768,15 @@ def _validate_catalog_unchanged() -> None:
     entries = catalog.get("entries")
     if type(entries) is not list or len(entries) != 75:
         raise HistoricalDriftError
-
     try:
-        names = sorted(
-            path.name
-            for path in MIGRATIONS_DIR.iterdir()
-            if path.suffix == ".sql"
+        head, _current_catalog = (
+            catalog_head._validated_snapshot_for_historical_consumers()
         )
-    except OSError as exc:
+    except catalog_head.VerificationError as exc:
         raise HistoricalDriftError from exc
-    expected_names = [entry.get("name") for entry in entries]
-    if names != expected_names:
+    historical = head.get("historical_prefix")
+    if type(historical) is not dict or historical.get("entries") != entries:
         raise HistoricalDriftError
-
-    total_bytes = 0
-    for position, entry in enumerate(entries):
-        if type(entry) is not dict or set(entry) != {
-            "name",
-            "position",
-            "sha256",
-            "size_bytes",
-        }:
-            raise HistoricalDriftError
-        if entry["position"] != position:
-            raise HistoricalDriftError
-        path = MIGRATIONS_DIR / entry["name"]
-        content = _read_stable_bytes(
-            path,
-            expected_sha256=entry["sha256"],
-            max_bytes=MAX_MIGRATION_BYTES,
-            drift_error=True,
-        )
-        if len(content) != entry["size_bytes"]:
-            raise HistoricalDriftError
-        total_bytes += len(content)
-        if total_bytes > MAX_CATALOG_BYTES:
-            raise HistoricalDriftError
 
 
 def verify_versioned_package() -> None:
