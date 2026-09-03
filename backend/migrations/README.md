@@ -803,39 +803,46 @@ Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
 `6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
 e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
 
-**Próximo gate único:**
-`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
-autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
-posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
-Production automatico decorrente. Nao autoriza caller, runtime, worker,
+**Próximo gate único daquele recorte histórico (consumido no merge da PR #354):**
+O nome não constitui autorização já concedida. Naquele recorte histórico,
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR` era o sucessor fechado.
+Posteriormente, ele foi consumido por autorização humana nominal exclusivamente
+para o merge da PR #354, que ocorreu via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597` (`mergedAt=2026-09-01T02:27:21Z`), e
+o deployment Vercel Production automático decorrente (`6193336784`). O deployment
+Vercel Production automático decorrente prova somente o frontend. Seus limites
+operacionais continuaram fechados: não autorizou caller, runtime, worker,
 consentimento, banco, migration, commit, send, drain V1/V0,
-receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
-adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
-autoriza `AgentConfig`.
+receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
+deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
+PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
 
-## Catálogo evolutivo e CI, candidato offline
+## Catálogo evolutivo e CI
 
-O candidato M1A/M1B preserva os 75 arquivos atuais como prefixo histórico
-imutável e representa crescimento por lotes append-only de uma migration. O
-verificador estrito exige o head anterior aprovado para um lote novo.
-Consumidores históricos de expectativa, derivação e proposta v3 leem somente o
-prefixo após validar o snapshot completo do head corrente.
+A fundação M1 preserva os 75 arquivos atuais como prefixo histórico imutável e
+representa crescimento por lotes append-only de uma migration. O verificador
+estrito exige o head anterior aprovado para um lote novo. Consumidores
+históricos de expectativa, derivação e proposta v3 leem somente o prefixo após
+validar o snapshot completo do head corrente.
 
-A M1C acrescenta `migration-catalog-head.yml`. Em pull request ou push para
-`main`, o job confirma o SHA e o ancestral do evento e, quando há append, lê o
-head anterior somente dos objetos Git locais. Em seguida valida o head estrito,
-o manifesto histórico source-only e a estrutura v3 ainda bloqueada. O workflow
-não foi executado nesta missão e não recebe DSN ou segredo.
+O workflow dedicado `migration-catalog-head.yml` executa em pull request e push
+para `main`. Ele confirma o SHA e o ancestral do evento e, quando há append, lê
+o head anterior somente dos objetos Git locais. Em seguida valida o head estrito,
+o manifesto histórico source-only e a estrutura v3 bloqueada, sem receber DSN ou
+segredo.
 
 Nada neste contrato altera ou libera `apply_migrations.py`. Migration criada,
 head válido, teste verde ou hash correto não autorizam `status`, `apply`, banco,
 DEV ou PROD. A decisão detalhada está em
 [`2026-09-02-migration-catalog-evolution.md`](../../docs/decisions/2026-09-02-migration-catalog-evolution.md).
 
-M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
-no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
-integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
-deploy.
+As entregas M1A-M1E e M1I foram integradas em `main` pela PR #361 via merge
+commit `8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (parent 1 `e5d07e60`,
+parent 2 `03d1cd2a`), com a árvore do merge coincidindo exatamente com
+`03d1cd2a`. Os 10 checks na PR e os oito workflows pós-merge no GitHub Actions
+concluíram com sucesso. O deployment Vercel Production automático aplica-se
+exclusivamente ao frontend. CI verde e deployment frontend não provam
+migration, banco de dados, backend, DEV, PROD, flags ou runtime.
 
 A M1D reconciliou a documentação pós-commit e a M1E é a correção técnica que
 introduziu `_directory_identity`, `_stable_file_unchanged`, ajustes de call
@@ -844,7 +851,7 @@ voláteis (`links`, que pode mudar especialmente com criação ou remoção de
 subdiretórios, `size`, `mtime_ns` e `ctime_ns`) de diretórios ancestrais, sem
 enfraquecer `device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados
 completos dos arquivos, o diretório do catálogo e cada migration continuam sob
-comparação integral. A evidência completa, as limitações e o gate sucessor
+comparação integral. A evidência completa, as limitações e os registros de gates
 estão centralizados na decisão técnica.
 
 ## Transações especiais

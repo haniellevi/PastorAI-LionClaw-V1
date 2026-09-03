@@ -750,15 +750,19 @@ Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
 `6192384421`, status `17596918017`, também concluiu com `success`. Preview não
 é Vercel Production e esta evidência não prova runtime, banco ou efeito vivo.
 
-**Próximo gate único:**
-`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome não constitui
-autorização já concedida. Seu consumo exige autorização humana nominal,
-posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
-Production automático decorrente. Não autoriza caller, runtime, worker,
+**Próximo gate único daquele recorte histórico (consumido no merge da PR #354):**
+O nome não constitui autorização já concedida. Naquele recorte histórico,
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR` era o sucessor fechado.
+Posteriormente, ele foi consumido por autorização humana nominal exclusivamente
+para o merge da PR #354, que ocorreu via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597` (`mergedAt=2026-09-01T02:27:21Z`), e
+o deployment Vercel Production automático decorrente (`6193336784`). O deployment
+Vercel Production automático decorrente prova somente o frontend. Seus limites
+operacionais continuaram fechados: não autorizou caller, runtime, worker,
 consentimento, banco, migration, commit, send, drain V1/V0,
-receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
-adicional, mensagem, tool call ou qualquer outro efeito vivo. Também não
-autoriza `AgentConfig`.
+receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
+deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
+PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
 
 
 

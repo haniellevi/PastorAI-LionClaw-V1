@@ -1,8 +1,8 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-28 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A e o
-`bootstrap-ledger` integrados e inativos, e o template D2B2b2 ainda não
-aprovado. A D2B2b3A existe
+Atualizado em 2026-09-03 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
+`bootstrap-ledger` integrados e inativos, e as entregas M1A-M1E e M1I do catálogo
+de migrations integradas em `main` pela PR #361 (merge 8aacf98d). A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -14,29 +14,33 @@ produção.
   `c525d6a3897a12c6c287f9fc79a88b32b34cd452`. O relato operacional do canário
   ativo não contém um artefato versionado que permita reconstituir o SHA exato
   servido durante a janela; ele deve ser revalidado antes de qualquer rollout;
-- frontend Vercel `pastorai-frontend-prod`, último estado preservado em
-  evidência versionada anterior e não revalidado nesta atualização: deployment
-  `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
-  `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
+- frontend Vercel `pastorai-frontend-prod`: deployment Production correlacionado
+  ao SHA `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, GitHub deployment
+  `6237190951`, concluído com sucesso em 2026-09-03T04:52:17Z (`READY`). Esta
+  prova aplica-se exclusivamente ao frontend Next.js e não revalida backend,
+  banco de dados ou runtime;
 - Supabase PROD: `pffafnchtxbimpwyaczq`, último estado preservado em evidência
   versionada anterior `ACTIVE_HEALTHY`, não revalidado nesta atualização;
 - Clerk: instância PROD preservada em evidência versionada anterior por
   prefixos `sk_live_` e `pk_live_`, não revalidada nesta atualização, issuer
   `https://clerk.igreja12.com.br` e JWKS
   `https://clerk.igreja12.com.br/.well-known/jwks.json`;
-- ao final do canário, o operador confirmou `AgentConfig.ativo=false` e as
+- ao final do canário, no último registro operacional/histórico preservado, o operador confirmou `AgentConfig.ativo=false` e as
   flags externas restauradas para `ALLOW_REAL_SENDS=false`,
   `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
-  `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
-  leitura atual de produção feita por esta atualização documental;
+  `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional preservado, não
+  uma leitura atual de produção feita por esta atualização documental;
 - baseline do preflight PROD anterior, preservada como evidência histórica:
   `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`. Esse SHA não é tratado como
   ponteiro móvel de `origin/main`. A implementação D2B2b3A veio do merge #320
   `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; merge em `main` não comprova
   backend ou banco, por isso o estado versionado e o estado operacional são
   registrados separadamente;
-- base versionada desta reconciliação pós-merge:
-  `3a5789c784017ab15a43e28c4270d25af8618359`, merge da PR #323. Ela prova o
+- baseline histórico da PR #323, preservada como evidência histórica de
+  reconciliação anterior: `3a5789c784017ab15a43e28c4270d25af8618359`, merge da
+  PR #323;
+- base versionada desta reconciliação e referência atual de `origin/main`:
+  `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361. Ela prova o
   código integrado e as evidências de CI associadas, sem provar bootstrap,
   migration, backend implantado, banco ou runtime compartilhado.
 
@@ -1629,32 +1633,19 @@ Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
 `6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
 e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
 
-**Próximo gate único:**
-`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
-autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
-posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
-Production automatico decorrente. Nao autoriza caller, runtime, worker,
+**Próximo gate único daquele recorte histórico (consumido no merge da PR #354):**
+O nome não constitui autorização já concedida. Naquele recorte histórico,
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR` era o sucessor fechado.
+Posteriormente, ele foi consumido por autorização humana nominal exclusivamente
+para o merge da PR #354, que ocorreu via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597` (`mergedAt=2026-09-01T02:27:21Z`), e
+o deployment Vercel Production automático decorrente (`6193336784`). O deployment
+Vercel Production automático decorrente prova somente o frontend. Seus limites
+operacionais continuaram fechados: não autorizou caller, runtime, worker,
 consentimento, banco, migration, commit, send, drain V1/V0,
-receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
-adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
-autoriza `AgentConfig`.
-
-**Atualizacao pos-merge (2026-09-01):**
-A PR mencionada no gate acima foi mergeada via squash no commit
-`c24ea748ab5e484958590af481f08f1c2b185597`
-(`mergedAt=2026-09-01T02:27:21Z`), apos os sete workflows GitHub e o Vercel
-Preview do commit tecnico `12469fb7270206004fd1f7859f1a460e695dc05c`
-concluirem com `SUCCESS`. Esse commit tecnico corrigiu inconsistencias de
-sincronizacao entre documentos canonicos que quebravam
-`test_d2b2b2_decision_packet_docs.py` (5 testes), sem alterar codigo,
-migration ou comportamento.
-
-O merge disparou o deployment automatico Vercel Production
-`6193336784` (`ref=c24ea748ab5e484958590af481f08f1c2b185597`,
-`state=success`). Essa evidencia prova somente o frontend; nao prova backend,
-banco ou runtime. O conteudo mergeado (staging transacional offline) mantem
-caller, runtime, worker, `AgentConfig`, consentimento, banco e migration
-bloqueados.
+receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
+deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
+PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
 
 Nenhum proximo passo funcional foi nomeado nesta sessao; a sequencia de PRs
 D3/staging transacional (#337 a #354) nao define explicitamente a proxima
@@ -1663,6 +1654,56 @@ reconciliacao de historico de migrations (contrato
 `2026-08-28-migration-history-reconciliation-contract.md`) permanece com seu
 proprio gate pendente, nao afetado por este merge: autorizacao para
 investigar a causa do `exit 7` nas duas tentativas de preflight DEV.
+
+### Fundação M1 do catálogo evolutivo de migrations (PR #361, 2026-09-03)
+
+As entregas M1A-M1E e M1I foram integradas em `main` pela PR #361 via merge
+commit `8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (parent 1 `e5d07e60`, parent 2
+`03d1cd2a`), com a árvore do merge coincidindo exatamente com a de `03d1cd2a`.
+Durante a fase aberta observou-se `mergeStateStatus=CLEAN` e após o merge a API
+retornou `mergeStateStatus=UNKNOWN`. Os 10 checks na PR e os oito workflows pós-merge
+no GitHub Actions em `main` concluíram com sucesso (100% verde). O Vercel
+Production automático concluiu com sucesso (`Ready`) e aplica-se exclusivamente ao
+frontend Next.js. CI verde e deployment frontend não provam migration, banco de dados,
+backend, DEV, PROD, flags ou runtime, e o merge não autorizou nem alterou a flag
+`AgentConfig.ativo`.
+
+O preflight e fetch pós-merge sob o gate
+`OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_POSTMERGE_BASE` foi inicialmente
+bloqueado pela política shell do executor e concluído pelo supervisor Codex, que
+atualizou `origin/main` localmente de `e5d07e60` para `8aacf98d` sem checkout e
+sem alterar o working tree.
+
+O gate `OWNER_AUTHORIZE_CREATE_WORKTREE_AND_EDIT_M1J_R2_CANONICAL_RECONCILIATION`
+foi consumido com a criação da worktree `m1j-postmerge-reconciliation-v2` sobre
+`8aacf98d` pelo supervisor Codex, e a edição exclusiva dos seis documentos
+autorizados pelo executor Antigravity, sem commit, rede, banco, migration,
+deploy ou efeito operacional, mantendo a worktree `migration-catalog-head-v1`
+intacta.
+
+O gate de commit `OWNER_AUTHORIZE_COMMIT_M1J_R2_CANONICAL_RECONCILIATION` não foi
+consumido e foi substituído pela revisão corretiva R3.
+
+O gate `OWNER_AUTHORIZE_EDIT_M1J_R3_CORRECT_CANONICAL_DRIFT` foi consumido para a
+correção documental R3.
+
+O gate de commit `OWNER_AUTHORIZE_COMMIT_M1J_R3_CANONICAL_RECONCILIATION` foi
+proposto, não consumido e substituído após a revisão do Codex detectar
+divergência entre os documentos canônicos e o teste.
+
+O gate `OWNER_AUTHORIZE_EDIT_M1J_R4_DOC_TEST_CANONICAL_RECONCILIATION` foi
+consumido para a correção documental ampliada e do teste.
+
+O gate de commit `OWNER_AUTHORIZE_COMMIT_M1J_R4_CANONICAL_RECONCILIATION` foi
+proposto, não consumido e substituído após duas falhas determinísticas
+encontradas pelo Codex na execução do teste documental.
+
+O gate `OWNER_AUTHORIZE_EDIT_M1J_R5_FINAL_DOC_TEST_ALIGNMENT` foi consumido
+exclusivamente para esta correção final de alinhamento entre documentos e testes.
+
+Os gates da PR #354 são estritamente históricos e já consumidos.
+`operational_authorization=false` e `next_stage_authorized=false` continuam estritos.
+Nenhuma próxima implementação funcional é escolhida ou autorizada nesta missão.
 
 ## Paralelismo seguro
 

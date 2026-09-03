@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no `main` auditado
-`fb776e270bf3e2ffde0cbb28e400960591b74420`. O `bootstrap-ledger` permanece
+`8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (em 2026-09-03). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -80,7 +80,7 @@ qualquer expansão do canário.
 - papéis e capacidades são resolvidos no servidor;
 - consentimento, opt-out, handoff e estado IA/humano são respeitados;
 - credencial BYO válida não ativa o agente;
-- `AgentConfig.ativo=false` impede resposta automática;
+- no último registro operacional/histórico, `AgentConfig.ativo=false` impede resposta automática (esta missão não realizou consulta viva de produção);
 - `marcar_presenca` permanece desabilitada no runtime;
 - falhas novas da fila possuem metadados seguros para investigação.
 
@@ -117,9 +117,11 @@ serviço do agente. A UoW pode agrupar relatório, auditoria sem conteúdo e
 consentimento operacional, `AgentConfig`, commit, send, receipt global e
 resposta pós-commit continuam bloqueados.
 
-Mensagens ficam registradas e áudio pode ser armazenado, mas não foi encontrada
-transcrição operacional. O parser de relatório produz um evento de auditoria e
-uma resposta, porém não grava o relatório oficial da reunião.
+Mensagens ficam registradas e áudio pode ser armazenado; `backend/app/services/llm.py`
+possui `transcribe_audio` e testes dedicados, mas não existe caller de produção
+integrado ao fluxo WhatsApp nem prova de execução operacional, banco ou ambiente.
+O parser de relatório produz um evento de auditoria e uma resposta, porém não grava
+o relatório oficial da reunião.
 
 ### Operação pastoral
 
@@ -180,7 +182,8 @@ Foram enviadas somente as mensagens sintéticas `Olá`, `Aceito` e
 - três mensagens de entrada e três de saída;
 - autoria da IA preservada;
 - filas e dead-letter canônicas vazias;
-- `AgentConfig.ativo=false` e `ALLOW_REAL_SENDS=false` restaurados ao final;
+- no relato do operador ao final do canário, `AgentConfig.ativo=false` e
+  `ALLOW_REAL_SENDS=false` foram restaurados;
 - Asaas, Brevo e broadcast permaneceram fechados.
 
 Esses itens são relato do operador. A janela não deixou artefato versionado
@@ -391,7 +394,7 @@ Brevo ou broadcast.
   versionada, RBAC e callers seguros;
 - PRDs próprios para Formação e máquina de estados da Jornada.
 
-## Catálogo evolutivo de migrations e CI, candidato offline
+## Catálogo evolutivo de migrations e CI
 
 A fundação offline separa o prefixo histórico de 75 migrations do head
 corrente append-only. Consumidores de evidência histórica usam somente esse
@@ -405,20 +408,23 @@ somente do Git local quando há append e executa o head estrito, o manifesto
 histórico e a estrutura v3 bloqueada. Não há runner, DSN, segredo ou banco
 nesse caminho.
 
-O candidato não acessou banco, DEV, PROD ou rede e mantém
-`operational_authorization=false` e `next_stage_authorized=false`. O workflow
-remoto também não foi executado nesta missão. Consulte
+As entregas M1A-M1E e M1I foram integradas em `main` pela PR #361 via merge
+commit `8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (parent 1 `e5d07e60`,
+parent 2 `03d1cd2a`), com a árvore do merge coincidindo exatamente com a de
+`03d1cd2a`. Os 10 checks na PR e os oito workflows pós-merge no GitHub Actions
+concluíram com sucesso. O deployment Vercel Production automático aplica-se
+exclusivamente ao frontend. CI verde e deployment frontend não provam
+migration, banco de dados, backend, DEV, PROD, flags ou runtime.
+`operational_authorization=false` e `next_stage_authorized=false` continuam
+estritos. Consulte
 [`2026-09-02-migration-catalog-evolution.md`](decisions/2026-09-02-migration-catalog-evolution.md).
 
-M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
-no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
-integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
-deploy. A M1D reconciliou a documentação pós-commit e a M1E introduziu
+A M1D reconciliou a documentação pós-commit e a M1E introduziu
 `_directory_identity`, `_stable_file_unchanged`, call sites e quatro testes
 adversariais contra falsos positivos de metadados voláteis de diretórios
 ancestrais (como `links`, que pode mudar especialmente com criação ou remoção de
 subdiretórios), sem enfraquecer identidade de segurança (`device`, `inode`,
-`mode`, `uid`, `gid`). Evidência, limitações e o gate sucessor estão na
+`mode`, `uid`, `gid`). Evidência, limitações e registros de gates estão na
 decisão técnica.
 
 ## Fontes de verdade
@@ -1311,12 +1317,16 @@ Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
 `6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
 e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
 
-**Próximo gate único:**
-`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
-autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
-posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
-Production automatico decorrente. Nao autoriza caller, runtime, worker,
+**Próximo gate único daquele recorte histórico (consumido no merge da PR #354):**
+O nome não constitui autorização já concedida. Naquele recorte histórico,
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR` era o sucessor fechado.
+Posteriormente, ele foi consumido por autorização humana nominal exclusivamente
+para o merge da PR #354, que ocorreu via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597` (`mergedAt=2026-09-01T02:27:21Z`), e
+o deployment Vercel Production automático decorrente (`6193336784`). O deployment
+Vercel Production automático decorrente prova somente o frontend. Seus limites
+operacionais continuaram fechados: não autorizou caller, runtime, worker,
 consentimento, banco, migration, commit, send, drain V1/V0,
-receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
-adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
-autoriza `AgentConfig`.
+receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
+deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
+PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.

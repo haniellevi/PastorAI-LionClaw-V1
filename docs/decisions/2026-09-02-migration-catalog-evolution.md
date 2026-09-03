@@ -1,10 +1,12 @@
 # Catálogo evolutivo de migrations e consumidores históricos
 
-**Estado:** `M1A-M1E INTEGRADAS LOCALMENTE (commits 1150fe92 e 2e381c3) /
-COMPROVADAS OFFLINE / CATÁLOGO CORRENTE COM 75 MIGRATIONS /
-CI REMOTO NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`
+**Estado:** `M1A-M1E E M1I INTEGRADAS EM MAIN (PR #361, merge 8aacf98d) /
+COMPROVADAS EM CI / CATÁLOGO CORRENTE COM 75 MIGRATIONS /
+OPERAÇÃO BLOQUEADA`
 
-**Base:** `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
+**Base histórica da fundação:** `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
+
+**Base da reconciliação M1J-R2:** `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`
 
 ## Decisão
 
@@ -45,7 +47,7 @@ v3 antes desta adaptação. Ele continua sendo evidência daquele artefato e nã
 deve ser substituído retroativamente nem interpretado como hash dos bytes
 candidatos da M1B.
 
-## Integração CI candidata
+## Integração CI
 
 O workflow dedicado `migration-catalog-head.yml` executa em `pull_request` e
 em push para `main`, com `contents: read`, histórico completo no checkout e sem
@@ -65,8 +67,8 @@ prefixo bloqueiam o job.
 Depois do head estrito, o mesmo job valida o manifesto histórico source-only e
 a estrutura bloqueada da proposta v3. Ele não chama `apply_migrations.py`, não
 recebe DSN ou segredo, não acessa banco e não transforma CI verde em
-autorização operacional. O workflow não foi executado nesta missão, pois
-commit, push, PR e rede continuam fora do escopo.
+autorização operacional. O workflow foi integrado e executado com sucesso na
+PR #361 e no push para `main`.
 
 ## Provas e limites
 
@@ -148,24 +150,118 @@ A limitação preexistente do modo 0775 não é regressão da M1E. Ela permanece
 registrada como P2 conhecido, exigindo decisão humana separada sobre
 permissões de diretório antes de qualquer attestation operacional.
 
-## Gate sucessor
+## Atualização pós-commit M1I (2026-09-03)
 
-`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1_MIGRATION_CATALOG` é o único gate
-sucessor após a versionação desta reconciliação documental.
+O gate `OWNER_AUTHORIZE_COMMIT_M1I_POSTCOMMIT_RECONCILIATION` foi consumido
+exclusivamente para o commit local `03d1cd2a7072b391e8f148d150dc6888d709bc34`,
+com parent `2e381c326953d879f781bf39ea08ca1e2c510835`, na branch
+`feat/migration-catalog-head-v1`, sobre a base
+`e5d07e60c2eb9dafae671323bde60d1fa1be5749`.
 
-Enquanto esta reconciliação M1I permanecer apenas no working tree, o gate
-remoto ainda não pode ser consumido; depois que esta reconciliação for revisada e
-commitada localmente, o gate remoto passa a ser o único próximo gate. O gate
-remoto continua fechado e exige autorização humana posterior e separada.
+Esse consumo reconciliou exclusivamente a documentação pós-commit nos quatro
+documentos autorizados sem alterar código ou testes, mantendo
+`operational_authorization=false` e `next_stage_authorized=false`.
 
-Seu escopo permanece registrado para autorização humana posterior e separada:
+## Preflight remoto, push e abertura da PR #361 (2026-09-03)
 
-1. consultar por rede o SHA atual de `origin/main` sem modificar referências
-   locais;
-2. confirmar no upstream os SHA fixados de `actions/checkout` e
-   `actions/setup-python`;
-3. registrar resultados sanitizados e horários da consulta.
+O gate `OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1_MIGRATION_CATALOG` foi consumido
+exclusivamente para consulta remota somente leitura de `refs/heads/main` via
+`git ls-remote`, confirmando a base `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
+sem realizar fetch, pull ou mutação de referências.
 
-Esse gate não autoriza fetch, pull, push, PR, merge, execução do workflow
-remoto, migration SQL, runner, banco, DEV, PROD, deploy, flags, mensagens
-nem qualquer outro efeito operacional.
+Em seguida, o gate `OWNER_AUTHORIZE_PUSH_AND_PR_M1_MIGRATION_CATALOG` foi
+consumido por autorização humana nominal exclusivamente para:
+1. push da branch `feat/migration-catalog-head-v1` (HEAD `03d1cd2a`);
+2. abertura da PR #361 contra `main` (observando `mergeStateStatus=CLEAN` antes do merge);
+3. execução automática dos checks de CI (10/10 concluídos com sucesso) e Vercel
+   Preview (`Ready`);
+4. consulta somente leitura dos resultados da PR e CI.
+
+Esse gate não autorizou merge, migration SQL, runner, banco, DEV, PROD,
+deploy manual ou qualquer efeito operacional.
+
+## Integração em main via PR #361 (2026-09-03)
+
+As entregas M1A-M1E e M1I foram integradas em `main` pela PR #361
+(https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/361).
+
+O gate `OWNER_AUTHORIZE_MERGE_PR_361_MIGRATION_CATALOG` foi consumido
+exclusivamente pelo merge autorizado da PR #361 via merge commit.
+
+O merge commit é `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, com dois
+parents:
+- Parent 1 (`main` anterior): `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
+- Parent 2 (`feat/migration-catalog-head-v1`): `03d1cd2a7072b391e8f148d150dc6888d709bc34`
+
+A árvore do merge commit `8aacf98d` coincide exatamente com a árvore de
+`03d1cd2a7072b391e8f148d150dc6888d709bc34`. Após o merge, a API reportou
+`mergeStateStatus=UNKNOWN`, distinguindo-se do estado `CLEAN` observado
+durante a fase aberta.
+
+Os oito workflows pós-merge no GitHub Actions em `main` concluíram com sucesso:
+- `Migration Catalog Head / migration-catalog-head` (16s);
+- `Tooling Static Checks / tooling-static` (25s);
+- `Environment Attestation PG17 / environment-attestation-pg17` (54s);
+- `Canonical Schema Derivation / canonical-schema-derivation` (1m11s);
+- `E2E Critical / e2e-critical` (1m35s);
+- `Frontend CI / frontend-ci` (1m51s);
+- `RLS Integration / rls-integration` (1m52s);
+- `Backend Tests / backend-tests` (2m17s).
+
+O deployment Vercel Production automático decorrente do merge concluiu com
+sucesso (`Ready`, https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/Zu3UjbDN42QYPwsnDxN4rToQwDCr)
+e aplica-se exclusivamente ao frontend Next.js.
+
+CI verde e deployment frontend não provam migration, banco de dados, backend,
+DEV, PROD, flags ou runtime. `operational_authorization=false` e
+`next_stage_authorized=false` continuam estritos.
+
+## Preflight e atualização local pós-merge (2026-09-03)
+
+O gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_POSTMERGE_BASE` foi inicialmente
+bloqueado pela política shell do executor e posteriormente concluído com
+sucesso pelo supervisor Codex, que realizou o fetch mínimo sem checkout e
+atualizou `origin/main` localmente de `e5d07e60` para `8aacf98d` sem alterar o
+working tree.
+
+## Worktree e reconciliação canônica M1J-R2/R3/R4/R5 (2026-09-03)
+
+O gate `OWNER_AUTHORIZE_CREATE_WORKTREE_AND_EDIT_M1J_R2_CANONICAL_RECONCILIATION`
+foi consumido com a criação da worktree `m1j-postmerge-reconciliation-v2` sobre
+a base `8aacf98d` pelo supervisor Codex, e a edição exclusiva dos seis documentos
+autorizados pelo executor Antigravity.
+
+Não houve commit, rede, banco, migration, deploy ou efeito operacional.
+A worktree anterior `migration-catalog-head-v1` permaneceu intacta.
+
+O gate de commit `OWNER_AUTHORIZE_COMMIT_M1J_R2_CANONICAL_RECONCILIATION` não foi
+consumido e foi substituído pela revisão corretiva R3.
+
+O gate `OWNER_AUTHORIZE_EDIT_M1J_R3_CORRECT_CANONICAL_DRIFT` foi consumido para
+a correção documental R3.
+
+O gate de commit `OWNER_AUTHORIZE_COMMIT_M1J_R3_CANONICAL_RECONCILIATION` foi
+proposto, não consumido e substituído após a revisão do Codex detectar
+divergência entre os documentos canônicos e o teste.
+
+O gate `OWNER_AUTHORIZE_EDIT_M1J_R4_DOC_TEST_CANONICAL_RECONCILIATION` foi
+consumido para a correção documental ampliada e do teste.
+
+O gate de commit `OWNER_AUTHORIZE_COMMIT_M1J_R4_CANONICAL_RECONCILIATION` foi
+proposto, não consumido e substituído após duas falhas determinísticas
+encontradas pelo Codex na execução do teste documental.
+
+O gate `OWNER_AUTHORIZE_EDIT_M1J_R5_FINAL_DOC_TEST_ALIGNMENT` foi consumido
+exclusivamente para esta correção final de alinhamento entre documentos e testes.
+
+Os gates relacionados à PR #354 são estritamente históricos e já consumidos,
+nunca constituindo gates correntes.
+
+`operational_authorization=false` e `next_stage_authorized=false` continuam
+estritos. Nenhuma próxima implementação funcional é escolhida ou autorizada
+nesta missão.
+
+## Próximo gate único
+
+`OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION`. O gate está fechado e
+depende de revisão final do Codex.
