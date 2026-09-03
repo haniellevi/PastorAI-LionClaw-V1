@@ -142,11 +142,11 @@ CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE = (
 CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE = (
     "REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR"
 )
-CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE = (
+CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE = (
     "REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE = (
+    CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -492,13 +492,13 @@ def _normalized_prose(value: str) -> str:
     return " ".join(_without_accents(value).lower().split())
 
 
-def _assert_current_preflight_gate(path: Path, normalized: str) -> None:
+def _assert_expected_preflight_gate(path: Path, normalized: str) -> None:
     expected = (
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE
         if path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS
         else DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE
     ).casefold()
-    assert expected in normalized, f"current preflight gate missing in {path}"
+    assert expected in normalized, f"expected preflight gate missing in {path}"
 
 
 def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
@@ -509,7 +509,9 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
     )
     replay_superseded = D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
-    current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    historical_merge_gate = (
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
+    )
     required = {
         "gate historico",
         "foi consumido pelo push, abertura, ci e preview da pr #351",
@@ -542,7 +544,7 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     assert normalized.count(identity_superseded) == 1
     assert normalized.count(execution_superseded) == 1
     assert normalized.count(replay_superseded) == 1
-    assert normalized.count(current) == 1
+    assert normalized.count(historical_merge_gate) == 1
     assert normalized.index(foundation_consumed) < normalized.index(d3_consumed)
     assert normalized.index(d3_consumed) < normalized.index(identity_superseded)
     assert normalized.index(identity_superseded) < normalized.index("proximo gate unico")
@@ -552,11 +554,15 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     assert normalized.index(execution_superseded) < normalized.index(
         replay_superseded
     )
-    assert normalized.index(replay_superseded) < normalized.index(current)
+    assert normalized.index(replay_superseded) < normalized.index(
+        historical_merge_gate
+    )
     assert normalized.index(execution_superseded) < normalized.index(
         "proximo gate unico"
     )
-    assert normalized.index("proximo gate unico") < normalized.index(current)
+    assert normalized.index("proximo gate unico") < normalized.index(
+        historical_merge_gate
+    )
 
 
 def _assert_unique_string_list(
@@ -1485,7 +1491,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
-        _assert_current_preflight_gate(path, normalized)
+        _assert_expected_preflight_gate(path, normalized)
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         assert "postgresql 17 descartavel" in normalized
@@ -1571,7 +1577,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
-        _assert_current_preflight_gate(path, normalized)
+        _assert_expected_preflight_gate(path, normalized)
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         for stale_status in stale_candidate_statuses:
@@ -1599,7 +1605,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
         ) == 1
         assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         assert "separate_read_only_environment_attestation" not in normalized
@@ -2157,7 +2163,7 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
         assert all(item in normalized for item in common_required), (
             f"offline derivation record missing in {path}"
         )
-        _assert_current_preflight_gate(path, normalized)
+        _assert_expected_preflight_gate(path, normalized)
         for stale_claim in CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS:
             assert stale_claim not in normalized, f"stale pre-merge claim in {path}"
         for claim in prohibited:
@@ -2289,7 +2295,7 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
     for path in canonical_docs | supporting_docs:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert all(item in normalized for item in required), f"deny-state missing in {path}"
-        _assert_current_preflight_gate(path, normalized)
+        _assert_expected_preflight_gate(path, normalized)
         assert "separate_read_only_environment_attestation" not in normalized
         assert (
             "nenhum dev ou prod foi consultado" in normalized
@@ -2314,7 +2320,7 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
         ) == 1
         assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         assert "separate_read_only_environment_attestation" not in normalized
@@ -2540,7 +2546,7 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
         ) == 1
         assert "review_and_integrate_dev_identity_preflight_runner_pr" not in normalized
         assert "review_and_integrate_dev_identity_preflight_diagnostics_pr" not in normalized
@@ -2860,7 +2866,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold(),
         "foi substituido localmente, sem consumo, pelo lote combinado",
         "nao houve push, pr, ci ou preview sob esse gate",
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
@@ -2940,7 +2946,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
             )
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
         ) == 1
         _assert_reconciled_d3_gate(path, normalized)
         assert normalized.count(
@@ -3036,7 +3042,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
     ) == 1
     assert phase_adr.count(
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
     ) == 1
     _assert_reconciled_d3_gate(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH, phase_adr)
     assert phase_adr.count(
@@ -3150,7 +3156,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
     ) == 1
     assert diagnostics_adr.count(
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
     ) == 1
     _assert_reconciled_d3_gate(
         DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH,
@@ -3176,7 +3182,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert plan["operational_authorization"] is False
     assert plan["next_stage_authorized"] is False
     assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
-    assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
+    assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE
     assert plan["next_gate"] != OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE
     assert plan["next_gate"] != D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE
     assert plan["next_gate"] != DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE
@@ -3233,7 +3239,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "nao e um segundo gate corrente" in readme
     assert OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold() in readme
     assert D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold() in readme
-    assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
+    assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold() in readme
     assert DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold() in readme
     assert "pr #348" in readme
     assert "1e727cd2ea90ccfb68961174b802d595c71f355b" in readme
@@ -3258,7 +3264,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
     assert readme.count(OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()) == 1
     assert readme.count(D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()) == 1
-    assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
+    assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()) == 1
     _assert_reconciled_d3_gate(readme_path, readme)
     assert readme.count(DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()) == 1
     assert readme.count(
@@ -3631,7 +3637,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
         ) == 1
         assert normalized.count(
-            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
         ) == 1
         assert normalized.index("pr #352") < normalized.index(identity_commit)
         assert normalized.index(identity_commit) < normalized.index(wiring_commit)
@@ -3653,7 +3659,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         assert normalized.index(
             D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
         ) < normalized.index(
-            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE.casefold()
         )
 
     architecture = _normalized_prose(
@@ -4123,7 +4129,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "foi substituido localmente, sem consumo, pelo lote de staging transacional",
         "nao houve push, pr, ci ou preview sob esse gate",
         CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
-        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE.casefold(),
         "foi consumido pela autorizacao humana nominal da rodada de pr",
         "pr #354",
         "69f9eecdfb95691b4633a42ef597452f63e82e48",
@@ -4141,13 +4147,17 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "17596918017",
         "preview nao e vercel production",
         CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold(),
-        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE.casefold(),
+        "proximo gate unico daquele recorte historico (consumido no merge da pr #354)",
+        "foi consumido por autorizacao humana nominal exclusivamente",
+        "merge da pr #354, que ocorreu via squash no commit",
+        "c24ea748ab5e484958590af481f08f1c2b185597",
         (
-            "autoriza somente um merge futuro da pr #354 e o vercel production "
-            "automatico decorrente"
+            "o merge da pr #354 nao autorizou, alterou ou comprovou o estado "
+            "vivo de `agentconfig.ativo`"
         ),
         (
-            "nao autoriza caller, runtime, worker, consentimento, banco, "
+            "nao autorizou caller, runtime, worker, consentimento, banco, "
             "migration, commit, send"
         ),
         "commit, send, drain v1/v0, receipt global",
@@ -4216,14 +4226,18 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "concluiu `go`, com p0, p1 e p2 iguais a zero",
         CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
         CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold(),
-        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE.casefold(),
         "foi consumido pela autorizacao humana nominal da rodada de pr",
         "pr #354",
         "sete workflows github concluiram com `success`",
         "vercel preview automatico do frontend",
+        "proximo gate unico daquele recorte historico (consumido no merge da pr #354)",
+        "foi consumido por autorizacao humana nominal exclusivamente",
+        "merge da pr #354, que ocorreu via squash no commit",
+        "c24ea748ab5e484958590af481f08f1c2b185597",
         (
-            "autoriza somente um merge futuro da pr #354 e o vercel production "
-            "automatico decorrente"
+            "o merge da pr #354 nao autorizou, alterou ou comprovou o estado "
+            "vivo de `agentconfig.ativo`"
         ),
     }
     for file_path, digest in transactional_file_sha256.items():
@@ -4260,7 +4274,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
         ) == 1
         assert normalized.count(
-            CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
+            CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE.casefold()
         ) == 1
         assert normalized.index(application_head_commit) < normalized.index(
             reply_reservation_source_commit
@@ -4294,7 +4308,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         assert normalized.index(
             CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
         ) < normalized.index(
-            CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
+            CELL_REPORT_TRANSACTIONAL_STAGING_HISTORICAL_MERGE_GATE.casefold()
         )
         for stale_claim in (
             "reserva v2 persistida",
@@ -4304,6 +4318,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "drain v1/v0 executado",
             "revisao tecnica consolidada pendente",
             "nao constitui freeze final",
+            "autoriza somente um merge futuro da pr #354",
+            "merge futuro da pr #354",
         ):
             assert stale_claim not in normalized
 

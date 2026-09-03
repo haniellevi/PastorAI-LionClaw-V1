@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: ai-bootstrap
 status: canonical
-last_verified: 2026-08-31
-audited_repository_sha: fb776e270bf3e2ffde0cbb28e400960591b74420
+last_verified: 2026-09-03
+audited_repository_sha: 8aacf98d9abbfd945226afb652ef38efa2fc6cfa
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -1115,15 +1115,36 @@ Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
 `6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
 e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
 
-**Próximo gate único:**
-`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
-autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
-posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
-Production automatico decorrente. Nao autoriza caller, runtime, worker,
+**Próximo gate único daquele recorte histórico (consumido no merge da PR #354):**
+O nome não constitui autorização já concedida. Naquele recorte histórico,
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR` era o sucessor fechado.
+Posteriormente, ele foi consumido por autorização humana nominal exclusivamente
+para o merge da PR #354, que ocorreu via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597` (`mergedAt=2026-09-01T02:27:21Z`), e
+o deployment Vercel Production automático decorrente (`6193336784`). O deployment
+Vercel Production automático decorrente prova somente o frontend. Seus limites
+operacionais continuaram fechados: não autorizou caller, runtime, worker,
 consentimento, banco, migration, commit, send, drain V1/V0,
-receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
-adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
-autoriza `AgentConfig`.
+receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
+deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
+PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
+
+Posteriormente, as entregas M1A-M1E e M1I da fundação do catálogo evolutivo de
+migrations foram integradas em `main` pela PR #361 via merge commit
+`8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (parent 1 `e5d07e60`, parent 2
+`03d1cd2a`), com árvore de merge idêntica à de `03d1cd2a`. Os 10 checks na PR
+e os oito workflows pós-merge no GitHub Actions em `main` concluíram com
+sucesso (100% verde). O Vercel Production automático concluiu com sucesso
+(`Ready`) e aplica-se exclusivamente ao frontend Next.js. CI verde e deployment
+frontend não provam migration, banco, backend, DEV, PROD, flags ou runtime, e o
+merge não autorizou nem alterou `AgentConfig.ativo`. O preflight e fetch sob o
+gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_POSTMERGE_BASE` foi inicialmente
+bloqueado no executor por política de shell e concluído pelo supervisor Codex,
+que atualizou `origin/main` localmente de `e5d07e60` para `8aacf98d` sem checkout
+e sem alterar o working tree. Os gates da PR #354 são estritamente históricos e
+já consumidos. `operational_authorization=false` e `next_stage_authorized=false`
+permanecem estritos. Nenhuma próxima implementação funcional é escolhida ou
+documentada nesta missão.
 
 ## Roteiro de leitura
 

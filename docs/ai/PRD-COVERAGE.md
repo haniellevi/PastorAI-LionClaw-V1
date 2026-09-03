@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
-last_verified: 2026-08-31
-audited_repository_sha: fb776e270bf3e2ffde0cbb28e400960591b74420
+last_verified: 2026-09-03
+audited_repository_sha: 8aacf98d9abbfd945226afb652ef38efa2fc6cfa
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -46,7 +46,7 @@ significa ativa em produção.
 | Minha Célula | `IMPLEMENTADO / PARCIAL` | reuniões, presenças, visitantes, relatórios e materiais | Completar operação WhatsApp e honestidade entre intenção e entrega |
 | Central de Células | `IMPLEMENTADO / PARCIAL` | gestão, solicitações, transferência, remoção e eventos append-only | Especialista WhatsApp, planejamento e comunicação pela outbox |
 | Relatório de célula web | `IMPLEMENTADO / WRITERS SERIALIZADOS LOCALMENTE` | Os seis writers web mantêm o fluxo humano e agora usam locks tenant-bound de reunião, célula e acesso, takeover explícito e boundary sanitizado | O router humano ainda não usa o mesmo serviço de aplicação do agente; a composição consolidada continua candidata em revisão |
-| Relatório pelo WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | parser, snapshot, workflow, envelope, serviço ORM e UoW que agrupa relatório, auditoria e `Message` `ia_pendente` com flush sem commit | Não existe caller no agente, consentimento `tarefas_operacionais`, `AgentConfig`, commit, send, receipt global, resposta pós-commit, transcrição de áudio ou idempotência operacional comprovada |
+| Relatório pelo WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | parser, snapshot, workflow, envelope, serviço ORM e UoW que agrupa relatório, auditoria e `Message` `ia_pendente` com flush sem commit | Não existe caller no agente, consentimento `tarefas_operacionais`, commit, send, receipt global, resposta pós-commit ou idempotência operacional comprovada; `transcribe_audio` existe em `backend/app/services/llm.py` com testes dedicados, mas sem caller de produção no WhatsApp nem prova operacional; o merge não alterou nem autorizou `AgentConfig.ativo` |
 | Agenda | `PARCIAL` | CRUD, visões, confirmações, importação Google e alertas internos | Operação WhatsApp, envio futuro unificado e semântica de entrega |
 | Consolidação | `PARCIAL` | decisões, etapas, responsáveis, SLA e conclusão manual | Máquina de estados e read model duráveis, transações e elegibilidade |
 | Universidade da Vida | `AUSENTE COMO MÓDULO` | Placeholder e referências históricas | PRD, turmas, aulas, presenças, Encontro, batismo, papéis e APIs |
@@ -70,7 +70,7 @@ significa ativa em produção.
 - identidade duplicada e ferramenta desconhecida falham fechadas;
 - papéis e capacidades são injetados pelo servidor;
 - handoff humano, opt-out, consentimento e autoria são preservados;
-- `AgentConfig.ativo=false` bloqueia resposta automática;
+- no último registro operacional/histórico, `AgentConfig.ativo=false` bloqueia resposta automática (esta missão não realizou consulta viva de produção);
 - a credencial é OpenAI BYO por igreja;
 - dead-letter registra metadados seguros para falhas novas.
 
@@ -85,7 +85,7 @@ significa ativa em produção.
 - a fronteira transacional candidata pode preparar e materializar o relatório;
   a UoW offline pode ainda agrupar auditoria e reply pendente na mesma transação
   externa, mas nenhum caminho de runtime a importa ou invoca;
-- mensagens de áudio são armazenadas e exibidas, sem transcrição encontrada;
+- mensagens de áudio são armazenadas e exibidas; `backend/app/services/llm.py` possui `transcribe_audio` com testes dedicados, mas não existe caller de produção integrado ao fluxo WhatsApp nem prova operacional;
 - o runtime continua usando consentimento geral; o ledger D2B2a está integrado,
   inativo, não aplicado em Supabase e não possui caller;
 - a fatia do relatório possui staging específico numa `Message` pendente, mas
@@ -1188,17 +1188,21 @@ Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
 `6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
 e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
 
-**Próximo gate único:**
-`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
-autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
-posterior e separada que autoriza somente um merge futuro da PR #354 e o Vercel
-Production automatico decorrente. Nao autoriza caller, runtime, worker,
+**Próximo gate único daquele recorte histórico (consumido no merge da PR #354):**
+O nome não constitui autorização já concedida. Naquele recorte histórico,
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR` era o sucessor fechado.
+Posteriormente, ele foi consumido por autorização humana nominal exclusivamente
+para o merge da PR #354, que ocorreu via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597` (`mergedAt=2026-09-01T02:27:21Z`), e
+o deployment Vercel Production automático decorrente (`6193336784`). O deployment
+Vercel Production automático decorrente prova somente o frontend. Seus limites
+operacionais continuaram fechados: não autorizou caller, runtime, worker,
 consentimento, banco, migration, commit, send, drain V1/V0,
-receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
-adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
-autoriza `AgentConfig`.
+receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
+deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
+PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
 
-## Catálogo evolutivo de migrations e CI, candidato offline
+## Catálogo evolutivo de migrations e CI
 
 Na base `e5d07e60c2eb9dafae671323bde60d1fa1be5749`, a M1A separa o
 prefixo histórico de 75 migrations do head corrente append-only. A M1B adapta
@@ -1213,23 +1217,26 @@ ancestral e, havendo append, lê o head anterior somente dos objetos Git locais.
 Depois valida o head estrito, o manifesto histórico source-only e a proposta v3
 ainda bloqueada. O job não chama o runner nem recebe segredo ou DSN.
 
-Estado: `M1A-M1E INTEGRADAS LOCALMENTE (commits 1150fe92 e 2e381c3) /
-COMPROVADAS OFFLINE / SEM MIGRATION NOVA /
-BANCO E AMBIENTES NÃO CONSULTADOS / CI REMOTO NÃO EXECUTADO /
+Estado: `M1A-M1E E M1I INTEGRADAS EM MAIN (PR #361, merge 8aacf98d) /
+COMPROVADAS EM CI / SEM MIGRATION NOVA /
+BANCO E AMBIENTES NÃO CONSULTADOS /
 OPERAÇÃO BLOQUEADA`. A
 decisão técnica e os limites estão em
 [`2026-09-02-migration-catalog-evolution.md`](../decisions/2026-09-02-migration-catalog-evolution.md).
 
-M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
-no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
-integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
-deploy. A M1D reconciliou a documentação pós-commit e a M1E introduziu
-`_directory_identity`, `_stable_file_unchanged`, call sites e quatro testes
-adversariais contra falsos positivos de metadados voláteis de diretórios
-ancestrais (como `links`, que pode mudar especialmente com criação ou remoção de
-subdiretórios), sem enfraquecer identidade de segurança (`device`, `inode`,
-`mode`, `uid`, `gid`). Evidência, limitações e o gate sucessor estão na
-decisão técnica.
+As entregas M1A-M1E e M1I foram integradas em `main` pela PR #361 via merge
+commit `8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (parent 1 `e5d07e60`,
+parent 2 `03d1cd2a`), com a árvore do merge coincidindo exatamente com a de
+`03d1cd2a`. Os 10 checks na PR e os oito workflows pós-merge no GitHub Actions
+concluíram com sucesso. O deployment Vercel Production automático aplica-se
+exclusivamente ao frontend. CI verde e deployment frontend não provam
+migration, banco de dados, backend, DEV, PROD, flags ou runtime. A M1D
+reconciliou a documentação pós-commit e a M1E introduziu `_directory_identity`,
+`_stable_file_unchanged`, call sites e quatro testes adversariais contra falsos
+positivos de metadados voláteis de diretórios ancestrais (como `links`, que pode
+mudar especialmente com criação ou remoção de subdiretórios), sem enfraquecer
+identidade de segurança (`device`, `inode`, `mode`, `uid`, `gid`). Evidência,
+limitações e registros de gates estão na decisão técnica.
 
 ## Fontes principais
 
