@@ -391,6 +391,36 @@ Brevo ou broadcast.
   versionada, RBAC e callers seguros;
 - PRDs próprios para Formação e máquina de estados da Jornada.
 
+## Catálogo evolutivo de migrations e CI, candidato offline
+
+A fundação offline separa o prefixo histórico de 75 migrations do head
+corrente append-only. Consumidores de evidência histórica usam somente esse
+prefixo depois de validar a correspondência do head completo com o diretório.
+Cada lote futuro continua limitado a uma migration e exige o head anterior no
+verificador estrito. Runner, SQL e artefatos históricos não foram alterados.
+
+O wiring M1C adiciona um workflow read-only para pull requests e push em
+`main`. O job valida o SHA e o ancestral do evento, obtém o head anterior
+somente do Git local quando há append e executa o head estrito, o manifesto
+histórico e a estrutura v3 bloqueada. Não há runner, DSN, segredo ou banco
+nesse caminho.
+
+O candidato não acessou banco, DEV, PROD ou rede e mantém
+`operational_authorization=false` e `next_stage_authorized=false`. O workflow
+remoto também não foi executado nesta missão. Consulte
+[`2026-09-02-migration-catalog-evolution.md`](decisions/2026-09-02-migration-catalog-evolution.md).
+
+M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
+no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
+integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
+deploy. A M1D reconciliou a documentação pós-commit e a M1E introduziu
+`_directory_identity`, `_stable_file_unchanged`, call sites e quatro testes
+adversariais contra falsos positivos de metadados voláteis de diretórios
+ancestrais (como `links`, que pode mudar especialmente com criação ou remoção de
+subdiretórios), sem enfraquecer identidade de segurança (`device`, `inode`,
+`mode`, `uid`, `gid`). Evidência, limitações e o gate sucessor estão na
+decisão técnica.
+
 ## Fontes de verdade
 
 Em divergência, use esta ordem:

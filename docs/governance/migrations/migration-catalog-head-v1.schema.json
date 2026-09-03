@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.invalid/schemas/migration-catalog-head-v1.json",
+  "$defs": {
+    "append_batch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "pattern": "^migration-catalog-append-[0-9]{4}$",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/migration_entry"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "type": "array"
+        },
+        "previous_catalog_digest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "resulting_catalog_digest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 1973,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "batch_id",
+        "entries",
+        "previous_catalog_digest_sha256",
+        "resulting_catalog_digest_sha256",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "current_head": {
+      "additionalProperties": false,
+      "properties": {
+        "digest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "last_basename": {
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+          "type": "string"
+        },
+        "migration_count": {
+          "maximum": 2048,
+          "minimum": 75,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "digest_sha256",
+        "last_basename",
+        "migration_count"
+      ],
+      "type": "object"
+    },
+    "migration_entry": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+          "type": "string"
+        },
+        "position": {
+          "maximum": 2047,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 4194304,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "position",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "append_only_batches": {
+      "items": {
+        "$ref": "#/$defs/append_batch"
+      },
+      "maxItems": 1973,
+      "type": "array"
+    },
+    "artifact_id": {
+      "const": "migration-catalog-head-v1"
+    },
+    "artifact_state": {
+      "const": "OFFLINE_MIGRATION_CATALOG_HEAD_BLOCKED"
+    },
+    "catalog_algorithm": {
+      "const": "basename-ascii-ascending+sha256-raw-bytes-v1"
+    },
+    "catalog_path": {
+      "const": "backend/migrations"
+    },
+    "contract_version": {
+      "const": "1.0"
+    },
+    "current_head": {
+      "$ref": "#/$defs/current_head"
+    },
+    "historical_prefix": {
+      "additionalProperties": false,
+      "properties": {
+        "digest_sha256": {
+          "const": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/migration_entry"
+          },
+          "maxItems": 75,
+          "minItems": 75,
+          "type": "array"
+        },
+        "last_basename": {
+          "const": "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql"
+        },
+        "migration_count": {
+          "const": 75
+        }
+      },
+      "required": [
+        "digest_sha256",
+        "entries",
+        "last_basename",
+        "migration_count"
+      ],
+      "type": "object"
+    },
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_catalog_bytes": {
+          "const": 67108864
+        },
+        "max_catalog_files": {
+          "const": 2048
+        },
+        "max_migration_bytes": {
+          "const": 4194304
+        },
+        "max_migrations_per_batch": {
+          "const": 1
+        }
+      },
+      "required": [
+        "max_catalog_bytes",
+        "max_catalog_files",
+        "max_migration_bytes",
+        "max_migrations_per_batch"
+      ],
+      "type": "object"
+    },
+    "next_stage_authorized": {
+      "const": false
+    },
+    "operational_authorization": {
+      "const": false
+    },
+    "previous_approved_head_sha256": {
+      "description": "SHA-256 of independently supplied prior head bytes; evidence only and never operational authorization.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "required": [
+    "append_only_batches",
+    "artifact_id",
+    "artifact_state",
+    "catalog_algorithm",
+    "catalog_path",
+    "contract_version",
+    "current_head",
+    "historical_prefix",
+    "limits",
+    "next_stage_authorized",
+    "operational_authorization",
+    "previous_approved_head_sha256"
+  ],
+  "title": "Migration catalog append-only head v1",
+  "type": "object"
+}

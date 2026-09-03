@@ -813,6 +813,40 @@ receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
 adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
 autoriza `AgentConfig`.
 
+## Catálogo evolutivo e CI, candidato offline
+
+O candidato M1A/M1B preserva os 75 arquivos atuais como prefixo histórico
+imutável e representa crescimento por lotes append-only de uma migration. O
+verificador estrito exige o head anterior aprovado para um lote novo.
+Consumidores históricos de expectativa, derivação e proposta v3 leem somente o
+prefixo após validar o snapshot completo do head corrente.
+
+A M1C acrescenta `migration-catalog-head.yml`. Em pull request ou push para
+`main`, o job confirma o SHA e o ancestral do evento e, quando há append, lê o
+head anterior somente dos objetos Git locais. Em seguida valida o head estrito,
+o manifesto histórico source-only e a estrutura v3 ainda bloqueada. O workflow
+não foi executado nesta missão e não recebe DSN ou segredo.
+
+Nada neste contrato altera ou libera `apply_migrations.py`. Migration criada,
+head válido, teste verde ou hash correto não autorizam `status`, `apply`, banco,
+DEV ou PROD. A decisão detalhada está em
+[`2026-09-02-migration-catalog-evolution.md`](../../docs/decisions/2026-09-02-migration-catalog-evolution.md).
+
+M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
+no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
+integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
+deploy.
+
+A M1D reconciliou a documentação pós-commit e a M1E é a correção técnica que
+introduziu `_directory_identity`, `_stable_file_unchanged`, ajustes de call
+sites e quatro testes adversariais contra falsos positivos causados por metadados
+voláteis (`links`, que pode mudar especialmente com criação ou remoção de
+subdiretórios, `size`, `mtime_ns` e `ctime_ns`) de diretórios ancestrais, sem
+enfraquecer `device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados
+completos dos arquivos, o diretório do catálogo e cada migration continuam sob
+comparação integral. A evidência completa, as limitações e o gate sucessor
+estão centralizados na decisão técnica.
+
 ## Transações especiais
 
 Algumas migrations históricas com `ALTER TYPE ... ADD VALUE` possuem contrato
