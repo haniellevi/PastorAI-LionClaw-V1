@@ -1213,24 +1213,23 @@ ancestral e, havendo append, lê o head anterior somente dos objetos Git locais.
 Depois valida o head estrito, o manifesto histórico source-only e a proposta v3
 ainda bloqueada. O job não chama o runner nem recebe segredo ou DSN.
 
-Estado: `M1A/M1B/M1C INTEGRADAS LOCALMENTE E COMPROVADAS OFFLINE /
-M1D/M1E CANDIDATAS REVISADAS OFFLINE E NÃO COMMITADAS /
-SEM MIGRATION NOVA /
-BANCO E AMBIENTES NÃO CONSULTADOS /
-CI REMOTO NÃO EXECUTADO /
+Estado: `M1A-M1E INTEGRADAS LOCALMENTE (commits 1150fe92 e 2e381c3) /
+COMPROVADAS OFFLINE / SEM MIGRATION NOVA /
+BANCO E AMBIENTES NÃO CONSULTADOS / CI REMOTO NÃO EXECUTADO /
 OPERAÇÃO BLOQUEADA`. A
 decisão técnica e os limites estão em
 [`2026-09-02-migration-catalog-evolution.md`](../decisions/2026-09-02-migration-catalog-evolution.md).
 
-M1A-M1C estão commitadas localmente no commit
-`1150fe92ba67dbcb82b230b9a044472a1e1d9d8d`. M1D-M1E são candidatas revisadas
-offline e ainda não commitadas. M1D é a atualização documental pós-commit e
-M1E introduziu `_directory_identity`, `_stable_file_unchanged`, call sites e
-quatro testes adversariais contra falsos positivos de metadados voláteis de
-diretórios ancestrais (como `links`, que pode mudar especialmente com criação ou
-remoção de subdiretórios), sem enfraquecer identidade de segurança (`device`,
-`inode`, `mode`, `uid`, `gid`). Revisão independente: GO técnico. O gate local
-permanece fechado e dependente de revisão do Codex. Detalhes na decisão técnica.
+M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
+no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
+integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
+deploy. A M1D reconciliou a documentação pós-commit e a M1E introduziu
+`_directory_identity`, `_stable_file_unchanged`, call sites e quatro testes
+adversariais contra falsos positivos de metadados voláteis de diretórios
+ancestrais (como `links`, que pode mudar especialmente com criação ou remoção de
+subdiretórios), sem enfraquecer identidade de segurança (`device`, `inode`,
+`mode`, `uid`, `gid`). Evidência, limitações e o gate sucessor estão na
+decisão técnica.
 
 ## Fontes principais
 

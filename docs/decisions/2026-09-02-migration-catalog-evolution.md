@@ -1,9 +1,8 @@
 # Catálogo evolutivo de migrations e consumidores históricos
 
-**Estado:** `M1A/M1B/M1C INTEGRADAS LOCALMENTE (commit 1150fe92) /
-M1D-M1E CANDIDATAS NÃO COMMITADAS / COMPROVADAS OFFLINE /
-CATÁLOGO CORRENTE COM 75 MIGRATIONS / CI REMOTO NÃO EXECUTADO / OPERAÇÃO
-BLOQUEADA`
+**Estado:** `M1A-M1E INTEGRADAS LOCALMENTE (commits 1150fe92 e 2e381c3) /
+COMPROVADAS OFFLINE / CATÁLOGO CORRENTE COM 75 MIGRATIONS /
+CI REMOTO NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`
 
 **Base:** `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
 
@@ -80,7 +79,7 @@ reescrita do prefixo, digest divergente e gates verdadeiros falham fechado.
 Esta decisão não cria migration SQL, não altera o runner, não acessa banco,
 DEV, PROD ou rede e não autoriza commit, PR, merge, deploy, flag ou runtime.
 
-## Atualização pós-commit (2026-09-02)
+## Atualização pós-commit M1A-M1C (2026-09-02)
 
 O gate `OWNER_AUTHORIZE_COMMIT_M1_MIGRATION_CATALOG_EVOLUTION_FOUNDATION` foi
 consumido por autorização humana nominal, exclusivamente no escopo declarado:
@@ -92,22 +91,27 @@ Esse consumo não autorizou e não executou push, PR, CI remoto, migration SQL,
 banco, DEV, PROD, rede, merge ou deploy. `operational_authorization` e
 `next_stage_authorized` permanecem `false` em todos os artefatos.
 
-## Candidatas M1D-M1E não commitadas
+## Atualização pós-commit M1D-M1E (2026-09-03)
 
-M1A-M1C estão commitadas localmente no commit `1150fe92`. M1D e M1E são candidatas
-offline posteriores ao commit, revisadas offline e ainda não commitadas. O
-catálogo mantém o contrato append-only, o prefixo histórico das 75 migrations, o
-digest histórico, o runner intacto, nenhuma migration SQL,
-`operational_authorization=false` e `next_stage_authorized=false`.
+O gate `OWNER_AUTHORIZE_COMMIT_M1D_M1E_MIGRATION_CATALOG_HARDENING` foi
+consumido exclusivamente para o commit local
+`2e381c326953d879f781bf39ea08ca1e2c510835`, com parent
+`1150fe92ba67dbcb82b230b9a044472a1e1d9d8d`, na branch
+`feat/migration-catalog-head-v1`, sobre a base
+`e5d07e60c2eb9dafae671323bde60d1fa1be5749`.
 
-A M1D reconcilia exclusivamente a documentação pós-commit de M1A-M1C.
+Nenhuma dessas integrações locais prova push, CI remoto, merge, migration,
+banco, DEV, PROD ou deploy. `operational_authorization=false` e
+`next_stage_authorized=false` continuam estritos.
 
-A M1E aperfeiçoa o verificador estrito e acrescenta os testes adversariais.
+A M1D reconciliou exclusivamente a documentação pós-commit de M1A-M1C.
+
+A M1E aperfeiçoou o verificador estrito e acrescentou os testes adversariais.
 Ela introduziu `_directory_identity`, `_stable_file_unchanged`, ajustes de call
 sites e quatro testes adversariais para separar a identidade de segurança de um
 diretório ancestral dos metadados voláteis.
 
-A M1E corrige falsos positivos causados por mudanças legítimas em metadados
+A M1E corrigiu falsos positivos causados por mudanças legítimas em metadados
 voláteis de diretórios ancestrais ou pais:
 
 - `links` — pode mudar especialmente com criação ou remoção de subdiretórios;
@@ -144,23 +148,17 @@ A limitação preexistente do modo 0775 não é regressão da M1E. Ela permanece
 registrada como P2 conhecido, exigindo decisão humana separada sobre
 permissões de diretório antes de qualquer attestation operacional.
 
-## Próximo gate único
+## Gate sucessor
 
-`OWNER_AUTHORIZE_COMMIT_M1D_M1E_MIGRATION_CATALOG_HARDENING`. O gate está
-fechado e depende de revisão final do Codex.
+`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1_MIGRATION_CATALOG` é o único gate
+sucessor após a versionação desta reconciliação documental.
 
-Se futuramente autorizado, permitirá somente um commit local dos seis
-arquivos congelados (quatro documentos e dois arquivos Python com hashes
-SHA-256 fixados). Não autorizará rede, push, PR, merge, migration SQL,
-runner, banco, DEV, PROD, deploy, flags, mensagens nem qualquer outro efeito
-operacional.
+Enquanto esta reconciliação M1I permanecer apenas no working tree, o gate
+remoto ainda não pode ser consumido; depois que esta reconciliação for revisada e
+commitada localmente, o gate remoto passa a ser o único próximo gate. O gate
+remoto continua fechado e exige autorização humana posterior e separada.
 
-## Gate remoto diferido
-
-O gate anteriormente proposto
-`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1_MIGRATION_CATALOG` não foi
-consumido, fica diferido e não é o gate corrente. Seu escopo permanece
-registrado para autorização humana posterior e separada:
+Seu escopo permanece registrado para autorização humana posterior e separada:
 
 1. consultar por rede o SHA atual de `origin/main` sem modificar referências
    locais;

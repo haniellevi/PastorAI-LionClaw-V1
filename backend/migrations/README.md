@@ -832,19 +832,20 @@ head válido, teste verde ou hash correto não autorizam `status`, `apply`, banc
 DEV ou PROD. A decisão detalhada está em
 [`2026-09-02-migration-catalog-evolution.md`](../../docs/decisions/2026-09-02-migration-catalog-evolution.md).
 
-M1A-M1C estão commitadas localmente no commit
-`1150fe92ba67dbcb82b230b9a044472a1e1d9d8d`.
+M1A-M1C foram commitadas no commit `1150fe92` e M1D-M1E foram commitadas localmente
+no commit `2e381c3` (parent `1150fe92`, base `e5d07e60`). Nenhuma dessas
+integrações locais prova push, CI remoto, merge, migration, banco, DEV, PROD ou
+deploy.
 
-M1D-M1E são candidatas revisadas offline e ainda não commitadas. A M1D foi a
-atualização documental pós-commit e a M1E é a correção técnica que introduziu
-`_directory_identity`, `_stable_file_unchanged`, ajustes de call sites e quatro
-testes adversariais contra falsos positivos causados por metadados voláteis
-(`links`, que pode mudar especialmente com criação ou remoção de subdiretórios,
-`size`, `mtime_ns` e `ctime_ns`) de diretórios ancestrais, sem enfraquecer
-`device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados completos dos
-arquivos, o diretório do catálogo e cada migration continuam sob comparação
-integral. A evidência completa, as limitações e o próximo gate estão centralizados
-na decisão técnica.
+A M1D reconciliou a documentação pós-commit e a M1E é a correção técnica que
+introduziu `_directory_identity`, `_stable_file_unchanged`, ajustes de call
+sites e quatro testes adversariais contra falsos positivos causados por metadados
+voláteis (`links`, que pode mudar especialmente com criação ou remoção de
+subdiretórios, `size`, `mtime_ns` e `ctime_ns`) de diretórios ancestrais, sem
+enfraquecer `device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados
+completos dos arquivos, o diretório do catálogo e cada migration continuam sob
+comparação integral. A evidência completa, as limitações e o gate sucessor
+estão centralizados na decisão técnica.
 
 ## Transações especiais
 
