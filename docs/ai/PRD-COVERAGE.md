@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-09-03
-audited_repository_sha: 8aacf98d9abbfd945226afb652ef38efa2fc6cfa
+audited_repository_sha: c2fb16ad9a6b028c317c56a0b02c4362ae903e26
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -685,8 +685,10 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 frontend Production `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`. Essa metadata prova somente o deployment do frontend,
 não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
-estado agora é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO
-EXECUTADO / OPERAÇÃO BLOQUEADA`.
+estado naquele recorte, antes do consumo do gate de execução, era
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`. O estado corrente inclui a única execução registrada
+abaixo, bloqueada em `TLS_HANDSHAKE`; não houve nova tentativa.
 
 O gate abaixo foi consumido em 2026-08-31:
 `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
@@ -1237,6 +1239,31 @@ positivos de metadados voláteis de diretórios ancestrais (como `links`, que po
 mudar especialmente com criação ou remoção de subdiretórios), sem enfraquecer
 identidade de segurança (`device`, `inode`, `mode`, `uid`, `gid`). Evidência,
 limitações e registros de gates estão na decisão técnica.
+
+A reconciliação documental M1J-R5 foi integrada pela PR #363. Seu commit
+`2218049902635239280af141980a30c3c3477c4c`, filho de `8aacf98d`, tornou-se o
+segundo parent do merge commit
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`; as árvores do merge e de
+`2218049` foram verificadas como idênticas no fetch pós-merge. O preflight, o
+push/PR, o merge e o fetch foram consumidos por gates separados. Os dez checks
+da PR e os nove check-runs pós-merge, incluindo `public-health`, concluíram com
+sucesso. A evidência Git/GitHub revalidada pelo supervisor nesta missão também
+classificou o deployment automático pós-merge
+`6251268132` como Vercel Production com sucesso, prova restrita ao frontend
+Next.js. `8aacf98d` permanece base histórica; o snapshot versionado corrente é
+`c2fb16ad`. A M1J está encerrada sem provar ou autorizar migration, banco,
+backend, DEV, PROD, flags ou runtime.
+
+A política de permissões foi implementada e comprovada offline pelo snapshot
+privado do SHA exato descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
+sem alterar permissões do checkout compartilhado.
+
+O único estágio sucessor é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
+à implementação e aos testes offline/PG17 descartáveis do executor de
+identidade e captura. Sua menção não registra consumo e mantém
+`operational_authorization=false` e `next_stage_authorized=false`.
 
 ## Fontes principais
 

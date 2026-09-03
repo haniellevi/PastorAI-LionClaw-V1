@@ -118,12 +118,33 @@ O registro separado de `OWNER-01` autorizou somente a proposta técnica em
 [`migration-history-divergence-remediation-proposal-v1.json`](migration-history-divergence-remediation-proposal-v1.json).
 
 O `v1` permanece preservado como o texto histórico efetivamente vinculado aos
-registros anteriores. A emenda técnica corrente está no
-[`migration-history-divergence-remediation-proposal-v2.json`](migration-history-divergence-remediation-proposal-v2.json),
-requer revisão própria e não herda aprovação.
+registros anteriores. A emenda
+[`migration-history-divergence-remediation-proposal-v2.json`](migration-history-divergence-remediation-proposal-v2.json)
+também é histórica, não herdou aprovação e não constitui a proposta corrente.
+
+A proposta técnica corrente é
+[`migration-history-divergence-remediation-proposal-v3.json`](migration-history-divergence-remediation-proposal-v3.json),
+congelada como `OFFLINE_EPOCH_CUTOVER_DECISION_PACKAGE_BLOCKED` e
+`RECOMMENDATION_ONLY_NOT_APPROVED`. Sua revisão independente está
+`PENDING_INDEPENDENT_REVIEW_OF_V3`, a decisão humana de cutover é `NOT_MADE`,
+as atestações separadas de DEV e PROD não estão completas e os gates de Data
+API e Realtime permanecem pendentes. Registros humanos anteriores aplicam-se
+somente ao `v1` e não podem ser reutilizados para aprovar `v3`.
 `bootstrap-ledger`, `harden-ledger`, `status` e `apply` continuam bloqueados.
 Qualquer manifesto, captura posterior, implementação ou execução exige gate e
 autorização próprios, sem backfill ou reaplicação automática.
+
+A política de permissões sucessora foi implementada e comprovada offline pelo
+snapshot privado definido em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../../decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+
+O único estágio sucessor corrente é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
+à implementação e aos testes offline/PG17 descartáveis do executor de
+identidade e captura. Sua menção não registra consumo e não autoriza rede,
+evidência viva, runner de aplicação, banco compartilhado, DEV, PROD, migration
+ou cutover; `operational_authorization=false` e `next_stage_authorized=false`
+permanecem.
 
 Nenhuma etapa deste guia acessa DEV ou PROD, executa SQL, DML, migration,
 deploy, flag ou runtime.

@@ -109,6 +109,10 @@ sem ler seu conteúdo.
 - Banco ou Supabase exige migration imperativa, RLS, grants e revokes
   explícitos, testes cross-tenant, rollback ou compensação e verificação em
   PostgreSQL descartável antes de qualquer ambiente compartilhado.
+- Captura, atestação, reconciliação ou aplicação de migrations exige fonte em
+  snapshot privado do SHA exato criado por
+  `backend/scripts/trusted_repository_snapshot.py`; o checkout compartilhado
+  não é uma fonte operacional confiável e não deve receber `chmod` recursivo.
 - Não implemente UV ou CD a partir de placeholders. Primeiro aprove um PRD
   próprio e a máquina de estados anterior da jornada.
 - Use as versões fixadas pelo projeto. O frontend usa Node 24, não Node 20 nem

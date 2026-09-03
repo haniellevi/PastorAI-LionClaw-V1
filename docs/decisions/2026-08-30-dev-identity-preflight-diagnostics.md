@@ -87,18 +87,33 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
-## Próximo gate único
+## Proposta histórica não consumida
 
 `SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`.
 
-Esse gate exige uma autorização humana nova, nominal, exclusiva e separada
+Naquele recorte histórico, esse gate foi proposto, mas não foi consumido. Ele
+exigiria uma autorização humana nova, nominal, exclusiva e separada
 para uma única revisão read-only e sanitizada dos logs da falha DEV. A fonte,
-os filtros e a janela temporal mínima ainda não foram delimitados e precisam
-constar da nova autorização antes de qualquer acesso. Como o timestamp
+os filtros e a janela temporal mínima ainda não foram delimitados e precisariam
+constar da autorização antes de qualquer acesso. Como o timestamp
 operacional preciso das tentativas não foi preservado, nenhum horário ou janela
 é inferido. Nenhum log foi acessado nesta PR.
 
-O gate não autoriza retry, nova invocação DEV, consulta a PROD, banco ou SQL,
+O gate proposto não autoriza retry, nova invocação DEV, consulta a PROD, banco ou SQL,
 exportação ou persistência de logs, captura, materialização, DML, migration,
 reconciliação, backfill, deploy, flag, runtime, `status`, `apply`,
-`bootstrap-ledger` ou `harden-ledger`.
+`bootstrap-ledger` ou `harden-ledger`. Posteriormente, esse caminho foi
+supersedido pelos diagnósticos de fase e pelo probe transport-only executados
+sob autorizações humanas nominais próprias. O identificador permanece somente
+como registro histórico e não é gate corrente nem próximo hoje.
+
+A política de permissões foi implementada e comprovada offline pelo snapshot
+privado descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](2026-09-03-trusted-repository-snapshot-policy.md).
+O único estágio corrente global é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
+à implementação e aos testes offline/PG17 descartáveis do executor sucessor.
+Sua menção não registra consumo nem autoriza rede, captura viva, runner de
+aplicação, banco compartilhado, DEV, PROD, migration ou cutover;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.

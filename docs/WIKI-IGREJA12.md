@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no `main` auditado
-`8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (em 2026-09-03). O `bootstrap-ledger` permanece
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (em 2026-09-03). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -427,6 +427,29 @@ subdiretórios), sem enfraquecer identidade de segurança (`device`, `inode`,
 `mode`, `uid`, `gid`). Evidência, limitações e registros de gates estão na
 decisão técnica.
 
+A reconciliação M1J-R5 foi fixada em `2218049902635239280af141980a30c3c3477c4c`
+e integrada pela PR #363 no merge
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, cujos parents são `8aacf98d` e
+`2218049` e cuja árvore coincide com a de `2218049`. O preflight remoto, o
+push/PR, o merge e o fetch pós-merge foram etapas separadas; dez checks da PR e
+nove check-runs pós-merge, incluindo `public-health`, foram revalidados com
+sucesso pelo supervisor nesta missão. A evidência Git/GitHub revalidada
+classificou o deployment automático pós-merge `6251268132` como
+Vercel Production bem-sucedido, limitado ao frontend Next.js. A base
+`8aacf98d` agora é histórica, o snapshot corrente é `c2fb16ad` e a missão M1J
+está encerrada. Isso não prova migration, backend, banco, DEV, PROD, flags ou
+runtime.
+
+A política de permissões foi implementada e comprovada offline por um snapshot
+privado do SHA exato, sem `chmod` no checkout compartilhado. A decisão está em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+
+O único estágio sucessor é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, somente
+para implementação e testes offline/PG17 descartáveis do executor de identidade
+e captura. Sua menção não registra consumo nem abre efeito vivo;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem.
+
 ## Fontes de verdade
 
 Em divergência, use esta ordem:
@@ -788,8 +811,10 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 frontend Production `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`. Essa metadata prova somente o deployment do frontend,
 não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
-estado agora é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO
-EXECUTADO / OPERAÇÃO BLOQUEADA`.
+estado naquele recorte, antes do consumo do gate de execução, era
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`. O estado corrente inclui a única execução registrada
+abaixo, bloqueada em `TLS_HANDSHAKE`; não houve nova tentativa.
 
 O gate abaixo foi consumido em 2026-08-31:
 `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu

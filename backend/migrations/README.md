@@ -357,9 +357,11 @@ runner no merge `1e727cd2ea90ccfb68961174b802d595c71f355b`, com
 `SUCCESS`. A Vercel registrou o deployment automático frontend Production
 `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`; essa metadata prova somente o deployment do frontend e
-não prova saúde funcional, backend, banco, DEV, PROD ou o probe. O estado é
-`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
-OPERAÇÃO BLOQUEADA`.
+não prova saúde funcional, backend, banco, DEV, PROD ou o probe. O estado
+naquele recorte, antes do consumo do gate de execução, era `IMPLEMENTADO /
+INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`.
+O estado corrente inclui a única execução registrada abaixo, bloqueada em
+`TLS_HANDSHAKE`; não houve nova tentativa.
 
 O gate `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`
 foi consumido por exatamente uma invocação no checkout `1e727cd2`, runner
@@ -853,6 +855,32 @@ enfraquecer `device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados
 completos dos arquivos, o diretório do catálogo e cada migration continuam sob
 comparação integral. A evidência completa, as limitações e os registros de gates
 estão centralizados na decisão técnica.
+
+A reconciliação M1J-R5 foi fixada no commit
+`2218049902635239280af141980a30c3c3477c4c`, filho de `8aacf98d`, e integrada
+pela PR #363 no merge `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, com
+parents `8aacf98d` e `2218049` e árvore idêntica à de `2218049`. O preflight,
+o push/PR, o merge e o fetch pós-merge foram etapas separadas. Os dez checks da
+PR e os nove check-runs pós-merge, incluindo `public-health`, foram revalidados
+com sucesso pelo supervisor nesta missão. Conforme a evidência Git/GitHub
+revalidada, o deployment automático pós-merge
+`6251268132` foi classificado explicitamente como Vercel Production e terminou
+com sucesso; ele prova somente o frontend Next.js. `8aacf98d` é a base
+histórica, `c2fb16ad` é o snapshot versionado corrente e a M1J está encerrada,
+sem provar ou autorizar migration, banco, backend, DEV, PROD, flags ou runtime.
+
+A política de permissões foi implementada e comprovada offline com um snapshot
+privado do SHA exato, sem alterar permissões do checkout compartilhado. O
+procedimento e seus limites estão em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../../docs/decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+
+O único estágio sucessor é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
+à implementação e aos testes offline/PG17 descartáveis do executor que fará
+identidade e captura na mesma conexão. O identificador não registra consumo
+nem autoriza credencial, rede, banco compartilhado, DEV, PROD, migration ou
+cutover; `operational_authorization=false` e `next_stage_authorized=false`
+permanecem estritos.
 
 ## Transações especiais
 

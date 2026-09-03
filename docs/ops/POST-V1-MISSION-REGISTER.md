@@ -1,8 +1,9 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
 Atualizado em 2026-09-03 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
-`bootstrap-ledger` integrados e inativos, e as entregas M1A-M1E e M1I do catálogo
-de migrations integradas em `main` pela PR #361 (merge 8aacf98d). A D2B2b3A existe
+`bootstrap-ledger` integrados e inativos, as entregas M1A-M1E e M1I do catálogo
+integradas pela PR #361 e a reconciliação M1J-R5 encerrada pela PR #363
+(merge `c2fb16ad`). A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -14,11 +15,13 @@ produção.
   `c525d6a3897a12c6c287f9fc79a88b32b34cd452`. O relato operacional do canário
   ativo não contém um artefato versionado que permita reconstituir o SHA exato
   servido durante a janela; ele deve ser revalidado antes de qualquer rollout;
-- frontend Vercel `pastorai-frontend-prod`: deployment Production correlacionado
-  ao SHA `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, GitHub deployment
-  `6237190951`, concluído com sucesso em 2026-09-03T04:52:17Z (`READY`). Esta
-  prova aplica-se exclusivamente ao frontend Next.js e não revalida backend,
-  banco de dados ou runtime;
+- frontend Vercel `pastorai-frontend-prod`: a evidência GitHub/Vercel registrada
+  na integração da PR #363 correlacionou o deployment Production automático
+  `6251268132` ao SHA `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, criado em
+  `2026-09-03T19:29:12Z` e concluído com `state=success`. Esta prova aplica-se
+  exclusivamente ao frontend Next.js e não revalida backend, banco de dados ou
+  runtime. O deployment correlacionado a `8aacf98d` permanece evidência
+  histórica da PR #361;
 - Supabase PROD: `pffafnchtxbimpwyaczq`, último estado preservado em evidência
   versionada anterior `ACTIVE_HEALTHY`, não revalidado nesta atualização;
 - Clerk: instância PROD preservada em evidência versionada anterior por
@@ -39,10 +42,13 @@ produção.
 - baseline histórico da PR #323, preservada como evidência histórica de
   reconciliação anterior: `3a5789c784017ab15a43e28c4270d25af8618359`, merge da
   PR #323;
-- base versionada desta reconciliação e referência atual de `origin/main`:
-  `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361. Ela prova o
-  código integrado e as evidências de CI associadas, sem provar bootstrap,
-  migration, backend implantado, banco ou runtime compartilhado.
+- base histórica da reconciliação M1J-R5:
+  `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361;
+- snapshot versionado desta reconciliação e referência observada de
+  `origin/main`: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, merge da PR
+  #363. Ele prova o código integrado e as evidências de CI associadas, sem
+  provar bootstrap, migration, backend implantado, banco ou runtime
+  compartilhado.
 
 ## Missões
 
@@ -1129,8 +1135,10 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 frontend Production `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`. Essa metadata prova somente o deployment do frontend,
 não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
-estado agora é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO
-EXECUTADO / OPERAÇÃO BLOQUEADA`.
+estado naquele recorte, antes do consumo do gate de execução, era
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`. O estado corrente inclui a única execução registrada
+abaixo, bloqueada em `TLS_HANDSHAKE`; não houve nova tentativa.
 
 **Gate consumido em 2026-08-31:**
 `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
@@ -1701,9 +1709,42 @@ encontradas pelo Codex na execução do teste documental.
 O gate `OWNER_AUTHORIZE_EDIT_M1J_R5_FINAL_DOC_TEST_ALIGNMENT` foi consumido
 exclusivamente para esta correção final de alinhamento entre documentos e testes.
 
+O gate `OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION` foi consumido
+para o commit local `2218049902635239280af141980a30c3c3477c4c`, filho direto
+de `8aacf98d`, contendo exatamente os 15 arquivos autorizados. O gate
+`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1J_R5_CANONICAL_RECONCILIATION`
+confirmou `main` remoto em `8aacf98d` e a ausência da branch remota. Em seguida,
+`OWNER_AUTHORIZE_PUSH_AND_PR_M1J_R5_CANONICAL_RECONCILIATION` autorizou o push
+sem force e a abertura da PR #363; seus dez checks concluíram com sucesso e o
+deployment da PR foi corretamente classificado como Preview (`6251176874`).
+
+O gate `OWNER_AUTHORIZE_MERGE_PR_363_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido para o merge por merge commit
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, em
+`2026-09-03T19:28:24Z`, com parents `8aacf98d` e `2218049`. Os nove
+check-runs pós-merge, incluindo `public-health`, foram revalidados com sucesso
+pelo supervisor nesta missão. A evidência GitHub/Vercel revalidada classificou
+o deployment automático `6251268132` como Production
+com `state=success`, prova exclusiva do frontend Next.js. Ela não comprova
+backend, banco, migration, ambientes Supabase, flags ou runtime.
+
+O gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_R5_POSTMERGE_STATE` avançou
+somente `refs/remotes/origin/main` para `c2fb16ad`, confirmou os parents e a
+igualdade entre as árvores de `c2fb16ad` e `2218049`, sem mover branch local ou
+alterar o working tree. M1J está encerrada; `8aacf98d` permanece base histórica.
+
 Os gates da PR #354 são estritamente históricos e já consumidos.
 `operational_authorization=false` e `next_stage_authorized=false` continuam estritos.
-Nenhuma próxima implementação funcional é escolhida ou autorizada nesta missão.
+A política de permissões sucessora foi implementada e comprovada offline pelo
+snapshot privado do SHA exato descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
+sem alterar o checkout compartilhado.
+
+O único estágio sucessor é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
+à implementação e aos testes offline/PG17 descartáveis do executor de
+identidade e captura. Este registro não declara consumo e não autoriza
+credencial, rede, banco compartilhado, DEV, PROD, migration ou cutover.
 
 ## Paralelismo seguro
 

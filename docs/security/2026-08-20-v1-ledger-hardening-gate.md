@@ -318,18 +318,33 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
-O gate seguinte é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada para uma única
-revisão read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
-janela temporal mínima ainda não foram delimitados e precisam constar da nova
-autorização antes de qualquer acesso; nenhum horário é inferido. Nenhum log foi
-acessado nesta PR. Este gate não autoriza retry, nova invocação DEV, consulta a
+Naquele recorte histórico, foi proposto o gate
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. O gate
+proposto não foi consumido. Ele exigiria uma autorização humana nova, nominal,
+exclusiva e separada para uma única revisão read-only e sanitizada dos logs da
+falha DEV. A fonte, os filtros e a janela temporal mínima ainda não foram
+delimitados e precisariam constar da autorização antes de qualquer acesso;
+nenhum horário é inferido. Nenhum log foi acessado nesta PR. O gate proposto
+não autoriza retry, nova invocação DEV, consulta a
 PROD, banco ou SQL, exportação ou persistência de logs, captura,
 materialização, DML,
 reconciliação de ledger, corte de época, `bootstrap-ledger`, `harden-ledger`,
 `status`, `apply`, migration, backfill, deploy, flag ou runtime. PROD continua
-fora. UV e CD permanecem fora.
+fora. UV e CD permanecem fora. Posteriormente, esse caminho foi supersedido
+pelos diagnósticos de fase e pelo probe transport-only executados sob
+autorizações humanas nominais próprias. O identificador permanece somente como
+registro histórico e não é gate corrente nem próximo hoje.
+
+A política de permissões foi implementada e comprovada offline pelo snapshot
+privado descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+O único estágio corrente global é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
+à implementação e aos testes offline/PG17 descartáveis do executor sucessor.
+Sua menção não registra consumo nem autoriza rede, captura viva, runner de
+aplicação, banco compartilhado, DEV, PROD, migration ou cutover;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
 
 ## Evidência local
 

@@ -4,8 +4,8 @@ Data: `2026-08-31`
 
 Estado: `PLANO OFFLINE INTEGRADO / RESULTADO SANITIZADO REGISTRADO / CAUSA
 INDETERMINADA / PROBE IMPLEMENTADO, INTEGRADO E COMPROVADO OFFLINE / CATEGORIA
-TLS INTEGRADA E COMPROVADA OFFLINE / PROBE NÃO EXECUTADO / OPERAÇÃO
-BLOQUEADA`.
+TLS INTEGRADA E COMPROVADA OFFLINE / UMA EXECUÇÃO TRANSPORT-ONLY BLOQUEADA EM
+TLS_HANDSHAKE / OPERAÇÃO BLOQUEADA`.
 
 Base versionada: `bab031a7e0067a257eedb4a24c786cc925801463`.
 
@@ -219,9 +219,11 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 A Vercel registrou o deployment automático frontend Production `6184050276`,
 status `17575418445`, `state=success`, em `2026-08-31T15:23:35Z`. Essa metadata
 prova somente o deployment do frontend, não sua saúde funcional, e não prova
-backend, banco, DEV, PROD ou o probe. O estado da implementação é
-`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
-OPERAÇÃO BLOQUEADA`.
+backend, banco, DEV, PROD ou o probe. Naquele recorte, antes do consumo do gate
+de execução, o estado da implementação era `IMPLEMENTADO / INTEGRADO /
+COMPROVADO OFFLINE / PROBE NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`. O estado
+corrente inclui a única execução registrada abaixo, bloqueada em
+`TLS_HANDSHAKE`; não houve nova tentativa.
 
 O conteúdo do merge foi validado offline: a árvore calculada dos pais conhecidos
 `36f8d13284a8f4964d0258a2a3b845323a80fe7e` e

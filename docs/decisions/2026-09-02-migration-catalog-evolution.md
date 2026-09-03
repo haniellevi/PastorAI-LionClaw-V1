@@ -1,12 +1,14 @@
 # Catálogo evolutivo de migrations e consumidores históricos
 
-**Estado:** `M1A-M1E E M1I INTEGRADAS EM MAIN (PR #361, merge 8aacf98d) /
-COMPROVADAS EM CI / CATÁLOGO CORRENTE COM 75 MIGRATIONS /
-OPERAÇÃO BLOQUEADA`
+**Estado:** `M1A-M1E E M1I INTEGRADAS (PR #361, merge 8aacf98d) /
+M1J-R5 INTEGRADA E ENCERRADA (PR #363, merge c2fb16ad) /
+CATÁLOGO CORRENTE COM 75 MIGRATIONS / OPERAÇÃO BLOQUEADA`
 
 **Base histórica da fundação:** `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
 
-**Base da reconciliação M1J-R2:** `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`
+**Base histórica da reconciliação M1J-R2/R5:** `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`
+
+**Snapshot versionado pós-M1J:** `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`
 
 ## Decisão
 
@@ -146,9 +148,13 @@ seguintes evidências offline:
 - veredito técnico: GO;
 - nenhum banco, rede, migration ou ambiente consultado.
 
-A limitação preexistente do modo 0775 não é regressão da M1E. Ela permanece
-registrada como P2 conhecido, exigindo decisão humana separada sobre
-permissões de diretório antes de qualquer attestation operacional.
+A limitação preexistente do modo `0775` não é regressão da M1E. A inspeção
+posterior confirmou que o primeiro ancestral inseguro é o próprio diretório
+`/home/raniel-linux/workspace`; portanto, aplicar `chmod` somente ao catálogo
+não resolveria a cadeia e alterar o workspace compartilhado afetaria outras
+worktrees. A política sucessora preserva esse diagnóstico histórico e exige um
+snapshot privado do SHA exato, conforme
+[`2026-09-03-trusted-repository-snapshot-policy.md`](2026-09-03-trusted-repository-snapshot-policy.md).
 
 ## Atualização pós-commit M1I (2026-09-03)
 
@@ -254,14 +260,62 @@ encontradas pelo Codex na execução do teste documental.
 O gate `OWNER_AUTHORIZE_EDIT_M1J_R5_FINAL_DOC_TEST_ALIGNMENT` foi consumido
 exclusivamente para esta correção final de alinhamento entre documentos e testes.
 
+O gate `OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION` foi consumido
+exclusivamente para o commit local
+`2218049902635239280af141980a30c3c3477c4c`, com parent obrigatório
+`8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, mensagem
+`docs: reconcile M1J post-merge canonical state` e exatamente os 15 arquivos
+autorizados. O working tree ficou limpo; não houve rede nessa etapa.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido exclusivamente para `git ls-remote`: confirmou `refs/heads/main` em
+`8aacf98d` e a ausência da branch remota
+`docs/m1j-postmerge-reconciliation-v2`, sem alterar refs locais.
+
+O gate `OWNER_AUTHORIZE_PUSH_AND_PR_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido exclusivamente para enviar `2218049` sem force, abrir a PR #363
+contra `main` em `8aacf98d` e observar seus resultados. Os dez checks da PR
+concluíram com sucesso e `mergeStateStatus=CLEAN`. O deployment automático da
+PR foi classificado como Vercel Preview (`6251176874`); não era Production.
+
+O gate `OWNER_AUTHORIZE_MERGE_PR_363_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido exclusivamente para o merge por merge commit. A PR #363 foi
+integrada em `2026-09-03T19:28:24Z` pelo commit
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, com parent 1 `8aacf98d` e
+parent 2 `2218049`. Os nove check-runs pós-merge, incluindo `public-health`,
+foram revalidados com sucesso pelo supervisor nesta missão. Conforme a
+evidência GitHub/Vercel igualmente revalidada, o
+deployment automático `6251268132` declarou `environment=Production` e
+`state=success`; essa prova é exclusiva do frontend Next.js e não comprova
+backend, banco, migration, DEV, PROD de banco, flags ou runtime.
+
+Por fim, o gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_R5_POSTMERGE_STATE` foi
+consumido para um fetch mínimo que avançou somente
+`refs/remotes/origin/main` de `8aacf98d` para `c2fb16ad`. Os parents foram
+confirmados, a árvore de `c2fb16ad` coincidiu com a de `2218049`, a branch
+local permaneceu em `2218049` e o working tree ficou limpo. Nenhuma branch
+local foi movida. Com essa reconciliação, M1J está encerrada e `8aacf98d`
+permanece somente como base histórica.
+
 Os gates relacionados à PR #354 são estritamente históricos e já consumidos,
 nunca constituindo gates correntes.
 
 `operational_authorization=false` e `next_stage_authorized=false` continuam
-estritos. Nenhuma próxima implementação funcional é escolhida ou autorizada
-nesta missão.
+estritos. Nenhuma operação viva, migration ou cutover foi autorizada pela M1J.
 
-## Próximo gate único
+## Política de permissões sucessora
 
-`OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION`. O gate está fechado e
-depende de revisão final do Codex.
+A política de snapshot privado foi implementada e comprovada offline, sem
+enfraquecer os verificadores nem alterar o checkout compartilhado. O P2 de
+permissões fica encerrado para o caminho operacional pelo isolamento
+obrigatório; o checkout `0775` continua explicitamente inadequado como fonte
+operacional direta.
+
+## Próximo estágio único
+
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
+à implementação e aos testes offline/PG17 descartáveis do executor que fará
+identidade e captura na mesma conexão e emitirá artefatos sanitizados. Este
+registro não declara o gate consumido e não autoriza credencial, rede, banco
+compartilhado, DEV, PROD, migration ou cutover.

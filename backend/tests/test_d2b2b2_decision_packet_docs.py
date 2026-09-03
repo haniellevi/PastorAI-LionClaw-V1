@@ -106,8 +106,11 @@ DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE = (
     "INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV BLOQUEADAS / "
     "CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO BLOQUEADA"
 )
-DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
+DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE = (
     "SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION"
+)
+CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE = (
+    "OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE"
 )
 DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
     "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
@@ -158,7 +161,7 @@ DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS = {
     "review_and_ci_dev_connect_tls_auth_transport_probe_implementation_pr",
     "review_and_ci_migration_epoch_v3_offline_design_pr",
     "review_and_ci_dev_preflight_phase_diagnostics_pr",
-    DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
+    DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE.casefold(),
     "eventual integracao",
     "autoriza somente revisao e integracao",
     "integracao da pr com ci do mesmo sha",
@@ -496,7 +499,7 @@ def _assert_expected_preflight_gate(path: Path, normalized: str) -> None:
     expected = (
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_HISTORICAL_GATE
         if path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS
-        else DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE
+        else DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE
     ).casefold()
     assert expected in normalized, f"expected preflight gate missing in {path}"
 
@@ -1646,7 +1649,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
     assert "166 passed/45 skipped" in reconciliation_normalized
     assert "exit `8`" in reconciliation_normalized
     assert "pacote e verificador candidatos" not in reconciliation_normalized
-    assert reconciliation_normalized.count("proximo gate unico") == 1
+    assert reconciliation_normalized.count("evolucao posterior registrada") == 1
 
     capture_primary_records = {
         RECONCILIATION_CONTRACT_PATH,
@@ -2177,7 +2180,7 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
     assert "286 passed, 48 skipped" in adr
     assert "github actions usa o mapeamento host:container" in adr
     assert "data api e realtime continuam nao atestados" in adr
-    assert DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold() in adr
+    assert DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE.casefold() in adr
     assert "review_and_integrate_read_only_environment_attestation_pr" not in adr
     assert "pr #334" in adr
     assert "a864730f0b678cca39cebfa6bb378243ba031cd6" in adr
@@ -2465,7 +2468,7 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
     }
 
     historical_logs_gate_required = {
-        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
+        DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE.casefold(),
         "nao autoriza retry",
         "nova invocacao dev",
         "autorizacao humana nova, nominal, exclusiva e separada",
@@ -2474,7 +2477,7 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         "filtros",
         "janela temporal minima",
         "ainda nao foram delimitados",
-        "precisam constar da nova autorizacao antes de qualquer acesso",
+        "precisariam constar da autorizacao antes de qualquer acesso",
         "nenhum log foi acessado nesta pr",
         "consulta a prod",
         "banco ou sql",
@@ -2582,7 +2585,7 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         "1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f",
         "80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf",
         "ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e",
-        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
+        DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE.casefold(),
         "nao autoriza retry",
         _normalized_prose(DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE),
         "pr #342",
@@ -2603,10 +2606,64 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         "janela temporal minima ainda nao foram delimitados",
     }
     assert all(item in diagnostics_adr for item in adr_required)
-    assert diagnostics_adr.count("proximo gate unico") == 1
+    assert diagnostics_adr.count("proposta historica nao consumida") == 1
     assert diagnostics_adr.count(
-        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
+        DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE.casefold()
     ) == 1
+
+
+def test_legacy_dev_failure_logs_gate_is_historical_and_superseded() -> None:
+    historical_gate = (
+        DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE.casefold()
+    )
+    current_stage = CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE.casefold()
+    historical_docs = {
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+        RECONCILIATION_CONTRACT_PATH,
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-29-migration-history-divergence-remediation.md",
+        CANONICAL_SCHEMA_DERIVATION_ADR_PATH,
+        ENVIRONMENT_ATTESTATION_ADR_PATH,
+        DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_ADR_PATH,
+    }
+    stale_current_claims = {
+        f"o unico gate corrente e {historical_gate}",
+        f"o gate seguinte e {historical_gate}",
+        f"o unico gate seguinte e {historical_gate}",
+        f"{historical_gate} e o gate seguinte",
+        f"{historical_gate} e o proximo gate unico",
+        f"proximo gate unico {historical_gate}",
+    }
+
+    for path in historical_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        without_code_ticks = normalized.replace("`", "")
+        assert historical_gate in normalized
+        assert "naquele recorte historico" in normalized
+        assert "proposto" in normalized
+        assert "nao foi consumido" in normalized
+        assert (
+            "supersedido pelos diagnosticos de fase e pelo probe transport-only"
+            in normalized
+        )
+        assert "autorizacoes humanas nominais proprias" in normalized
+        assert "nao e gate corrente nem proximo hoje" in normalized
+        assert normalized.count(current_stage) == 1
+        assert (
+            f"o unico estagio corrente global e `{current_stage}`"
+            in normalized
+        )
+        for stale_claim in stale_current_claims:
+            assert stale_claim not in without_code_ticks, (
+                f"historical DEV logs gate misclassified as current in {path}"
+            )
 
 
 def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:

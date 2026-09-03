@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-09-03
-audited_repository_sha: 8aacf98d9abbfd945226afb652ef38efa2fc6cfa
+audited_repository_sha: c2fb16ad9a6b028c317c56a0b02c4362ae903e26
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -612,8 +612,10 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 frontend Production `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`. Essa metadata prova somente o deployment do frontend,
 não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
-estado agora é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO
-EXECUTADO / OPERAÇÃO BLOQUEADA`.
+estado naquele recorte, antes do consumo do gate de execução, era
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`. O estado corrente inclui a única execução registrada
+abaixo, bloqueada em `TLS_HANDSHAKE`; não houve nova tentativa.
 
 **Gate consumido em 2026-08-31:**
 `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
@@ -1142,9 +1144,37 @@ gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_POSTMERGE_BASE` foi inicialmente
 bloqueado no executor por política de shell e concluído pelo supervisor Codex,
 que atualizou `origin/main` localmente de `e5d07e60` para `8aacf98d` sem checkout
 e sem alterar o working tree. Os gates da PR #354 são estritamente históricos e
-já consumidos. `operational_authorization=false` e `next_stage_authorized=false`
-permanecem estritos. Nenhuma próxima implementação funcional é escolhida ou
-documentada nesta missão.
+já consumidos.
+
+A reconciliação M1J-R5 foi fixada no commit local
+`2218049902635239280af141980a30c3c3477c4c`, filho direto de `8aacf98d`. O
+preflight remoto confirmou `main` em `8aacf98d` e a ausência da branch remota;
+depois, a branch foi enviada e a PR #363 abriu contra essa base, com dez checks
+concluídos com sucesso. O merge nominal produziu
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, com parents `8aacf98d` e
+`2218049`; os nove check-runs pós-merge, incluindo `public-health`, concluíram
+com sucesso. Conforme a evidência Git/GitHub revalidada pelo supervisor nesta
+missão, o deployment automático
+`6251268132` foi classificado explicitamente como Vercel Production e terminou
+com sucesso; essa evidência prova somente o frontend Next.js. O fetch mínimo
+pós-merge atualizou somente `refs/remotes/origin/main` para `c2fb16ad`, validou
+os parents e a igualdade entre as árvores do merge e de `2218049`. Assim,
+`8aacf98d` é a base histórica da M1J-R5, `c2fb16ad` é o snapshot versionado
+corrente e a missão M1J está encerrada. Nada disso prova migration aplicada,
+banco, backend, DEV, PROD, flags ou runtime.
+
+A política de permissões foi implementada e comprovada offline pelo snapshot
+privado do SHA exato definido em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
+sem alterar permissões do checkout compartilhado.
+
+O único estágio sucessor é
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
+à implementação e aos testes offline/PG17 descartáveis do executor de
+identidade e captura. O identificador não registra consumo nem autoriza
+credencial, rede, banco compartilhado, DEV, PROD, migration ou cutover.
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
 
 ## Roteiro de leitura
 
