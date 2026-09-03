@@ -764,6 +764,56 @@ receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
 deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
 PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
 
+### Coordenador offline fail-closed do relatório de célula
+
+Esta etapa acrescenta `cell_report_whatsapp_coordinator` como fronteira local e
+offline; ela não é caller de runtime. Dentro de uma transação tenant-scoped já
+aberta por um futuro adapter aprovado, o coordenador relê e bloqueia a
+`Message` inbound e a `Conversation` vinculadas a `AgentTurnIdentity`. Assim,
+igreja, conversa, ator e texto vêm do estado persistido, não de texto de grafo,
+modelo ou parâmetros do caller.
+
+O recorte aceita exclusivamente inbound com `tipo="texto"` e sem metadados de
+mídia. Áudio, imagem, arquivo e captions são recusados antes de consentimento ou
+parse; qualquer uso futuro de mídia ou transcrição exige contrato próprio.
+
+O coordenador aceita somente `CellReportMeetingTarget` opaco e ligado ao inbound
+e ator. Ainda não existe resolver de reunião confiável que o emita em produção.
+O ciclo de proposta também é opaco e local ao processo: o serviço de aplicação
+deriva escopo e expiração pelo relógio do servidor, vincula o ciclo ao mesmo
+inbound e aos mesmos handles root/nested da transação, e o recusa antes de nova
+consulta ou `flush` se turno ou transação mudarem. O selo detecta adulteração
+acidental; não é segredo, autorização, prova durável nem substituto de receipt.
+
+O gate público de finalidade é `DenyAllOperationalConsentGate`. Um
+`OperationalConsentPermit` local ao processo existe apenas como contrato para
+um futuro gate revisado: não é catálogo de termos, decisão jurídica, prova de
+consentimento, autoridade durável ou autorização operacional. O coordenador não
+lê `Pessoa.consentimento` nem `ConsentRecord`. Após consultar o gate, ele exige
+que os mesmos handles transacionais e o mesmo escopo RLS ainda estejam ativos,
+e repete essa validação do permit imediatamente antes de gravar uma proposta ou
+delegar a confirmação à UoW.
+
+Na confirmação, a reserva V2 pré-payload e a chave derivada do plano canônico
+precisam coincidir antes da UoW. O coordenador não cria a reserva, não inicia,
+confirma ou reverte transação e não chama runtime, grafo, worker, webhook,
+Evolution, LLM, storage, rede ou provedor. Ele não envia mensagens. Não há
+caller integrado, resolução de reunião aprovada, fonte de consentimento
+`tarefas_operacionais`, `AgentConfig`, commit, outbox, receipt global, despacho
+ou prova pós-commit. A compatibilidade V1 atual do worker não satisfaz a reserva
+V2; qualquer wiring exige uma missão e revisão separadas.
+
+### Gate sucessor desta fatia offline
+
+O único gate sucessor é
+`OWNER_AUTHORIZE_D6_CELL_REPORT_OPERATIONAL_CONTRACT`. Ele exige decisão humana
+separada sobre o resolvedor confiável de reunião e a finalidade/consentimento
+operacional antes de qualquer wiring. Não autoriza caller, runtime, worker,
+webhook, `AgentConfig`, commit, outbox, send, áudio, LLM, migration, banco,
+DEV, PROD, deploy ou alteração de flags. Nesta etapa,
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
 
 
 ## Configuração e ativação

@@ -1750,6 +1750,7 @@ def test_module_has_no_production_wiring() -> None:
     assert sorted(execution_consumers) == [
         "app/agent/turn_plan_adapter.py",
         "app/services/cell_report_turn_uow.py",
+        "app/services/cell_report_whatsapp_coordinator.py",
     ]
 
     adapter_consumers: list[str] = []

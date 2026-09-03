@@ -47,10 +47,10 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | Revisar o lote offline e, depois, ligar o staging transacional a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | Revisar o lote offline e, depois, ligar o staging transacional e o coordenador fail-closed a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O manifesto descreve somente a fonte versionada; revisão independente, atestação posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
-| Relatório por WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | Conectar a UoW candidata ao agente, com consentimento, `AgentConfig`, commit externo, despacho e comprovante pós-commit |
+| Relatório por WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | Conectar o coordenador e a UoW candidatos ao agente, após resolvedor de reunião, consentimento, `AgentConfig`, commit externo, despacho e comprovante pós-commit |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
 | Agenda | `PARCIAL` | Consultas, confirmações e avisos pela plataforma unificada |
 | Consolidação | `PARCIAL` | Máquina de estados e progresso durável |
@@ -110,12 +110,27 @@ a primeira tentativa, não possui consumer de runtime e não torna o grafo
 retomável ou seguro para memória ativa.
 
 O mesmo lote local acrescenta o snapshot agregado `cell-report/v2`, o workflow,
-o envelope pendente, uma fronteira ORM e uma UoW de staging. Os seis writers
-web usam locks compatíveis e boundary sanitizado, embora continuem separados do
-serviço do agente. A UoW pode agrupar relatório, auditoria sem conteúdo e
-`Message` `ia_pendente` numa transação externa. Não existe caller de runtime;
-consentimento operacional, `AgentConfig`, commit, send, receipt global e
+o envelope pendente, uma fronteira ORM, uma UoW de staging e o coordenador
+offline fail-closed. Os seis writers web usam locks compatíveis e boundary
+sanitizado, embora continuem separados do serviço do agente. O coordenador relê
+o inbound e a conversa bloqueados a partir de `AgentTurnIdentity`, aceita somente
+alvo de reunião opaco e mantém a proposta vinculada ao mesmo turno e transação;
+ele não resolve reunião por texto. A UoW pode agrupar relatório, auditoria sem
+conteúdo e `Message` `ia_pendente` numa transação externa. Não existe caller de
+runtime, worker, webhook, router humano ou `turn_plan_adapter`; consentimento
+operacional aprovado, `AgentConfig`, commit, send, outbox, receipt global e
 resposta pós-commit continuam bloqueados.
+
+O coordenador aceita somente inbound persistido de `tipo="texto"` sem
+metadados de mídia. Áudio, imagem, arquivo e captions são recusados antes de
+consentimento ou parse; mídia e transcrição requerem contrato separado.
+
+O gate público do coordenador nega `tarefas_operacionais` por padrão. Seu permit
+local ao processo não é fonte jurídica, catálogo, prova de consentimento ou
+autorização durável; `Pessoa.consentimento` e `ConsentRecord` não são lidos. A
+reserva V2 da confirmação ainda não é produzida pelo worker atual, portanto não
+há wiring operacional. O módulo não inicia, confirma ou reverte transação, nem
+chama runtime, grafo, Evolution, LLM, storage, rede ou provedor.
 
 Mensagens ficam registradas e áudio pode ser armazenado; `backend/app/services/llm.py`
 possui `transcribe_audio` e testes dedicados, mas não existe caller de produção
