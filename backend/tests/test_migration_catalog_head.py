@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from collections import Counter
 import copy
+from dataclasses import replace
 import hashlib
 import importlib.util
 import json
@@ -764,6 +765,144 @@ def test_scanner_detects_replaced_ancestor_directory(
     monkeypatch.setattr(verifier, "_read_regular_at", replace_ancestor)
     with pytest.raises(verifier.CatalogDriftError):
         verifier._scan_catalog(catalog)
+
+
+def test_directory_chain_recheck_ignores_only_volatile_metadata(
+    tmp_path: Path,
+) -> None:
+    catalog = tmp_path / "root" / "backend" / "migrations"
+    catalog.mkdir(parents=True)
+    opened = verifier._open_directory(catalog, verifier.CatalogDriftError)
+    try:
+        recorded = opened.chain
+    finally:
+        os.close(opened.descriptor)
+
+    volatile = tuple(
+        replace(
+            snapshot,
+            links=snapshot.links + 1,
+            size=snapshot.size + 1,
+            mtime_ns=snapshot.mtime_ns + 1,
+            ctime_ns=snapshot.ctime_ns + 1,
+        )
+        for snapshot in recorded
+    )
+    verifier._verify_directory_chain(
+        catalog, volatile, verifier.CatalogDriftError
+    )
+
+    for field in ("device", "inode", "mode", "uid", "gid"):
+        replaced_ancestor = list(volatile)
+        snapshot = replaced_ancestor[1]
+        replaced_ancestor[1] = replace(
+            snapshot, **{field: getattr(snapshot, field) + 1}
+        )
+        with pytest.raises(verifier.CatalogDriftError):
+            verifier._verify_directory_chain(
+                catalog,
+                tuple(replaced_ancestor),
+                verifier.CatalogDriftError,
+            )
+
+    with pytest.raises(verifier.CatalogDriftError):
+        verifier._verify_directory_chain(
+            catalog, volatile[:-1], verifier.CatalogDriftError
+        )
+
+
+def test_directory_open_ignores_unrelated_child_metadata_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "identity-root"
+    catalog = root / "migrations"
+    catalog.mkdir(parents=True)
+    original_stat = verifier.os.stat
+    changed = False
+
+    def mutate_before_named_stat(*args: Any, **kwargs: Any) -> os.stat_result:
+        nonlocal changed
+        if (
+            not changed
+            and args
+            and args[0] == root.name
+            and kwargs.get("dir_fd") is not None
+            and kwargs.get("follow_symlinks") is False
+        ):
+            changed = True
+            os.mkdir(root / "unrelated-child")
+        return original_stat(*args, **kwargs)
+
+    monkeypatch.setattr(verifier.os, "stat", mutate_before_named_stat)
+    opened = verifier._open_directory(catalog, verifier.CatalogDriftError)
+    try:
+        assert changed
+        assert opened.chain[-1].inode == original_stat(catalog).st_ino
+    finally:
+        os.close(opened.descriptor)
+
+
+def test_stable_artifact_read_ignores_unrelated_sibling_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "artifact.json"
+    path.write_bytes(b"{}\n")
+    original_read = verifier._read_regular_at
+    changed = False
+
+    def create_sibling_after_read(*args: Any, **kwargs: Any) -> Any:
+        nonlocal changed
+        result = original_read(*args, **kwargs)
+        if not changed:
+            changed = True
+            (tmp_path / "unrelated.json").write_bytes(b"{}\n")
+        return result
+
+    monkeypatch.setattr(verifier, "_read_regular_at", create_sibling_after_read)
+    record = verifier._read_stable_file(path)
+
+    assert changed
+    assert record.content == b"{}\n"
+
+
+def test_stable_file_recheck_keeps_file_strict_and_parent_identity_only(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "artifact.json"
+    path.write_bytes(b"{}\n")
+    recorded = verifier._read_stable_file(path)
+    volatile_parent = replace(
+        recorded,
+        parent=replace(
+            recorded.parent,
+            links=recorded.parent.links + 1,
+            size=recorded.parent.size + 1,
+            mtime_ns=recorded.parent.mtime_ns + 1,
+            ctime_ns=recorded.parent.ctime_ns + 1,
+        ),
+    )
+
+    assert verifier._stable_file_unchanged(volatile_parent, recorded)
+    assert not verifier._stable_file_unchanged(
+        replace(
+            volatile_parent,
+            parent=replace(
+                volatile_parent.parent,
+                inode=volatile_parent.parent.inode + 1,
+            ),
+        ),
+        recorded,
+    )
+    assert not verifier._stable_file_unchanged(
+        replace(
+            volatile_parent,
+            file=replace(
+                volatile_parent.file,
+                mtime_ns=volatile_parent.file.mtime_ns + 1,
+            ),
+        ),
+        recorded,
+    )
 
 
 @pytest.mark.parametrize("fail", [False, True])

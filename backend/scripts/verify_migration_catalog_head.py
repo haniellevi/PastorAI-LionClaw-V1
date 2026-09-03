@@ -136,11 +136,44 @@ class FileSnapshot:
         )
 
 
+def _directory_identity(snapshot: FileSnapshot) -> tuple[int, int, int, int, int]:
+    """Security-relevant identity of a directory: same object, type, owner.
+
+    Deliberately excludes ``links``, ``size``, ``mtime_ns`` and ``ctime_ns``.
+    Those four fields change whenever an unrelated sibling entry is created
+    or removed inside the directory (for example, a concurrent worktree or
+    an unrelated temporary directory next to it) and carry no evidence that
+    *this* directory was replaced. A real swap-the-directory attack always
+    changes ``device``/``inode``; a permission or ownership change is still
+    caught through ``mode``/``uid``/``gid``. Catalog contents and every file
+    snapshot remain subject to full metadata and byte comparisons.
+    """
+    return (
+        snapshot.device,
+        snapshot.inode,
+        snapshot.mode,
+        snapshot.uid,
+        snapshot.gid,
+    )
+
+
 @dataclass(frozen=True)
 class StableFile:
     content: bytes
     file: FileSnapshot
     parent: FileSnapshot
+
+
+def _stable_file_unchanged(current: StableFile, recorded: StableFile) -> bool:
+    """True when content and file metadata match and the parent directory
+    is still the same object (identity only; see :func:`_directory_identity`).
+    """
+    return (
+        current.content == recorded.content
+        and current.file == recorded.file
+        and _directory_identity(current.parent)
+        == _directory_identity(recorded.parent)
+    )
 
 
 @dataclass(frozen=True)
@@ -237,7 +270,11 @@ def _open_directory(
                 named = FileSnapshot.from_stat(
                     os.stat(component, dir_fd=descriptor, follow_symlinks=False)
                 )
-                if opened != named or not stat.S_ISDIR(opened.mode):
+                if (
+                    _directory_identity(opened)
+                    != _directory_identity(named)
+                    or not stat.S_ISDIR(opened.mode)
+                ):
                     raise error_type
                 chain.append(opened)
             except Exception:
@@ -260,7 +297,12 @@ def _verify_directory_chain(
 ) -> None:
     reopened = _open_directory(path, error_type)
     try:
-        if reopened.chain != expected:
+        if len(reopened.chain) != len(expected) or any(
+            _directory_identity(current) != _directory_identity(recorded)
+            for current, recorded in zip(
+                reopened.chain, expected, strict=True
+            )
+        ):
             raise error_type
     finally:
         os.close(reopened.descriptor)
@@ -343,7 +385,9 @@ def _read_stable_file(
             error_type=error_type,
         )
         parent_after = FileSnapshot.from_stat(os.fstat(directory_fd))
-        if parent_before != parent_after:
+        if _directory_identity(parent_before) != _directory_identity(
+            parent_after
+        ):
             raise error_type
         _verify_directory_chain(path.parent, opened.chain, error_type)
         return StableFile(content=content, file=snapshot, parent=parent_after)
@@ -923,9 +967,13 @@ def verify_versioned_head(
         scanned_catalog=scanned,
         approved_prior=approved_prior,
     )
-    if _read_stable_file(HEAD_PATH) != head_record:
+    if not _stable_file_unchanged(
+        _read_stable_file(HEAD_PATH), head_record
+    ):
         raise ArtifactIoError
-    if _read_stable_file(SCHEMA_PATH) != schema_record:
+    if not _stable_file_unchanged(
+        _read_stable_file(SCHEMA_PATH), schema_record
+    ):
         raise ArtifactIoError
     return head
 
@@ -956,9 +1004,13 @@ def _validated_snapshot_for_historical_consumers(
         scanned_catalog=scanned,
         _approved_snapshot=True,
     )
-    if _read_stable_file(HEAD_PATH) != head_record:
+    if not _stable_file_unchanged(
+        _read_stable_file(HEAD_PATH), head_record
+    ):
         raise ArtifactIoError
-    if _read_stable_file(SCHEMA_PATH) != schema_record:
+    if not _stable_file_unchanged(
+        _read_stable_file(SCHEMA_PATH), schema_record
+    ):
         raise ArtifactIoError
     return head, reconstructed
 

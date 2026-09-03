@@ -1,7 +1,9 @@
 # Catálogo evolutivo de migrations e consumidores históricos
 
-**Estado:** `M1A/M1B/M1C CANDIDATAS OFFLINE / NÃO COMMITIDAS / CATÁLOGO
-CORRENTE COM 75 MIGRATIONS / CI REMOTO NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`
+**Estado:** `M1A/M1B/M1C INTEGRADAS LOCALMENTE (commit 1150fe92) /
+M1D-M1E CANDIDATAS NÃO COMMITADAS / COMPROVADAS OFFLINE /
+CATÁLOGO CORRENTE COM 75 MIGRATIONS / CI REMOTO NÃO EXECUTADO / OPERAÇÃO
+BLOQUEADA`
 
 **Base:** `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
 
@@ -78,9 +80,94 @@ reescrita do prefixo, digest divergente e gates verdadeiros falham fechado.
 Esta decisão não cria migration SQL, não altera o runner, não acessa banco,
 DEV, PROD ou rede e não autoriza commit, PR, merge, deploy, flag ou runtime.
 
+## Atualização pós-commit (2026-09-02)
+
+O gate `OWNER_AUTHORIZE_COMMIT_M1_MIGRATION_CATALOG_EVOLUTION_FOUNDATION` foi
+consumido por autorização humana nominal, exclusivamente no escopo declarado:
+um commit local dos 14 arquivos e hashes congelados de M1A/M1B/M1C. O commit
+técnico é `1150fe92ba67dbcb82b230b9a044472a1e1d9d8d`, na branch
+`feat/migration-catalog-head-v1`, sobre a base `e5d07e60c2eb9dafae671323bde60d1fa1be5749`.
+
+Esse consumo não autorizou e não executou push, PR, CI remoto, migration SQL,
+banco, DEV, PROD, rede, merge ou deploy. `operational_authorization` e
+`next_stage_authorized` permanecem `false` em todos os artefatos.
+
+## Candidatas M1D-M1E não commitadas
+
+M1A-M1C estão commitadas localmente no commit `1150fe92`. M1D e M1E são candidatas
+offline posteriores ao commit, revisadas offline e ainda não commitadas. O
+catálogo mantém o contrato append-only, o prefixo histórico das 75 migrations, o
+digest histórico, o runner intacto, nenhuma migration SQL,
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+A M1D reconcilia exclusivamente a documentação pós-commit de M1A-M1C.
+
+A M1E aperfeiçoa o verificador estrito e acrescenta os testes adversariais.
+Ela introduziu `_directory_identity`, `_stable_file_unchanged`, ajustes de call
+sites e quatro testes adversariais para separar a identidade de segurança de um
+diretório ancestral dos metadados voláteis.
+
+A M1E corrige falsos positivos causados por mudanças legítimas em metadados
+voláteis de diretórios ancestrais ou pais:
+
+- `links` — pode mudar especialmente com criação ou remoção de subdiretórios;
+- `size`, `mtime_ns` e `ctime_ns` — podem mudar com alterações legítimas nas entradas do diretório.
+
+A M1E continua exigindo invariavelmente os cinco campos de identidade:
+
+- `device` — prova que o objeto está no mesmo filesystem;
+- `inode` — prova que é o mesmo objeto no filesystem;
+- `mode` — prova que tipo e permissões não mudaram;
+- `uid` — prova que o owner não mudou;
+- `gid` — prova que o grupo não mudou.
+
+Bytes e metadados completos dos arquivos (`FileSnapshot` com todos os nove
+campos) continuam estritos. O diretório do catálogo e cada migration
+continuam sob comparação integral durante o scan. A troca de ancestral,
+chmod, mudança de ownership e cadeia divergente continuam falhando fechado.
+
+## Evidência da revisão independente M1D-M1E
+
+A revisão independente da M1D-M1E produziu veredito técnico GO com as
+seguintes evidências offline:
+
+- matriz focal: 89 passed;
+- repetição: 20/20 rodadas aprovadas (89 passed cada);
+- bateria ampliada: 383 passed, 45 skipped, 1 deselected;
+- teste isolado desselecionado: falha fechada por modo 0775 preexistente
+  no diretório `docs/governance/migrations/` — condição preexistente não
+  introduzida pela M1E e não bloqueante para esta correção;
+- veredito técnico: GO;
+- nenhum banco, rede, migration ou ambiente consultado.
+
+A limitação preexistente do modo 0775 não é regressão da M1E. Ela permanece
+registrada como P2 conhecido, exigindo decisão humana separada sobre
+permissões de diretório antes de qualquer attestation operacional.
+
 ## Próximo gate único
 
-`OWNER_AUTHORIZE_COMMIT_M1_MIGRATION_CATALOG_EVOLUTION_FOUNDATION`. O gate
-ainda está fechado. Seu consumo futuro poderá autorizar somente um commit local
-dos arquivos e hashes congelados de M1A/M1B/M1C; não autoriza push, PR, CI
-remoto, migration SQL, banco, DEV, PROD, rede, merge ou deploy.
+`OWNER_AUTHORIZE_COMMIT_M1D_M1E_MIGRATION_CATALOG_HARDENING`. O gate está
+fechado e depende de revisão final do Codex.
+
+Se futuramente autorizado, permitirá somente um commit local dos seis
+arquivos congelados (quatro documentos e dois arquivos Python com hashes
+SHA-256 fixados). Não autorizará rede, push, PR, merge, migration SQL,
+runner, banco, DEV, PROD, deploy, flags, mensagens nem qualquer outro efeito
+operacional.
+
+## Gate remoto diferido
+
+O gate anteriormente proposto
+`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1_MIGRATION_CATALOG` não foi
+consumido, fica diferido e não é o gate corrente. Seu escopo permanece
+registrado para autorização humana posterior e separada:
+
+1. consultar por rede o SHA atual de `origin/main` sem modificar referências
+   locais;
+2. confirmar no upstream os SHA fixados de `actions/checkout` e
+   `actions/setup-python`;
+3. registrar resultados sanitizados e horários da consulta.
+
+Esse gate não autoriza fetch, pull, push, PR, merge, execução do workflow
+remoto, migration SQL, runner, banco, DEV, PROD, deploy, flags, mensagens
+nem qualquer outro efeito operacional.

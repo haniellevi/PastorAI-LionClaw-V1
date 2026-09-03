@@ -405,10 +405,20 @@ somente do Git local quando há append e executa o head estrito, o manifesto
 histórico e a estrutura v3 bloqueada. Não há runner, DSN, segredo ou banco
 nesse caminho.
 
-O candidato está sem commit, não acessou banco, DEV, PROD ou rede e mantém
+O candidato não acessou banco, DEV, PROD ou rede e mantém
 `operational_authorization=false` e `next_stage_authorized=false`. O workflow
 remoto também não foi executado nesta missão. Consulte
 [`2026-09-02-migration-catalog-evolution.md`](decisions/2026-09-02-migration-catalog-evolution.md).
+
+M1A-M1C estão commitadas localmente no commit
+`1150fe92ba67dbcb82b230b9a044472a1e1d9d8d`. M1D-M1E são candidatas revisadas
+offline e ainda não commitadas. M1D é a atualização documental pós-commit e
+M1E introduziu `_directory_identity`, `_stable_file_unchanged`, call sites e
+quatro testes adversariais contra falsos positivos de metadados voláteis de
+diretórios ancestrais (como `links`, que pode mudar especialmente com criação ou
+remoção de subdiretórios), sem enfraquecer identidade de segurança (`device`,
+`inode`, `mode`, `uid`, `gid`). Revisão independente: GO técnico. O gate local
+permanece fechado e dependente de revisão do Codex. Detalhes na decisão técnica.
 
 ## Fontes de verdade
 

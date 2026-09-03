@@ -815,11 +815,11 @@ autoriza `AgentConfig`.
 
 ## Catálogo evolutivo e CI, candidato offline
 
-O candidato M1A/M1B, ainda sem commit, preserva os 75 arquivos atuais como
-prefixo histórico imutável e representa crescimento por lotes append-only de
-uma migration. O verificador estrito exige o head anterior aprovado para um
-lote novo. Consumidores históricos de expectativa, derivação e proposta v3
-leem somente o prefixo após validar o snapshot completo do head corrente.
+O candidato M1A/M1B preserva os 75 arquivos atuais como prefixo histórico
+imutável e representa crescimento por lotes append-only de uma migration. O
+verificador estrito exige o head anterior aprovado para um lote novo.
+Consumidores históricos de expectativa, derivação e proposta v3 leem somente o
+prefixo após validar o snapshot completo do head corrente.
 
 A M1C acrescenta `migration-catalog-head.yml`. Em pull request ou push para
 `main`, o job confirma o SHA e o ancestral do evento e, quando há append, lê o
@@ -831,6 +831,20 @@ Nada neste contrato altera ou libera `apply_migrations.py`. Migration criada,
 head válido, teste verde ou hash correto não autorizam `status`, `apply`, banco,
 DEV ou PROD. A decisão detalhada está em
 [`2026-09-02-migration-catalog-evolution.md`](../../docs/decisions/2026-09-02-migration-catalog-evolution.md).
+
+M1A-M1C estão commitadas localmente no commit
+`1150fe92ba67dbcb82b230b9a044472a1e1d9d8d`.
+
+M1D-M1E são candidatas revisadas offline e ainda não commitadas. A M1D foi a
+atualização documental pós-commit e a M1E é a correção técnica que introduziu
+`_directory_identity`, `_stable_file_unchanged`, ajustes de call sites e quatro
+testes adversariais contra falsos positivos causados por metadados voláteis
+(`links`, que pode mudar especialmente com criação ou remoção de subdiretórios,
+`size`, `mtime_ns` e `ctime_ns`) de diretórios ancestrais, sem enfraquecer
+`device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados completos dos
+arquivos, o diretório do catálogo e cada migration continuam sob comparação
+integral. A evidência completa, as limitações e o próximo gate estão centralizados
+na decisão técnica.
 
 ## Transações especiais
 
