@@ -285,10 +285,26 @@ hoje.
 A política de permissões foi implementada e comprovada offline pelo snapshot
 privado descrito em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](2026-09-03-trusted-repository-snapshot-policy.md).
+
+O gate
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE` foi
+consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+Ele faz identidade e captura na mesma conexão/PID, mas em duas transações e
+dois snapshots `REPEATABLE READ READ ONLY` separados. Seu artefato v1 continua
+bloqueado, não aprova o pacote v3 e não reclassifica DEV
+`BLOCKED_LEDGER_DIVERGENCE` ou PROD `BLOCKED_EVIDENCE_INSUFFICIENT`.
+
 O único estágio corrente global é
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
-à implementação e aos testes offline/PG17 descartáveis do executor sucessor.
-Sua menção não registra consumo nem autoriza rede, captura viva, runner de
-aplicação, banco compartilhado, DEV, PROD, migration ou cutover;
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.

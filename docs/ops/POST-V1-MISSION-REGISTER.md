@@ -1735,16 +1735,74 @@ alterar o working tree. M1J está encerrada; `8aacf98d` permanece base históric
 
 Os gates da PR #354 são estritamente históricos e já consumidos.
 `operational_authorization=false` e `next_stage_authorized=false` continuam estritos.
-A política de permissões sucessora foi implementada e comprovada offline pelo
-snapshot privado do SHA exato descrito em
+A primitiva de snapshot privado do SHA exato foi implementada e comprovada
+offline. A mitigação é parcial: o checkout `0775` permanece, consumidores
+legados de apply, capture e reconcile ainda não foram migrados transitivamente
+e o uso seguro exige um launcher externo confiável antes do bootstrap. O P2
+permanece aberto globalmente. O contrato está descrito em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
 sem alterar o checkout compartilhado.
 
-O único estágio sucessor é
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
-à implementação e aos testes offline/PG17 descartáveis do executor de
-identidade e captura. Este registro não declara consumo e não autoriza
-credencial, rede, banco compartilhado, DEV, PROD, migration ou cutover.
+### Executor v2 de atestação de migrations (candidato local, 2026-09-03)
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para implementar, documentar e testar offline o
+candidato descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+A matriz unitária foi executada offline; a prova PostgreSQL 17 TLS descartável
+foi implementada no workflow e permanece pendente de execução sem skips no CI
+do commit candidato. Não houve credencial, conexão ou captura viva, banco
+compartilhado, DEV, PROD, migration, runner, cutover, deploy, flag ou runtime.
+
+O processo público e o child exigem Python `3.13.14`, `-I -B`, `isolated`,
+`safe_path`, `no_user_site` e `dont_write_bytecode`; o child é reinvocado no
+snapshot privado e exige
+`psycopg2-binary==2.9.12`, libpq 17 e módulos sob o prefixo privado sem escrita
+ampla. A saída declara
+`AUTHORIZATION_TRUST_REQUIREMENT=EXTERNAL_NOMINAL_GATE_AUTHENTICATION_REQUIRED`
+e `RUNTIME_TRUST_REQUIREMENT=EXTERNALLY_PINNED_RUNTIME_REQUIRED`: essas
+verificações internas são parciais e não substituem um launcher externo
+confiável que autentique autorização, interpretador e dependências antes de
+abrir os descritores de segredo.
+
+Por hashes e `path-checks`, o candidato fecha a cadeia executável transitiva
+offline `materializer -> canonical derivation -> source manifest verifier ->
+catalog head verifier`. Esse fechamento prova somente o encadeamento estático
+no snapshot confiado; não declara que a prova PostgreSQL 17 foi executada.
+
+DEV e PROD têm gates separados. Cada tentativa usa no máximo uma conexão TLS
+`verify-full`, porta `5432`, e o mesmo backend PID. Identidade e captura usam
+duas transações e dois snapshots `REPEATABLE READ READ ONLY` separados, ambos
+com `ROLLBACK`; não constituem um único snapshot PostgreSQL. A conexão fecha
+antes da publicação do artefato v1 sanitizado. Mesmo o caminho completo termina
+com exit `8`, `environment_attestation_complete=false`,
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+Ainda faltam autenticação externa do gate nominal, runtime/dependências
+externamente pinados antes dos segredos, anti-replay durável e uma cerimônia
+segura para credencial temporária, CA vigente e bindings independentes do alvo.
+A falha DEV histórica em `TLS_HANDSHAKE` permanece sem causa determinada. DEV
+continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a revisão v3 permanece
+`PENDING_INDEPENDENT_REVIEW_OF_V3` e a decisão de cutover não foi tomada.
+
+O campo `next_gate` contido no pacote v3 congelado permanece byte-idêntico e
+aponta somente para o gate histórico da fundação do agente já consumido pela
+PR #351; não é o gate global corrente e não deve ser reescrito in-place.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.
 
 ## Paralelismo seguro
 

@@ -869,18 +869,35 @@ com sucesso; ele prova somente o frontend Next.js. `8aacf98d` é a base
 histórica, `c2fb16ad` é o snapshot versionado corrente e a M1J está encerrada,
 sem provar ou autorizar migration, banco, backend, DEV, PROD, flags ou runtime.
 
-A política de permissões foi implementada e comprovada offline com um snapshot
-privado do SHA exato, sem alterar permissões do checkout compartilhado. O
-procedimento e seus limites estão em
+A primitiva de snapshot privado do SHA exato foi implementada e comprovada
+offline, sem alterar permissões do checkout compartilhado. A mitigação é
+parcial: o checkout `0775` permanece, consumidores legados de apply, capture e
+reconcile ainda não foram migrados transitivamente e o uso seguro exige um
+launcher externo confiável antes do bootstrap. O P2 permanece aberto
+globalmente. O procedimento e seus limites estão em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../../docs/decisions/2026-09-03-trusted-repository-snapshot-policy.md).
 
-O único estágio sucessor é
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
-à implementação e aos testes offline/PG17 descartáveis do executor que fará
-identidade e captura na mesma conexão. O identificador não registra consumo
-nem autoriza credencial, rede, banco compartilhado, DEV, PROD, migration ou
-cutover; `operational_authorization=false` e `next_stage_authorized=false`
-permanecem estritos.
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido para o candidato local documentado em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../../docs/decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+O executor abre no máximo uma conexão/PID e usa duas transações e dois
+snapshots `REPEATABLE READ READ ONLY` separados para identidade e captura. Ele
+fecha a conexão antes da publicação e termina deliberadamente bloqueado. Não
+executa nenhum comando de `apply_migrations.py`.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.
 
 ## Transações especiais
 

@@ -860,18 +860,27 @@ def test_pg17_workflow_is_digest_pinned_loopback_tls_and_dedicated() -> None:
         "postgres:17.6-trixie@sha256:"
         "00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929"
     )
-    assert workflow.count(image) == 1
+    assert workflow.count(image) == 2
+    assert workflow.count("persist-credentials: false") == 1
     assert workflow.count("--publish 127.0.0.1:6543:5432") == 1
+    assert workflow.count("--publish 127.0.0.1:6544:5432") == 1
+    assert workflow.count("--publish 127.0.0.2:5432:5432") == 1
+    assert workflow.count("--publish 127.0.0.3:5432:5432") == 1
     assert workflow.count(
         "postgresql://postgres:postgres@127.0.0.1:6543/"
+        "canonical_schema_disposable_test"
+    ) == 1
+    assert workflow.count(
+        "postgresql://postgres:prod_executor_v2_test_password@127.0.0.1:6544/"
         "canonical_schema_disposable_test"
     ) == 1
     assert workflow.count(
         "postgresql://postgres.abcdefghijklmnopqrst:"
         "preflight_test_password@127.0.0.1:6543/postgres"
     ) == 1
-    assert workflow.count("POSTGRES_DB=canonical_schema_disposable_test") == 1
-    assert workflow.count("PGSSLMODE: require") == 1
+    assert workflow.count("POSTGRES_DB=canonical_schema_disposable_test") == 2
+    assert "POSTGRES_DB=postgres" not in workflow
+    assert workflow.count("PGSSLMODE: require") == 2
     assert "?sslmode=" not in workflow
     assert "55434" not in workflow
     assert (
@@ -887,26 +896,62 @@ def test_pg17_workflow_is_digest_pinned_loopback_tls_and_dedicated() -> None:
         "DEV_IDENTITY_PREFLIGHT_TEST_TLS_CA_CERT_PATH: "
         "${{ runner.temp }}/dev-identity-preflight-ca.crt"
     ) == 1
+    assert workflow.count(
+        "MIGRATION_EXECUTOR_V2_PROD_TEST_TLS_CA_CERT_PATH: "
+        "${{ runner.temp }}/prod-environment-executor-v2-ca.crt"
+    ) == 1
+    assert workflow.count(
+        "127.0.0.2 db.abcdefghijklmnopqrst.supabase.co"
+    ) == 1
+    assert workflow.count(
+        "127.0.0.3 db.bcdefghijklmnopqrstu.supabase.co"
+    ) == 1
+    assert "${{ secrets." not in workflow
     assert "update-ca-certificates" not in workflow
     assert "/usr/local/share/ca-certificates" not in workflow
     assert 'sslrootcert="system"' not in workflow
     assert "SSL_CERT_FILE" not in workflow
     assert re.findall(r"tests/test_[A-Za-z0-9_]+\.py", workflow) == [
         "tests/test_migration_history_environment_attestation.py",
+        "tests/test_migration_history_environment_attestation_executor_v2.py",
+        "tests/test_migration_history_environment_attestation_pg17.py",
         "tests/test_migration_history_environment_attestation_pg17.py",
         "tests/test_migration_history_environment_identity_preflight_pg17.py",
+        "tests/test_migration_history_environment_attestation_executor_v2_pg17.py",
     ]
-    assert workflow.count("-m pytest") == 3
+    assert workflow.count("-m pytest") == 5
     old_pg17_step = workflow.index(
         "- name: Executar prova de atestação PG17 TLS sem skips"
     )
+    prod_schema_step = workflow.index(
+        "- name: Preparar schema canônico no PostgreSQL 17 sintético PROD"
+    )
     role_step = workflow.index("- name: Criar role sintética do preflight DEV")
+    clone_step = workflow.index(
+        "- name: Clonar schema canônico para os bancos-alvo descartáveis"
+    )
     identity_step = workflow.index(
         "- name: Executar preflight DEV PG17 TLS sem skips"
     )
+    executor_v2_step = workflow.index(
+        "- name: Executar executor v2 DEV e PROD em PG17 TLS descartável"
+    )
     cleanup_step = workflow.index("- name: Remover PostgreSQL 17 descartável")
-    assert old_pg17_step < role_step < identity_step < cleanup_step
-    identity_segment = workflow[identity_step:cleanup_step]
+    assert (
+        old_pg17_step
+        < prod_schema_step
+        < role_step
+        < clone_step
+        < identity_step
+        < executor_v2_step
+        < cleanup_step
+    )
+    clone_segment = workflow[clone_step:identity_step]
+    assert clone_segment.count("--template=canonical_schema_disposable_test") == 2
+    assert clone_segment.count("--maintenance-db=canonical_schema_disposable_test") == 4
+    assert clone_segment.count("dropdb --force --if-exists") == 2
+    assert clone_segment.count("createdb -U postgres") == 2
+    identity_segment = workflow[identity_step:executor_v2_step]
     assert "DEV_IDENTITY_PREFLIGHT_TEST_DATABASE_URL:" in identity_segment
     assert "DEV_IDENTITY_PREFLIGHT_TEST_TLS_CA_CERT_PATH:" in identity_segment
     assert "PGSSLMODE" not in identity_segment
@@ -916,7 +961,14 @@ def test_pg17_workflow_is_digest_pinned_loopback_tls_and_dedicated() -> None:
         "docker rm --force pastorai-environment-attestation-pg17"
     ) == 1
     assert cleanup_segment.count(
-        'rm -f "$RUNNER_TEMP/dev-identity-preflight-ca.crt"'
+        "docker rm --force pastorai-environment-attestation-prod-pg17"
+    ) == 1
+    assert cleanup_segment.count('rm -f \\\n') == 1
+    assert cleanup_segment.count(
+        '"$RUNNER_TEMP/dev-identity-preflight-ca.crt"'
+    ) == 1
+    assert cleanup_segment.count(
+        '"$RUNNER_TEMP/prod-environment-executor-v2-ca.crt"'
     ) == 1
     assert cleanup_segment.count(
         'sudo find "$RUNNER_TEMP/environment-attestation-tls" \\\n'
@@ -925,11 +977,20 @@ def test_pg17_workflow_is_digest_pinned_loopback_tls_and_dedicated() -> None:
     assert cleanup_segment.count(
         'sudo rmdir "$RUNNER_TEMP/environment-attestation-tls"'
     ) == 1
+    assert cleanup_segment.count(
+        'sudo rmdir "$RUNNER_TEMP/environment-attestation-prod-tls"'
+    ) == 1
     assert "rm -rf" not in cleanup_segment
     assert 'find "$RUNNER_TEMP"' not in cleanup_segment
     assert 'rmdir "$RUNNER_TEMP"' not in cleanup_segment
     assert "find / " not in cleanup_segment
-    assert re.search(r"\bPROD\b", workflow) is None
+    assert workflow.count("MIGRATION_EXECUTOR_V2_TEST_SOURCE_GIT_SHA") == 1
+    assert workflow.count("MIGRATION_EXECUTOR_V2_DEV_TEST_DATABASE_URL") == 1
+    assert workflow.count("MIGRATION_EXECUTOR_V2_PROD_TEST_DATABASE_URL") == 1
+    assert (
+        "OWNER_AUTHORIZE_CAPTURE_MIGRATION_ENVIRONMENT_PROD_READ_ONLY_V2"
+        not in workflow
+    )
     assert "54322" not in workflow
 
 

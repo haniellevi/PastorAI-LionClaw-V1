@@ -138,13 +138,25 @@ A política de permissões sucessora foi implementada e comprovada offline pelo
 snapshot privado definido em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../../decisions/2026-09-03-trusted-repository-snapshot-policy.md).
 
-O único estágio sucessor corrente é
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
-à implementação e aos testes offline/PG17 descartáveis do executor de
-identidade e captura. Sua menção não registra consumo e não autoriza rede,
-evidência viva, runner de aplicação, banco compartilhado, DEV, PROD, migration
-ou cutover; `operational_authorization=false` e `next_stage_authorized=false`
-permanecem.
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+Essa implementação não ocupa o papel de `REVIEWER-01`, não autentica por si só
+o papel de `OWNER-01`, não aprova a proposta v3 e não muda as decisões
+`BLOCKED_LEDGER_DIVERGENCE` e `BLOCKED_EVIDENCE_INSUFFICIENT`.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.
 
 Nenhuma etapa deste guia acessa DEV ou PROD, executa SQL, DML, migration,
 deploy, flag ou runtime.

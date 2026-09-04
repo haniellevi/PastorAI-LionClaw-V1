@@ -2,15 +2,19 @@
 
 Data: `2026-09-03`
 
-Estado: `IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / SEM
-ATESTACAO VIVA / OPERACAO BLOQUEADA`.
+Estado: `IMPLEMENTADO E COMPROVADO OFFLINE / MITIGACAO PARCIAL PARA
+CONSUMIDORES MIGRADOS / BOOTSTRAP EXTERNO AINDA NAO PINADO / AINDA NAO
+INTEGRADO / SEM ATESTACAO VIVA / OPERACAO BLOQUEADA`.
 
 Base auditada: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
 
 ## Problema
 
-Os verificadores de migrations rejeitam corretamente qualquer ancestral,
-diretório de governança ou arquivo que seja gravável por grupo ou por outros.
+As ferramentas legadas de captura e reconciliação que impõem a política de
+permissões estrita rejeitam qualquer ancestral, diretório de governança ou
+arquivo gravável por grupo ou por outros. Essa guarda não existe uniformemente
+em todo verificador; em particular, o verificador do head do catálogo vincula e
+revalida metadados, mas não rejeita sozinho o modo `0775`.
 O checkout compartilhado desta máquina nasce sob `umask 0002`: o primeiro
 ancestral inseguro observado é `/home/raniel-linux/workspace`, modo `0775`, e
 os diretórios do repositório também podem ter modo `0775`. Alterar apenas
@@ -64,7 +68,8 @@ mutação da origem, substituição da raiz, contrato de `/tmp`, ambiente do
 subprocesso e saída sanitizada. A revisão independente bloqueou a primeira
 versão por permitir `git replace`; a implementação corrente fecha esse bypass
 e o possível leak em falha precoce de criação. A rechecagem final concluiu
-`GO`, com `P0=0`, `P1=0` e `P2=0`.
+`GO`, com `P0=0`, `P1=0` e `P2=0` estritamente no escopo da primitiva offline
+revisada. Essa classificação não encerra o risco residual do checkout físico.
 
 ## Limites e rollback
 
@@ -74,18 +79,36 @@ autenticação ou cleanup bloqueia a etapa consumidora. O rollback é deixar de
 usar e remover o snapshot identificado; nenhuma permissão do checkout
 compartilhado é alterada.
 
-A condição histórica `0775` continua existindo no workspace, mas deixa de ser
-aceita como caminho operacional. O P2 é encerrado pela política de isolamento,
-não por enfraquecimento dos verificadores nem por `chmod` global.
+A condição `0775` continua existindo no workspace. Seu uso direto é mitigado
+somente para consumidores migrados quando a primitiva e o bootstrap forem
+iniciados por um launcher externo confiável. Esse trust anchor ainda não
+existe; além disso, as ferramentas legadas de apply, capture e reconcile ainda
+não foram integradas transitivamente ao snapshot. Portanto, o P2 permanece
+aberto globalmente, sem enfraquecimento dos verificadores nem `chmod` global.
 
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.
 
 ## Próximo estágio único
 
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
-à implementação e aos testes offline/PG17 descartáveis de um executor que use
-o snapshot confiável, faça identidade e captura na mesma conexão, aceite DEV e
-PROD como alvos separados e emita somente artefatos sanitizados bloqueados.
-Este registro não declara consumo e não autoriza credencial, rede, banco
-compartilhado, captura viva, cutover ou aplicação de migration.
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local documentado em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+Ele reinvoca o código a partir deste snapshot e mantém DEV e PROD como alvos
+separados. Identidade e captura compartilham conexão e backend PID, mas usam
+duas transações e dois snapshots `REPEATABLE READ READ ONLY` separados. O
+resultado permanece sanitizado e bloqueado; nenhuma conexão viva foi feita.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.

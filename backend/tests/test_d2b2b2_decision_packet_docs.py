@@ -109,8 +109,20 @@ DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE = (
 DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE = (
     "SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION"
 )
-CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE = (
+MIGRATION_ENVIRONMENT_EXECUTOR_V2_CONSUMED_GATE = (
     "OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE"
+)
+CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE = (
+    "OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE"
+)
+MIGRATION_EXECUTOR_V2_FUTURE_EXTERNAL_TRUST_ANCHORS_GATE = (
+    "OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE"
+)
+MIGRATION_ENVIRONMENT_EXECUTOR_V2_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-09-03-migration-environment-attestation-executor-v2.md"
 )
 DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
     "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
@@ -2664,6 +2676,108 @@ def test_legacy_dev_failure_logs_gate_is_historical_and_superseded() -> None:
             assert stale_claim not in without_code_ticks, (
                 f"historical DEV logs gate misclassified as current in {path}"
             )
+
+
+def test_migration_environment_executor_v2_gate_is_consumed_and_pr_gate_is_current() -> None:
+    consumed_gate = MIGRATION_ENVIRONMENT_EXECUTOR_V2_CONSUMED_GATE.casefold()
+    current_gate = CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE.casefold()
+    future_gate = (
+        MIGRATION_EXECUTOR_V2_FUTURE_EXTERNAL_TRUST_ANCHORS_GATE.casefold()
+    )
+    current_docs = {
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
+        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        RECONCILIATION_CONTRACT_PATH,
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-29-migration-history-divergence-remediation.md",
+        CANONICAL_SCHEMA_DERIVATION_ADR_PATH,
+        DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_ADR_PATH,
+        ENVIRONMENT_ATTESTATION_ADR_PATH,
+        DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH,
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-09-02-migration-catalog-evolution.md",
+        MIGRATION_ENVIRONMENT_EXECUTOR_V2_ADR_PATH,
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-09-03-trusted-repository-snapshot-policy.md",
+        HUMAN_REVIEW_GUIDE_PATH,
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+    }
+
+    for path in current_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert normalized.count(consumed_gate) == 1, path
+        assert normalized.count(current_gate) == 1, path
+        assert normalized.count(future_gate) == 1, path
+        assert "foi consumido" in normalized, path
+        assert (
+            f"o unico estagio corrente global e `{current_gate}`" in normalized
+        ), path
+        assert "consulta remota somente leitura de `refs/heads/main`" in normalized
+        assert "preflight da base" in normalized, path
+        assert "push da branch candidata" in normalized, path
+        assert "abertura da pr" in normalized, path
+        assert "vercel preview automaticos" in normalized, path
+        assert "nao autoriza merge" in normalized, path
+        for forbidden_effect in {
+            "banco compartilhado",
+            "dev",
+            "prod",
+            "migration",
+            "runner",
+            "alteracao de flags",
+        }:
+            assert forbidden_effect in normalized, (path, forbidden_effect)
+        assert "somente apos a integracao posterior sob gate proprio" in normalized
+        assert "ele nao e o estagio corrente nem esta autorizado" in normalized
+        assert "operational_authorization=false" in normalized, path
+        assert "next_stage_authorized=false" in normalized, path
+
+
+def test_frozen_v3_next_gate_is_historical_not_global_current_stage() -> None:
+    proposal_path = (
+        REPO_ROOT
+        / "docs"
+        / "governance"
+        / "migrations"
+        / "migration-history-divergence-remediation-proposal-v3.json"
+    )
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    assert hashlib.sha256(proposal_path.read_bytes()).hexdigest() == (
+        "076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e"
+    )
+    assert proposal["next_gate"] == {
+        "authorized": False,
+        "id": OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE,
+        "scope": "OFFLINE_BATCH_REVIEW_AND_CI_ONLY_NO_CUTOVER_AUTHORIZATION",
+    }
+
+    for path in {
+        MIGRATION_ENVIRONMENT_EXECUTOR_V2_ADR_PATH,
+        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+    }:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert "pacote v3" in normalized, path
+        assert OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold() in normalized
+        assert "historico" in normalized, path
+        assert "pr #351" in normalized, path
+        assert CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE.casefold() in normalized
 
 
 def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:

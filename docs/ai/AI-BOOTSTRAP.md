@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a revisão externa classificou DEV como `BLOCKED_LEDGER_DIVERGENCE` e PROD como `BLOCKED_EVIDENCE_INSUFFICIENT`; o manifesto atual descreve somente a expectativa da fonte versionada; os pacotes continuam `EVIDENCE_CAPTURED_UNREVIEWED`, sem migration, runner, deploy ou runtime; D2B2B3A continua ausente nos bancos consultados e com flag `false` |
+| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / EXECUTOR V2 LOCAL OFFLINE COM TRUST ANCHORS PENDENTES / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a revisão externa classificou DEV como `BLOCKED_LEDGER_DIVERGENCE` e PROD como `BLOCKED_EVIDENCE_INSUFFICIENT`; o executor v2 é somente candidato local e não pode receber segredos até haver autorização nominal autenticada, runtime/dependências pinados e anti-replay durável; os pacotes continuam bloqueados, sem migration, runner, deploy ou runtime; no último preflight histórico de 2026-08-28, D2B2B3A estava ausente nos bancos consultados e a flag estava `false`; o estado vivo atual não foi revalidado |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -134,8 +134,9 @@ convergiram para a mesma identidade sanitizada; a role runtime possui
 `public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
 A tabela alvo D2B2b3A, o validator e a própria `public.schema_migrations`
 estavam ausentes. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permaneceu
-`false`. Esta missão não aplicou a migration D2B2b3A; DEV e PROD confirmaram a
-ausência. A PR #321 integrou a reconciliação documental anterior no merge
+`false`. Esta missão não aplicou a migration D2B2b3A; no preflight histórico de
+2026-08-28, DEV e PROD confirmaram a ausência, sem revalidação do estado vivo
+atual. A PR #321 integrou a reconciliação documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
 automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
 2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
@@ -227,8 +228,9 @@ auditoria sem payload e estado fixo `DRAFT_NOT_APPROVED`. Os cinco workflows da
 PR e os cinco pós-merge concluíram com `SUCCESS`. O merge gerou o deployment
 automático Vercel frontend Production `6140373952`, também com `SUCCESS`; essa
 metadata prova somente o frontend nesse ambiente. Esta missão não aplicou a
-migration D2B2b3A; DEV e PROD confirmaram a ausência. A flag
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`, e não houve
+migration D2B2b3A; no preflight histórico de 2026-08-28, DEV e PROD confirmaram
+a ausência, sem revalidação do estado vivo atual. Naquele registro, a flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` estava `false`, e não houve
 deploy manual ou do backend, wiring, ativação ou canário.
 
 As fatias permanecem nesta ordem:
@@ -1163,18 +1165,51 @@ os parents e a igualdade entre as árvores do merge e de `2218049`. Assim,
 corrente e a missão M1J está encerrada. Nada disso prova migration aplicada,
 banco, backend, DEV, PROD, flags ou runtime.
 
-A política de permissões foi implementada e comprovada offline pelo snapshot
-privado do SHA exato definido em
+A primitiva de snapshot privado do SHA exato foi implementada e comprovada
+offline. A mitigação é parcial: o checkout `0775` permanece, consumidores
+legados de apply, capture e reconcile ainda não foram migrados transitivamente
+e o uso seguro exige um launcher externo confiável antes do bootstrap. O P2
+permanece aberto globalmente. O contrato está definido em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
 sem alterar permissões do checkout compartilhado.
 
-O único estágio sucessor é
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
-à implementação e aos testes offline/PG17 descartáveis do executor de
-identidade e captura. O identificador não registra consumo nem autoriza
-credencial, rede, banco compartilhado, DEV, PROD, migration ou cutover.
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+Ele reinvoca o SHA exato em snapshot privado, recebe entradas sensíveis apenas
+por descritores, separa DEV de PROD e usa uma conexão/PID com duas transações e
+dois snapshots `REPEATABLE READ READ ONLY` separados. Mesmo no caminho técnico
+completo, publica somente artefato v1 sanitizado e termina bloqueado.
+
+Esse candidato não está pronto para ambiente vivo: falta autenticar
+externamente o gate nominal, fixar e atestar runtime/dependências antes dos
+segredos, registrar consumo durável contra replay e prover entradas por canal
+seguro. A falha DEV histórica em `TLS_HANDSHAKE` segue sem causa determinada;
+DEV, PROD, revisão v3, cutover e migrations permanecem bloqueados.
+
+Internamente, processo público e child exigem Python `3.13.14`, `-I -B`,
+`isolated`, `safe_path`, `no_user_site` e `dont_write_bytecode`; o child exige
+ainda `psycopg2-binary==2.9.12` e libpq 17. As linhas
+`AUTHORIZATION_TRUST_REQUIREMENT=EXTERNAL_NOMINAL_GATE_AUTHENTICATION_REQUIRED`
+e `RUNTIME_TRUST_REQUIREMENT=EXTERNALLY_PINNED_RUNTIME_REQUIRED` registram que
+essa checagem é parcial e não substitui o launcher externo antes dos descritores
+secretos. O campo `next_gate` dentro do pacote v3 aponta para o gate histórico
+da fundação do agente, já consumido pela PR #351, e não é o estágio global
+corrente.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags.
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.
 
 ## Roteiro de leitura
 

@@ -734,3 +734,35 @@ receipt global, saver, probe vivo, acesso a DEV ou PROD, logs, SQL, DML, outra
 rede, deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o
 merge da PR #354 não autorizou, alterou ou comprovou o estado vivo de
 `AgentConfig.ativo`.
+
+## Relação com o executor de atestação v2 (2026-09-03)
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local documentado em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+Essa prova unitária offline e a prova PG17 descartável implementada, ainda
+pendente de execução sem skips no CI do commit candidato, não repetem o probe
+real nem reclassificam seu resultado: a execução DEV histórica continua
+bloqueada em `TLS_HANDSHAKE`, sem causa determinada. Nenhuma CA atual,
+credencial, conexão, captura, DEV ou PROD foi usada nesta etapa.
+
+O executor v2 faz identidade e captura na mesma conexão e backend PID, mas em
+duas transações e dois snapshots `REPEATABLE READ READ ONLY` separados.
+Processo público e child exigem Python `3.13.14`, `-I -B`, `isolated`,
+`safe_path`, `no_user_site` e `dont_write_bytecode`; o child exige ainda
+`psycopg2-binary==2.9.12` e libpq 17. Ainda assim, dependem de trust anchors
+externos antes de receber segredos, e DEV e PROD permanecem bloqueados.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.

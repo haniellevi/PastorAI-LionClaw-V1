@@ -39,7 +39,7 @@ significa ativa em produção.
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; a revisão externa bloqueou DEV por divergência e PROD por evidência insuficiente | Revisão independente do manifesto; D2, catálogo, prova, writer e operação permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / EXECUTOR V2 LOCAL OFFLINE COM TRUST ANCHORS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; o executor v2 é candidato local fail-closed e a revisão externa ainda bloqueia DEV por divergência e PROD por evidência insuficiente | Trust anchors externos, atestações DEV/PROD separadas, revisão independente v3 e decisão humana de cutover permanecem bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA / FATIA ESPECÍFICA OFFLINE CANDIDATA` | O relatório possui envelope pendente fechado e uma UoW que pode agrupar confirmação, auditoria sem conteúdo e reply pendente numa transação externa; não existe plataforma D2C genérica nem caller | Receipts duráveis autenticados, unicidade global, consentimento, caller, commit comprovado e resposta pós-commit |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -237,8 +237,9 @@ convergiram para a mesma identidade sanitizada; a role runtime possui
 `public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
 A tabela alvo D2B2b3A, o validator e a própria `public.schema_migrations`
 estavam ausentes. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permaneceu
-`false`. Esta missão não aplicou a migration D2B2b3A; DEV e PROD confirmaram a
-ausência. A PR #321 integrou a reconciliação documental anterior no merge
+`false`. Esta missão não aplicou a migration D2B2b3A; no preflight histórico de
+2026-08-28, DEV e PROD confirmaram a ausência, sem revalidação do estado vivo
+atual. A PR #321 integrou a reconciliação documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
 automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
 2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
@@ -253,8 +254,9 @@ merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Os cinco workflows da
 PR e os cinco pós-merge ficaram verdes. O merge gerou o deployment automático
 Vercel frontend Production `6140373952`, com `SUCCESS`; essa metadata não
 prova backend, banco ou Supabase. Esta missão não aplicou a migration D2B2b3A;
-DEV e PROD confirmaram a ausência. A flag permanece `false`, e não houve deploy manual ou do
-backend, wiring, ativação ou canário.
+no preflight histórico de 2026-08-28, DEV e PROD confirmaram a ausência, sem
+revalidação do estado vivo atual. Naquele registro, a flag estava `false`, e não
+houve deploy manual ou do backend, wiring, ativação ou canário.
 
 ## Canário ativo reconciliado
 
@@ -1254,16 +1256,51 @@ Next.js. `8aacf98d` permanece base histórica; o snapshot versionado corrente é
 `c2fb16ad`. A M1J está encerrada sem provar ou autorizar migration, banco,
 backend, DEV, PROD, flags ou runtime.
 
-A política de permissões foi implementada e comprovada offline pelo snapshot
-privado do SHA exato descrito em
+A primitiva de snapshot privado do SHA exato foi implementada e comprovada
+offline. A mitigação é parcial: o checkout `0775` permanece, consumidores
+legados de apply, capture e reconcile ainda não foram migrados transitivamente
+e o uso seguro exige um launcher externo confiável antes do bootstrap. O P2
+permanece aberto globalmente. O contrato está descrito em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
 sem alterar permissões do checkout compartilhado.
 
-O único estágio sucessor é
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, restrito
-à implementação e aos testes offline/PG17 descartáveis do executor de
-identidade e captura. Sua menção não registra consumo e mantém
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+O candidato separa DEV e PROD, exige snapshot privado do SHA exato e mantém
+identidade e captura na mesma conexão/PID, mas em duas transações e dois
+snapshots PostgreSQL separados. O resultado continua
+`environment_attestation_complete=false`; Data API, Realtime e integridade
+append-only não são atestados.
+
+Faltam trust anchors externos para autorização nominal, runtime/dependências e
+anti-replay antes de qualquer segredo. Não houve conexão viva, credencial,
+captura, migration ou runner. DEV segue `BLOCKED_LEDGER_DIVERGENCE`, PROD segue
+`BLOCKED_EVIDENCE_INSUFFICIENT`, o TLS DEV histórico não foi resolvido e a
+revisão independente v3 permanece pendente.
+
+Python `3.13.14`, processo público e child com `-I -B`, `isolated`, `safe_path`,
+`no_user_site` e `dont_write_bytecode`, além de
+`psycopg2-binary==2.9.12`/libpq 17 no child, são checagens internas parciais.
+As declarações
+`AUTHORIZATION_TRUST_REQUIREMENT=EXTERNAL_NOMINAL_GATE_AUTHENTICATION_REQUIRED`
+e `RUNTIME_TRUST_REQUIREMENT=EXTERNALLY_PINNED_RUNTIME_REQUIRED` exigem um
+launcher externo confiável antes dos descritores secretos; não afirmam que ele
+já exista. O campo `next_gate` preservado no pacote v3 aponta para o gate
+histórico da fundação do agente, consumido pela PR #351, e não é corrente.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags e mantém
 `operational_authorization=false` e `next_stage_authorized=false`.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.
 
 ## Fontes principais
 

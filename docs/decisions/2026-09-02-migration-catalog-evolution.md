@@ -306,16 +306,33 @@ estritos. Nenhuma operação viva, migration ou cutover foi autorizada pela M1J.
 
 ## Política de permissões sucessora
 
-A política de snapshot privado foi implementada e comprovada offline, sem
-enfraquecer os verificadores nem alterar o checkout compartilhado. O P2 de
-permissões fica encerrado para o caminho operacional pelo isolamento
-obrigatório; o checkout `0775` continua explicitamente inadequado como fonte
-operacional direta.
+A primitiva de snapshot privado foi implementada e comprovada offline, sem
+enfraquecer os verificadores nem alterar o checkout compartilhado. A mitigação
+é parcial: o checkout `0775` continua inadequado como fonte operacional direta,
+consumidores legados de apply, capture e reconcile ainda não foram migrados
+transitivamente e o bootstrap exige um launcher externo confiável. O P2 de
+permissões permanece aberto globalmente.
 
 ## Próximo estágio único
 
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`, limitado
-à implementação e aos testes offline/PG17 descartáveis do executor que fará
-identidade e captura na mesma conexão e emitirá artefatos sanitizados. Este
-registro não declara o gate consumido e não autoriza credencial, rede, banco
-compartilhado, DEV, PROD, migration ou cutover.
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+O executor reutiliza o catálogo a partir do snapshot privado do SHA exato e
+emite somente artefato v1 sanitizado e bloqueado. Identidade e captura usam a
+mesma conexão/PID, porém duas transações e dois snapshots PostgreSQL separados.
+Ele não prova migration aplicada, não conclui a revisão v3 e não libera runner.
+
+O único estágio corrente global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
+base, ao push da branch candidata, à abertura da PR e à observação do CI e do
+Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+Somente após a integração posterior sob gate próprio e o CI verde, o estágio
+funcional futuro poderá ser
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
+ele não é o estágio corrente nem está autorizado.
