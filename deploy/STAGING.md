@@ -398,35 +398,38 @@ consumido somente para o candidato local descrito em
 [`2026-09-03-migration-environment-attestation-executor-v2.md`](../docs/decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
 Ele não deve receber DSN, CA, chave, nonce ou registro de autorização antes de
 existirem trust anchors externos para autorização nominal, runtime/dependências
-e anti-replay. A prova PG17 descartável implementada ainda precisa executar sem
-skips no CI e, mesmo depois disso, não equivalerá a staging ou DEV.
+e anti-replay.
 
-A cadeia local auditada é `c2fb16ad9a6b028c317c56a0b02c4362ae903e26` ->
-`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` ->
-`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`. O primeiro SHA é o snapshot
-integrado de `main`; os dois seguintes são commits locais, respectivamente da
-primitiva de snapshot e do executor v2, fora de `main`. No snapshot privado
-`0700/0600` do SHA `1b299e7`, a seleção ampla registrou 961 testes (801
-aprovados, 160 skips, zero falhas e zero erros). A regressão separada do probe
-histórico de transporte TLS passou `125/125`, sem testar o executor v2 ou o job
-PG17. A seleção focal no checkout compartilhado coletou 186 itens, com 183
-aprovados, três skips PG17 e zero falhas após a reconciliação documental. A
-decisão do executor v2 registra composição, runtime e horários. Isso não libera
-staging, DEV, PROD, segredo ou migration.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, acrescenta autoria
+`draft`/`prepare-head` `TENANT` source-only, snapshot validado, wrapper
+catalog-bound v2 somente `list` e replay do head em PostgreSQL 17 descartável e
+loopback. O mesmo SHA confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`;
+a focal concluiu `274 passed, 6 skipped`, a prova PG17 real `6/6` com E2E
+sintético de 76ª migration, e duas revisões independentes `P0=0`/`P1=0`. Isso é
+local: não houve integração, push, PR ou CI remoto e não libera staging.
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+O workflow candidato usa PostgreSQL 17 descartável e replay, mas nunca banco
+compartilhado, DEV/PROD ou o runner legado de aplicação. O
+`apply_migrations.py` legado ainda é invocável como risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, schema/default ACL ou semântica DML/DDL ampla. Worktree/migrations
+foram observadas em `0755` e SQL em `0644`, mas ancestrais permanecem `0775` e
+o `chmod` local não é durável; P2 global permanece.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+DEV está `BLOCKED_LEDGER_DIVERGENCE`, PROD
+`BLOCKED_EVIDENCE_INSUFFICIENT`, TLS DEV histórico sem solução, e revisão v3,
+cutover, atestação viva e aplicação pendentes. `operational_authorization=false`
+e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado ao
+preflight remoto read-only, push, abertura de PR e observação do CI/Preview. Não
+autoriza merge, banco, DEV, PROD, migration, runner de aplicação ou flags.
+Trust anchors externos permanecem futuros, não correntes e não autorizados.
 
 ---
 

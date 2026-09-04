@@ -929,11 +929,12 @@ histórica, `c2fb16ad` é o snapshot versionado corrente e a M1J está encerrada
 sem provar ou autorizar migration, banco, backend, DEV, PROD, flags ou runtime.
 
 A primitiva de snapshot privado do SHA exato foi implementada e comprovada
-offline, sem alterar permissões do checkout compartilhado. A mitigação é
-parcial: o checkout `0775` permanece, consumidores legados de apply, capture e
-reconcile ainda não foram migrados transitivamente e o uso seguro exige um
-launcher externo confiável antes do bootstrap. O P2 permanece aberto
-globalmente. O procedimento e seus limites estão em
+offline. Nesta worktree foram observados modo `0755` na raiz e em
+`backend/migrations` e `0644` nos SQL. A mitigação continua parcial: ancestrais
+do workspace/repositório permanecem `0775`, um `chmod` local não é controle
+durável, e consumidores legados de apply, capture e reconcile não estão todos
+migrados transitivamente. O P2 permanece aberto globalmente. O procedimento e
+seus limites estão em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../../docs/decisions/2026-09-03-trusted-repository-snapshot-policy.md).
 
 O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
@@ -944,32 +945,44 @@ snapshots `REPEATABLE READ READ ONLY` separados para identidade e captura. Ele
 fecha a conexão antes da publicação e termina deliberadamente bloqueado. Não
 executa nenhum comando de `apply_migrations.py`.
 
-A cadeia versionada desta fase é
-`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (snapshot integrado de `main`) ->
-`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` (primitiva de snapshot confiável,
-commit local) -> `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06` (executor v2,
-commit local). Os dois commits locais permanecem não integrados. No snapshot
-privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou 961 testes,
-com 801 aprovados, 160 skips, zero falhas e zero erros. A regressão separada do
-probe histórico de transporte TLS passou `125/125`, sem testar o executor v2 ou
-o job PG17. A seleção focal no checkout compartilhado coletou 186 itens, com
-183 aprovados, três skips PG17 e zero falhas após a reconciliação documental.
-A decisão do executor v2 registra composição, runtime e horários. Nada disso
-prova CI remoto, trust anchors externos, DEV, PROD ou migration aplicada.
+## Evidência local pós-Commit A
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+O commit `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+`947af39d35544700188461d8c99332df70b57e07`, fixa o fluxo de autoria e replay
+descrito no início deste documento. Ele é local: não está integrado e não teve
+push, PR ou CI remoto.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+O verificador longitudinal executado no mesmo SHA confirmou 75 migrations e
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal concluiu `274 passed, 6 skipped`; a matriz real PG17 concluiu `6/6`,
+incluindo um E2E sintético de uma 76ª migration `TENANT`; duas revisões
+independentes concluíram `P0=0` e `P1=0`. O workflow candidato usa PostgreSQL
+17 descartável e somente loopback para replay; não usa banco compartilhado,
+DEV ou PROD e não chama `apply_migrations.py`.
+
+O replay não cobre views, outros schemas, funções, roles/memberships,
+`BYPASSRLS`, grants nomeados, ACLs de schema/default ou equivalência semântica
+ampla de DML/DDL. O runner legado continua invocável como risco residual e
+revisão humana do SQL permanece obrigatória.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e aplicação permanecem pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+A proposta local v4 ancora esses artefatos do Commit A sem substituir v1-v3
+nem reinterpretar ambiente/cutover. Ela compara duas leituras do catálogo
+validado, não fixa contagem ou digest, mantém todas as permissões falsas e
+continua bloqueada com exit `8`; os testes dedicados passaram `61/61`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado a
+preflight remoto read-only, push da branch, abertura da PR e observação do
+CI/Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner de aplicação ou flags. Trust anchors externos são futuros,
+não correntes e não autorizados.
 
 ## Transações especiais
 

@@ -66,11 +66,14 @@ verificador estrito como prova longitudinal. Ausência, ambiguidade, SHA zero,
 objeto não blob, ancestral inválido, mais de um lote novo ou reescrita do
 prefixo bloqueiam o job.
 
-Depois do head estrito, o mesmo job valida o manifesto histórico source-only e
-a estrutura bloqueada da proposta v3. Ele não chama `apply_migrations.py`, não
-recebe DSN ou segredo, não acessa banco e não transforma CI verde em
-autorização operacional. O workflow foi integrado e executado com sucesso na
-PR #361 e no push para `main`.
+Depois do head estrito, o job source-only valida o manifesto histórico e a
+estrutura bloqueada da proposta v3. Na composição candidata pós-Commit A, jobs
+isolados adicionais provisionam PostgreSQL 17 descartável, limitado ao
+loopback, para o replay do head e para testes de guarda. Eles não recebem DSN
+ou segredo de ambiente compartilhado, não acessam DEV ou PROD, não chamam
+`apply_migrations.py` e não transformam CI verde em autorização operacional. A
+afirmação de que o workflow inteiro não acessa banco descreve apenas a versão
+integrada pela PR #361, não o candidato local corrente.
 
 ## Provas e limites
 
@@ -80,8 +83,9 @@ recusa ausência do head anterior, aceita a âncora correta e os consumidores
 históricos continuam lendo exatamente 75 entradas. Tail não representado,
 reescrita do prefixo, digest divergente e gates verdadeiros falham fechado.
 
-Esta decisão não cria migration SQL, não altera o runner, não acessa banco,
-DEV, PROD ou rede e não autoriza commit, PR, merge, deploy, flag ou runtime.
+Esta decisão não cria migration SQL nem altera o runner. A prova corrente usa
+somente PostgreSQL 17 descartável/loopback; não acessa banco compartilhado,
+DEV ou PROD e não autoriza commit, PR, merge, deploy, flag ou runtime.
 
 ## Atualização pós-commit M1A-M1C (2026-09-02)
 
@@ -308,10 +312,11 @@ estritos. Nenhuma operação viva, migration ou cutover foi autorizada pela M1J.
 
 A primitiva de snapshot privado foi implementada e comprovada offline, sem
 enfraquecer os verificadores nem alterar o checkout compartilhado. A mitigação
-é parcial: o checkout `0775` continua inadequado como fonte operacional direta,
-consumidores legados de apply, capture e reconcile ainda não foram migrados
-transitivamente e o bootstrap exige um launcher externo confiável. O P2 de
-permissões permanece aberto globalmente.
+é parcial: a worktree candidata corrente foi observada em `0755`, mas o
+repositório principal e ancestrais do workspace permanecem `0775`, o `chmod`
+local não é durável, consumidores legados de apply, capture e reconcile ainda
+não foram migrados transitivamente e o bootstrap exige um launcher externo
+confiável. O P2 de permissões permanece aberto globalmente.
 
 ## Próximo estágio único
 
@@ -370,16 +375,44 @@ exigência explícita de observação histórica e estado atual não revalidado.
 Nenhum código de runtime, migration, schema ou workflow foi alterado nessa
 reconciliação.
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+## Atualização pós-Commit A de segurança (2026-09-04)
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, consolida o autor
+`new_migration.py` com fases `draft`/`prepare-head` source-only e somente
+`TENANT`, o snapshot validado, o wrapper catalog-bound v2 limitado a `list` e o
+replay do catálogo corrente em PG17 descartável/loopback. Não está integrado e
+não houve push, PR ou CI remoto.
+
+O verificador longitudinal no próprio SHA concluiu com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal concluiu `274 passed, 6 skipped`; os testes PG17 reais terminaram `6/6`
+e incluem E2E sintético de 76ª migration `TENANT`; duas revisões independentes
+concluíram `P0=0` e `P1=0`.
+
+O `apply_migrations.py` legado permanece fisicamente invocável e é risco
+residual. O replay não atesta views, outros schemas, funções, roles ou
+memberships, `BYPASSRLS`, grants nomeados, schema/default ACLs ou semântica
+ampla de DML/DDL. Worktree e migrations foram observadas em `0755` e SQL em
+`0644`, mas ancestrais workspace/repositório continuam `0775` e o `chmod` local
+não é durável; o P2 global permanece aberto.
+
+DEV permanece `BLOCKED_LEDGER_DIVERGENCE`, PROD permanece
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica segue sem solução e
+revisão independente v3, cutover, atestação viva e aplicação continuam
+pendentes. `operational_authorization=false` e `next_stage_authorized=false`.
+
+A proposta v4 local estende v3 apenas para vincular a segurança source-only do
+Commit A. Ela preserva os contratos históricos e os estados de ambiente e
+cutover, mantém todas as permissões falsas e exige duas leituras idênticas do
+snapshot validado sem embutir contagem ou digest. O resultado válido permanece
+bloqueado com exit `8`; seus testes dedicados terminaram `61/61`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado ao
+preflight remoto read-only, push da branch candidata, abertura de PR e
+observação do CI/Preview automáticos. Não autoriza merge, banco compartilhado,
+DEV, PROD, migration, runner de aplicação ou flags. Trust anchors externos
+permanecem futuros, não correntes e não autorizados.

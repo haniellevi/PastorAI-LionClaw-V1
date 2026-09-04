@@ -1,9 +1,10 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-09-03 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
+Atualizado em 2026-09-04 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
 `bootstrap-ledger` integrados e inativos, as entregas M1A-M1E e M1I do catálogo
 integradas pela PR #361 e a reconciliação M1J-R5 encerrada pela PR #363
-(merge `c2fb16ad`). A D2B2b3A existe
+(merge `c2fb16ad`), além do Commit A local de segurança de migrations e da
+extensão source-only v4, ambos fora de `main` e sem integração. A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -1740,10 +1741,13 @@ alterar o working tree. M1J está encerrada; `8aacf98d` permanece base históric
 Os gates da PR #354 são estritamente históricos e já consumidos.
 `operational_authorization=false` e `next_stage_authorized=false` continuam estritos.
 A primitiva de snapshot privado do SHA exato foi implementada e comprovada
-offline. A mitigação é parcial: o checkout `0775` permanece, consumidores
-legados de apply, capture e reconcile ainda não foram migrados transitivamente
-e o uso seguro exige um launcher externo confiável antes do bootstrap. O P2
-permanece aberto globalmente. O contrato está descrito em
+offline. A mitigação é parcial: a fonte compartilhada `0775` permanece
+inadequada, e consumidores
+legados de apply, capture e reconcile ainda não foram migrados transitivamente.
+Na worktree candidata corrente foram observados diretórios `0755` e SQL `0644`,
+mas o repositório principal e ancestrais do workspace permanecem `0775` e esse
+`chmod` local não é durável. O uso seguro exige um launcher externo confiável
+antes do bootstrap e o P2 permanece aberto globalmente. O contrato está descrito em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
 sem alterar o checkout compartilhado.
 
@@ -1819,19 +1823,50 @@ checkout compartilhado, e faz o teste documental exigir essa semântica. Não
 altera código de runtime, migration, schema ou workflow e não realiza rede,
 banco, DEV ou PROD.
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+### Commit A local: segurança de autoria e replay (2026-09-04)
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+`947af39d35544700188461d8c99332df70b57e07`, consolidou o fluxo source-only
+`draft`/`prepare-head` apenas `TENANT`, o snapshot validado, o wrapper
+catalog-bound v2 limitado a `list` e o replay do head em PostgreSQL 17
+descartável e somente loopback. Não houve push, PR, integração ou CI remoto.
+
+O verificador longitudinal executado no próprio SHA confirmou 75 migrations e
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; a prova real PG17 terminou `6/6`,
+incluindo E2E sintético de 76ª migration `TENANT`; duas revisões independentes
+terminaram `P0=0` e `P1=0`.
+
+O workflow candidato usa PostgreSQL 17 descartável e replay. Não consulta banco
+compartilhado, DEV ou PROD e não chama o runner legado de aplicação. O
+`apply_migrations.py` permanece invocável e é risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, ACLs de schema/default ou semântica DML/DDL ampla; revisão humana do
+SQL permanece obrigatória.
+
+Nesta worktree foram observados `0755` na raiz e em `backend/migrations` e
+`0644` nos SQL. Ancestrais do workspace/repositório continuam `0775` e o
+`chmod` local não é durável; o P2 global permanece aberto.
+
+DEV segue `BLOCKED_LEDGER_DIVERGENCE`, PROD segue
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e aplicação continuam pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+A extensão v4 local é aditiva e estritamente source-only: preserva v1-v3 e o
+estado bloqueado de ambiente/cutover, ancora o Commit A, compara duas leituras
+do catálogo validado sem fixar contagem/digest e mantém todas as permissões
+falsas. Seu resultado válido é bloqueado com exit `8`; a suíte dedicada passou
+`61/61`. O workflow separado ainda não foi executado remotamente.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, restrito a
+preflight remoto read-only, push da branch candidata, abertura de PR e
+observação do CI/Preview automáticos. Não autoriza merge, banco compartilhado,
+DEV, PROD, migration, runner de aplicação ou flags. Trust anchors externos
+permanecem futuros, não correntes e não autorizados.
 
 ## Paralelismo seguro
 

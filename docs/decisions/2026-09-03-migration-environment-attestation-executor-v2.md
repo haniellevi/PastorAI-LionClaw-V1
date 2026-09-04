@@ -2,15 +2,20 @@
 
 **Data:** `2026-09-03`
 
-**Estado:** `IMPLEMENTADO E COMMITADO LOCALMENTE / PROVA UNITÁRIA OFFLINE / PROVA PG17
-DESCARTÁVEL IMPLEMENTADA E PENDENTE DE CI / NÃO INTEGRADO / TRUST ANCHORS
-EXTERNOS PENDENTES / DEV E PROD BLOQUEADOS`
+**Estado atualizado em 2026-09-04:** `IMPLEMENTADO E COMMITADO LOCALMENTE /
+PROVA UNITÁRIA OFFLINE / REPLAY DO HEAD EM PG17 DESCARTÁVEL 6/6 LOCAL / CI
+REMOTO PENDENTE / NÃO INTEGRADO / TRUST ANCHORS EXTERNOS PENDENTES / DEV E PROD
+BLOQUEADOS`
 
 **Base versionada:** `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`
 
 **Commit local:** `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho direto de
 `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`. A base integrada anterior
 permanece `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
+
+O candidato também está contido no commit local consolidado
+`9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
+`947af39d35544700188461d8c99332df70b57e07`, fora de `main` e sem integração.
 
 ## Decisão
 
@@ -96,9 +101,11 @@ próprio executor:
 Processos sob o mesmo UID permanecem na mesma fronteira de confiança POSIX. O
 token do child e o snapshot protegem continuidade e anti-swap dentro dessa
 fronteira; não são uma sandbox contra um processo hostil com o mesmo UID.
-O checkout físico `0775`, consumidores legados ainda não migrados e o bootstrap
-anterior ao launcher mantêm o P2 de permissões aberto globalmente; o snapshot
-mitiga o caminho somente para consumidores migrados sob trust anchor externo.
+A worktree e `backend/migrations` foram observados em `0755` e os SQL em
+`0644`, mas ancestrais do workspace/repositório continuam `0775`; esse `chmod`
+local não é durável. Consumidores legados ainda não migrados e o bootstrap
+anterior ao launcher mantêm o P2 aberto globalmente; o snapshot mitiga apenas
+consumidores migrados sob trust anchor externo.
 
 Por isso a saída declara explicitamente
 `AUTHORIZATION_TRUST_REQUIREMENT=EXTERNAL_NOMINAL_GATE_AUTHENTICATION_REQUIRED`
@@ -149,25 +156,50 @@ pytest `9.1.1`, mantendo três contextos distintos:
    inclui a suíte legada v1 completa, que permanece fail-closed quando executada
    diretamente sob o layout `0775`.
 
-Essas evidências são offline e não substituem a execução sem skips do job
-PostgreSQL 17 no CI, nem provam ambiente compartilhado.
+Essas evidências são offline e não substituem a execução remota do CI nem
+provam ambiente compartilhado. Separadamente, o Commit A executou localmente o
+replay do catálogo corrente e seus E2E PG17; isso não transforma os testes TLS
+sintéticos específicos deste executor em atestação DEV/PROD.
 
 Como não houve efeito vivo, o rollback consiste em não integrar ou em reverter
 o candidato local. Artefatos e snapshots temporários devem ser removidos por
 identidade; nenhuma permissão do checkout compartilhado deve ser alterada.
 
-## Próximo gate único
+## Atualização pós-Commit A e próximo gate único
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+O Commit A acrescenta autoria `draft`/`prepare-head` somente `TENANT` e
+source-only, snapshot validado, wrapper catalog-bound v2 somente `list` e
+replay do head em PostgreSQL 17 descartável/loopback. No mesmo SHA, o
+verificador longitudinal confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`;
+a focal concluiu `274 passed, 6 skipped`, a matriz PG17 real `6/6` com E2E
+sintético de 76ª migration `TENANT`, e duas revisões independentes concluíram
+`P0=0`/`P1=0`. Não houve push, PR, integração ou CI remoto.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+O workflow candidato usa banco PG17 descartável e replay, mas nunca banco
+compartilhado, DEV/PROD ou `apply_migrations.py`. O legado permanece invocável
+como risco residual. O replay não cobre views, outros schemas, funções,
+roles/memberships, `BYPASSRLS`, grants nomeados, schema/default ACL ou
+semântica DML/DDL ampla. Worktree/migrations foram observadas em `0755` e SQL
+em `0644`, mas ancestrais permanecem `0775` e o `chmod` local não é durável;
+P2 global permanece.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD
+`BLOCKED_EVIDENCE_INSUFFICIENT`, TLS DEV histórico sem solução, e revisão v3,
+cutover, atestações vivas e apply pendentes. `operational_authorization=false`
+e `next_stage_authorized=false`.
+
+A proposta local v4 registra o Commit A como extensão estritamente source-only
+de v3. Ela não altera evidência de ambiente ou cutover, mantém todas as
+permissões falsas e compara duas leituras autenticadas do catálogo sem embutir
+contagem/digest. Seu resultado válido permanece bloqueado com exit `8`; a
+suíte dedicada terminou `61/61`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado ao
+preflight remoto read-only, push, abertura de PR e observação do CI/Preview.
+Não autoriza merge, banco compartilhado, DEV, PROD, migration, runner de
+aplicação ou flags. Trust anchors externos permanecem futuros, não correntes e
+não autorizados.

@@ -1193,39 +1193,37 @@ Fonte: `docs/sprints/` e `docs/security/2026-07-08-seg-igreja12-remediation-plan
 - **SEC ALTO-004 (conclusao) / unificacao JWT (verify)** — `verify_session/reset/invite_token` delegando a `verify_purpose_token`. PR#186; release `fd651f9` (2026-07-17). Reconciliacao REL-5 dos findings ALTO/MEDIO em `docs/security/` (PR#185/#187): 9 de 11 concluidos+deployados.
 - **Fechamento `b5b990d`** (PR#188; release backend+frontend 2026-07-18): **MEDIO-004/CONTACT-TENANT-DEDUP-1** (dedupe de contato com filtro explicito de `igreja_id`), **MEDIO-005/JWT-MINT-1** (emissao dos 3 tokens de proposito unificada em helper unico) e **W5A** (ultimos 8 dialogos migrados para `ds/Dialog`). Smoke autenticado em PROD 2026-07-18: PASS.
 
-## Delta-073 — reconciliacao canônica da governanca de migrations (2026-09-03)
+## Delta-074 — seguranca de autoria e replay de migrations (2026-09-04)
 
-O ultimo snapshot integrado de `main` observado e disponivel localmente e
-`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. A primitiva de snapshot confiavel
-foi fixada localmente em `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`, filho
-de `c2fb16ad`; o executor v2 foi fixado localmente em
-`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho de `11ae294`. Os dois
-commits locais permanecem nao integrados.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, entrega autoria source-only
+`draft`/`prepare-head` somente `TENANT`, snapshot validado, wrapper catalog-bound
+v2 apenas `list` e replay do head em PostgreSQL 17 descartavel e loopback. Ele
+nao foi integrado e nao passou por push, PR ou CI remoto.
 
-A verificacao ampla no snapshot privado `0700/0600` do SHA `1b299e7`
-contabilizou 961 testes: 801 aprovados, 160 skips, zero falhas e zero erros. A
-regressao separada do probe historico de transporte TLS passou `125/125`; ela
-nao testa o executor v2 ou o job PG17. A selecao focal no checkout compartilhado
-coletou 186 itens, com 183 aprovados, tres skips PG17 e zero falhas apos a
-reconciliacao documental. A decisao do executor v2 registra a composicao exata,
-o runtime e os horarios. O catalogo continua com 75 migrations. A prova PG17
-sem skips no CI, os trust anchors
-externos, a revisao independente v3, DEV, PROD, cutover e aplicacao de migration
-permanecem bloqueados. O risco P2 do checkout `0775` continua globalmente aberto.
+No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; a prova PG17 real terminou `6/6`, com
+E2E sintetico de 76a migration `TENANT`; duas revisoes independentes fecharam
+`P0=0` e `P1=0`. O workflow agora usa PG17 descartavel e replay, sem tocar banco
+compartilhado, DEV/PROD ou o runner legado de aplicacao.
 
-O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
-foi consumido apenas para a implementacao local. O unico estagio corrente
-global e
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`;
-ele nao autoriza merge, banco compartilhado, DEV, PROD, migration, runner ou
-alteracao de flags. O gate futuro
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
-nao e corrente nem esta autorizado. `operational_authorization=false` e
-`next_stage_authorized=false` permanecem estritos.
+O `apply_migrations.py` legado segue invocavel como risco residual. O replay nao
+cobre views, outros schemas, funcoes, roles/memberships, `BYPASSRLS`, grants
+nomeados, ACLs de schema/default ou semantica ampla DML/DDL. Worktree e
+migrations estao observadas em `0755` e SQL em `0644`, mas ancestrais do
+workspace/repositorio seguem `0775` e o `chmod` local nao e duravel; P2 global
+permanece.
 
-O SHA-256 historico `8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d`
-dos bytes pre-adaptacao do verificador nao foi substituido. O pacote v3
-congelado permanece em `076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e`.
-O verificador v3 adaptado corrente tem SHA-256
-`efcc9be299241793c74e5c4174a4dc44f3b14507d1585d9daa5a407ab38f13f8`, sem
-alterar o pacote v3 congelado.
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD
+`BLOCKED_EVIDENCE_INSUFFICIENT`, TLS DEV historico sem solucao, e revisao v3,
+cutover, atestacoes vivas e apply pendentes. `operational_authorization=false`
+e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, nao consumido e substituido. O unico estagio corrente fechado e
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, sem
+autorizar merge, banco compartilhado, DEV, PROD, migration, runner de aplicacao
+ou flags. Trust anchors externos seguem futuros, nao correntes e nao
+autorizados; o pacote v3 permanece inalterado.

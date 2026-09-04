@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: ai-bootstrap
 status: canonical
-last_verified: 2026-09-03
-audited_repository_sha: c2fb16ad9a6b028c317c56a0b02c4362ae903e26
+last_verified: 2026-09-04
+audited_repository_sha: 9b9395e29cc821d6808738a30a6afe367d4ffbea
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -1168,12 +1168,13 @@ corrente e a missão M1J está encerrada. Nada disso prova migration aplicada,
 banco, backend, DEV, PROD, flags ou runtime.
 
 A primitiva de snapshot privado do SHA exato foi implementada e comprovada
-offline. A mitigação é parcial: o checkout `0775` permanece, consumidores
-legados de apply, capture e reconcile ainda não foram migrados transitivamente
-e o uso seguro exige um launcher externo confiável antes do bootstrap. O P2
+offline. A mitigação é parcial: nesta worktree foram observados diretórios
+`0755` e arquivos de migration `0644`, mas ancestrais do workspace/repositório
+permanecem `0775`, o `chmod` local não é durável e consumidores legados de
+apply, capture e reconcile não foram todos migrados transitivamente. O P2
 permanece aberto globalmente. O contrato está definido em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
-sem alterar permissões do checkout compartilhado.
+sem tratar modos locais como correção global.
 
 O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
 foi consumido exclusivamente para o candidato local descrito em
@@ -1199,33 +1200,62 @@ secretos. O campo `next_gate` dentro do pacote v3 aponta para o gate histórico
 da fundação do agente, já consumido pela PR #351, e não é o estágio global
 corrente.
 
-A cadeia pós-commit desta frente é
-`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (snapshot integrado de `main`) ->
-`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` (snapshot confiável local) ->
-`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06` (executor v2 local). Os dois
-commits locais ainda não foram integrados. No snapshot privado `0700/0600` do
-SHA `1b299e7`, a seleção ampla contabilizou 961 testes, com 801 aprovados, 160
-skips, zero falhas e zero erros. A regressão separada do probe histórico de
-transporte TLS passou `125/125`, sem testar o executor v2 ou o job PG17. A
-seleção focal no checkout compartilhado coletou 186 itens, com 183 aprovados,
-três skips PG17 e zero falhas após a reconciliação documental. A decisão do
-executor v2 registra composição, runtime e horários. O job PG17 sem skips
-continua pendente no CI/PR do commit `1b299e7`; nenhuma dessas provas autoriza
-ambiente vivo.
+## Segurança de autoria e replay pós-Commit A (2026-09-04)
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags.
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+`947af39d35544700188461d8c99332df70b57e07`, consolidou a autoria
+`draft`/`prepare-head` estritamente `TENANT` e source-only, o snapshot validado,
+o wrapper catalog-bound v2 limitado a `list` e o replay do head corrente em
+PostgreSQL 17 descartável e somente loopback. Ele continua fora de `main`, sem
+push, PR ou CI remoto.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+No mesmo SHA, o verificador longitudinal terminou com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A suíte focal concluiu `274 passed, 6 skipped`; a prova PostgreSQL 17 real
+concluiu `6/6`, incluindo um E2E sintético que acrescenta uma 76ª migration
+`TENANT`. Duas revisões independentes encerraram com `P0=0` e `P1=0`. Essas
+provas são locais; não equivalem a integração ou CI remoto.
+
+O workflow candidato agora provisiona PostgreSQL 17 descartável, restrito ao
+loopback, e executa o replay. Portanto, registros anteriores de que esse job
+não chama banco ou runner descrevem a versão histórica. Ele nunca consulta
+DEV ou PROD e não chama o runner legado de aplicação. O wrapper catalog-bound
+v2 permanece source-only e aceita somente `list`; o legado
+`apply_migrations.py` continua fisicamente invocável e é risco residual, não um
+entrypoint autorizado.
+
+O replay cobre a fronteira declarada `TENANT` no schema `public`; não prova
+views, outros schemas, funções, roles ou memberships, `BYPASSRLS`, grants para
+roles nomeadas, ACLs de schema/default nem equivalência semântica ampla de DML
+ou DDL. Revisão humana do SQL continua obrigatória. Na worktree atual foram
+observados diretórios `0755` e arquivos de migration `0644`, mas ancestrais do
+workspace/repositório permanecem `0775` e o `chmod` local não é durável; o P2
+global de permissões continua aberto.
+
+O estado operacional não mudou: DEV está `BLOCKED_LEDGER_DIVERGENCE`, PROD
+está `BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS histórica de DEV segue sem
+causa resolvida, e revisão v3, cutover, atestações vivas e aplicação permanecem
+pendentes. `operational_authorization=false` e `next_stage_authorized=false`
+continuam estritos.
+
+A extensão local v4 de remediação registra essa separação em contrato
+source-only: ancora os artefatos do Commit A, preserva v1-v3 byte a byte, não
+reinterpreta ambiente ou cutover, lê duas vezes o catálogo validado sem fixar
+contagem/digest e mantém todas as permissões falsas. Seu verificador válido
+continua bloqueado com exit `8`; a suíte dedicada terminou `61 passed`. O
+workflow separado `migration-divergence-v4.yml` é candidato local e não foi
+executado remotamente.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, mas não consumido, e foi substituído. O único estágio corrente
+fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, restrito ao
+preflight remoto read-only, push da branch candidata, abertura de PR e
+observação do CI/Preview automáticos. Ele não autoriza merge, banco
+compartilhado, DEV, PROD, migration, runner de aplicação ou flags. Trust
+anchors externos continuam possibilidade futura, não um gate corrente nem uma
+autorização.
 
 ## Roteiro de leitura
 

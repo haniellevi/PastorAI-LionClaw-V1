@@ -753,16 +753,22 @@ Processo público e child exigem Python `3.13.14`, `-I -B`, `isolated`,
 `psycopg2-binary==2.9.12` e libpq 17. Ainda assim, dependem de trust anchors
 externos antes de receber segredos, e DEV e PROD permanecem bloqueados.
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito à consulta remota somente leitura de `refs/heads/main`, ao
+preflight da base, ao push da branch candidata, à abertura da PR e à observação
+do CI e do Vercel Preview automáticos. O commit local não afirma integração, CI
+remoto ou estado de ambiente. O gate consolidado não autoriza merge, banco
+compartilhado, DEV, PROD, migration, runner ou alteração de flags;
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+O estágio funcional
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua futuro, não corrente e não autorizado; a consolidação atual não o
+consome nem o antecipa.

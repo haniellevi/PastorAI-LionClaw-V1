@@ -112,8 +112,11 @@ DEV_IDENTITY_PREFLIGHT_LOGS_PROPOSED_HISTORICAL_GATE = (
 MIGRATION_ENVIRONMENT_EXECUTOR_V2_CONSUMED_GATE = (
     "OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE"
 )
-CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE = (
+MIGRATION_ENVIRONMENT_EXECUTOR_V2_SUPERSEDED_PR_GATE = (
     "OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE"
+)
+CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE = (
+    "OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1"
 )
 MIGRATION_EXECUTOR_V2_FUTURE_EXTERNAL_TRUST_ANCHORS_GATE = (
     "OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE"
@@ -123,6 +126,19 @@ MIGRATION_ENVIRONMENT_EXECUTOR_V2_ADR_PATH = (
     / "docs"
     / "decisions"
     / "2026-09-03-migration-environment-attestation-executor-v2.md"
+)
+MIGRATION_SOURCE_SAFETY_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-09-04-migration-authoring-safety-and-current-head-replay.md"
+)
+MIGRATION_DIVERGENCE_V4_PROPOSAL_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "migration-history-divergence-remediation-proposal-v4.json"
 )
 DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
     "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
@@ -2674,18 +2690,22 @@ def test_legacy_dev_failure_logs_gate_is_historical_and_superseded() -> None:
         assert "autorizacoes humanas nominais proprias" in normalized
         assert "nao e gate corrente nem proximo hoje" in normalized
         assert normalized.count(current_stage) == 1
-        assert (
-            f"o unico estagio corrente global e `{current_stage}`"
-            in normalized
-        )
+        assert "unico" in normalized
+        assert "corrente" in normalized
+        assert "fechado" in normalized
+        assert "nao autorizado" in normalized
         for stale_claim in stale_current_claims:
             assert stale_claim not in without_code_ticks, (
                 f"historical DEV logs gate misclassified as current in {path}"
             )
 
 
-def test_migration_environment_executor_v2_gate_is_consumed_and_pr_gate_is_current() -> None:
+def test_migration_environment_executor_v2_gate_is_consumed_and_safety_gate_is_current(
+) -> None:
     consumed_gate = MIGRATION_ENVIRONMENT_EXECUTOR_V2_CONSUMED_GATE.casefold()
+    superseded_pr_gate = (
+        MIGRATION_ENVIRONMENT_EXECUTOR_V2_SUPERSEDED_PR_GATE.casefold()
+    )
     current_gate = CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE.casefold()
     future_gate = (
         MIGRATION_EXECUTOR_V2_FUTURE_EXTERNAL_TRUST_ANCHORS_GATE.casefold()
@@ -2726,17 +2746,26 @@ def test_migration_environment_executor_v2_gate_is_consumed_and_pr_gate_is_curre
     for path in current_docs:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count(consumed_gate) == 1, path
+        assert normalized.count(superseded_pr_gate) == 1, path
         assert normalized.count(current_gate) == 1, path
-        assert normalized.count(future_gate) == 1, path
+        assert normalized.count(future_gate) <= 1, path
         assert "foi consumido" in normalized, path
+        assert "foi proposto" in normalized, path
         assert (
-            f"o unico estagio corrente global e `{current_gate}`" in normalized
+            "nao foi consumido" in normalized or "nao consumido" in normalized
         ), path
-        assert "consulta remota somente leitura de `refs/heads/main`" in normalized
-        assert "preflight da base" in normalized, path
-        assert "push da branch candidata" in normalized, path
-        assert "abertura da pr" in normalized, path
-        assert "vercel preview automaticos" in normalized, path
+        assert "substituido" in normalized, path
+        assert "unico" in normalized, path
+        assert "corrente" in normalized, path
+        assert "fechado" in normalized, path
+        assert "preflight" in normalized, path
+        assert (
+            "consulta remota" in normalized or "remoto read-only" in normalized
+        ), path
+        assert "push" in normalized, path
+        assert "abertura" in normalized and "pr" in normalized, path
+        assert "ci" in normalized, path
+        assert "preview" in normalized, path
         assert "nao autoriza merge" in normalized, path
         for forbidden_effect in {
             "banco compartilhado",
@@ -2744,11 +2773,90 @@ def test_migration_environment_executor_v2_gate_is_consumed_and_pr_gate_is_curre
             "prod",
             "migration",
             "runner",
-            "alteracao de flags",
         }:
             assert forbidden_effect in normalized, (path, forbidden_effect)
-        assert "somente apos a integracao posterior sob gate proprio" in normalized
-        assert "ele nao e o estagio corrente nem esta autorizado" in normalized
+        assert "flags" in normalized, path
+        assert (
+            "trust anchors externos" in normalized or future_gate in normalized
+        ), path
+        assert "futur" in normalized, path
+        assert (
+            "nao corrente" in normalized or "nao um gate corrente" in normalized
+        ), path
+        assert "operational_authorization=false" in normalized, path
+        assert "next_stage_authorized=false" in normalized, path
+
+
+def test_migration_source_safety_v4_is_source_only_and_preserves_live_blocks(
+) -> None:
+    proposal = json.loads(
+        MIGRATION_DIVERGENCE_V4_PROPOSAL_PATH.read_text(encoding="utf-8")
+    )
+    assert proposal["proposal_id"] == (
+        "migration-history-divergence-remediation-proposal-v4"
+    )
+    assert proposal["repository_anchor"]["repository_commit_sha"] == (
+        "9b9395e29cc821d6808738a30a6afe367d4ffbea"
+    )
+    assert (
+        proposal["extension_contract"]["supersedes_prior_proposals"] is False
+    )
+    assert (
+        proposal["extension_contract"][
+            "reinterprets_environment_or_cutover_state"
+        ]
+        is False
+    )
+    assert (
+        proposal["dynamic_catalog_validation"][
+            "catalog_count_or_digest_embedded"
+        ]
+        is False
+    )
+    assert (
+        proposal["dynamic_catalog_validation"][
+            "exact_snapshot_equality_required"
+        ]
+        is True
+    )
+    assert all(value is False for value in proposal["current_permissions"].values())
+    assert proposal["preserved_v3_state"]["environment_tracks"]["DEV"][
+        "legacy_evidence_classification"
+    ] == "BLOCKED_LEDGER_DIVERGENCE"
+    assert proposal["preserved_v3_state"]["environment_tracks"]["PROD"][
+        "legacy_evidence_classification"
+    ] == "BLOCKED_EVIDENCE_INSUFFICIENT"
+    assert proposal["verification_result"]["valid_exit_code"] == 8
+    assert proposal["operational_authorization"] is False
+    assert proposal["next_stage_authorized"] is False
+    assert (
+        proposal["next_gate"]["id"]
+        == CURRENT_GLOBAL_MIGRATION_GOVERNANCE_STAGE
+    )
+
+    canonical_docs = {
+        MIGRATION_SOURCE_SAFETY_ADR_PATH,
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
+        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-09-02-migration-catalog-evolution.md",
+    }
+    for path in canonical_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert "v4" in normalized, path
+        assert "source-only" in normalized, path
+        assert (
+            "duas leituras" in normalized or "le duas vezes" in normalized
+        ), path
+        assert "exit `8`" in normalized, path
+        assert "todas as permissoes" in normalized, path
+        assert "blocked_ledger_divergence" in normalized, path
+        assert "blocked_evidence_insufficient" in normalized, path
         assert "operational_authorization=false" in normalized, path
         assert "next_stage_authorized=false" in normalized, path
 

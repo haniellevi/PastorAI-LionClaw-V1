@@ -407,11 +407,14 @@ prefixo depois de validar a correspondência do head completo com o diretório.
 Cada lote futuro continua limitado a uma migration e exige o head anterior no
 verificador estrito. Runner, SQL e artefatos históricos não foram alterados.
 
-O wiring M1C adiciona um workflow read-only para pull requests e push em
-`main`. O job valida o SHA e o ancestral do evento, obtém o head anterior
-somente do Git local quando há append e executa o head estrito, o manifesto
-histórico e a estrutura v3 bloqueada. Não há runner, DSN, segredo ou banco
-nesse caminho.
+O wiring M1C iniciou um workflow source-only para pull requests e push em
+`main`. No candidato pós-Commit A, o primeiro job continua validando SHA,
+ancestral, head estrito, manifesto histórico e estrutura v3 a partir do Git;
+jobs isolados adicionais provisionam PostgreSQL 17 descartável, restrito ao
+loopback, e executam o replay e seus testes de guarda. Não há DSN, segredo nem
+acesso a banco compartilhado, DEV ou PROD, e o runner legado de aplicação não é
+executado. A afirmação histórica de que o workflow inteiro não chama banco ou
+runner não descreve mais essa composição.
 
 As entregas M1A-M1E e M1I foram integradas em `main` pela PR #361 via merge
 commit `8aacf98d9abbfd945226afb652ef38efa2fc6cfa` (parent 1 `e5d07e60`,
@@ -446,11 +449,11 @@ está encerrada. Isso não prova migration, backend, banco, DEV, PROD, flags ou
 runtime.
 
 A primitiva de snapshot privado do SHA exato foi implementada e comprovada
-offline, sem `chmod` no checkout compartilhado. A mitigação é parcial: o
-checkout `0775` permanece, consumidores legados de apply, capture e reconcile
-ainda não foram migrados transitivamente e o uso seguro exige um launcher
-externo confiável antes do bootstrap. O P2 permanece aberto globalmente. A
-decisão está em
+offline. Nesta worktree foram observados `0755` na raiz e em
+`backend/migrations` e `0644` nos SQL, mas ancestrais do workspace/repositório
+permanecem `0775`; esse `chmod` local não é durável. Consumidores legados de
+apply, capture e reconcile não foram todos migrados transitivamente, e o P2
+permanece aberto globalmente. A decisão está em
 [`2026-09-03-trusted-repository-snapshot-policy.md`](decisions/2026-09-03-trusted-repository-snapshot-policy.md).
 
 O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
@@ -463,7 +466,8 @@ para identidade e captura. O artefato v1 continua sanitizado e bloqueado.
 Ainda faltam autorização nominal autenticada externamente,
 runtime/dependências pinados antes dos segredos, anti-replay durável e inputs
 seguros. O bloqueio histórico DEV em `TLS_HANDSHAKE` não foi resolvido. Não
-houve conexão, captura, DEV, PROD, migration, runner ou cutover.
+houve conexão ou captura viva em DEV/PROD, migration aplicada, runner de
+aplicação ou cutover.
 
 Processo público e child exigem Python `3.13.14`, `-I -B`, `isolated`,
 `safe_path`, `no_user_site` e `dont_write_bytecode`; o child exige ainda
@@ -475,33 +479,47 @@ antes dos descritores de segredo. O campo `next_gate` congelado no pacote v3
 aponta para o gate histórico da fundação do agente, consumido pela PR #351, e
 não é corrente.
 
-A reconciliação pós-commit usa `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`
-como o último snapshot integrado de `main` observado e disponível localmente. A
-primitiva de snapshot confiável foi
-fixada localmente em `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`, filho de
-`c2fb16ad`; o executor v2 foi fixado localmente em
-`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho de `11ae294`. Os dois
-commits continuam não integrados. No snapshot privado `0700/0600` do SHA
-`1b299e7`, a seleção ampla registrou 961 testes (801 aprovados, 160 skips, zero
-falhas e zero erros). A regressão separada do probe histórico de transporte TLS
-passou `125/125`, sem testar o executor v2 ou o job PG17. A seleção focal no
-checkout compartilhado coletou 186 itens, com 183 aprovados, três skips PG17 e
-zero falhas após a reconciliação documental. A decisão do executor v2 registra
-composição, runtime e horários. São provas offline; o job PG17 sem skips e o CI
-remoto continuam pendentes.
+### Segurança local pós-Commit A (2026-09-04)
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, consolida autoria
+`draft`/`prepare-head` `TENANT` source-only, snapshot validado, wrapper
+catalog-bound v2 somente `list` e replay do head corrente em PostgreSQL 17
+descartável. Não está integrado e não passou por push, PR ou CI remoto.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; os testes PG17 reais terminaram `6/6`
+e incluem E2E sintético de 76ª migration `TENANT`; duas revisões independentes
+concluíram `P0=0` e `P1=0`.
+
+O legado `apply_migrations.py` ainda é invocável e permanece risco residual,
+sem ser entrypoint autorizado. O replay não cobre views, outros schemas,
+funções, roles/memberships, `BYPASSRLS`, grants nomeados, ACLs de
+schema/default nem semântica ampla de DML/DDL; revisão humana do SQL é
+obrigatória. Foram observados `0755` na worktree e no diretório de migrations e
+`0644` nos SQL, mas ancestrais do workspace/repositório permanecem `0775` e o
+`chmod` local não é durável; o P2 global permanece.
+
+DEV segue `BLOCKED_LEDGER_DIVERGENCE`, PROD segue
+`BLOCKED_EVIDENCE_INSUFFICIENT`, o TLS DEV histórico continua sem causa
+resolvida e revisão v3, cutover, atestações vivas e aplicação estão pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+A extensão local v4 documenta somente a segurança de fonte do Commit A. Ela
+preserva v1-v3 e seus bloqueios de ambiente/cutover, não fixa a contagem ou o
+digest do catálogo, exige duas leituras idênticas pelo snapshot validado e
+mantém todas as permissões falsas. O verificador válido retorna exit `8`; os
+testes dedicados passaram `61/61`. Nada disso é evidência viva de DEV ou PROD.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado a
+preflight remoto read-only, push da branch, abertura de PR e observação do
+CI/Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner de aplicação ou flags. Trust anchors externos permanecem
+futuros, não correntes e não autorizados.
 
 ## Fontes de verdade
 

@@ -134,8 +134,17 @@ somente em DEV, sob preflight e autorização próprios, sem alterar PROD. Isso
 não constitui gate corrente nem autoriza nova aplicação, D2, deploy, ativação
 do agente ou canário.
 
-Em 2026-09-03, o único estágio global corrente da frente de migrations é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito ao preflight remoto, push, abertura de PR e observação do CI/Preview do
-candidato local. Ele não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags.
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito ao preflight remoto somente leitura, ao push da branch candidata,
+à abertura de PR e à observação do CI e do Preview automáticos. O commit local
+não afirma integração, CI remoto ou estado de ambiente, e o gate consolidado
+não autoriza merge, banco compartilhado, DEV, PROD, migration, runner ou
+alteração de flags. O gate futuro
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua não corrente e não autorizado.

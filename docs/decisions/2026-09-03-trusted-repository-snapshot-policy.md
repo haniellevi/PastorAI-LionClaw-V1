@@ -12,6 +12,9 @@ Commit local da primitiva: `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`,
 filho direto de `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. O executor v2
 que a consome foi fixado depois em
 `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho direto de `11ae294`.
+Ambos integram o commit local consolidado
+`9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
+`947af39d35544700188461d8c99332df70b57e07`, ainda fora de `main`.
 
 ## Problema
 
@@ -20,12 +23,12 @@ permissões estrita rejeitam qualquer ancestral, diretório de governança ou
 arquivo gravável por grupo ou por outros. Essa guarda não existe uniformemente
 em todo verificador; em particular, o verificador do head do catálogo vincula e
 revalida metadados, mas não rejeita sozinho o modo `0775`.
-O checkout compartilhado desta máquina nasce sob `umask 0002`: o primeiro
-ancestral inseguro observado é `/home/raniel-linux/workspace`, modo `0775`, e
-os diretórios do repositório também podem ter modo `0775`. Alterar apenas
-`backend/migrations` ou `docs/governance/migrations` não corrige a cadeia de
-confiança; aplicar `chmod` recursivo ao workspace compartilhado mudaria
-arquivos e worktrees de outros agentes.
+Nesta worktree, a raiz e `backend/migrations` foram observados em `0755` e os
+SQL em `0644`. Isso não fecha a cadeia: ancestrais do workspace/repositório,
+incluindo `/home/raniel-linux/workspace`, permanecem `0775`, e um `chmod` local
+não é política durável nem reproduzível em outro checkout. Alterar apenas
+`backend/migrations` ou `docs/governance/migrations` não corrige a confiança;
+um `chmod` recursivo no workspace compartilhado afetaria outros agentes.
 
 ## Decisão
 
@@ -90,12 +93,13 @@ autenticação ou cleanup bloqueia a etapa consumidora. O rollback é deixar de
 usar e remover o snapshot identificado; nenhuma permissão do checkout
 compartilhado é alterada.
 
-A condição `0775` continua existindo no workspace. Seu uso direto é mitigado
-somente para consumidores migrados quando a primitiva e o bootstrap forem
-iniciados por um launcher externo confiável. Esse trust anchor ainda não
-existe; além disso, as ferramentas legadas de apply, capture e reconcile ainda
-não foram integradas transitivamente ao snapshot. Portanto, o P2 permanece
-aberto globalmente, sem enfraquecimento dos verificadores nem `chmod` global.
+A condição `0775` continua existindo nos ancestrais do workspace/repositório.
+Os modos locais `0755/0644` observados não são uma correção durável. O uso
+direto é mitigado somente para consumidores migrados quando a primitiva e o
+bootstrap forem iniciados por launcher externo confiável. Esse trust anchor
+ainda não existe; além disso, ferramentas legadas de apply, capture e reconcile
+não foram todas integradas transitivamente ao snapshot. Portanto, o P2
+permanece aberto globalmente.
 
 Na camada de autoria e no verificador longitudinal correntes, o manifesto
 autenticado de `ls-tree` recebe essa classificação ampliada antes de qualquer
@@ -117,8 +121,36 @@ Esses resultados são evidência offline dos commits locais `11ae294` e
 `1b299e7`; não provam CI remoto, integração, trust anchor externo, DEV, PROD ou
 migration aplicada.
 
+### Evidência complementar pós-Commit A (2026-09-04)
+
+No SHA local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, o fluxo
+`draft`/`prepare-head` `TENANT` source-only e o verificador longitudinal também
+autenticam sua fonte; o wrapper catalog-bound v2 aceita somente `list`; e o
+replay usa PostgreSQL 17 descartável e loopback. O verificador confirmou 75
+migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal passou `274 passed, 6 skipped`, a matriz PG17 real `6/6` com E2E
+sintético de 76ª migration `TENANT`, e duas revisões independentes fecharam
+`P0=0`/`P1=0`. Não houve integração, push, PR ou CI remoto.
+
+O workflow candidato agora chama um banco PG17 descartável e o replay; não
+chama banco compartilhado, DEV/PROD ou o runner legado de aplicação. O
+`apply_migrations.py` continua invocável como risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, schema/default ACLs nem semântica DML/DDL ampla.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e apply permanecem pendentes.
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.
+
+A extensão local v4 reutiliza a API autenticada de snapshot para duas leituras
+consecutivas e exige igualdade exata, sem fixar contagem ou digest do catálogo.
+Ela autentica os artefatos do Commit A, preserva v1-v3 e mantém ambiente,
+cutover e todas as permissões bloqueados. A suíte dedicada concluiu `61/61` e
+o verificador válido retorna exit `8`; isso continua sendo prova de fonte, não
+de ambiente compartilhado.
 
 ## Próximo estágio único
 
@@ -130,16 +162,11 @@ separados. Identidade e captura compartilham conexão e backend PID, mas usam
 duas transações e dois snapshots `REPEATABLE READ READ ONLY` separados. O
 resultado permanece sanitizado e bloqueado; nenhuma conexão viva foi feita.
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
-
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, restrito a
+preflight remoto read-only, push da branch, abertura de PR e observação do
+CI/Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner de aplicação ou flags. Trust anchors externos permanecem
+futuros, não correntes e não autorizados.

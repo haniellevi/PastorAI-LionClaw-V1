@@ -639,31 +639,39 @@ O executor não pode ser usado neste runbook enquanto autorização nominal,
 runtime/dependências e anti-replay não tiverem trust anchors externos. Não
 forneça DSN, CA, chave, nonce ou registro de autorização ao candidato atual.
 
-A cadeia auditada é `c2fb16ad9a6b028c317c56a0b02c4362ae903e26` ->
-`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` ->
-`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`; somente `c2fb16ad` está
-integrado em `main`. Os dois commits seguintes são candidatos locais. No
-snapshot privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou 961
-testes (801 aprovados, 160 skips, zero falhas e zero erros). A regressão separada
-do probe histórico de transporte TLS passou `125/125`, sem testar o executor v2
-ou o job PG17. A seleção focal no checkout compartilhado coletou 186 itens, com
-183 aprovados, três skips PG17 e zero falhas após a reconciliação documental. A
-decisão do executor v2 registra composição, runtime e horários. Esses resultados
-não autorizam uso deste runbook, segredos, DEV, PROD ou migration.
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
+`947af39d35544700188461d8c99332df70b57e07`, implementa autoria source-only
+`draft`/`prepare-head` apenas `TENANT`, snapshot validado, wrapper catalog-bound
+v2 somente `list` e replay em PostgreSQL 17 descartável/loopback. Não está
+integrado e não houve push, PR ou CI remoto.
 
-O único estágio corrente global é
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
-restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da
-base, ao push da branch candidata, à abertura da PR e à observação do CI e do
-Vercel Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-migration, runner ou alteração de flags;
-`operational_authorization=false` e `next_stage_authorized=false` permanecem
-estritos.
+No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; a prova real PG17 terminou `6/6`, com
+E2E sintético de 76ª migration `TENANT`; duas revisões independentes concluíram
+`P0=0` e `P1=0`. O workflow candidato usa banco PG17 descartável para replay,
+mas nunca banco compartilhado, DEV/PROD ou o runner legado de aplicação. Esses
+resultados não autorizam o uso deste runbook.
 
-Somente após a integração posterior sob gate próprio e o CI verde, o estágio
-funcional futuro poderá ser
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`;
-ele não é o estágio corrente nem está autorizado.
+`apply_migrations.py` continua invocável como risco residual. O replay não cobre
+views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants nomeados,
+schema/default ACL ou semântica ampla DML/DDL. A worktree/migrations foi
+observada em `0755` e SQL em `0644`, mas ancestrais permanecem `0775` e o
+`chmod` local não é durável; o P2 global segue aberto.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e apply permanecem pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, restrito a
+preflight remoto read-only, push da branch, abertura de PR e observação do
+CI/Preview. Não autoriza merge, banco compartilhado, DEV, PROD, migration,
+runner de aplicação ou flags. Trust anchors externos permanecem futuros, não
+correntes e não autorizados.
 
 ## 10. Rollback
 

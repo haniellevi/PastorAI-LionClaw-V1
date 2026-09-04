@@ -1910,43 +1910,41 @@ AGENT_GRAPH_CHECKPOINT_URL=
 - **Fluxo de merge manual** de contatos duplicados — hoje dedupe e automatico por telefone+igreja.
 - **Historico/auditoria visivel no painel** de envios de comunicados e handoffs — hoje so em logs backend (F8).
 
-## Delta-073 — reconciliacao canônica da governanca de migrations (2026-09-03)
+## Delta-074 — segurança de autoria e replay de migrations (2026-09-04)
 
-O último snapshot integrado de `main` observado e disponível localmente é
-`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. Sobre ele, a primitiva privada de
-snapshot confiavel foi fixada no commit local
-`11ae294fd4459e55cb31b3342fb8f0a766ac0a03`; o executor v2 fail-closed foi
-fixado no commit local seguinte
-`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho direto de `11ae294`. Os
-dois commits locais ainda nao foram integrados e nao provam CI remoto, banco,
-DEV, PROD ou migration aplicada.
+O último snapshot integrado de `main` observado continua
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. O commit local
+`9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
+`947af39d35544700188461d8c99332df70b57e07`, consolida autoria source-only em
+duas fases (`draft`/`prepare-head`) e somente `TENANT`, snapshot validado,
+wrapper catalog-bound v2 apenas `list` e replay do head corrente em PostgreSQL
+17 descartável e loopback. Não houve integração, push, PR ou CI remoto.
 
-A verificacao ampla no snapshot privado `0700/0600` do SHA `1b299e7`
-contabilizou 961 testes, com 801 aprovados, 160 skips, zero falhas e zero erros.
-Separadamente, a regressao do probe historico de transporte TLS passou
-`125/125`; ela nao e prova do executor v2 ou do job PG17. A selecao focal no
-checkout compartilhado coletou 186 itens, com 183 aprovados, tres skips PG17 e
-zero falhas apos a reconciliacao documental. A composicao exata, o runtime e os
-horarios estao na decisao do executor v2. O catalogo versionado continua com 75
-migrations. O job PostgreSQL 17 sem skips,
-os trust anchors externos, a revisao independente da proposta v3 e qualquer
-atestado DEV/PROD continuam pendentes. O modo `0775` permanece P2 global; o
-snapshot o mitiga apenas para consumidores migrados sob launcher externo
-confiavel.
+O verificador longitudinal no mesmo SHA confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal concluiu `274 passed, 6 skipped`; a prova PG17 real concluiu `6/6`,
+incluindo E2E sintético de uma 76ª migration `TENANT`; duas revisões
+independentes concluíram `P0=0` e `P1=0`. O workflow candidato agora usa banco
+PG17 descartável e executa replay, nunca banco compartilhado, DEV/PROD ou o
+runner legado de aplicação.
 
-O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
-foi consumido somente para a implementacao local. O unico estagio corrente
-global e
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`.
-Ele nao autoriza merge, banco compartilhado, DEV, PROD, migration, runner ou
-alteracao de flags. O gate futuro
-`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
-nao e corrente nem esta autorizado. `operational_authorization=false` e
-`next_stage_authorized=false` permanecem estritos.
+`apply_migrations.py` permanece invocável como risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, ACLs de schema/default ou equivalência semântica ampla de DML/DDL;
+revisão humana permanece obrigatória. Worktree e migrations foram observadas
+em `0755` e SQL em `0644`, mas ancestrais workspace/repositório permanecem
+`0775` e o `chmod` local não é durável; o P2 global continua aberto.
 
-O SHA-256 `8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d`
-continua historico e vinculado aos bytes pre-adaptacao do verificador da
-proposta v3. O pacote v3 congelado permanece em `076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e`.
-O verificador adaptado corrente tem SHA-256
-`efcc9be299241793c74e5c4174a4dc44f3b14507d1585d9daa5a407ab38f13f8`; isso
-nao autoriza reescrever o artefato v3 congelado.
+DEV está `BLOCKED_LEDGER_DIVERGENCE`, PROD está
+`BLOCKED_EVIDENCE_INSUFFICIENT`, o TLS DEV histórico não foi resolvido e
+revisão v3, cutover, atestações vivas e aplicação seguem pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`; limita-se a
+preflight remoto read-only, push da branch, abertura de PR e observação do
+CI/Preview, sem autorizar merge, banco, DEV, PROD, migration, runner de
+aplicação ou flags. Trust anchors externos permanecem futuros, não correntes e
+não autorizados. O pacote v3 e seus hashes históricos permanecem inalterados.
