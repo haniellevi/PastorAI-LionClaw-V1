@@ -479,13 +479,14 @@ antes dos descritores de segredo. O campo `next_gate` congelado no pacote v3
 aponta para o gate histórico da fundação do agente, consumido pela PR #351, e
 não é corrente.
 
-### Segurança local pós-Commit A (2026-09-04)
+### Segurança local pós-Commit A — estado pré-PR #366 (2026-09-04)
 
-O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+No recorte pré-PR #366, o commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
 `947af39d35544700188461d8c99332df70b57e07`, consolida autoria
 `draft`/`prepare-head` `TENANT` source-only, snapshot validado, wrapper
 catalog-bound v2 somente `list` e replay do head corrente em PostgreSQL 17
-descartável. Não está integrado e não passou por push, PR ou CI remoto.
+descartável. Naquele recorte pré-PR #366, não estava integrado e não passou
+por push, PR ou CI remoto.
 
 No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.

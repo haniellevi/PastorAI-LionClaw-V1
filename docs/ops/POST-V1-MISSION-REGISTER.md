@@ -1825,13 +1825,14 @@ checkout compartilhado, e faz o teste documental exigir essa semântica. Não
 altera código de runtime, migration, schema ou workflow e não realiza rede,
 banco, DEV ou PROD.
 
-### Commit A local: segurança de autoria e replay (2026-09-04)
+### Commit A local: segurança de autoria e replay — estado pré-PR #366 (2026-09-04)
 
-O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+No recorte pré-PR #366, o commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
 `947af39d35544700188461d8c99332df70b57e07`, consolidou o fluxo source-only
 `draft`/`prepare-head` apenas `TENANT`, o snapshot validado, o wrapper
 catalog-bound v2 limitado a `list` e o replay do head em PostgreSQL 17
-descartável e somente loopback. Não houve push, PR, integração ou CI remoto.
+descartável e somente loopback. Naquele recorte pré-PR #366, não houve push,
+PR, integração ou CI remoto.
 
 O verificador longitudinal executado no próprio SHA confirmou 75 migrations e
 digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.

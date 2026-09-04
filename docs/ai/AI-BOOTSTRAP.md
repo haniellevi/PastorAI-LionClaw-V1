@@ -1200,14 +1200,14 @@ secretos. O campo `next_gate` dentro do pacote v3 aponta para o gate histórico
 da fundação do agente, já consumido pela PR #351, e não é o estágio global
 corrente.
 
-## Segurança de autoria e replay pós-Commit A (2026-09-04)
+## Segurança de autoria e replay pós-Commit A — estado pré-PR #366 (2026-09-04)
 
-O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+No recorte pré-PR #366, o commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
 `947af39d35544700188461d8c99332df70b57e07`, consolidou a autoria
 `draft`/`prepare-head` estritamente `TENANT` e source-only, o snapshot validado,
 o wrapper catalog-bound v2 limitado a `list` e o replay do head corrente em
-PostgreSQL 17 descartável e somente loopback. Ele continua fora de `main`, sem
-push, PR ou CI remoto.
+PostgreSQL 17 descartável e somente loopback. Naquele recorte, ele continuava
+fora de `main`, sem push, PR ou CI remoto.
 
 No mesmo SHA, o verificador longitudinal terminou com 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.

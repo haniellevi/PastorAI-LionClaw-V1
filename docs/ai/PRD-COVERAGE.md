@@ -1295,14 +1295,14 @@ launcher externo confiável antes dos descritores secretos; não afirmam que ele
 já exista. O campo `next_gate` preservado no pacote v3 aponta para o gate
 histórico da fundação do agente, consumido pela PR #351, e não é corrente.
 
-## Delta pós-Commit A: segurança local de migrations (2026-09-04)
+## Delta pós-Commit A: segurança local de migrations — estado pré-PR #366 (2026-09-04)
 
-O SHA local auditado `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+No recorte pré-PR #366, o SHA local auditado `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
 `947af39d35544700188461d8c99332df70b57e07`, implementa autoria em duas fases
 `draft`/`prepare-head`, somente `TENANT` e source-only; snapshot validado;
 wrapper catalog-bound v2 limitado a `list`; e replay do catálogo corrente em
-PostgreSQL 17 descartável, somente loopback. O commit não está integrado e não
-teve push, PR ou CI remoto.
+PostgreSQL 17 descartável, somente loopback. Naquele recorte, o commit não
+estava integrado e não teve push, PR ou CI remoto.
 
 O verificador longitudinal foi executado no mesmo SHA e confirmou 75 migrations
 e digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.

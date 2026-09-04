@@ -8,13 +8,15 @@ ATESTACAO VIVA / OPERACAO BLOQUEADA`.
 
 Base auditada: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
 
-Commit local da primitiva: `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`,
+No recorte pré-PR #366, o commit local da primitiva era
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03`,
 filho direto de `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. O executor v2
 que a consome foi fixado depois em
 `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho direto de `11ae294`.
 Ambos integram o commit local consolidado
 `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
-`947af39d35544700188461d8c99332df70b57e07`, ainda fora de `main`.
+`947af39d35544700188461d8c99332df70b57e07`, ainda fora de `main` naquele
+recorte.
 
 ## Problema
 
@@ -118,7 +120,7 @@ itens, com 183 aprovados, três skips PG17 e zero falhas após a reconciliação
 Comandos, composição e horários estão registrados na decisão do
 [`executor v2`](2026-09-03-migration-environment-attestation-executor-v2.md).
 Esses resultados são evidência offline dos commits locais `11ae294` e
-`1b299e7`; não provam CI remoto, integração, trust anchor externo, DEV, PROD ou
+`1b299e7` no recorte pré-PR #366; não provam CI remoto, integração, trust anchor externo, DEV, PROD ou
 migration aplicada.
 
 ### Evidência complementar pós-Commit A (2026-09-04)
@@ -131,7 +133,7 @@ migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
 A focal passou `274 passed, 6 skipped`, a matriz PG17 real `6/6` com E2E
 sintético de 76ª migration `TENANT`, e duas revisões independentes fecharam
-`P0=0`/`P1=0`. Não houve integração, push, PR ou CI remoto.
+`P0=0`/`P1=0`. No recorte pré-PR #366 não houve integração, push, PR ou CI remoto.
 
 O workflow candidato agora chama um banco PG17 descartável e o replay; não
 chama banco compartilhado, DEV/PROD ou o runner legado de aplicação. O

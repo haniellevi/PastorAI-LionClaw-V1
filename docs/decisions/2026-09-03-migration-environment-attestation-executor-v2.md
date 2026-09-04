@@ -12,7 +12,7 @@ PENDENTES / DEV E PROD BLOQUEADOS`
 `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`. A base integrada anterior
 permanece `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
 
-O candidato também está contido no commit local consolidado
+No recorte pré-PR #366, o candidato também estava contido no commit local consolidado
 `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
 `947af39d35544700188461d8c99332df70b57e07`, fora de `main` e sem integração.
 
@@ -164,16 +164,16 @@ Como não houve efeito vivo, o rollback consiste em não integrar ou em reverter
 o candidato local. Artefatos e snapshots temporários devem ser removidos por
 identidade; nenhuma permissão do checkout compartilhado deve ser alterada.
 
-## Atualização pós-Commit A e próximo gate único
+## Atualização pós-Commit A — estado pré-PR #366
 
-O Commit A acrescenta autoria `draft`/`prepare-head` somente `TENANT` e
+No recorte pré-PR #366, o Commit A acrescentava autoria `draft`/`prepare-head` somente `TENANT` e
 source-only, snapshot validado, wrapper catalog-bound v2 somente `list` e
 replay do head em PostgreSQL 17 descartável/loopback. No mesmo SHA, o
 verificador longitudinal confirmou 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`;
 a focal concluiu `274 passed, 6 skipped`, a matriz PG17 real `6/6` com E2E
 sintético de 76ª migration `TENANT`, e duas revisões independentes concluíram
-`P0=0`/`P1=0`. Não houve push, PR, integração ou CI remoto.
+`P0=0`/`P1=0`. Nesse recorte não houve push, PR, integração ou CI remoto.
 
 O workflow candidato usa banco PG17 descartável e replay, mas nunca banco
 compartilhado, DEV/PROD ou `apply_migrations.py`. O legado permanece invocável
