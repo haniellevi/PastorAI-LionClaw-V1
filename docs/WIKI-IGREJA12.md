@@ -47,7 +47,7 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | Revisar o lote offline e, depois, ligar o staging transacional a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA CANDIDATA OFFLINE` | Revisar o lote offline e, depois, provisionar grants/views mínimos e ligar o staging transacional a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / EXECUTOR V2 LOCAL OFFLINE COM TRUST ANCHORS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O executor v2 é apenas candidato local; trust anchors externos, atestações DEV/PROD separadas, revisão independente v3, decisão humana, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | Conectar a UoW candidata ao agente, com consentimento, `AgentConfig`, commit externo, despacho e comprovante pós-commit |
@@ -83,6 +83,10 @@ qualquer expansão do canário.
 - no último registro operacional/histórico, `AgentConfig.ativo=false` impede resposta automática (esta missão não realizou consulta viva de produção);
 - `marcar_presenca` permanece desabilitada no runtime;
 - falhas novas da fila possuem metadados seguros para investigação.
+- a branch candidata de wiring seleciona explicitamente a sessão `agent_runtime`
+  quando `AGENT_RUNTIME_DATABASE_URL` existe e mantém o turno automático
+  desabilitado sem essa configuração; nenhuma migration/grant ou ativação foi
+  realizada.
 
 ## O que está parcial
 

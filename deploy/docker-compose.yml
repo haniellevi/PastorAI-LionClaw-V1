@@ -160,6 +160,11 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
+      # AGENT_RUNTIME_DATABASE_URL is intentionally supplied only by the
+      # selected env_file.  Keeping one source avoids Compose shell
+      # interpolation silently overwriting a value from PASTORAI_ENV_FILE.
+      # Empty keeps automatic agent turns disabled; runtime code never falls
+      # back to DATABASE_URL.
     command: ["python", "-m", "app.workers.queue_worker"]
     healthcheck:
       test:

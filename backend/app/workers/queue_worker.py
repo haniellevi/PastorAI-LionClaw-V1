@@ -111,6 +111,12 @@ REDIS_SOCKET_TIMEOUT_SECONDS = BRPOP_TIMEOUT + 2
 REDIS_MAX_CONNECTIONS = 20
 MAX_AGENT_CLAIM_ID_BYTES = 128
 
+# ``run_agent_for_message`` keeps a compatibility default for focused tests
+# and out-of-tree callers.  The real worker entrypoint always supplies the
+# dedicated factory explicitly; it must never silently fall back to the
+# privileged application session.
+_DEFAULT_AGENT_SESSION_FACTORY = object()
+
 _PROCESSING_MARKER = "processing"
 _PROCESSED_MARKER = "done"
 
@@ -1871,6 +1877,32 @@ def _scope_agent_session(session: Session, outcome: IngestionOutcome) -> uuid.UU
     return igreja_id
 
 
+def _scope_dedicated_agent_session(
+    session: Session,
+    outcome: IngestionOutcome,
+) -> uuid.UUID:
+    """Fix and prove a tenant on the dedicated ``agent_runtime`` role."""
+
+    from app.db.agent_runtime_session import (  # noqa: PLC0415
+        scope_agent_runtime_session,
+    )
+
+    return scope_agent_runtime_session(session, _require_agent_igreja_id(outcome))
+
+
+def _scope_agent_execution_session(
+    session: Session,
+    outcome: IngestionOutcome,
+    *,
+    dedicated: bool,
+) -> uuid.UUID:
+    """Select the explicitly requested runtime boundary."""
+
+    if dedicated:
+        return _scope_dedicated_agent_session(session, outcome)
+    return _scope_agent_session(session, outcome)
+
+
 def _load_agent_reply_intent(
     session_factory: Any, outcome: IngestionOutcome
 ) -> _AgentReplyIntent | None:
@@ -2343,6 +2375,7 @@ def run_agent_for_message(
     ownership_guard: ClaimGuard | None = None,
     *,
     evolution_client: Any | None = None,
+    agent_session_factory: Any = _DEFAULT_AGENT_SESSION_FACTORY,
 ) -> AgentRunDisposition:
     """Drive the orchestrator for one persisted inbound message and reply.
 
@@ -2351,6 +2384,12 @@ def run_agent_for_message(
     A durable reservation and session advisory lock are acquired before calling
     the orchestrator because its tools may mutate tenant state.  An unresolved
     execution is quarantined rather than run a second time.
+
+    ``agent_session_factory`` is explicit at the production entrypoint and is
+    bound to the least-privilege ``agent_runtime`` PostgreSQL role.  The
+    sentinel default preserves the pre-D2A signature for isolated tests and
+    old integrations; it is not used by ``main``.  Passing ``None`` is a
+    fail-closed disablement and never falls back to ``session_factory``.
     """
     trusted_identity_enabled = (
         get_settings().agent_trusted_inbound_identity_enabled
@@ -2363,6 +2402,20 @@ def run_agent_for_message(
         # This is intentionally before tenant coercion, ownership callbacks,
         # durable reply reservation, session creation and runtime import.
         turn_identity = _build_trusted_inbound_turn_identity(outcome)
+
+    uses_dedicated_agent_session = (
+        agent_session_factory is not _DEFAULT_AGENT_SESSION_FACTORY
+    )
+    runtime_session_factory = (
+        session_factory
+        if not uses_dedicated_agent_session
+        else agent_session_factory
+    )
+    if runtime_session_factory is None:
+        logger.error(
+            "Dedicated agent runtime session is unavailable; suppressing agent turn"
+        )
+        return AgentRunDisposition.COMPLETED
 
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
@@ -2380,9 +2433,13 @@ def run_agent_for_message(
         # claims.  QueueWorker always reaches the durable path below.
         if ownership_guard is not None:
             ownership_guard()
-        session: Session = session_factory()
+        session: Session = runtime_session_factory()
         try:
-            _scope_agent_session(session, outcome)
+            _scope_agent_execution_session(
+                session,
+                outcome,
+                dedicated=uses_dedicated_agent_session,
+            )
             if turn_identity is None:
                 result = process_inbound_message(
                     session,
@@ -2466,12 +2523,16 @@ def run_agent_for_message(
                     )
                     raise
 
-                session: Session = session_factory()
+                session: Session = runtime_session_factory()
                 try:
                     # Fase 0 (#10b): RLS por igreja também no caminho do agente
                     # — é aqui que tools, retrieval da KB e memória leem/escrevem
                     # dados do tenant.
-                    _scope_agent_session(session, outcome)
+                    _scope_agent_execution_session(
+                        session,
+                        outcome,
+                        dedicated=uses_dedicated_agent_session,
+                    )
                     if turn_identity is None:
                         result = process_inbound_message(
                             session,
@@ -2611,6 +2672,27 @@ def _build_redis() -> Any:
     )
 
 
+def _build_agent_runtime_session_factory() -> Any | None:
+    """Load the dedicated runtime factory, keeping the worker fail-closed.
+
+    The D2A migration intentionally leaves the role ``NOLOGIN`` until a later
+    operational gate.  A missing URL therefore disables automatic agent turns
+    while ingestion remains healthy; it must never select ``DATABASE_URL`` as
+    an implicit substitute.
+    """
+
+    from app.db.agent_runtime_session import (  # noqa: PLC0415
+        AgentRuntimeConfigurationError,
+        get_agent_runtime_session_factory,
+    )
+
+    try:
+        return get_agent_runtime_session_factory()
+    except AgentRuntimeConfigurationError as exc:
+        logger.warning("Dedicated agent runtime disabled: %s", exc)
+        return None
+
+
 def main() -> None:  # pragma: no cover - process entrypoint
     logging.basicConfig(
         level=logging.INFO,
@@ -2621,11 +2703,16 @@ def main() -> None:  # pragma: no cover - process entrypoint
     # One client per worker process keeps TCP/TLS connections warm across
     # messages and is closed deterministically on graceful shutdown or error.
     with EvolutionClient() as evolution_client:
-        worker = QueueWorker(
-            agent_runner=partial(
+        agent_runtime_session_factory = _build_agent_runtime_session_factory()
+        agent_runner = None
+        if agent_runtime_session_factory is not None:
+            agent_runner = partial(
                 run_agent_for_message,
+                agent_session_factory=agent_runtime_session_factory,
                 evolution_client=evolution_client,
-            ),
+            )
+        worker = QueueWorker(
+            agent_runner=agent_runner,
             media_resolver=partial(
                 resolve_media_via_evolution,
                 evolution_client=evolution_client,

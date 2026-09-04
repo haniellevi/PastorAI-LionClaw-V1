@@ -1894,3 +1894,25 @@ revisão v3, cutover, atestação viva e aplicação continuam pendentes.
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos. O gate de continuidade desta reconciliação documental é
 `OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.
+
+### Fronteira de sessão dedicada do agente WhatsApp (candidato local, 2026-09-04)
+
+Na branch candidata `feat/agent-runtime-session-wiring-v1`, o worker passou a
+selecionar explicitamente uma fábrica de sessão ligada à role `agent_runtime`
+quando `AGENT_RUNTIME_DATABASE_URL` está configurada. A sessão inicia uma
+transação nova, fixa `app.tenant_igreja_id` e revalida role, privilégios,
+`row_security`, `search_path` e o tenant retornado pelo helper privado antes de
+consultar o domínio. Sem a URL dedicada, a ingestão permanece disponível, mas o
+turno automático é desabilitado; não existe fallback para `DATABASE_URL`.
+
+O lote é uma contenção de identidade e seleção de conexão, não uma ativação do
+agente. A role D2A continua sem login/grants às tabelas `public`, sem views ou
+projeções de menor privilégio, e nenhuma migration, credencial, banco,
+checkpointer, memória, consentimento operacional, `AgentConfig`, Evolution ou
+DEV/PROD foi tocado. A revisão e os testes locais são pré-PR; a suíte ampla
+continua registrando as falhas ambientais preexistentes dos entrypoints legados
+de captura/reconciliação em checkout group-writable.
+
+O próximo gate técnico é uma revisão/PR do wiring, seguida de um desenho
+separado de grants/views mínimos e testes PostgreSQL 17 descartáveis. Esse gate
+não autoriza migration, aplicação ou canário.

@@ -4780,22 +4780,22 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3"
         ),
         REPO_ROOT / "backend" / "app" / "workers" / "queue_worker.py": (
-            "54b15a3ceb60bf05eee66a88971d25cafb56f5b9e8e2d3d10ce7fcb8793a861c"
+            "4e59da93b45b932583da55f131e50382922cc01d60bb71aae08a99d94a61e3ac"
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "runtime.py": (
-            "28208ccdd3dcfb13e24c48400cb8495d55e382c1af4829b6c68d6394d2903085"
+            "8ebc5b49fdd164fbfda605cb4493f263c6540eef50baec30462d1a340a1832a5"
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "context.py": (
             "35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08"
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_tenant_runtime.py": (
-            "bca0708077d6f3e065445c6b3ca97bb49c46461c8335ea871b045bbbd9cd437b"
+            "4f1292142baab73ef788a5f17fdd2af5120ecf773209da23ae95d85990ee7ecd"
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_trusted_context.py": (
             "880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8"
         ),
         REPO_ROOT / "backend" / "tests" / "test_whatsapp_worker.py": (
-            "c1d2a0600e41fe44e23cba89929bbfa29f0e951312f1b6735124a2d39a1b08fd"
+            "55c6d72fa2ddb7533aa5c33535fc83d51124ff46cb90de9b3e1d2c68b0c68505"
         ),
     }
     for path, expected_sha256 in technical_files.items():

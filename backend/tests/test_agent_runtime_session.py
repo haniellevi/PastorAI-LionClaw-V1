@@ -364,6 +364,48 @@ def test_scope_pin_is_reusable_for_same_tenant_but_never_another() -> None:
     assert session.info[runtime_session.AGENT_RUNTIME_TENANT_KEY] == TENANT_A
 
 
+def test_verify_reproves_identity_and_tenant_inside_active_transaction() -> None:
+    session = _FakeSession()
+    runtime_session.scope_agent_runtime_session(session, TENANT_A)
+
+    assert runtime_session.verify_agent_runtime_scope(session, TENANT_A) == TENANT_A
+    assert "agent_private.current_tenant_id()" in session.calls[-1][0]
+    assert session.rollback_calls == 0
+
+
+def test_verify_rejects_unpinned_or_inactive_session_before_sql() -> None:
+    unpinned = _FakeSession()
+    with pytest.raises(
+        runtime_session.AgentRuntimeTenantPinError,
+        match="not pinned",
+    ):
+        runtime_session.verify_agent_runtime_scope(unpinned, TENANT_A)
+    assert unpinned.calls == []
+
+    inactive = _FakeSession()
+    runtime_session.scope_agent_runtime_session(inactive, TENANT_A)
+    inactive.commit()
+    with pytest.raises(
+        runtime_session.AgentRuntimeScopeError,
+        match="active transaction",
+    ):
+        runtime_session.verify_agent_runtime_scope(inactive, TENANT_A)
+    assert len(inactive.calls) == 3
+
+
+def test_verify_rolls_back_when_identity_or_tenant_drifts() -> None:
+    session = _FakeSession(row=_identity_row())
+    runtime_session.scope_agent_runtime_session(session, TENANT_A)
+    session.row = _identity_row(tenant_id=TENANT_B)
+    with pytest.raises(
+        runtime_session.AgentRuntimeScopeError,
+        match="identity or tenant verification failed",
+    ):
+        runtime_session.verify_agent_runtime_scope(session, TENANT_A)
+    assert session.rollback_calls == 1
+    assert not session.in_transaction()
+
+
 @pytest.mark.parametrize(
     "row",
     [
