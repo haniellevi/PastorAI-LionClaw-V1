@@ -180,6 +180,47 @@ O filtro de autorização ocorre antes da recuperação e continua aplicado na
 consulta. Embeddings não contêm mensagens privadas sem uma base jurídica e uma
 decisão futura explícitas.
 
+### Preparação D3 offline: fronteira de sessão dedicada do runtime
+
+O wiring candidato de 2026-09-04 adiciona uma fronteira explícita para o
+processamento do agente no worker. Quando
+`AGENT_RUNTIME_DATABASE_URL` está configurada, o worker abre a sessão separada
+da role `agent_runtime`; ela nunca usa `DATABASE_URL` como fallback. Antes da
+primeira consulta de domínio, a sessão inicia uma transação nova, fixa
+`app.tenant_igreja_id` e revalida role efetiva, atributos de privilégio,
+`row_security`, `search_path` e o tenant retornado por
+`agent_private.current_tenant_id()`.
+
+Sem a URL dedicada, o worker permanece saudável para ingestão, mas não cria
+turnos automáticos do agente. Passar explicitamente `None` também desabilita o
+turno e nunca reabre a sessão privilegiada. Uma sessão marcada como dedicada é
+reverificada na fronteira do runtime; marcador sem prova SQL válida falha
+fechado. O pool rejeita conexão que carregue GUC de tenant ou `search_path`
+contaminados.
+
+Essa mudança é somente uma contenção de identidade e seleção de conexão. A D2A
+continua sem login provisionado, grants às tabelas de domínio ou credencial
+externa, e o `search_path` privado deliberadamente não alcança `public`. O
+worker, Evolution, envio, `AgentConfig`, consentimento operacional,
+checkpointer, memória e ferramentas de escrita continuam sem ativação. Uma
+future migration de menor privilégio deve ser desenhada separadamente com
+projeções/views seguras, RLS GUC-only e testes PostgreSQL 17 descartáveis; não
+é autorizada por este wiring.
+
+O lote candidato vincula:
+
+- `backend/app/db/agent_runtime_session.py`, SHA-256
+  `87ceefe8b0a24a7fc61adba9b5d0f2b663087f34e7737e130ca242937c18868f`;
+- `backend/tests/test_agent_runtime_session.py`, SHA-256
+  `a29bb9e98af9a34f4e678495cb36ea8cfa77be661d2195cb5404c68e82478c9b`;
+- Os pins atualizados de `runtime.py`, `queue_worker.py`,
+  `test_agent_tenant_runtime.py` e `test_whatsapp_worker.py` permanecem no
+  freeze técnico D3 abaixo, cada um uma única vez.
+
+Os testes locais focalizados passaram e o compose valida a variável dedicada
+sem fallback. A evidência é local e pré-PR; não prova conexão, migration,
+runtime, banco, DEV ou PROD.
+
 ### Preparação D3 offline: fronteira efêmera por turno
 
 A preparação D3 offline separa `AgentTurnInput`, `AgentState` e
@@ -328,17 +369,17 @@ O freeze local vincula:
 - `backend/app/config.py`, SHA-256
   `c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3`;
 - `backend/app/workers/queue_worker.py`, SHA-256
-  `54b15a3ceb60bf05eee66a88971d25cafb56f5b9e8e2d3d10ce7fcb8793a861c`;
+  `4e59da93b45b932583da55f131e50382922cc01d60bb71aae08a99d94a61e3ac`;
 - `backend/app/agent/runtime.py`, SHA-256
-  `28208ccdd3dcfb13e24c48400cb8495d55e382c1af4829b6c68d6394d2903085`;
+  `8ebc5b49fdd164fbfda605cb4493f263c6540eef50baec30462d1a340a1832a5`;
 - `backend/app/agent/context.py`, SHA-256
   `35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08`;
 - `backend/tests/test_agent_tenant_runtime.py`, SHA-256
-  `bca0708077d6f3e065445c6b3ca97bb49c46461c8335ea871b045bbbd9cd437b`;
+  `cf4e69b8b28268f176c72d0b3eff7a47066e7df8e2f6406b7b9b49a0624a6c70`;
 - `backend/tests/test_agent_trusted_context.py`, SHA-256
   `880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8`;
 - `backend/tests/test_whatsapp_worker.py`, SHA-256
-  `c1d2a0600e41fe44e23cba89929bbfa29f0e951312f1b6735124a2d39a1b08fd`.
+  `55c6d72fa2ddb7533aa5c33535fc83d51124ff46cb90de9b3e1d2c68b0c68505`.
 
 O wiring passou em `245/245` e em `401 passed, 7 skipped` na seleção
 `tests/test_agent*.py`. O contrato de execução passou em `86/86`, na revisão

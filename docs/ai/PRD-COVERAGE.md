@@ -35,7 +35,7 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | LangGraph stateless e contexto confiável D2B1 integrados; o lote local acrescenta reserva V2 pura, locks compatíveis nos writers web e uma UoW de staging transacional ainda sem caller | Revisão independente do manifesto; atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA CANDIDATA OFFLINE` | LangGraph stateless, contexto confiável D2B1 e fronteira de sessão dedicada candidata integrados no lote local; a conexão dedicada é selecionada explicitamente e falha fechada sem URL, enquanto reserva V2, locks web e UoW de staging continuam sem caller | Revisão independente do manifesto; grants/views mínimos, atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
@@ -90,6 +90,11 @@ significa ativa em produção.
   inativo, não aplicado em Supabase e não possui caller;
 - a fatia do relatório possui staging específico numa `Message` pendente, mas
   os serviços de notificação não compartilham uma outbox geral.
+- a branch candidata `feat/agent-runtime-session-wiring-v1` seleciona uma sessão
+  dedicada `agent_runtime` para o worker quando
+  `AGENT_RUNTIME_DATABASE_URL` está configurada e desabilita o turno sem essa
+  URL; isso é uma barreira de conexão, não prova grants, consultas, runtime ou
+  operação.
 
 ### Ausente
 
