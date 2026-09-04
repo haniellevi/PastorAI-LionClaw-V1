@@ -10,6 +10,9 @@ CATÁLOGO CORRENTE COM 75 MIGRATIONS / OPERAÇÃO BLOQUEADA`
 
 **Snapshot versionado pós-M1J:** `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`
 
+**Snapshot corrente de `main` após a PR #366:**
+`1b233e5156ab671d0b56ab705b35f4e5d2011937`
+
 ## Decisão
 
 O catálogo deixa de usar a contagem corrente como sinônimo do snapshot
@@ -328,7 +331,7 @@ emite somente artefato v1 sanitizado e bloqueado. Identidade e captura usam a
 mesma conexão/PID, porém duas transações e dois snapshots PostgreSQL separados.
 Ele não prova migration aplicada, não conclui a revisão v3 e não libera runner.
 
-## Reconciliação local pós-commit (2026-09-03)
+## Reconciliação local pós-commit — estado pré-PR #366 (2026-09-03)
 
 O último snapshot integrado de `main` observado e disponível localmente é o
 merge `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. Esta reconciliação não realizou
@@ -337,7 +340,7 @@ de `main` ainda coincide com esse SHA. Sobre esse snapshot, a primitiva de
 snapshot confiável foi fixada no commit local
 `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`; o executor v2 foi fixado no
 commit local seguinte `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, cujo parent é
-`11ae294`. Ambos permanecem não integrados e não provam CI remoto, conexão,
+`11ae294`. Naquele recorte, ambos permaneciam não integrados e não provavam CI remoto, conexão,
 captura, migration, banco compartilhado, DEV ou PROD.
 
 No snapshot privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou
@@ -375,14 +378,14 @@ exigência explícita de observação histórica e estado atual não revalidado.
 Nenhum código de runtime, migration, schema ou workflow foi alterado nessa
 reconciliação.
 
-## Atualização pós-Commit A de segurança (2026-09-04)
+## Atualização pós-Commit A de segurança — estado pré-PR #366 (2026-09-04)
 
 O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
 `947af39d35544700188461d8c99332df70b57e07`, consolida o autor
 `new_migration.py` com fases `draft`/`prepare-head` source-only e somente
 `TENANT`, o snapshot validado, o wrapper catalog-bound v2 limitado a `list` e o
-replay do catálogo corrente em PG17 descartável/loopback. Não está integrado e
-não houve push, PR ou CI remoto.
+replay do catálogo corrente em PG17 descartável/loopback. Naquele recorte, não
+estava integrado e não houve push, PR ou CI remoto.
 
 O verificador longitudinal no próprio SHA concluiu com 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
@@ -416,3 +419,20 @@ preflight remoto read-only, push da branch candidata, abertura de PR e
 observação do CI/Preview automáticos. Não autoriza merge, banco compartilhado,
 DEV, PROD, migration, runner de aplicação ou flags. Trust anchors externos
 permanecem futuros, não correntes e não autorizados.
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A segurança de autoria/replay de migrations e a extensão source-only v4 foram
+integradas em `main` pela PR #366 no merge
+`1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e
+`ef03ae1b`. Os 12 check-runs pós-merge terminaram com sucesso, incluindo
+catálogo, divergência v4, replay/guards PostgreSQL 17, RLS, backend e E2E.
+O deployment Vercel Production `6262210648` terminou com sucesso e comprova
+somente o frontend.
+
+A integração não executou migration em banco compartilhado e não acessou
+DEV/PROD. O P2 de permissões de host permanece aberto; trust anchors externos,
+TLS DEV, revisão v3, cutover, atestação viva e aplicação continuam pendentes.
+`operational_authorization=false` e `next_stage_authorized=false` continuam
+estritos. O gate de continuidade desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

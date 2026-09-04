@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no `main` auditado
-`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (em 2026-09-03). O `bootstrap-ledger` permanece
+`1b233e5156ab671d0b56ab705b35f4e5d2011937` (em 2026-09-04). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -479,13 +479,14 @@ antes dos descritores de segredo. O campo `next_gate` congelado no pacote v3
 aponta para o gate histórico da fundação do agente, consumido pela PR #351, e
 não é corrente.
 
-### Segurança local pós-Commit A (2026-09-04)
+### Segurança local pós-Commit A — estado pré-PR #366 (2026-09-04)
 
-O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+No recorte pré-PR #366, o commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
 `947af39d35544700188461d8c99332df70b57e07`, consolida autoria
 `draft`/`prepare-head` `TENANT` source-only, snapshot validado, wrapper
 catalog-bound v2 somente `list` e replay do head corrente em PostgreSQL 17
-descartável. Não está integrado e não passou por push, PR ou CI remoto.
+descartável. Naquele recorte pré-PR #366, não estava integrado e não passou
+por push, PR ou CI remoto.
 
 No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
@@ -1426,3 +1427,17 @@ consentimento, banco, migration, commit, send, drain V1/V0,
 receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
 deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
 PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A PR #366 integrou em `main` o Commit A de autoria/replay e a extensão v4 no
+merge `1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e
+`ef03ae1b`. Os 12 check-runs pós-merge, incluindo replay/guards PostgreSQL 17,
+RLS, backend e E2E, terminaram `success`; o Vercel Production `6262210648`
+terminou `success` e é evidência exclusiva do frontend.
+
+Essa integração não comprova migration aplicada, banco compartilhado, backend
+implantado, DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de
+permissões do host permanece aberto; revisão v3, trust anchors externos,
+cutover e aplicação seguem bloqueados. O gate de continuidade desta reconciliação
+é `OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

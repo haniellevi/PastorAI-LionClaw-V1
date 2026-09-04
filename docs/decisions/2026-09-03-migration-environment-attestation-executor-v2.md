@@ -2,10 +2,9 @@
 
 **Data:** `2026-09-03`
 
-**Estado atualizado em 2026-09-04:** `IMPLEMENTADO E COMMITADO LOCALMENTE /
-PROVA UNITÁRIA OFFLINE / REPLAY DO HEAD EM PG17 DESCARTÁVEL 6/6 LOCAL / CI
-REMOTO PENDENTE / NÃO INTEGRADO / TRUST ANCHORS EXTERNOS PENDENTES / DEV E PROD
-BLOQUEADOS`
+**Estado atualizado em 2026-09-04:** `IMPLEMENTADO E INTEGRADO EM MAIN PELA PR
+#366 / CI E REPLAY PG17 DESCARTÁVEL COMPROVADOS / TRUST ANCHORS EXTERNOS
+PENDENTES / DEV E PROD BLOQUEADOS`
 
 **Base versionada:** `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`
 
@@ -13,7 +12,7 @@ BLOQUEADOS`
 `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`. A base integrada anterior
 permanece `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
 
-O candidato também está contido no commit local consolidado
+No recorte pré-PR #366, o candidato também estava contido no commit local consolidado
 `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
 `947af39d35544700188461d8c99332df70b57e07`, fora de `main` e sem integração.
 
@@ -165,16 +164,16 @@ Como não houve efeito vivo, o rollback consiste em não integrar ou em reverter
 o candidato local. Artefatos e snapshots temporários devem ser removidos por
 identidade; nenhuma permissão do checkout compartilhado deve ser alterada.
 
-## Atualização pós-Commit A e próximo gate único
+## Atualização pós-Commit A — estado pré-PR #366
 
-O Commit A acrescenta autoria `draft`/`prepare-head` somente `TENANT` e
+No recorte pré-PR #366, o Commit A acrescentava autoria `draft`/`prepare-head` somente `TENANT` e
 source-only, snapshot validado, wrapper catalog-bound v2 somente `list` e
 replay do head em PostgreSQL 17 descartável/loopback. No mesmo SHA, o
 verificador longitudinal confirmou 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`;
 a focal concluiu `274 passed, 6 skipped`, a matriz PG17 real `6/6` com E2E
 sintético de 76ª migration `TENANT`, e duas revisões independentes concluíram
-`P0=0`/`P1=0`. Não houve push, PR, integração ou CI remoto.
+`P0=0`/`P1=0`. Nesse recorte não houve push, PR, integração ou CI remoto.
 
 O workflow candidato usa banco PG17 descartável e replay, mas nunca banco
 compartilhado, DEV/PROD ou `apply_migrations.py`. O legado permanece invocável
@@ -203,3 +202,14 @@ preflight remoto read-only, push, abertura de PR e observação do CI/Preview.
 Não autoriza merge, banco compartilhado, DEV, PROD, migration, runner de
 aplicação ou flags. Trust anchors externos permanecem futuros, não correntes e
 não autorizados.
+
+## Atualização pós-merge PR #366 (2026-09-04)
+
+O executor v2 e seus contratos foram integrados em `main` pela PR #366 no merge
+`1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e `ef03ae1b`.
+Os 12 check-runs pós-merge concluíram com sucesso, incluindo a execução PG17
+descartável e os guards de replay. Isso comprova o contrato source-only e sua
+reprodutibilidade no CI; não comprova atestação de DEV/PROD, migration aplicada,
+banco compartilhado, trust anchors externos, TLS ou cutover. O gate de continuidade
+desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

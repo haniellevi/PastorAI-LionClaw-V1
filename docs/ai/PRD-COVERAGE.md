@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-09-04
-audited_repository_sha: 9b9395e29cc821d6808738a30a6afe367d4ffbea
+audited_repository_sha: 1b233e5156ab671d0b56ab705b35f4e5d2011937
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -1295,14 +1295,14 @@ launcher externo confiável antes dos descritores secretos; não afirmam que ele
 já exista. O campo `next_gate` preservado no pacote v3 aponta para o gate
 histórico da fundação do agente, consumido pela PR #351, e não é corrente.
 
-## Delta pós-Commit A: segurança local de migrations (2026-09-04)
+## Delta pós-Commit A: segurança local de migrations — estado pré-PR #366 (2026-09-04)
 
-O SHA local auditado `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+No recorte pré-PR #366, o SHA local auditado `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
 `947af39d35544700188461d8c99332df70b57e07`, implementa autoria em duas fases
 `draft`/`prepare-head`, somente `TENANT` e source-only; snapshot validado;
 wrapper catalog-bound v2 limitado a `list`; e replay do catálogo corrente em
-PostgreSQL 17 descartável, somente loopback. O commit não está integrado e não
-teve push, PR ou CI remoto.
+PostgreSQL 17 descartável, somente loopback. Naquele recorte, o commit não
+estava integrado e não teve push, PR ou CI remoto.
 
 O verificador longitudinal foi executado no mesmo SHA e confirmou 75 migrations
 e digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
@@ -1356,3 +1356,18 @@ futuros, não correntes e não autorizados.
 - `Plan-Designer-Igreja12/03-AGENTE-IA-WHATSAPP.md`
 - `Plan-Designer-Igreja12/08-ROADMAP-PRIORIZADO.md`
 - código e testes do SHA auditado
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A PR #366 integrou em `main` o Commit A de autoria/replay e a extensão v4 no
+merge `1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e
+`ef03ae1b`. Os 12 check-runs pós-merge, incluindo replay/guards PostgreSQL 17,
+RLS, backend e E2E, terminaram `success`; o Vercel Production `6262210648`
+terminou `success` e é evidência exclusiva do frontend.
+
+A integração comprova os contratos source-only no SHA integrado e sua execução
+em CI descartável. Não comprova migration aplicada, banco, backend implantado,
+DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de permissões do host
+continua aberto, e revisão v3, trust anchors externos, cutover e aplicação
+seguem pendentes/bloqueados. O gate de continuidade desta reconciliação é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

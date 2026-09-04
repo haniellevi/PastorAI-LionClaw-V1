@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-09-04
-audited_repository_sha: 9b9395e29cc821d6808738a30a6afe367d4ffbea
+audited_repository_sha: 1b233e5156ab671d0b56ab705b35f4e5d2011937
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -1200,14 +1200,14 @@ secretos. O campo `next_gate` dentro do pacote v3 aponta para o gate histórico
 da fundação do agente, já consumido pela PR #351, e não é o estágio global
 corrente.
 
-## Segurança de autoria e replay pós-Commit A (2026-09-04)
+## Segurança de autoria e replay pós-Commit A — estado pré-PR #366 (2026-09-04)
 
-O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+No recorte pré-PR #366, o commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
 `947af39d35544700188461d8c99332df70b57e07`, consolidou a autoria
 `draft`/`prepare-head` estritamente `TENANT` e source-only, o snapshot validado,
 o wrapper catalog-bound v2 limitado a `list` e o replay do head corrente em
-PostgreSQL 17 descartável e somente loopback. Ele continua fora de `main`, sem
-push, PR ou CI remoto.
+PostgreSQL 17 descartável e somente loopback. Naquele recorte, ele continuava
+fora de `main`, sem push, PR ou CI remoto.
 
 No mesmo SHA, o verificador longitudinal terminou com 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
@@ -1285,3 +1285,27 @@ autorização.
 Atualize `last_verified` e `audited_repository_sha` somente após conferir o novo
 SHA. Se código, documentação e produção divergem, descreva cada estado
 separadamente e consulte novamente a fonte correspondente.
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A camada de segurança de autoria e replay de migrations foi integrada em
+`main` pela PR #366 no merge commit
+`1b233e5156ab671d0b56ab705b35f4e5d2011937` (parent 1 `c2fb16ad`, parent 2
+`ef03ae1b`). Os 12 check-runs pós-merge concluíram com sucesso, incluindo
+`migration-catalog-head`, `migration-divergence-v4`, replay/guards PG17,
+`environment-attestation-pg17`, backend, RLS e E2E. O deployment Vercel
+Production `6262210648` também terminou com sucesso; essa evidência é somente
+do frontend Next.js.
+
+O merge integra `new_migration.py` em `draft`/`prepare-head` `TENANT`, snapshot
+privado validado, wrapper catalog-bound limitado a `list`, replay do catálogo
+em PostgreSQL 17 descartável, extensão source-only v4 e correções de CI para
+loopback literal, SHAs específicos por evento e isolamento do replay fresco.
+Isso não prova migration aplicada, banco compartilhado, backend implantado,
+DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de permissões do host
+(`umask`/ancestrais `0775`) continua aberto; DEV, PROD, revisão v3, cutover,
+trust anchors externos e aplicação permanecem bloqueados.
+
+O gate de preflight/push/PR da camada foi consumido e a integração foi
+observada. O gate de continuidade desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

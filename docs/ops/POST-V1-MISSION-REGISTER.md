@@ -2,9 +2,9 @@
 
 Atualizado em 2026-09-04 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
 `bootstrap-ledger` integrados e inativos, as entregas M1A-M1E e M1I do catálogo
-integradas pela PR #361 e a reconciliação M1J-R5 encerrada pela PR #363
-(merge `c2fb16ad`), além do Commit A local de segurança de migrations e da
-extensão source-only v4, ambos fora de `main` e sem integração. A D2B2b3A existe
+integradas pela PR #361, a reconciliação M1J-R5 encerrada pela PR #363
+(merge `c2fb16ad`) e a segurança de autoria/replay de migrations integrada pela
+PR #366 (merge `1b233e5`). A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -16,13 +16,13 @@ produção.
   `c525d6a3897a12c6c287f9fc79a88b32b34cd452`. O relato operacional do canário
   ativo não contém um artefato versionado que permita reconstituir o SHA exato
   servido durante a janela; ele deve ser revalidado antes de qualquer rollout;
-- frontend Vercel `pastorai-frontend-prod`: a evidência GitHub/Vercel registrada
-  na integração da PR #363 correlacionou o deployment Production automático
-  `6251268132` ao SHA `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, criado em
-  `2026-09-03T19:29:12Z` e concluído com `state=success`. Esta prova aplica-se
-  exclusivamente ao frontend Next.js e não revalida backend, banco de dados ou
-  runtime. O deployment correlacionado a `8aacf98d` permanece evidência
-  histórica da PR #361;
+- frontend Vercel `pastorai-frontend-prod`: o deployment Production automático
+  `6262210648` foi correlacionado ao merge `1b233e5156ab671d0b56ab705b35f4e5d2011937`,
+  criado em `2026-09-04T10:10:36Z`, com status explícito
+  `environment=Production`, `state=success` e URL
+  `https://pastorai-frontend-prod-51tv875h7-raniel-levis-projects.vercel.app`.
+  Esta prova aplica-se exclusivamente ao frontend Next.js e não revalida
+  backend, banco de dados ou runtime;
 - Supabase PROD: `pffafnchtxbimpwyaczq`, último estado preservado em evidência
   versionada anterior `ACTIVE_HEALTHY`, não revalidado nesta atualização;
 - Clerk: instância PROD preservada em evidência versionada anterior por
@@ -45,11 +45,13 @@ produção.
   PR #323;
 - base histórica da reconciliação M1J-R5:
   `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361;
-- snapshot versionado desta reconciliação e referência observada de
-  `origin/main`: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, merge da PR
-  #363. Ele prova o código integrado e as evidências de CI associadas, sem
-  provar bootstrap, migration, backend implantado, banco ou runtime
-  compartilhado.
+- snapshot versionado anterior desta reconciliação e referência histórica de
+  `origin/main`: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, merge da PR #363;
+- referência atual observada de `origin/main`:
+  `1b233e5156ab671d0b56ab705b35f4e5d2011937`, merge da PR #366. Ele prova o
+  código integrado, os 12 check-runs pós-merge e as evidências de CI associadas,
+  sem provar bootstrap, migration aplicada, banco, backend implantado ou
+  runtime compartilhado.
 
 ## Missões
 
@@ -1823,13 +1825,14 @@ checkout compartilhado, e faz o teste documental exigir essa semântica. Não
 altera código de runtime, migration, schema ou workflow e não realiza rede,
 banco, DEV ou PROD.
 
-### Commit A local: segurança de autoria e replay (2026-09-04)
+### Commit A local: segurança de autoria e replay — estado pré-PR #366 (2026-09-04)
 
-O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+No recorte pré-PR #366, o commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
 `947af39d35544700188461d8c99332df70b57e07`, consolidou o fluxo source-only
 `draft`/`prepare-head` apenas `TENANT`, o snapshot validado, o wrapper
 catalog-bound v2 limitado a `list` e o replay do head em PostgreSQL 17
-descartável e somente loopback. Não houve push, PR, integração ou CI remoto.
+descartável e somente loopback. Naquele recorte pré-PR #366, não houve push,
+PR, integração ou CI remoto.
 
 O verificador longitudinal executado no próprio SHA confirmou 75 migrations e
 digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
@@ -1873,3 +1876,21 @@ permanecem futuros, não correntes e não autorizados.
 Auditorias somente leitura podem ocorrer em sessões separadas. Migrations,
 mudanças de identidade, flags, canários, deploys e merges permanecem seriais e
 exigem preflight vivo no momento da ação.
+
+### Segurança de autoria e replay de migrations integrada (PR #366, 2026-09-04)
+
+O Commit A de autoria/replay e a extensão source-only v4 foram integrados em
+`main` pela PR #366 no merge `1b233e5156ab671d0b56ab705b35f4e5d2011937`, com
+parent 1 `c2fb16ad` e parent 2 `ef03ae1b`. Os 12 check-runs pós-merge
+concluíram com sucesso, incluindo catálogo, divergência v4, replay/guards
+PG17, atestação PG17, backend, RLS e E2E. O deployment Vercel Production
+`6262210648` concluiu com `environment=Production` e `state=success`; essa
+prova é exclusiva do frontend Next.js.
+
+A integração não aplicou migration, não executou runner contra banco
+compartilhado e não acessou DEV/PROD. O P2 de permissões do host (`umask` e
+ancestrais `0775`) permanece aberto; trust anchors externos, TLS DEV,
+revisão v3, cutover, atestação viva e aplicação continuam pendentes.
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos. O gate de continuidade desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.
