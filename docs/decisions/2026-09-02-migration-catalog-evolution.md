@@ -323,6 +323,53 @@ emite somente artefato v1 sanitizado e bloqueado. Identidade e captura usam a
 mesma conexão/PID, porém duas transações e dois snapshots PostgreSQL separados.
 Ele não prova migration aplicada, não conclui a revisão v3 e não libera runner.
 
+## Reconciliação local pós-commit (2026-09-03)
+
+O último snapshot integrado de `main` observado e disponível localmente é o
+merge `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. Esta reconciliação não realizou
+nova leitura remota; o preflight remoto do próximo gate deve confirmar se o tip
+de `main` ainda coincide com esse SHA. Sobre esse snapshot, a primitiva de
+snapshot confiável foi fixada no commit local
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03`; o executor v2 foi fixado no
+commit local seguinte `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, cujo parent é
+`11ae294`. Ambos permanecem não integrados e não provam CI remoto, conexão,
+captura, migration, banco compartilhado, DEV ou PROD.
+
+No snapshot privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou
+961 testes, com 801 aprovados, 160 skips, zero falhas e zero erros. A regressão
+separada do probe histórico de transporte TLS passou `125/125`, sem testar o
+executor v2 ou o job PG17. A seleção focal no checkout compartilhado coletou
+186 itens, com 183 aprovados, três skips PG17 e zero falhas após a reconciliação
+documental. A decisão do executor v2 registra composição, runtime e horários. A
+prova PostgreSQL 17 sem skips ainda depende do CI/PR do commit local.
+
+O SHA-256 histórico `8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d`
+permanece vinculado aos bytes pré-adaptação do verificador da proposta v3. Ele
+não deve ser substituído retroativamente. O pacote v3 congelado permanece em
+`076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e`.
+Os bytes correntes do verificador adaptado
+`backend/scripts/verify_migration_history_divergence_remediation_proposal_v3.py`
+têm SHA-256 `efcc9be299241793c74e5c4174a4dc44f3b14507d1585d9daa5a407ab38f13f8`.
+
+A reconciliação canônica complementar sobre o parent `1b299e7` abrange
+exatamente 20 arquivos: `SPEC.md`, `SPEC_PROGRESS.md`,
+`backend/migrations/README.md`,
+`backend/tests/test_d2b2b2_decision_packet_docs.py`, `deploy/STAGING.md`,
+`docs/Docs20260611_163530/PRD20260611_163530.md`,
+`docs/WIKI-IGREJA12.md`, `docs/ai/AI-BOOTSTRAP.md`,
+`docs/ai/PRD-COVERAGE.md`,
+`docs/audits/2026-08-27-d1-security-scope-audit.md`,
+`docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md`,
+`docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`, os ADRs
+D2B2b2 e D2B2b3A, esta decisão, as decisões do executor v2 e do snapshot
+confiável, o guia de revisão humana, `docs/ops/POST-V1-MISSION-REGISTER.md` e
+`docs/ops/PRODUCTION-RUNBOOK.md`. Os 19 documentos distinguem observação
+histórica de estado vivo atual e registram a procedência das matrizes offline;
+o único arquivo de teste troca a antiga exigência em tempo presente pela
+exigência explícita de observação histórica e estado atual não revalidado.
+Nenhum código de runtime, migration, schema ou workflow foi alterado nessa
+reconciliação.
+
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
 restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da

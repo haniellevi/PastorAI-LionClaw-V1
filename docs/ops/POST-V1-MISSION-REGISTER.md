@@ -726,10 +726,12 @@ e não foi reconstruído por inferência.
 a role runtime possui `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner
 de `public.igrejas` e `public.app_users` e possui `SELECT` e `REFERENCES`
 efetivos nessas tabelas-pai. A tabela alvo D2B2b3A, o validator e a própria
-`public.schema_migrations` estavam ausentes. Isso comprova identidade, ownership
-e ACL do caminho runtime atual, mas não o comportamento da tabela futura sob
-`FORCE RLS`; o caminho de migration permanece bloqueado pela ausência de
-`M06_MIGRATION_DATABASE_URL` e do ledger público.
+`public.schema_migrations` estavam ausentes. Essa leitura histórica comprovou
+identidade, ownership e ACL do caminho runtime observado naquele preflight, mas
+não o comportamento da tabela futura sob `FORCE RLS`. Naquele preflight, o
+caminho de migration estava bloqueado pela ausência de
+`M06_MIGRATION_DATABASE_URL` e do ledger público; o estado vivo atual desses
+itens não foi revalidado.
 
 A PR #321 integrou a reconciliação documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
@@ -753,8 +755,10 @@ O merge gerou o deployment automático Vercel frontend Production `6140373952`,
 com `SUCCESS`. Essa metadata prova somente o frontend nesse ambiente; não prova
 backend, banco ou Supabase. No recorte da PR #320 não houve deploy manual ou do
 backend, wiring, ativação ou canário. Esta missão não aplicou a migration D2B2b3A; DEV e PROD
-confirmaram a ausência. A flag versionada
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`.
+confirmaram a ausência no preflight histórico de 2026-08-28; o estado vivo
+atual não foi revalidado. A configuração versionada da flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` é `false`; isso não prova o valor
+vivo do ambiente.
 
 O preflight PROD somente leitura não abriu arquivo de configuração nem exibiu
 valor de conexão. A chave SSH temporária de auditoria foi cadastrada, usada
@@ -1751,7 +1755,8 @@ candidato descrito em
 [`2026-09-03-migration-environment-attestation-executor-v2.md`](../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
 A matriz unitária foi executada offline; a prova PostgreSQL 17 TLS descartável
 foi implementada no workflow e permanece pendente de execução sem skips no CI
-do commit candidato. Não houve credencial, conexão ou captura viva, banco
+do commit local `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`. Não houve
+credencial, conexão ou captura viva, banco
 compartilhado, DEV, PROD, migration, runner, cutover, deploy, flag ou runtime.
 
 O processo público e o child exigem Python `3.13.14`, `-I -B`, `isolated`,
@@ -1789,6 +1794,30 @@ continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
 O campo `next_gate` contido no pacote v3 congelado permanece byte-idêntico e
 aponta somente para o gate histórico da fundação do agente já consumido pela
 PR #351; não é o gate global corrente e não deve ser reescrito in-place.
+
+A cadeia pós-commit verificada é
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (snapshot integrado de `main`) ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` (primitiva de snapshot confiável,
+21 arquivos, 2.608 inserções e 136 remoções) ->
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06` (executor v2, 25 arquivos,
+5.462 inserções e 128 remoções). Os dois últimos são commits locais e ainda não
+estão integrados. No snapshot privado `0700/0600` do SHA `1b299e7`, a seleção
+ampla contabilizou 961 testes, com 801 aprovados, 160 skips, zero falhas e zero
+erros. A regressão separada do probe histórico de transporte TLS passou
+`125/125`, sem testar o executor v2 ou o job PG17. A seleção focal no checkout
+compartilhado coletou 186 itens, com 183 aprovados, três skips PG17 e zero falhas
+após a reconciliação documental. A decisão do executor v2 registra composição,
+runtime e horários. Nenhuma dessas evidências prova CI remoto, ambiente vivo ou
+migration aplicada.
+
+A reconciliação canônica complementar sobre o parent `1b299e7` altera
+exatamente 20 arquivos locais: 19 documentos e
+`backend/tests/test_d2b2b2_decision_packet_docs.py`. Ela corrige afirmações que
+inferiam estado vivo a partir do preflight histórico de 2026-08-28, separa a
+matriz privada ampla, a regressão do probe TLS histórico e a seleção focal no
+checkout compartilhado, e faz o teste documental exigir essa semântica. Não
+altera código de runtime, migration, schema ou workflow e não realiza rede,
+banco, DEV ou PROD.
 
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,

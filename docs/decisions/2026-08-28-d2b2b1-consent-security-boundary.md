@@ -198,7 +198,7 @@ migration, acesso ao banco, Supabase, ativação ou canário.
 - D2C, memória, conhecimento, outbox ou notificação;
 - Universidade da Vida e Capacitação Destino.
 
-## Próximo gate único
+## Próximo gate específico daquele recorte de consentimento
 
 Materializar uma instância governada do
 [`template D2B2b2`](2026-08-28-d2b2b2-consent-decision-packet-contract.md) por
@@ -207,3 +207,11 @@ revisão de privacidade ou do encarregado, a revisão jurídica quando designada
 a decisão final do representante autorizado do controlador, todos vinculados
 ao digest exato de cada pacote. Catálogo,
 writer, Supabase e D2C permanecem bloqueados até esse gate ser concluído.
+
+Esse passo humano e jurídico continua obrigatório no domínio de consentimento,
+mas não é o estágio global corrente da frente de migrations. Em 2026-09-03,
+esse estágio global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito ao preflight remoto, push, abertura de PR e observação do CI/Preview
+do candidato local `1b299e7`; ele não autoriza merge, banco compartilhado,
+DEV, PROD, migration, runner ou alteração de flags.

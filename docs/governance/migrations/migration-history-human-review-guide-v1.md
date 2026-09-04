@@ -145,6 +145,19 @@ Essa implementação não ocupa o papel de `REVIEWER-01`, não autentica por si 
 o papel de `OWNER-01`, não aprova a proposta v3 e não muda as decisões
 `BLOCKED_LEDGER_DIVERGENCE` e `BLOCKED_EVIDENCE_INSUFFICIENT`.
 
+A cadeia auditada desta implementação é
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` ->
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`. Somente o primeiro SHA está
+integrado em `main`; os dois seguintes são commits locais. No snapshot privado
+`0700/0600` do SHA `1b299e7`, a seleção ampla terminou com 801 aprovados e 160
+skips em 961 testes, sem falhas. A regressão separada do probe histórico de
+transporte TLS passou `125/125`, sem testar o executor v2 ou o job PG17. A
+seleção focal no checkout compartilhado coletou 186 itens, com 183 aprovados,
+três skips PG17 e zero falhas após a reconciliação documental. A decisão do
+executor v2 registra composição, runtime e horários. Isso não substitui revisão
+humana, CI remoto ou evidência dos ambientes.
+
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
 restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da

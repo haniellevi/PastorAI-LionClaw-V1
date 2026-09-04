@@ -244,10 +244,12 @@ atual. A PR #321 integrou a reconciliação documental anterior no merge
 automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
 2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
 banco ou Supabase. O preflight VPS em si não executou deploy manual ou do
-backend, migration, restart ou alteração da flag. A leitura comprova identidade,
-ownership e ACL do caminho runtime atual, mas não o comportamento da tabela
-futura sob `FORCE RLS`; o caminho de migration permanece bloqueado pela ausência
-de `M06_MIGRATION_DATABASE_URL` e do ledger público.
+backend, migration, restart ou alteração da flag. A leitura histórica comprovou
+identidade, ownership e ACL do caminho runtime observado naquele preflight, mas
+não o comportamento da tabela futura sob `FORCE RLS`. Naquele preflight, o
+caminho de migration estava bloqueado pela ausência de
+`M06_MIGRATION_DATABASE_URL` e do ledger público; o estado vivo atual desses
+itens não foi revalidado.
 
 A PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, foi integrada no
 merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Os cinco workflows da
@@ -1288,6 +1290,19 @@ e `RUNTIME_TRUST_REQUIREMENT=EXTERNALLY_PINNED_RUNTIME_REQUIRED` exigem um
 launcher externo confiável antes dos descritores secretos; não afirmam que ele
 já exista. O campo `next_gate` preservado no pacote v3 aponta para o gate
 histórico da fundação do agente, consumido pela PR #351, e não é corrente.
+
+A cadeia versionada local auditada é
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (snapshot integrado de `main`) ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` (primitiva de snapshot confiável,
+local) -> `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06` (executor v2, local).
+Os candidatos locais não estão integrados. No snapshot privado `0700/0600` do
+SHA `1b299e7`, a seleção ampla registrou 961 testes (801 aprovados, 160 skips,
+zero falhas e zero erros). A regressão separada do probe histórico de transporte
+TLS passou `125/125`, sem testar o executor v2 ou o job PG17. A seleção focal no
+checkout compartilhado coletou 186 itens, com 183 aprovados, três skips PG17 e
+zero falhas após a reconciliação documental. A decisão do executor v2 registra
+composição, runtime e horários. A prova PG17 sem skips, CI remoto, trust anchors
+externos, DEV, PROD e aplicação de migrations permanecem pendentes.
 
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,

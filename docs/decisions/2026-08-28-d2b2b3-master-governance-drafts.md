@@ -129,10 +129,12 @@ confirmou `DATABASE_URL` presente e `M06_MIGRATION_DATABASE_URL` ausente.
 a role runtime possui `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, e owner
 de `public.igrejas` e `public.app_users` e possui `SELECT` e `REFERENCES`
 efetivos nessas tabelas-pai. A tabela alvo D2B2b3A, o validator e a propria
-`public.schema_migrations` estavam ausentes. Isso comprova identidade, ownership
-e ACL do caminho runtime atual, mas nao o comportamento da tabela futura sob
-`FORCE RLS`; o caminho de migration permanece bloqueado pela ausencia de
-`M06_MIGRATION_DATABASE_URL` e do ledger publico.
+`public.schema_migrations` estavam ausentes. Essa leitura historica comprovou
+identidade, ownership e ACL do caminho runtime observado naquele preflight, mas
+nao o comportamento da tabela futura sob `FORCE RLS`. Naquele preflight, o
+caminho de migration estava bloqueado pela ausencia de
+`M06_MIGRATION_DATABASE_URL` e do ledger publico; o estado vivo atual desses
+itens nao foi revalidado.
 
 A PR #321 integrou a reconciliacao documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
@@ -165,8 +167,9 @@ vincular assinatura, mudar status, publicar, ativar ou enviar.
 - nenhum payload e lido pelo WhatsApp, webhook, worker, LangGraph, tool ou
   agente;
 - nenhum acesso e concedido ao painel do tenant nesta fatia;
-- esta missao nao aplicou a migration D2B2b3A; DEV e PROD confirmaram a
-  ausencia;
+- esta missao nao aplicou a migration D2B2b3A; no preflight historico de
+  2026-08-28, DEV e PROD confirmaram a ausencia, sem revalidacao do estado vivo
+  atual;
 - nenhum deploy manual ou do backend, ativacao ou canario e executado;
 - D2C, memoria, conhecimento e outbox continuam bloqueados;
 - Universidade da Vida e Capacitacao Destino permanecem fora da missao atual.
@@ -201,8 +204,9 @@ Os cinco workflows da PR #320 e os cinco workflows pos-merge concluiram com
 `SUCCESS`. O merge gerou o deployment automatico Vercel frontend Production
 `6140373952`, tambem com `SUCCESS`. Essa metadata prova somente o frontend nesse
 ambiente; nao prova backend, banco ou Supabase. Esta missao nao aplicou a
-migration D2B2b3A; DEV e PROD confirmaram a ausencia. A flag
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`. No recorte da PR
+migration D2B2b3A; no preflight historico de 2026-08-28, DEV e PROD confirmaram
+a ausencia, sem revalidacao do estado vivo atual. Naquele registro, a flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` estava `false`. No recorte da PR
 #320 nao houve deploy manual ou do backend, wiring, ativacao ou canario. O preflight PROD
 somente leitura do baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`
 confirmou os atributos e bloqueios sanitizados descritos acima. O preflight VPS

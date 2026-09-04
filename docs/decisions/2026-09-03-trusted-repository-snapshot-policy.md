@@ -2,11 +2,16 @@
 
 Data: `2026-09-03`
 
-Estado: `IMPLEMENTADO E COMPROVADO OFFLINE / MITIGACAO PARCIAL PARA
+Estado: `IMPLEMENTADO, COMMITADO E COMPROVADO OFFLINE / MITIGACAO PARCIAL PARA
 CONSUMIDORES MIGRADOS / BOOTSTRAP EXTERNO AINDA NAO PINADO / AINDA NAO
 INTEGRADO / SEM ATESTACAO VIVA / OPERACAO BLOQUEADA`.
 
 Base auditada: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
+
+Commit local da primitiva: `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`,
+filho direto de `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. O executor v2
+que a consome foi fixado depois em
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho direto de `11ae294`.
 
 ## Problema
 
@@ -85,6 +90,20 @@ iniciados por um launcher externo confiável. Esse trust anchor ainda não
 existe; além disso, as ferramentas legadas de apply, capture e reconcile ainda
 não foram integradas transitivamente ao snapshot. Portanto, o P2 permanece
 aberto globalmente, sem enfraquecimento dos verificadores nem `chmod` global.
+
+No snapshot privado `0700/0600` do SHA exato `1b299e7`, a seleção ampla
+`tests/test_*migration*.py`, `tests/test_trusted_repository_snapshot.py` e
+`tests/test_d2b2b2_decision_packet_docs.py` contabilizou 961 testes: 801
+aprovados, 160 skips, zero falhas e zero erros. A regressão separada do probe
+histórico de transporte TLS passou `125/125`; ela não testa o executor v2 ou o
+job PG17. No checkout compartilhado, a seleção focal explícita do contrato
+documental, proposta v3, executor v2 e contrato estático do workflow coletou 186
+itens, com 183 aprovados, três skips PG17 e zero falhas após a reconciliação.
+Comandos, composição e horários estão registrados na decisão do
+[`executor v2`](2026-09-03-migration-environment-attestation-executor-v2.md).
+Esses resultados são evidência offline dos commits locais `11ae294` e
+`1b299e7`; não provam CI remoto, integração, trust anchor externo, DEV, PROD ou
+migration aplicada.
 
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.

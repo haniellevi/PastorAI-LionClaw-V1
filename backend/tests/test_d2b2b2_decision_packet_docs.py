@@ -2016,7 +2016,8 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
     assert "ledger nativo do supabase" in production_normalized
     assert "ledger de controle" in production_normalized
     assert "public.schema_migrations" in production_normalized
-    assert "esta ausente" in production_normalized
+    assert "observou `public.schema_migrations` ausente" in production_normalized
+    assert "estado vivo atual desses itens nao foi revalidado" in production_normalized
     assert "integrado em `main` pela pr #323" in production_normalized
 
     for normalized in (

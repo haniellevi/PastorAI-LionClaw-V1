@@ -175,10 +175,12 @@ confirmou `DATABASE_URL` presente e `M06_MIGRATION_DATABASE_URL` ausente.
 a role runtime possui `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner
 de `public.igrejas` e `public.app_users` e possui `SELECT` e `REFERENCES`
 efetivos nessas tabelas-pai. A tabela alvo D2B2b3A, o validator e a própria
-`public.schema_migrations` estavam ausentes. Isso comprova identidade, ownership
-e ACL do caminho runtime atual, mas não o comportamento da tabela futura sob
-`FORCE RLS`; o caminho de migration permanece bloqueado pela ausência de
-`M06_MIGRATION_DATABASE_URL` e do ledger público.
+`public.schema_migrations` estavam ausentes. Essa leitura histórica comprovou
+identidade, ownership e ACL do caminho runtime observado naquele preflight, mas
+não o comportamento da tabela futura sob `FORCE RLS`. Naquele preflight, o
+caminho de migration estava bloqueado pela ausência de
+`M06_MIGRATION_DATABASE_URL` e do ledger público; o estado vivo atual desses
+itens não foi revalidado.
 
 A PR #321 integrou a reconciliação documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
@@ -1118,7 +1120,8 @@ A PR #320 já integrou a D2B2b3A no merge
 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático
 Vercel frontend Production `6140373952` ficou `SUCCESS`, sem provar backend,
 banco ou Supabase. Esta missão não aplicou a migration D2B2b3A; DEV e PROD
-confirmaram a ausência. A flag
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`. O preflight VPS
+confirmaram a ausência no preflight histórico de 2026-08-28; o estado vivo
+atual não foi revalidado. Naquele registro, a flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` estava `false`. O preflight VPS
 em si não executou deploy manual ou do backend, migration, restart, alteração da
 flag ou outra mutação de estado.

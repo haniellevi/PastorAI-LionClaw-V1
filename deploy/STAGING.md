@@ -398,6 +398,19 @@ existirem trust anchors externos para autorização nominal, runtime/dependênci
 e anti-replay. A prova PG17 descartável implementada ainda precisa executar sem
 skips no CI e, mesmo depois disso, não equivalerá a staging ou DEV.
 
+A cadeia local auditada é `c2fb16ad9a6b028c317c56a0b02c4362ae903e26` ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` ->
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`. O primeiro SHA é o snapshot
+integrado de `main`; os dois seguintes são commits locais, respectivamente da
+primitiva de snapshot e do executor v2, fora de `main`. No snapshot privado
+`0700/0600` do SHA `1b299e7`, a seleção ampla registrou 961 testes (801
+aprovados, 160 skips, zero falhas e zero erros). A regressão separada do probe
+histórico de transporte TLS passou `125/125`, sem testar o executor v2 ou o job
+PG17. A seleção focal no checkout compartilhado coletou 186 itens, com 183
+aprovados, três skips PG17 e zero falhas após a reconciliação documental. A
+decisão do executor v2 registra composição, runtime e horários. Isso não libera
+staging, DEV, PROD, segredo ou migration.
+
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
 restrito à consulta remota somente leitura de `refs/heads/main`, ao preflight da

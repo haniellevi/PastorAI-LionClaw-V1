@@ -126,8 +126,9 @@ Existem dois históricos diferentes:
 
 Eles não são equivalentes. Nome, ordem ou presença em um deles não autorizam
 copiar, preencher, reaplicar ou registrar entradas no outro. O preflight PROD
-de 2026-08-28 confirmou que `public.schema_migrations` está ausente e que
-`M06_MIGRATION_DATABASE_URL` não está provisionada. `bootstrap-ledger` foi
+de 2026-08-28 observou `public.schema_migrations` ausente e
+`M06_MIGRATION_DATABASE_URL` não provisionada naquele executor. O estado vivo
+atual desses itens não foi revalidado. `bootstrap-ledger` foi
 integrado em `main` pela PR #323 e comprovado apenas offline, ainda não aplicado,
 e não altera esse estado. O merge
 `3a5789c784017ab15a43e28c4270d25af8618359` gerou Preview e Production
@@ -623,6 +624,18 @@ consumido somente para o candidato local descrito em
 O executor não pode ser usado neste runbook enquanto autorização nominal,
 runtime/dependências e anti-replay não tiverem trust anchors externos. Não
 forneça DSN, CA, chave, nonce ou registro de autorização ao candidato atual.
+
+A cadeia auditada é `c2fb16ad9a6b028c317c56a0b02c4362ae903e26` ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` ->
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`; somente `c2fb16ad` está
+integrado em `main`. Os dois commits seguintes são candidatos locais. No
+snapshot privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou 961
+testes (801 aprovados, 160 skips, zero falhas e zero erros). A regressão separada
+do probe histórico de transporte TLS passou `125/125`, sem testar o executor v2
+ou o job PG17. A seleção focal no checkout compartilhado coletou 186 itens, com
+183 aprovados, três skips PG17 e zero falhas após a reconciliação documental. A
+decisão do executor v2 registra composição, runtime e horários. Esses resultados
+não autorizam uso deste runbook, segredos, DEV, PROD ou migration.
 
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,

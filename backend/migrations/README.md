@@ -329,8 +329,10 @@ capacidade de rede ausentes, probe não executado e operação bloqueada.
 O `next_gate` embutido no plano JSON conserva como evidência histórica o gate
 `REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`, consumido pela PR
 #346. Ele não é um segundo gate corrente e não autoriza nova ação. O artefato
-técnico permanece byte a byte intacto; o único gate corrente é o definido a
-seguir e validado pelo teste documental.
+técnico permanece byte a byte intacto. Os gates descritos nas subseções
+intermediárias abaixo são históricos; o único estágio global corrente está
+registrado na seção final de estado da cadeia local e é validado pelo teste
+documental.
 
 A PR #347, HEAD `0a257e9aa1985860d5ea0a4506d4f7e84c7b2312`, foi integrada no
 merge `36f8d13284a8f4964d0258a2a3b845323a80fe7e`, com
@@ -884,6 +886,19 @@ O executor abre no máximo uma conexão/PID e usa duas transações e dois
 snapshots `REPEATABLE READ READ ONLY` separados para identidade e captura. Ele
 fecha a conexão antes da publicação e termina deliberadamente bloqueado. Não
 executa nenhum comando de `apply_migrations.py`.
+
+A cadeia versionada desta fase é
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (snapshot integrado de `main`) ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` (primitiva de snapshot confiável,
+commit local) -> `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06` (executor v2,
+commit local). Os dois commits locais permanecem não integrados. No snapshot
+privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou 961 testes,
+com 801 aprovados, 160 skips, zero falhas e zero erros. A regressão separada do
+probe histórico de transporte TLS passou `125/125`, sem testar o executor v2 ou
+o job PG17. A seleção focal no checkout compartilhado coletou 186 itens, com
+183 aprovados, três skips PG17 e zero falhas após a reconciliação documental.
+A decisão do executor v2 registra composição, runtime e horários. Nada disso
+prova CI remoto, trust anchors externos, DEV, PROD ou migration aplicada.
 
 O único estágio corrente global é
 `OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,

@@ -2,11 +2,15 @@
 
 **Data:** `2026-09-03`
 
-**Estado:** `IMPLEMENTADO LOCALMENTE / PROVA UNITÁRIA OFFLINE / PROVA PG17
+**Estado:** `IMPLEMENTADO E COMMITADO LOCALMENTE / PROVA UNITÁRIA OFFLINE / PROVA PG17
 DESCARTÁVEL IMPLEMENTADA E PENDENTE DE CI / NÃO INTEGRADO / TRUST ANCHORS
 EXTERNOS PENDENTES / DEV E PROD BLOQUEADOS`
 
 **Base versionada:** `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`
+
+**Commit local:** `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho direto de
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03`. A base integrada anterior
+permanece `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
 
 ## Decisão
 
@@ -17,7 +21,8 @@ executor
 `backend/scripts/execute_migration_history_environment_attestation_v2.py`, seu
 schema de autorização, testes, workflow PG17 e documentação. A prova PostgreSQL
 17 TLS descartável foi implementada, mas sua execução final permanece pendente
-no CI do futuro commit candidato. O consumo não incluiu
+no CI/PR do commit local `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`.
+O consumo não incluiu
 credencial, conexão ou captura viva, DEV, PROD, migration, runner de aplicação,
 cutover, deploy, flag ou runtime.
 
@@ -119,8 +124,33 @@ pacote v3 congelado, byte-idêntico, como registro histórico consumido pela PR
 A matriz unitária adversarial foi executada localmente. A prova PostgreSQL 17
 TLS descartável está implementada para cobrir os dois ambientes sintéticos com
 CAs e endereços separados, mas ainda precisa executar sem skips no CI do commit
-candidato. Esses testes não usam segredo do GitHub nem equivalem a DEV ou PROD.
-Os totais PG17 e o SHA exatos só podem ser registrados após essa execução.
+local `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`. Esses testes não usam segredo
+do GitHub nem equivalem a DEV ou PROD. Os totais PG17 do job de CI só podem ser
+registrados após essa execução.
+
+As evidências locais foram reexecutadas em `2026-09-03` com Python `3.12.3` e
+pytest `9.1.1`, mantendo três contextos distintos:
+
+1. No snapshot privado `0700/0600` criado por
+   `trusted_repository_snapshot.py` para o SHA exato `1b299e7`, a seleção
+   `tests/test_*migration*.py`, `tests/test_trusted_repository_snapshot.py` e
+   `tests/test_d2b2b2_decision_packet_docs.py` coletou 961 testes: 801
+   aprovados, 160 skips, zero falhas e zero erros
+   (`2026-09-03T22:50:56-03:00` a `22:51:11-03:00`).
+2. No mesmo snapshot privado, os 102 testes do probe histórico de transporte
+   TLS, os 22 testes de seu plano e o teste de regressão de CA privada passaram
+   `125/125` (`2026-09-03T22:50:14-03:00` a `22:50:18-03:00`). Essa é prova do
+   probe histórico, não do executor v2 nem do job PG17.
+3. No checkout compartilhado, a seleção explícita dos testes documentais, da
+   proposta v3, das 58 unidades do executor v2, dos três casos PG17 do executor
+   e apenas do contrato estático do workflow coletou 186 itens. Após a
+   reconciliação documental, terminou com 183 aprovados, três skips PG17 e zero
+   falhas (`2026-09-03T22:53:49-03:00` a `22:53:53-03:00`). Essa seleção não
+   inclui a suíte legada v1 completa, que permanece fail-closed quando executada
+   diretamente sob o layout `0775`.
+
+Essas evidências são offline e não substituem a execução sem skips do job
+PostgreSQL 17 no CI, nem provam ambiente compartilhado.
 
 Como não houve efeito vivo, o rollback consiste em não integrar ou em reverter
 o candidato local. Artefatos e snapshots temporários devem ser removidos por

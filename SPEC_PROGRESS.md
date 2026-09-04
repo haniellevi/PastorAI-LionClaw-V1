@@ -118,10 +118,11 @@ Tooling Static Checks `33165481549`. Os cinco pos-merge tambem concluiram com
 `33167430895`.
 O merge gerou o deployment automatico Vercel frontend Production `6140373952`,
 com `SUCCESS`. Essa metadata prova somente o frontend nesse ambiente; nao prova
-backend, banco ou Supabase. Esta missao nao aplicou a migration D2B2b3A; DEV e
-PROD confirmaram a ausencia. A flag
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`, e nao houve
-deploy manual ou do backend, wiring, ativacao ou canario.
+backend, banco ou Supabase. No preflight historico de 2026-08-28, DEV e PROD
+confirmaram a ausencia da migration D2B2b3A; o estado vivo atual nao foi
+revalidado. Naquele registro, a flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` estava `false`, e nao houve deploy
+manual ou do backend, wiring, ativacao ou canario.
 No baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD
 somente leitura confirmou `DATABASE_URL` presente e
 `M06_MIGRATION_DATABASE_URL` ausente. `current_user` e `session_user`
@@ -129,16 +130,19 @@ convergiram para a mesma identidade sanitizada; a role runtime possui
 `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, e owner de `public.igrejas` e
 `public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
 A tabela alvo D2B2b3A, o validator e a propria `public.schema_migrations`
-estavam ausentes. Esta missao nao aplicou a migration D2B2b3A; DEV e PROD
-confirmaram a ausencia. A PR #321 integrou a reconciliacao documental anterior
+estavam ausentes. No preflight historico de 2026-08-28, DEV e PROD confirmaram
+a ausencia da migration D2B2b3A; o estado vivo atual nao foi revalidado. A PR
+#321 integrou a reconciliacao documental anterior
 no merge `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o
 deployment automatico Vercel frontend Production `6141449639`, com `SUCCESS`,
 em 2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar
 backend, banco ou Supabase. O preflight VPS em si nao executou deploy manual ou
-do backend, migration, restart ou alteracao da flag. A leitura comprova
-identidade, ownership e ACL do caminho runtime atual, mas nao o
-comportamento da tabela futura sob `FORCE RLS`; o caminho de migration permanece
-bloqueado pela ausencia de `M06_MIGRATION_DATABASE_URL` e do ledger publico.
+do backend, migration, restart ou alteracao da flag. A leitura historica
+comprovou identidade, ownership e ACL do caminho runtime observado naquele
+preflight, mas nao o comportamento da tabela futura sob `FORCE RLS`. Naquele
+preflight, o caminho de migration estava bloqueado pela ausencia de
+`M06_MIGRATION_DATABASE_URL` e do ledger publico; o estado vivo atual desses
+itens nao foi revalidado.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -1188,3 +1192,40 @@ Fonte: `docs/sprints/` e `docs/security/2026-07-08-seg-igreja12-remediation-plan
 - **SEC ALTO-004 (parte 1)** — hardening do OAuth state do Google Calendar via `verify_purpose_token`. PR#182; release `70846d2` (2026-07-16).
 - **SEC ALTO-004 (conclusao) / unificacao JWT (verify)** — `verify_session/reset/invite_token` delegando a `verify_purpose_token`. PR#186; release `fd651f9` (2026-07-17). Reconciliacao REL-5 dos findings ALTO/MEDIO em `docs/security/` (PR#185/#187): 9 de 11 concluidos+deployados.
 - **Fechamento `b5b990d`** (PR#188; release backend+frontend 2026-07-18): **MEDIO-004/CONTACT-TENANT-DEDUP-1** (dedupe de contato com filtro explicito de `igreja_id`), **MEDIO-005/JWT-MINT-1** (emissao dos 3 tokens de proposito unificada em helper unico) e **W5A** (ultimos 8 dialogos migrados para `ds/Dialog`). Smoke autenticado em PROD 2026-07-18: PASS.
+
+## Delta-073 — reconciliacao canônica da governanca de migrations (2026-09-03)
+
+O ultimo snapshot integrado de `main` observado e disponivel localmente e
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. A primitiva de snapshot confiavel
+foi fixada localmente em `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`, filho
+de `c2fb16ad`; o executor v2 foi fixado localmente em
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, filho de `11ae294`. Os dois
+commits locais permanecem nao integrados.
+
+A verificacao ampla no snapshot privado `0700/0600` do SHA `1b299e7`
+contabilizou 961 testes: 801 aprovados, 160 skips, zero falhas e zero erros. A
+regressao separada do probe historico de transporte TLS passou `125/125`; ela
+nao testa o executor v2 ou o job PG17. A selecao focal no checkout compartilhado
+coletou 186 itens, com 183 aprovados, tres skips PG17 e zero falhas apos a
+reconciliacao documental. A decisao do executor v2 registra a composicao exata,
+o runtime e os horarios. O catalogo continua com 75 migrations. A prova PG17
+sem skips no CI, os trust anchors
+externos, a revisao independente v3, DEV, PROD, cutover e aplicacao de migration
+permanecem bloqueados. O risco P2 do checkout `0775` continua globalmente aberto.
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido apenas para a implementacao local. O unico estagio corrente
+global e
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`;
+ele nao autoriza merge, banco compartilhado, DEV, PROD, migration, runner ou
+alteracao de flags. O gate futuro
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+nao e corrente nem esta autorizado. `operational_authorization=false` e
+`next_stage_authorized=false` permanecem estritos.
+
+O SHA-256 historico `8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d`
+dos bytes pre-adaptacao do verificador nao foi substituido. O pacote v3
+congelado permanece em `076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e`.
+O verificador v3 adaptado corrente tem SHA-256
+`efcc9be299241793c74e5c4174a4dc44f3b14507d1585d9daa5a407ab38f13f8`, sem
+alterar o pacote v3 congelado.

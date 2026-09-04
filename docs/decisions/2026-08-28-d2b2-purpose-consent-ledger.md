@@ -191,7 +191,7 @@ inventário de linhas e gate nominal próprios.
 - memória privada, conhecimento institucional ou propostas D2C;
 - Universidade da Vida e Capacitação Destino.
 
-## Próximo gate único
+## Próximo gate específico daquele recorte de consentimento
 
 Materializar uma instância governada do template por igreja, com quatro
 pacotes independentes, e obter o atestado do dono factual, a revisão de
@@ -199,3 +199,11 @@ privacidade ou do encarregado, a revisão jurídica quando designada e a decisã
 final do representante autorizado do controlador, todos vinculados ao digest
 exato de cada pacote. Catálogo, evidence store, writer, Supabase DEV ou PROD e
 D2C permanecem bloqueados até esse gate ser concluído.
+
+Esse passo jurídico continua obrigatório no domínio de consentimento, mas não
+é o estágio global corrente da frente de migrations. Em 2026-09-03, esse
+estágio global é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`,
+restrito ao preflight remoto, push, abertura de PR e observação dos checks do
+candidato local `1b299e7`; ele não autoriza merge, banco compartilhado, DEV,
+PROD, migration, runner ou alteração de flags.
