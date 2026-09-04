@@ -869,11 +869,21 @@ def test_main_injects_one_evolution_client_into_both_hot_paths(monkeypatch) -> N
 
     monkeypatch.setattr(evolution_module, "EvolutionClient", lambda: shared)
     monkeypatch.setattr(worker_module, "QueueWorker", FakeWorker)
+    dedicated_factory = object()
+    monkeypatch.setattr(
+        worker_module,
+        "_build_agent_runtime_session_factory",
+        lambda: dedicated_factory,
+    )
     monkeypatch.setattr(worker_module.signal, "signal", lambda *_args: None)
 
     worker_module.main()
 
     assert captured["agent_runner"].keywords["evolution_client"] is shared
+    assert (
+        captured["agent_runner"].keywords["agent_session_factory"]
+        is dedicated_factory
+    )
     assert captured["media_resolver"].keywords["evolution_client"] is shared
     assert captured["entered"] == 1
     assert captured["exited"] == 1

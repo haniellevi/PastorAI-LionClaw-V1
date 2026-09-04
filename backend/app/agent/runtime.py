@@ -49,6 +49,10 @@ from app.agent.turn_identity import (
     build_agent_turn_identity,
 )
 from app.config import get_settings
+from app.db.agent_runtime_session import (
+    AGENT_RUNTIME_TENANT_KEY,
+    verify_agent_runtime_scope,
+)
 from app.db.models import (
     AgentConfig,
     AppUser,
@@ -475,6 +479,30 @@ def _route_allows_llm_refinement(route: str | None) -> bool:
     return route in _LLM_REFINABLE_ROUTES
 
 
+def _require_agent_session_scope(
+    session: Session,
+    tenant_uuid: uuid.UUID,
+) -> None:
+    """Prove the correct tenant boundary for either runtime session seam.
+
+    The ordinary application session uses the authenticated-role RLS seam.
+    The queue worker may explicitly inject the dedicated ``agent_runtime``
+    session; that role must never be coerced through ``SET ROLE`` and is
+    verified by its private context contract instead.  A marker without a
+    successful probe is not accepted.
+    """
+
+    session_info = getattr(session, "info", {})
+    if AGENT_RUNTIME_TENANT_KEY in session_info:
+        verify_agent_runtime_scope(session, tenant_uuid)
+        return
+    require_tenant_scope(
+        session,
+        expected_igreja_id=tenant_uuid,
+        source="agent_runtime",
+    )
+
+
 def _refine_with_llm(
     cred: LlmCredential, model: str, draft: str, user_text: str, comportamento: str | None
 ) -> tuple[str, object] | None:
@@ -538,11 +566,7 @@ def process_inbound_message(
         else uuid.UUID(str(conversation_id))
     )
 
-    require_tenant_scope(
-        session,
-        expected_igreja_id=tenant_uuid,
-        source="agent_runtime",
-    )
+    _require_agent_session_scope(session, tenant_uuid)
 
     conversation = session.execute(
         select(Conversation).where(

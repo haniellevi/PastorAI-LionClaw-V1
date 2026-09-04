@@ -270,6 +270,118 @@ def test_worker_flag_off_preserves_legacy_runtime_signature(monkeypatch) -> None
     assert calls == [(outcome.igreja_id, outcome.conversation_id, outcome.texto)]
 
 
+def test_worker_uses_explicit_dedicated_factory_for_runtime_turn(monkeypatch) -> None:
+    outcome = queue_worker.IngestionOutcome(
+        result=queue_worker.IngestionResult.REGISTERED,
+        conversation_id=uuid.uuid4(),
+        igreja_id=uuid.uuid4(),
+        inbound=True,
+        texto="mensagem sintética",
+    )
+    calls: list[str] = []
+
+    class _Session:
+        def close(self) -> None:
+            calls.append("close")
+
+    def primary_factory():
+        raise AssertionError("runtime must not use the primary factory")
+
+    def dedicated_factory():
+        calls.append("dedicated")
+        return _Session()
+
+    monkeypatch.setattr(
+        queue_worker,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_scope_dedicated_agent_session",
+        lambda session, current: calls.append("dedicated_scope")
+        or current.igreja_id,
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_scope_agent_session",
+        lambda *_args, **_kwargs: pytest.fail(
+            "primary tenant scope must not be used for dedicated runtime"
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            handled=False,
+            suppressed=False,
+            response=None,
+        ),
+    )
+
+    disposition = queue_worker.run_agent_for_message(
+        primary_factory,
+        outcome,
+        agent_session_factory=dedicated_factory,
+    )
+
+    assert disposition is queue_worker.AgentRunDisposition.COMPLETED
+    assert calls == ["dedicated", "dedicated_scope", "close"]
+
+
+def test_worker_explicitly_disabled_runtime_never_falls_back_to_primary(
+    monkeypatch,
+) -> None:
+    outcome = _trusted_outcome()
+    calls: list[str] = []
+
+    def primary_factory():
+        calls.append("primary")
+        raise AssertionError("disabled runtime must not open primary session")
+
+    monkeypatch.setattr(
+        queue_worker,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=True),
+    )
+
+    disposition = queue_worker.run_agent_for_message(
+        primary_factory,
+        outcome,
+        agent_session_factory=None,
+    )
+
+    assert disposition is queue_worker.AgentRunDisposition.COMPLETED
+    assert calls == []
+
+
+def test_runtime_marker_selects_dedicated_scope_probe(monkeypatch) -> None:
+    tenant_id = uuid.uuid4()
+    session = SimpleNamespace(
+        info={runtime.AGENT_RUNTIME_TENANT_KEY: str(tenant_id)},
+    )
+    calls: list[tuple[object, object]] = []
+
+    monkeypatch.setattr(
+        runtime,
+        "verify_agent_runtime_scope",
+        lambda current_session, current_tenant: calls.append(
+            (current_session, current_tenant)
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "require_tenant_scope",
+        lambda *_args, **_kwargs: pytest.fail(
+            "dedicated runtime must not use authenticated-role scope"
+        ),
+    )
+
+    runtime._require_agent_session_scope(session, tenant_id)
+
+    assert calls == [(session, tenant_id)]
+
+
 def test_worker_flag_on_never_falls_back_to_legacy_path(monkeypatch) -> None:
     outcome = _trusted_outcome()
     calls: list[str] = []

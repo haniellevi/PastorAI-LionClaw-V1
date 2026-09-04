@@ -42,6 +42,54 @@ class AgentRuntimeTenantPinError(AgentRuntimeScopeError):
     """A runtime session was reused for a different tenant."""
 
 
+def _runtime_identity_matches(row: Any, tenant_id: str) -> bool:
+    """Return whether a runtime probe proves the complete boundary."""
+
+    identity_matches = (
+        row.login_role == AGENT_RUNTIME_ROLE
+        and row.effective_role == AGENT_RUNTIME_ROLE
+        and bool(row.can_login)
+        and not bool(row.inherits_roles)
+        and not bool(row.is_superuser)
+        and not bool(row.bypass_rls)
+        and not bool(row.can_create_database)
+        and not bool(row.can_create_role)
+        and not bool(row.can_replicate)
+        and bool(row.has_no_memberships)
+        and row.row_security == "on"
+        and row.search_path == AGENT_RUNTIME_SEARCH_PATH
+    )
+    tenant_matches = row.tenant_id == tenant_id and row.tenant_guc == tenant_id
+    return identity_matches and tenant_matches
+
+
+def _runtime_identity_probe() -> Any:
+    """Build the SQL probe shared by scope setup and later verification."""
+
+    return text(
+        "select session_user::text as login_role, "
+        "current_user::text as effective_role, "
+        "role.rolcanlogin as can_login, "
+        "role.rolinherit as inherits_roles, "
+        "role.rolsuper as is_superuser, "
+        "role.rolbypassrls as bypass_rls, "
+        "role.rolcreatedb as can_create_database, "
+        "role.rolcreaterole as can_create_role, "
+        "role.rolreplication as can_replicate, "
+        "not exists ("
+        "  select 1 from pg_catalog.pg_auth_members membership "
+        "  where membership.member = role.oid"
+        ") as has_no_memberships, "
+        "current_setting('row_security') as row_security, "
+        "current_setting('search_path') as search_path, "
+        "agent_private.current_tenant_id()::text as tenant_id, "
+        "nullif(current_setting('app.tenant_igreja_id', true), '') "
+        "as tenant_guc "
+        "from pg_catalog.pg_roles as role "
+        "where role.rolname = current_user"
+    )
+
+
 def _guard_agent_runtime_checkout(
     dbapi_connection: Any,
     _connection_record: Any,
@@ -194,47 +242,9 @@ def scope_agent_runtime_session(session: Session, igreja_id: Any) -> str:
             text("select set_config('app.tenant_igreja_id', :igreja_id, true)"),
             {"igreja_id": tenant_id},
         )
-        row = session.execute(
-            text(
-                "select session_user::text as login_role, "
-                "current_user::text as effective_role, "
-                "role.rolcanlogin as can_login, "
-                "role.rolinherit as inherits_roles, "
-                "role.rolsuper as is_superuser, "
-                "role.rolbypassrls as bypass_rls, "
-                "role.rolcreatedb as can_create_database, "
-                "role.rolcreaterole as can_create_role, "
-                "role.rolreplication as can_replicate, "
-                "not exists ("
-                "  select 1 from pg_catalog.pg_auth_members membership "
-                "  where membership.member = role.oid"
-                ") as has_no_memberships, "
-                "current_setting('row_security') as row_security, "
-                "current_setting('search_path') as search_path, "
-                "agent_private.current_tenant_id()::text as tenant_id, "
-                "nullif(current_setting('app.tenant_igreja_id', true), '') "
-                "as tenant_guc "
-                "from pg_catalog.pg_roles as role "
-                "where role.rolname = current_user"
-            )
-        ).one()
+        row = session.execute(_runtime_identity_probe()).one()
 
-        identity_matches = (
-            row.login_role == AGENT_RUNTIME_ROLE
-            and row.effective_role == AGENT_RUNTIME_ROLE
-            and bool(row.can_login)
-            and not bool(row.inherits_roles)
-            and not bool(row.is_superuser)
-            and not bool(row.bypass_rls)
-            and not bool(row.can_create_database)
-            and not bool(row.can_create_role)
-            and not bool(row.can_replicate)
-            and bool(row.has_no_memberships)
-            and row.row_security == "on"
-            and row.search_path == AGENT_RUNTIME_SEARCH_PATH
-        )
-        tenant_matches = row.tenant_id == tenant_id and row.tenant_guc == tenant_id
-        if not identity_matches or not tenant_matches:
+        if not _runtime_identity_matches(row, tenant_id):
             raise AgentRuntimeScopeError(
                 "agent runtime database identity or tenant verification failed"
             )
@@ -250,6 +260,37 @@ def scope_agent_runtime_session(session: Session, igreja_id: Any) -> str:
     return tenant_id
 
 
+def verify_agent_runtime_scope(session: Session, igreja_id: Any) -> str:
+    """Re-prove an already-scoped runtime transaction before domain work.
+
+    ``scope_agent_runtime_session`` performs the initial checkout and tenant
+    proof.  This second, cheap probe is used by the runtime boundary itself so
+    a direct caller cannot bypass the dedicated-role contract merely by
+    passing a SQLAlchemy session carrying a marker in ``Session.info``.
+    """
+
+    tenant_id = _normalize_tenant_id(igreja_id)
+    if session.info.get(AGENT_RUNTIME_TENANT_KEY) != tenant_id:
+        raise AgentRuntimeTenantPinError(
+            "agent runtime session is not pinned to the requested tenant"
+        )
+    if not session.in_transaction():
+        raise AgentRuntimeScopeError(
+            "agent runtime scope verification requires an active transaction"
+        )
+
+    try:
+        row = session.execute(_runtime_identity_probe()).one()
+        if not _runtime_identity_matches(row, tenant_id):
+            raise AgentRuntimeScopeError(
+                "agent runtime database identity or tenant verification failed"
+            )
+    except BaseException:
+        session.rollback()
+        raise
+    return tenant_id
+
+
 __all__ = [
     "AGENT_RUNTIME_ROLE",
     "AGENT_RUNTIME_SEARCH_PATH",
@@ -260,4 +301,5 @@ __all__ = [
     "get_agent_runtime_engine",
     "get_agent_runtime_session_factory",
     "scope_agent_runtime_session",
+    "verify_agent_runtime_scope",
 ]
