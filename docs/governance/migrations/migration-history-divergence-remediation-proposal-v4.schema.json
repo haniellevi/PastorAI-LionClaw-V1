@@ -159,7 +159,7 @@
           },
           "migration_catalog_workflow": {
             "path": ".github/workflows/migration-catalog-head.yml",
-            "sha256": "37a5d377b79bf1998f0a0a4d6000abfb2ee2afad752cda382262e9108cdfbb23"
+            "sha256": "f2fc5ffc2943f7134a38dc251db2bffc1c7545956729862ed98a227dda2ff8c7"
           }
         }
       }

@@ -181,11 +181,20 @@ verificador direto produziu
 `OPERATIONAL_AUTHORIZATION=BLOCKED` e `NEXT_STAGE_AUTHORIZED=false`. Os hashes
 SHA-256 são:
 
-- proposta: `93968c9cf9ee675e9ce299def672d28ee8097938a8115ed8272e044282add527`;
-- schema: `ef702d1cfc8d5015b8f2c63bd40df2956ab9d01a8156cc382f58e1041199f87c`;
-- verificador: `b50fa4a10e0fa2bbf898cb24b2b14735ac287f039038fbbb306aa77c2b44e821`;
+- proposta: `92b1c33ab3e2cd0a6c9b5ad486a317c229d7aefc7c60da88913716d58345e6ac`;
+- schema: `e10d8922a68a6f475191330dbecf0c00b2e5ffccf03e9fb4726bdcb30c4d494f`;
+- verificador: `3cb09957b283b254bb88b97456e065a18f390d707fcbd77c71530f8052266af3`;
 - testes: `34d77cf7aa0b3c8b67d01f59296947dec86bd4028fcecd719b7493202b8d3a2d`;
 - workflow: `7cbc0c47e527e5c7a5b56c6450d159ac49946793dd60fba6559b601fb5f3e27d`.
+
+Durante a validação de CI da própria PR, os workflows descartáveis foram
+corrigidos para usar loopback literal, para separar os SHAs exclusivos de
+`pull_request` e `push` e para manter os guards de replay que exigem cluster
+fresco no job PG17 dedicado, fora da suite RLS que cria roles globais. Os pins
+v4, o manifesto de expectativa de schema e o pin transitivo do executor de
+atestações v2 foram então recalculados antes da integração. A correção preserva
+todos os bytes v1--v3, as permissões bloqueadas e o estado de DEV, PROD e
+cutover.
 
 Essa extensão organiza a prova de fonte; não resolve divergência de ledger,
 TLS, drift manual, Data API, Realtime, revisão v3, trust anchors externos,
@@ -217,8 +226,10 @@ O estado vivo não foi consultado nem alterado:
 - revisão independente da proposta v3, trust anchors externos, anti-replay,
   cutover e aplicação continuam pendentes.
 
-Não houve push, PR, merge, banco compartilhado, migration aplicada, runner de
-banco, deploy, flag ou runtime. `operational_authorization=false` e
+O gate de revisão remota desta frente permitiu o push e a abertura da PR #366
+para esta alteração de fonte; isso não autoriza nem comprova operação de banco.
+Não houve merge, banco compartilhado, migration aplicada, runner de banco,
+deploy manual, flag ou runtime. `operational_authorization=false` e
 `next_stage_authorized=false` continuam estritos.
 
 ## Rollback

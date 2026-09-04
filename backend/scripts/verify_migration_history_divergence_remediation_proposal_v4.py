@@ -46,10 +46,10 @@ VERIFIED_RESULT = (
 )
 
 EXPECTED_PROPOSAL_SHA256 = (
-    "93968c9cf9ee675e9ce299def672d28ee8097938a8115ed8272e044282add527"
+    "92b1c33ab3e2cd0a6c9b5ad486a317c229d7aefc7c60da88913716d58345e6ac"
 )
 EXPECTED_SCHEMA_SHA256 = (
-    "ef702d1cfc8d5015b8f2c63bd40df2956ab9d01a8156cc382f58e1041199f87c"
+    "e10d8922a68a6f475191330dbecf0c00b2e5ffccf03e9fb4726bdcb30c4d494f"
 )
 EXPECTED_REPOSITORY_COMMIT_SHA = "9b9395e29cc821d6808738a30a6afe367d4ffbea"
 
@@ -135,7 +135,7 @@ EXPECTED_SOURCE_ARTIFACTS = {
     "migration_catalog_workflow": {
         "path": ".github/workflows/migration-catalog-head.yml",
         "sha256": (
-            "37a5d377b79bf1998f0a0a4d6000abfb2ee2afad752cda382262e9108cdfbb23"
+            "f2fc5ffc2943f7134a38dc251db2bffc1c7545956729862ed98a227dda2ff8c7"
         ),
     },
 }
