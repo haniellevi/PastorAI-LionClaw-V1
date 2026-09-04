@@ -375,7 +375,7 @@ O freeze local vincula:
 - `backend/app/agent/context.py`, SHA-256
   `35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08`;
 - `backend/tests/test_agent_tenant_runtime.py`, SHA-256
-  `cf4e69b8b28268f176c72d0b3eff7a47066e7df8e2f6406b7b9b49a0624a6c70`;
+  `4f1292142baab73ef788a5f17fdd2af5120ecf773209da23ae95d85990ee7ecd`;
 - `backend/tests/test_agent_trusted_context.py`, SHA-256
   `880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8`;
 - `backend/tests/test_whatsapp_worker.py`, SHA-256
