@@ -10,8 +10,8 @@ CATÁLOGO CORRENTE COM 75 MIGRATIONS / OPERAÇÃO BLOQUEADA`
 
 **Snapshot versionado pós-M1J:** `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`
 
-**Snapshot corrente de `main` após a PR #366:**
-`1b233e5156ab671d0b56ab705b35f4e5d2011937`
+**Snapshot corrente de `main` após a PR #368:**
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b`
 
 ## Decisão
 

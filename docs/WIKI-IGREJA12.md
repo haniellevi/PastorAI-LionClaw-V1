@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no `main` auditado
-`1b233e5156ab671d0b56ab705b35f4e5d2011937` (em 2026-09-04). O `bootstrap-ledger` permanece
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b` (em 2026-09-04). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -47,7 +47,7 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA CANDIDATA OFFLINE` | Revisar o lote offline e, depois, provisionar grants/views mínimos e ligar o staging transacional a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA INTEGRADA EM MAIN E INATIVA` | Projetar projeções/writers mínimos e, depois, provisionar grants/views limitados e ligar o staging transacional a caller, consentimento, `AgentConfig`, commit, despacho e receipts duráveis |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / EXECUTOR V2 LOCAL OFFLINE COM TRUST ANCHORS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O executor v2 é apenas candidato local; trust anchors externos, atestações DEV/PROD separadas, revisão independente v3, decisão humana, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | Conectar a UoW candidata ao agente, com consentimento, `AgentConfig`, commit externo, despacho e comprovante pós-commit |
@@ -83,10 +83,9 @@ qualquer expansão do canário.
 - no último registro operacional/histórico, `AgentConfig.ativo=false` impede resposta automática (esta missão não realizou consulta viva de produção);
 - `marcar_presenca` permanece desabilitada no runtime;
 - falhas novas da fila possuem metadados seguros para investigação.
-- a branch candidata de wiring seleciona explicitamente a sessão `agent_runtime`
-  quando `AGENT_RUNTIME_DATABASE_URL` existe e mantém o turno automático
-  desabilitado sem essa configuração; nenhuma migration/grant ou ativação foi
-  realizada.
+- a PR #368 integrou a seleção explícita da sessão `agent_runtime` quando
+  `AGENT_RUNTIME_DATABASE_URL` existe e mantém o turno automático desabilitado
+  sem essa configuração; nenhuma migration/grant ou ativação foi realizada.
 
 ## O que está parcial
 
@@ -1445,3 +1444,19 @@ implantado, DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de
 permissões do host permanece aberto; revisão v3, trust anchors externos,
 cutover e aplicação seguem bloqueados. O gate de continuidade desta reconciliação
 é `OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.
+
+## Atualização pós-merge da sessão dedicada do agente (PR #368, 2026-09-04)
+
+A PR #368 foi integrada em `main` pelo merge
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b` (parents `66f1cda` e `fa08683`),
+com árvore idêntica à do head. Os 14 checks da PR e os 13 check-runs pós-merge terminaram
+com sucesso. O deployment Vercel Production automático decorrente comprova
+somente o frontend Next.js.
+
+O worker agora escolhe explicitamente a fábrica da role limitada
+`agent_runtime`, sem fallback para a conexão principal, e verifica role, RLS,
+`search_path` e tenant antes da consulta de domínio. A role ainda não possui
+login, credencial, grant, view, função de projeção ou writer de domínio;
+portanto o agente não está operacional por esse merge. Banco, DEV, PROD,
+flags, caller, envio, memória, checkpoint e relatório de célula permanecem
+fechados.

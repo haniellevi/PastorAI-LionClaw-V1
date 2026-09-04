@@ -221,6 +221,25 @@ Os testes locais focalizados passaram e o compose valida a variável dedicada
 sem fallback. A evidência é local e pré-PR; não prova conexão, migration,
 runtime, banco, DEV ou PROD.
 
+### Integração pós-merge da fronteira de sessão dedicada (PR #368)
+
+O wiring foi integrado em `main` pela PR #368 no merge
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b` (parent 1 `66f1cda`, parent 2
+`fa08683`), com árvore idêntica à do head da PR. Os 14 checks da PR e os 13
+check-runs pós-merge concluíram com sucesso. O deployment Vercel Production
+automático decorrente é evidência exclusiva do frontend Next.js.
+
+A integração prova apenas a fronteira de seleção/verificação da sessão. A role
+`agent_runtime` continua sem login, credencial, grants em `public`, views,
+funções de projeção ou writers de domínio; o runtime ORM atual não pode operar
+sob essa role limitada. Nenhum banco compartilhado, DEV, PROD, migration,
+flag, caller, envio, checkpoint, memória ou relatório oficial foi ativado.
+
+O próximo passo técnico é um contrato offline de projeções e writers mínimos
+em `agent_private`, com ACL explícita e testes PostgreSQL 17 descartáveis de
+RLS, cross-tenant, pool e idempotência. Ele continua separado de qualquer
+provisionamento de credencial ou ativação operacional.
+
 ### Preparação D3 offline: fronteira efêmera por turno
 
 A preparação D3 offline separa `AgentTurnInput`, `AgentState` e

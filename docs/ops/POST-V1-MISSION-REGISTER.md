@@ -3,8 +3,9 @@
 Atualizado em 2026-09-04 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
 `bootstrap-ledger` integrados e inativos, as entregas M1A-M1E e M1I do catálogo
 integradas pela PR #361, a reconciliação M1J-R5 encerrada pela PR #363
-(merge `c2fb16ad`) e a segurança de autoria/replay de migrations integrada pela
-PR #366 (merge `1b233e5`). A D2B2b3A existe
+(merge `c2fb16ad`), a segurança de autoria/replay de migrations integrada pela
+PR #366 (merge `1b233e5`) e a fronteira de sessão dedicada do agente integrada
+pela PR #368 (merge `ec0fee2`). A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -47,9 +48,11 @@ produção.
   `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361;
 - snapshot versionado anterior desta reconciliação e referência histórica de
   `origin/main`: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, merge da PR #363;
+- referência histórica de `origin/main` após a PR #366:
+  `1b233e5156ab671d0b56ab705b35f4e5d2011937`, merge da PR #366;
 - referência atual observada de `origin/main`:
-  `1b233e5156ab671d0b56ab705b35f4e5d2011937`, merge da PR #366. Ele prova o
-  código integrado, os 12 check-runs pós-merge e as evidências de CI associadas,
+  `ec0fee244088a2d0657cb5510ad8b5661f2b872b`, merge da PR #368. Ele prova o
+  código integrado, os 13 check-runs pós-merge e as evidências de CI associadas,
   sem provar bootstrap, migration aplicada, banco, backend implantado ou
   runtime compartilhado.
 
@@ -1916,3 +1919,23 @@ de captura/reconciliação em checkout group-writable.
 O próximo gate técnico é uma revisão/PR do wiring, seguida de um desenho
 separado de grants/views mínimos e testes PostgreSQL 17 descartáveis. Esse gate
 não autoriza migration, aplicação ou canário.
+
+### Fronteira de sessão dedicada do agente WhatsApp integrada (PR #368, 2026-09-04)
+
+A fronteira foi integrada em `main` pela PR #368 no merge
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b`, com parent 1 `66f1cda` e parent 2
+`fa08683`; a árvore do merge coincide com a do head. Os 14 checks da PR e os
+13 check-runs pós-merge concluíram `success`, incluindo backend, RLS, E2E,
+frontend, catálogo e replay PostgreSQL 17. O Vercel Production automático é
+evidência exclusiva do frontend Next.js.
+
+O código integrado seleciona explicitamente a sessão `agent_runtime` quando a
+URL dedicada existe, revalida identidade, privilégios, RLS, `search_path` e
+tenant, e não recorre a `DATABASE_URL`. Sem a URL, a ingestão segue disponível
+e o turno automático fica desabilitado. A integração não provisionou login,
+segredo, grant, view, função de domínio, migration aplicada, banco, DEV, PROD,
+`AgentConfig`, caller, envio, flag ou canário.
+
+O próximo gate técnico único é
+`OWNER_AUTHORIZE_DESIGN_AGENT_RUNTIME_PROJECTION_CONTRACT`, limitado ao contrato
+offline de projeções e writers mínimos com testes PostgreSQL 17 descartáveis.
