@@ -1,0 +1,61 @@
+# Verifica somente o pacote aditivo v4. Um pacote válido continua bloqueado
+# com exit 8; não há banco, runner, segredo, DEV ou PROD neste workflow.
+name: Migration Divergence V4
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-divergence-v4-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-divergence-v4:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Verificar extensão source-only e bloqueio exato
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          umask 077
+          receipt="$RUNNER_TEMP/migration-divergence-v4.receipt"
+          errors="$RUNNER_TEMP/migration-divergence-v4.stderr"
+          set +e
+          PYTHONDONTWRITEBYTECODE=1 python -I -S -P -B \
+            scripts/verify_migration_history_divergence_remediation_proposal_v4.py \
+            > "$receipt" 2> "$errors"
+          result=$?
+          set -e
+          test "$result" -eq 8
+          python -I -S - "$receipt" "$errors" <<'PY'
+          from pathlib import Path
+          import sys
+
+          receipt = Path(sys.argv[1]).read_bytes()
+          errors = Path(sys.argv[2]).read_bytes()
+          expected = (
+              "RESULT=BLOCKED_MIGRATION_DIVERGENCE_V4:SOURCE_EXTENSION_VERIFIED\n"
+              "PROPOSAL_STRUCTURE=VERIFIED_SOURCE_ONLY\n"
+              "CATALOG_SNAPSHOTS=2_STABLE_EQUAL\n"
+              "V3_ENVIRONMENT_AND_CUTOVER_STATE=PRESERVED_UNCHANGED\n"
+              "OPERATIONAL_AUTHORIZATION=BLOCKED\n"
+              "NEXT_STAGE_AUTHORIZED=false\n"
+          ).encode("ascii")
+          if receipt != expected or errors:
+              raise SystemExit("migration divergence v4 receipt is invalid")
+          PY

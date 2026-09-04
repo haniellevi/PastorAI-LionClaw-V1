@@ -1,5 +1,11 @@
 # Adendo — Decisões Finais do Módulo Células (Igreja 12)
 
+> **Procedimento de migration superseded (2026-09-04):** as decisões de
+> domínio permanecem históricas, mas trechos que orientem SQL manual, Supabase
+> SQL Editor, `db push` ou promoção direta DEV→PROD foram substituídos pelo
+> fluxo canônico de [`backend/migrations/README.md`](../../backend/migrations/README.md).
+> Este documento não autoriza acesso ou mutação de banco.
+
 > **Status:** Decisões **confirmadas pelo dono**. Adendo vinculante à série de PRDs e ao plano de implementação.
 > **Data:** 2026-07-03.
 > **Natureza:** docs-only. Nenhum código, migration, env, worker, Supabase ou deploy nesta entrega.

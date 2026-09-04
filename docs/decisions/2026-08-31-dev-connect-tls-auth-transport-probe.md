@@ -4,8 +4,8 @@ Data: `2026-08-31`
 
 Estado: `PLANO OFFLINE INTEGRADO / RESULTADO SANITIZADO REGISTRADO / CAUSA
 INDETERMINADA / PROBE IMPLEMENTADO, INTEGRADO E COMPROVADO OFFLINE / CATEGORIA
-TLS INTEGRADA E COMPROVADA OFFLINE / PROBE NÃO EXECUTADO / OPERAÇÃO
-BLOQUEADA`.
+TLS INTEGRADA E COMPROVADA OFFLINE / UMA EXECUÇÃO TRANSPORT-ONLY BLOQUEADA EM
+TLS_HANDSHAKE / OPERAÇÃO BLOQUEADA`.
 
 Base versionada: `bab031a7e0067a257eedb4a24c786cc925801463`.
 
@@ -219,9 +219,11 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 A Vercel registrou o deployment automático frontend Production `6184050276`,
 status `17575418445`, `state=success`, em `2026-08-31T15:23:35Z`. Essa metadata
 prova somente o deployment do frontend, não sua saúde funcional, e não prova
-backend, banco, DEV, PROD ou o probe. O estado da implementação é
-`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
-OPERAÇÃO BLOQUEADA`.
+backend, banco, DEV, PROD ou o probe. Naquele recorte, antes do consumo do gate
+de execução, o estado da implementação era `IMPLEMENTADO / INTEGRADO /
+COMPROVADO OFFLINE / PROBE NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`. O estado
+corrente inclui a única execução registrada abaixo, bloqueada em
+`TLS_HANDSHAKE`; não houve nova tentativa.
 
 O conteúdo do merge foi validado offline: a árvore calculada dos pais conhecidos
 `36f8d13284a8f4964d0258a2a3b845323a80fe7e` e
@@ -732,3 +734,41 @@ receipt global, saver, probe vivo, acesso a DEV ou PROD, logs, SQL, DML, outra
 rede, deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o
 merge da PR #354 não autorizou, alterou ou comprovou o estado vivo de
 `AgentConfig.ativo`.
+
+## Relação com o executor de atestação v2 (2026-09-03)
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local documentado em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+Essa prova unitária offline e a prova PG17 descartável implementada, ainda
+pendente de execução sem skips no CI do commit candidato, não repetem o probe
+real nem reclassificam seu resultado: a execução DEV histórica continua
+bloqueada em `TLS_HANDSHAKE`, sem causa determinada. Nenhuma CA atual,
+credencial, conexão, captura, DEV ou PROD foi usada nesta etapa.
+
+O executor v2 faz identidade e captura na mesma conexão e backend PID, mas em
+duas transações e dois snapshots `REPEATABLE READ READ ONLY` separados.
+Processo público e child exigem Python `3.13.14`, `-I -B`, `isolated`,
+`safe_path`, `no_user_site` e `dont_write_bytecode`; o child exige ainda
+`psycopg2-binary==2.9.12` e libpq 17. Ainda assim, dependem de trust anchors
+externos antes de receber segredos, e DEV e PROD permanecem bloqueados.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito à consulta remota somente leitura de `refs/heads/main`, ao
+preflight da base, ao push da branch candidata, à abertura da PR e à observação
+do CI e do Vercel Preview automáticos. O commit local não afirma integração, CI
+remoto ou estado de ambiente. O gate consolidado não autoriza merge, banco
+compartilhado, DEV, PROD, migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+O estágio funcional
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua futuro, não corrente e não autorizado; a consolidação atual não o
+consome nem o antecipa.

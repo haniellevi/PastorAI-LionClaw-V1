@@ -1,5 +1,10 @@
 # Plano — produção limpa — 2026-07-09
 
+> **Plano histórico — não executar:** a orientação antiga de aplicação manual
+> de migrations foi substituída pelo fluxo atual em
+> [`backend/migrations/README.md`](../../backend/migrations/README.md). Este
+> arquivo não autoriza banco, DEV ou PROD.
+
 Baseado em: `docs/ops/PROD-ENV-RUNBOOK.md`, `backend/migrations/README.md`, `SPEC_PROGRESS.md`,
 `docs/sprints/README.md` (main-clean, `a7a04c8`) + `SNAPSHOT-RAIZ-SUJA-2026-07-09.md`.
 Somente leitura/planejamento — nenhuma ação executada aqui.

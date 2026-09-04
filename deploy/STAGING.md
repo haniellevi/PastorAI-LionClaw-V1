@@ -92,24 +92,27 @@ cobrança ou e-mail real sai de staging.
 
 ## Runner de migrations
 
-`backend/scripts/apply_migrations.py` não aplica uma lista de pendências e não
-aceita URL em argv. O destino vem exclusivamente de
-`M06_MIGRATION_DATABASE_URL`, injetada pelo canal secreto do processo. Não cole
-DSN, senha, token ou host em terminal compartilhado, conversa ou documentação.
+`backend/scripts/apply_migrations.py` é um runner histórico de hash congelado e
+não é o entrypoint corrente: isoladamente ele enumera `*.sql` sem consumir o
+head aprovado. O candidato `apply_migrations_catalog_bound_v2.py` autentica o
+runner legado e a API de snapshot antes de executá-los, e vincula todo SQL ao
+snapshot validado do catálogo, mas ainda bloqueia qualquer comando que abriria
+conexão por falta de trust anchor e autorização operacional externos.
 
 ```bash
 # a partir de backend/ (com o venv ativo)
 
 # Única operação disponível sem conexão:
-python scripts/apply_migrations.py list
+python -P scripts/apply_migrations_catalog_bound_v2.py list
 ```
 
-`bootstrap-ledger` implementa a criação somente do ledger vazio
+`status`, `harden-ledger`, `bootstrap-ledger` e `apply` não estão disponíveis em
+staging, DEV ou PROD neste SHA. O código legado de `bootstrap-ledger` implementa
+a criação somente do ledger vazio
 `public.schema_migrations` no contrato owner-only, após confirmação literal
 `BOOTSTRAP_LEDGER`. Ele não descobre o catálogo, não consulta
 `supabase_migrations`, não reconcilia histórico e não aplica ou registra
-migration. Com múltiplos arquivos locais e ledger vazio, `status` e `apply`
-falham fechados.
+migration, mas isso é evidência histórica, não instrução de execução.
 
 A implementação foi testada somente offline: 42/42 testes unitários, 87/87 em
 PostgreSQL 17-alpine descartável em duas execuções independentes, 87/87 em
@@ -197,17 +200,21 @@ Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
 deployment prova somente o frontend e não prova backend, banco, migration,
 runtime ou atestação de ambiente.
 
-O único gate corrente é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada, com fonte, filtros
-e janela temporal mínima delimitados antes de uma única revisão read-only e
-sanitizada dos logs da falha DEV. Nenhum log foi acessado nesta PR. O gate não
+Naquele recorte histórico, foi proposto o gate
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. O gate
+proposto não foi consumido. Ele exigiria uma autorização humana nova, nominal,
+exclusiva e separada, com fonte, filtros e janela temporal mínima delimitados
+antes de uma única revisão read-only e sanitizada dos logs da falha DEV.
+Nenhum log foi acessado nesta PR. O gate proposto não
 autoriza retry, nova invocação DEV, consulta a PROD, banco ou SQL, exportação ou
 persistência de logs, captura, materialização, DML, reconciliação de ledger,
 corte de época,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push`, MCP, deploy, flag ou runtime. PROD continua fora.
-UV e CD permanecem fora.
+UV e CD permanecem fora. Posteriormente, esse caminho foi supersedido pelos
+diagnósticos de fase e pelo probe transport-only executados sob autorizações
+humanas nominais próprias. O identificador permanece somente como registro
+histórico e não é gate corrente nem próximo hoje.
 
 ---
 
@@ -367,16 +374,62 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
-O gate seguinte é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada para uma única
-revisão read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
-janela temporal mínima ainda não foram delimitados e precisam constar da nova
-autorização antes de qualquer acesso; nenhum horário é inferido. Nenhum log foi
-acessado nesta PR. Este gate não autoriza retry, nova invocação DEV, consulta a
+Naquele recorte histórico, foi proposto o gate
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. O gate
+proposto não foi consumido. Ele exigiria uma autorização humana nova, nominal,
+exclusiva e separada para uma única revisão read-only e sanitizada dos logs da
+falha DEV. A fonte, os filtros e a janela temporal mínima ainda não foram
+delimitados e precisariam constar da autorização antes de qualquer acesso;
+nenhum horário é inferido. Nenhum log foi acessado nesta PR. O gate proposto
+não autoriza retry, nova invocação DEV, consulta a
 PROD, banco ou SQL, exportação ou persistência de logs, captura,
 materialização, DML, migration, reconciliação, backfill, deploy, flag ou
-runtime. PROD continua fora.
+runtime. PROD continua fora. Posteriormente, esse caminho foi supersedido pelos
+diagnósticos de fase e pelo probe transport-only executados sob autorizações
+humanas nominais próprias. O identificador permanece somente como registro
+histórico e não é gate corrente nem próximo hoje.
+
+A política de permissões foi implementada e comprovada offline pelo snapshot
+privado descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../docs/decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+O gate
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE` foi
+consumido somente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../docs/decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+Ele não deve receber DSN, CA, chave, nonce ou registro de autorização antes de
+existirem trust anchors externos para autorização nominal, runtime/dependências
+e anti-replay.
+
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, acrescenta autoria
+`draft`/`prepare-head` `TENANT` source-only, snapshot validado, wrapper
+catalog-bound v2 somente `list` e replay do head em PostgreSQL 17 descartável e
+loopback. O mesmo SHA confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`;
+a focal concluiu `274 passed, 6 skipped`, a prova PG17 real `6/6` com E2E
+sintético de 76ª migration, e duas revisões independentes `P0=0`/`P1=0`. Isso é
+local: não houve integração, push, PR ou CI remoto e não libera staging.
+
+O workflow candidato usa PostgreSQL 17 descartável e replay, mas nunca banco
+compartilhado, DEV/PROD ou o runner legado de aplicação. O
+`apply_migrations.py` legado ainda é invocável como risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, schema/default ACL ou semântica DML/DDL ampla. Worktree/migrations
+foram observadas em `0755` e SQL em `0644`, mas ancestrais permanecem `0775` e
+o `chmod` local não é durável; P2 global permanece.
+
+DEV está `BLOCKED_LEDGER_DIVERGENCE`, PROD
+`BLOCKED_EVIDENCE_INSUFFICIENT`, TLS DEV histórico sem solução, e revisão v3,
+cutover, atestação viva e aplicação pendentes. `operational_authorization=false`
+e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado ao
+preflight remoto read-only, push, abertura de PR e observação do CI/Preview. Não
+autoriza merge, banco, DEV, PROD, migration, runner de aplicação ou flags.
+Trust anchors externos permanecem futuros, não correntes e não autorizados.
 
 ---
 

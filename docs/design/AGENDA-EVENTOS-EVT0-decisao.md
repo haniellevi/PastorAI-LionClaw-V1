@@ -1,5 +1,12 @@
 # Agenda de Eventos — Decisão técnica/produto (EVT-0)
 
+> **Procedimento de migration superseded (2026-09-04):** este ADR continua
+> válido como decisão histórica de produto, mas não como runbook. SQL manual,
+> Supabase SQL Editor, `db push` e promoção direta DEV→PROD foram substituídos
+> pelo fluxo canônico de
+> [`backend/migrations/README.md`](../../backend/migrations/README.md). Nenhum
+> trecho deste documento autoriza acesso ou mutação de banco.
+
 **Status:** decidido · **Data:** 2026-06-29 · **Base analisada:** SHA `baeb26c`
 **Origem:** auditoria E0 (read-only) + decisões com o usuário.
 **Deltas no PRD:** delta-049, delta-050, delta-051 (`docs/Docs20260611_163530/PRD20260611_163530.md`).

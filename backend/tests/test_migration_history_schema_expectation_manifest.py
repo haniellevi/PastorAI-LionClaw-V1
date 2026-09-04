@@ -90,7 +90,7 @@ def test_manifest_is_source_only_and_not_an_environment_claim() -> None:
         "postgresql_major": 17,
         "reference_path": ".github/workflows/rls-integration.yml",
         "reference_sha256": (
-            "4fac0b1ed923f3dc2298b45ff63bfe57ec849654ae6ab446facbca4b6fef891b"
+            "15f8ac776bf539820cfda06fe466d12bc385eb8d914f55a73bb216e548a7825d"
         ),
         "selection_basis": (
             "VERSIONED_DISPOSABLE_CI_IMAGE_NOT_ENVIRONMENT_OBSERVATION"

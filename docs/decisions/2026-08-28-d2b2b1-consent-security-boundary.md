@@ -198,7 +198,7 @@ migration, acesso ao banco, Supabase, ativação ou canário.
 - D2C, memória, conhecimento, outbox ou notificação;
 - Universidade da Vida e Capacitação Destino.
 
-## Próximo gate único
+## Próximo gate específico daquele recorte de consentimento
 
 Materializar uma instância governada do
 [`template D2B2b2`](2026-08-28-d2b2b2-consent-decision-packet-contract.md) por
@@ -207,3 +207,19 @@ revisão de privacidade ou do encarregado, a revisão jurídica quando designada
 a decisão final do representante autorizado do controlador, todos vinculados
 ao digest exato de cada pacote. Catálogo,
 writer, Supabase e D2C permanecem bloqueados até esse gate ser concluído.
+
+Esse passo humano e jurídico continua obrigatório no domínio de consentimento,
+mas não é o estágio global corrente da frente de migrations. O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito ao preflight remoto somente leitura, ao push da branch candidata,
+à abertura de PR e à observação do CI e do Preview automáticos. O commit local
+não afirma integração, CI remoto ou estado de ambiente, e o gate consolidado
+não autoriza merge, banco compartilhado, DEV, PROD, migration, runner ou
+alteração de flags. O gate futuro
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua não corrente e não autorizado.

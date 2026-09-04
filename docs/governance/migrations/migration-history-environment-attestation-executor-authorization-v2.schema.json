@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pastorai.local/schemas/migration-history-environment-attestation-executor-authorization-v2.schema.json",
+  "title": "PastorAI migration environment attestation executor authorization v2",
+  "description": "Closed execution-request shape. This document is not self-authenticating: a separately trusted launcher must authenticate the nominal human gate, pin the runtime, and enforce replay policy before supplying any private input.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "principal": {
+      "type": "string",
+      "pattern": "^[A-Z0-9][A-Z0-9._/-]{0,63}$"
+    },
+    "utcSecond": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  },
+  "properties": {
+    "authorization_contract": {
+      "const": "PASTORAI_MIGRATION_ENVIRONMENT_ATTESTATION_EXECUTION_AUTHORIZATION_V2"
+    },
+    "gate": {
+      "enum": [
+        "OWNER_AUTHORIZE_CAPTURE_MIGRATION_ENVIRONMENT_DEV_READ_ONLY_V2",
+        "OWNER_AUTHORIZE_CAPTURE_MIGRATION_ENVIRONMENT_PROD_READ_ONLY_V2"
+      ]
+    },
+    "environment": {
+      "enum": ["DEV", "PROD"]
+    },
+    "confirmation": {
+      "enum": [
+        "EXECUTE_DEV_MIGRATION_ENVIRONMENT_ATTESTATION_READ_ONLY_V2",
+        "EXECUTE_PROD_MIGRATION_ENVIRONMENT_ATTESTATION_READ_ONLY_V2"
+      ]
+    },
+    "owner": {"$ref": "#/$defs/principal"},
+    "executor": {"$ref": "#/$defs/principal"},
+    "source_git_sha": {"$ref": "#/$defs/gitSha"},
+    "executor_sha256": {"$ref": "#/$defs/sha256"},
+    "trusted_snapshot_script_sha256": {"$ref": "#/$defs/sha256"},
+    "preflight_runner_sha256": {"$ref": "#/$defs/sha256"},
+    "materializer_sha256": {"$ref": "#/$defs/sha256"},
+    "verifier_sha256": {"$ref": "#/$defs/sha256"},
+    "canonical_derivation_sha256": {"$ref": "#/$defs/sha256"},
+    "source_manifest_verifier_sha256": {"$ref": "#/$defs/sha256"},
+    "catalog_head_verifier_sha256": {"$ref": "#/$defs/sha256"},
+    "preflight_sql_sha256": {"$ref": "#/$defs/sha256"},
+    "capture_sql_sha256": {"$ref": "#/$defs/sha256"},
+    "profile_sha256": {"$ref": "#/$defs/sha256"},
+    "artifact_schema_sha256": {"$ref": "#/$defs/sha256"},
+    "authorization_schema_sha256": {"$ref": "#/$defs/sha256"},
+    "tls_ca_certificate_sha256": {"$ref": "#/$defs/sha256"},
+    "expected_project_ref_sha256": {"$ref": "#/$defs/sha256"},
+    "expected_database_name_sha256": {"$ref": "#/$defs/sha256"},
+    "expected_system_identifier_sha256": {"$ref": "#/$defs/sha256"},
+    "attempt_nonce_sha256": {"$ref": "#/$defs/sha256"},
+    "valid_from_utc": {"$ref": "#/$defs/utcSecond"},
+    "expires_at_utc": {"$ref": "#/$defs/utcSecond"},
+    "single_attempt": {"const": true},
+    "single_use_scope": {"const": "PROCESS_INVOCATION_ONLY"},
+    "database_session_authorized": {"const": true},
+    "identity_capture_authorized": {"const": true},
+    "schema_capture_authorized": {"const": true},
+    "materialization_authorized": {"const": true},
+    "prod_authorized": {"type": "boolean"},
+    "database_mutation_authorized": {"const": false},
+    "migration_application_authorized": {"const": false},
+    "operational_authorization": {"const": false},
+    "next_stage_authorized": {"const": false}
+  },
+  "required": [
+    "authorization_contract",
+    "gate",
+    "environment",
+    "confirmation",
+    "owner",
+    "executor",
+    "source_git_sha",
+    "executor_sha256",
+    "trusted_snapshot_script_sha256",
+    "preflight_runner_sha256",
+    "materializer_sha256",
+    "verifier_sha256",
+    "canonical_derivation_sha256",
+    "source_manifest_verifier_sha256",
+    "catalog_head_verifier_sha256",
+    "preflight_sql_sha256",
+    "capture_sql_sha256",
+    "profile_sha256",
+    "artifact_schema_sha256",
+    "authorization_schema_sha256",
+    "tls_ca_certificate_sha256",
+    "expected_project_ref_sha256",
+    "expected_database_name_sha256",
+    "expected_system_identifier_sha256",
+    "attempt_nonce_sha256",
+    "valid_from_utc",
+    "expires_at_utc",
+    "single_attempt",
+    "single_use_scope",
+    "database_session_authorized",
+    "identity_capture_authorized",
+    "schema_capture_authorized",
+    "materialization_authorized",
+    "prod_authorized",
+    "database_mutation_authorized",
+    "migration_application_authorized",
+    "operational_authorization",
+    "next_stage_authorized"
+  ],
+  "allOf": [
+    {
+      "if": {"properties": {"environment": {"const": "DEV"}}},
+      "then": {
+        "properties": {
+          "gate": {"const": "OWNER_AUTHORIZE_CAPTURE_MIGRATION_ENVIRONMENT_DEV_READ_ONLY_V2"},
+          "confirmation": {"const": "EXECUTE_DEV_MIGRATION_ENVIRONMENT_ATTESTATION_READ_ONLY_V2"},
+          "prod_authorized": {"const": false}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"environment": {"const": "PROD"}}},
+      "then": {
+        "properties": {
+          "gate": {"const": "OWNER_AUTHORIZE_CAPTURE_MIGRATION_ENVIRONMENT_PROD_READ_ONLY_V2"},
+          "confirmation": {"const": "EXECUTE_PROD_MIGRATION_ENVIRONMENT_ATTESTATION_READ_ONLY_V2"},
+          "prod_authorized": {"const": true}
+        }
+      }
+    }
+  ]
+}

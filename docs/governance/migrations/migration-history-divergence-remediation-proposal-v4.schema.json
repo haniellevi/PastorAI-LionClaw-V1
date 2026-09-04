@@ -1,0 +1,191 @@
+{
+  "$id": "https://igreja12.invalid/schemas/migration-history-divergence-remediation-proposal-v4.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifact_state": {
+      "const": "OFFLINE_SOURCE_SAFETY_EXTENSION_BLOCKED"
+    },
+    "contract_version": {
+      "const": "4.0"
+    },
+    "current_permissions": {
+      "const": {
+        "capture_allowed": false,
+        "database_access_allowed": false,
+        "database_mutation_allowed": false,
+        "deploy_allowed": false,
+        "environment_attestation_execution_allowed": false,
+        "environment_operation_allowed": false,
+        "index_change_allowed": false,
+        "ledger_backfill_allowed": false,
+        "merge_allowed": false,
+        "migration_application_allowed": false,
+        "network_access_allowed": false,
+        "pull_request_creation_allowed": false,
+        "push_allowed": false,
+        "runner_change_allowed": false,
+        "runner_execution_allowed": false,
+        "runtime_change_allowed": false,
+        "source_mutation_allowed": false
+      }
+    },
+    "dynamic_catalog_validation": {
+      "const": {
+        "catalog_count_or_digest_embedded": false,
+        "catalog_state_source": "VALIDATED_LOCAL_CATALOG_SNAPSHOT_API",
+        "exact_snapshot_equality_required": true,
+        "first_snapshot_required": true,
+        "migration_application_evidence": false,
+        "second_snapshot_required": true,
+        "shared_environment_evidence": false,
+        "validation_scope": "VERSIONED_SOURCE_ONLY"
+      }
+    },
+    "extension_contract": {
+      "const": {
+        "extends_proposal_id": "migration-history-divergence-remediation-proposal-v3",
+        "extends_sha256": "076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e",
+        "historical_bytes_must_remain_unchanged": true,
+        "prior_environment_and_cutover_records_remain_governed_by_v1_v2_v3": true,
+        "reinterprets_environment_or_cutover_state": false,
+        "scope": "SOURCE_ONLY_MIGRATION_AUTHORING_AND_CURRENT_HEAD_REPLAY_SAFETY",
+        "supersedes_prior_proposals": false
+      }
+    },
+    "historical_contracts": {
+      "const": {
+        "v1_proposal": {
+          "path": "docs/governance/migrations/migration-history-divergence-remediation-proposal-v1.json",
+          "sha256": "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
+        },
+        "v2_proposal": {
+          "path": "docs/governance/migrations/migration-history-divergence-remediation-proposal-v2.json",
+          "sha256": "f1db4a0f1b6a5045fefa674d6092ecb8afe90a0c03c70044b53a1d021b2b8340"
+        },
+        "v3_proposal": {
+          "path": "docs/governance/migrations/migration-history-divergence-remediation-proposal-v3.json",
+          "sha256": "076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e"
+        },
+        "v3_schema": {
+          "path": "docs/governance/migrations/migration-history-divergence-remediation-proposal-v3.schema.json",
+          "sha256": "88f7972780f07c7071bb4e4292e1f21c258fff47daf2ab207fc709ff34631b38"
+        },
+        "v3_verifier": {
+          "path": "backend/scripts/verify_migration_history_divergence_remediation_proposal_v3.py",
+          "sha256": "efcc9be299241793c74e5c4174a4dc44f3b14507d1585d9daa5a407ab38f13f8"
+        }
+      }
+    },
+    "next_gate": {
+      "const": {
+        "authorized": false,
+        "id": "OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1",
+        "scope": "REMOTE_READ_PREFLIGHT_PUSH_PR_AND_CI_ONLY_NO_MERGE_OR_SHARED_ENVIRONMENT"
+      }
+    },
+    "next_stage_authorized": {
+      "const": false
+    },
+    "operational_authorization": {
+      "const": false
+    },
+    "preserved_v3_state": {
+      "const": {
+        "environment_tracks": {
+          "DEV": {
+            "append_only_behavior_evidence": "PENDING_SEPARATE_EVIDENCE",
+            "cutover_decision": "BLOCKED",
+            "data_api_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+            "environment_attestation": "NOT_COMPLETE_FOR_V3",
+            "legacy_evidence_classification": "BLOCKED_LEDGER_DIVERGENCE",
+            "legacy_ledgers_action": "PRESERVE_WITHOUT_BACKFILL_OR_REWRITE",
+            "manual_index_drift_reference": "manual_dev_index_drift",
+            "realtime_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+            "schema_and_data_evidence": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+          },
+          "PROD": {
+            "append_only_behavior_evidence": "PENDING_SEPARATE_EVIDENCE",
+            "cutover_decision": "BLOCKED",
+            "data_api_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+            "environment_attestation": "NOT_COMPLETE_FOR_V3",
+            "legacy_evidence_classification": "BLOCKED_EVIDENCE_INSUFFICIENT",
+            "legacy_ledgers_action": "PRESERVE_WITHOUT_BACKFILL_OR_REWRITE",
+            "manual_dev_index_drift_inferred_in_prod": false,
+            "realtime_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+            "schema_and_data_evidence": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+          }
+        },
+        "review": {
+          "current_independent_review_complete": false,
+          "current_review_state": "PENDING_INDEPENDENT_REVIEW_OF_V3",
+          "human_cutover_decision": "NOT_MADE",
+          "prior_human_records_apply_to_proposal_id": "migration-history-divergence-remediation-proposal-v1",
+          "prior_human_records_reused_for_v3": false
+        },
+        "state_source_proposal_id": "migration-history-divergence-remediation-proposal-v3",
+        "state_source_sha256": "076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e",
+        "v4_cutover_decision_made": false,
+        "v4_environment_evidence_added": false
+      }
+    },
+    "proposal_id": {
+      "const": "migration-history-divergence-remediation-proposal-v4"
+    },
+    "repository_anchor": {
+      "const": {
+        "commit_evidence_scope": "VERSIONED_SOURCE_ANCHOR_ONLY_NOT_LIVE_ENVIRONMENT_EVIDENCE",
+        "repository_commit_sha": "9b9395e29cc821d6808738a30a6afe367d4ffbea",
+        "source_artifacts": {
+          "catalog_bound_wrapper_v2": {
+            "path": "backend/scripts/apply_migrations_catalog_bound_v2.py",
+            "sha256": "f3166fd5f770af016d6792e115a047845ad137065c35740e34da1ee3b2ea0e29"
+          },
+          "catalog_ci_verifier": {
+            "path": "backend/scripts/verify_migration_catalog_ci.py",
+            "sha256": "7cf5b468e366debba3a9d23c66566b122c8e155dceb3f76ee4d755ce4410b7c8"
+          },
+          "catalog_snapshot_api": {
+            "path": "backend/scripts/validated_migration_catalog_snapshot.py",
+            "sha256": "c3b88dd7f2b520e9de9353f2c220b5a2f07aaadc42661e8f2d9bb03a955d1d3f"
+          },
+          "current_head_pg17_replay": {
+            "path": "backend/scripts/replay_migration_catalog_current_head_pg17.py",
+            "sha256": "753abf57747de9a28f6192617dfd7ea348cb7adf302d7acbd57f280de3d8ce3f"
+          },
+          "migration_authoring": {
+            "path": "backend/scripts/new_migration.py",
+            "sha256": "83abce96e63fe676e3088c225b1e29ae89268ce97d01727bc740fa2f50001bbe"
+          },
+          "migration_catalog_workflow": {
+            "path": ".github/workflows/migration-catalog-head.yml",
+            "sha256": "f2fc5ffc2943f7134a38dc251db2bffc1c7545956729862ed98a227dda2ff8c7"
+          }
+        }
+      }
+    },
+    "verification_result": {
+      "const": {
+        "state": "BLOCKED_SOURCE_EXTENSION_VERIFIED_OFFLINE",
+        "valid_exit_code": 8
+      }
+    }
+  },
+  "required": [
+    "artifact_state",
+    "contract_version",
+    "current_permissions",
+    "dynamic_catalog_validation",
+    "extension_contract",
+    "historical_contracts",
+    "next_gate",
+    "next_stage_authorized",
+    "operational_authorization",
+    "preserved_v3_state",
+    "proposal_id",
+    "repository_anchor",
+    "verification_result"
+  ],
+  "title": "Migration history divergence remediation proposal v4",
+  "type": "object"
+}

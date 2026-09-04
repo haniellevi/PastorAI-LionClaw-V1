@@ -109,6 +109,31 @@ sem ler seu conteúdo.
 - Banco ou Supabase exige migration imperativa, RLS, grants e revokes
   explícitos, testes cross-tenant, rollback ou compensação e verificação em
   PostgreSQL descartável antes de qualquer ambiente compartilhado.
+- Nova migration nasce somente pelo fluxo `new_migration.py draft` e
+  `prepare-head`, vinculado ao SHA exato. O SQL e o head candidato precisam
+  formar uma única árvore Git revisada; o preparador nunca publica o head e
+  nunca autoriza aplicação.
+- Não invoque `backend/scripts/apply_migrations.py` diretamente. Ele é um
+  artefato legado de hash congelado. O wrapper catalog-bound corrente permite
+  somente inspeção source-only e mantém todos os comandos de banco bloqueados
+  até trust anchors, atestações DEV/PROD e gate de cutover separados.
+- A visão dinâmica para consumidores novos vem de
+  `backend/scripts/validated_migration_catalog_snapshot.py`; não acrescente APIs
+  ao verificador histórico byte-pinado apenas para atender um consumidor novo.
+- Para escopo tenant, a intent da migration deve enumerar relações afetadas,
+  controles RLS/ACL e testes PG17/cross-tenant realmente coletados e executados
+  sem skip. A fronteira de autoria v1 aceita somente `TENANT`; `GLOBAL` deve
+  falhar fechado até possuir contrato, revisão e testes versionados próprios.
+  Metadado declarativo nunca substitui o replay nem a revisão humana do SQL.
+  O replay corrente inventaria todas as tabelas/partições `public`, rejeita
+  criação, remoção ou mudança de fronteira não declarada e exige `igreja_id`,
+  RLS/ACL direta e policy forte em cada relação nova/declarada; não é prova
+  genérica de outros schemas, views, funções, papéis, memberships,
+  `BYPASSRLS` ou default ACLs.
+- Captura, atestação, reconciliação ou aplicação de migrations exige fonte em
+  snapshot privado do SHA exato criado por
+  `backend/scripts/trusted_repository_snapshot.py`; o checkout compartilhado
+  não é uma fonte operacional confiável e não deve receber `chmod` recursivo.
 - Não implemente UV ou CD a partir de placeholders. Primeiro aprove um PRD
   próprio e a máquina de estados anterior da jornada.
 - Use as versões fixadas pelo projeto. O frontend usa Node 24, não Node 20 nem

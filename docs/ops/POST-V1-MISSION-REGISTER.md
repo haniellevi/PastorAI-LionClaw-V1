@@ -1,8 +1,10 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-09-03 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
-`bootstrap-ledger` integrados e inativos, e as entregas M1A-M1E e M1I do catálogo
-de migrations integradas em `main` pela PR #361 (merge 8aacf98d). A D2B2b3A existe
+Atualizado em 2026-09-04 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A, o
+`bootstrap-ledger` integrados e inativos, as entregas M1A-M1E e M1I do catálogo
+integradas pela PR #361 e a reconciliação M1J-R5 encerrada pela PR #363
+(merge `c2fb16ad`), além do Commit A local de segurança de migrations e da
+extensão source-only v4, ambos fora de `main` e sem integração. A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -14,11 +16,13 @@ produção.
   `c525d6a3897a12c6c287f9fc79a88b32b34cd452`. O relato operacional do canário
   ativo não contém um artefato versionado que permita reconstituir o SHA exato
   servido durante a janela; ele deve ser revalidado antes de qualquer rollout;
-- frontend Vercel `pastorai-frontend-prod`: deployment Production correlacionado
-  ao SHA `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, GitHub deployment
-  `6237190951`, concluído com sucesso em 2026-09-03T04:52:17Z (`READY`). Esta
-  prova aplica-se exclusivamente ao frontend Next.js e não revalida backend,
-  banco de dados ou runtime;
+- frontend Vercel `pastorai-frontend-prod`: a evidência GitHub/Vercel registrada
+  na integração da PR #363 correlacionou o deployment Production automático
+  `6251268132` ao SHA `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, criado em
+  `2026-09-03T19:29:12Z` e concluído com `state=success`. Esta prova aplica-se
+  exclusivamente ao frontend Next.js e não revalida backend, banco de dados ou
+  runtime. O deployment correlacionado a `8aacf98d` permanece evidência
+  histórica da PR #361;
 - Supabase PROD: `pffafnchtxbimpwyaczq`, último estado preservado em evidência
   versionada anterior `ACTIVE_HEALTHY`, não revalidado nesta atualização;
 - Clerk: instância PROD preservada em evidência versionada anterior por
@@ -39,10 +43,13 @@ produção.
 - baseline histórico da PR #323, preservada como evidência histórica de
   reconciliação anterior: `3a5789c784017ab15a43e28c4270d25af8618359`, merge da
   PR #323;
-- base versionada desta reconciliação e referência atual de `origin/main`:
-  `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361. Ela prova o
-  código integrado e as evidências de CI associadas, sem provar bootstrap,
-  migration, backend implantado, banco ou runtime compartilhado.
+- base histórica da reconciliação M1J-R5:
+  `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, merge da PR #361;
+- snapshot versionado desta reconciliação e referência observada de
+  `origin/main`: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, merge da PR
+  #363. Ele prova o código integrado e as evidências de CI associadas, sem
+  provar bootstrap, migration, backend implantado, banco ou runtime
+  compartilhado.
 
 ## Missões
 
@@ -720,10 +727,12 @@ e não foi reconstruído por inferência.
 a role runtime possui `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner
 de `public.igrejas` e `public.app_users` e possui `SELECT` e `REFERENCES`
 efetivos nessas tabelas-pai. A tabela alvo D2B2b3A, o validator e a própria
-`public.schema_migrations` estavam ausentes. Isso comprova identidade, ownership
-e ACL do caminho runtime atual, mas não o comportamento da tabela futura sob
-`FORCE RLS`; o caminho de migration permanece bloqueado pela ausência de
-`M06_MIGRATION_DATABASE_URL` e do ledger público.
+`public.schema_migrations` estavam ausentes. Essa leitura histórica comprovou
+identidade, ownership e ACL do caminho runtime observado naquele preflight, mas
+não o comportamento da tabela futura sob `FORCE RLS`. Naquele preflight, o
+caminho de migration estava bloqueado pela ausência de
+`M06_MIGRATION_DATABASE_URL` e do ledger público; o estado vivo atual desses
+itens não foi revalidado.
 
 A PR #321 integrou a reconciliação documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
@@ -747,8 +756,10 @@ O merge gerou o deployment automático Vercel frontend Production `6140373952`,
 com `SUCCESS`. Essa metadata prova somente o frontend nesse ambiente; não prova
 backend, banco ou Supabase. No recorte da PR #320 não houve deploy manual ou do
 backend, wiring, ativação ou canário. Esta missão não aplicou a migration D2B2b3A; DEV e PROD
-confirmaram a ausência. A flag versionada
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`.
+confirmaram a ausência no preflight histórico de 2026-08-28; o estado vivo
+atual não foi revalidado. A configuração versionada da flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` é `false`; isso não prova o valor
+vivo do ambiente.
 
 O preflight PROD somente leitura não abriu arquivo de configuração nem exibiu
 valor de conexão. A chave SSH temporária de auditoria foi cadastrada, usada
@@ -1129,8 +1140,10 @@ Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
 frontend Production `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`. Essa metadata prova somente o deployment do frontend,
 não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
-estado agora é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO
-EXECUTADO / OPERAÇÃO BLOQUEADA`.
+estado naquele recorte, antes do consumo do gate de execução, era
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`. O estado corrente inclui a única execução registrada
+abaixo, bloqueada em `TLS_HANDSHAKE`; não houve nova tentativa.
 
 **Gate consumido em 2026-08-31:**
 `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
@@ -1701,9 +1714,159 @@ encontradas pelo Codex na execução do teste documental.
 O gate `OWNER_AUTHORIZE_EDIT_M1J_R5_FINAL_DOC_TEST_ALIGNMENT` foi consumido
 exclusivamente para esta correção final de alinhamento entre documentos e testes.
 
+O gate `OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION` foi consumido
+para o commit local `2218049902635239280af141980a30c3c3477c4c`, filho direto
+de `8aacf98d`, contendo exatamente os 15 arquivos autorizados. O gate
+`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1J_R5_CANONICAL_RECONCILIATION`
+confirmou `main` remoto em `8aacf98d` e a ausência da branch remota. Em seguida,
+`OWNER_AUTHORIZE_PUSH_AND_PR_M1J_R5_CANONICAL_RECONCILIATION` autorizou o push
+sem force e a abertura da PR #363; seus dez checks concluíram com sucesso e o
+deployment da PR foi corretamente classificado como Preview (`6251176874`).
+
+O gate `OWNER_AUTHORIZE_MERGE_PR_363_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido para o merge por merge commit
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, em
+`2026-09-03T19:28:24Z`, com parents `8aacf98d` e `2218049`. Os nove
+check-runs pós-merge, incluindo `public-health`, foram revalidados com sucesso
+pelo supervisor nesta missão. A evidência GitHub/Vercel revalidada classificou
+o deployment automático `6251268132` como Production
+com `state=success`, prova exclusiva do frontend Next.js. Ela não comprova
+backend, banco, migration, ambientes Supabase, flags ou runtime.
+
+O gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_R5_POSTMERGE_STATE` avançou
+somente `refs/remotes/origin/main` para `c2fb16ad`, confirmou os parents e a
+igualdade entre as árvores de `c2fb16ad` e `2218049`, sem mover branch local ou
+alterar o working tree. M1J está encerrada; `8aacf98d` permanece base histórica.
+
 Os gates da PR #354 são estritamente históricos e já consumidos.
 `operational_authorization=false` e `next_stage_authorized=false` continuam estritos.
-Nenhuma próxima implementação funcional é escolhida ou autorizada nesta missão.
+A primitiva de snapshot privado do SHA exato foi implementada e comprovada
+offline. A mitigação é parcial: a fonte compartilhada `0775` permanece
+inadequada, e consumidores
+legados de apply, capture e reconcile ainda não foram migrados transitivamente.
+Na worktree candidata corrente foram observados diretórios `0755` e SQL `0644`,
+mas o repositório principal e ancestrais do workspace permanecem `0775` e esse
+`chmod` local não é durável. O uso seguro exige um launcher externo confiável
+antes do bootstrap e o P2 permanece aberto globalmente. O contrato está descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md),
+sem alterar o checkout compartilhado.
+
+### Executor v2 de atestação de migrations (candidato local, 2026-09-03)
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para implementar, documentar e testar offline o
+candidato descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+A matriz unitária foi executada offline; a prova PostgreSQL 17 TLS descartável
+foi implementada no workflow e permanece pendente de execução sem skips no CI
+do commit local `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`. Não houve
+credencial, conexão ou captura viva, banco
+compartilhado, DEV, PROD, migration, runner, cutover, deploy, flag ou runtime.
+
+O processo público e o child exigem Python `3.13.14`, `-I -B`, `isolated`,
+`safe_path`, `no_user_site` e `dont_write_bytecode`; o child é reinvocado no
+snapshot privado e exige
+`psycopg2-binary==2.9.12`, libpq 17 e módulos sob o prefixo privado sem escrita
+ampla. A saída declara
+`AUTHORIZATION_TRUST_REQUIREMENT=EXTERNAL_NOMINAL_GATE_AUTHENTICATION_REQUIRED`
+e `RUNTIME_TRUST_REQUIREMENT=EXTERNALLY_PINNED_RUNTIME_REQUIRED`: essas
+verificações internas são parciais e não substituem um launcher externo
+confiável que autentique autorização, interpretador e dependências antes de
+abrir os descritores de segredo.
+
+Por hashes e `path-checks`, o candidato fecha a cadeia executável transitiva
+offline `materializer -> canonical derivation -> source manifest verifier ->
+catalog head verifier`. Esse fechamento prova somente o encadeamento estático
+no snapshot confiado; não declara que a prova PostgreSQL 17 foi executada.
+
+DEV e PROD têm gates separados. Cada tentativa usa no máximo uma conexão TLS
+`verify-full`, porta `5432`, e o mesmo backend PID. Identidade e captura usam
+duas transações e dois snapshots `REPEATABLE READ READ ONLY` separados, ambos
+com `ROLLBACK`; não constituem um único snapshot PostgreSQL. A conexão fecha
+antes da publicação do artefato v1 sanitizado. Mesmo o caminho completo termina
+com exit `8`, `environment_attestation_complete=false`,
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+Ainda faltam autenticação externa do gate nominal, runtime/dependências
+externamente pinados antes dos segredos, anti-replay durável e uma cerimônia
+segura para credencial temporária, CA vigente e bindings independentes do alvo.
+A falha DEV histórica em `TLS_HANDSHAKE` permanece sem causa determinada. DEV
+continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a revisão v3 permanece
+`PENDING_INDEPENDENT_REVIEW_OF_V3` e a decisão de cutover não foi tomada.
+
+O campo `next_gate` contido no pacote v3 congelado permanece byte-idêntico e
+aponta somente para o gate histórico da fundação do agente já consumido pela
+PR #351; não é o gate global corrente e não deve ser reescrito in-place.
+
+A cadeia pós-commit verificada é
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (snapshot integrado de `main`) ->
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03` (primitiva de snapshot confiável,
+21 arquivos, 2.608 inserções e 136 remoções) ->
+`1b299e7fcc709ae2528db1c3f76aa15f14dbcf06` (executor v2, 25 arquivos,
+5.462 inserções e 128 remoções). Os dois últimos são commits locais e ainda não
+estão integrados. No snapshot privado `0700/0600` do SHA `1b299e7`, a seleção
+ampla contabilizou 961 testes, com 801 aprovados, 160 skips, zero falhas e zero
+erros. A regressão separada do probe histórico de transporte TLS passou
+`125/125`, sem testar o executor v2 ou o job PG17. A seleção focal no checkout
+compartilhado coletou 186 itens, com 183 aprovados, três skips PG17 e zero falhas
+após a reconciliação documental. A decisão do executor v2 registra composição,
+runtime e horários. Nenhuma dessas evidências prova CI remoto, ambiente vivo ou
+migration aplicada.
+
+A reconciliação canônica complementar sobre o parent `1b299e7` altera
+exatamente 20 arquivos locais: 19 documentos e
+`backend/tests/test_d2b2b2_decision_packet_docs.py`. Ela corrige afirmações que
+inferiam estado vivo a partir do preflight histórico de 2026-08-28, separa a
+matriz privada ampla, a regressão do probe TLS histórico e a seleção focal no
+checkout compartilhado, e faz o teste documental exigir essa semântica. Não
+altera código de runtime, migration, schema ou workflow e não realiza rede,
+banco, DEV ou PROD.
+
+### Commit A local: segurança de autoria e replay (2026-09-04)
+
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+`947af39d35544700188461d8c99332df70b57e07`, consolidou o fluxo source-only
+`draft`/`prepare-head` apenas `TENANT`, o snapshot validado, o wrapper
+catalog-bound v2 limitado a `list` e o replay do head em PostgreSQL 17
+descartável e somente loopback. Não houve push, PR, integração ou CI remoto.
+
+O verificador longitudinal executado no próprio SHA confirmou 75 migrations e
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; a prova real PG17 terminou `6/6`,
+incluindo E2E sintético de 76ª migration `TENANT`; duas revisões independentes
+terminaram `P0=0` e `P1=0`.
+
+O workflow candidato usa PostgreSQL 17 descartável e replay. Não consulta banco
+compartilhado, DEV ou PROD e não chama o runner legado de aplicação. O
+`apply_migrations.py` permanece invocável e é risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, ACLs de schema/default ou semântica DML/DDL ampla; revisão humana do
+SQL permanece obrigatória.
+
+Nesta worktree foram observados `0755` na raiz e em `backend/migrations` e
+`0644` nos SQL. Ancestrais do workspace/repositório continuam `0775` e o
+`chmod` local não é durável; o P2 global permanece aberto.
+
+DEV segue `BLOCKED_LEDGER_DIVERGENCE`, PROD segue
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e aplicação continuam pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+A extensão v4 local é aditiva e estritamente source-only: preserva v1-v3 e o
+estado bloqueado de ambiente/cutover, ancora o Commit A, compara duas leituras
+do catálogo validado sem fixar contagem/digest e mantém todas as permissões
+falsas. Seu resultado válido é bloqueado com exit `8`; a suíte dedicada passou
+`61/61`. O workflow separado ainda não foi executado remotamente.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, restrito a
+preflight remoto read-only, push da branch candidata, abertura de PR e
+observação do CI/Preview automáticos. Não autoriza merge, banco compartilhado,
+DEV, PROD, migration, runner de aplicação ou flags. Trust anchors externos
+permanecem futuros, não correntes e não autorizados.
 
 ## Paralelismo seguro
 

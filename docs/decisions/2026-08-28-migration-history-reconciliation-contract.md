@@ -253,7 +253,7 @@ hardening, restart,
 credencial, flag, runtime, agente ou canário. `status` e `apply` permanecem
 bloqueados.
 
-## Próximo gate único
+## Evolução posterior registrada
 
 O manifesto estático de expectativas da fonte foi criado sobre a base
 `7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`, com 75 migrations e digest
@@ -389,18 +389,60 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
-O único gate seguinte é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada para uma única
-revisão read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
-janela temporal mínima ainda não foram delimitados e precisam constar da nova
-autorização antes de qualquer acesso; nenhum horário é inferido. Nenhum log foi
-acessado nesta PR. Este gate não autoriza retry, nova invocação DEV, consulta a
+Naquele recorte histórico, foi proposto o gate
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. O gate
+proposto não foi consumido. Ele exigiria uma autorização humana nova, nominal,
+exclusiva e separada para uma única revisão read-only e sanitizada dos logs da
+falha DEV. A fonte, os filtros e a janela temporal mínima ainda não foram
+delimitados e precisariam constar da autorização antes de qualquer acesso;
+nenhum horário é inferido. Nenhum log foi acessado nesta PR. O gate proposto
+não autoriza retry, nova invocação DEV, consulta a
 PROD, banco ou SQL, exportação ou persistência de logs, captura,
 materialização, DML,
 reconciliação de ledger, corte de época, `bootstrap-ledger`, `harden-ledger`,
 `status`, `apply`, migration, backfill, deploy, flag ou runtime. PROD continua
 fora. Universidade da Vida e Capacitação Destino permanecem fora desta missão.
+Posteriormente, esse caminho foi supersedido pelos diagnósticos de fase e pelo
+probe transport-only executados sob autorizações humanas nominais próprias. O
+identificador permanece somente como registro histórico e não é gate corrente
+nem próximo hoje.
+
+Na worktree atual, a árvore de migrations foi normalizada localmente para
+diretórios `0755` e arquivos `0644`; o snapshot privado descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](2026-09-03-trusted-repository-snapshot-policy.md)
+comprova offline somente esse recorte. Isso não é uma correção universal ou
+durável: os ancestrais do workspace e do repositório principal permanecem
+`0775`, e o `chmod` local pode não sobreviver a um novo checkout. O P2 global
+de permissões continua aberto.
+
+O gate
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE` foi
+consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+O executor emite somente evidência v1 sanitizada e bloqueada. Mesma conexão/PID
+significa duas transações e dois snapshots `REPEATABLE READ READ ONLY`
+separados, não uma única fotografia PostgreSQL. Nenhuma decisão do contrato,
+revisão v3, migration ou autorização operacional foi completada.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito à consulta remota somente leitura de `refs/heads/main`, ao
+preflight da base, ao push da branch candidata, à abertura da PR e à observação
+do CI e do Vercel Preview automáticos. O commit local não afirma integração, CI
+remoto ou estado de ambiente. O gate consolidado não autoriza merge, banco
+compartilhado, DEV, PROD, migration, runner ou alteração de flags;
+`operational_authorization=false` e `next_stage_authorized=false` permanecem
+estritos.
+
+O estágio funcional
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua futuro, não corrente e não autorizado; a consolidação atual não o
+consome nem o antecipa.
 
 O procedimento reproduzível e a separação entre proprietário e pessoa revisora
 estão em

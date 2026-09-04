@@ -1,5 +1,11 @@
 # AGENDA / EVT-8 — Notificação por evento na confirmação
 
+> **Procedimento de migration superseded (2026-09-04):** este documento é uma
+> especificação histórica, não um runbook. Qualquer SQL manual, Supabase SQL
+> Editor, `db push` ou promoção direta DEV→PROD foi substituído pelo fluxo de
+> [`backend/migrations/README.md`](../../backend/migrations/README.md). Nenhum
+> trecho daqui autoriza acesso ou mutação de banco.
+
 **Status:** spec (PR0, docs-only) · **Data:** 2026-07-06 · **Escopo:** captura + persistência da intenção + modal + resolver read-only. **Envio real fica fora (EVT-9).**
 
 ## 1. Objetivo

@@ -125,8 +125,26 @@ O runtime atual continua usando a role `authenticated`, agora com tenant
 transacional obrigatório e verificado. A role dedicada e o schema privado do
 checkpointer pertencem às fases futuras e exigem migrations próprias.
 
-## Próximo gate único
+## Gate daquele recorte histórico (consumido)
 
-Revisar e integrar a PR D1A. Aplicar a migration, iniciar D2, fazer deploy,
-ativar agente ou executar canário exige autorização separada depois do merge e
-de um novo preflight read-only do banco alvo.
+Naquele recorte, o passo seguinte era revisar e integrar a PR D1A. Ele foi
+consumido pela PR #311 no merge
+`01265fc7dfe239e487b5cddb6d9f6714128e3c84`; a aplicação posterior ocorreu
+somente em DEV, sob preflight e autorização próprios, sem alterar PROD. Isso
+não constitui gate corrente nem autoriza nova aplicação, D2, deploy, ativação
+do agente ou canário.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito ao preflight remoto somente leitura, ao push da branch candidata,
+à abertura de PR e à observação do CI e do Preview automáticos. O commit local
+não afirma integração, CI remoto ou estado de ambiente, e o gate consolidado
+não autoriza merge, banco compartilhado, DEV, PROD, migration, runner ou
+alteração de flags. O gate futuro
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua não corrente e não autorizado.

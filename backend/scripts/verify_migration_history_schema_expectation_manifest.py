@@ -32,7 +32,7 @@ MANIFEST_BASENAME = "migration-history-schema-expectation-manifest-v1.json"
 TARGET_REFERENCE_RELATIVE_PATH = ".github/workflows/rls-integration.yml"
 TARGET_REFERENCE_PATH = REPO_ROOT / TARGET_REFERENCE_RELATIVE_PATH
 TARGET_REFERENCE_SHA256 = (
-    "4fac0b1ed923f3dc2298b45ff63bfe57ec849654ae6ab446facbca4b6fef891b"
+    "15f8ac776bf539820cfda06fe466d12bc385eb8d914f55a73bb216e548a7825d"
 )
 CATALOG_ALGORITHM = "basename-ascii-ascending+sha256-raw-bytes-v1"
 CATALOG_DOMAIN = "pastorai/migration-history/catalog/v1"

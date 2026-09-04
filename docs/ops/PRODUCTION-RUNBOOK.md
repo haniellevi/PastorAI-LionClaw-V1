@@ -118,6 +118,14 @@ essas variáveis.
 
 ## 4. Migrations do Supabase
 
+> **Bloqueio corrente (2026-09-04):** não existe comando de aplicação
+> operacional liberado neste SHA. `apply_migrations.py` é legado e não deve ser
+> invocado diretamente. `apply_migrations_catalog_bound_v2.py` valida o catálogo,
+> mas bloqueia `status`, `harden-ledger`, `bootstrap-ledger` e `apply` antes da
+> conexão até existirem trust anchors externos, evidências separadas DEV/PROD e
+> decisão humana de cutover. Os registros abaixo descrevem história, não
+> autorização atual.
+
 Existem dois históricos diferentes:
 
 - `supabase_migrations.schema_migrations`, ledger nativo do Supabase;
@@ -126,8 +134,9 @@ Existem dois históricos diferentes:
 
 Eles não são equivalentes. Nome, ordem ou presença em um deles não autorizam
 copiar, preencher, reaplicar ou registrar entradas no outro. O preflight PROD
-de 2026-08-28 confirmou que `public.schema_migrations` está ausente e que
-`M06_MIGRATION_DATABASE_URL` não está provisionada. `bootstrap-ledger` foi
+de 2026-08-28 observou `public.schema_migrations` ausente e
+`M06_MIGRATION_DATABASE_URL` não provisionada naquele executor. O estado vivo
+atual desses itens não foi revalidado. `bootstrap-ledger` foi
 integrado em `main` pela PR #323 e comprovado apenas offline, ainda não aplicado,
 e não altera esse estado. O merge
 `3a5789c784017ab15a43e28c4270d25af8618359` gerou Preview e Production
@@ -209,26 +218,36 @@ Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
 deployment prova somente o frontend e não prova backend, banco, migration,
 runtime ou atestação de ambiente.
 
-O único gate corrente é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada, com fonte, filtros
-e janela temporal mínima delimitados antes de uma única revisão read-only e
-sanitizada dos logs da falha DEV. Nenhum log foi acessado nesta PR. O gate não
+Naquele recorte histórico, foi proposto o gate
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. O gate
+proposto não foi consumido. Ele exigiria uma autorização humana nova, nominal,
+exclusiva e separada, com fonte, filtros e janela temporal mínima delimitados
+antes de uma única revisão read-only e sanitizada dos logs da falha DEV.
+Nenhum log foi acessado nesta PR. O gate proposto não
 autoriza retry, nova invocação DEV, consulta a PROD, banco ou SQL, exportação ou
 persistência de logs, captura, materialização, DML, reconciliação de ledger,
 corte de época,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push`, MCP, deploy, flag ou runtime. PROD continua fora.
-UV e CD permanecem fora.
+UV e CD permanecem fora. Posteriormente, esse caminho foi supersedido pelos
+diagnósticos de fase e pelo probe transport-only executados sob autorizações
+humanas nominais próprias. O identificador permanece somente como registro
+histórico e não é gate corrente nem próximo hoje.
 
-Antes de aplicar:
+Antes de qualquer aplicação futura, somente depois da abertura de um gate
+nominal específico e da liberação de um executor catalog-bound:
 
 1. provar o ref `pffafnchtxbimpwyaczq`;
 2. listar separadamente, em preflight somente leitura autorizado, o ledger
    nativo e o ledger público, sem inferir equivalência;
-3. ler o SQL versionado do SHA que será implantado;
-4. aplicar em ordem, uma migration por vez;
-5. verificar colunas, constraints, RLS e advisors.
+3. materializar snapshot privado do SHA exato e validar o head corrente;
+4. reproduzir o catálogo no PostgreSQL 17 descartável, validar a superfície
+   `TENANT` coberta e revisar manualmente o SQL e seus limites não cobertos;
+5. usar somente o entrypoint catalog-bound autorizado, primeiro em DEV;
+6. verificar colunas, constraints, FORCE RLS, policies, ACLs e advisors;
+7. abrir decisão e gate independentes antes de qualquer repetição em PROD.
+
+Esta lista é uma pré-condição futura; ela não libera o runner atual.
 
 Já registradas em PROD em 2026-08-05:
 
@@ -593,17 +612,66 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
-O gate seguinte é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada para uma única
-revisão read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
-janela temporal mínima ainda não foram delimitados e precisam constar da nova
-autorização antes de qualquer acesso; nenhum horário é inferido. Nenhum log foi
-acessado nesta PR. Este gate não autoriza retry, nova invocação DEV, consulta a
+Naquele recorte histórico, foi proposto o gate
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. O gate
+proposto não foi consumido. Ele exigiria uma autorização humana nova, nominal,
+exclusiva e separada para uma única revisão read-only e sanitizada dos logs da
+falha DEV. A fonte, os filtros e a janela temporal mínima ainda não foram
+delimitados e precisariam constar da autorização antes de qualquer acesso;
+nenhum horário é inferido. Nenhum log foi acessado nesta PR. O gate proposto
+não autoriza retry, nova invocação DEV, consulta a
 PROD, banco ou SQL, exportação ou persistência de logs, captura,
 materialização, DML, migration, reconciliação, backfill, deploy, flag ou
 runtime. PROD continua fora. Nenhum comando deste runbook é liberado por esse
-gate.
+gate. Posteriormente, esse caminho foi supersedido pelos diagnósticos de fase e
+pelo probe transport-only executados sob autorizações humanas nominais
+próprias. O identificador permanece somente como registro histórico e não é
+gate corrente nem próximo hoje.
+
+A política de permissões foi implementada e comprovada offline pelo snapshot
+privado descrito em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+O gate
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE` foi
+consumido somente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+O executor não pode ser usado neste runbook enquanto autorização nominal,
+runtime/dependências e anti-replay não tiverem trust anchors externos. Não
+forneça DSN, CA, chave, nonce ou registro de autorização ao candidato atual.
+
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
+`947af39d35544700188461d8c99332df70b57e07`, implementa autoria source-only
+`draft`/`prepare-head` apenas `TENANT`, snapshot validado, wrapper catalog-bound
+v2 somente `list` e replay em PostgreSQL 17 descartável/loopback. Não está
+integrado e não houve push, PR ou CI remoto.
+
+No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; a prova real PG17 terminou `6/6`, com
+E2E sintético de 76ª migration `TENANT`; duas revisões independentes concluíram
+`P0=0` e `P1=0`. O workflow candidato usa banco PG17 descartável para replay,
+mas nunca banco compartilhado, DEV/PROD ou o runner legado de aplicação. Esses
+resultados não autorizam o uso deste runbook.
+
+`apply_migrations.py` continua invocável como risco residual. O replay não cobre
+views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants nomeados,
+schema/default ACL ou semântica ampla DML/DDL. A worktree/migrations foi
+observada em `0755` e SQL em `0644`, mas ancestrais permanecem `0775` e o
+`chmod` local não é durável; o P2 global segue aberto.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e apply permanecem pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, restrito a
+preflight remoto read-only, push da branch, abertura de PR e observação do
+CI/Preview. Não autoriza merge, banco compartilhado, DEV, PROD, migration,
+runner de aplicação ou flags. Trust anchors externos permanecem futuros, não
+correntes e não autorizados.
 
 ## 10. Rollback
 

@@ -16,7 +16,7 @@ PYTEST_INI = REPOSITORY_ROOT / "backend" / "pytest.ini"
 
 def _marker_step(workflow: str) -> str:
     return workflow.split(
-        "- name: Rodar toda a suite marcada rls_integration",
+        "- name: Rodar a suite marcada rls_integration fora dos guards de replay fresco",
         maxsplit=1,
     )[1].split(
         "- name: Verificar execucao integral da suite RLS",
@@ -24,7 +24,7 @@ def _marker_step(workflow: str) -> str:
     )[0]
 
 
-def test_workflow_coleta_todo_backend_por_marker_sem_allowlist_manual() -> None:
+def test_workflow_coleta_backend_por_marker_e_isola_somente_replay_fresco() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     marker_step = _marker_step(workflow)
 
@@ -32,7 +32,15 @@ def test_workflow_coleta_todo_backend_por_marker_sem_allowlist_manual() -> None:
     assert "-m rls_integration" in marker_step
     assert "--junitxml=rls-results.xml" in marker_step
     assert "\n            tests\n" in marker_step
-    assert "tests/test_" not in marker_step
+    assert marker_step.count("--deselect tests/test_") == 2
+    assert (
+        "--deselect tests/test_replay_migration_catalog_current_head_pg17.py::"
+        "test_appended_tenant_migration_replays_end_to_end_on_real_pg17"
+    ) in marker_step
+    assert (
+        "--deselect tests/test_replay_migration_catalog_current_head_pg17.py::"
+        "test_appended_tenant_migration_e2e_rejects_weak_or_undeclared_delta"
+    ) in marker_step
 
 
 def test_workflow_falha_com_skip_parcial_ou_zero_testes() -> None:

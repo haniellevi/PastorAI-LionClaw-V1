@@ -1,5 +1,6 @@
-# Verificação source-only do catálogo evolutivo. O job usa somente o checkout
-# e objetos Git locais, sem banco, runner de migration ou credenciais.
+# O primeiro job verifica a evolução source-only. Jobs frescos e terminais
+# separam replay, nodeids declarados e testes de guarda em PostgreSQL 17
+# descartável via loopback. Nenhum job acessa banco compartilhado, DEV ou PROD.
 name: Migration Catalog Head
 
 on:
@@ -34,12 +35,369 @@ jobs:
         env:
           MIGRATION_CATALOG_CURRENT_SHA: ${{ github.sha }}
           MIGRATION_CATALOG_EVENT_NAME: ${{ github.event_name }}
-          MIGRATION_CATALOG_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          MIGRATION_CATALOG_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          MIGRATION_CATALOG_PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          MIGRATION_CATALOG_PUSH_BEFORE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
-          PYTHONDONTWRITEBYTECODE=1 python -B \
+          PYTHONDONTWRITEBYTECODE=1 python -P -B \
             scripts/verify_migration_catalog_ci.py \
             --event-name "$MIGRATION_CATALOG_EVENT_NAME" \
             --current-sha "$MIGRATION_CATALOG_CURRENT_SHA" \
             --pull-request-base-sha "$MIGRATION_CATALOG_PR_BASE_SHA" \
             --push-before-sha "$MIGRATION_CATALOG_PUSH_BEFORE_SHA"
+
+  replay-current-head-pg17:
+    needs: migration-catalog-head
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: migration_catalog_current_head_disposable
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d migration_catalog_current_head_disposable"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+
+      - name: Instalar runtime fixado pelo lockfile
+        run: |
+          python -I -S -m venv "$RUNNER_TEMP/backend-runtime-venv"
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -m pip install --require-hashes -r requirements.lock
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -m pip check
+
+      - name: Tornar o checkout somente leitura antes do replay
+        working-directory: .
+        run: |
+          chmod -R a-w -- "$GITHUB_WORKSPACE"
+
+      - name: Reproduzir head corrente e capturar receipt limitado
+        id: execute-replay
+        continue-on-error: true
+        env:
+          MIGRATION_CATALOG_REPLAY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/migration_catalog_current_head_disposable
+        run: |
+          set -euo pipefail
+          umask 077
+          receipt="$RUNNER_TEMP/migration-catalog-replay.receipt"
+          : > "$receipt"
+          PYTHONDONTWRITEBYTECODE=1 \
+            "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -P \
+            scripts/replay_migration_catalog_current_head_pg17.py \
+            --confirmation REPLAY_MIGRATION_CATALOG_CURRENT_HEAD_PG17_DISPOSABLE \
+            | head -c 4097 > "$receipt"
+
+      - name: Validar receipt exato do replay
+        if: ${{ always() }}
+        env:
+          REPLAY_EXECUTION_OUTCOME: ${{ steps.execute-replay.outcome }}
+          REPLAY_RECEIPT: ${{ runner.temp }}/migration-catalog-replay.receipt
+        run: |
+          python -I -S - "$REPLAY_RECEIPT" ../docs/governance/migrations/migration-catalog-head-v1.json <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import sys
+
+          receipt_path = Path(sys.argv[1])
+          catalog_path = Path(sys.argv[2])
+          if os.environ.get("REPLAY_EXECUTION_OUTCOME") != "success":
+              raise SystemExit("replay execution did not succeed")
+          if not receipt_path.is_file():
+              raise SystemExit("replay receipt is absent")
+          raw = receipt_path.read_bytes()
+          if not raw or len(raw) > 4096:
+              raise SystemExit("replay receipt size is invalid")
+          try:
+              head = json.loads(catalog_path.read_text(encoding="utf-8"))["current_head"]
+              migration_count = head["migration_count"]
+              digest = head["digest_sha256"]
+          except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+              raise SystemExit("catalog head is invalid") from exc
+          if type(migration_count) is not int or migration_count < 1:
+              raise SystemExit("catalog migration count is invalid")
+          if type(digest) is not str or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+              raise SystemExit("catalog digest is invalid")
+          expected = [
+              "OPERATIONAL_AUTHORIZATION=BLOCKED",
+              "NEXT_STAGE_AUTHORIZED=false",
+              "SHARED_ENVIRONMENT_ATTESTATION=false",
+              "RESULT=MIGRATION_CATALOG_CURRENT_HEAD_REPLAYED_PG17_DISPOSABLE",
+              f"CATALOG_MIGRATION_COUNT={migration_count}",
+              f"CATALOG_DIGEST_SHA256={digest}",
+              "POSTGRESQL_MAJOR=17",
+          ]
+          if raw != ("\n".join(expected) + "\n").encode("ascii"):
+              raise SystemExit("replay receipt does not match the exact contract")
+          PY
+
+      - name: Restaurar permissão do checkout descartável
+        if: ${{ always() }}
+        working-directory: .
+        run: |
+          chmod -R u+w -- "$GITHUB_WORKSPACE"
+
+  declared-nodeids-pg17:
+    needs: replay-current-head-pg17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+
+      - name: Instalar runtime fixado pelo lockfile
+        run: |
+          python -I -S -m venv "$RUNNER_TEMP/backend-runtime-venv"
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -m pip install --require-hashes -r requirements.lock
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -m pip check
+
+      - name: Detectar lote append-only sem executar código candidato
+        id: declared-contract
+        run: |
+          python -I -S - "$GITHUB_OUTPUT" ../docs/governance/migrations/migration-catalog-head-v1.json <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          output_path = Path(sys.argv[1])
+          catalog_path = Path(sys.argv[2])
+          document = json.loads(catalog_path.read_text(encoding="utf-8"))
+          batches = document.get("append_only_batches")
+          if type(batches) is not list:
+              raise SystemExit("append-only batches are invalid")
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"required={'true' if batches else 'false'}\n")
+          PY
+
+      - name: Tornar o checkout somente leitura antes dos nodeids
+        working-directory: .
+        run: |
+          chmod -R a-w -- "$GITHUB_WORKSPACE"
+
+      - name: Executar nodeids declarados e capturar receipt limitado
+        id: execute-declared-nodeids
+        if: steps.declared-contract.outputs.required == 'true'
+        continue-on-error: true
+        env:
+          RLS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres
+        run: |
+          set -euo pipefail
+          umask 077
+          receipt="$RUNNER_TEMP/migration-catalog-declared-nodeids.receipt"
+          : > "$receipt"
+          PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+            "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -P \
+            scripts/replay_migration_catalog_current_head_pg17.py \
+            --confirmation RUN_DECLARED_MIGRATION_TESTS_PG17_DISPOSABLE \
+            | head -c 4097 > "$receipt"
+
+      - name: Validar receipt exato dos nodeids declarados
+        if: ${{ always() && steps.declared-contract.outputs.required == 'true' }}
+        env:
+          DECLARED_EXECUTION_OUTCOME: ${{ steps.execute-declared-nodeids.outcome }}
+          DECLARED_RECEIPT: ${{ runner.temp }}/migration-catalog-declared-nodeids.receipt
+        run: |
+          python -I -S - "$DECLARED_RECEIPT" <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          receipt_path = Path(sys.argv[1])
+          if os.environ.get("DECLARED_EXECUTION_OUTCOME") != "success":
+              raise SystemExit("declared nodeids execution did not succeed")
+          if not receipt_path.is_file():
+              raise SystemExit("declared nodeids receipt is absent")
+          raw = receipt_path.read_bytes()
+          if not raw or len(raw) > 4096 or not raw.endswith(b"\n"):
+              raise SystemExit("declared nodeids receipt size is invalid")
+          try:
+              lines = raw.decode("ascii").splitlines()
+          except UnicodeDecodeError as exc:
+              raise SystemExit("declared nodeids receipt is not ASCII") from exc
+          expected_prefix = [
+              "OPERATIONAL_AUTHORIZATION=BLOCKED",
+              "NEXT_STAGE_AUTHORIZED=false",
+              "SHARED_ENVIRONMENT_ATTESTATION=false",
+              "RESULT=DECLARED_MIGRATION_TESTS_EXECUTED_PG17_DISPOSABLE",
+          ]
+          if len(lines) != 7 or lines[:4] != expected_prefix:
+              raise SystemExit("declared nodeids receipt lines are invalid")
+
+          def exact_count(line: str, prefix: str) -> int:
+              if not line.startswith(prefix):
+                  raise SystemExit("declared nodeids count line is absent")
+              value = line.removeprefix(prefix)
+              if not value.isascii() or not value.isdecimal():
+                  raise SystemExit("declared nodeids count is invalid")
+              parsed = int(value)
+              if str(parsed) != value:
+                  raise SystemExit("declared nodeids count is not canonical")
+              return parsed
+
+          nodeids = exact_count(lines[4], "DECLARED_NODEID_COUNT=")
+          collected = exact_count(lines[5], "COLLECTED_TEST_COUNT=")
+          passed = exact_count(lines[6], "PASSED_TEST_COUNT=")
+          if nodeids <= 0 or collected < nodeids or passed != collected:
+              raise SystemExit("declared nodeids were not fully executed")
+          PY
+
+      - name: Restaurar permissão do checkout descartável
+        if: ${{ always() }}
+        working-directory: .
+        run: |
+          chmod -R u+w -- "$GITHUB_WORKSPACE"
+
+  replay-guard-tests:
+    needs: replay-current-head-pg17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+
+      - name: Instalar runtime fixado pelo lockfile
+        run: |
+          python -I -S -m venv "$RUNNER_TEMP/backend-runtime-venv"
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -m pip install --require-hashes -r requirements.lock
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -m pip check
+
+      - name: Tornar o checkout somente leitura antes dos testes de guarda
+        working-directory: .
+        run: |
+          chmod -R a-w -- "$GITHUB_WORKSPACE"
+
+      - name: Executar testes de guarda com JUnit
+        id: execute-guard-tests
+        continue-on-error: true
+        env:
+          RLS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+            "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -P -m pytest \
+            -p no:cacheprovider -o addopts= --strict-markers --runxfail \
+            -q --tb=short \
+            --junitxml="$RUNNER_TEMP/migration-catalog-replay-guards.xml" \
+            tests/test_replay_migration_catalog_current_head_pg17.py
+
+      - name: Validar JUnit dos testes de guarda
+        if: ${{ always() }}
+        env:
+          GUARD_TEST_OUTCOME: ${{ steps.execute-guard-tests.outcome }}
+          GUARD_TEST_REPORT: ${{ runner.temp }}/migration-catalog-replay-guards.xml
+        run: |
+          python -I -S - "$GUARD_TEST_REPORT" <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+          import xml.etree.ElementTree as ET
+
+          report_path = Path(sys.argv[1])
+          if os.environ.get("GUARD_TEST_OUTCOME") != "success":
+              raise SystemExit("guard tests did not succeed")
+          if not report_path.is_file():
+              raise SystemExit("guard test JUnit report is absent")
+          size = report_path.stat().st_size
+          if size < 1 or size > 4_194_304:
+              raise SystemExit("guard test JUnit report size is invalid")
+          try:
+              root = ET.fromstring(report_path.read_bytes())
+          except (ET.ParseError, OSError) as exc:
+              raise SystemExit("guard test JUnit report is invalid") from exc
+          suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+          if not suites:
+              raise SystemExit("guard test JUnit report has no suite")
+
+          def total(attribute: str) -> int:
+              values = []
+              for suite in suites:
+                  value = suite.get(attribute)
+                  if value is None or not value.isascii() or not value.isdecimal():
+                      raise SystemExit("guard test JUnit count is invalid")
+                  values.append(int(value))
+              return sum(values)
+
+          tests = total("tests")
+          if tests <= 0 or total("failures") or total("errors") or total("skipped"):
+              raise SystemExit("guard tests were not fully successful")
+          PY
+
+      - name: Restaurar permissão do checkout descartável
+        if: ${{ always() }}
+        working-directory: .
+        run: |
+          chmod -R u+w -- "$GITHUB_WORKSPACE"

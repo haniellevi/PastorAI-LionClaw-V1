@@ -1,5 +1,12 @@
 # Agenda de Eventos — EVT-7 PR2: fonte de telefone / destinatários de alerta
 
+> **Procedimento de migration superseded (2026-09-04):** preserve este texto
+> como decisão histórica; não execute instruções antigas de SQL manual,
+> Supabase SQL Editor, `db push` ou promoção direta DEV→PROD. O procedimento
+> atual está em
+> [`backend/migrations/README.md`](../../backend/migrations/README.md) e este
+> documento não autoriza acesso ou mutação de banco.
+
 **Status:** auditoria read-only concluída · decisão de PR2 recomendada · **Data:** 2026-07-01
 **Base analisada:** `origin/main` SHA `21bc8cf` (Merge PR #79 — EVT-7 PR1 aviso na confirmação).
 **Origem:** auditoria read-only da fonte de telefone da equipe interna (models, roles, auth/ativação, SLA, Clerk, LGPD) com verificação por dado real no DEV e fan-out de leitura.

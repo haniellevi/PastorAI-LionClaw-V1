@@ -191,7 +191,7 @@ inventário de linhas e gate nominal próprios.
 - memória privada, conhecimento institucional ou propostas D2C;
 - Universidade da Vida e Capacitação Destino.
 
-## Próximo gate único
+## Próximo gate específico daquele recorte de consentimento
 
 Materializar uma instância governada do template por igreja, com quatro
 pacotes independentes, e obter o atestado do dono factual, a revisão de
@@ -199,3 +199,19 @@ privacidade ou do encarregado, a revisão jurídica quando designada e a decisã
 final do representante autorizado do controlador, todos vinculados ao digest
 exato de cada pacote. Catálogo, evidence store, writer, Supabase DEV ou PROD e
 D2C permanecem bloqueados até esse gate ser concluído.
+
+Esse passo jurídico continua obrigatório no domínio de consentimento, mas não
+é o estágio global corrente da frente de migrations. O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto no recorte do executor v2, mas não foi consumido. Depois do Commit
+A local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, ele foi substituído pela
+consolidação
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, agora o
+único estágio global corrente, fechado e não autorizado. Seu eventual consumo
+fica restrito ao preflight remoto somente leitura, ao push da branch candidata,
+à abertura de PR e à observação dos checks e do Preview automáticos. O commit
+local não afirma integração, CI remoto ou estado de ambiente, e o gate
+consolidado não autoriza merge, banco compartilhado, DEV, PROD, migration,
+runner ou alteração de flags. O gate futuro
+`OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_EXECUTOR_V2_EXTERNAL_TRUST_ANCHORS_OFFLINE`
+continua não corrente e não autorizado.

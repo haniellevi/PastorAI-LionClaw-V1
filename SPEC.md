@@ -175,7 +175,7 @@
   - `celulas`: abrir/editar apenas lider da celula ou superior na hierarquia (delta-007).
 - **Agente (F5/delta-034):** fixa o tenant no servidor e executa sob papel sem `BYPASSRLS`, com as mesmas validacoes de negocio de um humano. Service role nao substitui escopo, RLS ou autorizacao.
 - **D2B2a integrada e inativa:** `consentimento_finalidade_evento` habilita e forca RLS. Uma policy restritiva exige `app.tenant_igreja_id` fixado pelo backend; JWT ou `current_igreja_id()` sem esse GUC nao liberam linhas. `authenticated` recebe somente SELECT e INSERT nas colunas de entrada; `PUBLIC`, `anon`, `service_role` e `agent_runtime` nao recebem privilegios de tabela. UPDATE, DELETE e TRUNCATE permanecem revogados. A migration ainda nao foi aplicada em Supabase.
-- **D2B2b3A draft-only:** `purpose_consent_governance_envelope` habilita e forca RLS, nao expoe policy de Data API e revoga privilegios de `PUBLIC`, `anon`, `authenticated`, `service_role` e `agent_runtime`. Somente o caminho auditado do Console Master, com igreja explicita e identidade server-side, pode preparar o rascunho. Esta missao nao aplicou a migration D2B2b3A; DEV e PROD confirmaram a ausencia.
+- **D2B2b3A draft-only:** `purpose_consent_governance_envelope` habilita e forca RLS, nao expoe policy de Data API e revoga privilegios de `PUBLIC`, `anon`, `authenticated`, `service_role` e `agent_runtime`. Somente o caminho auditado do Console Master, com igreja explicita e identidade server-side, pode preparar o rascunho. No preflight historico de 2026-08-28, DEV e PROD confirmaram a ausencia da migration D2B2b3A; o estado vivo atual nao foi revalidado.
 
 No baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD
 somente leitura confirmou `DATABASE_URL` presente e
@@ -184,17 +184,21 @@ convergiram para a mesma identidade sanitizada; a role runtime possui
 `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, e owner de `public.igrejas` e
 `public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
 A tabela alvo D2B2b3A, o validator e a propria `public.schema_migrations`
-estavam ausentes. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permaneceu
-`false`. Esta missao nao aplicou a migration D2B2b3A; DEV e PROD confirmaram a
-ausencia. A PR #321 integrou a reconciliacao documental anterior no merge
+estavam ausentes. Naquele registro, a flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` estava `false`. No preflight
+historico de 2026-08-28, DEV e PROD confirmaram a ausencia da migration
+D2B2b3A; o estado vivo atual nao foi revalidado. A PR #321 integrou a
+reconciliacao documental anterior no merge
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
 automatico Vercel frontend Production `6141449639`, com `SUCCESS`, em
 2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
 banco ou Supabase. O preflight VPS em si nao executou deploy manual ou do
-backend, migration, restart ou alteracao da flag. A leitura comprova identidade,
-ownership e ACL do caminho runtime atual, mas nao o comportamento da tabela
-futura sob `FORCE RLS`; o caminho de migration permanece bloqueado pela ausencia
-de `M06_MIGRATION_DATABASE_URL` e do ledger publico.
+backend, migration, restart ou alteracao da flag. A leitura historica comprovou
+identidade, ownership e ACL do caminho runtime observado naquele preflight, mas
+nao o comportamento da tabela futura sob `FORCE RLS`. Naquele preflight, o
+caminho de migration estava bloqueado pela ausencia de
+`M06_MIGRATION_DATABASE_URL` e do ledger publico; o estado vivo atual desses
+itens nao foi revalidado.
 
 ### 2.3 Triggers
 - **`trg_promote_pipeline`** (BEFORE INSERT/UPDATE em `pessoas`) — state machine F2/delta-013/031: avanca `etapa`/`subetapa` automaticamente quando `presencas_celula >= 3` OU `aceitou_jesus = true` (visitante -> membro). Conclusao de consolidacao usa seu proprio fluxo.
@@ -464,9 +468,10 @@ A PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, foi integrada no
 merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Os cinco workflows da
 PR e os cinco pos-merge ficaram verdes. O merge gerou o deployment automatico
 Vercel frontend Production `6140373952`, com `SUCCESS`; essa metadata nao prova
-backend, banco ou Supabase. Esta missao nao aplicou a migration D2B2b3A; DEV e
-PROD confirmaram a ausencia. A flag permanece `false`, e nao houve deploy manual ou do
-backend, wiring, ativacao ou canario.
+backend, banco ou Supabase. No preflight historico de 2026-08-28, DEV e PROD
+confirmaram a ausencia da migration D2B2b3A; o estado vivo atual nao foi
+revalidado. Naquele registro, a flag estava `false`, e nao houve deploy manual
+ou do backend, wiring, ativacao ou canario.
 
 A implementacao foi desenvolvida e comprovada offline sobre a base versionada
 `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`. O codigo integrado pela PR #323
@@ -1710,7 +1715,7 @@ A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, co
 - [ ] Itens da fila so aparecem para quem pode resolve-los (delta-006).
 - [ ] Captura restrita ao numero oficial; conversas pessoais do pastor nunca registradas (US-07/RF-09).
 - [ ] Consentimento por finalidade para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados; a D2B2a integrada cobre apenas persistencia interna, sem caller, e o opt-out global prevalece (US-31/32/33/RNF-06).
-- [x] Rascunhos D2B2b3A isolados por tenant, com revisao otimista, ator server-side, auditoria sem payload e status fixo `DRAFT_NOT_APPROVED`; implementacao integrada na PR #320 e ainda inativa. Esta missao nao aplicou a migration D2B2b3A; DEV e PROD confirmaram a ausencia.
+- [x] Rascunhos D2B2b3A isolados por tenant, com revisao otimista, ator server-side, auditoria sem payload e status fixo `DRAFT_NOT_APPROVED`; implementacao integrada na PR #320 e ainda inativa. No preflight historico de 2026-08-28, DEV e PROD confirmaram a ausencia da migration D2B2b3A; o estado vivo atual nao foi revalidado.
 - [ ] Pacote humano e juridico aprovado por finalidade antes de catalogo ou writer; D2B2b1 nega todo grant enquanto ele estiver ausente.
 - [ ] Registro de termo imutavel e prova correlacionada, nao apenas versao + data/hora; re-aceite conforme mudanca aprovada e mascara de CPF/dados sensiveis nos logs (delta-040/052).
 - [ ] Memoria privada excluida de ponta a ponta apos solicitacao via WhatsApp e aprovacao admin, incluindo midia, transcricao, resumo, checkpoint e vetores derivados.
@@ -1904,3 +1909,42 @@ AGENT_GRAPH_CHECKPOINT_URL=
 - **Central de notificacoes** in-app (ex.: upgrade de plano, convite nao enviado, SLA estourado) — hoje refletido por estados nas telas de origem.
 - **Fluxo de merge manual** de contatos duplicados — hoje dedupe e automatico por telefone+igreja.
 - **Historico/auditoria visivel no painel** de envios de comunicados e handoffs — hoje so em logs backend (F8).
+
+## Delta-074 — segurança de autoria e replay de migrations (2026-09-04)
+
+O último snapshot integrado de `main` observado continua
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. O commit local
+`9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho de
+`947af39d35544700188461d8c99332df70b57e07`, consolida autoria source-only em
+duas fases (`draft`/`prepare-head`) e somente `TENANT`, snapshot validado,
+wrapper catalog-bound v2 apenas `list` e replay do head corrente em PostgreSQL
+17 descartável e loopback. Não houve integração, push, PR ou CI remoto.
+
+O verificador longitudinal no mesmo SHA confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal concluiu `274 passed, 6 skipped`; a prova PG17 real concluiu `6/6`,
+incluindo E2E sintético de uma 76ª migration `TENANT`; duas revisões
+independentes concluíram `P0=0` e `P1=0`. O workflow candidato agora usa banco
+PG17 descartável e executa replay, nunca banco compartilhado, DEV/PROD ou o
+runner legado de aplicação.
+
+`apply_migrations.py` permanece invocável como risco residual. O replay não
+cobre views, outros schemas, funções, roles/memberships, `BYPASSRLS`, grants
+nomeados, ACLs de schema/default ou equivalência semântica ampla de DML/DDL;
+revisão humana permanece obrigatória. Worktree e migrations foram observadas
+em `0755` e SQL em `0644`, mas ancestrais workspace/repositório permanecem
+`0775` e o `chmod` local não é durável; o P2 global continua aberto.
+
+DEV está `BLOCKED_LEDGER_DIVERGENCE`, PROD está
+`BLOCKED_EVIDENCE_INSUFFICIENT`, o TLS DEV histórico não foi resolvido e
+revisão v3, cutover, atestações vivas e aplicação seguem pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`; limita-se a
+preflight remoto read-only, push da branch, abertura de PR e observação do
+CI/Preview, sem autorizar merge, banco, DEV, PROD, migration, runner de
+aplicação ou flags. Trust anchors externos permanecem futuros, não correntes e
+não autorizados. O pacote v3 e seus hashes históricos permanecem inalterados.

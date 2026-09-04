@@ -1,5 +1,11 @@
 # User Stories e Requisitos — PR2 Células (Reuniões, Presença e Expectativa de Visitante)
 
+> **Procedimento de migration substituído (2026-09-04):** requisitos de
+> produto abaixo continuam como registro histórico; aplicação manual deixou de
+> ser o procedimento vigente. Use
+> [`backend/migrations/README.md`](../../backend/migrations/README.md); este
+> documento não autoriza acesso ou mutação de banco.
+
 > Feature: base backend-only de reuniões reais de célula (PastorAI / Igreja 12).
 > Origem: `discovery20260704_173116.md` + SPEC canônica LIONCLAW-WORKFLOW-SPEC-PR2-CELULAS.
 > Base commit: `7b31d4c` (PR1 em `origin/main`).

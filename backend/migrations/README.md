@@ -9,12 +9,72 @@ aplicada automaticamente por merge, deploy ou inicialização do backend.
 - Novas migrations: timestamp UTC no formato
   `AAAAMMDD_HHMMSS_slug.sql`.
 
-Para criar o arquivo:
+O fluxo de autoria é local, source-only e dividido em duas fases. Primeiro,
+confirme o SHA do commit que contém o head aprovado e crie exatamente um
+rascunho:
 
 ```bash
 cd backend
-python scripts/new_migration.py "add coluna x em pessoas"
+git rev-parse --verify HEAD^{commit}
+python -P scripts/new_migration.py draft \
+  --expected-repository-sha <SHA_EXATO> \
+  "add coluna x em pessoas"
 ```
+
+O comando exige que `HEAD`, o head, o schema, o próprio autor e o verificador
+do catálogo coincidam byte a byte com o SHA informado. Ele recusa drift prévio
+e cria o SQL com `O_EXCL|O_NOFOLLOW`, lock de kernel cooperativo e modo local
+`0600`; nunca altera o head. O primeiro registro do arquivo é o JSON exato
+`PASTORAI_MIGRATION_INTENT_V1`. Enquanto o marcador
+`MIGRATION_DRAFT_INCOMPLETE` existir ou o contrato estruturado estiver
+incompleto, o lote não pode ser preparado. A fronteira v1 aceita somente
+`TENANT`, referencia decisões e testes reais, exige relações afetadas,
+controles RLS/ACL e rollback ou compensação. `GLOBAL` falha fechado até existir
+um contrato versionado, revisão e testes próprios. Metadados continuam sendo
+declaração revisável, não prova automática da semântica do SQL.
+
+Com o conteúdo final, prepare o lote append-only correspondente:
+
+```bash
+python -P scripts/new_migration.py prepare-head \
+  --expected-repository-sha <MESMO_SHA_EXATO> \
+  <AAAAMMDD_HHMMSS_slug.sql>
+```
+
+`prepare-head` aceita somente um arquivo novo terminal, calcula internamente
+nome, posição, tamanho, SHA-256, sequência e digests e ancora
+`previous_approved_head_sha256` nos bytes exatos do head do commit. Ele devolve
+o head candidato em Base64, com seu SHA-256, mas deliberadamente **não o
+instala**. Isso elimina a sobrescrita concorrente check-then-replace: a
+publicação do SQL e do head é uma etapa separada, revisada, que deve produzir
+uma única árvore/commit a partir do parent esperado. Se o SHA/branch mudar, o
+publisher deve falhar por compare-and-swap. Um SQL órfão continua fail-closed;
+corrija o mesmo arquivo e repita `prepare-head`, sem criar outro rascunho para
+contornar o bloqueio.
+
+Os dois comandos sempre mantêm
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e `NEXT_STAGE_AUTHORIZED=false`. Eles não
+fazem rede, não recebem DSN, não chamam runner, não aprovam e não aplicam SQL.
+O candidato ainda precisa ser publicado junto do SQL e passar pelo verificador
+longitudinal do CI contra o head da base da PR e pelo replay do catálogo
+corrente em PostgreSQL 17 descartável. Aplicação manual, SQL Editor, copy/paste
+e `db push` não são caminhos autorizados; qualquer eventual aplicação somente
+poderá usar um executor catalog-bound a partir de snapshot privado do SHA
+aprovado e um gate operacional separado, DEV antes de PROD.
+
+O replay é uma evidência de no-regression do contrato `TENANT` v1, não uma
+prova de SQL arbitrário. Ele inventaria todas as tabelas e partições do schema
+`public`, rejeita relação nova sem contrato tenant forte e remoção ou mudança
+de fronteira não declarada, e exige `igreja_id`, RLS/ACL direta e a policy
+tenant esperada em cada relação nova/declarada. Outros schemas, views, foreign
+tables, funções, papéis, memberships, `BYPASSRLS`, schema/default ACLs e
+equivalência semântica ampla continuam sob revisão humana e contratos futuros.
+
+Comentários antigos dentro das 75 migrations do prefixo imutável que mencionam
+aplicação manual, Supabase SQL Editor ou procedimentos semelhantes são registro
+histórico **substituído**. Eles não constituem instrução operacional atual e os
+bytes não devem ser editados para corrigi-los, pois isso destruiria o digest do
+prefixo aprovado.
 
 O nome ordena o catálogo local, mas não prova que o arquivo foi aplicado em
 qualquer ambiente. O histórico nativo do Supabase
@@ -22,41 +82,37 @@ qualquer ambiente. O histórico nativo do Supabase
 `public.schema_migrations` são objetos diferentes e nunca são reconciliados por
 inferência.
 
-## Executor fail-closed
+## Executor catalog-bound e runner legado
 
-`scripts/apply_migrations.py` possui operações distintas:
+`scripts/apply_migrations.py` está congelado no hash histórico
+`36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65`.
+Ele permanece necessário como implementação delegada e como evidência das
+missões anteriores, mas **não é um entrypoint operacional corrente**: quando
+invocado isoladamente, descobre `*.sql` fora do head aprovado.
 
-- `list`: lista o catálogo local sem conexão;
-- `status`: consulta somente um ledger público já seguro e exige prefixo íntegro
-  com, no máximo, uma migration pendente;
-- `harden-ledger`: endurece um ledger público histórico já existente, sem criar
-  ou preencher entradas;
-- `bootstrap-ledger`: cria somente o ledger público vazio no contrato
-  owner-only final, sem ler ou copiar histórico;
-- `apply`: aplica um único arquivo previamente aprovado, com basename, SHA-256
-  e confirmação literal, somente quando o ledger já forma o prefixo seguro.
-
-O destino é aceito exclusivamente pela variável de processo
-`M06_MIGRATION_DATABASE_URL`. A CLI não aceita DSN em argumento e nunca deve
-receber URL, senha, token ou host em conversa, documentação ou log.
-
-O bootstrap exige PostgreSQL 17 e confirmação explícita:
+O candidato corrente `scripts/apply_migrations_catalog_bound_v2.py` autentica
+esses bytes legados, lê por descritor e autentica também os bytes exatos do
+módulo aditivo `scripts/validated_migration_catalog_snapshot.py` antes de
+executá-los, e exige que posição, basename, tamanho e SHA-256 de cada SQL
+coincidam com `validated_local_catalog_snapshot()`. O verificador histórico do
+catálogo permanece byte-idêntico porque integra a cadeia fixada do executor de
+atestação v2. Nesta versão somente `list` é permitido, sem conexão:
 
 ```bash
 cd backend
-: "${M06_MIGRATION_DATABASE_URL:?injete a URL aprovada pelo canal secreto}"
-python scripts/apply_migrations.py bootstrap-ledger \
-  --confirm BOOTSTRAP_LEDGER
+python -P scripts/apply_migrations_catalog_bound_v2.py list
 ```
 
-Esse comando não descobre o catálogo local, não consulta ou altera
-`supabase_migrations`, não registra migrations e não autoriza `status` ou
-`apply`. Em um ledger vazio com múltiplos arquivos locais, ambos continuam
-bloqueados.
+`status`, `harden-ledger`, `bootstrap-ledger` e `apply` terminam com exit `8`
+antes de ler DSN ou alcançar `_connect`: ainda não existe trust anchor externo,
+autorização operacional autenticada, anti-replay durável nem decisão de
+cutover. Portanto não há, neste SHA, comando autorizado para aplicar migration
+em DEV ou PROD. A variável histórica `M06_MIGRATION_DATABASE_URL` nunca deve
+ser fornecida a partir de conversa, documentação ou terminal compartilhado.
 
 ## Estado operacional atual
 
-`bootstrap-ledger` foi integrado pela PR #323 e comprovado somente offline,
+O código histórico de `bootstrap-ledger` foi integrado pela PR #323 e comprovado somente offline,
 ainda não aplicado, sobre a base
 `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`: 42/42 testes unitários, 87/87 em
 PostgreSQL 17-alpine descartável em duas execuções independentes e 87/87 em
@@ -74,7 +130,8 @@ metadata não prova deploy do backend, banco ou runtime.
 
 Até a missão anterior, nenhuma execução havia ocorrido em DEV ou PROD. A
 captura somente leitura documentada abaixo não altera esse estado de aplicação.
-Não use `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+Não invoque diretamente o runner legado nem use `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push` ou MCP para preencher, reaplicar ou reconciliar
 histórico em ambiente compartilhado.
 
@@ -329,8 +386,10 @@ capacidade de rede ausentes, probe não executado e operação bloqueada.
 O `next_gate` embutido no plano JSON conserva como evidência histórica o gate
 `REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`, consumido pela PR
 #346. Ele não é um segundo gate corrente e não autoriza nova ação. O artefato
-técnico permanece byte a byte intacto; o único gate corrente é o definido a
-seguir e validado pelo teste documental.
+técnico permanece byte a byte intacto. Os gates descritos nas subseções
+intermediárias abaixo são históricos; o único estágio global corrente está
+registrado na seção final de estado da cadeia local e é validado pelo teste
+documental.
 
 A PR #347, HEAD `0a257e9aa1985860d5ea0a4506d4f7e84c7b2312`, foi integrada no
 merge `36f8d13284a8f4964d0258a2a3b845323a80fe7e`, com
@@ -357,9 +416,11 @@ runner no merge `1e727cd2ea90ccfb68961174b802d595c71f355b`, com
 `SUCCESS`. A Vercel registrou o deployment automático frontend Production
 `6184050276`, status `17575418445`, `state=success`, em
 `2026-08-31T15:23:35Z`; essa metadata prova somente o deployment do frontend e
-não prova saúde funcional, backend, banco, DEV, PROD ou o probe. O estado é
-`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
-OPERAÇÃO BLOQUEADA`.
+não prova saúde funcional, backend, banco, DEV, PROD ou o probe. O estado
+naquele recorte, antes do consumo do gate de execução, era `IMPLEMENTADO /
+INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`.
+O estado corrente inclui a única execução registrada abaixo, bloqueada em
+`TLS_HANDSHAKE`; não houve nova tentativa.
 
 O gate `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`
 foi consumido por exatamente uma invocação no checkout `1e727cd2`, runner
@@ -853,6 +914,75 @@ enfraquecer `device`, `inode`, `mode`, `uid` ou `gid`. Bytes e metadados
 completos dos arquivos, o diretório do catálogo e cada migration continuam sob
 comparação integral. A evidência completa, as limitações e os registros de gates
 estão centralizados na decisão técnica.
+
+A reconciliação M1J-R5 foi fixada no commit
+`2218049902635239280af141980a30c3c3477c4c`, filho de `8aacf98d`, e integrada
+pela PR #363 no merge `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, com
+parents `8aacf98d` e `2218049` e árvore idêntica à de `2218049`. O preflight,
+o push/PR, o merge e o fetch pós-merge foram etapas separadas. Os dez checks da
+PR e os nove check-runs pós-merge, incluindo `public-health`, foram revalidados
+com sucesso pelo supervisor nesta missão. Conforme a evidência Git/GitHub
+revalidada, o deployment automático pós-merge
+`6251268132` foi classificado explicitamente como Vercel Production e terminou
+com sucesso; ele prova somente o frontend Next.js. `8aacf98d` é a base
+histórica, `c2fb16ad` é o snapshot versionado corrente e a M1J está encerrada,
+sem provar ou autorizar migration, banco, backend, DEV, PROD, flags ou runtime.
+
+A primitiva de snapshot privado do SHA exato foi implementada e comprovada
+offline. Nesta worktree foram observados modo `0755` na raiz e em
+`backend/migrations` e `0644` nos SQL. A mitigação continua parcial: ancestrais
+do workspace/repositório permanecem `0775`, um `chmod` local não é controle
+durável, e consumidores legados de apply, capture e reconcile não estão todos
+migrados transitivamente. O P2 permanece aberto globalmente. O procedimento e
+seus limites estão em
+[`2026-09-03-trusted-repository-snapshot-policy.md`](../../docs/decisions/2026-09-03-trusted-repository-snapshot-policy.md).
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido para o candidato local documentado em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](../../docs/decisions/2026-09-03-migration-environment-attestation-executor-v2.md).
+O executor abre no máximo uma conexão/PID e usa duas transações e dois
+snapshots `REPEATABLE READ READ ONLY` separados para identidade e captura. Ele
+fecha a conexão antes da publicação e termina deliberadamente bloqueado. Não
+executa nenhum comando de `apply_migrations.py`.
+
+## Evidência local pós-Commit A
+
+O commit `9b9395e29cc821d6808738a30a6afe367d4ffbea`, filho direto de
+`947af39d35544700188461d8c99332df70b57e07`, fixa o fluxo de autoria e replay
+descrito no início deste documento. Ele é local: não está integrado e não teve
+push, PR ou CI remoto.
+
+O verificador longitudinal executado no mesmo SHA confirmou 75 migrations e
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal concluiu `274 passed, 6 skipped`; a matriz real PG17 concluiu `6/6`,
+incluindo um E2E sintético de uma 76ª migration `TENANT`; duas revisões
+independentes concluíram `P0=0` e `P1=0`. O workflow candidato usa PostgreSQL
+17 descartável e somente loopback para replay; não usa banco compartilhado,
+DEV ou PROD e não chama `apply_migrations.py`.
+
+O replay não cobre views, outros schemas, funções, roles/memberships,
+`BYPASSRLS`, grants nomeados, ACLs de schema/default ou equivalência semântica
+ampla de DML/DDL. O runner legado continua invocável como risco residual e
+revisão humana do SQL permanece obrigatória.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD continua
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica não foi resolvida e
+revisão v3, cutover, atestações vivas e aplicação permanecem pendentes.
+`operational_authorization=false` e `next_stage_authorized=false`.
+
+A proposta local v4 ancora esses artefatos do Commit A sem substituir v1-v3
+nem reinterpretar ambiente/cutover. Ela compara duas leituras do catálogo
+validado, não fixa contagem ou digest, mantém todas as permissões falsas e
+continua bloqueada com exit `8`; os testes dedicados passaram `61/61`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado a
+preflight remoto read-only, push da branch, abertura da PR e observação do
+CI/Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
+migration, runner de aplicação ou flags. Trust anchors externos são futuros,
+não correntes e não autorizados.
 
 ## Transações especiais
 

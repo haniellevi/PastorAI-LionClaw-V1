@@ -1,5 +1,11 @@
 # Promoção da Agenda MVP (EVT-1..5) para produção — 2026-06-30
 
+> **Registro histórico — não repetir este procedimento:** a aplicação manual
+> via SQL Editor descrita abaixo pertence à promoção de 2026-06-30 e foi
+> substituída pelo fluxo atual em
+> [`backend/migrations/README.md`](../../backend/migrations/README.md). Este
+> arquivo não autoriza uma nova operação.
+
 **Branch:** `docs/agenda-mvp-prod-promotion` (este registro, docs-only)
 · **Commits/SHA promovido:** `27f7e7d` (merge da EVT-5, PR #71)
 · **Deploy:** **sim** — migration prod + backend VPS + frontend Vercel (smoke funcional pendente)

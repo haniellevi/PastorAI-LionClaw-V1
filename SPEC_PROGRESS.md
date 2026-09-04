@@ -118,10 +118,11 @@ Tooling Static Checks `33165481549`. Os cinco pos-merge tambem concluiram com
 `33167430895`.
 O merge gerou o deployment automatico Vercel frontend Production `6140373952`,
 com `SUCCESS`. Essa metadata prova somente o frontend nesse ambiente; nao prova
-backend, banco ou Supabase. Esta missao nao aplicou a migration D2B2b3A; DEV e
-PROD confirmaram a ausencia. A flag
-`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`, e nao houve
-deploy manual ou do backend, wiring, ativacao ou canario.
+backend, banco ou Supabase. No preflight historico de 2026-08-28, DEV e PROD
+confirmaram a ausencia da migration D2B2b3A; o estado vivo atual nao foi
+revalidado. Naquele registro, a flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` estava `false`, e nao houve deploy
+manual ou do backend, wiring, ativacao ou canario.
 No baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD
 somente leitura confirmou `DATABASE_URL` presente e
 `M06_MIGRATION_DATABASE_URL` ausente. `current_user` e `session_user`
@@ -129,16 +130,19 @@ convergiram para a mesma identidade sanitizada; a role runtime possui
 `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, e owner de `public.igrejas` e
 `public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
 A tabela alvo D2B2b3A, o validator e a propria `public.schema_migrations`
-estavam ausentes. Esta missao nao aplicou a migration D2B2b3A; DEV e PROD
-confirmaram a ausencia. A PR #321 integrou a reconciliacao documental anterior
+estavam ausentes. No preflight historico de 2026-08-28, DEV e PROD confirmaram
+a ausencia da migration D2B2b3A; o estado vivo atual nao foi revalidado. A PR
+#321 integrou a reconciliacao documental anterior
 no merge `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o
 deployment automatico Vercel frontend Production `6141449639`, com `SUCCESS`,
 em 2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar
 backend, banco ou Supabase. O preflight VPS em si nao executou deploy manual ou
-do backend, migration, restart ou alteracao da flag. A leitura comprova
-identidade, ownership e ACL do caminho runtime atual, mas nao o
-comportamento da tabela futura sob `FORCE RLS`; o caminho de migration permanece
-bloqueado pela ausencia de `M06_MIGRATION_DATABASE_URL` e do ledger publico.
+do backend, migration, restart ou alteracao da flag. A leitura historica
+comprovou identidade, ownership e ACL do caminho runtime observado naquele
+preflight, mas nao o comportamento da tabela futura sob `FORCE RLS`. Naquele
+preflight, o caminho de migration estava bloqueado pela ausencia de
+`M06_MIGRATION_DATABASE_URL` e do ledger publico; o estado vivo atual desses
+itens nao foi revalidado.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -1188,3 +1192,38 @@ Fonte: `docs/sprints/` e `docs/security/2026-07-08-seg-igreja12-remediation-plan
 - **SEC ALTO-004 (parte 1)** — hardening do OAuth state do Google Calendar via `verify_purpose_token`. PR#182; release `70846d2` (2026-07-16).
 - **SEC ALTO-004 (conclusao) / unificacao JWT (verify)** — `verify_session/reset/invite_token` delegando a `verify_purpose_token`. PR#186; release `fd651f9` (2026-07-17). Reconciliacao REL-5 dos findings ALTO/MEDIO em `docs/security/` (PR#185/#187): 9 de 11 concluidos+deployados.
 - **Fechamento `b5b990d`** (PR#188; release backend+frontend 2026-07-18): **MEDIO-004/CONTACT-TENANT-DEDUP-1** (dedupe de contato com filtro explicito de `igreja_id`), **MEDIO-005/JWT-MINT-1** (emissao dos 3 tokens de proposito unificada em helper unico) e **W5A** (ultimos 8 dialogos migrados para `ds/Dialog`). Smoke autenticado em PROD 2026-07-18: PASS.
+
+## Delta-074 — seguranca de autoria e replay de migrations (2026-09-04)
+
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, entrega autoria source-only
+`draft`/`prepare-head` somente `TENANT`, snapshot validado, wrapper catalog-bound
+v2 apenas `list` e replay do head em PostgreSQL 17 descartavel e loopback. Ele
+nao foi integrado e nao passou por push, PR ou CI remoto.
+
+No mesmo SHA, o verificador longitudinal confirmou 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal terminou `274 passed, 6 skipped`; a prova PG17 real terminou `6/6`, com
+E2E sintetico de 76a migration `TENANT`; duas revisoes independentes fecharam
+`P0=0` e `P1=0`. O workflow agora usa PG17 descartavel e replay, sem tocar banco
+compartilhado, DEV/PROD ou o runner legado de aplicacao.
+
+O `apply_migrations.py` legado segue invocavel como risco residual. O replay nao
+cobre views, outros schemas, funcoes, roles/memberships, `BYPASSRLS`, grants
+nomeados, ACLs de schema/default ou semantica ampla DML/DDL. Worktree e
+migrations estao observadas em `0755` e SQL em `0644`, mas ancestrais do
+workspace/repositorio seguem `0775` e o `chmod` local nao e duravel; P2 global
+permanece.
+
+DEV continua `BLOCKED_LEDGER_DIVERGENCE`, PROD
+`BLOCKED_EVIDENCE_INSUFFICIENT`, TLS DEV historico sem solucao, e revisao v3,
+cutover, atestacoes vivas e apply pendentes. `operational_authorization=false`
+e `next_stage_authorized=false`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, nao consumido e substituido. O unico estagio corrente fechado e
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, sem
+autorizar merge, banco compartilhado, DEV, PROD, migration, runner de aplicacao
+ou flags. Trust anchors externos seguem futuros, nao correntes e nao
+autorizados; o pacote v3 permanece inalterado.

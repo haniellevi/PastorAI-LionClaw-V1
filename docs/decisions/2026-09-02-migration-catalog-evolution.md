@@ -1,12 +1,14 @@
 # Catálogo evolutivo de migrations e consumidores históricos
 
-**Estado:** `M1A-M1E E M1I INTEGRADAS EM MAIN (PR #361, merge 8aacf98d) /
-COMPROVADAS EM CI / CATÁLOGO CORRENTE COM 75 MIGRATIONS /
-OPERAÇÃO BLOQUEADA`
+**Estado:** `M1A-M1E E M1I INTEGRADAS (PR #361, merge 8aacf98d) /
+M1J-R5 INTEGRADA E ENCERRADA (PR #363, merge c2fb16ad) /
+CATÁLOGO CORRENTE COM 75 MIGRATIONS / OPERAÇÃO BLOQUEADA`
 
 **Base histórica da fundação:** `e5d07e60c2eb9dafae671323bde60d1fa1be5749`
 
-**Base da reconciliação M1J-R2:** `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`
+**Base histórica da reconciliação M1J-R2/R5:** `8aacf98d9abbfd945226afb652ef38efa2fc6cfa`
+
+**Snapshot versionado pós-M1J:** `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`
 
 ## Decisão
 
@@ -64,11 +66,14 @@ verificador estrito como prova longitudinal. Ausência, ambiguidade, SHA zero,
 objeto não blob, ancestral inválido, mais de um lote novo ou reescrita do
 prefixo bloqueiam o job.
 
-Depois do head estrito, o mesmo job valida o manifesto histórico source-only e
-a estrutura bloqueada da proposta v3. Ele não chama `apply_migrations.py`, não
-recebe DSN ou segredo, não acessa banco e não transforma CI verde em
-autorização operacional. O workflow foi integrado e executado com sucesso na
-PR #361 e no push para `main`.
+Depois do head estrito, o job source-only valida o manifesto histórico e a
+estrutura bloqueada da proposta v3. Na composição candidata pós-Commit A, jobs
+isolados adicionais provisionam PostgreSQL 17 descartável, limitado ao
+loopback, para o replay do head e para testes de guarda. Eles não recebem DSN
+ou segredo de ambiente compartilhado, não acessam DEV ou PROD, não chamam
+`apply_migrations.py` e não transformam CI verde em autorização operacional. A
+afirmação de que o workflow inteiro não acessa banco descreve apenas a versão
+integrada pela PR #361, não o candidato local corrente.
 
 ## Provas e limites
 
@@ -78,8 +83,9 @@ recusa ausência do head anterior, aceita a âncora correta e os consumidores
 históricos continuam lendo exatamente 75 entradas. Tail não representado,
 reescrita do prefixo, digest divergente e gates verdadeiros falham fechado.
 
-Esta decisão não cria migration SQL, não altera o runner, não acessa banco,
-DEV, PROD ou rede e não autoriza commit, PR, merge, deploy, flag ou runtime.
+Esta decisão não cria migration SQL nem altera o runner. A prova corrente usa
+somente PostgreSQL 17 descartável/loopback; não acessa banco compartilhado,
+DEV ou PROD e não autoriza commit, PR, merge, deploy, flag ou runtime.
 
 ## Atualização pós-commit M1A-M1C (2026-09-02)
 
@@ -146,9 +152,13 @@ seguintes evidências offline:
 - veredito técnico: GO;
 - nenhum banco, rede, migration ou ambiente consultado.
 
-A limitação preexistente do modo 0775 não é regressão da M1E. Ela permanece
-registrada como P2 conhecido, exigindo decisão humana separada sobre
-permissões de diretório antes de qualquer attestation operacional.
+A limitação preexistente do modo `0775` não é regressão da M1E. A inspeção
+posterior confirmou que o primeiro ancestral inseguro é o próprio diretório
+`/home/raniel-linux/workspace`; portanto, aplicar `chmod` somente ao catálogo
+não resolveria a cadeia e alterar o workspace compartilhado afetaria outras
+worktrees. A política sucessora preserva esse diagnóstico histórico e exige um
+snapshot privado do SHA exato, conforme
+[`2026-09-03-trusted-repository-snapshot-policy.md`](2026-09-03-trusted-repository-snapshot-policy.md).
 
 ## Atualização pós-commit M1I (2026-09-03)
 
@@ -254,14 +264,155 @@ encontradas pelo Codex na execução do teste documental.
 O gate `OWNER_AUTHORIZE_EDIT_M1J_R5_FINAL_DOC_TEST_ALIGNMENT` foi consumido
 exclusivamente para esta correção final de alinhamento entre documentos e testes.
 
+O gate `OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION` foi consumido
+exclusivamente para o commit local
+`2218049902635239280af141980a30c3c3477c4c`, com parent obrigatório
+`8aacf98d9abbfd945226afb652ef38efa2fc6cfa`, mensagem
+`docs: reconcile M1J post-merge canonical state` e exatamente os 15 arquivos
+autorizados. O working tree ficou limpo; não houve rede nessa etapa.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_READ_PREFLIGHT_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido exclusivamente para `git ls-remote`: confirmou `refs/heads/main` em
+`8aacf98d` e a ausência da branch remota
+`docs/m1j-postmerge-reconciliation-v2`, sem alterar refs locais.
+
+O gate `OWNER_AUTHORIZE_PUSH_AND_PR_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido exclusivamente para enviar `2218049` sem force, abrir a PR #363
+contra `main` em `8aacf98d` e observar seus resultados. Os dez checks da PR
+concluíram com sucesso e `mergeStateStatus=CLEAN`. O deployment automático da
+PR foi classificado como Vercel Preview (`6251176874`); não era Production.
+
+O gate `OWNER_AUTHORIZE_MERGE_PR_363_M1J_R5_CANONICAL_RECONCILIATION` foi
+consumido exclusivamente para o merge por merge commit. A PR #363 foi
+integrada em `2026-09-03T19:28:24Z` pelo commit
+`c2fb16ad9a6b028c317c56a0b02c4362ae903e26`, com parent 1 `8aacf98d` e
+parent 2 `2218049`. Os nove check-runs pós-merge, incluindo `public-health`,
+foram revalidados com sucesso pelo supervisor nesta missão. Conforme a
+evidência GitHub/Vercel igualmente revalidada, o
+deployment automático `6251268132` declarou `environment=Production` e
+`state=success`; essa prova é exclusiva do frontend Next.js e não comprova
+backend, banco, migration, DEV, PROD de banco, flags ou runtime.
+
+Por fim, o gate `OWNER_AUTHORIZE_REMOTE_READ_FETCH_M1J_R5_POSTMERGE_STATE` foi
+consumido para um fetch mínimo que avançou somente
+`refs/remotes/origin/main` de `8aacf98d` para `c2fb16ad`. Os parents foram
+confirmados, a árvore de `c2fb16ad` coincidiu com a de `2218049`, a branch
+local permaneceu em `2218049` e o working tree ficou limpo. Nenhuma branch
+local foi movida. Com essa reconciliação, M1J está encerrada e `8aacf98d`
+permanece somente como base histórica.
+
 Os gates relacionados à PR #354 são estritamente históricos e já consumidos,
 nunca constituindo gates correntes.
 
 `operational_authorization=false` e `next_stage_authorized=false` continuam
-estritos. Nenhuma próxima implementação funcional é escolhida ou autorizada
-nesta missão.
+estritos. Nenhuma operação viva, migration ou cutover foi autorizada pela M1J.
 
-## Próximo gate único
+## Política de permissões sucessora
 
-`OWNER_AUTHORIZE_COMMIT_M1J_R5_CANONICAL_RECONCILIATION`. O gate está fechado e
-depende de revisão final do Codex.
+A primitiva de snapshot privado foi implementada e comprovada offline, sem
+enfraquecer os verificadores nem alterar o checkout compartilhado. A mitigação
+é parcial: a worktree candidata corrente foi observada em `0755`, mas o
+repositório principal e ancestrais do workspace permanecem `0775`, o `chmod`
+local não é durável, consumidores legados de apply, capture e reconcile ainda
+não foram migrados transitivamente e o bootstrap exige um launcher externo
+confiável. O P2 de permissões permanece aberto globalmente.
+
+## Próximo estágio único
+
+O gate `OWNER_AUTHORIZE_IMPLEMENT_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi consumido exclusivamente para o candidato local descrito em
+[`2026-09-03-migration-environment-attestation-executor-v2.md`](2026-09-03-migration-environment-attestation-executor-v2.md).
+O executor reutiliza o catálogo a partir do snapshot privado do SHA exato e
+emite somente artefato v1 sanitizado e bloqueado. Identidade e captura usam a
+mesma conexão/PID, porém duas transações e dois snapshots PostgreSQL separados.
+Ele não prova migration aplicada, não conclui a revisão v3 e não libera runner.
+
+## Reconciliação local pós-commit (2026-09-03)
+
+O último snapshot integrado de `main` observado e disponível localmente é o
+merge `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`. Esta reconciliação não realizou
+nova leitura remota; o preflight remoto do próximo gate deve confirmar se o tip
+de `main` ainda coincide com esse SHA. Sobre esse snapshot, a primitiva de
+snapshot confiável foi fixada no commit local
+`11ae294fd4459e55cb31b3342fb8f0a766ac0a03`; o executor v2 foi fixado no
+commit local seguinte `1b299e7fcc709ae2528db1c3f76aa15f14dbcf06`, cujo parent é
+`11ae294`. Ambos permanecem não integrados e não provam CI remoto, conexão,
+captura, migration, banco compartilhado, DEV ou PROD.
+
+No snapshot privado `0700/0600` do SHA `1b299e7`, a seleção ampla contabilizou
+961 testes, com 801 aprovados, 160 skips, zero falhas e zero erros. A regressão
+separada do probe histórico de transporte TLS passou `125/125`, sem testar o
+executor v2 ou o job PG17. A seleção focal no checkout compartilhado coletou
+186 itens, com 183 aprovados, três skips PG17 e zero falhas após a reconciliação
+documental. A decisão do executor v2 registra composição, runtime e horários. A
+prova PostgreSQL 17 sem skips ainda depende do CI/PR do commit local.
+
+O SHA-256 histórico `8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d`
+permanece vinculado aos bytes pré-adaptação do verificador da proposta v3. Ele
+não deve ser substituído retroativamente. O pacote v3 congelado permanece em
+`076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e`.
+Os bytes correntes do verificador adaptado
+`backend/scripts/verify_migration_history_divergence_remediation_proposal_v3.py`
+têm SHA-256 `efcc9be299241793c74e5c4174a4dc44f3b14507d1585d9daa5a407ab38f13f8`.
+
+A reconciliação canônica complementar sobre o parent `1b299e7` abrange
+exatamente 20 arquivos: `SPEC.md`, `SPEC_PROGRESS.md`,
+`backend/migrations/README.md`,
+`backend/tests/test_d2b2b2_decision_packet_docs.py`, `deploy/STAGING.md`,
+`docs/Docs20260611_163530/PRD20260611_163530.md`,
+`docs/WIKI-IGREJA12.md`, `docs/ai/AI-BOOTSTRAP.md`,
+`docs/ai/PRD-COVERAGE.md`,
+`docs/audits/2026-08-27-d1-security-scope-audit.md`,
+`docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md`,
+`docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`, os ADRs
+D2B2b2 e D2B2b3A, esta decisão, as decisões do executor v2 e do snapshot
+confiável, o guia de revisão humana, `docs/ops/POST-V1-MISSION-REGISTER.md` e
+`docs/ops/PRODUCTION-RUNBOOK.md`. Os 19 documentos distinguem observação
+histórica de estado vivo atual e registram a procedência das matrizes offline;
+o único arquivo de teste troca a antiga exigência em tempo presente pela
+exigência explícita de observação histórica e estado atual não revalidado.
+Nenhum código de runtime, migration, schema ou workflow foi alterado nessa
+reconciliação.
+
+## Atualização pós-Commit A de segurança (2026-09-04)
+
+O commit local `9b9395e29cc821d6808738a30a6afe367d4ffbea`, parent
+`947af39d35544700188461d8c99332df70b57e07`, consolida o autor
+`new_migration.py` com fases `draft`/`prepare-head` source-only e somente
+`TENANT`, o snapshot validado, o wrapper catalog-bound v2 limitado a `list` e o
+replay do catálogo corrente em PG17 descartável/loopback. Não está integrado e
+não houve push, PR ou CI remoto.
+
+O verificador longitudinal no próprio SHA concluiu com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+A focal concluiu `274 passed, 6 skipped`; os testes PG17 reais terminaram `6/6`
+e incluem E2E sintético de 76ª migration `TENANT`; duas revisões independentes
+concluíram `P0=0` e `P1=0`.
+
+O `apply_migrations.py` legado permanece fisicamente invocável e é risco
+residual. O replay não atesta views, outros schemas, funções, roles ou
+memberships, `BYPASSRLS`, grants nomeados, schema/default ACLs ou semântica
+ampla de DML/DDL. Worktree e migrations foram observadas em `0755` e SQL em
+`0644`, mas ancestrais workspace/repositório continuam `0775` e o `chmod` local
+não é durável; o P2 global permanece aberto.
+
+DEV permanece `BLOCKED_LEDGER_DIVERGENCE`, PROD permanece
+`BLOCKED_EVIDENCE_INSUFFICIENT`, a falha TLS DEV histórica segue sem solução e
+revisão independente v3, cutover, atestação viva e aplicação continuam
+pendentes. `operational_authorization=false` e `next_stage_authorized=false`.
+
+A proposta v4 local estende v3 apenas para vincular a segurança source-only do
+Commit A. Ela preserva os contratos históricos e os estados de ambiente e
+cutover, mantém todas as permissões falsas e exige duas leituras idênticas do
+snapshot validado sem embutir contagem ou digest. O resultado válido permanece
+bloqueado com exit `8`; seus testes dedicados terminaram `61/61`.
+
+O gate
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_ENVIRONMENT_EXECUTOR_V2_OFFLINE`
+foi proposto, não consumido e substituído. O único estágio corrente fechado é
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1`, limitado ao
+preflight remoto read-only, push da branch candidata, abertura de PR e
+observação do CI/Preview automáticos. Não autoriza merge, banco compartilhado,
+DEV, PROD, migration, runner de aplicação ou flags. Trust anchors externos
+permanecem futuros, não correntes e não autorizados.
