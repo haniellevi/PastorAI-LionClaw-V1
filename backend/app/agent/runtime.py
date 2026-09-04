@@ -503,6 +503,22 @@ def _require_agent_session_scope(
     )
 
 
+def _uses_dedicated_agent_runtime_session(
+    session: Session,
+) -> bool:
+    """Return whether ``session`` is the separately-scoped runtime boundary.
+
+    A caller cannot turn an ordinary application session into the dedicated
+    boundary merely by adding the marker: ``_require_agent_session_scope``
+    independently verifies the role, tenant GUC and transaction first.  This
+    helper exists only after that verification so the runtime can select its
+    deliberately narrower code path without probing domain tables.
+    """
+
+    session_info = getattr(session, "info", {})
+    return AGENT_RUNTIME_TENANT_KEY in session_info
+
+
 def _refine_with_llm(
     cred: LlmCredential, model: str, draft: str, user_text: str, comportamento: str | None
 ) -> tuple[str, object] | None:
@@ -567,6 +583,20 @@ def process_inbound_message(
     )
 
     _require_agent_session_scope(session, tenant_uuid)
+
+    # The dedicated role intentionally has no grants over public domain tables
+    # and no credential projection.  Until a separately reviewed projection
+    # contract exists, returning here is the only safe behavior: do not query
+    # an ORM model, persist legacy opt-out/consent/intake state, write an audit
+    # record, execute a tool, call the LLM or commit.  The worker records its
+    # pre-existing reply reservation through its primary transaction as
+    # ``ia_no_response``; this runtime session has no side effect to persist or
+    # dispatch.
+    if _uses_dedicated_agent_runtime_session(session):
+        return AgentTurnResult(
+            handled=False,
+            reason="runtime_projection_unavailable",
+        )
 
     conversation = session.execute(
         select(Conversation).where(

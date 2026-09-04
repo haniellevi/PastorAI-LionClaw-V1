@@ -240,6 +240,32 @@ em `agent_private`, com ACL explícita e testes PostgreSQL 17 descartáveis de
 RLS, cross-tenant, pool e idempotência. Ele continua separado de qualquer
 provisionamento de credencial ou ativação operacional.
 
+### Seam fail-closed antes do contrato de projeção
+
+Enquanto esse contrato não existe, uma sessão já comprovada como
+`agent_runtime` não pode prosseguir ao runtime ORM legado. O candidato local
+retorna `runtime_projection_unavailable` imediatamente após a verificação da
+role e do tenant, antes de consultar `Conversation`, `Pessoa`,
+`AgentConfig`, `LlmCredential`, consentimentos, papéis, logs ou ferramentas.
+Ele também não faz `add`, `flush`, `commit`, chamada ao LLM ou envio.
+
+Essa contenção não cria uma projeção, migration, grant, credencial, caller ou
+efeito operacional. O worker continua a registrar apenas sua reserva de reply
+no caminho primário já existente como sem resposta; a sessão dedicada fecha a
+transação sem escrever domínio. Inclusive, um pedido de opt-out permanece como
+mensagem inbound já persistida pela ingestão, mas não altera o legado
+`Pessoa.optout` até existir um writer mínimo e revisado; isso é fail-closed
+para automação, não uma implementação do direito de retirada. O caminho legado
+de sessão primária permanece somente como compatibilidade fora do entrypoint de
+produção e não é uma via de ativação.
+
+O contrato sucessor precisa primeiro estender de forma versionada a política
+de autoria/replay de migrations para um escopo privado verificável; o contrato
+atual aceita somente relações `public` tenantizadas e não deve receber uma
+função `agent_private` declarada de forma enganosa. Depois disso, uma migration
+separada poderá expor a projeção mínima read-only, sem credenciais nem grants
+diretos às tabelas de domínio.
+
 ### Preparação D3 offline: fronteira efêmera por turno
 
 A preparação D3 offline separa `AgentTurnInput`, `AgentState` e
@@ -390,11 +416,11 @@ O freeze local vincula:
 - `backend/app/workers/queue_worker.py`, SHA-256
   `4e59da93b45b932583da55f131e50382922cc01d60bb71aae08a99d94a61e3ac`;
 - `backend/app/agent/runtime.py`, SHA-256
-  `8ebc5b49fdd164fbfda605cb4493f263c6540eef50baec30462d1a340a1832a5`;
+  `472b52c320a9811d0a66ec95a2f654a7c1e1e1b3d3dfe184c1452b43548fd0e5`;
 - `backend/app/agent/context.py`, SHA-256
   `35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08`;
 - `backend/tests/test_agent_tenant_runtime.py`, SHA-256
-  `4f1292142baab73ef788a5f17fdd2af5120ecf773209da23ae95d85990ee7ecd`;
+  `08a27b2746234914c1eaaa4df47c7f2e9d1cd090eca89e4db4adecf6a1470147`;
 - `backend/tests/test_agent_trusted_context.py`, SHA-256
   `880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8`;
 - `backend/tests/test_whatsapp_worker.py`, SHA-256
