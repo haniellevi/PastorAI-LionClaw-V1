@@ -2,9 +2,9 @@
 
 Data: `2026-09-03`
 
-Estado: `IMPLEMENTADO, COMMITADO E COMPROVADO OFFLINE / MITIGACAO PARCIAL PARA
-CONSUMIDORES MIGRADOS / BOOTSTRAP EXTERNO AINDA NAO PINADO / AINDA NAO
-INTEGRADO / SEM ATESTACAO VIVA / OPERACAO BLOQUEADA`.
+Estado: `IMPLEMENTADO E INTEGRADO EM MAIN PELA PR #366 / MITIGACAO PARCIAL
+PARA CONSUMIDORES MIGRADOS / BOOTSTRAP EXTERNO AINDA NAO PINADO / SEM
+ATESTACAO VIVA / OPERACAO BLOQUEADA`.
 
 Base auditada: `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`.
 
@@ -170,3 +170,14 @@ preflight remoto read-only, push da branch, abertura de PR e observação do
 CI/Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
 migration, runner de aplicação ou flags. Trust anchors externos permanecem
 futuros, não correntes e não autorizados.
+
+## Atualização pós-merge PR #366 (2026-09-04)
+
+A primitiva de snapshot confiável e o executor que a consome chegaram a `main`
+pela PR #366 no merge `1b233e5156ab671d0b56ab705b35f4e5d2011937` (parents
+`c2fb16ad` e `ef03ae1b`). Os 12 check-runs pós-merge terminaram com sucesso.
+Essa integração mantém a mitigação de permissões parcial: o launcher externo,
+o bootstrap confiável e os ancestrais `0775` ainda não estão resolvidos.
+Nenhum banco, DEV, PROD ou migration foi acessado. O gate de continuidade desta
+reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

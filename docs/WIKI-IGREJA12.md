@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no `main` auditado
-`c2fb16ad9a6b028c317c56a0b02c4362ae903e26` (em 2026-09-03). O `bootstrap-ledger` permanece
+`1b233e5156ab671d0b56ab705b35f4e5d2011937` (em 2026-09-04). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -1426,3 +1426,17 @@ consentimento, banco, migration, commit, send, drain V1/V0,
 receipt global, saver, probe vivo, DEV, PROD, logs, SQL, DML, outra rede,
 deploy adicional, mensagem, tool call, flag ou qualquer efeito vivo, e o merge da
 PR #354 não autorizou, alterou ou comprovou o estado vivo de `AgentConfig.ativo`.
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A PR #366 integrou em `main` o Commit A de autoria/replay e a extensão v4 no
+merge `1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e
+`ef03ae1b`. Os 12 check-runs pós-merge, incluindo replay/guards PostgreSQL 17,
+RLS, backend e E2E, terminaram `success`; o Vercel Production `6262210648`
+terminou `success` e é evidência exclusiva do frontend.
+
+Essa integração não comprova migration aplicada, banco compartilhado, backend
+implantado, DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de
+permissões do host permanece aberto; revisão v3, trust anchors externos,
+cutover e aplicação seguem bloqueados. O gate de continuidade desta reconciliação
+é `OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

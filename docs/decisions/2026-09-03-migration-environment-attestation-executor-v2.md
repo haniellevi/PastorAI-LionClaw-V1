@@ -2,10 +2,9 @@
 
 **Data:** `2026-09-03`
 
-**Estado atualizado em 2026-09-04:** `IMPLEMENTADO E COMMITADO LOCALMENTE /
-PROVA UNITÁRIA OFFLINE / REPLAY DO HEAD EM PG17 DESCARTÁVEL 6/6 LOCAL / CI
-REMOTO PENDENTE / NÃO INTEGRADO / TRUST ANCHORS EXTERNOS PENDENTES / DEV E PROD
-BLOQUEADOS`
+**Estado atualizado em 2026-09-04:** `IMPLEMENTADO E INTEGRADO EM MAIN PELA PR
+#366 / CI E REPLAY PG17 DESCARTÁVEL COMPROVADOS / TRUST ANCHORS EXTERNOS
+PENDENTES / DEV E PROD BLOQUEADOS`
 
 **Base versionada:** `11ae294fd4459e55cb31b3342fb8f0a766ac0a03`
 
@@ -203,3 +202,14 @@ preflight remoto read-only, push, abertura de PR e observação do CI/Preview.
 Não autoriza merge, banco compartilhado, DEV, PROD, migration, runner de
 aplicação ou flags. Trust anchors externos permanecem futuros, não correntes e
 não autorizados.
+
+## Atualização pós-merge PR #366 (2026-09-04)
+
+O executor v2 e seus contratos foram integrados em `main` pela PR #366 no merge
+`1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e `ef03ae1b`.
+Os 12 check-runs pós-merge concluíram com sucesso, incluindo a execução PG17
+descartável e os guards de replay. Isso comprova o contrato source-only e sua
+reprodutibilidade no CI; não comprova atestação de DEV/PROD, migration aplicada,
+banco compartilhado, trust anchors externos, TLS ou cutover. O gate de continuidade
+desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

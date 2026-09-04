@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-09-04
-audited_repository_sha: 9b9395e29cc821d6808738a30a6afe367d4ffbea
+audited_repository_sha: 1b233e5156ab671d0b56ab705b35f4e5d2011937
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -1285,3 +1285,27 @@ autorização.
 Atualize `last_verified` e `audited_repository_sha` somente após conferir o novo
 SHA. Se código, documentação e produção divergem, descreva cada estado
 separadamente e consulte novamente a fonte correspondente.
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A camada de segurança de autoria e replay de migrations foi integrada em
+`main` pela PR #366 no merge commit
+`1b233e5156ab671d0b56ab705b35f4e5d2011937` (parent 1 `c2fb16ad`, parent 2
+`ef03ae1b`). Os 12 check-runs pós-merge concluíram com sucesso, incluindo
+`migration-catalog-head`, `migration-divergence-v4`, replay/guards PG17,
+`environment-attestation-pg17`, backend, RLS e E2E. O deployment Vercel
+Production `6262210648` também terminou com sucesso; essa evidência é somente
+do frontend Next.js.
+
+O merge integra `new_migration.py` em `draft`/`prepare-head` `TENANT`, snapshot
+privado validado, wrapper catalog-bound limitado a `list`, replay do catálogo
+em PostgreSQL 17 descartável, extensão source-only v4 e correções de CI para
+loopback literal, SHAs específicos por evento e isolamento do replay fresco.
+Isso não prova migration aplicada, banco compartilhado, backend implantado,
+DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de permissões do host
+(`umask`/ancestrais `0775`) continua aberto; DEV, PROD, revisão v3, cutover,
+trust anchors externos e aplicação permanecem bloqueados.
+
+O gate de preflight/push/PR da camada foi consumido e a integração foi
+observada. O gate de continuidade desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

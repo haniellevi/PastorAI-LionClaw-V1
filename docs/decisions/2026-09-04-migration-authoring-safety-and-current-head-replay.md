@@ -2,14 +2,18 @@
 
 **Data:** `2026-09-04`
 
-**Estado:** `IMPLEMENTADO E COMMITADO LOCALMENTE / PROVA OFFLINE E PG17
-DESCARTÁVEL CONCLUÍDA / NÃO INTEGRADO / SEM APLICAÇÃO EM AMBIENTE
+**Estado:** `IMPLEMENTADO E INTEGRADO EM MAIN (PR #366, MERGE 1b233e5) /
+CI E PG17 DESCARTÁVEL COMPROVADOS / SEM APLICAÇÃO EM AMBIENTE
 COMPARTILHADO / DEV E PROD BLOQUEADOS`
 
 **Base:** `947af39d35544700188461d8c99332df70b57e07`
 
 **Commit local de implementação:**
 `9b9395e29cc821d6808738a30a6afe367d4ffbea`
+
+**Merge em `main`:** `1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parent
+base `c2fb16ad9a6b028c317c56a0b02c4362ae903e26` e parent da PR
+`ef03ae1b51e1d85e8064267646ebeea87fd52b12`.
 
 ## Problema
 
@@ -226,22 +230,29 @@ O estado vivo não foi consultado nem alterado:
 - revisão independente da proposta v3, trust anchors externos, anti-replay,
   cutover e aplicação continuam pendentes.
 
-O gate de revisão remota desta frente permitiu o push e a abertura da PR #366
-para esta alteração de fonte; isso não autoriza nem comprova operação de banco.
-Não houve merge, banco compartilhado, migration aplicada, runner de banco,
-deploy manual, flag ou runtime. `operational_authorization=false` e
+O gate de revisão remota desta frente permitiu o push e a abertura da PR #366.
+Ela foi integrada por merge commit
+`1b233e5156ab671d0b56ab705b35f4e5d2011937` (parent 1 `c2fb16ad`, parent 2
+`ef03ae1b`). Os 12 check-runs pós-merge concluíram com sucesso, incluindo
+replay/guards PG17, RLS, backend e E2E. O deployment Vercel Production
+`6262210648` concluiu com sucesso e comprova somente o frontend.
+
+O merge não autoriza nem comprova operação de banco. Não houve migration
+aplicada, runner contra banco compartilhado, acesso a DEV/PROD, alteração de
+flag, deploy manual ou runtime vivo. `operational_authorization=false` e
 `next_stage_authorized=false` continuam estritos.
 
 ## Rollback
 
-Como não houve efeito vivo, o rollback é reverter ou não integrar os commits
-locais. Nenhum ledger deve ser preenchido, reescrito ou inferido para “alinhar”
-o ambiente ao catálogo.
+Como não houve efeito vivo, o rollback do código integrado exige uma nova PR
+revisada; nenhum ledger deve ser preenchido, reescrito ou inferido para
+“alinhar” o ambiente ao catálogo.
 
 ## Próximo gate único
 
-`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1` está fechado
-e não autorizado. Seu eventual consumo poderá abranger somente leitura remota
-de `main`, verificação de base, push da branch, abertura de PR e observação do
-CI/Preview automáticos. Não autoriza merge, banco compartilhado, DEV, PROD,
-captura viva, migration, runner, cutover, deploy manual ou alteração de flags.
+`OWNER_AUTHORIZE_REMOTE_PREFLIGHT_PUSH_AND_PR_MIGRATION_SAFETY_R1` foi consumido
+exclusivamente para preflight remoto, push, abertura da PR #366 e observação do
+CI/Preview. O gate de continuidade desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`; ele não
+autoriza banco compartilhado, DEV, PROD, captura viva, migration, runner,
+cutover, deploy manual ou alteração de flags.

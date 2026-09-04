@@ -10,6 +10,9 @@ CATÁLOGO CORRENTE COM 75 MIGRATIONS / OPERAÇÃO BLOQUEADA`
 
 **Snapshot versionado pós-M1J:** `c2fb16ad9a6b028c317c56a0b02c4362ae903e26`
 
+**Snapshot corrente de `main` após a PR #366:**
+`1b233e5156ab671d0b56ab705b35f4e5d2011937`
+
 ## Decisão
 
 O catálogo deixa de usar a contagem corrente como sinônimo do snapshot
@@ -416,3 +419,20 @@ preflight remoto read-only, push da branch candidata, abertura de PR e
 observação do CI/Preview automáticos. Não autoriza merge, banco compartilhado,
 DEV, PROD, migration, runner de aplicação ou flags. Trust anchors externos
 permanecem futuros, não correntes e não autorizados.
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A segurança de autoria/replay de migrations e a extensão source-only v4 foram
+integradas em `main` pela PR #366 no merge
+`1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e
+`ef03ae1b`. Os 12 check-runs pós-merge terminaram com sucesso, incluindo
+catálogo, divergência v4, replay/guards PostgreSQL 17, RLS, backend e E2E.
+O deployment Vercel Production `6262210648` terminou com sucesso e comprova
+somente o frontend.
+
+A integração não executou migration em banco compartilhado e não acessou
+DEV/PROD. O P2 de permissões de host permanece aberto; trust anchors externos,
+TLS DEV, revisão v3, cutover, atestação viva e aplicação continuam pendentes.
+`operational_authorization=false` e `next_stage_authorized=false` continuam
+estritos. O gate de continuidade desta reconciliação documental é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.

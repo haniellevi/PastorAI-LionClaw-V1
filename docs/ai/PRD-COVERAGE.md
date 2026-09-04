@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-09-04
-audited_repository_sha: 9b9395e29cc821d6808738a30a6afe367d4ffbea
+audited_repository_sha: 1b233e5156ab671d0b56ab705b35f4e5d2011937
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -1356,3 +1356,18 @@ futuros, não correntes e não autorizados.
 - `Plan-Designer-Igreja12/03-AGENTE-IA-WHATSAPP.md`
 - `Plan-Designer-Igreja12/08-ROADMAP-PRIORIZADO.md`
 - código e testes do SHA auditado
+
+## Atualização pós-merge da segurança de autoria e replay (2026-09-04)
+
+A PR #366 integrou em `main` o Commit A de autoria/replay e a extensão v4 no
+merge `1b233e5156ab671d0b56ab705b35f4e5d2011937`, com parents `c2fb16ad` e
+`ef03ae1b`. Os 12 check-runs pós-merge, incluindo replay/guards PostgreSQL 17,
+RLS, backend e E2E, terminaram `success`; o Vercel Production `6262210648`
+terminou `success` e é evidência exclusiva do frontend.
+
+A integração comprova os contratos source-only no SHA integrado e sua execução
+em CI descartável. Não comprova migration aplicada, banco, backend implantado,
+DEV, PROD, flags, runtime, TLS ou atestação viva. O P2 de permissões do host
+continua aberto, e revisão v3, trust anchors externos, cutover e aplicação
+seguem pendentes/bloqueados. O gate de continuidade desta reconciliação é
+`OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.
