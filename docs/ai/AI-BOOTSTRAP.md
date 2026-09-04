@@ -1327,6 +1327,12 @@ banco compartilhado, DEV, PROD, `AgentConfig`, caller, envio ou flag. O runtime
 ainda não possui contrato de projeções e writers mínimos para operar sob a
 role limitada.
 
+O candidato source-only seguinte adiciona uma contenção explícita: depois de
+provar a sessão dedicada, o runtime retorna
+`runtime_projection_unavailable` antes de qualquer ORM, log, tool, LLM ou
+commit. Ele não é uma projeção, não muda o caminho de compatibilidade primário
+e não torna a role, o agente ou qualquer ambiente operacional.
+
 O próximo gate técnico é
 `OWNER_AUTHORIZE_DESIGN_AGENT_RUNTIME_PROJECTION_CONTRACT`; ele autoriza apenas
 o desenho e a implementação offline do contrato mínimo, com testes PostgreSQL

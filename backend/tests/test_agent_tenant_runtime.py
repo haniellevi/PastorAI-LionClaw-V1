@@ -446,6 +446,121 @@ def test_worker_durable_execution_uses_dedicated_factory_only_for_runtime(
     )
 
 
+def test_worker_dedicated_projection_unavailable_records_no_response_without_send(
+    monkeypatch,
+) -> None:
+    """A dedicated session without a projection cannot prepare or deliver a reply."""
+
+    outcome = _trusted_outcome()
+    tenant_id = outcome.igreja_id
+    assert isinstance(tenant_id, uuid.UUID)
+    intent = SimpleNamespace(
+        id=uuid.uuid4(),
+        state=queue_worker._AGENT_REPLY_RESERVED,
+        response="",
+        provider_message_id="agent-reply-key",
+    )
+    transitions: list[tuple[str, str]] = []
+    calls: list[str] = []
+
+    class _Lease:
+        def __init__(self, *_args, **_kwargs) -> None:
+            calls.append("lease_init")
+
+        def acquire(self) -> bool:
+            calls.append("lease_acquire")
+            return True
+
+        def close(self) -> None:
+            calls.append("lease_close")
+
+    class _DedicatedSession:
+        info = {runtime.AGENT_RUNTIME_TENANT_KEY: str(tenant_id)}
+
+        def execute(self, *_args, **_kwargs):
+            raise AssertionError("runtime must not query domain ORM")
+
+        def close(self) -> None:
+            calls.append("dedicated_close")
+
+    monkeypatch.setattr(
+        queue_worker,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "verify_agent_runtime_scope",
+        lambda *_args, **_kwargs: calls.append("runtime_scope_verify"),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_reserve_agent_reply_intent",
+        lambda *_args, **_kwargs: calls.append("reserve") or intent,
+    )
+    monkeypatch.setattr(queue_worker, "_AgentExecutionLease", _Lease)
+    monkeypatch.setattr(
+        queue_worker,
+        "_load_agent_reply_intent",
+        lambda *_args, **_kwargs: calls.append("load") or intent,
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_transition_agent_reply_intent",
+        lambda _factory, _outcome, _intent, *, expected, target, **_kwargs: (
+            transitions.append((expected, target)) or True
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_scope_agent_execution_session",
+        lambda _session, _outcome, *, dedicated: (
+            calls.append(f"worker_scope:{dedicated}") or tenant_id
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_prepare_agent_reply_intent",
+        lambda *_args, **_kwargs: pytest.fail(
+            "projection-unavailable path must not prepare a reply"
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_deliver_agent_reply_intent",
+        lambda *_args, **_kwargs: pytest.fail(
+            "projection-unavailable path must not send a reply"
+        ),
+    )
+
+    disposition = queue_worker.run_agent_for_message(
+        lambda: pytest.fail("primary factory must not open the runtime session"),
+        outcome,
+        agent_session_factory=_DedicatedSession,
+    )
+
+    assert disposition is queue_worker.AgentRunDisposition.COMPLETED
+    assert transitions == [
+        (queue_worker._AGENT_REPLY_RESERVED, queue_worker._AGENT_REPLY_EXECUTING),
+        (queue_worker._AGENT_REPLY_EXECUTING, queue_worker._AGENT_REPLY_NO_RESPONSE),
+    ]
+    assert calls == [
+        "reserve",
+        "lease_init",
+        "lease_acquire",
+        "load",
+        "worker_scope:True",
+        "runtime_scope_verify",
+        "dedicated_close",
+        "lease_close",
+    ]
+
+
 def test_worker_explicitly_disabled_runtime_never_falls_back_to_primary(
     monkeypatch,
 ) -> None:
@@ -497,6 +612,83 @@ def test_runtime_marker_selects_dedicated_scope_probe(monkeypatch) -> None:
     runtime._require_agent_session_scope(session, tenant_id)
 
     assert calls == [(session, tenant_id)]
+
+
+def test_dedicated_runtime_stops_before_any_domain_orm_or_write(monkeypatch) -> None:
+    """A verified dedicated session remains inert without a projection store."""
+
+    tenant_id = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    calls: list[str] = []
+
+    class _DedicatedSession:
+        info = {runtime.AGENT_RUNTIME_TENANT_KEY: str(tenant_id)}
+
+        def execute(self, *_args, **_kwargs):
+            raise AssertionError("projection-unavailable path must not query ORM")
+
+        def add(self, *_args, **_kwargs):
+            raise AssertionError("projection-unavailable path must not add rows")
+
+        def commit(self):
+            raise AssertionError("projection-unavailable path must not commit")
+
+    session = _DedicatedSession()
+    monkeypatch.setattr(
+        runtime,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "verify_agent_runtime_scope",
+        lambda current_session, current_tenant: calls.append(
+            f"verify:{current_session is session}:{current_tenant}"
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "require_tenant_scope",
+        lambda *_args, **_kwargs: pytest.fail(
+            "dedicated runtime must not use the primary-session scope"
+        ),
+    )
+    for name in (
+        "_active_credential",
+        "_execute_tools_for_context",
+        "_refine_with_llm",
+        "log_agent_event",
+        "log_ai_usage",
+        "run_turn",
+    ):
+        monkeypatch.setattr(
+            runtime,
+            name,
+            lambda *_args, **_kwargs: pytest.fail(
+                "projection-unavailable path must not execute agent behavior"
+            ),
+        )
+    for name in ("_apply_consent", "_apply_intake", "_apply_optout"):
+        monkeypatch.setattr(
+            runtime,
+            name,
+            lambda *_args, **_kwargs: pytest.fail(
+                "projection-unavailable path must not write domain state"
+            ),
+        )
+
+    result = runtime.process_inbound_message(
+        session,
+        igreja_id=tenant_id,
+        conversation_id=conversation_id,
+        texto="mensagem sintética",
+    )
+
+    assert result == runtime.AgentTurnResult(
+        handled=False,
+        reason="runtime_projection_unavailable",
+    )
+    assert calls == [f"verify:True:{tenant_id}"]
 
 
 def test_worker_flag_on_never_falls_back_to_legacy_path(monkeypatch) -> None:

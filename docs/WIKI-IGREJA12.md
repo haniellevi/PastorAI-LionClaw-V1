@@ -86,6 +86,10 @@ qualquer expansão do canário.
 - a PR #368 integrou a seleção explícita da sessão `agent_runtime` quando
   `AGENT_RUNTIME_DATABASE_URL` existe e mantém o turno automático desabilitado
   sem essa configuração; nenhuma migration/grant ou ativação foi realizada.
+- o candidato source-only seguinte interrompe a sessão dedicada comprovada com
+  `runtime_projection_unavailable` antes de qualquer consulta ORM, log, tool,
+  LLM ou commit; isto evita confundir a barreira de conexão com uma capacidade
+  de domínio e não ativa o agente.
 
 ## O que está parcial
 

@@ -94,6 +94,10 @@ significa ativa em produção.
   quando `AGENT_RUNTIME_DATABASE_URL` está configurada e desabilita o turno sem
   essa URL; isso é uma barreira de conexão, não prova grants, consultas, runtime
   ou operação.
+- o candidato source-only posterior retorna
+  `runtime_projection_unavailable` depois de verificar uma sessão dedicada e
+  antes de ORM, logs, tools, LLM ou commit; ele não disponibiliza projeção,
+  credencial, writer ou operação.
 
 ### Ausente
 

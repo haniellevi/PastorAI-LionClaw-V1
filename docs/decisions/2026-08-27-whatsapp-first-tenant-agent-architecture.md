@@ -240,6 +240,32 @@ em `agent_private`, com ACL explícita e testes PostgreSQL 17 descartáveis de
 RLS, cross-tenant, pool e idempotência. Ele continua separado de qualquer
 provisionamento de credencial ou ativação operacional.
 
+### Seam fail-closed antes do contrato de projeção
+
+Enquanto esse contrato não existe, uma sessão já comprovada como
+`agent_runtime` não pode prosseguir ao runtime ORM legado. O candidato local
+retorna `runtime_projection_unavailable` imediatamente após a verificação da
+role e do tenant, antes de consultar `Conversation`, `Pessoa`,
+`AgentConfig`, `LlmCredential`, consentimentos, papéis, logs ou ferramentas.
+Ele também não faz `add`, `flush`, `commit`, chamada ao LLM ou envio.
+
+Essa contenção não cria uma projeção, migration, grant, credencial, caller ou
+efeito operacional. O worker continua a registrar apenas sua reserva de reply
+no caminho primário já existente como sem resposta; a sessão dedicada fecha a
+transação sem escrever domínio. Inclusive, um pedido de opt-out permanece como
+mensagem inbound já persistida pela ingestão, mas não altera o legado
+`Pessoa.optout` até existir um writer mínimo e revisado; isso é fail-closed
+para automação, não uma implementação do direito de retirada. O caminho legado
+de sessão primária permanece somente como compatibilidade fora do entrypoint de
+produção e não é uma via de ativação.
+
+O contrato sucessor precisa primeiro estender de forma versionada a política
+de autoria/replay de migrations para um escopo privado verificável; o contrato
+atual aceita somente relações `public` tenantizadas e não deve receber uma
+função `agent_private` declarada de forma enganosa. Depois disso, uma migration
+separada poderá expor a projeção mínima read-only, sem credenciais nem grants
+diretos às tabelas de domínio.
+
 ### Preparação D3 offline: fronteira efêmera por turno
 
 A preparação D3 offline separa `AgentTurnInput`, `AgentState` e
