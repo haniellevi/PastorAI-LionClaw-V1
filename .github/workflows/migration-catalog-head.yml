@@ -35,8 +35,8 @@ jobs:
         env:
           MIGRATION_CATALOG_CURRENT_SHA: ${{ github.sha }}
           MIGRATION_CATALOG_EVENT_NAME: ${{ github.event_name }}
-          MIGRATION_CATALOG_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          MIGRATION_CATALOG_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          MIGRATION_CATALOG_PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          MIGRATION_CATALOG_PUSH_BEFORE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           PYTHONDONTWRITEBYTECODE=1 python -P -B \
             scripts/verify_migration_catalog_ci.py \
