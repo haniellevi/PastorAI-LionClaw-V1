@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-09-04
-audited_repository_sha: 1b233e5156ab671d0b56ab705b35f4e5d2011937
+audited_repository_sha: ec0fee244088a2d0657cb5510ad8b5661f2b872b
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -40,7 +40,7 @@ externas com contratos e gates próprios.
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
-| LangGraph | `IMPLEMENTADO STATELESS / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA CANDIDATA OFFLINE` | Grafo único e fallback determinístico, sem checkpoint durável; a branch candidata adiciona seleção explícita de `agent_runtime` com fail-closed sem `AGENT_RUNTIME_DATABASE_URL`, mas a UoW do relatório continua sem caller, consentimento, `AgentConfig`, commit, send ou consumer operacional |
+| LangGraph | `IMPLEMENTADO STATELESS / PREPARAÇÃO D3 INTEGRADA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA INTEGRADA EM MAIN E INATIVA` | Grafo único e fallback determinístico, sem checkpoint durável; a PR #368 integrou a seleção explícita de `agent_runtime`, fail-closed sem `AGENT_RUNTIME_DATABASE_URL`, mas a role continua sem login/grants de domínio e a UoW do relatório continua sem caller, consentimento, `AgentConfig`, commit, send ou consumer operacional |
 | Conhecimento institucional | `AUSENTE` | Não existe RAG com documentos aprovados nem consulta institucional ampla |
 | Governança de consentimento | `D2B2B3A INTEGRADA / DRAFT-ONLY INATIVA` | A superfície de rascunhos por igreja está integrada no código; o Master não pode decidir hipótese jurídica, atestar, aprovar ou registrar papéis nominais; esta missão não aplicou schema em banco compartilhado nem ativou backend ou runtime compartilhado, mas consultou metadados de DEV e PROD em modo somente leitura, sem mutação, e o merge gerou deployment automático do frontend Vercel Production |
 | Relatório de célula por WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | Snapshot, workflow, proposta, serviço ORM, locks nos writers web e UoW de relatório+audit+reply pendente existem localmente; não há caller, consentimento, commit, send ou efeito vivo |
@@ -1309,3 +1309,26 @@ trust anchors externos e aplicação permanecem bloqueados.
 O gate de preflight/push/PR da camada foi consumido e a integração foi
 observada. O gate de continuidade desta reconciliação documental é
 `OWNER_AUTHORIZE_COMMIT_MIGRATION_SAFETY_POSTMERGE_RECONCILIATION_R1`.
+
+## Atualização pós-merge da fronteira de sessão dedicada (PR #368, 2026-09-04)
+
+A PR #368 integrou a fronteira de sessão dedicada do runtime do agente no merge
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b` (parent 1 `66f1cda`, parent 2
+`fa08683`), cuja árvore coincide com a do head da PR. Os 14 checks da PR e os
+13 check-runs pós-merge concluíram com sucesso, incluindo backend, RLS, E2E,
+catálogo/replay PostgreSQL 17, frontend e Vercel. O deployment automático
+Vercel Production decorrente aplica-se exclusivamente ao frontend Next.js.
+
+O worker usa uma fábrica de sessão `agent_runtime` somente quando há uma URL
+dedicada válida; sem ela, a ingestão continua disponível e o turno automático
+permanece desabilitado, sem fallback para `DATABASE_URL`. A integração não
+provisiona login, segredo, grant, view, função de domínio, migration aplicada,
+banco compartilhado, DEV, PROD, `AgentConfig`, caller, envio ou flag. O runtime
+ainda não possui contrato de projeções e writers mínimos para operar sob a
+role limitada.
+
+O próximo gate técnico é
+`OWNER_AUTHORIZE_DESIGN_AGENT_RUNTIME_PROJECTION_CONTRACT`; ele autoriza apenas
+o desenho e a implementação offline do contrato mínimo, com testes PostgreSQL
+17 descartáveis. Não autoriza ativação, credenciais reais, migration aplicada
+em ambiente compartilhado, canário ou envio.

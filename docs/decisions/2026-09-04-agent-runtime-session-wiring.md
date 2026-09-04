@@ -1,5 +1,5 @@
 ---
-status: candidate-offline
+status: integrated-main-inactive
 date: 2026-09-04
 decision: dedicated-agent-runtime-session-boundary
 ---
@@ -63,8 +63,24 @@ foram mascaradas nem corrigidas por esta decisão.
 estritos. Nenhum banco, DEV, PROD, migration, runner, deploy ou mensagem foi
 acessado.
 
+## Integração em main (PR #368, 2026-09-04)
+
+A decisão foi integrada pela PR #368 no merge
+`ec0fee244088a2d0657cb5510ad8b5661f2b872b` (parent 1 `66f1cda`, parent 2
+`fa08683`), cuja árvore coincide com a do head. Os 14 checks da PR e os 13
+check-runs pós-merge concluíram com sucesso. O Vercel Production automático
+decorrente prova somente o frontend Next.js.
+
+Essa integração não alterou o limite funcional: a role continua sem login,
+segredo, grants em `public`, views ou funções de domínio. A ausência de
+`AGENT_RUNTIME_DATABASE_URL` continua desabilitando turnos automáticos sem
+prejudicar a ingestão; a presença da URL não constitui atestação nem ativa o
+agente. Nenhuma migration foi aplicada, nem houve acesso a banco, DEV, PROD,
+caller, envio, `AgentConfig` ou flag.
+
 ## Próximo gate
 
-`OWNER_AUTHORIZE_REVIEW_AND_PR_AGENT_RUNTIME_SESSION_WIRING` — revisão técnica,
-testes CI e abertura de PR, sem autorização para grants, migration ou ativação
-operacional.
+`OWNER_AUTHORIZE_DESIGN_AGENT_RUNTIME_PROJECTION_CONTRACT` — contrato offline
+de projeções e writers mínimos, com testes PostgreSQL 17 descartáveis. Não
+autoriza provisionar credenciais, aplicar migration em ambiente compartilhado,
+ativar o agente ou enviar mensagens.
