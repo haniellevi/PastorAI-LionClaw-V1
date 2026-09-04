@@ -92,24 +92,27 @@ cobrança ou e-mail real sai de staging.
 
 ## Runner de migrations
 
-`backend/scripts/apply_migrations.py` não aplica uma lista de pendências e não
-aceita URL em argv. O destino vem exclusivamente de
-`M06_MIGRATION_DATABASE_URL`, injetada pelo canal secreto do processo. Não cole
-DSN, senha, token ou host em terminal compartilhado, conversa ou documentação.
+`backend/scripts/apply_migrations.py` é um runner histórico de hash congelado e
+não é o entrypoint corrente: isoladamente ele enumera `*.sql` sem consumir o
+head aprovado. O candidato `apply_migrations_catalog_bound_v2.py` autentica o
+runner legado e a API de snapshot antes de executá-los, e vincula todo SQL ao
+snapshot validado do catálogo, mas ainda bloqueia qualquer comando que abriria
+conexão por falta de trust anchor e autorização operacional externos.
 
 ```bash
 # a partir de backend/ (com o venv ativo)
 
 # Única operação disponível sem conexão:
-python scripts/apply_migrations.py list
+python -P scripts/apply_migrations_catalog_bound_v2.py list
 ```
 
-`bootstrap-ledger` implementa a criação somente do ledger vazio
+`status`, `harden-ledger`, `bootstrap-ledger` e `apply` não estão disponíveis em
+staging, DEV ou PROD neste SHA. O código legado de `bootstrap-ledger` implementa
+a criação somente do ledger vazio
 `public.schema_migrations` no contrato owner-only, após confirmação literal
 `BOOTSTRAP_LEDGER`. Ele não descobre o catálogo, não consulta
 `supabase_migrations`, não reconcilia histórico e não aplica ou registra
-migration. Com múltiplos arquivos locais e ledger vazio, `status` e `apply`
-falham fechados.
+migration, mas isso é evidência histórica, não instrução de execução.
 
 A implementação foi testada somente offline: 42/42 testes unitários, 87/87 em
 PostgreSQL 17-alpine descartável em duas execuções independentes, 87/87 em

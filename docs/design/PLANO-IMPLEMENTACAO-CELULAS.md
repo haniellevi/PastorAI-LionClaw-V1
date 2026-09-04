@@ -1,5 +1,13 @@
 # Plano de Implementação — Módulo Células (Igreja 12)
 
+> **Procedimento de migration superseded (2026-09-04):** este plano preserva
+> decisões históricas de produto, mas qualquer instrução de aplicar SQL
+> manualmente, pelo Supabase SQL Editor, `db push` ou diretamente de DEV para
+> PROD não é mais vigente. O procedimento atual está em
+> [`backend/migrations/README.md`](../../backend/migrations/README.md) e exige
+> catálogo append-only, replay em PostgreSQL 17 descartável e gates separados;
+> este documento não autoriza acesso ou mutação de banco.
+
 > **Status:** Rascunho para revisão. Consolida a série de PRDs já em `main` numa sequência implementável de PRs. **Não escreve código.**
 > **Data:** 2026-07-03.
 > **Natureza:** docs-only. Nenhum código, migration, env, worker, Supabase ou deploy nesta entrega.

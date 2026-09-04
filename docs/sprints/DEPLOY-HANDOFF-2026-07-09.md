@@ -1,5 +1,10 @@
 # Deploy handoff — backend `a7a04c8` — 2026-07-09
 
+> **Handoff histórico — não repetir como runbook:** comandos e observações
+> abaixo registram a operação de 2026-07-09. Migrations atuais seguem
+> [`backend/migrations/README.md`](../../backend/migrations/README.md); este
+> arquivo não concede nova autorização.
+
 Handoff de deploy manual do backend em produção. **Deploy de backend + queue-worker executado e
 validado em PROD** (registro abaixo) — feito pelo responsável, não por mim (sem SSH). Preparo local
 feito inteiramente em `PastorAi-1.0-main-clean` (worktree local, validado). Ver também

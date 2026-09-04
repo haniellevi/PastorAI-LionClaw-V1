@@ -9,12 +9,72 @@ aplicada automaticamente por merge, deploy ou inicialização do backend.
 - Novas migrations: timestamp UTC no formato
   `AAAAMMDD_HHMMSS_slug.sql`.
 
-Para criar o arquivo:
+O fluxo de autoria é local, source-only e dividido em duas fases. Primeiro,
+confirme o SHA do commit que contém o head aprovado e crie exatamente um
+rascunho:
 
 ```bash
 cd backend
-python scripts/new_migration.py "add coluna x em pessoas"
+git rev-parse --verify HEAD^{commit}
+python -P scripts/new_migration.py draft \
+  --expected-repository-sha <SHA_EXATO> \
+  "add coluna x em pessoas"
 ```
+
+O comando exige que `HEAD`, o head, o schema, o próprio autor e o verificador
+do catálogo coincidam byte a byte com o SHA informado. Ele recusa drift prévio
+e cria o SQL com `O_EXCL|O_NOFOLLOW`, lock de kernel cooperativo e modo local
+`0600`; nunca altera o head. O primeiro registro do arquivo é o JSON exato
+`PASTORAI_MIGRATION_INTENT_V1`. Enquanto o marcador
+`MIGRATION_DRAFT_INCOMPLETE` existir ou o contrato estruturado estiver
+incompleto, o lote não pode ser preparado. A fronteira v1 aceita somente
+`TENANT`, referencia decisões e testes reais, exige relações afetadas,
+controles RLS/ACL e rollback ou compensação. `GLOBAL` falha fechado até existir
+um contrato versionado, revisão e testes próprios. Metadados continuam sendo
+declaração revisável, não prova automática da semântica do SQL.
+
+Com o conteúdo final, prepare o lote append-only correspondente:
+
+```bash
+python -P scripts/new_migration.py prepare-head \
+  --expected-repository-sha <MESMO_SHA_EXATO> \
+  <AAAAMMDD_HHMMSS_slug.sql>
+```
+
+`prepare-head` aceita somente um arquivo novo terminal, calcula internamente
+nome, posição, tamanho, SHA-256, sequência e digests e ancora
+`previous_approved_head_sha256` nos bytes exatos do head do commit. Ele devolve
+o head candidato em Base64, com seu SHA-256, mas deliberadamente **não o
+instala**. Isso elimina a sobrescrita concorrente check-then-replace: a
+publicação do SQL e do head é uma etapa separada, revisada, que deve produzir
+uma única árvore/commit a partir do parent esperado. Se o SHA/branch mudar, o
+publisher deve falhar por compare-and-swap. Um SQL órfão continua fail-closed;
+corrija o mesmo arquivo e repita `prepare-head`, sem criar outro rascunho para
+contornar o bloqueio.
+
+Os dois comandos sempre mantêm
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e `NEXT_STAGE_AUTHORIZED=false`. Eles não
+fazem rede, não recebem DSN, não chamam runner, não aprovam e não aplicam SQL.
+O candidato ainda precisa ser publicado junto do SQL e passar pelo verificador
+longitudinal do CI contra o head da base da PR e pelo replay do catálogo
+corrente em PostgreSQL 17 descartável. Aplicação manual, SQL Editor, copy/paste
+e `db push` não são caminhos autorizados; qualquer eventual aplicação somente
+poderá usar um executor catalog-bound a partir de snapshot privado do SHA
+aprovado e um gate operacional separado, DEV antes de PROD.
+
+O replay é uma evidência de no-regression do contrato `TENANT` v1, não uma
+prova de SQL arbitrário. Ele inventaria todas as tabelas e partições do schema
+`public`, rejeita relação nova sem contrato tenant forte e remoção ou mudança
+de fronteira não declarada, e exige `igreja_id`, RLS/ACL direta e a policy
+tenant esperada em cada relação nova/declarada. Outros schemas, views, foreign
+tables, funções, papéis, memberships, `BYPASSRLS`, schema/default ACLs e
+equivalência semântica ampla continuam sob revisão humana e contratos futuros.
+
+Comentários antigos dentro das 75 migrations do prefixo imutável que mencionam
+aplicação manual, Supabase SQL Editor ou procedimentos semelhantes são registro
+histórico **substituído**. Eles não constituem instrução operacional atual e os
+bytes não devem ser editados para corrigi-los, pois isso destruiria o digest do
+prefixo aprovado.
 
 O nome ordena o catálogo local, mas não prova que o arquivo foi aplicado em
 qualquer ambiente. O histórico nativo do Supabase
@@ -22,41 +82,37 @@ qualquer ambiente. O histórico nativo do Supabase
 `public.schema_migrations` são objetos diferentes e nunca são reconciliados por
 inferência.
 
-## Executor fail-closed
+## Executor catalog-bound e runner legado
 
-`scripts/apply_migrations.py` possui operações distintas:
+`scripts/apply_migrations.py` está congelado no hash histórico
+`36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65`.
+Ele permanece necessário como implementação delegada e como evidência das
+missões anteriores, mas **não é um entrypoint operacional corrente**: quando
+invocado isoladamente, descobre `*.sql` fora do head aprovado.
 
-- `list`: lista o catálogo local sem conexão;
-- `status`: consulta somente um ledger público já seguro e exige prefixo íntegro
-  com, no máximo, uma migration pendente;
-- `harden-ledger`: endurece um ledger público histórico já existente, sem criar
-  ou preencher entradas;
-- `bootstrap-ledger`: cria somente o ledger público vazio no contrato
-  owner-only final, sem ler ou copiar histórico;
-- `apply`: aplica um único arquivo previamente aprovado, com basename, SHA-256
-  e confirmação literal, somente quando o ledger já forma o prefixo seguro.
-
-O destino é aceito exclusivamente pela variável de processo
-`M06_MIGRATION_DATABASE_URL`. A CLI não aceita DSN em argumento e nunca deve
-receber URL, senha, token ou host em conversa, documentação ou log.
-
-O bootstrap exige PostgreSQL 17 e confirmação explícita:
+O candidato corrente `scripts/apply_migrations_catalog_bound_v2.py` autentica
+esses bytes legados, lê por descritor e autentica também os bytes exatos do
+módulo aditivo `scripts/validated_migration_catalog_snapshot.py` antes de
+executá-los, e exige que posição, basename, tamanho e SHA-256 de cada SQL
+coincidam com `validated_local_catalog_snapshot()`. O verificador histórico do
+catálogo permanece byte-idêntico porque integra a cadeia fixada do executor de
+atestação v2. Nesta versão somente `list` é permitido, sem conexão:
 
 ```bash
 cd backend
-: "${M06_MIGRATION_DATABASE_URL:?injete a URL aprovada pelo canal secreto}"
-python scripts/apply_migrations.py bootstrap-ledger \
-  --confirm BOOTSTRAP_LEDGER
+python -P scripts/apply_migrations_catalog_bound_v2.py list
 ```
 
-Esse comando não descobre o catálogo local, não consulta ou altera
-`supabase_migrations`, não registra migrations e não autoriza `status` ou
-`apply`. Em um ledger vazio com múltiplos arquivos locais, ambos continuam
-bloqueados.
+`status`, `harden-ledger`, `bootstrap-ledger` e `apply` terminam com exit `8`
+antes de ler DSN ou alcançar `_connect`: ainda não existe trust anchor externo,
+autorização operacional autenticada, anti-replay durável nem decisão de
+cutover. Portanto não há, neste SHA, comando autorizado para aplicar migration
+em DEV ou PROD. A variável histórica `M06_MIGRATION_DATABASE_URL` nunca deve
+ser fornecida a partir de conversa, documentação ou terminal compartilhado.
 
 ## Estado operacional atual
 
-`bootstrap-ledger` foi integrado pela PR #323 e comprovado somente offline,
+O código histórico de `bootstrap-ledger` foi integrado pela PR #323 e comprovado somente offline,
 ainda não aplicado, sobre a base
 `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`: 42/42 testes unitários, 87/87 em
 PostgreSQL 17-alpine descartável em duas execuções independentes e 87/87 em
@@ -74,7 +130,8 @@ metadata não prova deploy do backend, banco ou runtime.
 
 Até a missão anterior, nenhuma execução havia ocorrido em DEV ou PROD. A
 captura somente leitura documentada abaixo não altera esse estado de aplicação.
-Não use `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+Não invoque diretamente o runner legado nem use `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push` ou MCP para preencher, reaplicar ou reconciliar
 histórico em ambiente compartilhado.
 

@@ -1,5 +1,11 @@
 # V1 — gate de hardening do ledger de migrations
 
+> **REGISTRO HISTÓRICO — NÃO EXECUTAR OS COMANDOS ABAIXO.** O entrypoint
+> `backend/scripts/apply_migrations.py` está preservado somente para evidência
+> histórica e não é o launcher corrente. Qualquer leitura local usa
+> `apply_migrations_catalog_bound_v2.py list`; comandos de banco continuam
+> bloqueados até trust anchor, atestação do ambiente e gate humano próprios.
+
 > Atualização de 2026-08-28: este documento preserva a operação histórica de
 > `harden-ledger` para um ledger já existente. A implementação de
 > `bootstrap-ledger`, desenvolvida e comprovada offline sobre a base
@@ -14,7 +20,7 @@ sem RLS, policy restritiva e ACLs compatíveis. Nesse estado, o executor recusa
 qualquer migration de propósito para não transformar um histórico divergente em
 uma escrita insegura.
 
-O subcomando abaixo é o único hardening previsto para esse caso:
+O subcomando abaixo era o único hardening previsto naquele recorte histórico:
 
 ```bash
 cd backend

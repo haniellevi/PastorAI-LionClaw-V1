@@ -1980,20 +1980,25 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
         assert "STAGING_DATABASE_URL" not in content
 
     for normalized in (readme_normalized, staging_normalized):
-        assert "m06_migration_database_url" in normalized
+        assert "apply_migrations.py" in normalized
+        assert "runner historico" in normalized or "runner legado" in normalized
+        assert "entrypoint" in normalized
+        assert "corrente" in normalized
+        assert "apply_migrations_catalog_bound_v2.py" in normalized
         assert "bootstrap-ledger" in normalized
-        assert "bootstrap_ledger" in normalized
-        assert "ledger vazio" in normalized
         assert "status" in normalized
         assert "apply" in normalized
         assert "bloquead" in normalized
-        assert "pacote deny-state versionado" in normalized
-        assert "verificador stdlib separado do runner" in normalized
-        assert "revisao independente bloqueada" in normalized
-        assert "decisao owner-01 registrada" in normalized
-        assert "dml" in normalized
-        assert "nao infere migration aplicada" in normalized
-        assert "operational_authorization=blocked" in normalized
+        assert "trust anchor" in normalized
+        assert "autorizacao operacional" in normalized
+
+    assert "validated_migration_catalog_snapshot.py" in readme_normalized
+    assert "m06_migration_database_url" in readme_normalized
+    assert "new_migration.py draft" in readme_normalized
+    assert "prepare-head" in readme_normalized
+    assert "postgresql 17 descartavel" in readme_normalized
+    assert "sql editor" in readme_normalized
+    assert "nao sao caminhos autorizados" in readme_normalized
 
     for normalized in (readme_normalized, staging_normalized, ledger_normalized):
         assert "326/326" in normalized

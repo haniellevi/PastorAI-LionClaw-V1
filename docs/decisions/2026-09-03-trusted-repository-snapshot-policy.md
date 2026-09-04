@@ -43,8 +43,14 @@ O snapshot:
   SHA recebido;
 - vincula o único header `tree` do commit à árvore recalculada e autentica cada
   blob pelos bytes extraídos;
-- rejeita submodule, symlink, hardlink, FIFO, device, traversal, colisão de
-  caminho e caminhos protegidos definidos em `AGENTS.md`;
+- rejeita submodule, symlink, hardlink, FIFO, device, traversal e colisão de
+  caminho; seu classificador próprio bloqueia `.env` real, chaves, `secrets/`
+  e os scripts operacionais explicitamente protegidos em `AGENTS.md`;
+- consumidores que materializam o repositório inteiro devem bloquear também,
+  antes do `archive`, diretórios dedicados de backup, dump, export e mídia e
+  extensões de backup/dump. Imagens públicas/sanitizadas versionadas em
+  `public/` ou documentação não são classificadas automaticamente como mídia
+  real pela primitiva;
 - exige `/tmp` real, sticky e com modo `01777`, cria uma raiz aleatória como
   filha direta, normaliza raiz e diretórios para `0700` e arquivos para `0600`;
 - valida owner, group, inode, device, número de links, modo, tamanho e hash,
@@ -90,6 +96,12 @@ iniciados por um launcher externo confiável. Esse trust anchor ainda não
 existe; além disso, as ferramentas legadas de apply, capture e reconcile ainda
 não foram integradas transitivamente ao snapshot. Portanto, o P2 permanece
 aberto globalmente, sem enfraquecimento dos verificadores nem `chmod` global.
+
+Na camada de autoria e no verificador longitudinal correntes, o manifesto
+autenticado de `ls-tree` recebe essa classificação ampliada antes de qualquer
+`git archive`. Isso protege esses consumidores específicos; não amplia
+retroativamente o contrato da primitiva genérica nem autoriza abrir mídia,
+backup ou dump para decidir se seria sanitizado.
 
 No snapshot privado `0700/0600` do SHA exato `1b299e7`, a seleção ampla
 `tests/test_*migration*.py`, `tests/test_trusted_repository_snapshot.py` e

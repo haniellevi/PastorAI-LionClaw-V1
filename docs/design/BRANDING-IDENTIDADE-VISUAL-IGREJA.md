@@ -1,5 +1,12 @@
 # Branding — Identidade Visual por Igreja (Missão 4)
 
+> **Procedimento de migration e storage superseded (2026-09-04):** as decisões
+> de produto abaixo são evidência histórica. Não execute criação manual de
+> objetos, SQL Editor, `db push` ou promoção direta DEV→PROD a partir deste
+> arquivo. Migrations seguem
+> [`backend/migrations/README.md`](../../backend/migrations/README.md); qualquer
+> operação de storage ou banco exige runbook e gate próprios.
+
 **Status:** Spec aprovada pelo dono (2026-07-06). PR0 docs-only. Nada implementado ainda.
 **Escopo:** logo customizada por igreja + fallback pelo nome da igreja. Superfícies `admin.*` (configura) e `app.*` (exibe). `painel.*` (master) fora do escopo.
 

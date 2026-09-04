@@ -118,6 +118,14 @@ essas variáveis.
 
 ## 4. Migrations do Supabase
 
+> **Bloqueio corrente (2026-09-04):** não existe comando de aplicação
+> operacional liberado neste SHA. `apply_migrations.py` é legado e não deve ser
+> invocado diretamente. `apply_migrations_catalog_bound_v2.py` valida o catálogo,
+> mas bloqueia `status`, `harden-ledger`, `bootstrap-ledger` e `apply` antes da
+> conexão até existirem trust anchors externos, evidências separadas DEV/PROD e
+> decisão humana de cutover. Os registros abaixo descrevem história, não
+> autorização atual.
+
 Existem dois históricos diferentes:
 
 - `supabase_migrations.schema_migrations`, ledger nativo do Supabase;
@@ -226,14 +234,20 @@ diagnósticos de fase e pelo probe transport-only executados sob autorizações
 humanas nominais próprias. O identificador permanece somente como registro
 histórico e não é gate corrente nem próximo hoje.
 
-Antes de aplicar:
+Antes de qualquer aplicação futura, somente depois da abertura de um gate
+nominal específico e da liberação de um executor catalog-bound:
 
 1. provar o ref `pffafnchtxbimpwyaczq`;
 2. listar separadamente, em preflight somente leitura autorizado, o ledger
    nativo e o ledger público, sem inferir equivalência;
-3. ler o SQL versionado do SHA que será implantado;
-4. aplicar em ordem, uma migration por vez;
-5. verificar colunas, constraints, RLS e advisors.
+3. materializar snapshot privado do SHA exato e validar o head corrente;
+4. reproduzir o catálogo no PostgreSQL 17 descartável, validar a superfície
+   `TENANT` coberta e revisar manualmente o SQL e seus limites não cobertos;
+5. usar somente o entrypoint catalog-bound autorizado, primeiro em DEV;
+6. verificar colunas, constraints, FORCE RLS, policies, ACLs e advisors;
+7. abrir decisão e gate independentes antes de qualquer repetição em PROD.
+
+Esta lista é uma pré-condição futura; ela não libera o runner atual.
 
 Já registradas em PROD em 2026-08-05:
 

@@ -1,5 +1,10 @@
 # Confiabilidade de ambientes: B1 staging + B2 guard não-prod — 2026-06-25
 
+> **Registro histórico — não usar como runbook de migrations:** instruções de
+> runner genérico ou SQL Editor foram substituídas pelo fluxo atual em
+> [`backend/migrations/README.md`](../../backend/migrations/README.md). Este
+> documento não autoriza banco, DEV ou PROD.
+
 **Branches:** `chore/staging-b1-artefatos` (B1) · `feat/b2-guard-envios-naoprod` (B2)
 · **Commits:** B1 `7293827` (merge `9726e06`, PR #40) · B2 `91736bd` (merge `7cd30bb`, PR #41)
 · **Deploy:** não (só código/docs na `main`; ativação de staging é ação manual pendente)
