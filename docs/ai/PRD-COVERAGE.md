@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
-last_verified: 2026-09-04
-audited_repository_sha: ec0fee244088a2d0657cb5510ad8b5661f2b872b
+last_verified: 2026-09-05
+audited_repository_sha: 64838cd3f1c6604ef091a940e19f704616d500b3
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -1459,3 +1459,51 @@ pendentes a decisão humana do pacote de consentimento e um caller que encaminhe
 uma escolha explícita à fronteira transacional existente. Validação local
 pré-publicação: 212 testes, sem prova de runtime/produção; serviço SHA-256
 `f68c5f9b...1153fc26` e testes `961275b6...d666b56`.
+
+## Projeção privada: stream separado e replay composto (2026-09-05)
+
+Classificação: `IMPLEMENTADO / READ-ONLY OFFLINE / PG17 PRIVADO VALIDADO LOCALMENTE / SEM CALLER WHATSAPP`.
+O ADR [`2026-09-05-private-runtime-projection-catalog.md`](../decisions/2026-09-05-private-runtime-projection-catalog.md)
+consolida o contrato. O catálogo V1 permanece exatamente em 75 migrations e
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`;
+há um stream privado separado, vinculado a esse digest, cujo append único só
+é válido após `draft`/`prepare-head` com base e parent autenticados. `75 + 1`
+é apenas a ordem do replay composto, não uma migration 76 no catálogo V1.
+
+A projeção retorna exatamente seis campos (`igreja_id uuid`,
+`conversation_id uuid`, `pessoa_id uuid`, `conversation_state text`,
+`pessoa_optout boolean`, `pessoa_sem_interesse boolean`). O owner dedicado
+`agent_projection_owner` é sem login, sem inherit, superuser ou bypass de RLS,
+sem memberships; a função é `DEFINER/STABLE/STRICT` com search path fechado,
+`row_security=on`, e o owner recebe apenas SELECT de colunas públicas mínimas
+mais EXECUTE dos helpers. O runtime recebe somente EXECUTE da função. O helper
+V1 e as políticas web são preservados, `FORCE ROW LEVEL SECURITY` global fica
+`false`, e a barreira tenant-bound derivada do GUC server-owned nega outro
+tenant, SELECT direto e DML.
+
+O verificador source-only autentica os 75 históricos e o stream privado. O
+workflow `private-runtime-catalog.yml` é acionado em `pull_request` e `push`
+e contém a prova PG17 descartável/loopback, delta de catálogo,
+ACL/RLS, isolamento A/B e receipt fechado; sucesso é requisito da revisão deste
+pacote, sem afirmar branch protection ou ruleset configurado. Os focais de
+autoria, adapter e receipt passaram. Em `2026-09-05`, o tooling concluiu
+localmente o replay real composto `75 + 1` em container PG17.6 loopback
+descartável com SQL
+`af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc`, teste
+`dcc13dc718acb26b2749b216a5679285d0ba316b33313fe14bcb03fb2399dbe0`, head
+`30a91f4db9e73586f353cf92f1e2d6d96865f7332d4d6ec6f8003c7e62751eb7`, digest
+`1644f51e4538700418ed3c9a507ed999ae61cbbc6295c5681873b32908bde080` e runner
+`b2238903a0522fd21d68ebc664c4281480e8a5ba1fbac8d7c7a36f28a6e6250c`.
+Os 11 testes PG17 adversariais independentes e 55 testes unitários de delta
+passaram; o receipt sanitizado tem hash
+`2296f772204c6585af245a158f9f40fff27c127f891a5e14ad275ce4f80993f2`. Isso
+permanece evidência local, sem claim de CI remoto ou PR aberta; não prova
+migration aplicada, banco compartilhado, DEV, PROD, consentimento, legalidade,
+flag ou agente funcional. O runtime continua
+`runtime_effects_unavailable`, sem LLM ou envio.
+
+O único gate futuro desta capacidade é
+`OWNER_AUTHORIZE_PRIVATE_RUNTIME_PROJECTION_ENVIRONMENT_PREFLIGHT`, fechado.
+Ele cobre somente preflight nominal do ambiente conforme runbook; não autoriza
+aplicar SQL, ativar o agente ou enviar. Não há novo gate legal/consentimento
+nem autorização nominal consumida por esta atualização.

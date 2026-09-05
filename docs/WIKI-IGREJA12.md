@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental no `main` auditado
-`ec0fee244088a2d0657cb5510ad8b5661f2b872b` (em 2026-09-04). O `bootstrap-ledger` permanece
+Snapshot documental na base auditada
+`64838cd3f1c6604ef091a940e19f704616d500b3` (em 2026-09-05). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -1523,3 +1523,54 @@ consentimento, UoW, writer, worker, envio, flag ou produção; a integração
 WhatsApp e a decisão humana de consentimento continuam pendentes. Validação
 local pré-publicação: 212 testes, sem prova de runtime/produção; serviço SHA-256
 `f68c5f9b...1153fc26` e testes `961275b6...d666b56`.
+
+## Catálogo privado da projeção do runtime (2026-09-05)
+
+O contrato está registrado no ADR
+[`2026-09-05-private-runtime-projection-catalog.md`](decisions/2026-09-05-private-runtime-projection-catalog.md).
+O catálogo V1 continua com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`; o stream
+privado possui head separado, ligado por esse digest. A ordem `75 + 1` só é
+usada no replay composto e nunca altera o head V1. O head privado da revisão
+contém uma entrada candidata autenticada, e `draft`/`prepare-head` exige
+base/parent autenticados antes de qualquer materialização. O replay local
+validou a composição `75 + 1`, sem autorizar aplicação compartilhada ou ativação.
+
+`agent_private.load_turn_context(uuid)` retorna exatamente `igreja_id`,
+`conversation_id`, `pessoa_id`, `conversation_state`, `pessoa_optout` e
+`pessoa_sem_interesse`. A função é `SECURITY DEFINER`, `STABLE`, `STRICT`, usa
+`row_security=on` e search path fechado, sob `agent_projection_owner`
+`NOLOGIN`/`NOINHERIT`/`NOSUPERUSER`/`NOBYPASSRLS`, sem memberships. Há somente
+SELECT das colunas mínimas de Pessoas/Conversas e EXECUTE dos helpers para o
+owner; o runtime recebe EXECUTE da projeção, não acesso direto às tabelas. O
+helper V1 e políticas web permanecem preservados; `FORCE ROW LEVEL SECURITY`
+global é `false`, e a barreira usa o tenant derivado do GUC server-owned para
+negar outro tenant, leitura direta e DML.
+
+O workflow obrigatório é acionado em `pull_request` e `push` e
+combina prova histórica V1, fonte privada autenticada e replay real em PG17
+descartável/loopback, encerrando com receipt de bytes, ordem e conjunto exatos.
+Sucesso é requisito da revisão deste pacote; isso não afirma branch protection
+ou ruleset configurado. Os testes source-only cobrem drift, prior arbitrário,
+symlink/hardlink, receipt spoof e DSN não descartável; a suíte PG17 sintética
+separada de 11 casos cobre ACL/policies, inclusive policy `OR true`, e rollback.
+Em `2026-09-05`, o tooling concluiu localmente o replay real `75 + 1` em
+container PG17.6 loopback descartável com SQL
+`af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc`, teste
+`dcc13dc718acb26b2749b216a5679285d0ba316b33313fe14bcb03fb2399dbe0`, head
+`30a91f4db9e73586f353cf92f1e2d6d96865f7332d4d6ec6f8003c7e62751eb7`, digest
+`1644f51e4538700418ed3c9a507ed999ae61cbbc6295c5681873b32908bde080` e runner
+`b2238903a0522fd21d68ebc664c4281480e8a5ba1fbac8d7c7a36f28a6e6250c`.
+Os 11 testes PG17 adversariais independentes e 55 testes unitários de delta
+passaram; o receipt sanitizado tem hash
+`2296f772204c6585af245a158f9f40fff27c127f891a5e14ad275ce4f80993f2`. Essa
+evidência é local, sem claim de CI remoto ou PR aberta; não há claim de
+migration aplicada, produção ou agente funcional. O runtime continua
+`runtime_effects_unavailable`/`runtime_projection_unavailable`, sem LLM, send
+ou efeito vivo.
+
+O único gate futuro é
+`OWNER_AUTHORIZE_PRIVATE_RUNTIME_PROJECTION_ENVIRONMENT_PREFLIGHT` (fechado).
+Ele cobre somente preflight nominal do ambiente conforme runbook; não autoriza
+aplicar SQL, ativar o agente ou enviar. Nenhum gate legal ou de consentimento
+foi aberto.

@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.invalid/schemas/private-runtime-catalog-head-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "append_only_batches",
+    "artifact_id",
+    "artifact_state",
+    "catalog_algorithm",
+    "catalog_path",
+    "contract_version",
+    "current_head",
+    "historical_public_catalog_digest_sha256",
+    "historical_public_last_basename",
+    "historical_public_migration_count",
+    "limits",
+    "next_stage_authorized",
+    "operational_authorization",
+    "private_entries"
+  ],
+  "properties": {
+    "append_only_batches": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {"$ref": "#/$defs/batch"}
+    },
+    "artifact_id": {"const": "private-runtime-catalog-head-v1"},
+    "artifact_state": {"const": "OFFLINE_PRIVATE_RUNTIME_CATALOG_HEAD_BLOCKED"},
+    "catalog_algorithm": {"const": "basename-ascii-ascending+sha256-raw-bytes-v1"},
+    "catalog_path": {"const": "backend/migrations/private_runtime"},
+    "contract_version": {"const": "1.0"},
+    "current_head": {"$ref": "#/$defs/currentHead"},
+    "historical_public_catalog_digest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "historical_public_last_basename": {
+      "type": "string",
+      "pattern": "^[0-9]{8}_[0-9]{6}_[a-z][a-z0-9_]{0,119}\\.sql$"
+    },
+    "historical_public_migration_count": {"const": 75},
+    "limits": {"$ref": "#/$defs/limits"},
+    "next_stage_authorized": {"const": false},
+    "operational_authorization": {"const": false},
+    "private_entries": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "position", "sha256", "size_bytes"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[0-9]{8}_[0-9]{6}_[a-z][a-z0-9_]{0,119}\\.sql$"
+        },
+        "position": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 1, "maximum": 4194304}
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batch_id",
+        "entries",
+        "previous_private_digest_sha256",
+        "resulting_private_digest_sha256",
+        "sequence"
+      ],
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "pattern": "^private-runtime-catalog-append-[0-9]{4}$"
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/entry"}
+        },
+        "previous_private_digest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "resulting_private_digest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sequence": {"type": "integer", "minimum": 1, "maximum": 2048}
+      }
+    },
+    "currentHead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "last_basename",
+        "private_digest_sha256",
+        "private_migration_count"
+      ],
+      "properties": {
+        "last_basename": {
+          "type": "string",
+          "pattern": "^[0-9]{8}_[0-9]{6}_[a-z][a-z0-9_]{0,119}\\.sql$"
+        },
+        "private_digest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "private_migration_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2048
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_catalog_bytes",
+        "max_catalog_files",
+        "max_migration_bytes",
+        "max_migrations_per_batch"
+      ],
+      "properties": {
+        "max_catalog_bytes": {"const": 67108864},
+        "max_catalog_files": {"const": 2048},
+        "max_migration_bytes": {"const": 4194304},
+        "max_migrations_per_batch": {"const": 1}
+      }
+    }
+  }
+}
