@@ -1464,3 +1464,20 @@ login, credencial, grant, view, função de projeção ou writer de domínio;
 portanto o agente não está operacional por esse merge. Banco, DEV, PROD,
 flags, caller, envio, memória, checkpoint e relatório de célula permanecem
 fechados.
+
+## Política source-only do runtime privado V2 (2026-09-04)
+
+A política V2 é aditiva e não altera o catálogo V1 `TENANT`. O artefato
+`migration-authoring-intent-v2` usa `PASTORAI_MIGRATION_INTENT_V2` e
+`scope=PRIVATE_RUNTIME`, declarando a futura fronteira `agent_private` com role
+`agent_runtime`, helper `current_tenant_id()` `SECURITY INVOKER`/`STABLE` com
+`search_path=pg_catalog`, e a futura projeção `load_turn_context(uuid)`
+`SECURITY DEFINER`/`STABLE` com `search_path` fixo, owner explícito, ACL sem
+`PUBLIC`, memberships vazias e leitura sem escrita. `draft-private-runtime` gera apenas um documento de
+política fora de `backend/migrations`; a migration 76 não existe.
+
+O replay V2 tem dispatcher próprio, mas a captura e o delta são deliberadamente
+`NOT_IMPLEMENTED`; qualquer cursor ou fake snapshot falha fechado antes de ser
+acessado. O pacote V5 é somente source-only, com gates falsos; o gate desta fase
+é revisão humana independente antes de qualquer autoria ou aplicação de
+migration.

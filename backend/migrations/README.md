@@ -991,3 +991,36 @@ transacional próprio. O executor valida os bytes e recusa controles de
 transação que possam quebrar a atomicidade. Não remova wrappers ou divida um
 arquivo para fazê-lo passar; qualquer incompatibilidade exige revisão da
 migration e um gate separado.
+
+## Política source-only do runtime privado V2
+
+A política do runtime privado é deliberadamente separada do catálogo V1. Use:
+
+```bash
+cd backend
+python -P scripts/new_private_runtime_migration.py \
+  draft-private-runtime \
+  --expected-repository-sha <SHA_EXATO> \
+  "private runtime tenant context"
+```
+
+Esse comando cria somente um artefato em
+`docs/governance/migrations/private-runtime/`. Ele não cria a migration 76,
+não modifica `migration-catalog-head-v1.json` e mantém ambos os gates fechados.
+O prefixo `PASTORAI_MIGRATION_INTENT_V2` e o artifact id
+`migration-authoring-intent-v2` não podem ser aceitos pelo parser V1.
+
+O contrato V2 exige schema `agent_private`, owner explícito da migration, role
+`agent_runtime` sem login, inherit, superuser ou bypass RLS, memberships vazias,
+helper existente `current_tenant_id()` `SECURITY INVOKER`/`STABLE` com
+`search_path` fixo e ACL sem `PUBLIC`. Qualquer relação futura precisa ser
+tenant-bound, RLS habilitada/forçada, `igreja_id NOT NULL`, `SELECT` somente e
+zero privilégios de escrita. O helper existente `current_tenant_id()` continua
+`SECURITY INVOKER`, `STABLE`, com `search_path=pg_catalog`; a futura função de
+projeção `load_turn_context(uuid)` possui contrato separado `SECURITY DEFINER`
+com `search_path=pg_catalog,agent_private`. Não há capturador, delta ou replay
+PG17 implementado neste pacote: essas APIs falham `NOT_IMPLEMENTED` antes de
+qualquer cursor, para que ACL, `rolconfig`, `proconfig`, `pg_default_acl`, RLS e
+identidades não sejam falsamente tratados como cobertos. O entrypoint CLI
+permanece estritamente source-only: sem conexão ele não afirma delta PG17,
+isolamento cross-tenant nem equivalência de banco.

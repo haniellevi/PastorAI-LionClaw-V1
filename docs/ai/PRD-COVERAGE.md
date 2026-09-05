@@ -1394,3 +1394,22 @@ O próximo resultado necessário é o contrato offline de projeções e writers
 mínimos sob `agent_private`, acompanhado de testes PostgreSQL 17 descartáveis
 de RLS, ACL, pool e isolamento cross-tenant. Até isso existir,
 `AGENT_RUNTIME_DATABASE_URL` permanece sem uso operacional.
+
+## Política source-only do runtime privado V2 (2026-09-04)
+
+Esta worktree adiciona uma fronteira aditiva `PRIVATE_RUNTIME` para a futura
+função read-only do runtime. O contrato V2 (`migration-authoring-intent-v2`)
+declara `agent_private`, `agent_runtime`, `current_tenant_id()`, contexto
+`app.tenant_igreja_id`, helper `current_tenant_id()` `SECURITY INVOKER`/`STABLE`
+com `search_path=pg_catalog`, e função de projeção futura separada
+`load_turn_context(uuid)` `SECURITY DEFINER`/`STABLE` com `search_path` fixo, ACLs
+sem `PUBLIC`, memberships vazias e privilégios de escrita proibidos. O helper
+`draft-private-runtime` cria somente um artefato em
+`docs/governance/migrations/private-runtime`; não há migration 76 nem alteração
+do head V1. Não há capturador, delta ou replay PG17 implementado neste pacote:
+essas APIs falham `NOT_IMPLEMENTED` antes de qualquer cursor, para que ACL,
+`rolconfig`, `proconfig`, `pg_default_acl`, RLS e identidades não sejam
+falsamente tratados como cobertos. O CLI é source-only e não afirma PG17 ou
+isolamento cross-tenant. O pacote V5 permanece
+`POLICY_ONLY_NOT_APPROVED`, com todos os gates falsos; não comprova banco,
+credencial, runtime, DEV ou PROD.
