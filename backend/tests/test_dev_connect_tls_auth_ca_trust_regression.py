@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+import ssl
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -57,17 +58,32 @@ def test_untrusted_private_ca_is_certificate_verification_error(
                 )
             ]
 
-        with _main_inputs(probe, directory, supplied_ca) as (
-            argv,
-            _descriptors,
-            _expected,
-        ):
-            exit_code = probe.main(
+        try:
+            with _main_inputs(probe, directory, supplied_ca) as (
                 argv,
-                _resolver=resolver,
-                _port=server.port,
-                _test_only_loopback_sentinel=probe._TEST_ONLY_LOOPBACK_SENTINEL,
-            )
+                _descriptors,
+                _expected,
+            ):
+                exit_code = probe.main(
+                    argv,
+                    _resolver=resolver,
+                    _port=server.port,
+                    _test_only_loopback_sentinel=probe._TEST_ONLY_LOOPBACK_SENTINEL,
+                )
+        finally:
+            try:
+                server.finish()
+            except ssl.SSLError as error:
+                # The client correctly aborts the peer handshake after the
+                # untrusted CA assertion.  Keep the join mandatory, but accept
+                # only the TLS alert variants caused by that deliberate abort.
+                if error.reason not in {
+                    "TLSV1_ALERT_DECRYPT_ERROR",
+                    "TLSV1_ALERT_INTERNAL_ERROR",
+                    "TLSV1_ALERT_UNKNOWN_CA",
+                    "SSLV3_ALERT_BAD_CERTIFICATE",
+                }:
+                    raise
 
         captured = capsys.readouterr()
         output = _parse_output(captured.out)

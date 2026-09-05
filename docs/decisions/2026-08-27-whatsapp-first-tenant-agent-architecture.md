@@ -936,3 +936,21 @@ tenant/conversa, gates, imutabilidade, sanitização e a ausência de ORM,
 fallback ou escrita. A função SQL, migration, grants, banco compartilhado,
 deploy, ativação, canário e envio continuam fora desta worktree e dependem da
 prova PostgreSQL descartável do pacote separado de migration.
+
+## Resolvedor server-bound de reunião do relatório de célula (2026-09-05)
+
+`backend/app/services/cell_report_meeting_resolver.py` adiciona uma consulta
+read-only para caller futuro, usando somente `CurrentUser` e escopo de tenant
+validados pelo servidor. Ela revalida acesso ativo único, papel ministerial,
+liderança da célula, estado da pessoa e os critérios de reunião passada,
+não cancelada e com relatório pendente. Um ID sugerido pelo usuário ou modelo
+é apenas seletor não confiável e passa pelas mesmas validações.
+
+O resultado fechado é `none` para zero reuniões, `candidate` para uma e
+`ambiguous` para duas ou mais, em ordem determinística. A consulta lê no máximo
+100 linhas mais uma linha de lookahead; overflow é recusado antes da filtragem
+de elegibilidade, sem seleção silenciosa por truncamento. O binding é mínimo e
+privado do tenant. Este lote não cria caller, runtime hook, consentimento, UoW,
+writer, envio, flag ou efeito de produção. Validação local pré-publicação:
+212 testes, sem prova de runtime/produção; serviço SHA-256
+`f68c5f9b...1153fc26` e testes `961275b6...d666b56`.
