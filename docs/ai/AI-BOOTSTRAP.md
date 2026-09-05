@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: ai-bootstrap
 status: canonical
-last_verified: 2026-09-04
-audited_repository_sha: ec0fee244088a2d0657cb5510ad8b5661f2b872b
+last_verified: 2026-09-05
+audited_repository_sha: 64838cd3f1c6604ef091a940e19f704616d500b3
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -1363,5 +1363,55 @@ retoma o caminho primário como fallback.
 Os testes adicionados são offline e usam somente sessões fake/typed. Eles não
 provam existência da função, migration, grants, login, ACL, RLS viva,
 isolamento em banco compartilhado, deploy, flag ou operação; essa prova SQL
-descartável permanece no pacote separado de migration. Não houve commit ou
-push nesta worktree.
+descartável permanece no pacote separado de migration. O registro de que não
+havia commit ou push descreve somente aquela validação local pré-publicação,
+não o estado atual do branch.
+
+## Catálogo separado da projeção privada do runtime (2026-09-05)
+
+O ADR [`2026-09-05-private-runtime-projection-catalog.md`](../decisions/2026-09-05-private-runtime-projection-catalog.md)
+é a fonte canônica desta fronteira. O catálogo público V1 continua com 75
+migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`; o stream
+privado usa head e diretório próprios e só é composto como `75 + 1` durante o
+replay. Ele nunca é aplicado pelo wrapper V1 nem rebatizado como catálogo V1
+“76”. O fluxo de autoria exige base/parent autenticado e append único; o head
+privado desta revisão contém uma entrada candidata autenticada. O replay local
+validou a composição `75 + 1`, sem autorizar aplicação compartilhada ou ativação.
+
+O contrato fechado de `agent_private.load_turn_context(uuid)` retorna somente
+`igreja_id uuid`, `conversation_id uuid`, `pessoa_id uuid`,
+`conversation_state text`, `pessoa_optout boolean` e
+`pessoa_sem_interesse boolean`. A função é `SECURITY DEFINER`, `STABLE`,
+`STRICT`, `row_security=on`, `search_path=pg_catalog, agent_private` e pertence
+a `agent_projection_owner` sem login, inherit, superuser ou bypass de RLS e
+sem memberships. O owner tem somente os `SELECT` de coluna necessários e
+`EXECUTE` dos helpers; o runtime tem apenas `EXECUTE` da projeção. O helper
+V1, o `app.tenant_igreja_id`, as políticas web e `FORCE ROW LEVEL SECURITY`
+global (`false`) permanecem preservados; a barreira específica exige tenant
+derivado e nega cruzamento, leitura direta e DML.
+
+O workflow `private-runtime-catalog.yml` é acionado em `pull_request` e `push`
+e contém jobs para a prova V1, a fonte privada e o replay real
+em PG17 descartável com receipt exato; sucesso é requisito da revisão deste
+pacote. Não há afirmação de branch protection ou ruleset configurado. Os testes
+de fonte cobrem drift, prior arbitrário, symlink, hardlink, receipt adulterado e
+DSN não descartável; a suíte PG17 sintética separada cobre ACL/policies,
+inclusive `OR true`, e rollback. Em `2026-09-05`, o tooling concluiu localmente o
+replay real `75 + 1` em container PG17.6 loopback descartável, usando SQL
+`af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc`, head
+`30a91f4db9e73586f353cf92f1e2d6d96865f7332d4d6ec6f8003c7e62751eb7`, digest
+`1644f51e4538700418ed3c9a507ed999ae61cbbc6295c5681873b32908bde080` e runner
+`b2238903a0522fd21d68ebc664c4281480e8a5ba1fbac8d7c7a36f28a6e6250c`.
+Os 11 testes PG17 adversariais independentes e 55 testes unitários de delta
+passaram; o receipt sanitizado tem hash
+`2296f772204c6585af245a158f9f40fff27c127f891a5e14ad275ce4f80993f2`. Essa
+evidência é local: não há claim de CI remoto ou PR aberta, nem de migration
+aplicada, produção ou runtime funcional. O runtime continua
+`runtime_effects_unavailable`/`runtime_projection_unavailable`, sem LLM ou send.
+
+O único gate futuro é
+`OWNER_AUTHORIZE_PRIVATE_RUNTIME_PROJECTION_ENVIRONMENT_PREFLIGHT` (fechado).
+Ele cobre somente preflight nominal do ambiente conforme runbook; não autoriza
+aplicar SQL, ativar o agente ou enviar. Esta entrega não consome gate legal ou
+de consentimento, nem cria credencial, login, flag, provisionamento ou canário.

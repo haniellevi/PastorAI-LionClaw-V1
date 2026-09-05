@@ -1,0 +1,47 @@
+{
+  "append_only_batches": [
+    {
+      "batch_id": "private-runtime-catalog-append-0001",
+      "entries": [
+        {
+          "position": 0,
+          "name": "20260905_035815_load_private_runtime_turn_context.sql",
+          "sha256": "af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc",
+          "size_bytes": 44317
+        }
+      ],
+      "previous_private_digest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resulting_private_digest_sha256": "1644f51e4538700418ed3c9a507ed999ae61cbbc6295c5681873b32908bde080",
+      "sequence": 1
+    }
+  ],
+  "artifact_id": "private-runtime-catalog-head-v1",
+  "artifact_state": "OFFLINE_PRIVATE_RUNTIME_CATALOG_HEAD_BLOCKED",
+  "catalog_algorithm": "basename-ascii-ascending+sha256-raw-bytes-v1",
+  "catalog_path": "backend/migrations/private_runtime",
+  "contract_version": "1.0",
+  "current_head": {
+    "last_basename": "20260905_035815_load_private_runtime_turn_context.sql",
+    "private_digest_sha256": "1644f51e4538700418ed3c9a507ed999ae61cbbc6295c5681873b32908bde080",
+    "private_migration_count": 1
+  },
+  "historical_public_catalog_digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
+  "historical_public_last_basename": "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql",
+  "historical_public_migration_count": 75,
+  "limits": {
+    "max_catalog_bytes": 67108864,
+    "max_catalog_files": 2048,
+    "max_migration_bytes": 4194304,
+    "max_migrations_per_batch": 1
+  },
+  "next_stage_authorized": false,
+  "operational_authorization": false,
+  "private_entries": [
+    {
+      "position": 0,
+      "name": "20260905_035815_load_private_runtime_turn_context.sql",
+      "sha256": "af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc",
+      "size_bytes": 44317
+    }
+  ]
+}
