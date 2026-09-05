@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.invalid/schemas/migration-history-divergence-remediation-proposal-v5.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposal_id",
+    "extends_proposal_id",
+    "status",
+    "operational_authorization",
+    "next_stage_authorized",
+    "source_only",
+    "catalog_migration_created",
+    "anchors",
+    "private_runtime"
+  ],
+  "properties": {
+    "proposal_id": {"const": "migration-history-divergence-remediation-proposal-v5"},
+    "extends_proposal_id": {"const": "migration-history-divergence-remediation-proposal-v4"},
+    "status": {"const": "POLICY_ONLY_NOT_APPROVED"},
+    "operational_authorization": {"const": false},
+    "next_stage_authorized": {"const": false},
+    "source_only": {"const": true},
+    "catalog_migration_created": {"const": false},
+    "anchors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v4_proposal_sha256", "v4_schema_sha256", "v4_verifier_sha256",
+        "intent_v2_sha256", "author_sha256", "replay_sha256", "tests_sha256",
+        "v5_schema_sha256", "v5_verifier_sha256", "workflow_sha256"
+      ],
+      "properties": {
+        "v4_proposal_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "v4_schema_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "v4_verifier_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "intent_v2_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "author_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "replay_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "tests_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "v5_schema_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "v5_verifier_sha256": {"pattern": "^[0-9a-f]{64}$"},
+        "workflow_sha256": {"pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "private_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_artifact_id",
+        "intent_prefix",
+        "scope",
+        "authoring_script",
+        "replay_script",
+        "replay_implemented",
+        "pg17_evidence",
+        "cross_tenant_evidence",
+        "policy_directory",
+        "schema",
+        "runtime_role",
+        "tenant_function",
+        "helper_function_security",
+        "projection_function",
+        "projection_function_security",
+        "function_volatility",
+        "helper_function_search_path",
+        "projection_function_search_path",
+        "direct_public_grants_allowed",
+        "runtime_write_privileges_allowed",
+        "memberships_allowed",
+        "gates"
+      ],
+      "properties": {
+        "intent_artifact_id": {"const": "migration-authoring-intent-v2"},
+        "intent_prefix": {"const": "PASTORAI_MIGRATION_INTENT_V2"},
+        "scope": {"const": "PRIVATE_RUNTIME"},
+        "authoring_script": {"const": "backend/scripts/new_private_runtime_migration.py"},
+        "replay_script": {"const": "backend/scripts/replay_private_runtime_migration_pg17.py"},
+        "replay_implemented": {"const": false},
+        "pg17_evidence": {"const": false},
+        "cross_tenant_evidence": {"const": false},
+        "policy_directory": {"const": "docs/governance/migrations/private-runtime"},
+        "schema": {"const": "agent_private"},
+        "runtime_role": {"const": "agent_runtime"},
+        "tenant_function": {"const": "agent_private.current_tenant_id()"},
+        "helper_function_security": {"const": "SECURITY INVOKER"},
+        "projection_function": {"const": "agent_private.load_turn_context(uuid)"},
+        "projection_function_security": {"const": "SECURITY DEFINER"},
+        "function_volatility": {"const": "STABLE"},
+        "helper_function_search_path": {"const": ["pg_catalog"]},
+        "projection_function_search_path": {"const": ["pg_catalog", "agent_private"]},
+        "direct_public_grants_allowed": {"const": false},
+        "runtime_write_privileges_allowed": {"const": false},
+        "memberships_allowed": {"const": false},
+        "gates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operational_authorization", "next_stage_authorized"],
+          "properties": {
+            "operational_authorization": {"const": false},
+            "next_stage_authorized": {"const": false}
+          }
+        }
+      }
+    }
+  }
+}
