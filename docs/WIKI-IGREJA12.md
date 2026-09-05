@@ -1506,3 +1506,20 @@ não fazer fallback para `DATABASE_URL` permanecem.
 Os testes desta fatia são locais, mock-only e não representam função instalada,
 migration, grants, RLS, banco compartilhado, deploy ou flag. A prova PostgreSQL
 17 descartável e a migration pertencem ao pacote separado.
+
+## Resolvedor server-bound para relatório de célula (2026-09-05)
+
+O serviço `backend/app/services/cell_report_meeting_resolver.py` é uma fatia
+read-only local para recuperar reuniões elegíveis do líder autenticado. O
+servidor valida tenant, acesso ativo único, papel ministerial, liderança,
+estado da pessoa, reunião passada/não cancelada e relatório pendente. IDs
+fornecidos pelo usuário ou pelo modelo não conferem autoridade.
+
+Zero reuniões retorna `none`; uma retorna `candidate`; duas ou mais retornam
+`ambiguous` em ordem determinística. A consulta lê no máximo 100 linhas mais
+uma linha de lookahead; overflow falha fechado antes da filtragem de
+elegibilidade e nunca escolhe por truncamento. O lote não ativa runtime, caller,
+consentimento, UoW, writer, worker, envio, flag ou produção; a integração
+WhatsApp e a decisão humana de consentimento continuam pendentes. Validação
+local pré-publicação: 212 testes, sem prova de runtime/produção; serviço SHA-256
+`f68c5f9b...1153fc26` e testes `961275b6...d666b56`.

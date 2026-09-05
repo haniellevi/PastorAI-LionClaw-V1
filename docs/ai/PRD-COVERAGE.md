@@ -1441,3 +1441,21 @@ tenant/conversa/pessoa, shape, gates `false`/`true`, imutabilidade e ausência d
 fallback/escrita. Eles não comprovam função instalada, migration, grants, ACL,
 RLS viva, banco compartilhado, deploy ou ativação; a prova SQL PostgreSQL 17
 descartável continua separada no trabalho de migration.
+
+## Resolvedor offline de reunião do relatório de célula (2026-09-05)
+
+Classificação: `IMPLEMENTADO / READ-ONLY / SEM CALLER WHATSAPP`. O serviço
+`backend/app/services/cell_report_meeting_resolver.py` reaproveita a fronteira
+server-bound de identidade, tenant, acesso e liderança para listar reuniões
+passadas elegíveis do líder da célula. O contrato retorna `none` quando não há
+reunião, `candidate` quando há uma e `ambiguous` quando há duas ou mais, sempre
+com ordenação determinística. A seleção sugerida não confere autoridade e é
+revalidada; a consulta lê no máximo 100 linhas mais uma linha de lookahead e
+recusa overflow antes da filtragem de elegibilidade, sem truncamento.
+
+Esta implementação não conecta runtime, caller WhatsApp, consentimento,
+projeção SQL, UoW, writer, worker, envio, flag ou produção. Permanecem
+pendentes a decisão humana do pacote de consentimento e um caller que encaminhe
+uma escolha explícita à fronteira transacional existente. Validação local
+pré-publicação: 212 testes, sem prova de runtime/produção; serviço SHA-256
+`f68c5f9b...1153fc26` e testes `961275b6...d666b56`.

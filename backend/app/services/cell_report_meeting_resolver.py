@@ -49,6 +49,7 @@ class CellReportMeetingResolverErrorCode(str, Enum):
     INVALID_MEETING_ID = "INVALID_MEETING_ID"
     TENANT_SCOPE_REQUIRED = "TENANT_SCOPE_REQUIRED"
     DATA_UNAVAILABLE = "DATA_UNAVAILABLE"
+    TOO_MANY_CANDIDATES = "TOO_MANY_CANDIDATES"
 
 
 class CellReportMeetingResolverError(RuntimeError):
@@ -64,7 +65,7 @@ class CellReportMeetingResolverError(RuntimeError):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CellReportMeetingCandidate:
-    """Non-PII meeting binding returned to a trusted caller."""
+    """Minimal tenant-private meeting binding returned to a trusted caller."""
 
     reuniao_id: uuid.UUID
     celula_id: uuid.UUID
@@ -83,17 +84,21 @@ class CellReportMeetingResolution:
     candidates: tuple[CellReportMeetingCandidate, ...]
 
     def __post_init__(self) -> None:
+        if type(self.status) is not CellReportMeetingResolutionStatus:
+            raise ValueError("resolution status is not recognized")
         if self.status is CellReportMeetingResolutionStatus.NONE:
             if self.candidate is not None or self.candidates:
                 raise ValueError("none resolution must not contain candidates")
         elif self.status is CellReportMeetingResolutionStatus.CANDIDATE:
             if self.candidate is None or self.candidates != (self.candidate,):
                 raise ValueError("candidate resolution must contain one candidate")
-        elif (
-            self.status is CellReportMeetingResolutionStatus.AMBIGUOUS
-            and (self.candidate is not None or len(self.candidates) < 2)
-        ):
-            raise ValueError("ambiguous resolution must contain multiple candidates")
+        elif self.status is CellReportMeetingResolutionStatus.AMBIGUOUS:
+            if self.candidate is not None or len(self.candidates) < 2:
+                raise ValueError(
+                    "ambiguous resolution must contain multiple candidates"
+                )
+        else:
+            raise ValueError("resolution status is not recognized")
 
     def __repr__(self) -> str:
         return (
@@ -105,23 +110,28 @@ class CellReportMeetingResolution:
 
 _ACTIVE_ACCESS_STATUSES: Final = (None, "ativo")
 _MEETING_ROW_WIDTH: Final = 16
+_MAX_RESOLUTION_CANDIDATES: Final = 100
 
 
 def _reject(code: CellReportMeetingResolverErrorCode) -> None:
     raise CellReportMeetingResolverError(code)
 
 
+def _reject_without_context(code: CellReportMeetingResolverErrorCode) -> None:
+    raise CellReportMeetingResolverError(code) from None
+
+
 def _parse_uuid(value: object, code: CellReportMeetingResolverErrorCode) -> uuid.UUID:
     if type(value) is uuid.UUID and value.int != 0:
         return value
     if type(value) is not str or not value:
-        _reject(code)
+        _reject_without_context(code)
     try:
         parsed = uuid.UUID(value)
     except (AttributeError, TypeError, ValueError):
-        _reject(code)
+        _reject_without_context(code)
     if parsed.int == 0:
-        _reject(code)
+        _reject_without_context(code)
     return parsed
 
 
@@ -129,7 +139,7 @@ def _read_rows(db: Session, statement: object) -> list[object]:
     try:
         return list(db.execute(statement).all())
     except (AttributeError, SQLAlchemyError, TypeError, ValueError):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
 
 
 def _none() -> CellReportMeetingResolution:
@@ -170,7 +180,7 @@ def _load_actor_pessoa_id(
     try:
         access_id, access_tenant_id, pessoa_id, access_status = principal_rows[0]
     except (TypeError, ValueError):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     if (
         type(access_id) is not uuid.UUID
         or access_id.int == 0
@@ -200,7 +210,7 @@ def _load_actor_pessoa_id(
     try:
         usable_id, usable_tenant_id, usable_person_id = usable_accesses[0]
     except (TypeError, ValueError):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     if (
         usable_id != app_user_id
         or usable_tenant_id != igreja_id
@@ -224,7 +234,7 @@ def _load_actor_pessoa_id(
     try:
         role_id, role_tenant_id, role_user_id, role_name = role_rows[0]
     except (TypeError, ValueError):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     if (
         type(role_id) is not uuid.UUID
         or role_id.int == 0
@@ -288,6 +298,7 @@ def _meeting_statement(
             nulls_last(CelulaReuniao.hora.asc()),
             CelulaReuniao.id.asc(),
         )
+        .limit(_MAX_RESOLUTION_CANDIDATES + 1)
     )
     if suggested_reuniao_id is not None:
         statement = statement.where(CelulaReuniao.id == suggested_reuniao_id)
@@ -304,9 +315,9 @@ def _candidate_from_row(
     try:
         values = tuple(row)  # SQLAlchemy Row and synthetic test rows alike.
     except TypeError:
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     if len(values) != _MEETING_ROW_WIDTH:
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     (
         meeting_id,
         meeting_tenant_id,
@@ -339,7 +350,7 @@ def _candidate_from_row(
             person_tenant_id,
         )
     ):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     if (
         meeting_tenant_id != igreja_id
         or cell_tenant_id != igreja_id
@@ -374,7 +385,7 @@ def _candidate_from_row(
             now=now,
         )
     except (AttributeError, OverflowError, TypeError, ValueError):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
     if not passed:
         return None
     return CellReportMeetingCandidate(
@@ -457,9 +468,11 @@ def resolve_pending_cell_report_meeting(
             source="cell_report_meeting_resolver",
         )
     except TenantScopeError:
-        _reject(CellReportMeetingResolverErrorCode.TENANT_SCOPE_REQUIRED)
+        _reject_without_context(
+            CellReportMeetingResolverErrorCode.TENANT_SCOPE_REQUIRED
+        )
     except (SQLAlchemyError, AttributeError, TypeError, ValueError):
-        _reject(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
+        _reject_without_context(CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE)
 
     actor_id = _load_actor_pessoa_id(
         db,
@@ -478,6 +491,10 @@ def resolve_pending_cell_report_meeting(
             suggested_reuniao_id=suggested_id,
         ),
     )
+    if len(rows) > _MAX_RESOLUTION_CANDIDATES:
+        _reject_without_context(
+            CellReportMeetingResolverErrorCode.TOO_MANY_CANDIDATES
+        )
     candidates = [
         candidate
         for row in rows

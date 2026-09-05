@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import traceback
 import uuid
 
 import pytest
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.deps import CurrentUser
 from app.services import cell_report_meeting_resolver as resolver
@@ -13,6 +16,7 @@ TENANT = uuid.UUID("11111111-1111-1111-1111-111111111111")
 OTHER_TENANT = uuid.UUID("99999999-9999-9999-9999-999999999999")
 MEETING = uuid.UUID("22222222-2222-2222-2222-222222222222")
 MEETING_2 = uuid.UUID("88888888-8888-8888-8888-888888888888")
+MEETING_3 = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 CELL = uuid.UUID("33333333-3333-3333-3333-333333333333")
 ACTOR = uuid.UUID("55555555-5555-5555-5555-555555555555")
 ACCESS = uuid.UUID("66666666-6666-6666-6666-666666666666")
@@ -29,14 +33,22 @@ class _Result:
 
 
 class _FakeSession:
-    def __init__(self, responses: list[_Result]) -> None:
+    def __init__(
+        self,
+        responses: list[_Result],
+        *,
+        execute_error: Exception | None = None,
+    ) -> None:
         self.responses = list(responses)
+        self.execute_error = execute_error
         self.statements: list[object] = []
         self.commit_calls = 0
         self.flush_calls = 0
 
     def execute(self, statement: object) -> _Result:
         self.statements.append(statement)
+        if self.execute_error is not None:
+            raise self.execute_error
         if not self.responses:
             raise AssertionError("unexpected database query")
         return self.responses.pop(0)
@@ -184,6 +196,122 @@ def test_multiple_meetings_are_ambiguous_in_deterministic_order() -> None:
     assert result.status is resolver.CellReportMeetingResolutionStatus.AMBIGUOUS
     assert result.candidate is None
     assert [item.reuniao_id for item in result.candidates] == [MEETING, MEETING_2]
+
+
+def test_three_candidates_remain_ambiguous() -> None:
+    db = _authorized_session(
+        [
+            _meeting_row(),
+            _meeting_row(meeting_id=MEETING_2, meeting_time="21:00"),
+            _meeting_row(meeting_id=MEETING_3, meeting_time="22:00"),
+        ]
+    )
+
+    result = resolver.resolve_pending_cell_report_meeting(
+        db,
+        current_user=_current_user(),
+        now=NOW,
+    )
+
+    assert result.status is resolver.CellReportMeetingResolutionStatus.AMBIGUOUS
+    assert len(result.candidates) == 3
+
+
+def test_candidate_overflow_is_rejected_instead_of_truncated() -> None:
+    meetings = [
+        _meeting_row(
+            meeting_id=uuid.uuid5(uuid.NAMESPACE_URL, f"synthetic-meeting-{index}"),
+            meeting_time="20:00",
+        )
+        for index in range(resolver._MAX_RESOLUTION_CANDIDATES + 1)
+    ]
+    db = _authorized_session(meetings)
+
+    with pytest.raises(resolver.CellReportMeetingResolverError) as error:
+        resolver.resolve_pending_cell_report_meeting(
+            db,
+            current_user=_current_user(),
+            now=NOW,
+        )
+
+    assert (
+        error.value.code
+        is resolver.CellReportMeetingResolverErrorCode.TOO_MANY_CANDIDATES
+    )
+
+
+def test_database_failure_does_not_retain_sql_or_parameter_traceback() -> None:
+    sentinel = "SQL_PARAMETER_SENTINEL_NOT_FOR_OUTPUT"
+    db = _FakeSession([], execute_error=SQLAlchemyError(sentinel))
+
+    try:
+        resolver.resolve_pending_cell_report_meeting(
+            db,
+            current_user=_current_user(),
+            now=NOW,
+        )
+    except resolver.CellReportMeetingResolverError as error:
+        caught = error
+        trace = traceback.format_exc()
+    else:
+        pytest.fail("database failure should be sanitized")
+
+    assert caught.code is resolver.CellReportMeetingResolverErrorCode.DATA_UNAVAILABLE
+    assert sentinel not in trace
+
+
+@pytest.mark.parametrize("scope_failure", ["missing", "divergent"])
+def test_tenant_scope_guard_rejects_before_domain_queries(
+    monkeypatch: pytest.MonkeyPatch,
+    scope_failure: str,
+) -> None:
+    def fail_scope(*args: object, **kwargs: object) -> None:
+        assert kwargs["expected_igreja_id"] == TENANT
+        raise resolver.TenantScopeError(scope_failure)
+
+    monkeypatch.setattr(resolver, "require_tenant_scope", fail_scope)
+    db = _FakeSession([])
+
+    with pytest.raises(resolver.CellReportMeetingResolverError) as error:
+        resolver.resolve_pending_cell_report_meeting(
+            db,
+            current_user=_current_user(),
+            now=NOW,
+        )
+
+    assert (
+        error.value.code
+        is resolver.CellReportMeetingResolverErrorCode.TENANT_SCOPE_REQUIRED
+    )
+    assert db.statements == []
+
+
+def test_meeting_query_has_explicit_tenant_actor_and_bounded_bindings() -> None:
+    statement = resolver._meeting_statement(
+        igreja_id=TENANT,
+        ator_pessoa_id=ACTOR,
+        suggested_reuniao_id=MEETING,
+    )
+    compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+
+    assert "celula_reuniao.igreja_id" in sql
+    assert "celulas.igreja_id" in sql
+    assert "celulas.lider_id" in sql
+    assert "pessoas.igreja_id" in sql
+    assert "LIMIT" in sql
+    assert any(value == TENANT for value in compiled.params.values())
+    assert any(value == ACTOR for value in compiled.params.values())
+    assert any(value == MEETING for value in compiled.params.values())
+
+
+def test_resolution_status_is_closed() -> None:
+    with pytest.raises(ValueError, match="not recognized"):
+        resolver.CellReportMeetingResolution(
+            status="unexpected",  # type: ignore[arg-type]
+            candidate=None,
+            candidates=(),
+        )
 
 
 def test_suggested_id_is_only_accepted_after_full_revalidation() -> None:
