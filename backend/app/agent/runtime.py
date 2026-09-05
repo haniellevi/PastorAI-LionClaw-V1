@@ -41,6 +41,10 @@ from app.agent.nodes import (
     AgentState,
     AgentTurnEffects,
 )
+from app.agent.private_runtime_projection import (
+    PrivateRuntimeProjectionError,
+    load_private_runtime_projection,
+)
 from app.agent.tools import TOOL_ACTOR_ROLE_CONTEXT, TOOL_ARG_SCHEMA, TOOLS, ToolError
 from app.agent.turn_identity import (
     AgentTurnContractErrorCode,
@@ -585,17 +589,35 @@ def process_inbound_message(
     _require_agent_session_scope(session, tenant_uuid)
 
     # The dedicated role intentionally has no grants over public domain tables
-    # and no credential projection.  Until a separately reviewed projection
-    # contract exists, returning here is the only safe behavior: do not query
-    # an ORM model, persist legacy opt-out/consent/intake state, write an audit
-    # record, execute a tool, call the LLM or commit.  The worker records its
-    # pre-existing reply reservation through its primary transaction as
-    # ``ia_no_response``; this runtime session has no side effect to persist or
-    # dispatch.
+    # and no credential projection.  Its only admitted domain read is the
+    # private, read-only six-field projection.  A missing/malformed/failed
+    # projection remains fail-closed; a valid projection currently stops at
+    # the effects boundary because no writer, consent, or credential bridge
+    # has been reviewed for this session yet.  In either case do not query an
+    # ORM model, write an audit record, execute a tool, call the LLM, send, or
+    # commit.  The worker records its pre-existing reply reservation through
+    # its primary transaction as ``ia_no_response``; this runtime session has
+    # no side effect to persist or dispatch.
     if _uses_dedicated_agent_runtime_session(session):
+        try:
+            projection = load_private_runtime_projection(
+                session,
+                tenant_uuid,
+                conv_uuid,
+            )
+        except PrivateRuntimeProjectionError:
+            return AgentTurnResult(
+                handled=False,
+                reason="runtime_projection_unavailable",
+            )
+        if projection is None:
+            return AgentTurnResult(
+                handled=False,
+                reason="runtime_projection_unavailable",
+            )
         return AgentTurnResult(
             handled=False,
-            reason="runtime_projection_unavailable",
+            reason="runtime_effects_unavailable",
         )
 
     conversation = session.execute(

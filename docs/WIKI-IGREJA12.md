@@ -86,10 +86,11 @@ qualquer expansão do canário.
 - a PR #368 integrou a seleção explícita da sessão `agent_runtime` quando
   `AGENT_RUNTIME_DATABASE_URL` existe e mantém o turno automático desabilitado
   sem essa configuração; nenhuma migration/grant ou ativação foi realizada.
-- o candidato source-only seguinte interrompe a sessão dedicada comprovada com
-  `runtime_projection_unavailable` antes de qualquer consulta ORM, log, tool,
-  LLM ou commit; isto evita confundir a barreira de conexão com uma capacidade
-  de domínio e não ativa o agente.
+- o adaptador source-only seguinte lê uma vez a projeção privada após comprovar
+  a sessão dedicada: ausência, erro, zero linhas ou shape inválido retornam
+  `runtime_projection_unavailable`, enquanto uma linha válida retorna
+  `runtime_effects_unavailable`, sempre antes de ORM, log, tool, LLM ou commit;
+  isso não cria credencial, writer ou ativação.
 
 ## O que está parcial
 
@@ -1481,3 +1482,27 @@ O replay V2 tem dispatcher próprio, mas a captura e o delta são deliberadament
 acessado. O pacote V5 é somente source-only, com gates falsos; o gate desta fase
 é revisão humana independente antes de qualquer autoria ou aplicação de
 migration.
+
+## Projeção privada do runtime — contrato offline (2026-09-04)
+
+O adaptador `PrivateRuntimeProjectionStore` lê somente a futura função
+`agent_private.load_turn_context(:p_conversation_id)` através da sessão
+`agent_runtime` já verificada. A resposta deve conter exatamente
+`igreja_id`, `conversation_id`, `pessoa_id`, `conversation_state`,
+`pessoa_optout` e `pessoa_sem_interesse`. A store devolve um DTO imutável com
+UUIDs não nulos, estado fechado e gates booleanos estritos; tenant e conversa
+devem coincidir com os valores derivados pelo servidor. Shape extra/ausente,
+valores malformados ou múltiplas linhas falham fechado, e zero linhas não
+revela se o contexto está ausente ou fora da visibilidade do tenant. Erros de
+função/banco são sanitizados.
+
+O runtime dedicado faz essa leitura uma vez. Projeção válida ainda termina em
+`runtime_effects_unavailable`, pois não existe writer, ponte de consentimento,
+credencial ou UoW revisada; ausência, erro ou shape inválido termina em
+`runtime_projection_unavailable`. Esse ramo não acessa ORM, grafo, LLM, tool,
+envio, commit ou log DML. O caminho legado fora da sessão dedicada e a regra de
+não fazer fallback para `DATABASE_URL` permanecem.
+
+Os testes desta fatia são locais, mock-only e não representam função instalada,
+migration, grants, RLS, banco compartilhado, deploy ou flag. A prova PostgreSQL
+17 descartável e a migration pertencem ao pacote separado.

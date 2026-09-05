@@ -240,12 +240,13 @@ em `agent_private`, com ACL explícita e testes PostgreSQL 17 descartáveis de
 RLS, cross-tenant, pool e idempotência. Ele continua separado de qualquer
 provisionamento de credencial ou ativação operacional.
 
-### Seam fail-closed antes do contrato de projeção
+### Seam fail-closed do contrato de projeção
 
-Enquanto esse contrato não existe, uma sessão já comprovada como
-`agent_runtime` não pode prosseguir ao runtime ORM legado. O candidato local
-retorna `runtime_projection_unavailable` imediatamente após a verificação da
-role e do tenant, antes de consultar `Conversation`, `Pessoa`,
+Uma sessão já comprovada como `agent_runtime` não pode prosseguir ao runtime
+ORM legado. O adaptador local chama somente a projeção read-only privada uma
+vez: ausência da função, erro, zero linhas ou shape inválido retorna
+`runtime_projection_unavailable`; uma linha válida retorna
+`runtime_effects_unavailable` antes de consultar `Conversation`, `Pessoa`,
 `AgentConfig`, `LlmCredential`, consentimentos, papéis, logs ou ferramentas.
 Ele também não faz `add`, `flush`, `commit`, chamada ao LLM ou envio.
 
@@ -903,3 +904,35 @@ Brevo e broadcast mantêm gates e canários independentes.
 - todo envio proativo possui finalidade, consentimento e ledger;
 - avaliação humana aprova naturalidade e ausência de repetição;
 - deploy e canário continuam gates separados da implementação.
+
+## Contrato offline da projeção privada do runtime (2026-09-04)
+
+Esta fatia implementa somente o adaptador read-only da projeção privada. A
+`PrivateRuntimeProjectionStore` chama uma única vez, com parâmetro nomeado, a
+função `agent_private.load_turn_context(:p_conversation_id)` pela sessão já
+verificada como `agent_runtime`. O retorno aceito tem exatamente seis colunas:
+`igreja_id`, `conversation_id`, `pessoa_id`, `conversation_state`,
+`pessoa_optout` e `pessoa_sem_interesse`.
+
+O adaptador materializa um DTO imutável e estrito: IDs são UUIDs não nulos,
+`conversation_state` pertence ao conjunto fechado do domínio e os dois gates
+são booleanos exatos e independentes. A linha precisa coincidir com o tenant e
+a conversa derivados pelo servidor; pessoa ausente, IDs ou valores malformados,
+colunas extras/ausentes e múltiplas linhas falham fechado. Zero linhas continua
+significando contexto ausente ou não visível entre tenants, sem distinção para
+o chamador. Erros da função, banco ou driver são reduzidos a
+`runtime_projection_unavailable`, sem DSN ou causa sensível.
+
+No runtime dedicado, a projeção válida ainda não autoriza efeitos: o resultado
+é `handled=false, reason=runtime_effects_unavailable` antes de grafo, LLM,
+tool, envio, commit, log DML ou writer. Não há neste lote ponte de credencial,
+consentimento, UoW ou writer. Função ausente, erro, ausência ou shape inválido
+mantêm `runtime_projection_unavailable`. O caminho legado permanece inalterado
+fora da sessão dedicada, e a ausência de `AGENT_RUNTIME_DATABASE_URL` não cria
+fallback para `DATABASE_URL`.
+
+Os testes desta etapa usam sessões fake locais para provar o shape fechado,
+tenant/conversa, gates, imutabilidade, sanitização e a ausência de ORM,
+fallback ou escrita. A função SQL, migration, grants, banco compartilhado,
+deploy, ativação, canário e envio continuam fora desta worktree e dependem da
+prova PostgreSQL descartável do pacote separado de migration.

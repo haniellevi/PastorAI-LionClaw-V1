@@ -4783,13 +4783,13 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "4e59da93b45b932583da55f131e50382922cc01d60bb71aae08a99d94a61e3ac"
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "runtime.py": (
-            "472b52c320a9811d0a66ec95a2f654a7c1e1e1b3d3dfe184c1452b43548fd0e5"
+            "98273fe02473411e1b384405c99051d05db97eec4158a6d28beff3f41b027e94"
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "context.py": (
             "35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08"
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_tenant_runtime.py": (
-            "08a27b2746234914c1eaaa4df47c7f2e9d1cd090eca89e4db4adecf6a1470147"
+            "4c15f8ff165f5f1f44449bf74a97f9f02cc3e5fc3ee634d4fdd300d7d59dc14e"
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_trusted_context.py": (
             "880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8"

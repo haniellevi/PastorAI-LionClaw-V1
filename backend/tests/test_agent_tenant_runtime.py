@@ -614,18 +614,49 @@ def test_runtime_marker_selects_dedicated_scope_probe(monkeypatch) -> None:
     assert calls == [(session, tenant_id)]
 
 
-def test_dedicated_runtime_stops_before_any_domain_orm_or_write(monkeypatch) -> None:
-    """A verified dedicated session remains inert without a projection store."""
+def test_dedicated_runtime_reads_projection_then_stops_before_effects(monkeypatch) -> None:
+    """A valid private projection cannot unlock unreviewed runtime effects."""
 
     tenant_id = uuid.uuid4()
     conversation_id = uuid.uuid4()
+    person_id = uuid.uuid4()
     calls: list[str] = []
+
+    class _MappingsResult:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        def mappings(self):
+            return self
+
+        def fetchmany(self, size):
+            return [
+                {
+                    "igreja_id": tenant_id,
+                    "conversation_id": conversation_id,
+                    "pessoa_id": person_id,
+                    "conversation_state": "ia",
+                    "pessoa_optout": False,
+                    "pessoa_sem_interesse": False,
+                }
+            ][:size]
+
+        def close(self):
+            self.close_calls += 1
 
     class _DedicatedSession:
         info = {runtime.AGENT_RUNTIME_TENANT_KEY: str(tenant_id)}
 
-        def execute(self, *_args, **_kwargs):
-            raise AssertionError("projection-unavailable path must not query ORM")
+        def __init__(self) -> None:
+            self.execute_calls: list[tuple[object, dict | None]] = []
+            self.result = _MappingsResult()
+
+        def execute(self, statement, params=None):
+            self.execute_calls.append((statement, params))
+            assert "agent_private.load_turn_context" in str(statement)
+            assert "public" not in str(statement).lower()
+            assert params == {"p_conversation_id": conversation_id}
+            return self.result
 
         def add(self, *_args, **_kwargs):
             raise AssertionError("projection-unavailable path must not add rows")
@@ -686,9 +717,11 @@ def test_dedicated_runtime_stops_before_any_domain_orm_or_write(monkeypatch) -> 
 
     assert result == runtime.AgentTurnResult(
         handled=False,
-        reason="runtime_projection_unavailable",
+        reason="runtime_effects_unavailable",
     )
     assert calls == [f"verify:True:{tenant_id}"]
+    assert len(session.execute_calls) == 1
+    assert session.result.close_calls == 1
 
 
 def test_worker_flag_on_never_falls_back_to_legacy_path(monkeypatch) -> None:
