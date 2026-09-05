@@ -1327,14 +1327,41 @@ banco compartilhado, DEV, PROD, `AgentConfig`, caller, envio ou flag. O runtime
 ainda não possui contrato de projeções e writers mínimos para operar sob a
 role limitada.
 
-O candidato source-only seguinte adiciona uma contenção explícita: depois de
-provar a sessão dedicada, o runtime retorna
-`runtime_projection_unavailable` antes de qualquer ORM, log, tool, LLM ou
-commit. Ele não é uma projeção, não muda o caminho de compatibilidade primário
-e não torna a role, o agente ou qualquer ambiente operacional.
+O adaptador source-only seguinte lê uma vez a projeção privada depois de provar
+a sessão dedicada: ausência, erro, zero linhas ou shape inválido retornam
+`runtime_projection_unavailable`, enquanto uma linha válida retorna
+`runtime_effects_unavailable`, sempre antes de ORM, log, tool, LLM ou commit.
+Ele não cria credencial, writer, migration ou ativação e não muda o caminho de
+compatibilidade primário.
 
 O próximo gate técnico é
 `OWNER_AUTHORIZE_DESIGN_AGENT_RUNTIME_PROJECTION_CONTRACT`; ele autoriza apenas
 o desenho e a implementação offline do contrato mínimo, com testes PostgreSQL
 17 descartáveis. Não autoriza ativação, credenciais reais, migration aplicada
 em ambiente compartilhado, canário ou envio.
+
+## Implementação offline da projeção privada do runtime (2026-09-04)
+
+Esta worktree adiciona o adaptador read-only
+`backend/app/agent/private_runtime_projection.py`. Ele usa exclusivamente a
+sessão dedicada já verificada e uma chamada parametrizada a
+`agent_private.load_turn_context(:p_conversation_id)`, aceitando exatamente
+`igreja_id`, `conversation_id`, `pessoa_id`, `conversation_state`,
+`pessoa_optout` e `pessoa_sem_interesse`. A materialização é um DTO imutável,
+com UUIDs não nulos, estado fechado e gates booleanos estritos; tenant e
+conversa precisam coincidir com os valores server-owned. Zero linhas é
+ausência/não visibilidade cross-tenant. Erros de banco/função são sanitizados
+e não expõem causa, DSN ou fallback.
+
+Depois da prova da sessão, o runtime lê a projeção uma vez. Contexto válido
+termina em `runtime_effects_unavailable`; ausência, erro ou shape inválido
+termina em `runtime_projection_unavailable`. Em ambos os casos não há ORM,
+grafo, LLM, tool, envio, commit, log DML, consentimento, credencial ou writer.
+O caminho legado fora da sessão dedicada não muda e nenhuma configuração
+retoma o caminho primário como fallback.
+
+Os testes adicionados são offline e usam somente sessões fake/typed. Eles não
+provam existência da função, migration, grants, login, ACL, RLS viva,
+isolamento em banco compartilhado, deploy, flag ou operação; essa prova SQL
+descartável permanece no pacote separado de migration. Não houve commit ou
+push nesta worktree.

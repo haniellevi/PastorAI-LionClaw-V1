@@ -35,7 +35,7 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA INTEGRADA EM MAIN E INATIVA` | LangGraph stateless, contexto confiável D2B1 e fronteira de sessão dedicada integrados; a conexão dedicada é selecionada explicitamente e falha fechada sem URL, enquanto reserva V2, locks web e UoW de staging continuam sem caller | Revisão independente do manifesto; contrato de projeções/writers mínimos, atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA INTEGRADA EM MAIN E INATIVA / PROJEÇÃO PRIVADA READ-ONLY OFFLINE` | LangGraph stateless, contexto confiável D2B1, fronteira de sessão dedicada e adaptador read-only da projeção integrados localmente; a conexão dedicada é selecionada explicitamente e falha fechada sem URL, enquanto reserva V2, locks web e UoW de staging continuam sem caller | Revisão independente do manifesto; função/migration SQL da projeção, writers mínimos, atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
@@ -94,10 +94,11 @@ significa ativa em produção.
   quando `AGENT_RUNTIME_DATABASE_URL` está configurada e desabilita o turno sem
   essa URL; isso é uma barreira de conexão, não prova grants, consultas, runtime
   ou operação.
-- o candidato source-only posterior retorna
-  `runtime_projection_unavailable` depois de verificar uma sessão dedicada e
-  antes de ORM, logs, tools, LLM ou commit; ele não disponibiliza projeção,
-  credencial, writer ou operação.
+- o adaptador source-only posterior lê uma vez a projeção privada depois de
+  verificar uma sessão dedicada; ausência, erro, zero linhas ou shape inválido
+  retornam `runtime_projection_unavailable`, enquanto uma linha válida retorna
+  `runtime_effects_unavailable`, sempre antes de ORM, logs, tools, LLM ou
+  commit; ele não disponibiliza credencial, writer ou operação.
 
 ### Ausente
 
@@ -1413,3 +1414,30 @@ falsamente tratados como cobertos. O CLI é source-only e não afirma PG17 ou
 isolamento cross-tenant. O pacote V5 permanece
 `POLICY_ONLY_NOT_APPROVED`, com todos os gates falsos; não comprova banco,
 credencial, runtime, DEV ou PROD.
+
+## Implementação offline da projeção privada do runtime (2026-09-04)
+
+O código agora contém uma store read-only para a futura superfície
+`agent_private`: `PrivateRuntimeProjectionStore` executa uma única chamada
+parametrizada a `agent_private.load_turn_context(:p_conversation_id)` pela
+sessão dedicada já verificada. O DTO aceita exatamente os seis campos
+`igreja_id`, `conversation_id`, `pessoa_id`, `conversation_state`,
+`pessoa_optout` e `pessoa_sem_interesse`; IDs não nulos, estado fechado e
+booleanos estritos são validados antes do runtime observar o contexto. Tenant e
+conversa retornados devem coincidir com os valores server-owned, e linhas extras,
+ausentes, múltiplas ou malformadas falham fechado. Zero linhas mantém a
+semântica indistinguível de ausente/não visível cross-tenant.
+
+No ramo dedicado, uma projeção válida termina em
+`handled=false, reason=runtime_effects_unavailable`; função ausente, erro de
+driver, ausência ou shape inválido terminam em
+`runtime_projection_unavailable`. O ramo não consulta ORM nem usa
+`DATABASE_URL`, não chama grafo/LLM/tool, não envia, não faz commit e não grava
+logs DML; ainda não há ponte de consentimento, credencial, UoW ou writer. O
+caminho legado fora da sessão dedicada permanece preservado.
+
+Os testes são mock-only e cobrem uma chamada/parâmetros, sanitização, escopo,
+tenant/conversa/pessoa, shape, gates `false`/`true`, imutabilidade e ausência de
+fallback/escrita. Eles não comprovam função instalada, migration, grants, ACL,
+RLS viva, banco compartilhado, deploy ou ativação; a prova SQL PostgreSQL 17
+descartável continua separada no trabalho de migration.
