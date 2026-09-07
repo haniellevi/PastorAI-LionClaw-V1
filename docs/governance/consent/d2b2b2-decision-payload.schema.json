@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.local/schemas/d2b2b2-decision-payload-v1.json",
+  "title": "D2B2b2 decision_payload v1 (one purpose, one tenant)",
+  "$comment": "Fills the gap declared by docs/governance/consent/d2b2b2-decision-packet.template.json#/digest_contract/decision_payload_schema_version. This is the schema of the object that is JCS-canonicalized (RFC 8785) and SHA-256-digested to produce content_digest. It is a pure documentation/governance artifact: it grants no catalog, evidence_store, writer, runtime, migration, or deploy authority. Reference content: docs/governance/consent/d2b2b2-decision-packet-tarefas-operacionais.md.",
+
+  "$defs": {
+    "sha256Hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "opaqueUuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "description": "Server-generated opaque identifier. MUST NOT be derived from name, phone, message content, or any civil document (see reference doc section 1.1)."
+    },
+    "opaqueRefOrNull": {
+      "description": "An opaque, non-reversible reference to a fact or record kept in external custody. Never the fact's raw content (no personal document numbers, no personal contact data, no free text of a conversation).",
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "not": { "$ref": "#/$defs/looksLikeForbiddenIdentityValue" } }
+      ]
+    },
+    "looksLikeForbiddenIdentityValue": {
+      "description": "Best-effort structural guard against pasting raw Brazilian CPF or E.164 phone numbers into an opaque reference field. Not a substitute for the field-name allowlist below, which is the primary control.",
+      "type": "string",
+      "pattern": "(\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2})|(\\+55\\d{10,11})"
+    },
+    "forbiddenIdentityFieldNamePattern": {
+      "description": "Property names matching this pattern are personal identity/signature fields (CPF, RG, civil document, personal phone, personal e-mail, address, bank data, secrets). They are forbidden anywhere in decision_payload; the reference doc (sections 1.1, 4.3, 11.2) requires them to live only in external custody records referenced by opaque IDs.",
+      "type": "string",
+      "not": {
+        "pattern": "(?i)^(cpf|rg|numero_documento|documento_civil|documento_pessoal|passaporte|titulo_eleitor|pis|cnh|telefone|telefone_pessoal|celular|celular_pessoal|whatsapp_pessoal|numero_whatsapp|email|email_pessoal|e_mail|endereco|endereco_residencial|conta_bancaria|cartao_credito|senha|password|secret|token_pessoal|credencial)$"
+      }
+    },
+    "freeformGovernanceObject": {
+      "description": "Structured governance narrative with server-controlled field names. additionalProperties stays true only for keys that pass the forbidden-identity-field-name guard, so no personal identity/signature key can be smuggled in through a nested object.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/forbiddenIdentityFieldNamePattern" }
+    },
+    "populatedGovernanceContent": {
+      "description": "Non-empty governance content. May be a short opaque reference, a longer narrative string, a structured object (see freeformGovernanceObject), or a list of either. Placeholder values such as \"pendente\"/\"desconhecido\"/\"n/a\" are rejected by the human-packet completeness check in backend/tests/test_d2b2b2_decision_packet_docs.py, not by this schema.",
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "$ref": "#/$defs/freeformGovernanceObject" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "$ref": "#/$defs/freeformGovernanceObject" }
+            ]
+          }
+        }
+      ]
+    },
+    "optionalGovernanceContent": {
+      "description": "Same shape as populatedGovernanceContent, but null is allowed before materialization/attestation completes a given fact.",
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/populatedGovernanceContent" }
+      ]
+    },
+    "childProtectionApplicabilityStatus": {
+      "type": "string",
+      "enum": ["APPLICABLE", "NOT_APPLICABLE", "UNCERTAIN"]
+    },
+    "childrenAdolescentsUnknownAgeAndGuardianPolicy": {
+      "description": "Mirrors minor_protection_contract in the template exactly: same seven keys, same enum. UNCERTAIN keeps catalog_ready and writer_eligible false at the packet level (governance envelope, out of scope for this file).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicability_status",
+        "justification",
+        "evidence_ref",
+        "reviewer_record_ref",
+        "best_interest_assessment_ref",
+        "age_or_guardian_measures",
+        "risk_and_impact_assessment_ref"
+      ],
+      "properties": {
+        "applicability_status": { "$ref": "#/$defs/childProtectionApplicabilityStatus" },
+        "justification": { "$ref": "#/$defs/optionalGovernanceContent" },
+        "evidence_ref": { "$ref": "#/$defs/opaqueRefOrNull" },
+        "reviewer_record_ref": { "$ref": "#/$defs/opaqueRefOrNull" },
+        "best_interest_assessment_ref": { "$ref": "#/$defs/opaqueRefOrNull" },
+        "age_or_guardian_measures": { "$ref": "#/$defs/optionalGovernanceContent" },
+        "risk_and_impact_assessment_ref": { "$ref": "#/$defs/opaqueRefOrNull" }
+      },
+      "$comment": "Required-when-APPLICABLE fields (best_interest_assessment_ref, age_or_guardian_measures, risk_and_impact_assessment_ref, reviewer_record_ref) are enforced by the human-packet completeness check (_minor_decision_is_complete in backend/tests/test_d2b2b2_decision_packet_docs.py), not by this structural schema."
+    },
+    "retentionSurfaceEntry": {
+      "description": "One row of the retention-and-disposal matrix (reference doc section 14). Opaque policy reference or short structured rule; never the retained content itself.",
+      "$ref": "#/$defs/optionalGovernanceContent"
+    },
+    "retentionAndDisposalMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ledger", "evidence", "messages", "media", "transcripts",
+        "summaries", "checkpoints", "vectors", "logs", "dead_letter", "backups"
+      ],
+      "properties": {
+        "ledger": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "evidence": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "messages": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "media": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "transcripts": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "summaries": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "checkpoints": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "vectors": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "logs": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "dead_letter": { "$ref": "#/$defs/retentionSurfaceEntry" },
+        "backups": { "$ref": "#/$defs/retentionSurfaceEntry" }
+      }
+    },
+    "controllerIdentityAndInstitutionalContact": {
+      "description": "Institutional (not personal) identity of the controlling church and its monitored institutional contact channel. Section 1.1 of the reference doc also lists platform_operator_identity, privacy_contact, notice_location, transfer_notice_location and controller_authority_ref as materialized facts; the current decision_payload contract (this file's DECISION_PAYLOAD_KEYS-equivalent top level) has no dedicated key for them, so they are out of scope here -- see the divergence note in the accompanying test/report.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["controller_legal_name", "institutional_contact_channel_ref"],
+      "properties": {
+        "controller_legal_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public institutional denomination of the controlling church, e.g. 'Igreja Exemplo'. Not a person's name."
+        },
+        "institutional_contact_channel_ref": {
+          "$ref": "#/$defs/opaqueRefOrNull",
+          "description": "Opaque reference to the monitored institutional contact channel (never a personal phone/e-mail)."
+        }
+      }
+    },
+    "noticeTextsByChannelAndLanguage": {
+      "description": "Notice text bodies keyed by delivery channel then by language tag (e.g. 'whatsapp' -> 'pt-BR' -> exact text). Channel and language keys are server-controlled, not free personal text.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/forbiddenIdentityFieldNamePattern" },
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payload_schema_version",
+    "purpose",
+    "package_id",
+    "package_version",
+    "supersedes_content_digest",
+    "tenant_binding",
+    "controller_identity_and_institutional_contact",
+    "real_processing_agents",
+    "operations_and_minimum_data",
+    "data_sensitivity_assessment",
+    "legal_hypothesis_common_data",
+    "legal_hypothesis_sensitive_data",
+    "consent_based_operation",
+    "notice_texts_by_channel_and_language",
+    "refusal_rights_and_withdrawal",
+    "presentation_and_manifestation_evidence_contract",
+    "children_adolescents_unknown_age_and_guardian_policy",
+    "validity_expiration_material_change_and_reacceptance",
+    "retention_and_disposal_matrix",
+    "optout_withdrawal_deletion_legal_hold_and_reactivation",
+    "international_transfer_inventory_and_mechanism",
+    "rights_incidents_and_periodic_review_owners",
+    "rbac_by_action_and_scope",
+    "server_side_resource_binding_evidence",
+    "durable_idempotency_receipt_policy",
+    "ai_memory_and_tenant_isolation"
+  ],
+  "properties": {
+    "payload_schema_version": {
+      "const": "d2b2b2/decision-payload/v1"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": ["atendimento_solicitado", "cuidado_pastoral", "tarefas_operacionais", "comunicados"],
+      "description": "Exactly one purpose per materialized decision_payload (see template.json#/metadata/materialization_cardinality)."
+    },
+    "package_id": {
+      "$ref": "#/$defs/opaqueUuid",
+      "description": "Server-generated after binding to a tenant. Never derived from name, phone, message, or civil document (reference doc section 1.1)."
+    },
+    "package_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$",
+      "description": "Immutable semantic version. The first materialization uses the version approved from the DRAFT_NOT_APPROVED text."
+    },
+    "supersedes_content_digest": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sha256Hex" }
+      ],
+      "description": "null for the first documented version of this purpose+tenant; otherwise the sha256 content_digest of the payload this version replaces (reference doc section 13.3)."
+    },
+    "tenant_binding": {
+      "$ref": "#/$defs/opaqueUuid",
+      "description": "Canonical igreja_id selected and validated server-side. Never accepted from the model, message, or free client field (reference doc section 1.1, section 18.2)."
+    },
+    "controller_identity_and_institutional_contact": {
+      "$ref": "#/$defs/controllerIdentityAndInstitutionalContact"
+    },
+    "real_processing_agents": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "operations_and_minimum_data": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "data_sensitivity_assessment": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "legal_hypothesis_common_data": {
+      "$ref": "#/$defs/populatedGovernanceContent",
+      "description": "Legal basis for common personal data in this purpose (reference doc section 7). Typically LGPD art. 7, I (consent)."
+    },
+    "legal_hypothesis_sensitive_data": {
+      "$ref": "#/$defs/populatedGovernanceContent",
+      "description": "Legal basis for sensitive personal data, including religious conviction (reference doc section 7). Typically LGPD art. 11, I (specific, highlighted consent)."
+    },
+    "consent_based_operation": {
+      "type": "boolean",
+      "description": "True marks this purpose's design as consent-based (reference doc section 1, metadata table). It never means a person actually granted consent; that fact lives only in the ledger/evidence_store described in section 11, outside this documentation repository."
+    },
+    "notice_texts_by_channel_and_language": { "$ref": "#/$defs/noticeTextsByChannelAndLanguage" },
+    "refusal_rights_and_withdrawal": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "presentation_and_manifestation_evidence_contract": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "children_adolescents_unknown_age_and_guardian_policy": {
+      "$ref": "#/$defs/childrenAdolescentsUnknownAgeAndGuardianPolicy"
+    },
+    "validity_expiration_material_change_and_reacceptance": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "retention_and_disposal_matrix": { "$ref": "#/$defs/retentionAndDisposalMatrix" },
+    "optout_withdrawal_deletion_legal_hold_and_reactivation": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "international_transfer_inventory_and_mechanism": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "rights_incidents_and_periodic_review_owners": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "rbac_by_action_and_scope": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "server_side_resource_binding_evidence": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "durable_idempotency_receipt_policy": { "$ref": "#/$defs/populatedGovernanceContent" },
+    "ai_memory_and_tenant_isolation": { "$ref": "#/$defs/populatedGovernanceContent" }
+  },
+
+  "x-out-of-scope-governance-envelope-fields": {
+    "$comment": "These fields sit beside decision_payload inside one purpose packet (template.json#/purposes/<purpose>) but are excluded from the JCS/SHA-256 digest per digest_contract.governance_envelope_is_excluded. They are documented here only so a materializer cannot mistake them for decision_payload content; this schema does not validate them.",
+    "content_digest": {
+      "readOnly": true,
+      "description": "sha256(JCS(decision_payload)), computed server-side after materialization. Never author-supplied. See #/$defs/sha256Hex and digest_contract in the template."
+    },
+    "nominal_approval_record_refs": {
+      "readOnly": true,
+      "description": "Six role slots (approval_record_contract.required_fields), each populated only by a recorded human/technical approval event, never by the materializer."
+    },
+    "purpose_status": {
+      "readOnly": true,
+      "enum": ["DRAFT_NOT_APPROVED", "FACTS_ATTESTED", "PRIVACY_REVIEWED", "CHANGES_REQUIRED", "CONTROLLER_APPROVED", "CATALOG_BOUND", "REJECTED", "SUSPENDED", "EXPIRED", "SUPERSEDED"],
+      "description": "Driven only by the lifecycle_contract.allowed_transitions state machine, never set directly by the materializer."
+    },
+    "controller_approved": { "readOnly": true, "type": "boolean", "description": "Derived by eligibility_rules.human_packet_complete_requires, not fillable by the materializer." },
+    "human_packet_complete": { "readOnly": true, "type": "boolean", "description": "Derived indicator; see eligibility_rules.human_packet_complete_requires." },
+    "catalog_ready": { "readOnly": true, "type": "boolean", "description": "Derived indicator; see eligibility_rules.catalog_ready_requires." },
+    "writer_eligible": { "readOnly": true, "type": "boolean", "description": "Derived indicator; see eligibility_rules.writer_eligible_requires and eligibility_rules.non_consent_rule." }
+  },
+
+  "x-forbidden-anywhere-in-this-repository": {
+    "$comment": "Never place these in decision_payload, in this schema's examples, or in any governance document: raw CPF/RG/passport/CNH numbers, residential address, personal phone number, personal e-mail address, bank account/card data, secrets, tokens, or full copies of civil documents. See reference doc sections 4.3, 11.2, 19.1. Use #/$defs/opaqueUuid or #/$defs/opaqueRefOrNull instead."
+  }
+}
