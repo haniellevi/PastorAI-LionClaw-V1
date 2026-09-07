@@ -27,6 +27,13 @@ qualquer expansão do canário.
 
 ## Princípios aprovados
 
+Há uma [proposta local de catálogo imutável de consentimento](governance/consent/catalog/CONTRACT.md)
+sobre a base da PR #378 (`b3b3548`), com exemplo inteiramente fictício. Ela
+vincula referências ao conteúdo exato antes do cálculo do digest e testa
+alteração/remoção de entradas. Não aprova consentimento nem cria catálogo
+operacional: `catalog_ready=false`, `writer_eligible=false`, sem evidence
+store, writer, integração ao agente ou envio.
+
 - WhatsApp é a interface operacional principal.
 - Web é apoio administrativo, de segurança e governança.
 - Uma definição global e versionada de LangGraph atende todas as igrejas.

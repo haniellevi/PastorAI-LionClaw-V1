@@ -16,6 +16,14 @@ equivalente.
 
 ## Classificações
 
+Nota técnica local sobre a base `b3b35489436498fa234c74a6f835a572a0d89892`:
+o [contrato proposto de catálogo imutável](../governance/consent/catalog/CONTRACT.md)
+acrescenta somente schema documental, exemplo sintético e testes de fechamento
+de refs/digest/imutabilidade. Não constitui catálogo operacional, evidence
+store ou writer. `catalog_ready=false`, `writer_eligible=false` e aprovação
+humana pendente permanecem; o schema de payload da PR #378 não é alterado.
+Esta nota não reaudita a matriz global nem atesta uma igreja real.
+
 - `IMPLEMENTADO`: contrato e fluxo identificáveis no código auditado.
 - `PARCIAL`: existe uma base útil, mas falta parte relevante do fluxo.
 - `AUSENTE`: não foi encontrado contrato operacional suficiente.

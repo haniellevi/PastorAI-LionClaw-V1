@@ -1,0 +1,539 @@
+{
+  "schema_version": "consent-catalog/design-v1",
+  "entry_id": "00000000-0000-4000-8000-000000000303",
+  "purpose": "tarefas_operacionais",
+  "tenant_binding": "00000000-0000-4000-8000-000000000202",
+  "package_id": "00000000-0000-4000-8000-000000000101",
+  "package_version": "1.0.0",
+  "status": "SYNTHETIC_FROZEN",
+  "synthetic_only": true,
+  "controller_approved": false,
+  "human_packet_complete": false,
+  "catalog_ready": false,
+  "writer_eligible": false,
+  "operational_authorization": false,
+  "next_stage_authorized": false,
+  "source_payload": {
+    "payload_schema_version": "d2b2b2/decision-payload/v1",
+    "purpose": "tarefas_operacionais",
+    "package_id": "00000000-0000-4000-8000-000000000101",
+    "package_version": "1.0.0",
+    "supersedes_content_digest": null,
+    "tenant_binding": "00000000-0000-4000-8000-000000000202",
+    "controller_identity_and_institutional_contact": {
+      "controller_legal_name": "Igreja Exemplo",
+      "institutional_contact_channel_ref": "ref:institutional-contact:igreja-exemplo-de-testes"
+    },
+    "real_processing_agents": {
+      "controladora": "ref:agent:igreja-exemplo-de-testes",
+      "operadora": "ref:agent:plataforma-igreja12-exemplo"
+    },
+    "operations_and_minimum_data": {
+      "relatorio_de_celula": [
+        "igreja_ref",
+        "celula_ref",
+        "reuniao_ref",
+        "totais_agregados"
+      ],
+      "presenca": [
+        "pessoa_ref",
+        "reuniao_ref",
+        "estado_presenca"
+      ]
+    },
+    "data_sensitivity_assessment": "ref:governance:sensitivity-assessment:tarefas-operacionais-exemplo",
+    "legal_hypothesis_common_data": "lgpd_art_7_i_consentimento",
+    "legal_hypothesis_sensitive_data": "lgpd_art_11_i_consentimento_especifico_destacado",
+    "consent_based_operation": true,
+    "notice_texts_by_channel_and_language": {
+      "whatsapp": {
+        "pt-BR": "Aviso sintetico de exemplo para WhatsApp, finalidade tarefas_operacionais."
+      },
+      "painel": {
+        "pt-BR": "Aviso sintetico de exemplo para o painel autenticado, finalidade tarefas_operacionais."
+      }
+    },
+    "refusal_rights_and_withdrawal": "ref:governance:refusal-and-withdrawal:tarefas-operacionais-exemplo",
+    "presentation_and_manifestation_evidence_contract": "ref:governance:evidence-contract:tarefas-operacionais-exemplo",
+    "children_adolescents_unknown_age_and_guardian_policy": {
+      "applicability_status": "APPLICABLE",
+      "justification": "ref:governance:minor-justification:tarefas-operacionais-exemplo",
+      "evidence_ref": "ref:evidence:minor-policy:tarefas-operacionais-exemplo",
+      "reviewer_record_ref": "ref:approval:minor-reviewer:tarefas-operacionais-exemplo",
+      "best_interest_assessment_ref": "ref:assessment:best-interest:tarefas-operacionais-exemplo",
+      "age_or_guardian_measures": "ref:governance:guardian-measures:tarefas-operacionais-exemplo",
+      "risk_and_impact_assessment_ref": "ref:assessment:risk-impact:tarefas-operacionais-exemplo"
+    },
+    "validity_expiration_material_change_and_reacceptance": "ref:governance:validity:tarefas-operacionais-exemplo",
+    "retention_and_disposal_matrix": {
+      "ledger": "ref:retention:ledger:tarefas-operacionais-exemplo",
+      "evidence": "ref:retention:evidence:tarefas-operacionais-exemplo",
+      "messages": "ref:retention:messages:tarefas-operacionais-exemplo",
+      "media": "ref:retention:media:tarefas-operacionais-exemplo",
+      "transcripts": "ref:retention:transcripts:tarefas-operacionais-exemplo",
+      "summaries": "ref:retention:summaries:tarefas-operacionais-exemplo",
+      "checkpoints": "ref:retention:checkpoints:tarefas-operacionais-exemplo",
+      "vectors": "ref:retention:vectors:tarefas-operacionais-exemplo",
+      "logs": "ref:retention:logs:tarefas-operacionais-exemplo",
+      "dead_letter": "ref:retention:dead-letter:tarefas-operacionais-exemplo",
+      "backups": "ref:retention:backups:tarefas-operacionais-exemplo"
+    },
+    "optout_withdrawal_deletion_legal_hold_and_reactivation": "ref:governance:optout:tarefas-operacionais-exemplo",
+    "international_transfer_inventory_and_mechanism": "ref:governance:transfer-inventory:tarefas-operacionais-exemplo",
+    "rights_incidents_and_periodic_review_owners": "ref:governance:rights-incidents:tarefas-operacionais-exemplo",
+    "rbac_by_action_and_scope": "ref:governance:rbac:tarefas-operacionais-exemplo",
+    "server_side_resource_binding_evidence": "ref:governance:server-side-binding:tarefas-operacionais-exemplo",
+    "durable_idempotency_receipt_policy": "ref:governance:idempotency-receipt:tarefas-operacionais-exemplo",
+    "ai_memory_and_tenant_isolation": "ref:governance:ai-memory-isolation:tarefas-operacionais-exemplo"
+  },
+  "decision_payload": {
+    "payload_schema_version": "d2b2b2/decision-payload/v1",
+    "purpose": "tarefas_operacionais",
+    "package_id": "00000000-0000-4000-8000-000000000101",
+    "package_version": "1.0.0",
+    "supersedes_content_digest": null,
+    "tenant_binding": "00000000-0000-4000-8000-000000000202",
+    "controller_identity_and_institutional_contact": {
+      "controller_legal_name": "Igreja Exemplo",
+      "institutional_contact_channel_ref": "ref:catalog:sha256:6886728a97f745423f9aebb4eb686e9f12c0a99bc2fc5a26dd12aced5216a56a"
+    },
+    "real_processing_agents": {
+      "controladora": "ref:catalog:sha256:c06388ba01a266b7ec49d81d9697f03c1c0fbce147ec0b5fceece7855955b21a",
+      "operadora": "ref:catalog:sha256:f30bdf1f9d9ad96c148b47c9d753e92c88c9fa8a93f11601a8422eb841dbeb86"
+    },
+    "operations_and_minimum_data": {
+      "relatorio_de_celula": [
+        "igreja_ref",
+        "celula_ref",
+        "reuniao_ref",
+        "totais_agregados"
+      ],
+      "presenca": [
+        "pessoa_ref",
+        "reuniao_ref",
+        "estado_presenca"
+      ]
+    },
+    "data_sensitivity_assessment": "ref:catalog:sha256:9ce3179bb8d08f312afc610552ee71fae8923e996d5accb7c13f270a71a0f789",
+    "legal_hypothesis_common_data": "lgpd_art_7_i_consentimento",
+    "legal_hypothesis_sensitive_data": "lgpd_art_11_i_consentimento_especifico_destacado",
+    "consent_based_operation": true,
+    "notice_texts_by_channel_and_language": {
+      "whatsapp": {
+        "pt-BR": "Aviso sintetico de exemplo para WhatsApp, finalidade tarefas_operacionais."
+      },
+      "painel": {
+        "pt-BR": "Aviso sintetico de exemplo para o painel autenticado, finalidade tarefas_operacionais."
+      }
+    },
+    "refusal_rights_and_withdrawal": "ref:catalog:sha256:72debc2e13e6262dd17c8dbcb49c956d9145feb6a01172db91ee66f394f52b09",
+    "presentation_and_manifestation_evidence_contract": "ref:catalog:sha256:bc308a3f1d57f504aa42d12b7e05991f25b0fecf338678f7fe306cad6fd9772a",
+    "children_adolescents_unknown_age_and_guardian_policy": {
+      "applicability_status": "APPLICABLE",
+      "justification": "ref:catalog:sha256:6c4f1b14cdb54d6e2c456a8439dc5eb6406217fd9163e597a86ac9eb85c777a2",
+      "evidence_ref": "ref:catalog:sha256:fd931900cf672db93d778735f4e4e7c945b08caa42f8e5c7d9c917f59b53eaef",
+      "reviewer_record_ref": "ref:catalog:sha256:5ecfc0f488504018d1c4875f2e8f1372a006506a1d1937e03f20d4fa48b54cef",
+      "best_interest_assessment_ref": "ref:catalog:sha256:f573dcdc4f1fd5db591e52f1a205100a6e8abbd3c1113e61ab2bee8fd0b554f0",
+      "age_or_guardian_measures": "ref:catalog:sha256:331847de702e72f1dcd51748dfc1f35d86dd5f5d3195a3b6869d7dba32a236e4",
+      "risk_and_impact_assessment_ref": "ref:catalog:sha256:2b9676b5e54b603879b6bd19a3439bdc1acffe7183072ef566b0c5eb9dda9cfc"
+    },
+    "validity_expiration_material_change_and_reacceptance": "ref:catalog:sha256:7321ba51239eabc113254426584cfb2f03c02c6e9d817ef4fca2bd1e32d07395",
+    "retention_and_disposal_matrix": {
+      "ledger": "ref:catalog:sha256:41ee0d59572b812358c6e8340afd853279145b4ba2c54ba37250f472235cda75",
+      "evidence": "ref:catalog:sha256:6744a466b8b243eef644477b3f61acf6cdb0a1e93059c23a5825626e0ee89a77",
+      "messages": "ref:catalog:sha256:4650067a939340ffc871bb36855167f01b523c88fd5357d2c615e5ee17544721",
+      "media": "ref:catalog:sha256:87b33740b17e58bb7491ee0b4cc8a9d5423ea5dd1a8ba4ede507b1fac386ec79",
+      "transcripts": "ref:catalog:sha256:2429c7c493a2c91304f4644b5211355623db1882b49b11778c36058f01fde3ad",
+      "summaries": "ref:catalog:sha256:06904888dd10e47167a618c8189b9e7baa763fbc70bb8c30c52a7f08b9e696d8",
+      "checkpoints": "ref:catalog:sha256:9f4639f55c58dc1629deb6768d948aa4300b8bd148a8fae884a285a9f77ed340",
+      "vectors": "ref:catalog:sha256:ae35cafc25e97c3ca631e3d0d4f0ab0becfd8770dcaef132fea29b3a68d067e2",
+      "logs": "ref:catalog:sha256:eacdfc5f75cabff8b49499bdbd22d0759009e2df1708e39f22b25b3631ab5f1c",
+      "dead_letter": "ref:catalog:sha256:f1e2eb83dda4dfba41b7ea45ad5ab97c55ef376ec023fd54356f92ff49c15702",
+      "backups": "ref:catalog:sha256:7ae96d69618491dc0751ba25434bf78ec5d16713ae35678b4fc3b3a426395ee4"
+    },
+    "optout_withdrawal_deletion_legal_hold_and_reactivation": "ref:catalog:sha256:b8588d96f441952186193e175cda9239f3b52d9f121b8d3a2f7f297c1560d46b",
+    "international_transfer_inventory_and_mechanism": "ref:catalog:sha256:ca1a2343e68191f1e948cdda6956553b2b69917aeaf493337c4c556e4ecd9505",
+    "rights_incidents_and_periodic_review_owners": "ref:catalog:sha256:263fd392f18d1b41995825e0822c9d38971627f6b824fb56e7db43b1a509424a",
+    "rbac_by_action_and_scope": "ref:catalog:sha256:2fc4ebca02f5115a7ae9f1a7313eb0ef77bf167cd30ea482526d7797ff78ce0f",
+    "server_side_resource_binding_evidence": "ref:catalog:sha256:f847f29882200590b2a25804448cac52d7c4f51e11d2a6962789447b44c57d56",
+    "durable_idempotency_receipt_policy": "ref:catalog:sha256:f56a30daaa6d83e19fc471c6d98bacead2f3c47a1fca7edf0a23b7795e624f5d",
+    "ai_memory_and_tenant_isolation": "ref:catalog:sha256:fe856d0e2589df1d50e2beb194ebaa840e8978f148e68f9dca38ea2b4a39a8be"
+  },
+  "resolved_refs": [
+    {
+      "source_ref": "ref:agent:igreja-exemplo-de-testes",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:c06388ba01a266b7ec49d81d9697f03c1c0fbce147ec0b5fceece7855955b21a",
+      "content_sha256": "c06388ba01a266b7ec49d81d9697f03c1c0fbce147ec0b5fceece7855955b21a",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Papel institucional de ensaio igreja-exemplo-de-testes, sem identidade ou contrato real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:agent:plataforma-igreja12-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:f30bdf1f9d9ad96c148b47c9d753e92c88c9fa8a93f11601a8422eb841dbeb86",
+      "content_sha256": "f30bdf1f9d9ad96c148b47c9d753e92c88c9fa8a93f11601a8422eb841dbeb86",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Papel institucional de ensaio plataforma-igreja12-exemplo, sem identidade ou contrato real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:approval:minor-reviewer:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:5ecfc0f488504018d1c4875f2e8f1372a006506a1d1937e03f20d4fa48b54cef",
+      "content_sha256": "5ecfc0f488504018d1c4875f2e8f1372a006506a1d1937e03f20d4fa48b54cef",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Registro ficticio do papel revisor no ensaio; nenhuma pessoa, assinatura ou aprovacao real representada."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:assessment:best-interest:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:f573dcdc4f1fd5db591e52f1a205100a6e8abbd3c1113e61ab2bee8fd0b554f0",
+      "content_sha256": "f573dcdc4f1fd5db591e52f1a205100a6e8abbd3c1113e61ab2bee8fd0b554f0",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio best-interest: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:assessment:risk-impact:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:2b9676b5e54b603879b6bd19a3439bdc1acffe7183072ef566b0c5eb9dda9cfc",
+      "content_sha256": "2b9676b5e54b603879b6bd19a3439bdc1acffe7183072ef566b0c5eb9dda9cfc",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio risk-impact: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:evidence:minor-policy:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:fd931900cf672db93d778735f4e4e7c945b08caa42f8e5c7d9c917f59b53eaef",
+      "content_sha256": "fd931900cf672db93d778735f4e4e7c945b08caa42f8e5c7d9c917f59b53eaef",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio minor-policy: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:ai-memory-isolation:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:fe856d0e2589df1d50e2beb194ebaa840e8978f148e68f9dca38ea2b4a39a8be",
+      "content_sha256": "fe856d0e2589df1d50e2beb194ebaa840e8978f148e68f9dca38ea2b4a39a8be",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio ai-memory-isolation: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:evidence-contract:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:bc308a3f1d57f504aa42d12b7e05991f25b0fecf338678f7fe306cad6fd9772a",
+      "content_sha256": "bc308a3f1d57f504aa42d12b7e05991f25b0fecf338678f7fe306cad6fd9772a",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio evidence-contract: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:guardian-measures:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:331847de702e72f1dcd51748dfc1f35d86dd5f5d3195a3b6869d7dba32a236e4",
+      "content_sha256": "331847de702e72f1dcd51748dfc1f35d86dd5f5d3195a3b6869d7dba32a236e4",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio guardian-measures: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:idempotency-receipt:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:f56a30daaa6d83e19fc471c6d98bacead2f3c47a1fca7edf0a23b7795e624f5d",
+      "content_sha256": "f56a30daaa6d83e19fc471c6d98bacead2f3c47a1fca7edf0a23b7795e624f5d",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio idempotency-receipt: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:minor-justification:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:6c4f1b14cdb54d6e2c456a8439dc5eb6406217fd9163e597a86ac9eb85c777a2",
+      "content_sha256": "6c4f1b14cdb54d6e2c456a8439dc5eb6406217fd9163e597a86ac9eb85c777a2",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio minor-justification: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:optout:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:b8588d96f441952186193e175cda9239f3b52d9f121b8d3a2f7f297c1560d46b",
+      "content_sha256": "b8588d96f441952186193e175cda9239f3b52d9f121b8d3a2f7f297c1560d46b",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio optout: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:rbac:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:2fc4ebca02f5115a7ae9f1a7313eb0ef77bf167cd30ea482526d7797ff78ce0f",
+      "content_sha256": "2fc4ebca02f5115a7ae9f1a7313eb0ef77bf167cd30ea482526d7797ff78ce0f",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio rbac: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:refusal-and-withdrawal:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:72debc2e13e6262dd17c8dbcb49c956d9145feb6a01172db91ee66f394f52b09",
+      "content_sha256": "72debc2e13e6262dd17c8dbcb49c956d9145feb6a01172db91ee66f394f52b09",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio refusal-and-withdrawal: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:rights-incidents:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:263fd392f18d1b41995825e0822c9d38971627f6b824fb56e7db43b1a509424a",
+      "content_sha256": "263fd392f18d1b41995825e0822c9d38971627f6b824fb56e7db43b1a509424a",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio rights-incidents: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:sensitivity-assessment:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:9ce3179bb8d08f312afc610552ee71fae8923e996d5accb7c13f270a71a0f789",
+      "content_sha256": "9ce3179bb8d08f312afc610552ee71fae8923e996d5accb7c13f270a71a0f789",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio sensitivity-assessment: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:server-side-binding:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:f847f29882200590b2a25804448cac52d7c4f51e11d2a6962789447b44c57d56",
+      "content_sha256": "f847f29882200590b2a25804448cac52d7c4f51e11d2a6962789447b44c57d56",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio server-side-binding: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:transfer-inventory:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:ca1a2343e68191f1e948cdda6956553b2b69917aeaf493337c4c556e4ecd9505",
+      "content_sha256": "ca1a2343e68191f1e948cdda6956553b2b69917aeaf493337c4c556e4ecd9505",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio transfer-inventory: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governance:validity:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:7321ba51239eabc113254426584cfb2f03c02c6e9d817ef4fca2bd1e32d07395",
+      "content_sha256": "7321ba51239eabc113254426584cfb2f03c02c6e9d817ef4fca2bd1e32d07395",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Documento de ensaio validity: somente relatorio agregado em igreja ficticia, sem envio, acesso real ou decisao juridica. Revisao externa continua pendente."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:institutional-contact:igreja-exemplo-de-testes",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:6886728a97f745423f9aebb4eb686e9f12c0a99bc2fc5a26dd12aced5216a56a",
+      "content_sha256": "6886728a97f745423f9aebb4eb686e9f12c0a99bc2fc5a26dd12aced5216a56a",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Canal institucional ficticio: caixa interna de testes sem endereco externo."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:backups:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:7ae96d69618491dc0751ba25434bf78ec5d16713ae35678b4fc3b3a426395ee4",
+      "content_sha256": "7ae96d69618491dc0751ba25434bf78ec5d16713ae35678b4fc3b3a426395ee4",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie backups apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:checkpoints:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:9f4639f55c58dc1629deb6768d948aa4300b8bd148a8fae884a285a9f77ed340",
+      "content_sha256": "9f4639f55c58dc1629deb6768d948aa4300b8bd148a8fae884a285a9f77ed340",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie checkpoints apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:dead-letter:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:f1e2eb83dda4dfba41b7ea45ad5ab97c55ef376ec023fd54356f92ff49c15702",
+      "content_sha256": "f1e2eb83dda4dfba41b7ea45ad5ab97c55ef376ec023fd54356f92ff49c15702",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie dead-letter apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:evidence:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:6744a466b8b243eef644477b3f61acf6cdb0a1e93059c23a5825626e0ee89a77",
+      "content_sha256": "6744a466b8b243eef644477b3f61acf6cdb0a1e93059c23a5825626e0ee89a77",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie evidence apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:ledger:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:41ee0d59572b812358c6e8340afd853279145b4ba2c54ba37250f472235cda75",
+      "content_sha256": "41ee0d59572b812358c6e8340afd853279145b4ba2c54ba37250f472235cda75",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie ledger apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:logs:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:eacdfc5f75cabff8b49499bdbd22d0759009e2df1708e39f22b25b3631ab5f1c",
+      "content_sha256": "eacdfc5f75cabff8b49499bdbd22d0759009e2df1708e39f22b25b3631ab5f1c",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie logs apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:media:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:87b33740b17e58bb7491ee0b4cc8a9d5423ea5dd1a8ba4ede507b1fac386ec79",
+      "content_sha256": "87b33740b17e58bb7491ee0b4cc8a9d5423ea5dd1a8ba4ede507b1fac386ec79",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie media apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:messages:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:4650067a939340ffc871bb36855167f01b523c88fd5357d2c615e5ee17544721",
+      "content_sha256": "4650067a939340ffc871bb36855167f01b523c88fd5357d2c615e5ee17544721",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie messages apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:summaries:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:06904888dd10e47167a618c8189b9e7baa763fbc70bb8c30c52a7f08b9e696d8",
+      "content_sha256": "06904888dd10e47167a618c8189b9e7baa763fbc70bb8c30c52a7f08b9e696d8",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie summaries apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:transcripts:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:2429c7c493a2c91304f4644b5211355623db1882b49b11778c36058f01fde3ad",
+      "content_sha256": "2429c7c493a2c91304f4644b5211355623db1882b49b11778c36058f01fde3ad",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie transcripts apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:retention:vectors:tarefas-operacionais-exemplo",
+      "state": "RESOLVED_SYNTHETIC",
+      "bound_ref": "ref:catalog:sha256:ae35cafc25e97c3ca631e3d0d4f0ab0becfd8770dcaef132fea29b3a68d067e2",
+      "content_sha256": "ae35cafc25e97c3ca631e3d0d4f0ab0becfd8770dcaef132fea29b3a68d067e2",
+      "content": {
+        "synthetic_only": true,
+        "kind": "synthetic_governance_text",
+        "text": "Regra de ensaio: eliminar a superficie vectors apos sete dias ficticios; suspender descarte somente em hold sintetico explicitamente registrado. Nao e politica real."
+      },
+      "pending_reason": null
+    }
+  ],
+  "content_digest": "4e02e55ee583b75198afb2be57bf80e21161e892104742149709655196b9061b",
+  "supersedes": null,
+  "entry_digest": "853af6d70c2aed392930aea4c7f2f2515518bbe2eb27c4d0055a17940bd32c43"
+}
