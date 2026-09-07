@@ -1,0 +1,66 @@
+{
+  "$comment": "SINTETICO. Nenhum dado real: UUID ficticio, denominacao ficticia, sem CNPJ/telefone/e-mail reais. Existe apenas para provar o fluxo de canonicalizacao JCS (RFC 8785) + SHA-256 sobre o schema docs/governance/consent/d2b2b2-decision-payload.schema.json antes de qualquer materializacao real por tenant. Nao concede consentimento, catalogo, evidence store, writer ou runtime.",
+  "$schema": "./d2b2b2-decision-payload.schema.json",
+  "payload_schema_version": "d2b2b2/decision-payload/v1",
+  "purpose": "tarefas_operacionais",
+  "package_id": "00000000-0000-4000-8000-000000000101",
+  "package_version": "1.0.0",
+  "supersedes_content_digest": null,
+  "tenant_binding": "00000000-0000-4000-8000-000000000202",
+  "controller_identity_and_institutional_contact": {
+    "controller_legal_name": "Igreja Exemplo de Testes",
+    "institutional_contact_channel_ref": "ref:institutional-contact:igreja-exemplo-de-testes"
+  },
+  "real_processing_agents": {
+    "controladora": "ref:agent:igreja-exemplo-de-testes",
+    "operadora": "ref:agent:plataforma-igreja12-exemplo"
+  },
+  "operations_and_minimum_data": {
+    "relatorio_de_celula": ["igreja_ref", "celula_ref", "reuniao_ref", "totais_agregados"],
+    "presenca": ["pessoa_ref", "reuniao_ref", "estado_presenca"]
+  },
+  "data_sensitivity_assessment": "ref:governance:sensitivity-assessment:tarefas-operacionais-exemplo",
+  "legal_hypothesis_common_data": "lgpd_art_7_i_consentimento",
+  "legal_hypothesis_sensitive_data": "lgpd_art_11_i_consentimento_especifico_destacado",
+  "consent_based_operation": true,
+  "notice_texts_by_channel_and_language": {
+    "whatsapp": {
+      "pt-BR": "Aviso sintetico de exemplo para WhatsApp, finalidade tarefas_operacionais."
+    },
+    "painel": {
+      "pt-BR": "Aviso sintetico de exemplo para o painel autenticado, finalidade tarefas_operacionais."
+    }
+  },
+  "refusal_rights_and_withdrawal": "ref:governance:refusal-and-withdrawal:tarefas-operacionais-exemplo",
+  "presentation_and_manifestation_evidence_contract": "ref:governance:evidence-contract:tarefas-operacionais-exemplo",
+  "children_adolescents_unknown_age_and_guardian_policy": {
+    "applicability_status": "APPLICABLE",
+    "justification": "ref:governance:minor-justification:tarefas-operacionais-exemplo",
+    "evidence_ref": "ref:evidence:minor-policy:tarefas-operacionais-exemplo",
+    "reviewer_record_ref": "ref:approval:minor-reviewer:tarefas-operacionais-exemplo",
+    "best_interest_assessment_ref": "ref:assessment:best-interest:tarefas-operacionais-exemplo",
+    "age_or_guardian_measures": "ref:governance:guardian-measures:tarefas-operacionais-exemplo",
+    "risk_and_impact_assessment_ref": "ref:assessment:risk-impact:tarefas-operacionais-exemplo"
+  },
+  "validity_expiration_material_change_and_reacceptance": "ref:governance:validity:tarefas-operacionais-exemplo",
+  "retention_and_disposal_matrix": {
+    "ledger": "ref:retention:ledger:tarefas-operacionais-exemplo",
+    "evidence": "ref:retention:evidence:tarefas-operacionais-exemplo",
+    "messages": "ref:retention:messages:tarefas-operacionais-exemplo",
+    "media": "ref:retention:media:tarefas-operacionais-exemplo",
+    "transcripts": "ref:retention:transcripts:tarefas-operacionais-exemplo",
+    "summaries": "ref:retention:summaries:tarefas-operacionais-exemplo",
+    "checkpoints": "ref:retention:checkpoints:tarefas-operacionais-exemplo",
+    "vectors": "ref:retention:vectors:tarefas-operacionais-exemplo",
+    "logs": "ref:retention:logs:tarefas-operacionais-exemplo",
+    "dead_letter": "ref:retention:dead-letter:tarefas-operacionais-exemplo",
+    "backups": "ref:retention:backups:tarefas-operacionais-exemplo"
+  },
+  "optout_withdrawal_deletion_legal_hold_and_reactivation": "ref:governance:optout:tarefas-operacionais-exemplo",
+  "international_transfer_inventory_and_mechanism": "ref:governance:transfer-inventory:tarefas-operacionais-exemplo",
+  "rights_incidents_and_periodic_review_owners": "ref:governance:rights-incidents:tarefas-operacionais-exemplo",
+  "rbac_by_action_and_scope": "ref:governance:rbac:tarefas-operacionais-exemplo",
+  "server_side_resource_binding_evidence": "ref:governance:server-side-binding:tarefas-operacionais-exemplo",
+  "durable_idempotency_receipt_policy": "ref:governance:idempotency-receipt:tarefas-operacionais-exemplo",
+  "ai_memory_and_tenant_isolation": "ref:governance:ai-memory-isolation:tarefas-operacionais-exemplo"
+}
