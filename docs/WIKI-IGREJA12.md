@@ -34,6 +34,12 @@ alteração/remoção de entradas. Não aprova consentimento nem cria catálogo
 operacional: `catalog_ready=false`, `writer_eligible=false`, sem evidence
 store, writer, integração ao agente ou envio.
 
+A [proposta local de evidence store](governance/consent/evidence-store/CONTRACT.md)
+separa prova sanitizada de apresentação/manifestação, estado do ledger e recibo.
+Inclui apenas schema, exemplo fictício e teste: entrega não prova vontade e
+recusa inicial não gera concessão. Não implementa armazenamento, aprovação,
+writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
+
 - WhatsApp é a interface operacional principal.
 - Web é apoio administrativo, de segurança e governança.
 - Uma definição global e versionada de LangGraph atende todas as igrejas.
