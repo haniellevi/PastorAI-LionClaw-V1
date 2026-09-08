@@ -1,0 +1,171 @@
+{
+  "schema_version": "consent-catalog/frozen-payload-v2",
+  "entry_id": "cf169543-90a6-4da4-9d25-86808c83d322",
+  "purpose": "tarefas_operacionais",
+  "tenant_binding": "228ebda0-92c1-422c-8ab4-78fdc06c1b8e",
+  "package_id": "d47ae9ec-f438-47c6-b915-d4f96fdb7301",
+  "package_version": "1.0.0",
+  "status": "APPROVED_PAYLOAD_PENDING_EXTERNAL",
+  "synthetic_only": false,
+  "controller_approved": true,
+  "human_packet_complete": false,
+  "catalog_ready": false,
+  "writer_eligible": false,
+  "operational_authorization": false,
+  "next_stage_authorized": false,
+  "source_payload": {
+    "custody_ref": "ref:sha256:113f53f631703a734f3cda1f95dd1ef86c9470a837b1c1f5aa9e9fb0b603a919",
+    "content_digest": "17f260b24528508899a17dffbc49099e82ece7bf7d26c72dd966694b3c377a7f"
+  },
+  "decision_payload": {
+    "custody_ref": "ref:sha256:113f53f631703a734f3cda1f95dd1ef86c9470a837b1c1f5aa9e9fb0b603a919",
+    "content_digest": "17f260b24528508899a17dffbc49099e82ece7bf7d26c72dd966694b3c377a7f"
+  },
+  "resolved_refs": [
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-10",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:6df415f474bee6eb1e5fc32c278c9ce8a1f20d846dc40dd1f4fdf783379b1294",
+      "content_sha256": "6df415f474bee6eb1e5fc32c278c9ce8a1f20d846dc40dd1f4fdf783379b1294",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-11",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:789a2c9de6b36a0076425413dfcee4612b18b380bf1674e20d8b912681623370",
+      "content_sha256": "789a2c9de6b36a0076425413dfcee4612b18b380bf1674e20d8b912681623370",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-12",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:91c643eeffa984ee0a69851a6a427e8de1d9f89fa68be1905aecf1cd601b13ea",
+      "content_sha256": "91c643eeffa984ee0a69851a6a427e8de1d9f89fa68be1905aecf1cd601b13ea",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-12-1",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:b2e68d33a84458af50f47aea105f40ab99d06bb1011a6927567d229d7d898ffc",
+      "content_sha256": "b2e68d33a84458af50f47aea105f40ab99d06bb1011a6927567d229d7d898ffc",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-13",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:a4565bf8ef920d09a4f57bccbb034fa849a238a34af3c0c8d0f3e83a40cf48b8",
+      "content_sha256": "a4565bf8ef920d09a4f57bccbb034fa849a238a34af3c0c8d0f3e83a40cf48b8",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-14",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:d38d2c249f95dd97d78784e7e69861d7ea609b336f8f435dbccc1c05bcd9c194",
+      "content_sha256": "d38d2c249f95dd97d78784e7e69861d7ea609b336f8f435dbccc1c05bcd9c194",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-15",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:d635e3f2e635010889c3b5587ad7e10935a7492324ac93f8cc56bd7565d563ae",
+      "content_sha256": "d635e3f2e635010889c3b5587ad7e10935a7492324ac93f8cc56bd7565d563ae",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-16",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:308b7af718a513496ad4e881750fe29ae3f1d9601afcfbaf6ee037a5eb7aa534",
+      "content_sha256": "308b7af718a513496ad4e881750fe29ae3f1d9601afcfbaf6ee037a5eb7aa534",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-16-3",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:ba98eb11b8420fafe9850c1c68098e047fa6d00f89a8211eb2bc465914a85efb",
+      "content_sha256": "ba98eb11b8420fafe9850c1c68098e047fa6d00f89a8211eb2bc465914a85efb",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-17",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:45821ce815f8687dbbf074f5827c7004d788c1a12a80fb4e317a37971dc45cc9",
+      "content_sha256": "45821ce815f8687dbbf074f5827c7004d788c1a12a80fb4e317a37971dc45cc9",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-18-1",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:361dc2b0e8121d030cf42f6c89a9f31b8f132e05ccbbaa601fb32a20adf0549d",
+      "content_sha256": "361dc2b0e8121d030cf42f6c89a9f31b8f132e05ccbbaa601fb32a20adf0549d",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-18-2",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:59feb124323a0b59c6f6a1c23d2f31378edbc0e24a2d3cee885ad9e34a382e26",
+      "content_sha256": "59feb124323a0b59c6f6a1c23d2f31378edbc0e24a2d3cee885ad9e34a382e26",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-18-3",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:a0d30f482cca4ee2c7110aa3031268bf96e8a001e6cbe2eef8cca4f145aae227",
+      "content_sha256": "a0d30f482cca4ee2c7110aa3031268bf96e8a001e6cbe2eef8cca4f145aae227",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-19",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:3fb80f6e7ff865343d77ec5354043136c45abad7f09dedbe5e25687559f66cae",
+      "content_sha256": "3fb80f6e7ff865343d77ec5354043136c45abad7f09dedbe5e25687559f66cae",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-20",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:ab8d32f88f2aa7d0cb65beee692b76d44fa99058cf9f229c4db9caedd12c84df",
+      "content_sha256": "ab8d32f88f2aa7d0cb65beee692b76d44fa99058cf9f229c4db9caedd12c84df",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-4",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:c609271b9c05eb15f520932bc47c90787809432a3b1b10372daa96fbbe829324",
+      "content_sha256": "c609271b9c05eb15f520932bc47c90787809432a3b1b10372daa96fbbe829324",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-5",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:baabc752fc4519c86a4b0eacff8ddc2021688f246418240a82c5211a44dd9321",
+      "content_sha256": "baabc752fc4519c86a4b0eacff8ddc2021688f246418240a82c5211a44dd9321",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-6",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:a3463ec10de52fd53dc2a5a323b0c408c32d25770451339fe1088d5c4000e75b",
+      "content_sha256": "a3463ec10de52fd53dc2a5a323b0c408c32d25770451339fe1088d5c4000e75b",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:git:94df2ff1fa803754dddf8469d45889ba14f9d6f4:d2b2b2-decision-packet-tarefas-operacionais:section-7",
+      "state": "RESOLVED_FROZEN",
+      "content_ref": "ref:sha256:6e62d5700472911c49de43cae299cca7428078664c401c482fa72cbe4bc7b16a",
+      "content_sha256": "6e62d5700472911c49de43cae299cca7428078664c401c482fa72cbe4bc7b16a",
+      "pending_reason": null
+    },
+    {
+      "source_ref": "ref:governanca-local:filadelfia-registro-externo",
+      "state": "PENDING_EXTERNAL",
+      "bound_ref": null,
+      "content_sha256": null,
+      "content": null,
+      "pending_reason": "Registro factual externo: conteúdo privado não materializado nem verificado nesta entrada; manifestos de payload e assinatura não resolvem esta referência."
+    }
+  ],
+  "content_digest": "17f260b24528508899a17dffbc49099e82ece7bf7d26c72dd966694b3c377a7f",
+  "entry_digest": "bef0ba54ee9252ca6219396271f478f99d9e568efaf24a85051bc984092a8011",
+  "supersedes": null,
+  "approval_custody_ref": "ref:sha256:ec1573f6170b212c1148f35bd13e3a952908d376d04cca09360b78b1280e4d5e"
+}
