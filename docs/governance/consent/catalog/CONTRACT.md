@@ -1,5 +1,82 @@
 # Catálogo imutável de consentimento — proposta técnica v1
 
+## Evolução local: payload congelado v2
+
+Proposta offline sobre `48941f2ac05addbd7c7c105776f81eeb5a385991`.
+As seções v1 abaixo permanecem históricas e normativas somente para
+`consent-catalog/design-v1`. O exemplo sintético e seus digests não mudam.
+O schema admite dois perfis fechados, sem flexibilizar o v1.
+Nenhuma entrada real é criada nesta rodada.
+
+O perfil `consent-catalog/frozen-payload-v2` aceita `synthetic_only=false`
+e `controller_approved=true` como registro humano externo, não uma aprovação
+feita pelo schema. Exige `human_packet_complete=false`, `catalog_ready=false`,
+`writer_eligible=false`, `operational_authorization=false` e
+`next_stage_authorized=false`, mesmo com todas as referências resolvidas.
+
+### Custódia e preservação
+
+`source_payload` e `decision_payload` são apontadores idênticos contendo
+somente `custody_ref` e `content_digest`. Não embutem nem transformam payload.
+`approval_custody_ref` identifica separadamente a custódia da assinatura.
+As refs de custódia aceitam exclusivamente `ref:sha256:<64 hex minúsculos>`,
+sem caminhos, nomes, PDF, telefone ou e-mail. Identificam manifestos privados
+de custódia, não hashes de dados pessoais de baixa entropia. Hash não anonimiza
+PII. Não inventar um identificador real se seu manifesto ainda não existir.
+
+O esquema não autentica assinatura, competência do signatário ou manifestos.
+A futura custódia deve ligar assinatura, digest aprovado e tenant/finalidade/
+pacote/versão por fonte independente autenticada. Uma ref bem formada não é
+evidência de aprovação. A prova documental recebe separadamente payload
+fictício e digest aprovado fictício e verifica seus vínculos e SHA-256/JCS.
+Nenhum payload real é lido, alterado ou recalculado nesta evolução.
+
+### Resolução sem substituir referências aprovadas
+
+`resolved_refs` cobre exatamente as refs do payload congelado, sem duplicatas,
+em ordem ASCII e até 128 aliases. Não substitui strings do payload. O digest
+do payload fixa strings, não comprova conteúdo externo. Referências Git
+históricas permanecem no SHA aprovado; não se troca por main atual.
+
+- `PENDING_EXTERNAL`: formato v1, conteúdo/hash/bound_ref nulos e motivo
+  não vazio. Status `APPROVED_PAYLOAD_PENDING_EXTERNAL`.
+- `RESOLVED_FROZEN`: source_ref, content_ref opaca por SHA-256,
+  content_sha256 dos bytes externos exatos, pending_reason nulo.
+  A validação recebe bytes separadamente e confere hash/endereço; nunca busca
+  rede ou arquivos automaticamente. Para documentos Git, a custódia deve
+  identificar commit, caminho e seção/escopo exatos. Sem conteúdo verificável,
+  manter pendente; hash não prova adequação jurídica.
+
+Todas resolvidas: `APPROVED_PAYLOAD_REFERENCES_BOUND`, nunca autorização
+`CATALOG_BOUND` operacional. Conteúdo privado permanece fora do Git.
+
+Em ambos os estados v2, content_digest conserva o digest aprovado.
+entry_digest = SHA-256/JCS da entrada excluindo somente entry_digest.
+Pendências não anulam o digest de payload já aprovado nem passam a significar
+completude. Assinatura do payload não assina automaticamente a entrada:
+exige-se âncora independente própria para imutabilidade/autenticidade.
+
+Este primeiro perfil real admite somente supersedes nulo e payload sem
+predecessor. Depois de fixada uma entrada, não editar/recalcular para fechar
+pendências. Sucessão real exige contrato posterior; sucessão sintética v1
+permanece preservada.
+
+### Aceite e limites
+
+Testes fictícios cobrem preservação v1, pendências v2, gates falsos,
+custódia inválida, divergência de payload/digest/tenant, refs ausentes e
+duplicadas, adulteração de bytes externos e rehash contra âncora anterior.
+Não há writer, API, evidence store operacional, runtime, banco ou envio.
+Rollback: não adotar a proposta local, preservando payload e histórico.
+Próximo gate: revisão humana deste contrato antes da primeira entrada real.
+
+Validação local desta evolução: 212 testes passaram, zero falhas/skips,
+em 4.22s, incluindo catálogo, schema/digest de payload, pacote documental
+e evidence store. Imagem existente
+`pastorai-agent-local-validation-v1-backend:3799272`, sem pull/rede,
+checkout read-only e dados exclusivamente fictícios. `git diff --check`
+limpo. Não comprova CI remoto, custódia, assinatura ou runtime.
+
 Estado: **DESENHO OFFLINE / EXEMPLO SINTÉTICO / SEM APROVAÇÃO**.
 Base: `b3b35489436498fa234c74a6f835a572a0d89892` (PR #378).
 Esta proposta não cria catálogo operacional, evidence store, writer, API,

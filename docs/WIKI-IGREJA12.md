@@ -1,5 +1,11 @@
 # Wiki do projeto Igreja 12
 
+Proposta local: o [contrato do catálogo](governance/consent/catalog/CONTRACT.md)
+ganha o perfil `frozen-payload-v2`, preservando o sintético v1 e o payload
+aprovado sem transformação. Custódia externa e pendências são explícitas.
+Nenhuma entrada real criada, nova aprovação ou operação liberada:
+catalog_ready=false, writer_eligible=false e demais indicadores técnicos falsos.
+
 Snapshot documental na base auditada
 `64838cd3f1c6604ef091a940e19f704616d500b3` (em 2026-09-05). O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico

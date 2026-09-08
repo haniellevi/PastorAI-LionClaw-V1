@@ -148,6 +148,150 @@ def _validate(entry, *, anchor=None, previous=None):
         assert tuple(map(int, entry["package_version"].split("."))) > tuple(map(int, previous["package_version"].split(".")))
 
 
+def _validate_real(entry, *, frozen_payload, approved_digest, contents=None, anchor=None):
+    """Offline proof with independently supplied custody inputs, never a loader."""
+    payload_contract._assert_valid(entry, _load(CATALOG / "catalog-entry.schema.json"))
+    assert entry["schema_version"] == "consent-catalog/frozen-payload-v2"
+    payload_contract._assert_valid(frozen_payload, payload_contract._load_schema())
+    assert _digest(frozen_payload) == approved_digest == entry["content_digest"], "approved payload mismatch"
+    assert entry["source_payload"] == entry["decision_payload"], "payload pointers differ"
+    assert entry["decision_payload"]["content_digest"] == approved_digest
+    for key in ("tenant_binding", "purpose", "package_id", "package_version"):
+        assert frozen_payload[key] == entry[key], "binding mismatch"
+    rows = entry["resolved_refs"]
+    refs = [row["source_ref"] for row in rows]
+    assert 0 < len(refs) <= 128
+    assert refs == sorted(set(refs)), "duplicate or unordered refs"
+    assert set(refs) == _refs(frozen_payload), "dangling or extra reference"
+    pending = False
+    for row in rows:
+        if row["state"] == "PENDING_EXTERNAL":
+            pending = True
+            assert row["pending_reason"].strip(), "empty pending reason"
+        else:
+            assert row["state"] == "RESOLVED_FROZEN"
+            assert contents is not None and row["content_ref"] in contents, "missing external content"
+            raw = contents[row["content_ref"]]
+            assert type(raw) is bytes
+            assert hashlib.sha256(raw).hexdigest() == row["content_sha256"], "content mismatch"
+            assert row["content_ref"] == "ref:sha256:" + row["content_sha256"]
+    expected = "APPROVED_PAYLOAD_PENDING_EXTERNAL" if pending else "APPROVED_PAYLOAD_REFERENCES_BOUND"
+    assert entry["status"] == expected, "reference status mismatch"
+    assert entry["entry_digest"] == _entry_digest(entry), "entry digest mismatch"
+    if anchor is not None:
+        assert entry["entry_digest"] == anchor, "immutable anchor changed"
+    # First-entry profile only. Succession needs a separately reviewed contract.
+    assert entry["supersedes"] is None
+    assert frozen_payload["supersedes_content_digest"] is None
+
+
+def _real_shape_fixture():
+    # Real-profile shape, exclusively fictional data; not a real entry or approval.
+    entry = copy.deepcopy(_load(EXAMPLE))
+    payload = entry["source_payload"]
+    digest = _digest(payload)
+    pointer = {"custody_ref": "ref:sha256:" + "a" * 64, "content_digest": digest}
+    entry.update(schema_version="consent-catalog/frozen-payload-v2",
+                 synthetic_only=False, controller_approved=True,
+                 status="APPROVED_PAYLOAD_PENDING_EXTERNAL",
+                 approval_custody_ref="ref:sha256:" + "b" * 64,
+                 source_payload=pointer, decision_payload=copy.deepcopy(pointer),
+                 content_digest=digest)
+    for row in entry["resolved_refs"]:
+        row.update(state="PENDING_EXTERNAL", content=None, content_sha256=None,
+                   bound_ref=None, pending_reason="Custódia fictícia ainda não materializada.")
+    entry["entry_digest"] = _entry_digest(entry)
+    return entry, payload, digest
+
+
+def test_real_profile_preserves_approved_payload_with_pending_refs():
+    entry, payload, digest = _real_shape_fixture()
+    before = _canonical(payload)
+    _validate_real(entry, frozen_payload=payload, approved_digest=digest)
+    assert _canonical(payload) == before
+    assert entry["content_digest"] == digest
+    assert all(entry[key] is False for key in (
+        "human_packet_complete", "catalog_ready", "writer_eligible",
+        "operational_authorization", "next_stage_authorized"))
+
+
+@pytest.mark.parametrize("field", [
+    "human_packet_complete", "catalog_ready", "writer_eligible",
+    "operational_authorization", "next_stage_authorized",
+])
+@pytest.mark.parametrize("value", [True, 1, "true"])
+def test_real_profile_never_opens_technical_gates(field, value):
+    entry, payload, digest = _real_shape_fixture()
+    entry[field] = value
+    with pytest.raises(AssertionError):
+        _validate_real(entry, frozen_payload=payload, approved_digest=digest)
+
+
+@pytest.mark.parametrize("mutation", [
+    "custody_missing", "custody_path", "custody_email", "custody_pdf",
+    "payload", "approved_digest", "tenant", "pointer", "digest",
+    "missing_ref", "duplicate_ref", "false_resolved", "status", "extra_field",
+])
+def test_real_profile_rejects_untrusted_or_inconsistent_inputs(mutation):
+    entry, payload, digest = _real_shape_fixture()
+    if mutation == "custody_missing":
+        del entry["approval_custody_ref"]
+    elif mutation.startswith("custody_"):
+        entry["approval_custody_ref"] = {
+            "custody_path": "/private/approval.pdf",
+            "custody_email": "fiction@example.invalid",
+            "custody_pdf": "data:application/pdf;base64,AAAA",
+        }[mutation]
+    elif mutation == "payload":
+        payload["package_version"] = "9.0.0"
+    elif mutation == "approved_digest":
+        digest = "0" * 64
+    elif mutation == "tenant":
+        entry["tenant_binding"] = "00000000-0000-4000-8000-000000000999"
+    elif mutation == "pointer":
+        entry["decision_payload"]["custody_ref"] = "ref:sha256:" + "c" * 64
+    elif mutation == "digest":
+        entry["entry_digest"] = "0" * 64
+    elif mutation == "missing_ref":
+        entry["resolved_refs"].pop()
+    elif mutation == "duplicate_ref":
+        entry["resolved_refs"].append(entry["resolved_refs"][0])
+    elif mutation == "false_resolved":
+        entry["resolved_refs"][0]["state"] = "RESOLVED_FROZEN"
+    elif mutation == "status":
+        entry["status"] = "APPROVED_PAYLOAD_REFERENCES_BOUND"
+    else:
+        entry["private_document"] = "not allowed"
+    with pytest.raises(AssertionError):
+        _validate_real(entry, frozen_payload=payload, approved_digest=digest)
+
+
+def test_real_resolutions_bind_external_bytes_without_rewriting_payload():
+    entry, payload, digest = _real_shape_fixture()
+    raw = b"Fictional governance content only."
+    content_hash = hashlib.sha256(raw).hexdigest()
+    ref = "ref:sha256:" + content_hash
+    entry["resolved_refs"] = [
+        {"source_ref": row["source_ref"], "state": "RESOLVED_FROZEN",
+         "content_ref": ref, "content_sha256": content_hash, "pending_reason": None}
+        for row in entry["resolved_refs"]
+    ]
+    entry["status"] = "APPROVED_PAYLOAD_REFERENCES_BOUND"
+    entry["entry_digest"] = _entry_digest(entry)
+    anchor = entry["entry_digest"]
+    _validate_real(entry, frozen_payload=payload, approved_digest=digest,
+                   contents={ref: raw}, anchor=anchor)
+    for contents in ({}, {ref: b"changed"}):
+        with pytest.raises(AssertionError):
+            _validate_real(entry, frozen_payload=payload, approved_digest=digest,
+                           contents=contents)
+    entry["approval_custody_ref"] = "ref:sha256:" + "d" * 64
+    entry["entry_digest"] = _entry_digest(entry)
+    with pytest.raises(AssertionError, match="immutable anchor changed"):
+        _validate_real(entry, frozen_payload=payload, approved_digest=digest,
+                       contents={ref: raw}, anchor=anchor)
+
+
 def _append_only(previous_entries, candidate_entries):
     """Compare against a caller-provided trusted prior snapshot, not itself."""
     assert len({entry["entry_id"] for entry in candidate_entries}) == len(candidate_entries)
@@ -161,7 +305,7 @@ def _append_only(previous_entries, candidate_entries):
 def test_catalog_schema_and_complete_synthetic_example():
     schema = _load(CATALOG / "catalog-entry.schema.json")
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert schema["additionalProperties"] is False
+    assert all(profile["additionalProperties"] is False for profile in schema["$defs"].values())
     entry = _load(EXAMPLE)
     _validate(entry, anchor=PINNED_ENTRY)
     assert entry["content_digest"] == PINNED_CONTENT

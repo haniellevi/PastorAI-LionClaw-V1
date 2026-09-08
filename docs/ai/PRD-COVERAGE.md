@@ -9,6 +9,12 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Nota local: proposta de catálogo `frozen-payload-v2` em
+[CONTRACT.md](../governance/consent/catalog/CONTRACT.md) admite registro humano
+externo e payload congelado por referência, com pendências explícitas.
+Sem entrada real ou nova aprovação; catalog_ready=false, writer_eligible=false
+e demais indicadores técnicos falsos. Testes somente fictícios, sem runtime.
+
 Esta matriz reconcilia o PRD global, decisões posteriores e o código no SHA
 auditado. Ela separa implementação, operação e intenção futura para impedir que
 uma tela, um teste, um documento ou um deploy sejam tratados como prova
