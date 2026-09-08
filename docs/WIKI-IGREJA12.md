@@ -15,6 +15,12 @@ em pessoas/ledger. O writer histórico mantém sua limitação no replay puro.
 [Evidência local C](governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
 sem caller, concessão, banco compartilhado ou envio.
 
+PR #388 dividida: somente código isolado, testes não-PG e contratos nesta
+fatia. SQL, dois testes PG17 e head candidato permanecem locais e congelados
+para o gate de transição do catálogo; entrega completa preservada em `c48a62f`.
+A árvore versionada mantém 75 migrations. Os resultados PG17 acima são da
+prova de laboratório anterior, não prova de integração do schema nesta PR.
+
 Proposta local de sucessão append-only do
 [catálogo](governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
 com 23 referências resolvidas, preservando integralmente a revisão 1 e o

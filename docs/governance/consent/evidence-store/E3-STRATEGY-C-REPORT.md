@@ -1,6 +1,18 @@
 # E2/E3 — revisão C, laboratório offline
 
 Estado: DONE E2/E3 C em laboratório; FREEZE, sem autorização operacional.
+
+Divisão da PR #388: a prova abaixo pertence à entrega completa preservada no
+commit `c48a62f3fb26d0f1646f63038f14573e7dfeb825`. SQL, dois testes PG17 e head
+candidato foram retirados apenas do controle de versão, sem alterar seus bytes;
+permanecem locais, congelados para o gate de transição de head. A árvore atual
+da PR contém somente os 12 arquivos de código, testes não-PG e contratos.
+As provas de ACL/intent e binding SQL/head do guard original também ficam
+registradas naquele commit; não são testes executáveis desta fatia sem banco.
+O guard versionado verifica protocolo, ausência de callers, pins históricos e
+head aprovado de 75 entradas, sem depender dos quatro arquivos locais.
+Os resultados PG17 abaixo são históricos, não CI desta PR dividida.
+
 Base: d0df9a4feaf9a234705cea256858906de528f834.
 Worktree: consent-evidence-store-e1-e3-v1; branch feat/consent-evidence-store-e1-e3-v1.
 Decisão do controlador identificada como 2026-09-09; não é data inferida do host.

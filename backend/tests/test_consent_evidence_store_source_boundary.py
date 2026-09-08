@@ -3,7 +3,6 @@
 import ast
 import hashlib
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -61,46 +60,19 @@ def test_evidence_store_has_no_application_callers():
             )
 
 
-def test_strategy_c_preserves_parent_acl_and_uses_only_declared_relations():
-    sql = (ROOT / "backend/migrations/20260908_175522_consent_evidence_store_lab.sql").read_text()
-    intent = json.loads(sql.splitlines()[0].split("=", 1)[1])
-    assert intent["affected_relations"] == [
-        "public.consentimento_desafio", "public.consentimento_evidencia",
-        "public.consentimento_recibo",
-    ]
-    for statement in sql.split(";"):
-        # Parent FKs and read-only catalog inspections are allowed, mutations
-        # of the existing parent/ledger ACL/schema are not.
-        assert not re.search(
-            r"\b(?:grant|revoke|alter\s+table|create\s+policy)\b[^;]*"
-            r"\bon\s+(?:table\s+)?public\.(?:pessoas|consentimento_finalidade_evento)\b",
-            statement, re.IGNORECASE,
-        )
-        assert not re.search(
-            r"\balter\s+table\s+public\.(?:pessoas|consentimento_finalidade_evento)\b",
-            statement, re.IGNORECASE,
-        )
+def test_strategy_c_adapter_uses_stream_without_explicit_person_lock():
+    # Migration ACL/intent proofs belong to the deferred database delivery,
+    # preserved in c48a62f. This guard must work in a clean source-only checkout.
     adapter = (ROOT / "backend/app/services/consent_evidence_store_postgres.py").read_text()
     assert "def lock_person(" not in adapter
     assert "from public.pessoas" not in adapter
     assert 'f"{igreja_id}:{pessoa_id}:{finalidade.value}"' in adapter
 
 
-def test_rendered_candidate_binds_exact_sql_and_collected_pg17_nodeids():
-    sql_path = ROOT / "backend/migrations/20260908_175522_consent_evidence_store_lab.sql"
-    sql_bytes = sql_path.read_bytes()
-    intent = json.loads(sql_bytes.decode().splitlines()[0].split("=", 1)[1])
-    candidate = json.loads((ROOT / "docs/governance/consent/evidence-store/migration-head.candidate.json").read_text())
-    terminal = candidate["append_only_batches"][-1]["entries"][-1]
-    assert terminal["name"] == sql_path.name
-    assert terminal["sha256"] == hashlib.sha256(sql_bytes).hexdigest()
-    assert terminal["size_bytes"] == len(sql_bytes)
-    declared = set(intent["pg17_test_nodeids"])
-    actual = set()
-    for name in ("test_consent_evidence_store_pg17.py", "test_consent_evidence_store_canonical_pg17.py"):
-        relative = "backend/tests/" + name
-        tree = ast.parse((ROOT / relative).read_text())
-        actual.update(relative + "::" + node.name for node in tree.body
-                      if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"))
-    assert declared == actual
-    assert set(intent["cross_tenant_test_nodeids"]) <= actual
+def test_source_only_delivery_keeps_approved_75_head_and_closed_gates():
+    head = json.loads((ROOT / "docs/governance/migrations/migration-catalog-head-v1.json").read_text())
+    assert head["current_head"]["migration_count"] == 75
+    assert len(head["historical_prefix"]["entries"]) == 75
+    assert head["append_only_batches"] == []
+    assert head["operational_authorization"] is False
+    assert head["next_stage_authorized"] is False

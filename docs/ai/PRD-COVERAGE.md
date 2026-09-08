@@ -29,6 +29,12 @@ o writer antigo não é declarado liberado no replay puro.
 Sem callers, concessão ou aplicação compartilhada. Indicadores técnicos e
 operacionais continuam false.
 
+Divisão da PR #388: ficam versionados código isolado, testes não-PG e contratos.
+SQL, dois testes PG17 e head candidato estão congelados fora da árvore da PR
+para gate de transição de head; a entrega completa está preservada em `c48a62f`.
+Catálogo versionado permanece com 75 migrations; a prova PG17 anterior não
+significa que o schema do evidence store esteja integrado nesta fatia.
+
 Sucessão local do catálogo: proposta append-only
 `consent-catalog/evidence-succession-v1`, entrada real revisão 2, 23 refs
 resolvidas e três delas explicitamente complementares ao payload imutável.

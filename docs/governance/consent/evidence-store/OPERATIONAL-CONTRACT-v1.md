@@ -1,6 +1,12 @@
 # Evidence store operacional — contrato E1 v1
 
 Estado: E1/E2/E3 C concluídas em laboratório local; FREEZE, sem liberação operacional.
+
+Fatia versionada da PR #388: código isolado, testes não-PG e contratos.
+Migration, dois testes PG17 e head candidato permanecem congelados localmente,
+fora desta árvore versionada, e preservados no commit completo `c48a62f`.
+Publicação do catálogo e provas de banco exigem o gate de transição separado;
+este contrato não afirma que as três novas tabelas existem no schema integrado.
 Base de revisão: `d0df9a4feaf9a234705cea256858906de528f834`.
 Este contrato não concede consentimento, não é caller e não autoriza aplicação.
 
