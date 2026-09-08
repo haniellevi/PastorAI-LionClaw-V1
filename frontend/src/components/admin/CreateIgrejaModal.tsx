@@ -161,7 +161,7 @@ export function CreateIgrejaModal({
           type="email"
           value={adminEmail}
           onChange={(e) => setAdminEmail(e.target.value)}
-          placeholder="admin@igreja.com.br"
+          placeholder="usuario@example.com"
           helper="Recebe o convite para ativar o acesso ao painel da igreja."
           error={adminEmailError}
         />

@@ -622,7 +622,7 @@ export function EquipeScreen() {
                     type="email"
                     value={invEmail}
                     onChange={(e) => setInvEmail(e.target.value)}
-                    placeholder="lider@igreja.com.br"
+                    placeholder="usuario@example.com"
                   />
                 </div>
               ) : null}
@@ -664,7 +664,7 @@ export function EquipeScreen() {
                     type="email"
                     value={invEmail}
                     onChange={(e) => setInvEmail(e.target.value)}
-                    placeholder="lider@igreja.com.br"
+                    placeholder="usuario@example.com"
                   />
                 </div>
               </div>

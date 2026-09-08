@@ -73,7 +73,7 @@ export function AdminLoginScreen() {
           label="E-mail"
           type="email"
           name="email"
-          placeholder="voce@igreja12.com.br"
+          placeholder="usuario@example.com"
           autoComplete="username"
           value={email}
           disabled={loading}
