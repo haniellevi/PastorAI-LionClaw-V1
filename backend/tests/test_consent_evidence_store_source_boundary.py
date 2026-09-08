@@ -60,13 +60,22 @@ def test_evidence_store_has_no_application_callers():
             )
 
 
-def test_strategy_c_adapter_uses_stream_without_explicit_person_lock():
-    # Migration ACL/intent proofs belong to the deferred database delivery,
-    # preserved in c48a62f. This guard must work in a clean source-only checkout.
-    adapter = (ROOT / "backend/app/services/consent_evidence_store_postgres.py").read_text()
-    assert "def lock_person(" not in adapter
-    assert "from public.pessoas" not in adapter
-    assert 'f"{igreja_id}:{pessoa_id}:{finalidade.value}"' in adapter
+def test_strategy_c_service_keeps_abstract_store_without_postgres_dependency():
+    # Adapter/SQL proofs remain in the frozen database delivery (c48a62f).
+    # The versioned slice validates the abstract seam without those files.
+    service = (ROOT / "backend/app/services/consent_evidence_store.py").read_text()
+    tree = ast.parse(service)
+    protocol = next(node for node in tree.body
+                    if isinstance(node, ast.ClassDef)
+                    and node.name == "ConsentEvidenceStoreProtocol")
+    methods = {node.name for node in protocol.body if isinstance(node, ast.FunctionDef)}
+    assert {"lock_idempotency_key", "lock_challenge", "lock_ledger_stream"} <= methods
+    assert "lock_person" not in methods
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert "consent_evidence_store_postgres" not in (node.module or "")
+        elif isinstance(node, ast.Import):
+            assert all("consent_evidence_store_postgres" not in item.name for item in node.names)
 
 
 def test_source_only_delivery_keeps_approved_75_head_and_closed_gates():
