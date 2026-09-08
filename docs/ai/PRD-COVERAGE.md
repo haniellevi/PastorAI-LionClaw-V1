@@ -24,6 +24,14 @@ store ou writer. `catalog_ready=false`, `writer_eligible=false` e aprovação
 humana pendente permanecem; o schema de payload da PR #378 não é alterado.
 Esta nota não reaudita a matriz global nem atesta uma igreja real.
 
+Sobre a base `939e90f` (PR #380), há também uma
+[proposta local de evidence store](../governance/consent/evidence-store/CONTRACT.md):
+contrato/schema/exemplo sintéticos e testes documentais, sem armazenamento
+operacional. Separa apresentação/manifestação, ledger e recibo; recusa inicial
+não cria `concedido`. `catalog_ready=false`, `writer_eligible=false`, sem
+aprovação, writer, runtime, migration ou envio. Custódia, assinaturas e
+implementação segura permanecem pendentes.
+
 - `IMPLEMENTADO`: contrato e fluxo identificáveis no código auditado.
 - `PARCIAL`: existe uma base útil, mas falta parte relevante do fluxo.
 - `AUSENTE`: não foi encontrado contrato operacional suficiente.

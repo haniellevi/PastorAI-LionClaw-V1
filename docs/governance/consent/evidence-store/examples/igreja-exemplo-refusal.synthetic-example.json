@@ -1,0 +1,58 @@
+{
+  "schema_version": "consent-evidence/design-v1",
+  "artifact_state": "SYNTHETIC_EXAMPLE_NOT_OPERATIONAL",
+  "synthetic_only": true,
+  "evidence_id": "00000000-0000-4000-8000-000000000501",
+  "tenant_ref": "00000000-0000-4000-8000-000000000202",
+  "controller_ref": "00000000-0000-4000-8000-000000000502",
+  "person_ref": "00000000-0000-4000-8000-000000000503",
+  "purpose": "tarefas_operacionais",
+  "package_id": "00000000-0000-4000-8000-000000000101",
+  "package_version": "1.0.0",
+  "content_digest": "4e02e55ee583b75198afb2be57bf80e21161e892104742149709655196b9061b",
+  "catalog_entry_digest": "853af6d70c2aed392930aea4c7f2f2515518bbe2eb27c4d0055a17940bd32c43",
+  "notice_version": "synthetic-notice-v1",
+  "notice_text_digest": "f050c69c287d4bccc4a28874e20fb73966638a071c8ba2d0ac001cea78c67989",
+  "language": "pt-BR",
+  "channel": "whatsapp",
+  "presentation": {
+    "presented_at": "2026-09-07T12:01:00Z",
+    "timezone": "UTC",
+    "renderer_version": "synthetic-renderer/v1",
+    "delivery_state": "DELIVERED",
+    "correlation_id": "00000000-0000-4000-8000-000000000504"
+  },
+  "challenge": {
+    "challenge_ref": "00000000-0000-4000-8000-000000000505",
+    "created_at": "2026-09-07T12:00:00Z",
+    "expires_at": "2026-09-07T12:30:00Z",
+    "single_use_state": "CONSUMED"
+  },
+  "manifestation": {
+    "selected_action": "REFUSE_INITIAL",
+    "manifested_at": "2026-09-07T12:02:00Z",
+    "actor_ref": "00000000-0000-4000-8000-000000000503",
+    "authentication_method_ref": "00000000-0000-4000-8000-000000000506",
+    "interaction_ref": "00000000-0000-4000-8000-000000000507"
+  },
+  "subject": {
+    "age_band": "ADULT",
+    "guardian_ref": null,
+    "guardian_relation_evidence_ref": null,
+    "minor_notice_version": null,
+    "minor_view_state": "NOT_APPLICABLE"
+  },
+  "idempotency_key": "00000000-0000-4000-8000-000000000508",
+  "durable_receipt_ref": "00000000-0000-4000-8000-000000000509",
+  "previous_event_ref": null,
+  "withdrawn_event_ref": null,
+  "immutable_storage_ref": "00000000-0000-4000-8000-000000000510",
+  "integrity_algorithm": "sha256-jcs-subset-v1",
+  "receipt_delivery_state": "NOT_SENT",
+  "controller_approved": false,
+  "catalog_ready": false,
+  "writer_eligible": false,
+  "operational_authorization": false,
+  "next_stage_authorized": false,
+  "evidence_digest": "a503a9c37c59d69e61b8ac68fb6fabdbbc839cf2e73a2cdcc9e42ce5980b0921"
+}
