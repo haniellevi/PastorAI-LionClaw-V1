@@ -1,5 +1,10 @@
 # Wiki do projeto Igreja 12
 
+Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).
+O plano descreve prova de apresentação/manifestação, recibo durável e integração
+segura com o ledger existente. Somente documentação: sem migration, runtime,
+ativação ou envio; pacote completo e elegibilidade continuam gates separados.
+
 Proposta local de sucessão append-only do
 [catálogo](governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
 com 23 referências resolvidas, preservando integralmente a revisão 1 e o

@@ -9,6 +9,12 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
+separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
+retenção, testes PG17 e critérios de elegibilidade. Documento offline,
+sem implementação, migration ou autorização. A cadeia documental integrada
+não torna human_packet_complete, catalog_ready ou writer_eligible verdadeiros.
+
 Sucessão local do catálogo: proposta append-only
 `consent-catalog/evidence-succession-v1`, entrada real revisão 2, 23 refs
 resolvidas e três delas explicitamente complementares ao payload imutável.
