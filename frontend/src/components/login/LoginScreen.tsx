@@ -344,7 +344,7 @@ export function LoginScreen() {
                 label="E-mail"
                 type="email"
                 name="email"
-                placeholder="seu@igreja.com.br"
+                placeholder="usuario@example.com"
                 autoComplete="username"
                 value={email}
                 disabled={loading}
@@ -406,7 +406,7 @@ export function LoginScreen() {
                     label="E-mail"
                     type="email"
                     name="forgot-email"
-                    placeholder="seu@igreja.com.br"
+                    placeholder="usuario@example.com"
                     autoComplete="username"
                     value={fEmail}
                     disabled={fStatus === "loading"}
@@ -485,7 +485,7 @@ export function LoginScreen() {
                       label="Telefone / WhatsApp"
                       type="tel"
                       name="activate-phone"
-                      placeholder="(11) 90000-0000"
+                      placeholder="5500000000000"
                       autoComplete="tel"
                       value={aTel}
                       disabled={aStatus === "loading"}

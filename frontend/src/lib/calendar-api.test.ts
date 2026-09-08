@@ -239,7 +239,7 @@ describe("finishConnection — conta divergente", () => {
           detail: {
             code: "conta_divergente",
             expected: EMAIL,
-            verified: "outra@gmail.com",
+            verified: "outra@example.com",
           },
         },
         409,
@@ -250,7 +250,7 @@ describe("finishConnection — conta divergente", () => {
 
     expect(err).toBeInstanceOf(GoogleAccountMismatchError);
     expect((err as GoogleAccountMismatchError).expected).toBe(EMAIL);
-    expect((err as GoogleAccountMismatchError).verified).toBe("outra@gmail.com");
+    expect((err as GoogleAccountMismatchError).verified).toBe("outra@example.com");
   });
 
   it("409 com detail string segue sendo ApiError, com a mensagem preservada", async () => {

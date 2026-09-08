@@ -637,7 +637,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           type="email"
           value={emailInput}
           onChange={(e) => setEmailInput(e.target.value)}
-          placeholder="agenda@suaigreja.com.br"
+          placeholder="usuario@example.com"
           autoComplete="email"
           disabled={busy}
           aria-label={label}

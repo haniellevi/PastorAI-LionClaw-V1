@@ -996,7 +996,7 @@ function AdminsTab({
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="admin@igreja.org"
+            placeholder="usuario@example.com"
           />
         </div>
         <Button variant="primary" size="sm" onClick={add} loading={busy} loadingText="Enviando…">

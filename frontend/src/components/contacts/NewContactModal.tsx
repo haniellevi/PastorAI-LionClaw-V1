@@ -79,7 +79,7 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
           label="Telefone"
           value={telefone}
           onChange={(e) => setTelefone(e.target.value)}
-          placeholder="+55 89 99999-0000"
+          placeholder="5500000000000"
           helper="Usado para deduplicar contatos na igreja."
           error={telError}
           inputMode="tel"

@@ -14,7 +14,7 @@ describe("páginas legais públicas", () => {
     expect(html).toContain("não são vendidos");
     expect(html).toContain("Google Calendar");
     expect(html).toContain("Autoridade Nacional de Proteção de Dados");
-    expect(html).toContain("pr.raniellevi@gmail.com");
+    expect(html).toContain("contato@igreja12.com.br");
     expect(privacyMetadata.title).toBe("Política de Privacidade");
   });
 

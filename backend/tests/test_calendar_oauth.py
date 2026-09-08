@@ -45,7 +45,7 @@ _FLOW_SECRET = "flow-secret-do-painel"
 # Conta declarada pelo admin no /connect e a identidade que o userinfo devolve.
 _EMAIL = "agenda@igreja12.com.br"
 _SUB = "google-sub-da-conta-da-igreja"
-_OUTRO_EMAIL = "pessoal@gmail.com"
+_OUTRO_EMAIL = "pessoal@example.com"
 _OUTRO_SUB = "google-sub-de-outra-conta"
 
 

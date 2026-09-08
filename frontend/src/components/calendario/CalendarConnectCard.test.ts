@@ -74,7 +74,7 @@ const CTA_REGISTER = "Registrar conta Google";
 const CTA_DISCONNECT = "Desconectar";
 
 const EMAIL = "agenda@igreja12.com.br";
-const OUTRO_EMAIL = "pessoal@gmail.com";
+const OUTRO_EMAIL = "pessoal@example.com";
 
 interface StoredFlow {
   secret: string;
