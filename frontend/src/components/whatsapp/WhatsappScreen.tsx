@@ -582,7 +582,7 @@ export function WhatsappScreen() {
                   <input
                     id="wa-numero"
                     inputMode="numeric"
-                    placeholder="Ex.: 558999771896"
+                    placeholder="Ex.: 5500000000000"
                     value={numeroInput}
                     onChange={(e) => setNumeroInput(e.target.value.replace(/\D/g, ""))}
                     disabled={busy}
