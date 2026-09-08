@@ -15,6 +15,20 @@ retenção, testes PG17 e critérios de elegibilidade. Documento offline,
 sem implementação, migration ou autorização. A cadeia documental integrada
 não torna human_packet_complete, catalog_ready ou writer_eligible verdadeiros.
 
+E1 local fechada na base `d0df9a4`: [contrato operacional](../governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md).
+Recusa inicial: 5 anos do registro; apresentação abandonada: 90 dias do
+abandono/expiração; recibo acompanha a evidência. Exclusão da Pessoa remove
+a cadeia completa, inclusive ledger histórico inalterado. Não existe garantia
+de prova anonimizada sobrevivente; essa alternativa exige missão futura.
+Estratégia C aceita: E2/E3 concluídas em laboratório local, FK/desafio antes do advisory
+do stream histórico, sem grants/policies novos em pessoas/ledger. Prova
+canônica pura separada do laboratório com pré-condições históricas explícitas;
+o writer antigo não é declarado liberado no replay puro.
+[Resultados C](../governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
+1.288 testes verdes, incluindo 19 PG17 declarados, zero skips.
+Sem callers, concessão ou aplicação compartilhada. Indicadores técnicos e
+operacionais continuam false.
+
 Sucessão local do catálogo: proposta append-only
 `consent-catalog/evidence-succession-v1`, entrada real revisão 2, 23 refs
 resolvidas e três delas explicitamente complementares ao payload imutável.
