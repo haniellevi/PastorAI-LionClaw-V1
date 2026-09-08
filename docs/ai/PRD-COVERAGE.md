@@ -9,6 +9,13 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Sucessão local do catálogo: proposta append-only
+`consent-catalog/evidence-succession-v1`, entrada real revisão 2, 23 refs
+resolvidas e três delas explicitamente complementares ao payload imutável.
+Não altera aprovação nem preenche campos nulos do payload. human_packet_complete,
+catalog_ready e writer_eligible permanecem false; sem operação ou runtime.
+Contrato e limites em [catálogo](../governance/consent/catalog/CONTRACT.md).
+
 Nota local: proposta de catálogo `frozen-payload-v2` em
 [CONTRACT.md](../governance/consent/catalog/CONTRACT.md) admite registro humano
 externo e payload congelado por referência, com pendências explícitas.

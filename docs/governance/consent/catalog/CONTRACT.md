@@ -1,5 +1,110 @@
 # Catálogo imutável de consentimento — proposta técnica v1
 
+## Sucessão documental append-only: entrada real v2
+
+Base: `ecd5c3a4e765fb0f12b13a51085b453ce565ba9a`.
+Esta evolução acrescenta o perfil fechado
+`consent-catalog/evidence-succession-v1` ao schema, sem mudar a semântica
+dos perfis sintético e de primeira entrada real. “Entrada v2” é a segunda
+revisão do catálogo, não uma nova versão do payload nem do pacote aprovado.
+As seções anteriores de desenho abaixo permanecem aplicáveis aos respectivos
+perfis históricos.
+
+### Identidade, versão e predecessor
+
+- Novo entry_id em cada entrada e catalog_revision decimal em string, sem
+  zeros à esquerda. A primeira entrada frozen-payload-v2 equivale à revisão 1;
+  cada sucessora incrementa exatamente uma revisão.
+- supersedes obrigatório, com entry_id, entry_digest e content_digest exatos
+  da predecessora. Predecessora ausente ou fora de snapshot confiável bloqueia.
+- tenant_binding, purpose, package_id, package_version, content_digest,
+  source_payload, decision_payload e approval_custody_ref permanecem idênticos.
+  package_version não sobe: o pacote aprovado não foi alterado.
+- Não alterar supersedes_content_digest do payload: sucessão de evidências
+  do catálogo não é sucessão do payload assinado.
+- Toda entrada anterior permanece byte a byte intacta. O conjunto de entradas
+  precisa preservar predecessor, IDs únicos e histórico; não existe alias
+  mutável latest nem autorização para excluir versões anteriores.
+
+entry_digest continua SHA-256/JCS da entrada, excluindo somente entry_digest.
+O cálculo inclui supersedes, catalog_revision, evidências e limitações, sem
+recalcular content_digest. A âncora da predecessora e as novas âncoras de
+conteúdo vêm de fontes independentes, nunca da entrada candidata. Rehash
+autoconsistente não prova autenticidade.
+
+### Fechamento das referências e evidência complementar
+
+resolved_refs contém a união fechada das referências anteriores com novas
+referências explicitamente admitidas pela missão/revisão. Ordenação ASCII,
+unicidade e limite de 128 refs são obrigatórios. Não há campos genéricos
+de conteúdo privado. Uma ref já RESOLVED_FROZEN não pode trocar bytes/hash,
+estado ou metadados. Ref PENDING_EXTERNAL pode virar RESOLVED_FROZEN apenas
+com âncora independente correspondente. Ref anterior não pode desaparecer.
+Sucessão sem resolução nova ou nova evidência é rejeitada.
+
+evidence_only_refs enumera, em ordem e sem duplicatas, somente as refs
+complementares que não constavam do payload inicial, acumuladas das sucessões.
+A lista não é permissão autoatribuída: o teste compara o delta com allowlist
+independente da missão. Não são apresentadas como campos preenchidos no payload.
+Mudança de conteúdo aprovado exige outro fluxo de versão/aprovação, não este.
+
+Este perfil limita-se a sucessoras com todas as referências RESOLVED_FROZEN
+e status APPROVED_PAYLOAD_REFERENCES_BOUND. Isso significa apenas
+disponibilidade/vínculo documental por hash, não human_packet_complete,
+CATALOG_BOUND operacional, veracidade factual, avaliação jurídica ou runtime.
+
+### Limitações explícitas e indicadores
+
+O campo limitations registra obrigatoriamente:
+
+- APPROVED_PAYLOAD_MINOR_REFS_UNCHANGED_NULL: os campos nulos de avaliações/
+  revisão de menores no payload continuam nulos por imutabilidade.
+- SUPPLEMENTAL_EVIDENCE_OUTSIDE_APPROVED_PAYLOAD: anexos não foram
+  incorporados ao payload nem cobertos retroativamente por sua assinatura.
+- NO_TECHNICAL_OR_OPERATIONAL_AUTHORITY: disponibilidade das evidências não
+  autoriza aplicação, writer, flags, banco ou envio.
+
+synthetic_only=false e controller_approved=true conservam o registro humano
+existente; não pedem nem concedem nova aprovação. human_packet_complete,
+catalog_ready, writer_eligible, operational_authorization e
+next_stage_authorized continuam false, mesmo com zero referências pendentes.
+Alterar essas limitações ou indicadores exige outro contrato/fluxo, não rehash.
+
+### Materialização desta missão
+
+Entrada: entries/filadelfia-tarefas-operacionais-v2.json; catalog_revision=2.
+As 19 resoluções congeladas da v1 são copiadas integralmente; a referência
+de registro externo passa a resolvida; três referências são adicionadas como
+evidência complementar: melhor interesse, risco/impacto e vínculo de custódia.
+Total: 23 resolvidas / 0 pendentes em resolved_refs, sem declarar completude.
+
+O índice privado frozen/20260909-indice-anchoras.md e os quatro arquivos
+frozen autorizados foram lidos localmente; SHA-256 dos bytes coincidiu com
+as quatro âncoras fornecidas. Nenhum conteúdo privado foi copiado para Git.
+No CI, testes conferem essas âncoras sanitizadas e a cadeia, não acessam o
+cofre nem autenticam assinatura/competência dos responsáveis. Não reabrimos PDF.
+Nenhum payload aprovado foi alterado ou teve seu digest recalculado.
+
+entry_digest da sucessora:
+`0d09c0017c8c6aa82e2acb7c547c8071bb8740960f0e32eaa4e4e131f895a802`.
+Testes: test_consent_catalog_evidence_succession.py, junto aos testes
+anteriores de catálogo/payload/pacote/evidence store.
+Cobrem remoção/alteração/rehash de predecessor, mudança de tenant/pacote/digest,
+refs extras/duplicadas, novos hashes não verificados, retirada de limitações,
+gates indevidos e encadeamento de uma terceira revisão fictícia em memória.
+
+Rollback: não adotar a nova entrada/schema; nunca editar ou excluir a v1.
+Nenhum writer, API, migration, runtime ou efeito operacional é implementado.
+Próximo gate: revisão desta sucessão documental antes de commit/publicação.
+
+Validação final local: **265 passed in 3.85s**, zero falhas/skips.
+Imagem existente `pastorai-agent-local-validation-v1-backend:3799272`,
+sem pull/rede/cofre, checkout read-only, ambiente limpo e gates externos falsos.
+Uma implementação independente em Node 24 confirmou somente o entry_digest.
+Comparação direta com a base confirmou v1 byte a byte intacta e os dois
+perfis anteriores do schema semanticamente idênticos. Os quatro hashes frozen
+foram verificados fora do CI; testes não autenticam assinatura ou avaliações.
+
 ## Evolução local: payload congelado v2
 
 Proposta offline sobre `48941f2ac05addbd7c7c105776f81eeb5a385991`.

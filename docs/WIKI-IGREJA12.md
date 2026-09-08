@@ -1,5 +1,11 @@
 # Wiki do projeto Igreja 12
 
+Proposta local de sucessão append-only do
+[catálogo](governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
+com 23 referências resolvidas, preservando integralmente a revisão 1 e o
+payload aprovado. Evidências complementares não preenchem seus campos nulos.
+Pacote humano incompleto e indicadores técnicos false; sem runtime ou envio.
+
 Proposta local: o [contrato do catálogo](governance/consent/catalog/CONTRACT.md)
 ganha o perfil `frozen-payload-v2`, preservando o sintético v1 e o payload
 aprovado sem transformação. Custódia externa e pendências são explícitas.
