@@ -37,7 +37,7 @@ from app.services.consent_evidence_store_postgres import PostgresConsentEvidence
 from tests.conftest_rls import rls_database_url as maintenance_database_url, assert_disposable_database
 
 
-pytestmark = pytest.mark.rls_integration
+pytestmark = [pytest.mark.rls_integration, pytest.mark.catalog_canonical_pg17]
 NOW = dt.datetime(2026, 9, 9, 12, tzinfo=dt.timezone.utc)
 TABLES = ("consentimento_desafio", "consentimento_evidencia", "consentimento_recibo")
 

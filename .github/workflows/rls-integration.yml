@@ -85,14 +85,11 @@ jobs:
           PY
 
       - name: Rodar a suite marcada rls_integration fora dos guards de replay fresco
-        # Prova canônica obrigatória no job declared-nodeids-pg17 de
-        # migration-catalog-head.yml: cluster novo e audit zero skips.
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest --strict-markers \
             -m rls_integration -o addopts= -p no:cacheprovider -rA \
             --deselect tests/test_replay_migration_catalog_current_head_pg17.py::test_appended_tenant_migration_replays_end_to_end_on_real_pg17 \
             --deselect tests/test_replay_migration_catalog_current_head_pg17.py::test_appended_tenant_migration_e2e_rejects_weak_or_undeclared_delta \
-            --deselect tests/test_consent_evidence_store_canonical_pg17.py \
             --junitxml=rls-results.xml \
             tests
 
