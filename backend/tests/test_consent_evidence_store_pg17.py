@@ -1135,7 +1135,7 @@ def test_evidence_store_pg17_restart_reconnect_keeps_committed_receipt(
     # retry with the same server-owned key conflicts; it is never a second
     # success or an implicit ledger write.
     evidence_engine.dispose()
-    restarted_engine = create_engine(str(evidence_engine.url), future=True)
+    restarted_engine = create_engine(evidence_engine.url, future=True)
     try:
         with restarted_engine.begin() as connection:
             _set_authenticated_tenant(connection, IGREJA_A)
