@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import pathlib
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -279,6 +280,15 @@ def test_sql_estatico_declara_fatia_inativa_e_fronteira_fechada() -> None:
     unexpected_callers = []
     for path in app_root.rglob("*.py"):
         if path in allowed:
+            continue
+        if path == app_root / "services" / "consent_evidence_store_postgres.py":
+            # Protocolo C: somente observação read-only do ledger. O adapter
+            # congelado escreve exclusivamente nas três tabelas novas; não
+            # importa o writer do ledger nem concede consentimento. O pin
+            # impede que esta exceção exata aceite uma futura escrita nele.
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+                "c1336a890c5c3672c7940bb5523049f5f3e39212134bac5b7d56cad990bb34a6"
+            )
             continue
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))

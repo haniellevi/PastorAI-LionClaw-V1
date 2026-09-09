@@ -68,19 +68,23 @@ class Sandbox:
     head: Path
     schema: Path
     expected_sha: str
+    initial_head: bytes
 
 
 @pytest.fixture
 def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Sandbox:
+    from tests.migration_catalog_fixtures import historical_initial_head
+    initial = historical_initial_head(json.loads(REAL_HEAD_PATH.read_bytes()))
     migrations = tmp_path / "backend" / "migrations"
     governance = tmp_path / "docs" / "governance" / "migrations"
     migrations.mkdir(parents=True)
     governance.mkdir(parents=True)
-    for source in sorted(REAL_MIGRATIONS_DIR.glob("*.sql")):
+    for entry in initial["historical_prefix"]["entries"]:
+        source = REAL_MIGRATIONS_DIR / entry["name"]
         shutil.copyfile(source, migrations / source.name)
     head = governance / REAL_HEAD_PATH.name
     schema = governance / REAL_SCHEMA_PATH.name
-    shutil.copyfile(REAL_HEAD_PATH, head)
+    head.write_text(json.dumps(initial, ensure_ascii=True, indent=2) + "\n", encoding="ascii")
     shutil.copyfile(REAL_SCHEMA_PATH, schema)
     monkeypatch.setattr(authoring, "MIGRATIONS_DIR", migrations)
     monkeypatch.setattr(authoring, "GOVERNANCE_DIR", governance)
@@ -109,6 +113,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Sandbox:
         head=head,
         schema=schema,
         expected_sha=expected_sha,
+        initial_head=expected_head,
     )
 
 
@@ -304,7 +309,7 @@ def test_structured_tenant_intent_is_accepted(
     )
 
     assert candidate.batch_id == "migration-catalog-append-0001"
-    assert sandbox.head.read_bytes() == REAL_HEAD_PATH.read_bytes()
+    assert sandbox.head.read_bytes() == sandbox.initial_head
 
 
 def test_structured_global_intent_is_rejected_by_tenant_only_v1_boundary(
@@ -640,7 +645,7 @@ def test_prepare_head_cli_keeps_approval_and_operation_closed(
     )
     decoded = base64.b64decode(encoded, validate=True)
     assert hashlib.sha256(decoded).hexdigest() in output
-    assert sandbox.head.read_bytes() == REAL_HEAD_PATH.read_bytes()
+    assert sandbox.head.read_bytes() == sandbox.initial_head
     assert str(sandbox.head.parent) not in output
 
 

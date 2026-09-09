@@ -226,8 +226,9 @@ def _future_catalog(
     *,
     new_content: bytes | None = None,
 ) -> tuple[Path, Path, Path, bytes, dict[str, Any]]:
-    prior_content = ci.catalog_head.HEAD_PATH.read_bytes()
-    head = ci.catalog_head._decode_json(prior_content)
+    from tests.migration_catalog_fixtures import historical_initial_head
+    head = historical_initial_head(ci.catalog_head._decode_json(ci.catalog_head.HEAD_PATH.read_bytes()))
+    prior_content = _serialized(head)
     migrations = tmp_path / "migrations"
     migrations.mkdir()
     historical_entries = head["historical_prefix"]["entries"]
@@ -292,7 +293,7 @@ def _point_catalog_at(
     monkeypatch.setattr(source_manifest, "MIGRATIONS_DIR", migrations)
 
 
-def test_current_initial_head_requires_exact_unchanged_prior_blob(
+def test_current_appended_head_requires_longitudinal_prior(
     tmp_path: Path,
 ) -> None:
     result = _verify_with_fake_trust(
@@ -302,20 +303,42 @@ def test_current_initial_head_requires_exact_unchanged_prior_blob(
 
     assert result == ci.CiVerificationResult(
         event_name="pull_request",
-        migration_count=75,
-        catalog_digest_sha256=ci.catalog_head.HISTORICAL_DIGEST_SHA256,
-        prior_head_required=False,
+        migration_count=76,
+        catalog_digest_sha256=ci.catalog_head._decode_json(ci.catalog_head.HEAD_PATH.read_bytes())["current_head"]["digest_sha256"],
+        prior_head_required=True,
     )
 
 
-def test_initial_head_byte_change_without_append_is_rejected(
+def test_current_head_byte_change_without_append_is_rejected(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(ci.GitEvidenceError):
+    with pytest.raises(ci.CurrentCatalogError):
         _verify_with_fake_trust(
             tmp_path,
             prior_content=ci.catalog_head.HEAD_PATH.read_bytes() + b"\n",
         )
+
+
+@pytest.mark.parametrize("altered", [False, True])
+def test_synthetic_initial_head_requires_exact_unchanged_prior_blob(tmp_path, monkeypatch, altered):
+    from tests.migration_catalog_fixtures import historical_initial_head
+    head = historical_initial_head(ci.catalog_head._decode_json(ci.catalog_head.HEAD_PATH.read_bytes()))
+    content = _serialized(head)
+    migrations = tmp_path / "initial-migrations"
+    migrations.mkdir()
+    for entry in head["historical_prefix"]["entries"]:
+        (migrations / entry["name"]).write_bytes((ci.catalog_head.MIGRATIONS_DIR / entry["name"]).read_bytes())
+    head_path = tmp_path / "initial-head.json"
+    head_path.write_bytes(content)
+    _point_catalog_at(monkeypatch, migrations=migrations, head_path=head_path, schema_path=ci.catalog_head.SCHEMA_PATH)
+    if altered:
+        with pytest.raises(ci.GitEvidenceError):
+            _verify_with_fake_trust(tmp_path, prior_content=content + b"\n")
+    else:
+        result = _verify_with_fake_trust(tmp_path, prior_content=content)
+        assert result.migration_count == 75
+        assert result.catalog_digest_sha256 == ci.catalog_head.HISTORICAL_DIGEST_SHA256
+        assert result.prior_head_required is False
 
 
 def test_append_head_uses_event_ancestor_as_exact_approved_prior(

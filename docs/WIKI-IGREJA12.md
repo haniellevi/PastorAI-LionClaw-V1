@@ -15,11 +15,12 @@ em pessoas/ledger. O writer histórico mantém sua limitação no replay puro.
 [Evidência local C](governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
 sem caller, concessão, banco compartilhado ou envio.
 
-PR #388 dividida: somente código isolado, testes não-PG e contratos nesta
-fatia. SQL, dois testes PG17 e head candidato permanecem locais e congelados
-para o gate de transição do catálogo; entrega completa preservada em `c48a62f`.
-A árvore versionada mantém 75 migrations. Os resultados PG17 acima são da
-prova de laboratório anterior, não prova de integração do schema nesta PR.
+Recorte histórico da PR #388 dividida: somente código isolado, testes não-PG
+e contratos foram integrados, com 75 migrations. Originais SQL/adapter/testes
+PG17/head permaneceram congelados; entrega completa preservada em `c48a62f`.
+A autoria candidata atual incorpora cópias no gate de transição pública 76,
+com compatibilidade privada A+C descrita abaixo. Os resultados PG17 acima
+continuam históricos, não prova do novo SHA nem de aplicação compartilhada.
 
 Proposta local de sucessão append-only do
 [catálogo](governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
@@ -1620,3 +1621,15 @@ O único gate futuro é
 Ele cobre somente preflight nominal do ambiente conforme runbook; não autoriza
 aplicar SQL, ativar o agente ou enviar. Nenhum gate legal ou de consentimento
 foi aberto.
+
+## Transição pública 76 e compatibilidade privada (2026-09-09)
+
+A [decisão A+C](decisions/2026-09-09-public-private-catalog-compatibility.md)
+registra a autoria candidata coordenada: prefixo histórico de 75 intacto,
+um append público TENANT de evidence store e stream privado inalterado.
+Os recortes históricos acima continuam sendo provas de 75+1; não comprovam
+a composição candidata 76+1. Fonte, CI, replay nas duas ordens e recibo devem
+ser validados no SHA exato antes de declarar a transição concluída.
+Somente laboratório: sem aplicação compartilhada, caller, concessão ou envio.
+Os indicadores operacionais continuam false. Próximo gate: revisão e
+autorização separada de merge; não é autorização de aplicação.

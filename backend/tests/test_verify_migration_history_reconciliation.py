@@ -394,14 +394,28 @@ def test_captured_unreviewed_is_bound_to_baseline_and_environment_basename(
     assert result == verifier.SchemaError.exit_code
 
 
-def test_template_is_deny_state_with_exact_current_catalog() -> None:
+def _historical_template_catalog(tmp_path):
+    """The frozen v1 template binds the historical prefix, not new appends."""
+    directory = tmp_path / "historical-migrations"
+    directory.mkdir()
+    template = json.loads(TEMPLATE_PATH.read_bytes())
+    for entry in template["catalog"]["entries"]:
+        content = (REPO_ROOT / "backend/migrations" / entry["name"]).read_bytes()
+        assert hashlib.sha256(content).hexdigest() == entry["sha256"]
+        (directory / entry["name"]).write_bytes(content)
+    return directory
+
+
+def test_template_is_deny_state_with_exact_historical_catalog(tmp_path, monkeypatch) -> None:
+    historical = _historical_template_catalog(tmp_path)
+    monkeypatch.setattr(verifier, "MIGRATIONS_DIR", historical)
     template = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
     assert template["artifact_state"] == "TEMPLATE_NOT_EVIDENCE"
     assert template["subject"]["environment"] == "UNBOUND"
     assert template["subject"]["target_binding_sha256"] is None
     assert len(template["catalog"]["entries"]) == 75
     expected_entries = []
-    for position, path in enumerate(sorted((REPO_ROOT / "backend" / "migrations").glob("*.sql"))):
+    for position, path in enumerate(sorted(historical.glob("*.sql"))):
         content = path.read_bytes()
         expected_entries.append(
             {
@@ -1325,7 +1339,8 @@ def test_verifier_source_has_no_effectful_dependencies_or_write_flags() -> None:
     )
 
 
-def test_runtime_audit_hook_observes_no_network_subprocess_or_write_event() -> None:
+def test_runtime_audit_hook_observes_no_network_subprocess_or_write_event(tmp_path) -> None:
+    historical = _historical_template_catalog(tmp_path)
     harness = f"""
 import os
 import runpy
@@ -1351,7 +1366,9 @@ sys.argv = [
     "migration-history-reconciliation-template-v1.json",
 ]
 try:
-    runpy.run_path({str(SCRIPT_PATH)!r}, run_name="__main__")
+    namespace = runpy.run_path({str(SCRIPT_PATH)!r}, run_name="audit_subject")
+    namespace["main"].__globals__["MIGRATIONS_DIR"] = namespace["pathlib"].Path({str(historical)!r})
+    raise SystemExit(namespace["main"](sys.argv))
 except SystemExit as exc:
     raise SystemExit(0 if exc.code == 8 else 91)
 """

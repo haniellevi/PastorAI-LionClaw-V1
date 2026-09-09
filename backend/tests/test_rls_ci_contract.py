@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -108,3 +109,22 @@ def test_hook_aceita_marker_com_fixture_transitiva() -> None:
     )
 
     suite_conftest.pytest_collection_modifyitems([item])
+
+
+@pytest.mark.parametrize("expression", ["rls_integration", "not rls_integration", "", "catalog_canonical_pg17"])
+def test_canonical_routing_preserves_explicit_launcher(expression):
+    dedicated = SimpleNamespace(get_closest_marker=lambda name: object() if name == "catalog_canonical_pg17" else None)
+    ordinary = SimpleNamespace(get_closest_marker=lambda name: None)
+    items = [dedicated, ordinary]
+    deselected = []
+    config = SimpleNamespace(
+        getoption=lambda name: expression,
+        hook=SimpleNamespace(pytest_deselected=lambda items: deselected.extend(items)),
+    )
+    suite_conftest.pytest_route_catalog_canonical(config, items)
+    if expression in {"rls_integration", "not rls_integration"}:
+        assert items == [ordinary]
+        assert deselected == [dedicated]
+    else:
+        assert items == [dedicated, ordinary]
+        assert deselected == []

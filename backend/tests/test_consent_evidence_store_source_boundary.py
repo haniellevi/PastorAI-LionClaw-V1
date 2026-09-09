@@ -26,10 +26,6 @@ ROOT = Path(__file__).resolve().parents[2]
             "backend/scripts/apply_migrations.py",
             "36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65",
         ),
-        (
-            "docs/governance/migrations/migration-catalog-head-v1.json",
-            "a591923ce771349d286cdc424d599c593e070ecea0271f3909c64719258658b4",
-        ),
     ],
 )
 def test_e1_e3_preserves_protected_source_bytes(relative, expected):
@@ -61,8 +57,7 @@ def test_evidence_store_has_no_application_callers():
 
 
 def test_strategy_c_service_keeps_abstract_store_without_postgres_dependency():
-    # Adapter/SQL proofs remain in the frozen database delivery (c48a62f).
-    # The versioned slice validates the abstract seam without those files.
+    # Adapter is now co-authored with the public append, still without callers.
     service = (ROOT / "backend/app/services/consent_evidence_store.py").read_text()
     tree = ast.parse(service)
     protocol = next(node for node in tree.body
@@ -78,10 +73,15 @@ def test_strategy_c_service_keeps_abstract_store_without_postgres_dependency():
             assert all("consent_evidence_store_postgres" not in item.name for item in node.names)
 
 
-def test_source_only_delivery_keeps_approved_75_head_and_closed_gates():
+def test_source_only_delivery_keeps_75_prefix_one_append_and_closed_gates():
     head = json.loads((ROOT / "docs/governance/migrations/migration-catalog-head-v1.json").read_text())
-    assert head["current_head"]["migration_count"] == 75
+    assert head["current_head"]["migration_count"] == 76
     assert len(head["historical_prefix"]["entries"]) == 75
-    assert head["append_only_batches"] == []
+    assert len(head["append_only_batches"]) == 1
+    assert len(head["append_only_batches"][0]["entries"]) == 1
+    assert head["append_only_batches"][0]["entries"][0]["position"] == 75
+    assert head["previous_approved_head_sha256"] == (
+        "a591923ce771349d286cdc424d599c593e070ecea0271f3909c64719258658b4"
+    )
     assert head["operational_authorization"] is False
     assert head["next_stage_authorized"] is False

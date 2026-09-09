@@ -63,6 +63,27 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         )
 
 
+@pytest.hookimpl(specname="pytest_collection_modifyitems", trylast=True)
+def pytest_route_catalog_canonical(config, items: list[pytest.Item]) -> None:
+    """Route only the two broad CI selections away from fresh-cluster proof.
+
+    Keep rls_integration and its fixture guard intact. The official launcher
+    selects explicit nodeids without -m and therefore executes every proof;
+    its independent receipt audit still rejects missing, skipped or failed tests.
+    """
+    if config.getoption("markexpr").strip() not in {
+        "rls_integration", "not rls_integration",
+    }:
+        return
+    dedicated = [
+        item for item in items
+        if item.get_closest_marker("catalog_canonical_pg17") is not None
+    ]
+    if dedicated:
+        items[:] = [item for item in items if item not in dedicated]
+        config.hook.pytest_deselected(items=dedicated)
+
+
 def _plano_query_filters(statement) -> tuple[str | None, bool]:
     """Extrai os filtros (codigo, ativo) do WHERE compilado de uma query em `Plano`.
 

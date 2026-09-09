@@ -44,8 +44,9 @@ def _serialized(value: dict[str, Any]) -> bytes:
 def _future_catalog(
     tmp_path: Path,
 ) -> tuple[Path, Path, Path, bytes, dict[str, Any]]:
-    prior_content = VERSIONED_HEAD_PATH.read_bytes()
-    head = catalog_head._decode_json(prior_content)
+    from tests.migration_catalog_fixtures import historical_initial_head
+    head = historical_initial_head(catalog_head._decode_json(VERSIONED_HEAD_PATH.read_bytes()))
+    prior_content = _serialized(head)
     migrations = tmp_path / "migrations"
     migrations.mkdir()
     historical_entries = head["historical_prefix"]["entries"]
