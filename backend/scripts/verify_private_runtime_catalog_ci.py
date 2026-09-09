@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Verify the historical V1 catalog and the separate private stream in CI.
+"""Verify the public catalog transition and separate private stream in CI.
 
 The legacy verifier remains the authority for the public catalog.  This
 adapter invokes it unchanged against its authenticated current/prior Git
 snapshots, then performs the same snapshot/ancestry checks for the private
-stream.  It never applies SQL and never reports a PG17 replay: the required
-disposable replay is a separate terminal workflow job.
+stream.  A public append is accepted only after that longitudinal proof and
+the private source verifier's full-head/prefix proof agree.  It never applies
+SQL and never reports a PG17 replay: the required disposable replay is a
+separate terminal workflow job.
 """
 
 from __future__ import annotations
@@ -88,6 +90,7 @@ class CiVerificationResult:
     event_name: str
     public_migration_count: int
     public_digest_sha256: str
+    public_append_count: int
     private_migration_count: int
     private_digest_sha256: str
     private_last_basename: str
@@ -271,15 +274,39 @@ def _validate_private_snapshot(
     current_repository: Path,
     prior_repository: Path,
     private_module: ModuleType,
+    expected_public_migration_count: int,
+    expected_public_digest_sha256: str,
 ) -> CiVerificationResult:
     try:
         source_result = private_module.verify()
     except Exception as exc:
         raise PrivateSourceError from exc
+    try:
+        public_count = source_result.public_migration_count
+        public_digest = source_result.public_digest_sha256
+        public_append_count = getattr(
+            source_result,
+            "public_append_count",
+            public_count - HISTORICAL_COUNT,
+        )
+        private_count = source_result.private_migration_count
+    except (AttributeError, TypeError):
+        raise PrivateSourceError
     if (
-        source_result.public_migration_count != HISTORICAL_COUNT
-        or source_result.public_digest_sha256 != HISTORICAL_DIGEST_SHA256
-        or source_result.private_migration_count < 0
+        type(public_count) is not int
+        or type(public_digest) is not str
+        or type(public_append_count) is not int
+        or type(private_count) is not int
+        or public_count != expected_public_migration_count
+        or public_digest != expected_public_digest_sha256
+        or public_count < HISTORICAL_COUNT
+        or public_append_count not in {0, 1}
+        or public_count != HISTORICAL_COUNT + public_append_count
+        or private_count < 0
+        or (
+            public_count == HISTORICAL_COUNT
+            and public_digest != HISTORICAL_DIGEST_SHA256
+        )
     ):
         raise PrivateSourceError
 
@@ -321,6 +348,16 @@ def _validate_private_snapshot(
         elif current_entries != prior_entries:
             raise HistoricalProofError
 
+    # The public append transition is deliberately independent from the
+    # private stream.  A commit that advances the public head must not smuggle
+    # in a private migration or rewrite its private head.
+    if public_append_count == 1 and (
+        prior_head is None
+        or current_head != prior_head
+        or current_entries != prior_entries
+    ):
+        raise HistoricalProofError
+
     # A new entry must be authored against the authenticated prior commit.  A
     # no-op private stream is allowed after it has already been authenticated.
     if private_append_verified:
@@ -337,9 +374,7 @@ def _validate_private_snapshot(
         except Exception as exc:
             raise PrivateSourceError from exc
 
-    public_count = source_result.public_migration_count
-    private_count = source_result.private_migration_count
-    if private_count != len(current_entries) or public_count != HISTORICAL_COUNT:
+    if private_count != len(current_entries):
         raise PrivateSourceError
     if current_entries and current_entries[0]["name"] <= HISTORICAL_LAST_BASENAME:
         raise PrivateSourceError
@@ -348,7 +383,8 @@ def _validate_private_snapshot(
     return CiVerificationResult(
         event_name=context.event_name,
         public_migration_count=public_count,
-        public_digest_sha256=source_result.public_digest_sha256,
+        public_digest_sha256=public_digest,
+        public_append_count=public_append_count,
         private_migration_count=private_count,
         private_digest_sha256=source_result.private_digest_sha256,
         private_last_basename=source_result.private_last_basename,
@@ -393,9 +429,17 @@ def verify_ci(
             pull_request_base_sha=pull_request_base_sha,
             push_before_sha=push_before_sha,
         )
+        legacy_count = legacy_result.migration_count
+        legacy_digest = legacy_result.catalog_digest_sha256
         if (
-            legacy_result.migration_count != HISTORICAL_COUNT
-            or legacy_result.catalog_digest_sha256 != HISTORICAL_DIGEST_SHA256
+            type(legacy_count) is not int
+            or type(legacy_digest) is not str
+            or legacy_count < HISTORICAL_COUNT
+            or legacy_count > HISTORICAL_COUNT + 1
+            or (
+                legacy_count != HISTORICAL_COUNT
+                and not getattr(legacy_result, "prior_head_required", False)
+            )
         ):
             raise HistoricalProofError
     except HistoricalProofError:
@@ -450,6 +494,8 @@ def verify_ci(
             current_repository=current_snapshot.repository,
             prior_repository=prior_snapshot.repository,
             private_module=private_module,
+            expected_public_migration_count=legacy_count,
+            expected_public_digest_sha256=legacy_digest,
         )
         if (
             repository_witness(current_snapshot.repository) != current_before
@@ -517,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"EVENT_NAME={result.event_name}")
     print(f"PUBLIC_CATALOG_MIGRATION_COUNT={result.public_migration_count}")
     print(f"PUBLIC_CATALOG_DIGEST_SHA256={result.public_digest_sha256}")
+    print(f"PUBLIC_CATALOG_APPEND_COUNT={result.public_append_count}")
     print(f"PRIVATE_CATALOG_MIGRATION_COUNT={result.private_migration_count}")
     print(f"PRIVATE_CATALOG_DIGEST_SHA256={result.private_digest_sha256}")
     print(f"PRIVATE_CATALOG_LAST_BASENAME={result.private_last_basename}")

@@ -310,10 +310,21 @@ def test_package_and_repository_are_bound_into_receipts_against_cross_package_sw
 
 
 def test_expected_catalog_digest_matches_fixed_repository_catalog() -> None:
-    assert len(capture._scan_catalog()) == 75
-    assert capture._catalog_digest(capture._scan_catalog()) == (
+    # The historical capture is deliberately not an operational consumer of
+    # the new head. Authenticate the complete current file list against the
+    # co-authored head, and retain the old capture's immutable prefix anchor.
+    head = json.loads((REPO_ROOT / "docs/governance/migrations/migration-catalog-head-v1.json").read_text())
+    catalog = capture._scan_catalog()
+    represented = head["historical_prefix"]["entries"] + [
+        entry for batch in head["append_only_batches"] for entry in batch["entries"]
+    ]
+    assert catalog == represented
+    assert len(catalog) == head["current_head"]["migration_count"] == 76
+    assert capture._catalog_digest(catalog) == head["current_head"]["digest_sha256"]
+    assert capture._catalog_digest(catalog[:75]) == (
         capture.EXPECTED_CATALOG_DIGEST_SHA256
     )
+    assert capture._catalog_digest(catalog) != capture.EXPECTED_CATALOG_DIGEST_SHA256
 
 
 @pytest.mark.parametrize("mutation", ["modify", "add", "remove"])

@@ -19,6 +19,7 @@ ADVANCED_CURRENT_SHA = "d" * 40
 HISTORICAL_DIGEST = (
     "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"
 )
+PUBLIC_APPEND_DIGEST = "f" * 64
 PRIVATE_BASENAME = "20260905_035815_load_private_runtime_turn_context.sql"
 
 
@@ -155,6 +156,7 @@ def _source_result(entry: dict[str, object]) -> SimpleNamespace:
     return SimpleNamespace(
         public_migration_count=75,
         public_digest_sha256=HISTORICAL_DIGEST,
+        public_append_count=0,
         private_migration_count=1,
         private_digest_sha256=catalog.private_digest([entry]),
         private_last_basename=PRIVATE_BASENAME,
@@ -174,6 +176,21 @@ def _private_module(source_result: SimpleNamespace) -> SimpleNamespace:
         private_catalog=catalog,
         adapter=adapter,
     )
+
+
+def test_public_source_accepts_current_head_with_one_tenant_append() -> None:
+    source = _load(
+        REPO_ROOT / "backend/scripts/verify_private_runtime_catalog_v1.py",
+        "private_runtime_catalog_source_compatibility_test",
+    )
+
+    result = source.verify_public_catalog_compatibility()
+
+    assert result.historical_count == 75
+    assert result.historical_digest_sha256 == HISTORICAL_DIGEST
+    assert result.migration_count == 76
+    assert result.append_count == 1
+    assert result.entries[-1].scope == "TENANT"
 
 
 def test_closed_string_list_rejects_unexpected_container_without_type_error() -> None:
@@ -346,6 +363,86 @@ def test_ci_accepts_unchanged_non_empty_head_after_base_advances(
     assert current.cleaned and prior.cleaned
 
 
+def test_ci_accepts_public_append_when_private_stream_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    current = _empty_snapshot(tmp_path / "current", CURRENT_SHA)
+    prior = _empty_snapshot(tmp_path / "prior", BASE_SHA)
+    source_result = SimpleNamespace(
+        public_migration_count=76,
+        public_digest_sha256=PUBLIC_APPEND_DIGEST,
+        public_append_count=1,
+        private_migration_count=0,
+        private_digest_sha256=catalog.private_digest([]),
+        private_last_basename=catalog.HISTORICAL_LAST_BASENAME,
+    )
+    private_module = _private_module(source_result)
+
+    result = catalog_ci.verify_ci(
+        event_name="pull_request",
+        current_sha=CURRENT_SHA,
+        pull_request_base_sha=BASE_SHA,
+        push_before_sha="",
+        snapshot_factory=lambda sha: current if sha == CURRENT_SHA else prior,
+        commit_parent_reader=lambda sha: (BASE_SHA,) if sha == CURRENT_SHA else (),
+        module_loader=lambda _repository: private_module,
+        repository_witness=lambda _repository: "stable",
+        legacy_verifier=lambda **_kwargs: SimpleNamespace(
+            migration_count=76,
+            catalog_digest_sha256=PUBLIC_APPEND_DIGEST,
+            prior_head_required=True,
+        ),
+    )
+
+    assert result.public_migration_count == 76
+    assert result.public_append_count == 1
+    assert result.combined_migration_count == 76
+    assert result.private_append_verified is False
+    assert current.cleaned and prior.cleaned
+
+
+def test_ci_rejects_public_append_that_changes_private_stream(
+    tmp_path: Path,
+) -> None:
+    current, _entry = _non_empty_snapshot(
+        tmp_path / "current",
+        CURRENT_SHA,
+        _candidate_content(BASE_SHA),
+    )
+    prior = _empty_snapshot(tmp_path / "prior", BASE_SHA)
+    source_result = _source_result(
+        {
+            "position": 0,
+            "name": PRIVATE_BASENAME,
+            "sha256": "0" * 64,
+            "size_bytes": 1,
+        }
+    )
+    source_result.public_migration_count = 76
+    source_result.public_digest_sha256 = PUBLIC_APPEND_DIGEST
+    source_result.public_append_count = 1
+    private_module = _private_module(source_result)
+
+    with pytest.raises(catalog_ci.HistoricalProofError):
+        catalog_ci.verify_ci(
+            event_name="pull_request",
+            current_sha=CURRENT_SHA,
+            pull_request_base_sha=BASE_SHA,
+            push_before_sha="",
+            snapshot_factory=lambda sha: current if sha == CURRENT_SHA else prior,
+            commit_parent_reader=lambda sha: (BASE_SHA,) if sha == CURRENT_SHA else (),
+            module_loader=lambda _repository: private_module,
+            repository_witness=lambda _repository: "stable",
+            legacy_verifier=lambda **_kwargs: SimpleNamespace(
+                migration_count=76,
+                catalog_digest_sha256=PUBLIC_APPEND_DIGEST,
+                prior_head_required=True,
+            ),
+        )
+
+    assert current.cleaned and prior.cleaned
+
+
 def test_ci_rejects_new_private_header_based_on_wrong_sha(
     tmp_path: Path,
 ) -> None:
@@ -413,9 +510,8 @@ def test_workflow_requires_source_proof_and_real_pg17_receipt() -> None:
     workflow = (
         REPO_ROOT / ".github/workflows/private-runtime-catalog.yml"
     ).read_text(encoding="utf-8")
-    receipt_verifier = (
-        REPO_ROOT / "backend/scripts/verify_private_runtime_pg17_receipt.py"
-    ).read_text(encoding="utf-8")
+    receipt_path = REPO_ROOT / "backend/scripts/verify_private_runtime_pg17_receipt.py"
+    receipt_verifier = receipt_path.read_text(encoding="utf-8")
     proof_text = workflow + receipt_verifier
     for marker in (
         "verify_private_runtime_catalog_ci.py",
@@ -423,9 +519,25 @@ def test_workflow_requires_source_proof_and_real_pg17_receipt() -> None:
         "postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929",
         "PG17_REPLAY_EXECUTED=true",
         "CROSS_TENANT_EVIDENCE=true",
-        "COMBINED_CATALOG_MIGRATION_COUNT=76",
     ):
         assert marker in proof_text
+    receipt = _load(receipt_path, "private_runtime_pg17_receipt_protocol_test")
+    expected = receipt.expected_receipt_lines(
+        private_migration_count=1,
+        private_digest_sha256="d" * 64,
+        private_last_basename=PRIVATE_BASENAME,
+        private_last_sha256="e" * 64,
+        public_migration_count=76,
+        public_digest_sha256="f" * 64,
+        public_append_count=1,
+        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_last_sha256="a" * 64,
+        source_git_sha="b" * 40,
+    )
+    assert "PUBLIC_CATALOG_MIGRATION_COUNT=76" in expected
+    assert "PUBLIC_CATALOG_APPEND_COUNT=1" in expected
+    assert "PRIVATE_CATALOG_MIGRATION_COUNT=1" in expected
+    assert "COMBINED_CATALOG_MIGRATION_COUNT=77" in expected
     assert "verify_private_runtime_pg17_receipt.py" in workflow
     assert "migration_catalog_current_head_disposable" in workflow
     assert "migration_private_runtime_disposable" not in workflow

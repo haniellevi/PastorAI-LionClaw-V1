@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 from types import ModuleType
 from typing import Any, Callable, Mapping, NoReturn
@@ -43,6 +44,9 @@ PRIVATE_ADAPTER_PATH = (
 PRIVATE_INTENT_PATH = (
     REPO_ROOT / "backend" / "scripts" / "private_runtime_intent_runtime_v1.py"
 )
+TRUSTED_SNAPSHOT_PATH = (
+    REPO_ROOT / "backend" / "scripts" / "trusted_repository_snapshot.py"
+)
 
 PUBLIC_REPLAY_SHA256 = (
     "753abf57747de9a28f6192617dfd7ea348cb7adf302d7acbd57f280de3d8ce3f"
@@ -56,6 +60,15 @@ PRIVATE_ADAPTER_SHA256 = (
 PRIVATE_INTENT_SHA256 = (
     "946c1a3f62105291e192ae7e8ed1e4f184f6c4fc200c25e62ecbb8393811b01c"
 )
+TRUSTED_SNAPSHOT_SHA256 = (
+    "43dd9161cda2fc3cb7e1800a1b756f5595facbcc5c15274f282f6e763252d392"
+)
+
+# The Actions runner supplies GITHUB_SHA from the checked-out workflow event.
+# It is the only source identity accepted by this executable replay.  A caller
+# must not smuggle an arbitrary source SHA through a normal CLI argument.
+SOURCE_GIT_SHA_ENV = "GITHUB_SHA"
+GIT_SHA_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z", re.I)
 
 DATABASE_URL_ENV = "MIGRATION_PRIVATE_RUNTIME_REPLAY_DATABASE_URL"
 DISPOSABLE_DATABASE = "migration_catalog_current_head_disposable"
@@ -71,6 +84,14 @@ HISTORICAL_DIGEST_SHA256 = (
 )
 HISTORICAL_LAST_BASENAME = (
     "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql"
+)
+PUBLIC_CURRENT_COUNT = HISTORICAL_COUNT + 1
+PUBLIC_APPEND_COUNT = 1
+COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE = "PUBLIC_APPEND_THEN_PRIVATE"
+COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND = "PRIVATE_THEN_PUBLIC_APPEND"
+COMPOSITION_ORDERS = (
+    COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+    COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND,
 )
 MAX_LOCAL_MODULE_BYTES = 4_194_304
 MAX_RECEIPT_BYTES = 16_384
@@ -184,18 +205,135 @@ class CatalogSurface:
 
 @dataclass(frozen=True)
 class ReplayResult:
+    historical_public_migration_count: int
+    historical_public_digest_sha256: str
+    historical_public_last_basename: str
     public_migration_count: int
     public_digest_sha256: str
+    public_append_count: int
+    public_append_last_basename: str
+    public_append_last_sha256: str
     private_migration_count: int
     private_digest_sha256: str
     private_last_basename: str
     private_last_sha256: str
     combined_migration_count: int
+    composition_order: str
+    source_git_sha: str
     postgres_version_num: int
     cross_tenant_evidence: bool
     direct_select_denied: bool
     dml_denied: bool
     catalog_delta_verified: bool
+
+
+def _authenticated_source_git_sha() -> str:
+    """Read the CI-authenticated checkout SHA used for this replay.
+
+    ``GITHUB_SHA`` is supplied by the workflow runtime, not by the replay
+    command line.  Replays without that binding are deliberately refused so a
+    receipt cannot be presented as evidence for an arbitrary checkout.  The
+    exact object is also resolved through the pinned trusted snapshot helper;
+    a hexadecimal environment value alone is never source evidence.
+    """
+
+    value = os.environ.get(SOURCE_GIT_SHA_ENV)
+    if (
+        type(value) is not str
+        or GIT_SHA_RE.fullmatch(value) is None
+        or set(value.casefold()) == {"0"}
+    ):
+        raise SourceContractError
+    value = value.casefold()
+    snapshot = None
+    try:
+        snapshot = trusted_snapshot.create_trusted_repository_snapshot(
+            repository_root=REPO_ROOT,
+            git_sha=value,
+        )
+        if snapshot.git_sha != value or snapshot.repository != snapshot.root / "repo":
+            raise SourceContractError
+        return value
+    except SourceContractError:
+        raise
+    except Exception as exc:
+        raise SourceContractError from exc
+    finally:
+        if snapshot is not None:
+            try:
+                snapshot.cleanup()
+            except Exception as exc:
+                raise SourceContractError from exc
+
+
+def _public_entry_mapping(migration: Any) -> dict[str, object]:
+    """Convert the pinned public replay DTO into the verifier entry shape."""
+
+    try:
+        position = migration.position
+        name = migration.name
+        sha256 = migration.sha256
+        sql = migration.sql
+    except AttributeError as exc:
+        raise SourceContractError from exc
+    if (
+        type(position) is not int
+        or type(name) is not str
+        or type(sha256) is not str
+        or type(sql) is not str
+        or not re.fullmatch(r"[0-9a-f]{64}", sha256)
+    ):
+        raise SourceContractError
+    return {
+        "position": position,
+        "name": name,
+        "sha256": sha256,
+        "size_bytes": len(sql.encode("utf-8")),
+    }
+
+
+def _split_public_catalog(public_loaded: Any) -> tuple[tuple[Any, ...], Any]:
+    """Validate the complete 76-entry public head and its immutable prefix."""
+
+    migrations = getattr(public_loaded, "migrations", None)
+    if type(migrations) is not tuple or len(migrations) != PUBLIC_CURRENT_COUNT:
+        raise SourceContractError
+    historical = migrations[:HISTORICAL_COUNT]
+    append = migrations[HISTORICAL_COUNT:]
+    if len(append) != PUBLIC_APPEND_COUNT:
+        raise SourceContractError
+    if [item.position for item in migrations] != list(range(PUBLIC_CURRENT_COUNT)):
+        raise SourceContractError
+    if any(item.scope is not None for item in historical):
+        raise SourceContractError
+    if historical[-1].name != HISTORICAL_LAST_BASENAME:
+        raise SourceContractError
+    try:
+        historical_entries = [_public_entry_mapping(item) for item in historical]
+        historical_digest = public_replay.catalog._catalog_digest(historical_entries)
+    except Exception as exc:
+        raise SourceContractError from exc
+    if historical_digest != HISTORICAL_DIGEST_SHA256:
+        raise SourceContractError
+    candidate = append[0]
+    if (
+        candidate.scope != "TENANT"
+        or not candidate.affected_relations
+        or not candidate.pg17_test_nodeids
+        or not candidate.cross_tenant_test_nodeids
+        or not set(candidate.cross_tenant_test_nodeids).issubset(
+            set(candidate.pg17_test_nodeids)
+        )
+        or candidate.name <= HISTORICAL_LAST_BASENAME
+    ):
+        raise SourceContractError
+    if (
+        type(public_loaded.digest_sha256) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", public_loaded.digest_sha256) is None
+        or public_loaded.digest_sha256 == HISTORICAL_DIGEST_SHA256
+    ):
+        raise SourceContractError
+    return historical, candidate
 
 
 def _stable_stat(value: os.stat_result) -> tuple[int, ...]:
@@ -303,6 +441,11 @@ def _load_isolated_public_replay() -> ModuleType:
 
 
 public_replay = _load_isolated_public_replay()
+trusted_snapshot = _load_pinned_module(
+    name="_pastorai_trusted_snapshot_for_private_runtime_pg17",
+    path=TRUSTED_SNAPSHOT_PATH,
+    expected_sha256=TRUSTED_SNAPSHOT_SHA256,
+)
 private_catalog = _load_pinned_module(
     name="_pastorai_private_catalog_for_private_runtime_pg17",
     path=PRIVATE_CATALOG_PATH,
@@ -366,13 +509,11 @@ def _load_composed_source() -> tuple[Any, str, LoadedPrivateCatalog]:
         scaffold = public_replay._load_historical_compatibility_scaffold()
     except Exception as exc:
         raise SourceContractError from exc
-    if (
-        len(public_loaded.migrations) != HISTORICAL_COUNT
-        or public_loaded.digest_sha256 != HISTORICAL_DIGEST_SHA256
-        or public_loaded.migrations[-1].name != HISTORICAL_LAST_BASENAME
-        or any(item.scope is not None for item in public_loaded.migrations)
-    ):
-        raise SourceContractError
+    # The public head is authenticated in full by the pinned current-head
+    # loader.  Keep the historical proof separate: the private runtime remains
+    # anchored to the exact 75-entry prefix while this transition admits one
+    # and only one public TENANT append.
+    _split_public_catalog(public_loaded)
 
     try:
         # Re-run the private closed-head checks with the already authenticated
@@ -1906,10 +2047,125 @@ def _validate_runtime_behaviour(connection: Any) -> tuple[bool, bool]:
     return True, True
 
 
+def _apply_public_migration(
+    *,
+    cursor: Any,
+    connection: Any,
+    migration: Any,
+) -> None:
+    """Apply one public migration with the existing public delta proof."""
+
+    is_append = getattr(migration, "position", None) >= HISTORICAL_COUNT
+    tenant_before = None
+    if is_append:
+        if getattr(migration, "scope", None) != "TENANT":
+            raise SourceContractError
+        try:
+            tenant_before = public_replay._capture_public_tenant_security_surface(
+                cursor
+            )
+        except Exception as exc:
+            raise DatabaseContractError from exc
+    try:
+        cursor.execute(migration.sql)
+    except Exception as exc:
+        raise MigrationReplayError from exc
+    public_replay._require_idle_transaction(connection)
+    public_replay._ensure_ledgers_absent(cursor)
+    if is_append:
+        if tenant_before is None:
+            raise SourceContractError
+        try:
+            tenant_after = public_replay._capture_public_tenant_security_surface(
+                cursor
+            )
+            public_replay._validate_tenant_security_delta(
+                tenant_before,
+                tenant_after,
+                migration.affected_relations,
+            )
+            public_replay._validate_tenant_relations(
+                cursor,
+                migration.affected_relations,
+            )
+        except Exception as exc:
+            if isinstance(exc, ReplayError):
+                raise
+            raise DatabaseContractError from exc
+
+
+def _apply_private_migrations(
+    *,
+    cursor: Any,
+    connection: Any,
+    private_loaded: LoadedPrivateCatalog,
+) -> None:
+    """Apply and validate the private stream without changing public state."""
+
+    for migration in private_loaded.migrations:
+        before = _capture_catalog_surface(cursor)
+        try:
+            cursor.execute(migration.sql)
+        except Exception as exc:
+            try:
+                _rollback_sql_and_require_clean(connection, original_error=exc)
+            except Exception:
+                raise MigrationReplayError from exc
+            raise MigrationReplayError from exc
+        public_replay._require_idle_transaction(connection)
+        public_replay._ensure_ledgers_absent(cursor)
+        after = _capture_catalog_surface(cursor)
+        _validate_catalog_delta(before, after, migration.intent)
+
+
+def _validate_private_projection_contract(
+    *,
+    cursor: Any,
+    connection: Any,
+    private_loaded: LoadedPrivateCatalog,
+) -> tuple[bool, bool, bool]:
+    """Validate private controls after the selected public/private order."""
+
+    owner_oid, runtime_oid = _validate_role_and_schema(cursor)
+    _validate_tenant_helper(
+        cursor,
+        owner_oid=owner_oid,
+        runtime_oid=runtime_oid,
+    )
+    _validate_projection_function(
+        cursor,
+        owner_oid=owner_oid,
+        runtime_oid=runtime_oid,
+        private=private_loaded.migrations[-1],
+    )
+    _validate_default_acl(
+        cursor,
+        owner_oid=owner_oid,
+        runtime_oid=runtime_oid,
+    )
+    _validate_public_relation_contract(
+        cursor,
+        owner_oid=owner_oid,
+        runtime_oid=runtime_oid,
+    )
+    _validate_owner_policies(cursor, owner_oid)
+    cross_tenant, dml_denied = _validate_runtime_behaviour(connection)
+    return cross_tenant, True, dml_denied
+
+
 def replay_private_runtime_catalog_pg17(
     connect: Callable[..., Any] | None = None,
+    *,
+    composition_order: str = COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+    _source_git_sha: str | None = None,
 ) -> ReplayResult:
+    source_git_sha = _source_git_sha or _authenticated_source_git_sha()
+    if GIT_SHA_RE.fullmatch(source_git_sha) is None or set(source_git_sha) == {"0"}:
+        raise SourceContractError
+    if composition_order not in COMPOSITION_ORDERS:
+        raise CliUsageError
     public_loaded, scaffold, private_loaded = _load_composed_source()
+    _historical_public, public_append = _split_public_catalog(public_loaded)
     database_url, database_name = _read_disposable_url()
     if connect is None:
         try:
@@ -1938,7 +2194,7 @@ def replay_private_runtime_catalog_pg17(
                 raise MigrationReplayError from exc
             public_replay._require_idle_transaction(connection)
             public_replay._ensure_ledgers_absent(cursor)
-            for migration in public_loaded.migrations:
+            for migration in public_loaded.migrations[:HISTORICAL_COUNT]:
                 try:
                     cursor.execute(migration.sql)
                 except Exception as exc:
@@ -1946,48 +2202,37 @@ def replay_private_runtime_catalog_pg17(
                 public_replay._require_idle_transaction(connection)
                 public_replay._ensure_ledgers_absent(cursor)
 
+            if composition_order == COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE:
+                _apply_public_migration(
+                    cursor=cursor,
+                    connection=connection,
+                    migration=public_append,
+                )
+                _apply_private_migrations(
+                    cursor=cursor,
+                    connection=connection,
+                    private_loaded=private_loaded,
+                )
+            else:
+                _apply_private_migrations(
+                    cursor=cursor,
+                    connection=connection,
+                    private_loaded=private_loaded,
+                )
+                _apply_public_migration(
+                    cursor=cursor,
+                    connection=connection,
+                    migration=public_append,
+                )
+
+            cross_tenant, direct_select_denied, dml_denied = (
+                _validate_private_projection_contract(
+                    cursor=cursor,
+                    connection=connection,
+                    private_loaded=private_loaded,
+                )
+            )
             delta_verified = True
-            for migration in private_loaded.migrations:
-                before = _capture_catalog_surface(cursor)
-                try:
-                    cursor.execute(migration.sql)
-                except Exception as exc:
-                    try:
-                        _rollback_sql_and_require_clean(connection, original_error=exc)
-                    except Exception:
-                        raise MigrationReplayError from exc
-                    raise MigrationReplayError from exc
-                public_replay._require_idle_transaction(connection)
-                public_replay._ensure_ledgers_absent(cursor)
-                after = _capture_catalog_surface(cursor)
-                _validate_catalog_delta(before, after, migration.intent)
-                delta_verified = True
-
-            owner_oid, runtime_oid = _validate_role_and_schema(cursor)
-            _validate_tenant_helper(
-                cursor,
-                owner_oid=owner_oid,
-                runtime_oid=runtime_oid,
-            )
-            _validate_projection_function(
-                cursor,
-                owner_oid=owner_oid,
-                runtime_oid=runtime_oid,
-                private=private_loaded.migrations[-1],
-            )
-            _validate_default_acl(
-                cursor,
-                owner_oid=owner_oid,
-                runtime_oid=runtime_oid,
-            )
-            _validate_public_relation_contract(
-                cursor,
-                owner_oid=owner_oid,
-                runtime_oid=runtime_oid,
-            )
-            _validate_owner_policies(cursor, owner_oid)
-            cross_tenant, dml_denied = _validate_runtime_behaviour(connection)
-            direct_select_denied = True
     except ReplayError:
         raise
     except Exception as exc:
@@ -1996,13 +2241,21 @@ def replay_private_runtime_catalog_pg17(
         if connection is not None:
             connection.close()
     return ReplayResult(
+        historical_public_migration_count=HISTORICAL_COUNT,
+        historical_public_digest_sha256=HISTORICAL_DIGEST_SHA256,
+        historical_public_last_basename=HISTORICAL_LAST_BASENAME,
         public_migration_count=len(public_loaded.migrations),
         public_digest_sha256=public_loaded.digest_sha256,
+        public_append_count=PUBLIC_APPEND_COUNT,
+        public_append_last_basename=public_append.name,
+        public_append_last_sha256=public_append.sha256,
         private_migration_count=len(private_loaded.migrations),
         private_digest_sha256=private_loaded.digest_sha256,
         private_last_basename=private_loaded.migrations[-1].name,
         private_last_sha256=private_loaded.migrations[-1].sha256,
         combined_migration_count=len(public_loaded.migrations) + len(private_loaded.migrations),
+        composition_order=composition_order,
+        source_git_sha=source_git_sha,
         postgres_version_num=version_num,
         cross_tenant_evidence=cross_tenant,
         direct_select_denied=direct_select_denied,
@@ -2015,6 +2268,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = SanitizedArgumentParser(add_help=False)
     parser.add_argument("--catalog-head", required=True)
     parser.add_argument("--private-directory", required=True)
+    parser.add_argument(
+        "--composition-order",
+        choices=COMPOSITION_ORDERS,
+        default=COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+    )
     parser.add_argument("--confirmation", required=True, choices=[CONFIRMATION])
     return parser
 
@@ -2023,24 +2281,76 @@ def main(argv: list[str] | None = None) -> int:
     print(OPERATIONAL_BLOCK)
     print(NEXT_STAGE_BLOCK)
     print(ENVIRONMENT_BLOCK)
+    sys.stdout.flush()
     try:
         args = build_parser().parse_args(argv)
         if args.catalog_head != "docs/governance/migrations/private-runtime-catalog-head-v1.json" or args.private_directory != "backend/migrations/private_runtime":
             raise CliUsageError
-        result = replay_private_runtime_catalog_pg17()
+        # The parent never opens PostgreSQL. Execute the verified commit's
+        # replay code and dependencies from its PRIVATE snapshot, not from
+        # the shared checkout whose SHA merely selected the Git object.
+        sha = os.environ.get(SOURCE_GIT_SHA_ENV, "")
+        if GIT_SHA_RE.fullmatch(sha) is None or set(sha) == {"0"}:
+            raise SourceContractError
+        snapshot = public_replay.migration_authoring._create_repository_snapshot(
+            repository_root=REPO_ROOT, git_sha=sha,
+        )
+        try:
+            if snapshot.git_sha != sha:
+                raise SourceContractError
+            child = '''import importlib.util, sys
+path, sha, order = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("private_replay_snapshot_child", path)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+try:
+    result = module.replay_private_runtime_catalog_pg17(composition_order=order, _source_git_sha=sha)
+    module._print_result(result)
+except Exception:
+    print("PRIVATE_RUNTIME_REPLAY_BLOCKED:SNAPSHOT_REPLAY_FAILED", file=sys.stderr)
+    raise SystemExit(10)
+'''
+            env = {"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1"}
+            if DATABASE_URL_ENV in os.environ:
+                env[DATABASE_URL_ENV] = os.environ[DATABASE_URL_ENV]
+            completed = subprocess.run(
+                [sys.executable, "-I", "-B", "-c", child,
+                 str(snapshot.repository / "backend/scripts/replay_private_runtime_catalog_pg17.py"),
+                 snapshot.git_sha, args.composition_order],
+                cwd=snapshot.repository, env=env, timeout=300,
+            )
+            return completed.returncode
+        finally:
+            snapshot.cleanup()
     except ReplayError as exc:
         print(f"PRIVATE_RUNTIME_REPLAY_BLOCKED:{exc.reason}", file=sys.stderr)
         return exc.exit_code
     except Exception:
         print("PRIVATE_RUNTIME_REPLAY_BLOCKED:INTERNAL_ERROR", file=sys.stderr)
         return 10
+def _print_result(result: ReplayResult) -> None:
     print(SUCCESS)
+    print(
+        f"PUBLIC_HISTORICAL_MIGRATION_COUNT={result.historical_public_migration_count}"
+    )
+    print(
+        f"PUBLIC_HISTORICAL_DIGEST_SHA256={result.historical_public_digest_sha256}"
+    )
+    print(
+        f"PUBLIC_HISTORICAL_LAST_BASENAME={result.historical_public_last_basename}"
+    )
     print(f"PUBLIC_CATALOG_MIGRATION_COUNT={result.public_migration_count}")
     print(f"PUBLIC_CATALOG_DIGEST_SHA256={result.public_digest_sha256}")
+    print(f"PUBLIC_CATALOG_APPEND_COUNT={result.public_append_count}")
+    print(f"PUBLIC_CATALOG_APPEND_LAST_BASENAME={result.public_append_last_basename}")
+    print(f"PUBLIC_CATALOG_APPEND_LAST_SHA256={result.public_append_last_sha256}")
     print(f"PRIVATE_CATALOG_MIGRATION_COUNT={result.private_migration_count}")
     print(f"PRIVATE_CATALOG_DIGEST_SHA256={result.private_digest_sha256}")
     print(f"PRIVATE_CATALOG_LAST_BASENAME={result.private_last_basename}")
     print(f"PRIVATE_CATALOG_LAST_SHA256={result.private_last_sha256}")
+    print(f"COMPOSITION_ORDER={result.composition_order}")
+    print(f"SOURCE_GIT_SHA={result.source_git_sha}")
     print(f"COMBINED_CATALOG_MIGRATION_COUNT={result.combined_migration_count}")
     print(f"POSTGRESQL_MAJOR={result.postgres_version_num // 10_000}")
     print(f"PG17_REPLAY_EXECUTED=true")
@@ -2048,7 +2358,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"DIRECT_SELECT_DENIED={str(result.direct_select_denied).lower()}")
     print(f"DML_DENIED={str(result.dml_denied).lower()}")
     print(f"CATALOG_DELTA_VERIFIED={str(result.catalog_delta_verified).lower()}")
-    return 0
 
 
 if __name__ == "__main__":

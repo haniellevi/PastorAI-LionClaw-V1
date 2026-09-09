@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -41,6 +42,7 @@ def _load_replay_for_one_test():
         "_pastorai_private_catalog_for_private_runtime_pg17",
         "_pastorai_private_intent_for_private_runtime_pg17",
         "_pastorai_private_adapter_for_private_runtime_pg17",
+        "_pastorai_trusted_snapshot_for_private_runtime_pg17",
         "private_runtime_intent_runtime_v1",
     )
     saved = {name: sys.modules.pop(name) for name in names if name in sys.modules}
@@ -90,6 +92,125 @@ def test_receipt_contract_rejects_non_single_private_append() -> None:
             private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
             private_last_sha256="b" * 64,
         )
+
+
+def test_receipt_contract_rejects_historical_public_only_receipt() -> None:
+    with pytest.raises(receipt.ReceiptVerificationError):
+        receipt.expected_receipt_lines(
+            private_migration_count=1,
+            private_digest_sha256="a" * 64,
+            private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
+            private_last_sha256="b" * 64,
+            public_migration_count=75,
+            public_digest_sha256=receipt.HISTORICAL_DIGEST_SHA256,
+            public_append_count=0,
+        )
+
+
+def test_public_source_requires_complete_head_and_single_tenant_append() -> None:
+    public_loaded, _scaffold, _private = replay._load_composed_source()
+    historical, candidate = replay._split_public_catalog(public_loaded)
+    assert len(historical) == replay.HISTORICAL_COUNT
+    assert candidate.scope == "TENANT"
+    assert len(public_loaded.migrations) == replay.PUBLIC_CURRENT_COUNT
+    assert replay.COMPOSITION_ORDERS == (
+        replay.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+        replay.COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND,
+    )
+
+    malformed = (
+        SimpleNamespace(
+            migrations=public_loaded.migrations[: replay.HISTORICAL_COUNT],
+            digest_sha256=replay.HISTORICAL_DIGEST_SHA256,
+        ),
+        SimpleNamespace(
+            migrations=public_loaded.migrations + (candidate,),
+            digest_sha256=public_loaded.digest_sha256,
+        ),
+        replace(candidate, scope=None),
+        replace(public_loaded, digest_sha256=replay.HISTORICAL_DIGEST_SHA256),
+    )
+    with pytest.raises(replay.SourceContractError):
+        replay._split_public_catalog(malformed[0])
+    with pytest.raises(replay.SourceContractError):
+        replay._split_public_catalog(malformed[1])
+    invalid_scope = replace(public_loaded, migrations=(*historical, malformed[2]))
+    with pytest.raises(replay.SourceContractError):
+        replay._split_public_catalog(invalid_scope)
+    with pytest.raises(replay.SourceContractError):
+        replay._split_public_catalog(malformed[3])
+
+
+def test_receipt_explicitly_binds_current_public_catalog_and_composition_order() -> None:
+    common = dict(
+        private_migration_count=1,
+        private_digest_sha256="a" * 64,
+        private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
+        private_last_sha256="b" * 64,
+        public_migration_count=76,
+        public_digest_sha256="d" * 64,
+        public_append_count=1,
+        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_last_sha256="e" * 64,
+        source_git_sha="f" * 40,
+    )
+    first = receipt.expected_receipt_lines(
+        **common,
+        composition_order=receipt.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+    )
+    second = receipt.expected_receipt_lines(
+        **common,
+        composition_order=receipt.COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND,
+    )
+    assert "PUBLIC_CATALOG_MIGRATION_COUNT=76" in first
+    assert "PUBLIC_CATALOG_APPEND_COUNT=1" in first
+    assert "COMBINED_CATALOG_MIGRATION_COUNT=77" in first
+    assert "SOURCE_GIT_SHA=" + "f" * 40 in first
+    assert first != second
+    assert sum(left != right for left, right in zip(first, second)) == 1
+
+
+def test_replay_print_result_matches_receipt_payload(capsys: pytest.CaptureFixture[str]) -> None:
+    result = replay.ReplayResult(
+        historical_public_migration_count=75,
+        historical_public_digest_sha256=receipt.HISTORICAL_DIGEST_SHA256,
+        historical_public_last_basename="20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql",
+        public_migration_count=76,
+        public_digest_sha256="d" * 64,
+        public_append_count=1,
+        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_last_sha256="e" * 64,
+        private_migration_count=1,
+        private_digest_sha256="a" * 64,
+        private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
+        private_last_sha256="b" * 64,
+        combined_migration_count=77,
+        composition_order=replay.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+        source_git_sha="f" * 40,
+        postgres_version_num=170006,
+        cross_tenant_evidence=True,
+        direct_select_denied=True,
+        dml_denied=True,
+        catalog_delta_verified=True,
+    )
+    replay._print_result(result)
+    emitted = tuple(capsys.readouterr().out.splitlines())
+    expected = receipt.expected_receipt_lines(
+        private_migration_count=1,
+        private_digest_sha256="a" * 64,
+        private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
+        private_last_sha256="b" * 64,
+        public_migration_count=76,
+        public_digest_sha256="d" * 64,
+        public_append_count=1,
+        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_last_sha256="e" * 64,
+        source_git_sha="f" * 40,
+        composition_order=replay.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
+    )
+    # The CLI parent prints the three closed-gate lines; the child emits
+    # RESULT and the complete source-bound payload.
+    assert emitted == expected[len(receipt.EXPECTED_LINES_PREFIX) - 1 :]
 
 
 def test_receipt_file_requires_private_stable_regular_file(tmp_path: Path) -> None:
@@ -146,6 +267,11 @@ def test_receipt_expected_digest_is_derived_from_authenticated_head(
     head_path.write_bytes(json.dumps(head).encode("utf-8"))
     monkeypatch.setattr(receipt, "PRIVATE_HEAD_PATH", head_path)
     monkeypatch.setattr(receipt, "PRIVATE_DIRECTORY", private_directory)
+    monkeypatch.setattr(
+        receipt,
+        "_authenticated_source_git_sha",
+        lambda: "2ae100c30ed29cac32c3fd14e09a3f6002b8c2df",
+    )
 
     expected = receipt._authenticated_expected(private_catalog)
     assert f"PRIVATE_CATALOG_DIGEST_SHA256={resulting_digest}" in expected
@@ -174,6 +300,11 @@ def test_runner_rejects_non_disposable_or_non_loopback_dsn(
 def test_runner_freezes_source_before_opening_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        replay,
+        "_authenticated_source_git_sha",
+        lambda: "f" * 40,
+    )
     monkeypatch.setenv(
         replay.DATABASE_URL_ENV,
         "postgresql://postgres:postgres@127.0.0.1:5432/migration_catalog_current_head_disposable",
@@ -745,6 +876,10 @@ def test_private_apply_error_preserves_primary_with_sql_cleanup(
     monkeypatch: pytest.MonkeyPatch,
     fail_sql_rollback: bool,
 ) -> None:
+    monkeypatch.setenv(
+        replay.SOURCE_GIT_SHA_ENV,
+        "2ae100c30ed29cac32c3fd14e09a3f6002b8c2df",
+    )
     connection = _RollbackNoopConnection(fail_sql_rollback=fail_sql_rollback)
 
     private_migration = replay.LoadedPrivateMigration(
@@ -777,8 +912,29 @@ def test_private_apply_error_preserves_primary_with_sql_cleanup(
     def connect(_database_url: str, **_kwargs: object) -> _RollbackNoopConnection:
         return connection
 
+    monkeypatch.setattr(
+        replay,
+        "_split_public_catalog",
+        lambda _public: (
+            (),
+            SimpleNamespace(
+                position=replay.HISTORICAL_COUNT,
+                name="20260909_004005_consent_evidence_store_lab.sql",
+                sha256="c" * 64,
+                sql="public-noop",
+                scope="TENANT",
+                affected_relations=("public.consentimento_desafio",),
+                pg17_test_nodeids=("synthetic",),
+                cross_tenant_test_nodeids=("synthetic",),
+            ),
+        ),
+    )
     with pytest.raises(replay.MigrationReplayError) as caught:
-        replay.replay_private_runtime_catalog_pg17(connect=connect)
+        replay.replay_private_runtime_catalog_pg17(
+            connect=connect,
+            composition_order=replay.COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND,
+            _source_git_sha="f" * 40,
+        )
 
     assert isinstance(caught.value.__cause__, _FakeDatabaseError)
     assert caught.value.__cause__.pgcode == "XX000"

@@ -29,11 +29,12 @@ o writer antigo não é declarado liberado no replay puro.
 Sem callers, concessão ou aplicação compartilhada. Indicadores técnicos e
 operacionais continuam false.
 
-Divisão da PR #388: ficam versionados código isolado, testes não-PG e contratos.
-SQL, dois testes PG17 e head candidato estão congelados fora da árvore da PR
-para gate de transição de head; a entrega completa está preservada em `c48a62f`.
-Catálogo versionado permanece com 75 migrations; a prova PG17 anterior não
-significa que o schema do evidence store esteja integrado nesta fatia.
+Recorte histórico da PR #388: código isolado, testes não-PG e contratos foram
+integrados, com 75 migrations. Originais da fatia PostgreSQL permanecem
+congelados; a entrega completa está preservada em `c48a62f`.
+A autoria candidata atual reúne cópias no gate público 76 e compatibilidade
+privada A+C. A prova PG17 anterior não atesta o novo SHA, nem aplicação do
+schema do evidence store em ambiente compartilhado.
 
 Sucessão local do catálogo: proposta append-only
 `consent-catalog/evidence-succession-v1`, entrada real revisão 2, 23 refs
@@ -1562,3 +1563,16 @@ O único gate futuro desta capacidade é
 Ele cobre somente preflight nominal do ambiente conforme runbook; não autoriza
 aplicar SQL, ativar o agente ou enviar. Não há novo gate legal/consentimento
 nem autorização nominal consumida por esta atualização.
+
+## Compatibilidade público × privado — autoria candidata (2026-09-09)
+
+Classificação: `CANDIDATO OFFLINE / SEM APLICAÇÃO OU CALLER`.
+A [decisão A+C](../decisions/2026-09-09-public-private-catalog-compatibility.md)
+mantém a âncora privada no prefixo imutável de 75, mas exige autenticação do
+head público completo (76, um append TENANT), replay composto de 77 nas duas
+ordens e recibo vinculado ao SHA, ordem e digests. As provas históricas de
+75+1 não cobrem automaticamente este estado. O adapter só observa o ledger;
+`concedido` permanece negado. Manifestos históricos continuam históricos.
+Evidência de conclusão depende dos testes no commit exato; nenhum estado vivo
+foi revalidado. Authorizations continuam false; próximo gate é revisão e
+autorização separada de merge, sem autorização de aplicação ou runtime.
