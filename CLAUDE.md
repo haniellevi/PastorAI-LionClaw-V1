@@ -4,7 +4,7 @@ SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → 
 
 ## Stack
 - **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — histórico `0001…0017` (numeração congelada); **novas migrations usam nome por timestamp** `AAAAMMDD_HHMMSS_slug.sql` e o fluxo local `new_migration.py draft` → edição/revisão → `new_migration.py prepare-head`, sempre vinculado ao SHA explícito. `prepare-head` somente renderiza o head candidato; a publicação conjunta do SQL/head é separada e deve usar o parent exato. Esses comandos não aprovam nem aplicam SQL. Aplicação manual, runner legado direto, SQL Editor e `db push` são proibidos. O candidato catalog-bound atual permite somente `list`; toda operação de banco permanece bloqueada até trust anchors, evidência DEV/PROD e gate próprios. Ver `backend/migrations/README.md`.
-- **Frontend**: Next.js 15.5.22 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
+- **Frontend**: Next.js 15.5.25 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
 - **Serviços externos**: Supabase, Clerk, Evolution API (WhatsApp), OpenAI, Asaas (billing), Brevo (e-mail de convite), Google Calendar.
 - **Docs do pipeline**: `docs/Docs<id>/` (PRD, SPEC, sprints, design).
 
