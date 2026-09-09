@@ -5,6 +5,22 @@ O plano descreve prova de apresentação/manifestação, recibo durável e integ
 segura com o ledger existente. Somente documentação: sem migration, runtime,
 ativação ou envio; pacote completo e elegibilidade continuam gates separados.
 
+E1 local fechada na base `d0df9a4`: [contrato operacional](governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md).
+Prazos e cascata confirmados: excluir Pessoa remove desafio, evidência, recibo
+e eventos do ledger histórico, que permanece intacto. Preservação anonimizada
+não implementada; alternativa futura com PRD/gate próprios. E2/E3 C concluídas
+em laboratório: 1.288 testes verdes, incluindo 19 PG17, sem skips, usando
+FK/desafio antes do advisory de stream, sem lock explícito ou grants novos
+em pessoas/ledger. O writer histórico mantém sua limitação no replay puro.
+[Evidência local C](governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
+sem caller, concessão, banco compartilhado ou envio.
+
+PR #388 dividida: somente código isolado, testes não-PG e contratos nesta
+fatia. SQL, dois testes PG17 e head candidato permanecem locais e congelados
+para o gate de transição do catálogo; entrega completa preservada em `c48a62f`.
+A árvore versionada mantém 75 migrations. Os resultados PG17 acima são da
+prova de laboratório anterior, não prova de integração do schema nesta PR.
+
 Proposta local de sucessão append-only do
 [catálogo](governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
 com 23 referências resolvidas, preservando integralmente a revisão 1 e o
