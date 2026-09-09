@@ -102,7 +102,11 @@ def rls_database_url(maintenance_database_url):
         )
         assert result.returncode == 0, "canonical disposable replay failed (output withheld)"
         assert b"CATALOG_MIGRATION_COUNT=76\n" in result.stdout
-        yield target.render_as_string(hide_password=False)
+        # Restart probes inherit this variable: bind them to this fixture's
+        # disposable database, never the maintenance database used to create it.
+        with pytest.MonkeyPatch.context() as environment:
+            environment.setenv("RLS_TEST_DATABASE_URL", target.render_as_string(hide_password=False))
+            yield target.render_as_string(hide_password=False)
     finally:
         if admin is not None:
             try:
