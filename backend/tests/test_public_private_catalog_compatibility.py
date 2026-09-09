@@ -19,7 +19,23 @@ def _load(path: Path, name: str):
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
-    spec.loader.exec_module(module)
+    # Another collected test imports the same executable with its own name.
+    # Isolate this test's bootstrap namespace; never relax the executable's
+    # rejection of an already-populated dependency slot.
+    dependencies = (
+        "_pastorai_trusted_snapshot_for_private_runtime_pg17",
+        "_pastorai_private_catalog_for_private_runtime_pg17",
+        "_pastorai_private_intent_for_private_runtime_pg17",
+        "_pastorai_private_adapter_for_private_runtime_pg17",
+        "private_runtime_intent_runtime_v1",
+    )
+    saved = {key: sys.modules.pop(key) for key in dependencies if key in sys.modules}
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        for key in dependencies:
+            sys.modules.pop(key, None)
+        sys.modules.update(saved)
     return module
 
 

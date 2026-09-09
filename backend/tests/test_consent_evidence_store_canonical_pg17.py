@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import sysconfig
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields
@@ -94,6 +95,14 @@ def rls_database_url(maintenance_database_url):
             "PYTHONDONTWRITEBYTECODE": "1",
             "MIGRATION_CATALOG_REPLAY_DATABASE_URL": target.set(drivername="postgresql").render_as_string(hide_password=False),
         }
+        # setup-python's shared interpreter may need its own library directory
+        # in the child process. Derive it from this interpreter rather than
+        # inheriting arbitrary loader paths or the runner's complete environment.
+        library_directory = sysconfig.get_config_var("LIBDIR")
+        if sysconfig.get_config_var("Py_ENABLE_SHARED") and library_directory:
+            library_path = Path(library_directory)
+            assert library_path.is_absolute() and library_path.is_dir()
+            child_env["LD_LIBRARY_PATH"] = str(library_path)
         result = subprocess.run(
             [sys.executable, "-I", "-B", str(replay), "--confirmation",
              "REPLAY_MIGRATION_CATALOG_CURRENT_HEAD_PG17_DISPOSABLE"],
