@@ -1367,7 +1367,7 @@ sys.argv = [
 ]
 try:
     namespace = runpy.run_path({str(SCRIPT_PATH)!r}, run_name="audit_subject")
-    namespace["main"].__globals__["MIGRATIONS_DIR"] = namespace["Path"]({str(historical)!r})
+    namespace["main"].__globals__["MIGRATIONS_DIR"] = namespace["pathlib"].Path({str(historical)!r})
     raise SystemExit(namespace["main"]())
 except SystemExit as exc:
     raise SystemExit(0 if exc.code == 8 else 91)
