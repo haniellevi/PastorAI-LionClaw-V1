@@ -232,9 +232,13 @@ def _setup_synthetic_base(engine: Engine) -> None:
     _execute_script(engine, ddl)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def evidence_database_url(rls_database_url: str) -> Iterator[str]:
-    """Use one disposable child database per module, never a shared schema."""
+    """Use one disposable child database per test, independent of test order.
+
+    Keep the D5.1 guard and teardown: each test owns its synthetic parents,
+    ledger witness and evidence tables, without weakening any assertion.
+    """
 
     assert_disposable_database(rls_database_url)
     root_url = make_url(rls_database_url)
@@ -275,7 +279,7 @@ def evidence_database_url(rls_database_url: str) -> Iterator[str]:
         admin_engine.dispose()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def evidence_engine(evidence_database_url: str) -> Iterator[Engine]:
     engine = create_engine(evidence_database_url, future=True, pool_size=8)
 

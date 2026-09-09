@@ -44,9 +44,14 @@ Digest público corrente candidato:
 
 O adapter PostgreSQL mantém o hash congelado
 `c1336a890c5c3672c7940bb5523049f5f3e39212134bac5b7d56cad990bb34a6`.
-A cópia do teste PG17 mínimo muda somente o nome da migration: hash anterior
-`09672083f08da9f58ffdd8bb329b915c56bf1bf8c9c16ee536c08c44b984192c`, novo
-`9bbc9a967c23407ccdf9ca8bd4d8ac3378e21c842f166c513b465544835a8e6b`.
+A cópia do teste PG17 mínimo inicialmente mudou somente o nome da migration:
+hash original `09672083f08da9f58ffdd8bb329b915c56bf1bf8c9c16ee536c08c44b984192c`,
+hash intermediário `9bbc9a967c23407ccdf9ca8bd4d8ac3378e21c842f166c513b465544835a8e6b`.
+A autorização adicional de isolamento mudou exclusivamente as fixtures para
+criar um banco descartável por teste, em vez de por módulo. Isso remove a
+dependência da ordem de coleta do launcher, preservando asserções, guard D5.1,
+roles, SQL e a remoção do banco ao término de cada teste. Hash da cópia isolada:
+`b87d233daf3520bb219614c1b327a91f28647f7a6baeec36287bc2b556c373a7`.
 A cópia do teste canônico adapta exclusivamente as fixtures de preparação:
 usa o banco de manutenção autorizado pelo launcher para criar seu banco
 descartável via replay do snapshot privado do commit. Não depende do banco
