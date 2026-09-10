@@ -101,14 +101,23 @@
       "previous_catalog_digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
       "resulting_catalog_digest_sha256": "9942997137c34f807dbc9d0800add85ae3c74940df20f27e42361d0ce43c3fdc",
       "sequence": 1
+    },
+    {
+      "batch_id": "migration-catalog-append-0002",
+      "entries": [
+        {"position": 76, "name": "20260910_142830_add_e4b_consent_persistence.sql", "sha256": "6952a2aaca04d6765a0bc77f831b2507e9cf5fd77d80f76e43b0816b06806e6b", "size_bytes": 49631}
+      ],
+      "previous_catalog_digest_sha256": "9942997137c34f807dbc9d0800add85ae3c74940df20f27e42361d0ce43c3fdc",
+      "resulting_catalog_digest_sha256": "ed6398ff6cfc15981208631075b724fb128991682e6c7e607acf72fb913a6ac2",
+      "sequence": 2
     }
   ],
   "current_head": {
-    "digest_sha256": "9942997137c34f807dbc9d0800add85ae3c74940df20f27e42361d0ce43c3fdc",
-    "last_basename": "20260909_004005_consent_evidence_store_lab.sql",
-    "migration_count": 76
+    "digest_sha256": "ed6398ff6cfc15981208631075b724fb128991682e6c7e607acf72fb913a6ac2",
+    "last_basename": "20260910_142830_add_e4b_consent_persistence.sql",
+    "migration_count": 77
   },
-  "previous_approved_head_sha256": "a591923ce771349d286cdc424d599c593e070ecea0271f3909c64719258658b4",
+  "previous_approved_head_sha256": "38aac6b4349c168f38d24a1f1cfc81843139dce938f596cd92d30b261dbe3dd3",
   "operational_authorization": false,
   "next_stage_authorized": false
 }
