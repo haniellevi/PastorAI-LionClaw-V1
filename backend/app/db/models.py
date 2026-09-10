@@ -25,7 +25,9 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -2813,6 +2815,513 @@ class PlatformOrchestrator(Base):
     )
 
 
+class E4bConsentOperation(Base):
+    """Registro confirmado e imutável da operação E4b, ainda sem caller."""
+
+    __tablename__ = "e4b_consent_operations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id",),
+            ("igrejas.id",),
+            name="e4b_consent_operations_igreja_fkey",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "titular_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="e4b_consent_operations_titular_fkey",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "manifestante_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="e4b_consent_operations_manifestante_fkey",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "responsavel_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="e4b_consent_operations_responsavel_fkey",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            (
+                "igreja_id",
+                "origin_accept_operation_id",
+                "origin_action",
+                "titular_pessoa_id",
+                "finalidade_id",
+            ),
+            (
+                "e4b_consent_operations.igreja_id",
+                "e4b_consent_operations.operation_id",
+                "e4b_consent_operations.action",
+                "e4b_consent_operations.titular_pessoa_id",
+                "e4b_consent_operations.finalidade_id",
+            ),
+            name="e4b_consent_operations_origin_accept_fkey",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "igreja_id", "idempotency_key", name="e4b_consent_operations_tenant_k_key"
+        ),
+        UniqueConstraint(
+            "igreja_id", "correlation_id", name="e4b_consent_operations_tenant_c_key"
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "operation_id",
+            "action",
+            "titular_pessoa_id",
+            "finalidade_id",
+            name="e4b_consent_operations_stream_action_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "operation_id",
+            "confirmed_at",
+            name="e4b_consent_operations_confirmation_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "operation_id",
+            "correlation_id",
+            "action",
+            "origin",
+            "manifestant_role",
+            "concession_state",
+            "confirmed_at",
+            "contract_version",
+            "policy_version",
+            "term_version",
+            "content_digest",
+            "fingerprint_version",
+            "fingerprint",
+            name="e4b_consent_operations_receipt_projection_key",
+        ),
+        CheckConstraint(
+            "action IN ('ACCEPT', 'WITHDRAW')",
+            name="e4b_consent_operations_action_check",
+        ),
+        CheckConstraint(
+            "origin = 'E4B' AND ((action = 'ACCEPT' "
+            "AND origin_accept_operation_id IS NULL AND origin_action IS NULL "
+            "AND concession_state = 'ACTIVE') OR (action = 'WITHDRAW' "
+            "AND origin_accept_operation_id IS NOT NULL "
+            "AND origin_accept_operation_id <> operation_id "
+            "AND origin_action = 'ACCEPT' AND concession_state = 'WITHDRAWN'))",
+            name="e4b_consent_operations_origin_check",
+        ),
+        CheckConstraint(
+            "manifestant_relation_valid AND server_resolved AND "
+            "((manifestant_role = 'TITULAR' "
+            "AND manifestante_pessoa_id = titular_pessoa_id "
+            "AND responsavel_pessoa_id IS NULL) OR "
+            "(manifestant_role = 'RESPONSAVEL' "
+            "AND manifestante_pessoa_id <> titular_pessoa_id "
+            "AND responsavel_pessoa_id = manifestante_pessoa_id))",
+            name="e4b_consent_operations_manifestation_check",
+        ),
+        CheckConstraint(
+            "operator_kind IN ('HUMAN', 'TECHNICAL') AND operator_role_links IN "
+            "(ARRAY[]::text[], ARRAY['TITULAR']::text[], "
+            "ARRAY['MANIFESTANTE']::text[], ARRAY['RESPONSAVEL']::text[], "
+            "ARRAY['TITULAR', 'MANIFESTANTE']::text[], "
+            "ARRAY['TITULAR', 'RESPONSAVEL']::text[], "
+            "ARRAY['MANIFESTANTE', 'RESPONSAVEL']::text[], "
+            "ARRAY['TITULAR', 'MANIFESTANTE', 'RESPONSAVEL']::text[])",
+            name="e4b_consent_operations_operator_check",
+        ),
+        CheckConstraint(
+            "fingerprint_version = 'e4b-fingerprint:v1' "
+            "AND operation_state = 'CONFIRMED' AND origin = 'E4B' "
+            "AND finalidade_id = btrim(finalidade_id) "
+            "AND char_length(finalidade_id) BETWEEN 1 AND 128 "
+            "AND contract_version ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$' "
+            "AND policy_version ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$' "
+            "AND term_version ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$' "
+            "AND idempotency_key ~ '^e4b:consent-operation:v1:[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$'",
+            name="e4b_consent_operations_fixed_values_check",
+        ),
+        CheckConstraint(
+            "content_digest ~ '^[0-9a-f]{64}$' AND fingerprint ~ '^[0-9a-f]{64}$'",
+            name="e4b_consent_operations_digest_check",
+        ),
+        Index(
+            "e4b_consent_operations_one_accept_per_stream_key",
+            "igreja_id",
+            "titular_pessoa_id",
+            "finalidade_id",
+            unique=True,
+            postgresql_where=text("action = 'ACCEPT'"),
+        ),
+        Index(
+            "e4b_consent_operations_origin_lookup_idx",
+            "igreja_id",
+            "origin_accept_operation_id",
+        ),
+        Index(
+            "e4b_consent_operations_subject_timeline_idx",
+            "igreja_id",
+            "titular_pessoa_id",
+            text("confirmed_at DESC"),
+        ),
+        Index(
+            "e4b_consent_operations_tenant_action_idx",
+            "igreja_id",
+            "action",
+            text("confirmed_at DESC"),
+        ),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    operation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    correlation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'E4B'")
+    )
+    origin_accept_operation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    origin_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    titular_pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    manifestante_pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    responsavel_pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    manifestant_role: Mapped[str] = mapped_column(Text, nullable=False)
+    manifestant_relation_valid: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    operator_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    operator_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    operator_role_links: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]")
+    )
+    server_resolved: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    finalidade_id: Mapped[str] = mapped_column(Text, nullable=False)
+    contract_version: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_version: Mapped[str] = mapped_column(Text, nullable=False)
+    term_version: Mapped[str] = mapped_column(Text, nullable=False)
+    content_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    fingerprint_version: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'e4b-fingerprint:v1'")
+    )
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    concession_state: Mapped[str] = mapped_column(Text, nullable=False)
+    operation_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'CONFIRMED'")
+    )
+    confirmed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class E4bConsentStream(Base):
+    """Projeção E4b de um stream de consentimento por titular e finalidade."""
+
+    __tablename__ = "e4b_consent_streams"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id",), ("igrejas.id",),
+            name="e4b_consent_streams_igreja_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "titular_pessoa_id"), ("pessoas.igreja_id", "pessoas.id"),
+            name="e4b_consent_streams_titular_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "accept_operation_id", "accept_action", "titular_pessoa_id", "finalidade_id"),
+            ("e4b_consent_operations.igreja_id", "e4b_consent_operations.operation_id", "e4b_consent_operations.action", "e4b_consent_operations.titular_pessoa_id", "e4b_consent_operations.finalidade_id"),
+            name="e4b_consent_streams_accept_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "withdraw_operation_id", "withdraw_action", "titular_pessoa_id", "finalidade_id"),
+            ("e4b_consent_operations.igreja_id", "e4b_consent_operations.operation_id", "e4b_consent_operations.action", "e4b_consent_operations.titular_pessoa_id", "e4b_consent_operations.finalidade_id"),
+            name="e4b_consent_streams_withdraw_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        CheckConstraint(
+            "(stream_state = 'ACTIVE' AND withdraw_operation_id IS NULL AND withdraw_action IS NULL) "
+            "OR (stream_state = 'WITHDRAWN' AND withdraw_operation_id IS NOT NULL AND withdraw_action = 'WITHDRAW')",
+            name="e4b_consent_streams_state_check",
+        ),
+        CheckConstraint(
+            "accept_action = 'ACCEPT' AND finalidade_id = btrim(finalidade_id) "
+            "AND char_length(finalidade_id) BETWEEN 1 AND 128",
+            name="e4b_consent_streams_accept_check",
+        ),
+        Index(
+            "e4b_consent_streams_active_lookup_idx",
+            "igreja_id", "finalidade_id", "titular_pessoa_id",
+            postgresql_where=text("stream_state = 'ACTIVE'"),
+        ),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    titular_pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True
+    )
+    finalidade_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    accept_operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    accept_action: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'ACCEPT'")
+    )
+    stream_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'ACTIVE'")
+    )
+    withdraw_operation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    withdraw_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    state_changed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class E4bConsentReceipt(Base):
+    """Receipt E4b minimizado, sem identificador direto de Pessoa."""
+
+    __tablename__ = "e4b_consent_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "operation_id", name="e4b_consent_receipts_tenant_operation_key"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id",), ("igrejas.id",),
+            name="e4b_consent_receipts_igreja_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "operation_id"),
+            ("e4b_consent_operations.igreja_id", "e4b_consent_operations.operation_id"),
+            name="e4b_consent_receipts_operation_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            (
+                "igreja_id", "operation_id", "correlation_id", "action", "origin",
+                "manifestant_role", "concession_state", "confirmed_at", "contract_version",
+                "policy_version", "term_version", "content_digest", "fingerprint_version",
+                "fingerprint",
+            ),
+            (
+                "e4b_consent_operations.igreja_id", "e4b_consent_operations.operation_id",
+                "e4b_consent_operations.correlation_id", "e4b_consent_operations.action",
+                "e4b_consent_operations.origin", "e4b_consent_operations.manifestant_role",
+                "e4b_consent_operations.concession_state", "e4b_consent_operations.confirmed_at",
+                "e4b_consent_operations.contract_version", "e4b_consent_operations.policy_version",
+                "e4b_consent_operations.term_version", "e4b_consent_operations.content_digest",
+                "e4b_consent_operations.fingerprint_version", "e4b_consent_operations.fingerprint",
+            ),
+            name="e4b_consent_receipts_projection_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        CheckConstraint(
+            "origin = 'E4B' AND action IN ('ACCEPT', 'WITHDRAW') "
+            "AND manifestant_role IN ('TITULAR', 'RESPONSAVEL') "
+            "AND concession_state IN ('ACTIVE', 'WITHDRAWN') "
+            "AND fingerprint_version = 'e4b-fingerprint:v1'",
+            name="e4b_consent_receipts_fixed_values_check",
+        ),
+        CheckConstraint(
+            "content_digest ~ '^[0-9a-f]{64}$' AND fingerprint ~ '^[0-9a-f]{64}$'",
+            name="e4b_consent_receipts_digest_check",
+        ),
+        Index("e4b_consent_receipts_tenant_c_idx", "igreja_id", "correlation_id"),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    receipt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    correlation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'E4B'")
+    )
+    manifestant_role: Mapped[str] = mapped_column(Text, nullable=False)
+    concession_state: Mapped[str] = mapped_column(Text, nullable=False)
+    confirmed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    contract_version: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_version: Mapped[str] = mapped_column(Text, nullable=False)
+    term_version: Mapped[str] = mapped_column(Text, nullable=False)
+    content_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    fingerprint_version: Mapped[str] = mapped_column(Text, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class E4bConsentRetention(Base):
+    """Projeção mutável de retenção E4b, sem disposição automatizada."""
+
+    __tablename__ = "e4b_consent_retentions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id",), ("igrejas.id",),
+            name="e4b_consent_retentions_igreja_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "operation_id"),
+            ("e4b_consent_operations.igreja_id", "e4b_consent_operations.operation_id"),
+            name="e4b_consent_retentions_operation_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "operation_id", "retention_anchor_at"),
+            (
+                "e4b_consent_operations.igreja_id", "e4b_consent_operations.operation_id",
+                "e4b_consent_operations.confirmed_at",
+            ),
+            name="e4b_consent_retentions_anchor_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        CheckConstraint("active_hold_count >= 0", name="e4b_consent_retentions_count_check"),
+        CheckConstraint(
+            "retention_due_at >= retention_anchor_at",
+            name="e4b_consent_retentions_due_check",
+        ),
+        CheckConstraint(
+            "(retention_state = 'RETENTION_RUNNING' "
+            "AND active_hold_count = 0 AND suspension_started_at IS NULL) OR "
+            "(retention_state = 'RETENTION_HELD' AND active_hold_count > 0 "
+            "AND suspension_started_at IS NOT NULL)",
+            name="e4b_consent_retentions_state_check",
+        ),
+        Index(
+            "e4b_consent_retentions_due_idx",
+            "igreja_id", "retention_state", "retention_due_at",
+        ),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    retention_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'RETENTION_RUNNING'")
+    )
+    retention_anchor_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    retention_due_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    active_hold_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    suspension_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_hold_event_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    state_changed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class E4bConsentHold(Base):
+    """Metadado de hold E4b, sem motivo livre ou caminho de exclusão."""
+
+    __tablename__ = "e4b_consent_holds"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "hold_id", "operation_id",
+            name="e4b_consent_holds_identity_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id",), ("igrejas.id",),
+            name="e4b_consent_holds_igreja_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "operation_id"),
+            ("e4b_consent_retentions.igreja_id", "e4b_consent_retentions.operation_id"),
+            name="e4b_consent_holds_operation_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        CheckConstraint(
+            "(hold_state = 'ACTIVE' AND resolved_at IS NULL) OR "
+            "(hold_state = 'RESOLVED' AND resolved_at >= applied_at)",
+            name="e4b_consent_holds_state_check",
+        ),
+        CheckConstraint(
+            "policy_version ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$'",
+            name="e4b_consent_holds_policy_version_check",
+        ),
+        Index(
+            "e4b_consent_holds_active_operation_idx",
+            "igreja_id", "operation_id", "applied_at",
+            postgresql_where=text("hold_state = 'ACTIVE'"),
+        ),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    hold_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    hold_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'ACTIVE'")
+    )
+    policy_version: Mapped[str] = mapped_column(Text, nullable=False)
+    applied_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class E4bConsentHoldEvent(Base):
+    """Trilha append-only de aplicação ou resolução de hold E4b."""
+
+    __tablename__ = "e4b_consent_hold_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id",), ("igrejas.id",),
+            name="e4b_consent_hold_events_igreja_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "hold_id", "operation_id"),
+            ("e4b_consent_holds.igreja_id", "e4b_consent_holds.hold_id", "e4b_consent_holds.operation_id"),
+            name="e4b_consent_hold_events_hold_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "authority_app_user_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="e4b_consent_hold_events_authority_fkey", onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        UniqueConstraint(
+            "igreja_id", "hold_id", "event_kind",
+            name="e4b_consent_hold_events_kind_key",
+        ),
+        UniqueConstraint(
+            "igreja_id", "hold_id", "event_sequence",
+            name="e4b_consent_hold_events_sequence_key",
+        ),
+        CheckConstraint(
+            "(event_kind = 'HOLD_APPLIED' AND event_sequence = 1) OR "
+            "(event_kind = 'HOLD_RESOLVED' AND event_sequence = 2)",
+            name="e4b_consent_hold_events_kind_sequence_check",
+        ),
+        CheckConstraint(
+            "octet_length(authority_resolution_sha256) = 32",
+            name="e4b_consent_hold_events_digest_check",
+        ),
+        CheckConstraint(
+            "authority_resolution_version ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$' "
+            "AND policy_version ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$'",
+            name="e4b_consent_hold_events_versions_check",
+        ),
+        Index(
+            "e4b_consent_hold_events_timeline_idx", "igreja_id", "hold_id", "occurred_at"
+        ),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    hold_event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    hold_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    event_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    event_sequence: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    authority_app_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    authority_resolution_version: Mapped[str] = mapped_column(Text, nullable=False)
+    authority_resolution_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    policy_version: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 __all__ = [
     "Base",
     "Igreja",
@@ -2849,4 +3358,10 @@ __all__ = [
     "PlatformAuditLog",
     "PlatformOrchestrator",
     "PurposeConsentGovernanceEnvelope",
+    "E4bConsentOperation",
+    "E4bConsentStream",
+    "E4bConsentReceipt",
+    "E4bConsentRetention",
+    "E4bConsentHold",
+    "E4bConsentHoldEvent",
 ]
