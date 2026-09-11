@@ -1648,6 +1648,7 @@ ser validados no SHA exato antes de declarar a transição concluída.
 Somente laboratório: sem aplicação compartilhada, caller, concessão ou envio.
 Os indicadores operacionais continuam false. Próximo gate: revisão e
 autorização separada de merge; não é autorização de aplicação.
+
 ## D6-CELL-REPORT: contrato, alvo e composição offline (2026-09-14)
 
 O contrato em
@@ -1669,3 +1670,23 @@ nominalmente
 limitado a materializar as referências no catálogo imutável e calcular o
 `entry_digest`. O índice de evidências é
 `docs/sprints/2026-09-14-d6-batch-closure.md`.
+
+## Fundação V3 catalog-bound, 2026-09-10
+
+A missão I2 registrou uma base autônoma, local e source-only para o candidato
+C3 no SHA `02a4f1aecfcf0433455e1b5c93a96b10e2358a55`. A implementação V3 fixa
+literalmente os hashes completos aprovados do SQL, do head e do digest do
+catálogo, rejeita prefixos e formatos abertos, e não importa V2, legados,
+snapshots, drivers ou interfaces de ambiente.
+
+Envelope externo, replay durável e cutover são contratos de verificação
+separados. Neste estágio eles só podem produzir os estados não verificados
+`EXTERNAL_AUTHORIZATION_UNVERIFIED`, `DURABLE_REPLAY_UNVERIFIED` e
+`CUTOVER_UNVERIFIED`. A CLI descreve ou valida esse contrato; qualquer pedido
+de aplicação, bootstrap, harden, reconciliação, cutover ou ledger legado falha
+fechado antes de I/O.
+
+Os testes locais exercitam a estrutura e as barreiras estáticas, sem banco ou
+PostgreSQL. Não há evidência de migration aplicada, ambiente preparado,
+autorização externa, replay durável ou cutover. O único próximo gate é uma
+decisão humana nominal em missão separada.

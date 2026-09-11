@@ -110,6 +110,28 @@ cutover. Portanto não há, neste SHA, comando autorizado para aplicar migration
 em DEV ou PROD. A variável histórica `M06_MIGRATION_DATABASE_URL` nunca deve
 ser fornecida a partir de conversa, documentação ou terminal compartilhado.
 
+### Fundação V3 autônoma e source-only
+
+A missão I2 adiciona `backend/scripts/catalog_bound_execution_v3.py` e o
+wrapper `backend/scripts/execute_catalog_bound_migration_v3.py`. A V3 não
+importa V2, legados, snapshots, drivers ou mecanismos de ambiente; sua
+`C3Binding` é literal, congelada e contém somente o SHA-1 completo do
+repositório candidato e os três SHA-256 integrais aprovados para SQL, head e
+digest do catálogo. Prefixos e qualquer valor divergente são entradas inválidas.
+
+O contrato expõe estruturas distintas para envelope de autorização externa,
+replay durável e cutover. Elas apenas descrevem a lacuna de prova externa e
+retornam, respectivamente, `EXTERNAL_AUTHORIZATION_UNVERIFIED`,
+`DURABLE_REPLAY_UNVERIFIED` e `CUTOVER_UNVERIFIED`; não atestam autorização,
+replay, ledger ou aplicação.
+
+Os únicos caminhos observáveis da CLI são descrição e validação estrutural. Os
+pedidos `apply`, `bootstrap`, `harden`, reconciliação, `cutover` e ledger
+legado retornam bloqueio não zero antes de qualquer I/O. Esta base não lê
+arquivos, não recebe DSN e não executa SQL. O próximo gate permanece uma
+autorização humana nominal, acompanhada de trust anchors, atestações isoladas,
+replay durável e decisão de cutover em missão própria.
+
 ## Estado operacional atual
 
 O código histórico de `bootstrap-ledger` foi integrado pela PR #323 e comprovado somente offline,
