@@ -1576,3 +1576,24 @@ ordens e recibo vinculado ao SHA, ordem e digests. As provas históricas de
 Evidência de conclusão depende dos testes no commit exato; nenhum estado vivo
 foi revalidado. Authorizations continuam false; próximo gate é revisão e
 autorização separada de merge, sem autorização de aplicação ou runtime.
+
+## Fundação V3 de execução catalog-bound
+
+A missão I2 cobre exclusivamente uma fundação local e source-only para o
+candidato C3. `catalog_bound_execution_v3.py` fixa uma `C3Binding` imutável
+com o SHA de repositório e os hashes integrais aprovados do SQL, head e digest.
+O parser aceita somente envelopes fechados com esses literais completos; não
+aceita prefixos, campos extras, valores mutados ou prova operacional implícita.
+
+O requisito de separação de prova está coberto por três estruturas distintas:
+envelope externo, replay durável e cutover. Seus resultados permanecem
+`EXTERNAL_AUTHORIZATION_UNVERIFIED`, `DURABLE_REPLAY_UNVERIFIED` e
+`CUTOVER_UNVERIFIED`. A cobertura não afirma que qualquer uma dessas provas
+exista fora do processo local.
+
+O wrapper V3 e a CLI cobrem descrição e validação. Aplicação, bootstrap,
+harden, reconciliação, cutover e ledger legado são bloqueados antes de I/O, com
+exit não zero. A suíte focal usa análise AST adversarial e execução sem banco;
+ela não cobre PostgreSQL, RLS, rede, credenciais, trust anchor, replay real ou
+autorização humana. O próximo gate é a revisão humana nominal de uma missão
+separada, sem autorização de aplicação.
