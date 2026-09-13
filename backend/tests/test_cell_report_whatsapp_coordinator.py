@@ -31,7 +31,7 @@ CONVERSATION = uuid.UUID("22222222-2222-2222-2222-222222222222")
 OTHER_CONVERSATION = uuid.UUID("22222222-2222-2222-2222-222222222223")
 ACTOR = uuid.UUID("33333333-3333-3333-3333-333333333333")
 INBOUND = uuid.UUID("44444444-4444-4444-4444-444444444444")
-MEETING = uuid.UUID("55555555-5555-5555-5555-555555555555")
+MEETING = uuid.UUID("5a5a5a5a-5a5a-5a5a-5a5a-5a5a5a5a5a5a")
 REPLY = uuid.UUID("66666666-6666-6666-6666-666666666666")
 CELL = uuid.UUID("77777777-7777-7777-7777-777777777777")
 ACCESS = uuid.UUID("88888888-8888-8888-8888-888888888888")
@@ -486,7 +486,7 @@ def test_tampered_meeting_target_is_rejected_before_consent_or_application():
     object.__setattr__(
         target,
         "_meeting_id",
-        uuid.UUID("55555555-5555-5555-5555-555555555556"),
+        uuid.UUID("5a5a5a5a-5a5a-5a5a-5a5a-5a5a5a5a5a5b"),
     )
     session = _session_for(identity)
     gate = _PermittingGate()
