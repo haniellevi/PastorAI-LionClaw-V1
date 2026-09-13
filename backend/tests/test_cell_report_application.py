@@ -4,6 +4,7 @@ import ast
 import copy
 import datetime as dt
 import inspect
+import pickle
 import uuid
 from decimal import Decimal
 
@@ -99,9 +100,23 @@ class _FakeSession:
         self.flush_calls = 0
         self.commit_calls = 0
         self.rollback_calls = 0
+        self._transaction = object() if transaction_active else None
+        self._nested_transaction = None
 
     def in_transaction(self) -> bool:
         return self.transaction_active
+
+    def get_transaction(self) -> object | None:
+        return self._transaction
+
+    def get_nested_transaction(self) -> object | None:
+        return self._nested_transaction
+
+    def replace_transaction(self) -> None:
+        self._transaction = object() if self.transaction_active else None
+
+    def replace_nested_transaction(self) -> None:
+        self._nested_transaction = object() if self.transaction_active else None
 
     def execute(self, statement):
         self.statements.append(statement)
@@ -230,6 +245,24 @@ def _authorized_session(
     )
 
 
+def _managed_cycle_session(
+    meeting: CelulaReuniao,
+    *,
+    authorization_passes: int = 3,
+) -> _FakeSession:
+    """Supply the three locked authorization passes of one managed proposal.
+
+    ``prepare`` runs once before an effect is built, then
+    ``propose_cell_report_from_cycle`` rechecks the cycle and delegates to the
+    legacy proposal service. All three must use the same external transaction.
+    """
+
+    responses: list[_Result] = []
+    for _ in range(authorization_passes):
+        responses.extend(_authorized_session(meeting).responses)
+    return _FakeSession(responses)
+
+
 @pytest.fixture(autouse=True)
 def _tenant_scope(monkeypatch: pytest.MonkeyPatch):
     calls: list[tuple[object, str | None]] = []
@@ -239,6 +272,13 @@ def _tenant_scope(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(application, "require_tenant_scope", require_scope)
     return calls
+
+
+@pytest.fixture(autouse=True)
+def _managed_cycle_clock(monkeypatch: pytest.MonkeyPatch):
+    current = {"now": NOW}
+    monkeypatch.setattr(application, "_utc_now", lambda: current["now"])
+    return current
 
 
 def _propose(
@@ -262,7 +302,7 @@ def _propose(
         conversation=conversation,
         inbound=inbound,
     )
-    payload = application.build_cell_report_proposal_effect_payload(
+    payload = application._build_cell_report_proposal_effect_payload_legacy(
         igreja_id=TENANT,
         reuniao_id=meeting_id,
         conversa_id=conversation,
@@ -277,7 +317,7 @@ def _propose(
         ordinal=0,
         payload=payload,
     )
-    return application.propose_cell_report(
+    return application._propose_cell_report_legacy(
         db,  # type: ignore[arg-type]
         igreja_id=TENANT,
         reuniao_id=meeting_id,
@@ -290,6 +330,41 @@ def _propose(
         now=now,
         expires_at=expiry,
     )
+
+
+def _propose_from_managed_cycle(
+    db: _FakeSession,
+    *,
+    text: str,
+    inbound: uuid.UUID,
+) -> tuple[application.CellReportProposalCycle, application.CellReportProposalResult]:
+    identity = _identity(inbound=inbound)
+    cycle = application.prepare_cell_report_proposal_cycle(
+        db,  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=identity,
+    )
+    payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        cycle,
+        text=text,
+    )
+    intent = build_agent_effect_intent(
+        identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=payload,
+    )
+    result = application.propose_cell_report_from_cycle(
+        db,  # type: ignore[arg-type]
+        cycle=cycle,
+        turn_identity=identity,
+        operation_intent=intent,
+        text=text,
+    )
+    return cycle, result
 
 
 def _confirm(
@@ -359,7 +434,7 @@ def _proposal_plan(
     expiry: dt.datetime = EXPIRY,
 ) -> tuple[AgentTurnIdentity, AgentEffectIntent]:
     identity = _identity(conversation=conversation, inbound=inbound)
-    payload = application.build_cell_report_proposal_effect_payload(
+    payload = application._build_cell_report_proposal_effect_payload_legacy(
         igreja_id=TENANT,
         reuniao_id=meeting_id,
         conversa_id=conversation,
@@ -427,6 +502,390 @@ def test_partial_proposal_revises_to_complete_and_rotates_code() -> None:
     assert candidate.oferta == "0.00"
     assert second.confirmation_command is not None
     assert second_db.flush_calls == 1
+
+
+def test_managed_cycle_reuses_live_expiry_and_scope_across_inbound_turns(
+    _managed_cycle_clock,
+) -> None:
+    meeting = _meeting()
+    first_cycle, first = _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="10 presentes e oferta 0",
+        inbound=INBOUND_1,
+    )
+    _managed_cycle_clock["now"] = NOW + dt.timedelta(minutes=1)
+    second_cycle, second = _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="2 visitantes e 1 decisão",
+        inbound=INBOUND_2,
+    )
+
+    assert first_cycle._opens_new_attempt is True
+    assert second_cycle._opens_new_attempt is False
+    assert second_cycle._expires_at == first.proposal.expires_at
+    assert not hasattr(first_cycle, "expires_at")
+    assert second.proposal.workflow.revision == 2
+    assert second.proposal.workflow.candidate.presentes == 10
+    assert second.proposal.workflow.candidate.visitantes == 2
+    assert second.proposal.workflow.candidate.decisoes == 1
+    assert second.proposal.workflow.candidate.oferta == "0.00"
+    assert first.confirmation_command is None
+    assert second.confirmation_command is not None
+
+
+def test_managed_cycle_restarts_expired_report_with_a_new_scope_epoch(
+    _managed_cycle_clock,
+) -> None:
+    meeting = _meeting()
+    first_cycle, first = _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="10 presentes e oferta 0",
+        inbound=INBOUND_1,
+    )
+    _managed_cycle_clock["now"] = first.proposal.expires_at
+    restart_cycle, restarted = _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="7 presentes, 0 visitantes, 0 decisões, oferta 0",
+        inbound=INBOUND_2,
+    )
+
+    assert restart_cycle._opens_new_attempt is True
+    assert restarted.proposal.expires_at > first.proposal.expires_at
+    assert restarted.replayed is False
+    assert restarted.proposal.workflow.revision == 1
+    assert restarted.proposal.workflow.candidate.presentes == 7
+    assert restarted.proposal.workflow.candidate.visitantes == 0
+    assert restarted.proposal.workflow.candidate.decisoes == 0
+    assert restarted.proposal.workflow.candidate.oferta == "0.00"
+    assert first.proposal.workflow.scope_digest != restarted.proposal.workflow.scope_digest
+
+
+def test_managed_cycle_rederives_an_active_scope_after_process_local_seal_rotation(
+    monkeypatch: pytest.MonkeyPatch,
+    _managed_cycle_clock,
+) -> None:
+    meeting = _meeting()
+    first_cycle, _first = _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="10 presentes e oferta 0",
+        inbound=INBOUND_1,
+    )
+    monkeypatch.setattr(application, "_MANAGED_PROPOSAL_CYCLE_SECRET", b"x" * 32)
+    _managed_cycle_clock["now"] = NOW + dt.timedelta(minutes=1)
+
+    second_cycle, second = _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="2 visitantes e 1 decisão",
+        inbound=INBOUND_2,
+    )
+
+    assert second_cycle._correlation_key == first_cycle._correlation_key
+    assert second_cycle._expires_at == first_cycle._expires_at
+    assert second.proposal.workflow.revision == 2
+
+
+def test_managed_cycle_accepts_one_monotonic_clock_tick_before_first_flush(
+    _managed_cycle_clock,
+) -> None:
+    meeting = _meeting()
+    db = _managed_cycle_session(meeting)
+    identity = _identity(inbound=INBOUND_1)
+    cycle = application.prepare_cell_report_proposal_cycle(
+        db,  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=identity,
+    )
+    text = "10 presentes, 2 visitantes, 1 decisão, oferta 100"
+    payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        cycle,
+        text=text,
+    )
+    intent = build_agent_effect_intent(
+        identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=payload,
+    )
+
+    _managed_cycle_clock["now"] = NOW + dt.timedelta(microseconds=1)
+    result = application.propose_cell_report_from_cycle(
+        db,  # type: ignore[arg-type]
+        cycle=cycle,
+        turn_identity=identity,
+        operation_intent=intent,
+        text=text,
+    )
+
+    assert result.replayed is False
+    assert result.proposal.expires_at == cycle._expires_at
+
+
+def test_managed_cycle_rejects_a_forged_or_stale_cycle_before_mutation(
+    _managed_cycle_clock,
+) -> None:
+    meeting = _meeting()
+    fresh_cycle = application.prepare_cell_report_proposal_cycle(
+        _authorized_session(meeting),  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=_identity(inbound=INBOUND_1),
+    )
+    object.__setattr__(
+        fresh_cycle,
+        "_expires_at",
+        fresh_cycle._expires_at + dt.timedelta(seconds=1),
+    )
+    with pytest.raises(application.CellReportApplicationError) as forged:
+        application.build_cell_report_proposal_effect_payload_for_cycle(
+            fresh_cycle,
+            text="10 presentes",
+        )
+    assert forged.value.code is (
+        application.CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID
+    )
+
+    old_cycle = application.prepare_cell_report_proposal_cycle(
+        _authorized_session(meeting),  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=_identity(inbound=INBOUND_2),
+    )
+    _propose_from_managed_cycle(
+        _managed_cycle_session(meeting),
+        text="10 presentes, 2 visitantes, 1 decisão, oferta 100",
+        inbound=INBOUND_1,
+    )
+    stale_db = _managed_cycle_session(meeting, authorization_passes=1)
+    stale_text = "7 presentes"
+    stale_payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        old_cycle,
+        text=stale_text,
+    )
+    stale_identity = _identity(inbound=INBOUND_2)
+    stale_intent = build_agent_effect_intent(
+        stale_identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=stale_payload,
+    )
+    with pytest.raises(application.CellReportApplicationError) as stale:
+        application.propose_cell_report_from_cycle(
+            stale_db,  # type: ignore[arg-type]
+            cycle=old_cycle,
+            turn_identity=stale_identity,
+            operation_intent=stale_intent,
+            text=stale_text,
+        )
+    assert stale.value.code is (
+        application.CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE
+    )
+    assert stale_db.flush_calls == 0
+
+
+def test_managed_cycle_requires_an_external_transaction_before_any_query() -> None:
+    db = _FakeSession([], transaction_active=False)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        application.prepare_cell_report_proposal_cycle(
+            db,  # type: ignore[arg-type]
+            igreja_id=TENANT,
+            reuniao_id=MEETING,
+            conversa_id=CONVERSATION,
+            ator_pessoa_id=ACTOR,
+            turn_identity=_identity(inbound=INBOUND_1),
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.TRANSACTION_REQUIRED
+    )
+    assert db.statements == []
+
+
+def test_managed_cycle_public_api_owns_clock_and_hides_raw_scope_primitives() -> None:
+    prepare_parameters = inspect.signature(
+        application.prepare_cell_report_proposal_cycle
+    ).parameters
+    propose_parameters = inspect.signature(
+        application.propose_cell_report_from_cycle
+    ).parameters
+    forbidden = {"now", "expires_at", "correlation_key", "clock"}
+
+    assert not (set(prepare_parameters) & forbidden)
+    assert not (set(propose_parameters) & forbidden)
+    assert "_build_cell_report_proposal_effect_payload_legacy" not in application.__all__
+    assert "_propose_cell_report_legacy" not in application.__all__
+
+
+def test_managed_cycle_rejects_a_different_inbound_before_any_new_query() -> None:
+    meeting = _meeting()
+    db = _authorized_session(meeting)
+    identity = _identity(inbound=INBOUND_1)
+    cycle = application.prepare_cell_report_proposal_cycle(
+        db,  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=identity,
+    )
+    payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        cycle,
+        text="10 presentes",
+    )
+    other_identity = _identity(inbound=INBOUND_2)
+    other_intent = build_agent_effect_intent(
+        other_identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=payload,
+    )
+    statements_before = list(db.statements)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        application.propose_cell_report_from_cycle(
+            db,  # type: ignore[arg-type]
+            cycle=cycle,
+            turn_identity=other_identity,
+            operation_intent=other_intent,
+            text="10 presentes",
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE
+    )
+    assert db.statements == statements_before
+    assert db.flush_calls == 0
+
+
+def test_managed_cycle_rejects_a_different_root_transaction_before_query() -> None:
+    meeting = _meeting()
+    source_db = _authorized_session(meeting)
+    identity = _identity(inbound=INBOUND_1)
+    cycle = application.prepare_cell_report_proposal_cycle(
+        source_db,  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=identity,
+    )
+    payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        cycle,
+        text="10 presentes",
+    )
+    intent = build_agent_effect_intent(
+        identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=payload,
+    )
+    target_db = _FakeSession([])
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        application.propose_cell_report_from_cycle(
+            target_db,  # type: ignore[arg-type]
+            cycle=cycle,
+            turn_identity=identity,
+            operation_intent=intent,
+            text="10 presentes",
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE
+    )
+    assert target_db.statements == []
+    assert target_db.flush_calls == 0
+
+
+def test_managed_cycle_rejects_a_replaced_transaction_and_cannot_be_pickled() -> None:
+    meeting = _meeting()
+    db = _authorized_session(meeting)
+    identity = _identity(inbound=INBOUND_1)
+    cycle = application.prepare_cell_report_proposal_cycle(
+        db,  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=identity,
+    )
+    payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        cycle,
+        text="10 presentes",
+    )
+    intent = build_agent_effect_intent(
+        identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=payload,
+    )
+    with pytest.raises(TypeError):
+        pickle.dumps(cycle)
+    statements_before = list(db.statements)
+    db.replace_transaction()
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        application.propose_cell_report_from_cycle(
+            db,  # type: ignore[arg-type]
+            cycle=cycle,
+            turn_identity=identity,
+            operation_intent=intent,
+            text="10 presentes",
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE
+    )
+    assert db.statements == statements_before
+    assert db.flush_calls == 0
+
+
+def test_managed_cycle_rejects_a_replaced_nested_transaction_before_query() -> None:
+    meeting = _meeting()
+    db = _authorized_session(meeting)
+    identity = _identity(inbound=INBOUND_1)
+    cycle = application.prepare_cell_report_proposal_cycle(
+        db,  # type: ignore[arg-type]
+        igreja_id=TENANT,
+        reuniao_id=MEETING,
+        conversa_id=CONVERSATION,
+        ator_pessoa_id=ACTOR,
+        turn_identity=identity,
+    )
+    payload = application.build_cell_report_proposal_effect_payload_for_cycle(
+        cycle,
+        text="10 presentes",
+    )
+    intent = build_agent_effect_intent(
+        identity,
+        kind=AgentEffectKind.TOOL_CALL,
+        ordinal=0,
+        payload=payload,
+    )
+    statements_before = list(db.statements)
+    db.replace_nested_transaction()
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        application.propose_cell_report_from_cycle(
+            db,  # type: ignore[arg-type]
+            cycle=cycle,
+            turn_identity=identity,
+            operation_intent=intent,
+            text="10 presentes",
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE
+    )
+    assert db.statements == statements_before
+    assert db.flush_calls == 0
 
 
 def test_same_effect_and_semantic_patch_is_replay_without_new_flush() -> None:
@@ -1580,7 +2039,7 @@ def test_effect_target_binding_rejects_reuse_before_any_database_query() -> None
 
 def test_effect_contract_explicitly_does_not_claim_global_cross_row_receipt() -> None:
     identity = _identity(inbound=INBOUND_1)
-    first_payload = application.build_cell_report_proposal_effect_payload(
+    first_payload = application._build_cell_report_proposal_effect_payload_legacy(
         igreja_id=TENANT,
         reuniao_id=MEETING,
         conversa_id=CONVERSATION,
@@ -1589,7 +2048,7 @@ def test_effect_contract_explicitly_does_not_claim_global_cross_row_receipt() ->
         text="1 presente",
         expires_at=EXPIRY,
     )
-    second_payload = application.build_cell_report_proposal_effect_payload(
+    second_payload = application._build_cell_report_proposal_effect_payload_legacy(
         igreja_id=TENANT,
         reuniao_id=uuid.UUID("99999999-1111-1111-1111-111111111111"),
         conversa_id=CONVERSATION,

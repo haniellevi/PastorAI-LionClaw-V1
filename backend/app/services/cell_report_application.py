@@ -22,7 +22,9 @@ rolling back its failed transaction.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import hmac
+import secrets
 import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -36,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.agent.turn_identity import (
     AgentEffectIntent,
     AgentEffectKind,
+    AgentInboundProvider,
     AgentTurnContractError,
     AgentTurnIdentity,
     digest_effect_payload,
@@ -78,6 +81,7 @@ from app.domain.cell_report_workflow import (
     CellReportWorkflow,
     CellReportWorkflowError,
     CellReportWorkflowState,
+    CELL_REPORT_SCOPE_KEY_PREFIX,
     cell_report_candidate_payload,
     cell_report_confirmation_command,
     correlate_cell_report_confirmation,
@@ -100,6 +104,10 @@ VALID_MEETING_STATUSES: Final = frozenset(
     {"planejada", "confirmada", "realizada", STATUS_CANCELADA}
 )
 MAX_CELL_REPORT_PROPOSAL_TTL: Final = dt.timedelta(hours=24)
+_MANAGED_PROPOSAL_CYCLE_DOMAIN: Final = (
+    b"pastorai.cell-report.managed-proposal-cycle/v1"
+)
+_MANAGED_PROPOSAL_CYCLE_SECRET: Final = secrets.token_bytes(32)
 CELL_REPORT_PROPOSAL_EFFECT_SCHEMA_V1: Final = (
     "cell-report-proposal-effect/v1"
 )
@@ -119,6 +127,9 @@ class CellReportApplicationErrorCode(str, Enum):
     REPORT_CONFLICT = "REPORT_CONFLICT"
     PROPOSAL_CORRUPT = "PROPOSAL_CORRUPT"
     PROPOSAL_BINDING_MISMATCH = "PROPOSAL_BINDING_MISMATCH"
+    PROPOSAL_CYCLE_INVALID = "PROPOSAL_CYCLE_INVALID"
+    PROPOSAL_CYCLE_STALE = "PROPOSAL_CYCLE_STALE"
+    PROPOSAL_SCOPE_MISMATCH = "PROPOSAL_SCOPE_MISMATCH"
     PROPOSAL_EXPIRED = "PROPOSAL_EXPIRED"
     EXPIRY_MISMATCH = "EXPIRY_MISMATCH"
     EXPIRY_LIMIT_EXCEEDED = "EXPIRY_LIMIT_EXCEEDED"
@@ -159,6 +170,43 @@ class CellReportProposalResult:
         return f"CellReportProposalResult(replayed={self.replayed!r})"
 
 
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class CellReportProposalCycle:
+    """One integrity-protected, transaction-bound pending-proposal cycle.
+
+    The cycle is issued only by :func:`prepare_cell_report_proposal_cycle`.
+    It carries only server-derived scope and expiration for the existing
+    proposal contract.  It is process-local and non-serializable, but is not
+    secrecy, durable evidence, or authorization by itself.  Its integrity
+    seal binds it to the root transaction that issued it.
+    ``propose_cell_report_from_cycle`` revalidates it under locks before any
+    flush, so it cannot cross requests or transactions.
+    """
+
+    _igreja_id: uuid.UUID
+    _reuniao_id: uuid.UUID
+    _conversa_id: uuid.UUID
+    _ator_pessoa_id: uuid.UUID
+    _correlation_key: str
+    _expires_at: dt.datetime
+    _opens_new_attempt: bool
+    _transaction: object = field(repr=False)
+    _nested_transaction: object | None = field(repr=False)
+    _turn_id: str = field(repr=False)
+    _inbound_message_id: uuid.UUID = field(repr=False)
+    _provider_message_id: str = field(repr=False)
+    _material: bytes = field(repr=False)
+
+    def __repr__(self) -> str:
+        return "CellReportProposalCycle(<redacted>)"
+
+    def __reduce__(self):
+        raise TypeError("CellReportProposalCycle cannot be serialized")
+
+    def __reduce_ex__(self, _protocol: int):
+        raise TypeError("CellReportProposalCycle cannot be serialized")
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class CellReportConfirmationResult:
     """Final snapshot plus whether a caller commit is still required."""
@@ -194,11 +242,285 @@ def _canonical_utc(value: object) -> dt.datetime:
         _reject(CellReportApplicationErrorCode.INVALID_ARGUMENT)
 
 
+def _utc_now() -> dt.datetime:
+    """Return the application-owned UTC clock for managed proposal cycles."""
+
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def _require_managed_cycle_identity(
+    value: object,
+    *,
+    igreja_id: uuid.UUID,
+    conversa_id: uuid.UUID,
+) -> AgentTurnIdentity:
+    """Validate the exact persisted inbound identity bound to a cycle."""
+
+    if type(value) is not AgentTurnIdentity:
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    try:
+        validate_agent_effect_intents(value, ())
+    except AgentTurnContractError:
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    if value.igreja_id != igreja_id or value.conversation_id != conversa_id:
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    return value
+
+
 def _render_utc(value: dt.datetime) -> str:
     return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def _require_external_transaction(db: Session) -> None:
+def _framed_bytes(*parts: bytes) -> bytes:
+    """Frame private cycle material without delimiter ambiguity."""
+
+    framed = bytearray(len(parts).to_bytes(4, "big"))
+    for part in parts:
+        if type(part) is not bytes:
+            _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+        framed.extend(len(part).to_bytes(4, "big"))
+        framed.extend(part)
+    return bytes(framed)
+
+
+def _managed_proposal_correlation_key(
+    *,
+    igreja_id: uuid.UUID,
+    reuniao_id: uuid.UUID,
+    conversa_id: uuid.UUID,
+    ator_pessoa_id: uuid.UUID,
+    expires_at: dt.datetime,
+) -> str:
+    """Derive a server-owned scope key from the immutable cycle epoch."""
+
+    expiry = _canonical_utc(expires_at)
+    material = _framed_bytes(
+        _MANAGED_PROPOSAL_CYCLE_DOMAIN,
+        igreja_id.bytes,
+        reuniao_id.bytes,
+        conversa_id.bytes,
+        ator_pessoa_id.bytes,
+        _render_utc(expiry).encode("ascii"),
+    )
+    return CELL_REPORT_SCOPE_KEY_PREFIX + hashlib.sha256(material).hexdigest()
+
+
+def _proposal_cycle_material(
+    *,
+    igreja_id: uuid.UUID,
+    reuniao_id: uuid.UUID,
+    conversa_id: uuid.UUID,
+    ator_pessoa_id: uuid.UUID,
+    correlation_key: str,
+    expires_at: dt.datetime,
+    opens_new_attempt: bool,
+    transaction: object,
+    nested_transaction: object | None,
+    turn_identity: AgentTurnIdentity,
+) -> bytes:
+    return _framed_bytes(
+        _MANAGED_PROPOSAL_CYCLE_DOMAIN,
+        igreja_id.bytes,
+        reuniao_id.bytes,
+        conversa_id.bytes,
+        ator_pessoa_id.bytes,
+        correlation_key.encode("ascii"),
+        _render_utc(expires_at).encode("ascii"),
+        b"new" if opens_new_attempt else b"active",
+        str(id(transaction)).encode("ascii"),
+        (
+            b"none"
+            if nested_transaction is None
+            else str(id(nested_transaction)).encode("ascii")
+        ),
+        turn_identity.turn_id.encode("ascii"),
+        turn_identity.inbound_message_id.bytes,
+        turn_identity.provider_message_id.encode("utf-8"),
+    )
+
+
+def _mint_proposal_cycle(
+    *,
+    igreja_id: uuid.UUID,
+    reuniao_id: uuid.UUID,
+    conversa_id: uuid.UUID,
+    ator_pessoa_id: uuid.UUID,
+    expires_at: dt.datetime,
+    opens_new_attempt: bool,
+    transaction: object,
+    nested_transaction: object | None,
+    turn_identity: AgentTurnIdentity,
+) -> CellReportProposalCycle:
+    expiry = _canonical_utc(expires_at)
+    correlation_key = _managed_proposal_correlation_key(
+        igreja_id=igreja_id,
+        reuniao_id=reuniao_id,
+        conversa_id=conversa_id,
+        ator_pessoa_id=ator_pessoa_id,
+        expires_at=expiry,
+    )
+    material = _proposal_cycle_material(
+        igreja_id=igreja_id,
+        reuniao_id=reuniao_id,
+        conversa_id=conversa_id,
+        ator_pessoa_id=ator_pessoa_id,
+        correlation_key=correlation_key,
+        expires_at=expiry,
+        opens_new_attempt=opens_new_attempt,
+        transaction=transaction,
+        nested_transaction=nested_transaction,
+        turn_identity=turn_identity,
+    )
+    cycle = object.__new__(CellReportProposalCycle)
+    object.__setattr__(cycle, "_igreja_id", igreja_id)
+    object.__setattr__(cycle, "_reuniao_id", reuniao_id)
+    object.__setattr__(cycle, "_conversa_id", conversa_id)
+    object.__setattr__(cycle, "_ator_pessoa_id", ator_pessoa_id)
+    object.__setattr__(cycle, "_correlation_key", correlation_key)
+    object.__setattr__(cycle, "_expires_at", expiry)
+    object.__setattr__(cycle, "_opens_new_attempt", opens_new_attempt)
+    object.__setattr__(cycle, "_transaction", transaction)
+    object.__setattr__(cycle, "_nested_transaction", nested_transaction)
+    object.__setattr__(cycle, "_turn_id", turn_identity.turn_id)
+    object.__setattr__(
+        cycle,
+        "_inbound_message_id",
+        turn_identity.inbound_message_id,
+    )
+    object.__setattr__(
+        cycle,
+        "_provider_message_id",
+        turn_identity.provider_message_id,
+    )
+    object.__setattr__(
+        cycle,
+        "_material",
+        hmac.digest(_MANAGED_PROPOSAL_CYCLE_SECRET, material, "sha256"),
+    )
+    return cycle
+
+
+def _require_proposal_cycle(value: object) -> CellReportProposalCycle:
+    if type(value) is not CellReportProposalCycle:
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    try:
+        igreja_id = _require_uuid(value._igreja_id)
+        reuniao_id = _require_uuid(value._reuniao_id)
+        conversa_id = _require_uuid(value._conversa_id)
+        ator_pessoa_id = _require_uuid(value._ator_pessoa_id)
+        expiry = _canonical_utc(value._expires_at)
+        correlation_key = value._correlation_key
+        opens_new_attempt = value._opens_new_attempt
+        transaction = value._transaction
+        nested_transaction = value._nested_transaction
+        turn_id = value._turn_id
+        inbound_message_id = _require_uuid(value._inbound_message_id)
+        provider_message_id = value._provider_message_id
+        material = value._material
+    except (AttributeError, CellReportApplicationError):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    if (
+        type(correlation_key) is not str
+        or type(opens_new_attempt) is not bool
+        or type(material) is not bytes
+        or transaction is None
+        or type(turn_id) is not str
+        or type(provider_message_id) is not str
+    ):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    expected_key = _managed_proposal_correlation_key(
+        igreja_id=igreja_id,
+        reuniao_id=reuniao_id,
+        conversa_id=conversa_id,
+        ator_pessoa_id=ator_pessoa_id,
+        expires_at=expiry,
+    )
+    try:
+        identity = _require_managed_cycle_identity(
+            AgentTurnIdentity(
+                igreja_id=igreja_id,
+                conversation_id=conversa_id,
+                inbound_message_id=inbound_message_id,
+                provider=AgentInboundProvider.EVOLUTION,
+                provider_message_id=provider_message_id,
+            ),
+            igreja_id=igreja_id,
+            conversa_id=conversa_id,
+        )
+    except AgentTurnContractError:
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    if turn_id != identity.turn_id:
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    expected_material = _proposal_cycle_material(
+        igreja_id=igreja_id,
+        reuniao_id=reuniao_id,
+        conversa_id=conversa_id,
+        ator_pessoa_id=ator_pessoa_id,
+        correlation_key=expected_key,
+        expires_at=expiry,
+        opens_new_attempt=opens_new_attempt,
+        transaction=transaction,
+        nested_transaction=nested_transaction,
+        turn_identity=identity,
+    )
+    expected_mac = hmac.digest(
+        _MANAGED_PROPOSAL_CYCLE_SECRET,
+        expected_material,
+        "sha256",
+    )
+    if (
+        len(correlation_key) != len(expected_key)
+        or not correlation_key.isascii()
+        or not hmac.compare_digest(correlation_key, expected_key)
+        or len(material) != len(expected_mac)
+        or not hmac.compare_digest(material, expected_mac)
+    ):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_INVALID)
+    return value
+
+
+def _same_proposal_cycle(
+    left: CellReportProposalCycle,
+    right: CellReportProposalCycle,
+) -> bool:
+    return (
+        left._igreja_id == right._igreja_id
+        and left._reuniao_id == right._reuniao_id
+        and left._conversa_id == right._conversa_id
+        and left._ator_pessoa_id == right._ator_pessoa_id
+        and left._expires_at == right._expires_at
+        and left._opens_new_attempt == right._opens_new_attempt
+        and left._transaction is right._transaction
+        and left._nested_transaction is right._nested_transaction
+        and left._turn_id == right._turn_id
+        and left._inbound_message_id == right._inbound_message_id
+        and left._provider_message_id == right._provider_message_id
+        and hmac.compare_digest(left._correlation_key, right._correlation_key)
+        and hmac.compare_digest(left._material, right._material)
+    )
+
+
+def _new_proposal_cycle_expiry(now: dt.datetime) -> dt.datetime:
+    try:
+        return now + MAX_CELL_REPORT_PROPOSAL_TTL
+    except OverflowError:
+        _reject(CellReportApplicationErrorCode.INVALID_ARGUMENT)
+
+
+def _new_cycle_is_still_live(
+    cycle: CellReportProposalCycle,
+    *,
+    now: dt.datetime,
+) -> bool:
+    if not cycle._opens_new_attempt or cycle._expires_at <= now:
+        return False
+    try:
+        return cycle._expires_at - now <= MAX_CELL_REPORT_PROPOSAL_TTL
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
+def _require_external_transaction(db: Session) -> tuple[object, object | None]:
     try:
         active = db.in_transaction()
     except SQLAlchemyError:
@@ -209,6 +531,16 @@ def _require_external_transaction(db: Session) -> None:
         _reject(CellReportApplicationErrorCode.TRANSACTION_REQUIRED)
     if not active:
         _reject(CellReportApplicationErrorCode.TRANSACTION_REQUIRED)
+    try:
+        transaction = db.get_transaction()
+        nested_transaction = db.get_nested_transaction()
+    except SQLAlchemyError:
+        _reject_without_context(CellReportApplicationErrorCode.TRANSACTION_REQUIRED)
+    except (AttributeError, TypeError):
+        _reject(CellReportApplicationErrorCode.TRANSACTION_REQUIRED)
+    if transaction is None:
+        _reject(CellReportApplicationErrorCode.TRANSACTION_REQUIRED)
+    return transaction, nested_transaction
 
 
 def _rows_sanitized(db: Session, statement: object) -> list[object]:
@@ -273,7 +605,7 @@ def _proposal_material(
     return bindings, patch, workflow, payload
 
 
-def build_cell_report_proposal_effect_payload(
+def _build_cell_report_proposal_effect_payload_legacy(
     *,
     igreja_id: uuid.UUID,
     reuniao_id: uuid.UUID,
@@ -283,7 +615,7 @@ def build_cell_report_proposal_effect_payload(
     text: str | None,
     expires_at: dt.datetime,
 ) -> dict[str, object]:
-    """Build the exact private payload a trusted adapter must plan."""
+    """Internal compatibility primitive for the pre-managed proposal API."""
 
     tenant_id = _require_uuid(igreja_id)
     meeting_id = _require_uuid(reuniao_id)
@@ -806,7 +1138,142 @@ def _proposal_expired(
     return remaining <= dt.timedelta(0)
 
 
-def propose_cell_report(
+def prepare_cell_report_proposal_cycle(
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    reuniao_id: uuid.UUID,
+    conversa_id: uuid.UUID,
+    ator_pessoa_id: uuid.UUID,
+    turn_identity: AgentTurnIdentity,
+) -> CellReportProposalCycle:
+    """Resolve one trusted proposal cycle inside the caller transaction.
+
+    The returned cycle reuses the exact immutable expiry and scope of a live,
+    managed pending proposal.  Once it expires, it derives a new scope from a
+    new expiry epoch so the legacy proposal service can safely begin another
+    report attempt for the same conversation and meeting.  This function does
+    not flush or mutate.  Its result must be consumed by
+    :func:`propose_cell_report_from_cycle` in the same transaction; that
+    function resolves it again under lock before it can persist anything.  The
+    managed public API owns its clock; callers cannot choose an expiry epoch.
+    """
+
+    tenant_id = _require_uuid(igreja_id)
+    meeting_id = _require_uuid(reuniao_id)
+    conversation_id = _require_uuid(conversa_id)
+    actor_id = _require_uuid(ator_pessoa_id)
+    identity = _require_managed_cycle_identity(
+        turn_identity,
+        igreja_id=tenant_id,
+        conversa_id=conversation_id,
+    )
+    transaction, nested_transaction = _require_external_transaction(db)
+    current_time = _canonical_utc(_utc_now())
+    meeting = _load_and_authorize(
+        db,
+        igreja_id=tenant_id,
+        reuniao_id=meeting_id,
+        conversa_id=conversation_id,
+        ator_pessoa_id=actor_id,
+        now=current_time,
+    )
+    if meeting.relatorio_status != RELATORIO_PENDENTE:
+        _reject(CellReportApplicationErrorCode.REPORT_CONFLICT)
+    if meeting.relatorio_snapshot is None:
+        return _mint_proposal_cycle(
+            igreja_id=tenant_id,
+            reuniao_id=meeting_id,
+            conversa_id=conversation_id,
+            ator_pessoa_id=actor_id,
+            expires_at=_new_proposal_cycle_expiry(current_time),
+            opens_new_attempt=True,
+            transaction=transaction,
+            nested_transaction=nested_transaction,
+            turn_identity=identity,
+        )
+
+    current = _hydrate_pending(meeting.relatorio_snapshot)
+    if _proposal_expired(current, now=current_time):
+        return _mint_proposal_cycle(
+            igreja_id=tenant_id,
+            reuniao_id=meeting_id,
+            conversa_id=conversation_id,
+            ator_pessoa_id=actor_id,
+            expires_at=_new_proposal_cycle_expiry(current_time),
+            opens_new_attempt=True,
+            transaction=transaction,
+            nested_transaction=nested_transaction,
+            turn_identity=identity,
+        )
+
+    try:
+        expected_bindings = derive_cell_report_proposal_bindings(
+            igreja_id=tenant_id,
+            reuniao_id=meeting_id,
+            conversa_id=conversation_id,
+            ator_pessoa_id=actor_id,
+        )
+        expected_base_state = derive_cell_report_proposal_base_state_digest(
+            relatorio_status=meeting.relatorio_status,
+            oferta_valor=meeting.oferta_valor,
+            observacoes=meeting.observacoes,
+        )
+    except CellReportPendingProposalError:
+        _reject(CellReportApplicationErrorCode.DATA_INTEGRITY)
+    if not cell_report_proposal_bindings_match(
+        current.bindings,
+        expected_bindings,
+    ):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_BINDING_MISMATCH)
+    if not hmac.compare_digest(current.base_state_digest, expected_base_state):
+        _reject(CellReportApplicationErrorCode.REPORT_CONFLICT)
+
+    cycle = _mint_proposal_cycle(
+        igreja_id=tenant_id,
+        reuniao_id=meeting_id,
+        conversa_id=conversation_id,
+        ator_pessoa_id=actor_id,
+        expires_at=current.expires_at,
+        opens_new_attempt=False,
+        transaction=transaction,
+        nested_transaction=nested_transaction,
+        turn_identity=identity,
+    )
+    try:
+        expected_scope_digest = start_cell_report_workflow(
+            correlation_key=cycle._correlation_key
+        ).scope_digest
+    except CellReportWorkflowError:
+        _reject(CellReportApplicationErrorCode.DATA_INTEGRITY)
+    if not hmac.compare_digest(
+        current.workflow.scope_digest,
+        expected_scope_digest,
+    ):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_SCOPE_MISMATCH)
+    return cycle
+
+
+def build_cell_report_proposal_effect_payload_for_cycle(
+    cycle: CellReportProposalCycle,
+    *,
+    text: str | None,
+) -> dict[str, object]:
+    """Build the exact proposal payload without exposing scope or expiry."""
+
+    trusted_cycle = _require_proposal_cycle(cycle)
+    return _build_cell_report_proposal_effect_payload_legacy(
+        igreja_id=trusted_cycle._igreja_id,
+        reuniao_id=trusted_cycle._reuniao_id,
+        conversa_id=trusted_cycle._conversa_id,
+        ator_pessoa_id=trusted_cycle._ator_pessoa_id,
+        correlation_key=trusted_cycle._correlation_key,
+        text=text,
+        expires_at=trusted_cycle._expires_at,
+    )
+
+
+def _propose_cell_report_legacy(
     db: Session,
     *,
     igreja_id: uuid.UUID,
@@ -820,7 +1287,7 @@ def propose_cell_report(
     now: dt.datetime,
     expires_at: dt.datetime,
 ) -> CellReportProposalResult:
-    """Create or revise one pending proposal in the caller transaction."""
+    """Internal compatibility primitive for the pre-managed proposal API."""
 
     tenant_id = _require_uuid(igreja_id)
     meeting_id = _require_uuid(reuniao_id)
@@ -956,6 +1423,73 @@ def propose_cell_report(
         proposal=next_proposal,
         confirmation_command=_confirmation_for(next_proposal.workflow),
         replayed=replayed,
+    )
+
+
+def propose_cell_report_from_cycle(
+    db: Session,
+    *,
+    cycle: CellReportProposalCycle,
+    turn_identity: AgentTurnIdentity,
+    operation_intent: AgentEffectIntent,
+    text: str | None,
+) -> CellReportProposalResult:
+    """Persist through a revalidated server-managed proposal cycle.
+
+    This is the strict companion of
+    :func:`prepare_cell_report_proposal_cycle`.  It deliberately resolves the
+    cycle again under the same tenant and row locks immediately before it
+    delegates to the established proposal service.  A forged, stale or
+    cross-transaction cycle therefore cannot select an arbitrary correlation
+    key or expiration for a write.
+    """
+
+    trusted_cycle = _require_proposal_cycle(cycle)
+    identity = _require_managed_cycle_identity(
+        turn_identity,
+        igreja_id=trusted_cycle._igreja_id,
+        conversa_id=trusted_cycle._conversa_id,
+    )
+    if (
+        identity.inbound_message_id != trusted_cycle._inbound_message_id
+        or identity.turn_id != trusted_cycle._turn_id
+        or identity.provider_message_id != trusted_cycle._provider_message_id
+    ):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE)
+    transaction, nested_transaction = _require_external_transaction(db)
+    if (
+        transaction is not trusted_cycle._transaction
+        or nested_transaction is not trusted_cycle._nested_transaction
+    ):
+        _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE)
+    current_time = _canonical_utc(_utc_now())
+    current_cycle = prepare_cell_report_proposal_cycle(
+        db,
+        igreja_id=trusted_cycle._igreja_id,
+        reuniao_id=trusted_cycle._reuniao_id,
+        conversa_id=trusted_cycle._conversa_id,
+        ator_pessoa_id=trusted_cycle._ator_pessoa_id,
+        turn_identity=identity,
+    )
+    if not _same_proposal_cycle(trusted_cycle, current_cycle):
+        if not (
+            trusted_cycle._opens_new_attempt
+            and current_cycle._opens_new_attempt
+            and _new_cycle_is_still_live(trusted_cycle, now=current_time)
+        ):
+            _reject(CellReportApplicationErrorCode.PROPOSAL_CYCLE_STALE)
+    return _propose_cell_report_legacy(
+        db,
+        igreja_id=trusted_cycle._igreja_id,
+        reuniao_id=trusted_cycle._reuniao_id,
+        conversa_id=trusted_cycle._conversa_id,
+        ator_pessoa_id=trusted_cycle._ator_pessoa_id,
+        correlation_key=trusted_cycle._correlation_key,
+        turn_identity=turn_identity,
+        operation_intent=operation_intent,
+        text=text,
+        now=current_time,
+        expires_at=trusted_cycle._expires_at,
     )
 
 
@@ -1157,9 +1691,11 @@ __all__ = [
     "CellReportApplicationError",
     "CellReportApplicationErrorCode",
     "CellReportConfirmationResult",
+    "CellReportProposalCycle",
     "CellReportProposalResult",
     "build_cell_report_confirmation_effect_payload",
-    "build_cell_report_proposal_effect_payload",
+    "build_cell_report_proposal_effect_payload_for_cycle",
     "confirm_cell_report",
-    "propose_cell_report",
+    "prepare_cell_report_proposal_cycle",
+    "propose_cell_report_from_cycle",
 ]
