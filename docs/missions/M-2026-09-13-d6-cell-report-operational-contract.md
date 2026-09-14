@@ -14,7 +14,7 @@ environment: local_offline
 id: M-2026-09-13-d6-cell-report-operational-contract
 objetivo: Fechar o contrato verificável de reunião confiável e precondição externa de consentimento para relatório de célula por texto, entregando escopo executável da missão de implementação seguinte.
 preflight:
-  repositorio: haniellevi/PastorAI-LionClaw-V1, clone /home/raniel-linux/workspace/PastorAi-1.0
+  repositorio: haniellevi/PastorAI-LionClaw-V1, clone local (raiz relativa ../..)
   workspace: IGREJA 12 - MANUAL
   terminal: Orquestrador
   branch: docs/d6-cell-report-operational-contract-20260913
@@ -133,7 +133,7 @@ são dependências locais, não arquivos do produto; não instalar pacotes.
 git diff --check 7a7afa3d08927f3f5b2ed116638aed3131dde88b
 git diff --exit-code 7a7afa3d08927f3f5b2ed116638aed3131dde88b -- backend/app backend/migrations docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md
 git status --porcelain=v1 --untracked-files=all
-env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/raniel-linux/workspace/PastorAi-1.0/backend/.venv-runtime/bin/python -I -B /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/maestri-astra-workspace-plan/docs/ops/pr364-rebase/run_offline_pytest.py /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-operational-contract-20260913 /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-operational-contract-20260913/docs/ops/d6-cell-report-contract/pytest-resolver tests/test_cell_report_meeting_resolver.py
+env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../../backend/.venv-runtime/bin/python -I -B ../maestri-astra-workspace-plan/docs/ops/pr364-rebase/run_offline_pytest.py . ./docs/ops/d6-cell-report-contract/pytest-resolver tests/test_cell_report_meeting_resolver.py
 ```
 
 O runner bloqueia rede, conexões SQLAlchemy/libpq/SQLite e leitura de caminhos

@@ -1,0 +1,1400 @@
+diff --git a/docs/WIKI-IGREJA12.md b/docs/WIKI-IGREJA12.md
+--- a/docs/WIKI-IGREJA12.md
++++ b/docs/WIKI-IGREJA12.md
+@@ -1650,0 +1651,24 @@
++## Contrato D6-CELL-REPORT: alvo confiável de reunião (2026-09-13)
++
++O contrato candidato em
++`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md` delimita
++a próxima fatia do relatório pelo WhatsApp. Ele registra que o resolvedor de
++reunião existente é read-only, devolve `none`, `candidate` ou `ambiguous`,
++e ainda não está ligado ao alvo opaco do coordenador. A missão não adicionou
++caller, runtime, worker, webhook, banco, migration, UoW, commit, envio, áudio
++ou transcrição.
++
++`tarefas_operacionais` permanece uma fonte EXTERNA que não existe neste
++recorte. Por isso, o gate público continua deny-all e C09/C10 ficam
++`BLOCKED_BY_E4B`. O runner offline verificou 17 testes sintéticos do
++resolvedor, sem provar RLS viva, consentimento ou operação. O PR #362 segue
++adiado localmente como áudio-only. A revisão independente do candidato precede
++o único próximo gate: Raniel autorizar a implementação offline do adaptador de
++alvo confiável.
++
++
++Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
++pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
++nenhuma segunda revisão ou implementação executada. Evidência final:
++`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
++Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+diff --git a/docs/ai/AI-BOOTSTRAP.md b/docs/ai/AI-BOOTSTRAP.md
+--- a/docs/ai/AI-BOOTSTRAP.md
++++ b/docs/ai/AI-BOOTSTRAP.md
+@@ -1417,0 +1418,21 @@
++## Contrato operacional D6-CELL-REPORT (2026-09-13)
++
++A missão local `M-2026-09-13-d6-cell-report-operational-contract`, sobre o
++SHA `7a7afa3d08927f3f5b2ed116638aed3131dde88b`, produziu o contrato candidato
++em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`. Ele
++não altera o estado de produto: o resolvedor de reunião segue read-only e sem
++caller WhatsApp, enquanto `tarefas_operacionais` permanece precondição
++EXTERNA sem fonte aprovada. O gate padrão continua deny-all.
++
++O runner offline executou 17 testes sintéticos do resolvedor, sem banco/rede,
++com saída 0. Isso não prova RLS viva, caller, consentimento, persistência ou
++operação. C09 e C10 permanecem `BLOCKED_BY_E4B`; o único próximo gate é Raniel
++autorizar a implementação offline
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` após revisão independente.
++
++
++Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
++pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
++nenhuma segunda revisão ou implementação executada. Evidência final:
++`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
++Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+diff --git a/docs/ai/PRD-COVERAGE.md b/docs/ai/PRD-COVERAGE.md
+--- a/docs/ai/PRD-COVERAGE.md
++++ b/docs/ai/PRD-COVERAGE.md
+@@ -1578,0 +1579,22 @@
++## Contrato D6-CELL-REPORT entregue após revisão única (2026-09-13)
++
++Classificação preservada: `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO`.
++No SHA `7a7afa3d08927f3f5b2ed116638aed3131dde88b`, a missão
++`M-2026-09-13-d6-cell-report-operational-contract` documentou a interface
++futura entre o resolvedor de reunião server-bound e o alvo opaco do
++coordenador. Não implementou adaptador, caller, runtime, worker, webhook,
++consentimento, UoW, commit, envio, banco ou migration.
++
++A fonte de `tarefas_operacionais` continua EXTERNA e ausente. O default
++`DenyAllOperationalConsentGate` permanece, e os cenários positivos de proposta
++e confirmação são `BLOCKED_BY_E4B`, não aprovados nem skipped. O teste offline
++do resolvedor concluiu 17 aprovados com dados sintéticos; não prova RLS viva ou
++integração. O próximo gate é autorizar nominalmente a implementação offline do
++adaptador, após revisão independente do candidato documental.
++
++
++Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
++pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
++nenhuma segunda revisão ou implementação executada. Evidência final:
++`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
++Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+diff --git a/docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md b/docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md
+--- a/docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md
++++ b/docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md
+@@ -896,6 +896,13 @@
+-O único gate sucessor é
+-`OWNER_AUTHORIZE_D6_CELL_REPORT_OPERATIONAL_CONTRACT`. Ele exige decisão humana
+-separada sobre o resolvedor confiável de reunião e a finalidade/consentimento
+-operacional antes de qualquer wiring. Não autoriza caller, runtime, worker,
+-webhook, `AgentConfig`, commit, outbox, send, áudio, LLM, migration, banco,
+-DEV, PROD, deploy ou alteração de flags. Nesta etapa,
++O gate `OWNER_AUTHORIZE_D6_CELL_REPORT_OPERATIONAL_CONTRACT` foi consumido
++somente para a missão documental local
++`M-2026-09-13-d6-cell-report-operational-contract`. O resultado é o contrato
++em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`, com revisão única concluída e P1 do relatório corrigido. Ele separa o resolvedor de reunião read-only
++da fonte EXTERNA e ausente de `tarefas_operacionais`; não cria caller, runtime,
++worker, webhook, `AgentConfig`, commit, outbox, send, áudio, LLM, migration,
++banco, DEV, PROD, deploy ou alteração de flags.
++
++O único gate sucessor é Raniel autorizar nominalmente
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` após essa revisão. Ele permite
++apenas o adaptador offline entre o resolvedor e o alvo opaco, com testes de
++recusa/resolução. E4B, qualquer concessão positiva, persistência, confirmação,
++runtime e efeito externo continuam bloqueados. Nesta etapa,
+diff --git a/docs/decisions/2026-09-13-d6-cell-report-operational-contract.md b/docs/decisions/2026-09-13-d6-cell-report-operational-contract.md
+new file mode 100644
+--- /dev/null
++++ b/docs/decisions/2026-09-13-d6-cell-report-operational-contract.md
+@@ -0,0 +1,124 @@
++---
++id: D6-CELL-REPORT
++document_kind: operational-contract
++mission: M-2026-09-13-d6-cell-report-operational-contract
++status: CONTRATO_ENTREGUE_REVISAO_UNICA_P1_CORRIGIDO
++base_sha: 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++environment: local_offline
++created_at: 2026-09-13T18:57:21-03:00
++---
++
++# D6-CELL-REPORT: contrato operacional de alvo de reunião e consentimento externo
++
++## Decisão
++
++Este é o único contrato D6-CELL-REPORT ativo desta missão. Ele fecha a
++interface verificável entre o resolvedor read-only de reunião e o futuro alvo
++opaco do coordenador, sem implementar o adaptador, caller, runtime, worker,
++webhook, banco, migration, escrita ou envio.
++
++O PR #362 é uma proposta exclusiva de áudio. Seu destino local é ADIADO, a PR
++remota permanece intacta, e ela não é requisito nem contrato concorrente deste
++recorte. A referência histórica está em
++`docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md`.
++
++`tarefas_operacionais` é uma precondição EXTERNA, não uma decisão inferível de
++papel, liderança, opt-out, texto inbound ou estado local. Enquanto E4B não
++existir como fonte aprovada, auditável e vinculada ao propósito, a única regra
++válida é negar. `DenyAllOperationalConsentGate` continua o padrão.
++
++## Princípio de segurança
++
++Uma reunião elegível é um fato de domínio, e não uma autorização de operação.
++O futuro adaptador só poderá transformar uma resolução unívoca em um alvo
++opaco depois de revalidar os vínculos confiáveis de igreja, ator, inbound e
++janela temporal. O alvo não é registro durável, prova de consentimento nem
++permissão para gravar. A proposta e a confirmação continuam bloqueadas antes
++de qualquer caminho positivo de consentimento.
++
++## Fonte atual e fronteiras preservadas
++
++O resolvedor existente recebe `CurrentUser` autenticado pelo servidor,
++requer escopo RLS/tenant e reconfirma acesso ativo, papel ministerial,
++liderança, pessoa, reunião e relatório antes de retornar `none`, `candidate`
++ou `ambiguous`. Os detalhes verificáveis estão em
++`backend/app/services/cell_report_meeting_resolver.py:153-246`,
++`backend/app/services/cell_report_meeting_resolver.py:249-305` e
++`backend/app/services/cell_report_meeting_resolver.py:430-512`.
++
++O coordenador já aceita somente `CellReportMeetingTarget` opaco. Seu selo
++process-local liga igreja, conversa, inbound, turno, ator e reunião, e o
++revalida antes do staging. Isso detecta adulteração local, mas não é segredo,
++prova durável, autorização ou substituto de fonte externa. Consulte
++`backend/app/services/cell_report_whatsapp_coordinator.py:184-210` e
++`backend/app/services/cell_report_whatsapp_coordinator.py:371-432`.
++
++A fronteira de finalidade atual nega por padrão porque não há writer aprovado.
++Ela exige um `OperationalConsentPermit` opaco e vinculado à solicitação, mas
++esse objeto é explicitamente não durável e não serializável. As referências
++são `backend/app/services/cell_report_whatsapp_coordinator.py:231-295`,
++`backend/app/services/cell_report_whatsapp_coordinator.py:669-727`,
++`backend/app/services/cell_report_whatsapp_coordinator.py:740-772` e
++`backend/app/services/cell_report_whatsapp_coordinator.py:820-858`.
++
++## Contrato do adaptador da missão sucessora
++
++A missão `M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION`, se autorizada
++nominalmente por Raniel, implementará somente um adaptador backend offline. A
++entrada permitida será `db`, `CurrentUser`, `AgentTurnIdentity` confiável e
++relógio injetado. Ela não aceitará igreja, ator, inbound, reunião, finalidade
++ou consentimento do modelo, webhook, texto livre ou caller.
++
++O adaptador deverá seguir esta ordem, toda dentro do mesmo escopo tenant
++confiável:
++
++1. validar os IDs canônicos de `CurrentUser` e exigir igualdade exata entre a
++   igreja derivada e a igreja de `AgentTurnIdentity`, sem fallback;
++2. obter e validar o inbound persistido para derivar ator e conversa, com uma
++   fronteira ao menos tão restrita quanto a verificação atual do coordenador;
++3. chamar o resolvedor existente com `CurrentUser` e aceitar somente
++   `candidate`; `none`, `ambiguous`, erro de escopo, erro de dados ou overflow
++   não produzem alvo;
++4. conferir que o ator derivado do inbound corresponde ao líder revalidado que
++   sustenta a resolução, e emitir apenas o alvo opaco vinculado ao mesmo
++   inbound, turno, ator e `reuniao_id`;
++5. retornar o alvo apenas ao caminho offline de teste. Não chamar staging,
++   proposta, confirmação, UoW, commit, outbox, dispatch, runtime ou rede.
++
++O adaptador não pode reutilizar `_mint_operational_consent_permit`, introduzir
++um writer, aceitar `OperationalConsentPermit` de teste, conceder finalidade,
++ler `Pessoa.consentimento` ou criar bypass de `purpose_consent`. A fonte E4B
++continua externa e ausente. Mesmo com alvo emitido, C09 e C10 permanecem
++`BLOCKED_BY_E4B`.
++
++## Critérios de aceite do contrato
++
++- A matriz C01-C10 em
++  `docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md` possui uma única linha
++  por cenário, fonte `arquivo:linha`, evidência executada quando disponível e
++  limite explícito.
++- O cenário positivo não é simulado. C09 e C10 ficam
++  `BLOCKED_BY_E4B`, sem skip disfarçado.
++- A evidência offline exercita apenas o resolvedor existente, em ambiente
++  limpo e sem banco ou rede, e não é apresentada como prova de RLS viva,
++  integração WhatsApp ou consentimento.
++- A missão não muda `backend/app`, migrations, guardas, manifesto ou flags.
++- O PR #362 continua delimitado como áudio adiado. Áudio, transcrição e mídia
++  não entram no contrato nem na missão sucessora.
++
++## Rollback
++
++O rollback é exclusivamente documental: antes de qualquer remoção, o revisor
++deve comparar o patch e os hashes registrados com o SHA base. Reverter apenas
++os caminhos desta missão, preservando a ficha, o recibo de abertura, a
++disposição do PR #362 e os recibos de teste. Não usar `reset --hard`, `clean`,
++remoção de worktree, alteração de ref, banco ou ação remota.
++
++## Único próximo gate
++
++Raniel autoriza nominalmente
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` depois da revisão independente
++deste candidato. O gate permite somente a implementação offline do adaptador e
++seus testes de recusa/resolução. Ele não abre E4B, runtime, caller, worker,
++webhook, commit, envio, áudio, LLM, banco, migration, DEV, PROD, deploy ou
++flags.
+diff --git a/docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md b/docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md
+new file mode 100644
+--- /dev/null
++++ b/docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md
+@@ -0,0 +1,219 @@
++---
++id: M-2026-09-13-d6-cell-report-operational-contract
++status: concluida_offline
++authorized_by: Raniel
++authorized_on: 2026-09-13
++environment: local_offline
++---
++
++# M-2026-09-13-d6-cell-report-operational-contract
++
++## Ficha MISSION-CONTROL
++
++```yaml
++id: M-2026-09-13-d6-cell-report-operational-contract
++objetivo: Fechar o contrato verificável de reunião confiável e precondição externa de consentimento para relatório de célula por texto, entregando escopo executável da missão de implementação seguinte.
++preflight:
++  repositorio: haniellevi/PastorAI-LionClaw-V1, clone local (raiz relativa ../..)
++  workspace: IGREJA 12 - MANUAL
++  terminal: Orquestrador
++  branch: docs/d6-cell-report-operational-contract-20260913
++  sha_efetivo: 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++  worktree_limpo: true antes da criação desta ficha e dos artefatos da missão
++  ambiente: local/offline, sem banco
++  horario: 2026-09-13T18:44:02-03:00, início do preflight local; recibo de abertura contém horário final
++  runbook_lido: docs/ops/MISSION-CONTROL.md e ADR WhatsApp-first, seção Gate sucessor desta fatia offline
++  grafo: indisponível, code-review-graph desabilitado; busca limitada por arquivo
++worktree: .worktrees/d6-cell-report-operational-contract-20260913
++branch: docs/d6-cell-report-operational-contract-20260913
++sha_base: 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++especialistas:
++  - preparação pelo Orquestrador, gpt-6-astra ultra, concluída antes de qualquer delegação
++  - execução prevista FORJA, gpt-5.6-terra max, nesta worktree; sessão efetiva deve ser confirmada antes de acionamento
++  - revisão prevista LENTE, gpt-5.6-terra max, sessão distinta read-only em worktree própria do candidato; no máximo uma rodada
++criterios_de_aceite:
++  - A1. Destino prévio do PR362 registrado como áudio adiado; um único contrato D6-CELL-REPORT ativo, sem copiar ou aprovar D6-AUDIO.
++  - A2. Contrato fecha entradas confiáveis, vínculo igreja/ator/inbound/reunião, fonte e validade temporal; reunião ausente, ambígua ou adulterada falha fechada.
++  - A3. tarefas_operacionais é precondição externa; DenyAllOperationalConsentGate permanece padrão; concessão, writer e bypass de purpose_consent proibidos.
++  - A4. Matriz fechada de 10 cenários abaixo, com expectativa, evidência e estado explícitos; positivos dependentes de consentimento ficam BLOCKED_BY_E4B, nunca PASS ou skip disfarçado.
++  - A5. Diff restrito à allowlist, validação documental e testes offline pertinentes sem falhas; bytes dos serviços, manifesto, flags e guardas preservados.
++  - A6. Uma única rodada de revisão independente do candidato exato (SHA base e hash do patch), achados resolvidos ou impedimento declarado; nenhum novo ciclo de contratos.
++  - A7. FINAL-REPORT aponta M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION, com arquivos, testes e dependências; não abre runtime ou consentimento positivo.
++riscos_de_tenant:
++  - Tenant, ator, identidade e capacidades devem vir do backend confiável; entrada do modelo não estabelece autoridade.
++  - Alvo de reunião de outra igreja, ator, inbound ou contexto temporal deve ser recusado; selo local não equivale a prova durável.
++  - Consentimento de outra finalidade ou pessoa não autoriza tarefas_operacionais; indisponibilidade ou dúvida resultam em negação.
++plano_de_teste:
++  - git diff --check 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++  - pytest offline focal de test_cell_report_meeting_resolver.py com runner já existente, comando exato abaixo
++  - validação da matriz dos 10 cenários e revisão de proveniência com referências arquivo:linha; casos positivos permanecem bloqueados
++  - comparação byte a byte de backend/app, backend/migrations e manifesto com SHA base; inventário de todos os arquivos inclusive não rastreados
++plano_de_rollback:
++  - Reverter somente o patch identificado da missão, após conferir hash e que não há alterações posteriores de terceiros.
++  - Arquivos novos só podem ser retirados do candidato se constarem do recibo e mantiverem o hash registrado; preservar cópia de evidência, notas, branch e worktree.
++  - Não usar reset --hard, clean, remoção de worktree ou reversão de commits anteriores; nenhuma ação remota ou dado a compensar.
++proximo_gate: Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION após o contrato cumprir o aceite e a única revisão.
++```
++
++## Autorização e pré-condição satisfeita
++
++Ordem nominal de Raniel recebida no chat em 13/09/2026. Parecer dos dois
++conselheiros lido na nota `Consenso dos Conselheiros`, linha 16:
++ambos APTO COM RESSALVAS, sem divergência, com as três ressalvas transcritas
++nos critérios A1, A3, A4, A6 e A7. Não há consulta pendente para repetir a abertura.
++
++Antes de criar a worktree foi registrada a decisão em
++`docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md` no controle.
++PR #362, head `e41998c5e9aa698bde60e062682064d91dc24fbf`, é proposta exclusiva
++de áudio: ADIADA na fila local, não integra nem concorre com a linha ativa de
++relatório por texto. A PR remota continua OPEN, sem mutação.
++Cópia dessa decisão acompanha a ficha na worktree da missão.
++
++A base é o merge commit do PR #364, recebido nominalmente e conferido no Git
++local com os pais `9487eac` e `7442025`. Não se afirma ter renovado a ref
++remota de main nesta abertura. CI pós-merge: 15/15 contextos obrigatórios
++SUCCESS mais Vercel success, conforme verificação transmitida pelo CONSELHEIRO;
++não reexecutado nesta preparação. Incidente PROD #392 está fora.
++
++## Escopo permitido e arquivos
++
++Preparação, contrato documental único, matriz de cenários, testes de contrato
++puramente offline com dados sintéticos e evidência sanitizada. Sem alteração
++de comportamento do produto. A autorização de abertura não é autorização
++operacional.
++
++Allowlist para a execução desta missão:
++
++- `docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md`;
++- `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`, único contrato da missão;
++- `docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md`, somente referência e estado do gate D6-CELL-REPORT;
++- `docs/ai/AI-BOOTSTRAP.md`, `docs/ai/PRD-COVERAGE.md` e `docs/WIKI-IGREJA12.md`, somente rastreabilidade desta fatia, sem declarar operação;
++- `docs/ops/d6-cell-report-contract/`, matriz, recibos, patch e relatório;
++- `docs/sprints/2026-09-13-d6-cell-report-operational-contract.md` e trecho desta missão em `docs/ops/POST-V1-MISSION-REGISTER.md`;
++- `backend/tests/test_d6_cell_report_operational_contract.py`, se necessário para verificação real das recusas já implementadas; sem writer falso, concessão ou bypass.
++
++Notas de controle no canvas são mantidas pelo Orquestrador.
++Os artefatos desta ficha são locais e não commitados nesta preparação.
++
++Fora: runtime/caller/worker/webhook, banco inclusive local, migrations, grants,
++credenciais, E4b, áudio/transcrição, LLM, storage, envio, ativação, publicação,
++push/PR/merge/deploy, incidente PROD #392, manifesto, flags e guardas.
++Nenhum recibo E4b nem a branch documental `67659a3` entra neste candidato.
++
++## Matriz de aceite fechada
++
++Os estados abaixo são expectativas do contrato; não são testes executados.
++
++| ID | Cenário | Expectativa e evidência exigida |
++|---|---|---|
++| C01 | Reunião fora da igreja confiável | Recusa, referência ao teste isolado e às validações do resolver |
++| C02 | Ator sem responsabilidade válida | Recusa, sem promoção de autoridade pelo modelo |
++| C03 | Reunião ausente | Sem alvo, motivo explícito |
++| C04 | Duas reuniões elegíveis | Ambiguidade, sem escolha silenciosa |
++| C05 | Alvo de outro inbound/ator ou janela inválida | Recusa antes de qualquer operação, referência à fronteira existente |
++| C06 | Consentimento ausente ou gate indisponível | Deny-all, sem gravar nem conceder |
++| C07 | Consentimento retirado ou finalidade divergente | Negação; evidência de leitura source-only, sem writer de teste |
++| C08 | Validade ou proveniência de consentimento não comprovada | Negação; não presumir estado de expiração que o domínio não possua |
++| C09 | Proposta que exige consentimento concedido | BLOCKED_BY_E4B, não executar caminho positivo |
++| C10 | Confirmação/persistência que exige consentimento concedido | BLOCKED_BY_E4B, não executar caminho positivo |
++
++A matriz final distingue EXPECTATIVA_DOCUMENTADA, VERIFICADO_OFFLINE e
++BLOCKED_BY_E4B por linha, com fonte, comando quando houver execução e limite.
++Não criar teste que apenas espelhe o próprio texto para fabricar prova funcional.
++Casos C01-C08 sem prova adequada permanecem não verificados e impedem declarar
++o respectivo comportamento implementado. O contrato pode fechar com decisões
++documentais explícitas e dependências bloqueadas, sem alegar integração.
++
++## Comandos e evidência
++
++Executar a partir da worktree da missão. Runner e intérprete existentes
++são dependências locais, não arquivos do produto; não instalar pacotes.
++
++```bash
++git diff --check 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++git diff --exit-code 7a7afa3d08927f3f5b2ed116638aed3131dde88b -- backend/app backend/migrations docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md
++git status --porcelain=v1 --untracked-files=all
++env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../../backend/.venv-runtime/bin/python -I -B ../maestri-astra-workspace-plan/docs/ops/pr364-rebase/run_offline_pytest.py . ./docs/ops/d6-cell-report-contract/pytest-resolver tests/test_cell_report_meeting_resolver.py
++```
++
++O runner bloqueia rede, conexões SQLAlchemy/libpq/SQLite e leitura de caminhos
++protegidos, com ambiente limpo; seus limites documentados continuam válidos.
++Se houver novo teste permitido, acrescentar apenas seu caminho exato à lista
++do mesmo runner após revisão de que não concede consentimento nem fabrica writer.
++Capturar comando, SHA, hash do patch incluindo novos arquivos, horário, resultado,
++contagens e limites. Não herdar os 615 testes de outro SHA como validação desta missão.
++Suíte HTTP anterior teve travamento TestClient/AnyIO; não declarar suíte completa
++verde nem enfraquecer isolamento para contornar esse limite.
++
++## Execução e revisão sem novo ciclo de governança
++
++Preparação é responsabilidade do Orquestrador no controle; execução posterior
++usa esta worktree exclusivamente com FORJA, após conferir modelo/esforço e -C.
++LENTE recebe uma worktree própria do candidato exato, somente leitura, em
++sessão distinta. Especialistas não escrevem notas, não executam Maestri e não
++recrutam. Nenhum especialista foi acionado durante esta preparação.
++
++Há no máximo uma rodada de revisão independente. Correções do parecer cabem
++no mesmo escopo e são verificadas objetivamente; impedimento restante aparece
++no relatório, sem outra missão de contrato. O parecer estratégico conjunto
++já está registrado, não será solicitado de novo para a mesma abertura.
++
++## Saída obrigatória e único próximo gate
++
++A saída é o contrato verificável e a missão sucessora de IMPLEMENTAÇÃO
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION`: adaptar o resolver existente
++para produzir o alvo confiável do coordenador, com vínculos igreja/ator/inbound
++e validade, testes locais de recusa e de resolução sem efeito.
++Sua ficha futura fixa arquivos e testes a partir do contrato entregue.
++Não implementa writer de consentimento, não liga runtime e não executa
++proposta/confirmação que dependa de consentimento concedido; esses casos
++continuam BLOCKED_BY_E4B.
++
++Gate humano único: Raniel autorizar nominalmente essa implementação depois
++do aceite desta missão. Não há push, merge, banco, publicação ou ativação
++incluídos nessa decisão. Esta ficha abre a missão de contrato e não declara
++contrato concluído ou revisado.
++
++
++## Execução local registrada
++
++Em `2026-09-13T18:57:15-03:00` a `2026-09-13T18:57:16-03:00`, o runner
++offline autorizado executou somente
++`backend/tests/test_cell_report_meeting_resolver.py`: `17 passed`, saída `0`
++e `OFFLINE_GUARD_DENIALS=0`. Os recibos sanitizados estão em
++`docs/ops/d6-cell-report-contract/pytest-resolver.json` e
++`docs/ops/d6-cell-report-contract/pytest-resolver.xml`.
++
++O candidato documental ativo é
++`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`; a matriz
++C01-C10 está em `docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md`. A suíte
++do coordenador não foi executada porque contém gates permissivos de teste,
++incompatíveis com esta missão. C06-C08 permanecem expectativas documentadas e
++C09-C10 permanecem `BLOCKED_BY_E4B`.
++
++Não houve mudança em `backend/app`, migrations, manifesto, flags, guardas,
++banco, rede, runtime, caller, consentimento positivo ou efeito externo. O
++estado desta ficha é `aguardando_revisao_independente`; a revisão não foi
++realizada por este implementador.
++
++
++## Encerramento atual
++
++O conteúdo de abertura e execução acima permanece como histórico. A missão foi
++concluída como contrato documental após a única revisão LENTE e o tratamento
++objetivo do P1-A7, sem implementar a sucessora nem abrir efeitos externos.
++
++```yaml
++encerramento:
++  status_final: concluída
++  horario: 2026-09-13T19:42:10.523019-03:00
++  sha_final: 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++  candidato: SHA base mais patch local não commitado; hash integral no FINAL-CANDIDATE-INDEX.json do controle
++  branch_final: docs/d6-cell-report-operational-contract-20260913
++  pr: nenhum
++  mutacoes: worktrees locais, documentos e notas do canvas; nenhum efeito externo
++  evidencias: FINAL-REPORT.md, LENTE-REVIEW.md, P1-VERIFIED.json e CLOSURE-RECEIPT.json em docs/ops/d6-cell-report-contract; pytest-resolver 17/17
++  riscos_residuais: contrato não é integração; C02/C03/C05-C08 documentais; C09/C10 BLOCKED_BY_E4B; consentimento externo e deny-all preservados
++  registro: docs/sprints/2026-09-13-d6-cell-report-operational-contract.md e docs/ops/POST-V1-MISSION-REGISTER.md
++  proximo_gate: Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION
++```
+diff --git a/docs/ops/MISSION-CONTROL.md b/docs/ops/MISSION-CONTROL.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/MISSION-CONTROL.md
+@@ -0,0 +1,129 @@
++---
++project: igreja12
++document_kind: mission-control
++status: canonical
++last_reviewed: 2026-09-07
++reviewed_by: Raniel
++---
++
++# Mission Control
++
++Formato obrigatório de qualquer missão conduzida no canvas Maestri. O
++Orquestrador preenche este formato antes de acionar qualquer especialista.
++Missão sem ficha preenchida não começa.
++
++Esta ficha cobre abertura, execução e encerramento de uma missão. Ela não
++substitui o formato de encerramento exigido por
++[`V1-FINALIZATION-MAP.md`](V1-FINALIZATION-MAP.md) nem o registro de
++[`POST-V1-MISSION-REGISTER.md`](POST-V1-MISSION-REGISTER.md): a ficha os
++alimenta. Em caso de divergência, o mapa e o registro prevalecem.
++
++## Regras
++
++- Uma missão tem um objetivo, um worktree, uma branch e um SHA base.
++- Dois agentes nunca compartilham worktree. A raiz do repositório nunca é
++  worktree de implementação.
++- O Orquestrador é o único broker. Especialistas não falam entre si e não
++  executam a CLI do Maestri.
++- Toda missão termina em exatamente um gate aguardando autorização nominal do
++  Raniel. Merge, teste verde, migration criada ou canário anterior não abrem
++  gate para uma ação futura.
++- Efeitos externos são deny-by-default e seguem
++  `docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md`.
++- Nenhuma ficha carrega PII, dado pastoral, segredo ou dado de produção.
++
++## Formato da ficha
++
++~~~yaml
++id: M-AAAA-MM-DD-slug
++objetivo: uma frase, resultado observável
++preflight:
++  repositorio: <remoto e clone usados>
++  branch: <branch consultada>
++  sha_efetivo: <SHA do HEAD no momento da consulta>
++  worktree_limpo: true | false, com a lista do que estava sujo
++  ambiente: local | dev
++  horario: AAAA-MM-DDTHH:MM:SS-03:00
++  runbook_lido: <caminho do runbook e da seção>
++  grafo: code-review-graph status, com SHA e frescor, ou "não disponível"
++worktree: .worktrees/<slug>
++branch: feat/<slug>
++sha_base: <SHA completo de origin/main no momento da abertura>
++especialistas:
++  - implementador
++  - revisor
++criterios_de_aceite:
++  - o que precisa estar verdadeiro para a missão fechar
++riscos_de_tenant:
++  - o que pode vazar entre igrejas e como isso é impedido
++plano_de_teste:
++  - comandos exatos e o que cada um prova
++plano_de_rollback:
++  - como desfazer, e o que não é reversível
++proximo_gate: descrição de uma única ação que exige autorização nominal
++encerramento:
++  status_final: concluída | bloqueada | abandonada
++  sha_final: <SHA do último commit da missão>
++  branch_final: <branch>
++  pr: <número ou "nenhum">
++  mutacoes: tudo que mudou fora do código, ou "nenhuma"
++  evidencias: comandos, saídas e artefatos, com SHA, ambiente e horário
++  riscos_residuais: o que ficou aberto e para quem
++  registro: caminho do arquivo em docs/sprints/ e, quando aplicável, a linha
++    atualizada no POST-V1-MISSION-REGISTER
++~~~
++
++O bloco `encerramento` é preenchido ao fechar a missão, nunca na abertura.
++Missão sem encerramento preenchido continua aberta, mesmo que o PR já tenha
++sido integrado.
++
++## Exemplo preenchido (fictício)
++
++~~~yaml
++id: M-2026-09-10-lembrete-celula
++objetivo: enviar lembrete de relatório de célula ao líder, sem efeito externo real
++preflight:
++  repositorio: github.com/haniellevi/PastorAI-LionClaw-V1, clone local
++  branch: chore/maestri-setup
++  sha_efetivo: b3b35489436498fa234c74a6f835a572a0d89892
++  worktree_limpo: true
++  ambiente: local
++  horario: 2026-09-10T09:12:00-03:00
++  runbook_lido: docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md, seção de gates
++  grafo: não disponível nesta sessão
++worktree: .worktrees/lembrete-celula-v1
++branch: feat/lembrete-celula-v1
++sha_base: b3b35489436498fa234c74a6f835a572a0d89892
++especialistas:
++  - implementador
++  - revisor
++  - sentinela
++criterios_de_aceite:
++  - o job monta a mensagem e grava intenção, sem chamar a Evolution
++  - ALLOW_REAL_SENDS permanece false em todo o caminho
++  - pytest verde nos testes novos e nos existentes
++riscos_de_tenant:
++  - montar lembrete de líder de outra igreja; impedido por filtro igreja_id no
++    serviço e por policy RLS testada com dois tenants sintéticos
++plano_de_teste:
++  - pytest backend/tests/test_lembrete_celula.py, prova a montagem e o bloqueio de envio
++  - teste cross-tenant com dois igreja_id sintéticos, prova o isolamento
++plano_de_rollback:
++  - reverter o merge da branch; nenhuma migration e nenhum dado gravado
++proximo_gate: autorizar a abertura do PR
++encerramento:
++  status_final: pendente
++  sha_final: pendente
++  branch_final: feat/lembrete-celula-v1
++  pr: nenhum
++  mutacoes: nenhuma
++  evidencias: pendente
++  riscos_residuais: pendente
++  registro: pendente
++~~~
++
++## Onde a ficha vive
++
++Enquanto a missão corre, a ficha fica em uma nota do canvas Maestri e no
++cabeçalho da descrição do PR. Ao fechar, o resumo vai para
++`docs/sprints/AAAA-MM-DD-titulo.md`.
+diff --git a/docs/ops/POST-V1-MISSION-REGISTER.md b/docs/ops/POST-V1-MISSION-REGISTER.md
+--- a/docs/ops/POST-V1-MISSION-REGISTER.md
++++ b/docs/ops/POST-V1-MISSION-REGISTER.md
+@@ -1941,0 +1942,28 @@
++### M-2026-09-13-d6-cell-report-operational-contract
++
++Ambiente: local/offline. Base:
++`7a7afa3d08927f3f5b2ed116638aed3131dde88b`. A missão criou o candidato
++documental `D6-CELL-REPORT` para a interface futura entre o resolvedor
++server-bound de reunião e o alvo opaco do coordenador. PR #362 foi delimitado
++como áudio-only adiado localmente, sem mutação remota.
++
++O teste focal autorizado concluiu em
++`2026-09-13T18:57:16-03:00`: 17 aprovados, saída 0,
++`OFFLINE_GUARD_DENIALS=0`. Ele usa dados sintéticos e não prova RLS viva,
++caller, consentimento, banco, commit, envio ou efeito externo. A suíte do
++coordenador não foi executada porque contém gates permissivos de teste.
++
++`tarefas_operacionais` continua EXTERNA, sem fonte aprovada, writer ou
++concessão. O default deny-all permanece; C09 e C10 são
++`BLOCKED_BY_E4B`. Não houve mudança em runtime, backend de produto, migrations,
++flags, manifesto, banco, DEV, PROD ou redes. O candidato aguarda revisão
++independente. Gate humano único: Raniel autorizar nominalmente
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION`, offline e limitado ao
++adaptador do alvo confiável, sem abrir E4B ou qualquer efeito.
++
++
++Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
++pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
++nenhuma segunda revisão ou implementação executada. Evidência final:
++`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
++Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+diff --git a/docs/ops/d6-cell-report-contract/CLOSURE-RECEIPT.json b/docs/ops/d6-cell-report-contract/CLOSURE-RECEIPT.json
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/CLOSURE-RECEIPT.json
+@@ -0,0 +1,23 @@
++{
++  "mission": "M-2026-09-13-d6-cell-report-operational-contract",
++  "status": "CONCLUIDA_OFFLINE",
++  "closed_at": "2026-09-13T19:42:10.523019-03:00",
++  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
++  "branch": "docs/d6-cell-report-operational-contract-20260913",
++  "review_rounds": 1,
++  "lente_original_verdict": "NAO_APTO_P1_A7",
++  "reviewed_patch_sha256": "ba11308867c7a418ea18e0e1ffc53ee3db8e30ef2524b171811b3f0b7a4f87e2",
++  "p1_disposition": "corrigido pela FORJA e verificado objetivamente pelo Orquestrador; sem segundo parecer LENTE",
++  "pytest": {
++    "passed": 17,
++    "failures": 0,
++    "errors": 0,
++    "skipped": 0,
++    "guard_denials": 0,
++    "scope": "resolvedor existente, sem banco; não comprova adaptação futura"
++  },
++  "next_human_gate": "Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION",
++  "external_mutations": [],
++  "final_patch_index": "controle: docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json",
++  "final_report_sha256": "5898d6ce260fcc9fb689f7466d1b09b5bac43244f285c7c21389cad93f72b6bd"
++}
+diff --git a/docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md b/docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md
+@@ -0,0 +1,89 @@
++# Registro de execução local
++
++Registro histórico do candidato submetido à única revisão LENTE. Os hashes
++abaixo se reproduzem na worktree de revisão preservada, não na entrega após
++P1. Para o estado final, consulte FINAL-REPORT.md e o índice FINAL-CANDIDATE
++no controle.
++
++Missão: `M-2026-09-13-d6-cell-report-operational-contract`.
++
++Base: `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
++Branch: `docs/d6-cell-report-operational-contract-20260913`.
++Ambiente: `local/offline`, sem banco, rede, credenciais, runtime, hooks ou
++efeito externo.
++
++## Preflight
++
++Em `2026-09-13T18:44:02-03:00`, conforme ficha de abertura, a base e a branch
++foram fixadas. Nesta execução, a conferência local em
++`2026-09-13T18:56:48-03:00` confirmou o mesmo SHA. Os únicos itens não
++rastreados antes de escrever o candidato eram a ficha e os dois recibos de
++abertura da missão; eles foram preservados.
++
++## Teste focal executado
++
++Início: `2026-09-13T18:57:15.204460-03:00`.
++Fim: `2026-09-13T18:57:16.404801-03:00`.
++
++```bash
++env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../../backend/.venv-runtime/bin/python -I -B ../maestri-astra-workspace-plan/docs/ops/pr364-rebase/run_offline_pytest.py . ./docs/ops/d6-cell-report-contract/pytest-resolver tests/test_cell_report_meeting_resolver.py
++```
++
++Resultado: `17 passed in 0.50s`, código de saída `0`,
++`OFFLINE_GUARD_DENIALS=0`. Recibos gerados pelo runner:
++`pytest-resolver.json` e `pytest-resolver.xml`.
++
++O runner usou Python `3.13.14`, ambiente limpo sem credenciais de aplicação e
++guardas para rede/conexões. Seus limites declarados no recibo permanecem:
++processos filhos permitidos herdam as restrições do sandbox, mas isso não é
++atestação de isolamento do sistema operacional. O teste usa dados sintéticos e
++um monkeypatch de `require_tenant_scope`; ele não prova RLS PostgreSQL viva,
++identidade externa, banco, caller, consentimento ou efeito de domínio.
++
++## Exclusões deliberadas
++
++Não foi executada a suíte do coordenador. Ela possui gates permissivos e mint
++de permit em testes, incompatíveis com a proibição desta missão de fabricar
++concessão, writer, monkeypatch ou bypass de `purpose_consent`. C06-C08 ficaram
++documentados e C09-C10 ficaram `BLOCKED_BY_E4B`.
++
++## Validação documental final
++
++Horário da validação: `2026-09-13T19:06:21-03:00`.
++
++Os comandos abaixo terminaram com código de saída `0`:
++
++```bash
++git diff --check 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++git diff --exit-code 7a7afa3d08927f3f5b2ed116638aed3131dde88b -- backend/app backend/migrations docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md
++```
++
++A primeira comparação não encontrou erro de espaço ou patch inválido. A
++segunda confirmou ausência de alterações em `backend/app`,
++`backend/migrations` e no manifesto de persistência. A conferência de
++inventário registrou cinco arquivos rastreados modificados e onze arquivos não
++rastreados, dos quais três já eram artefatos de abertura preservados: a ficha,
++`OPENING-RECEIPT.json` e `PR362-DISPOSITION.md`.
++
++Também foram conferidos: exatamente dez linhas C01-C10 na matriz, ausência de
++espaço final nos documentos alterados e JSON válido nos dois recibos JSON. A
++matriz final está em `SCENARIO-MATRIX.md:20-29`: C01 e C04 são
++`VERIFICADO_OFFLINE`; C02, C03 e C05-C08 são
++`EXPECTATIVA_DOCUMENTADA`; C09 e C10 são `BLOCKED_BY_E4B`.
++
++Hash determinístico do conjunto de conteúdo semântico, calculado após a
++validação acima: `SHA-256 7e27d897eee3696d0a985fc5ee169857de69368d0fccaab267dfd4680d642059`.
++O conjunto e o procedimento de reprodução estão em `PATCH-REVIEW.md`.
++
++Em `2026-09-13T19:13:43-03:00`, o patchset completo produziu:
++
++PATCHSET_SHA256_NORMALIZADO: 88ffb8fb186f1f7b81cd66d708f1812513aefd3ff4117006df4dbd90c7320ad8
++
++Esse segundo hash cobrirá todos os dezesseis caminhos do candidato, inclusive
++os não rastreados. Para evitar autorreferência, a reprodução substitui apenas
++o valor desse campo nos três documentos de evidência por 64 zeros antes de
++calcular os hashes de conteúdo e do conjunto.
++
++Limite final: essas verificações demonstram consistência do patch local e do
++teste executado neste SHA. Elas não substituem revisão independente, RLS em
++PostgreSQL, fonte E4B, caller, runtime, banco, DEV ou PROD.
+diff --git a/docs/ops/d6-cell-report-contract/FINAL-REPORT.md b/docs/ops/d6-cell-report-contract/FINAL-REPORT.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/FINAL-REPORT.md
+@@ -0,0 +1,274 @@
++# Relatório final da missão D6-CELL-REPORT
++
++Status: `CONCLUIDO_OFFLINE / P1_VERIFICADO_PELO_ORQUESTRADOR`.
++
++Base: `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
++Branch: `docs/d6-cell-report-operational-contract-20260913`.
++Ambiente: `local/offline`.
++Fechamento documental: `2026-09-13T19:06:21-03:00`.
++
++Este relatório registra um candidato documental local cuja única revisão
++independente ocorreu sobre o candidato original. A correção P1 foi verificada objetivamente pelo Orquestrador; não se declara
++um novo parecer LENTE `APTO`. O aceite é do contrato documental e não constitui
++autorização operacional, evidência de RLS viva, integração WhatsApp,
++consentimento concedido, persistência, commit, envio, banco, DEV ou PROD.
++
++## Resultado
++
++O contrato único D6-CELL-REPORT foi criado em
++`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`. Ele fixa o
++PR362 como áudio adiado somente no registro local, sem alterar a PR remota, e
++trata `tarefas_operacionais` como fonte EXTERNA. Sem E4B aprovada, auditável e
++vinculada ao propósito, o comportamento permitido é negar por padrão. C09 e
++C10 permanecem `BLOCKED_BY_E4B`; nenhum cenário positivo dependente de
++concessão foi executado ou simulado.
++
++A matriz C01-C10 aponta C01 e C04 como `VERIFICADO_OFFLINE`, C02, C03 e
++C05-C08 como `EXPECTATIVA_DOCUMENTADA`, e C09-C10 como
++`BLOCKED_BY_E4B`. Ela não confunde as 17 verificações sintéticas do resolvedor
++com prova de banco, RLS viva, alvo opaco emitido, integração WhatsApp ou
++consentimento.
++
++## Arquivos do candidato
++
++Arquivos rastreados modificados:
++
++- `docs/WIKI-IGREJA12.md`
++- `docs/ai/AI-BOOTSTRAP.md`
++- `docs/ai/PRD-COVERAGE.md`
++- `docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md`
++- `docs/ops/POST-V1-MISSION-REGISTER.md`
++
++Arquivos novos do candidato:
++
++- `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`
++- `docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md`
++- `docs/ops/d6-cell-report-contract/FINAL-REPORT.md`
++- `docs/ops/d6-cell-report-contract/PATCH-REVIEW.md`
++- `docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md`
++- `docs/sprints/2026-09-13-d6-cell-report-operational-contract.md`
++
++Artefatos de abertura preservados:
++
++- `docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md`
++- `docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json`
++- `docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md`
++
++Recibos sanitizados do teste focal:
++
++- `docs/ops/d6-cell-report-contract/pytest-resolver.json`
++- `docs/ops/d6-cell-report-contract/pytest-resolver.xml`
++
++## Testes e verificações executados
++
++Em `2026-09-13T18:57:15.204460-03:00` a
++`2026-09-13T18:57:16.404801-03:00`, o runner offline prescrito executou
++`tests/test_cell_report_meeting_resolver.py`: `17 passed in 0.50s`, saída `0`,
++`OFFLINE_GUARD_DENIALS=0`. O comando completo, o ambiente limpo e os limites
++estão registrados em `EXECUTION-RECORD.md`.
++
++Em `2026-09-13T19:06:21-03:00`, `git diff --check` contra a base passou e a
++comparação de preservação confirmou ausência de diff em `backend/app`,
++`backend/migrations` e `docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md`. A matriz,
++espaços finais e JSON dos recibos também foram conferidos localmente.
++
++## Hashes históricos do candidato revisado e rollback
++
++O parecer LENTE `NAO APTO` aplica-se exclusivamente ao patch original
++`ba11308867c7a418ea18e0e1ffc53ee3db8e30ef2524b171811b3f0b7a4f87e2`, antes
++da correção P1 documentada abaixo. Os hashes desta seção são históricos desse
++candidato revisado, e não identificam a correção atual.
++
++O conjunto semântico histórico tem hash
++`SHA-256 7e27d897eee3696d0a985fc5ee169857de69368d0fccaab267dfd4680d642059`.
++Os arquivos incluídos e a reprodução estão em `PATCH-REVIEW.md`.
++
++PATCHSET_SHA256_NORMALIZADO: 88ffb8fb186f1f7b81cd66d708f1812513aefd3ff4117006df4dbd90c7320ad8
++
++O hash normalizado histórico cobre os dezesseis caminhos do candidato então
++revisado, inclusive arquivos não rastreados. Ele não foi recalculado nesta
++correção. O capturador externo do Orquestrador fornecerá o hash integral novo,
++sem autorreferência, depois da verificação objetiva deste P1.
++
++O rollback é documental e seletivo: o revisor deve comparar primeiro o patch e
++o hash com a base, reverter somente estes caminhos e preservar ficha, recibos
++de abertura e recibos do teste. Não há rollback de banco, rede ou ambiente
++compartilhado porque esta missão não os tocou.
++
++## Limites e próximo passo
++
++A suíte do coordenador não foi executada porque contém concessão permissiva e
++mint de permit em teste, ambos fora da allowlist desta missão. A única revisão
++independente foi a da LENTE sobre o candidato original; esta correção aguarda
++verificação do Orquestrador e não abre segunda rodada LENTE.
++
++O único próximo gate é a autorização nominal de Raniel, após a verificação
++objetiva do Orquestrador, para `M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION`.
++O recorte é implementar e testar offline o adaptador entre o resolvedor e o
++alvo opaco, sem caller, runtime, writer ou caminho positivo de consentimento.
++
++## Correção P1: ficha executável da missão sucessora
++
++Esta ficha fecha A7 sem implementar código nesta missão. A verificação do
++Orquestrador avalia esta correção documental; ela não constitui segundo parecer
++da LENTE. A única rodada LENTE permanece o `NAO APTO` do patch original
++`ba11308867c7a418ea18e0e1ffc53ee3db8e30ef2524b171811b3f0b7a4f87e2`.
++
++### Arquivos e interface fixados
++
++1. Criar `backend/app/services/cell_report_meeting_target_adapter.py`. Ele
++   expõe somente `resolve_cell_report_meeting_target(db, *, current_user,
++   turn_identity, clock)`, cujo retorno bem-sucedido é
++   `CellReportMeetingTarget`. `current_user` deve ser `CurrentUser`,
++   `turn_identity` deve ser `AgentTurnIdentity` e `clock` é obrigatório,
++   injetado e chamado uma vez para fornecer `now` ao resolvedor. Não há
++   parâmetros de igreja, ator, inbound, reunião, finalidade ou consentimento
++   vindos de caller, texto, modelo ou webhook.
++2. Manter como fonte única do mint opaco
++   `backend/app/services/cell_report_whatsapp_coordinator.py`, na função
++   existente `_mint_cell_report_meeting_target`. O novo adaptador é o único
++   consumidor novo dessa função e só a chama após todas as validações abaixo.
++   Não criar factory pública, mint paralelo ou mudança no gate de consentimento,
++   staging ou confirmação desse arquivo.
++3. Criar `backend/tests/test_cell_report_meeting_target_adapter.py` para todos
++   os casos do adaptador. Executar também
++   `backend/tests/test_cell_report_meeting_resolver.py` para a fronteira de
++   resolução e relógio já existente. Não alterar nem executar a suíte inteira
++   `backend/tests/test_cell_report_whatsapp_coordinator.py`, pois ela contém
++   fixtures permissivas de permit fora deste recorte.
++
++### Dependências e sequência fechadas
++
++O adaptador aceita apenas uma `Session` fornecida pelo caller com transação
++externa raiz já ativa, `CurrentUser`, `AgentTurnIdentity` de servidor e
++`clock`. Ele não abre conexão, não cria, confirma ou desfaz transação e não
++possui UoW. Antes de qualquer leitura, valida IDs canônicos de `CurrentUser`,
++exige igualdade exata entre sua `igreja_id` e a de `AgentTurnIdentity`, e chama
++`require_tenant_scope` com a igreja da identidade.
++
++Em seguida, chama obrigatoriamente `_load_bound_inbound(db,
++identity=turn_identity)` da fonte existente. Esse é o único caminho de inbound:
++preserva consulta limitada, locks, validação integral de `Message` e
++`Conversation`, vínculo de igreja, conversa, inbound e provider message ID, e
++devolve o contexto confiável junto dos handles root/nested da transação externa.
++Não escrever cópia do SELECT, atalho de inbound ou validador paralelo. Inbound
++ausente, duplicado ou adulterado falha fechado pela mesma fronteira do
++coordenador.
++
++O adaptador deriva o ator humano por `_load_actor_pessoa_id` do resolvedor,
++com o mesmo `CurrentUser` e escopo RLS, e exige igualdade exata com o ator do
++inbound validado. Só então chama `resolve_pending_cell_report_meeting` com o
++mesmo `CurrentUser` e `now=clock()`. Aceita somente o estado `candidate`.
++Depois da resolução e antes do mint, chama novamente `require_tenant_scope`,
++obtém os handles root/nested correntes e exige que sejam exatamente os handles
++capturados por `_load_bound_inbound`; deriva novamente o ator humano e exige
++novamente igualdade exata com o ator do inbound. Só então usa o `reuniao_id`
++retornado para chamar `_mint_cell_report_meeting_target` com a mesma identidade
++e o mesmo ator derivado. `none`, `ambiguous`, overflow, falha de escopo, troca
++de transação, troca de RLS ou erro de dados não emitem alvo e retornam erro
++sanitizado do adaptador.
++
++### Casos de aceite dos testes futuros
++
++- Igreja divergente entre `CurrentUser` e `AgentTurnIdentity`, ou falha RLS,
++  rejeita antes de ler inbound, resolvedor ou mint.
++- Transação externa ausente rejeita em `_load_bound_inbound`; transação raiz ou
++  nested trocada depois do resolvedor rejeita na revalidação antes do mint.
++- Inbound ausente, duplicado ou com igreja, conversa, provider ID, direção,
++  autoria, mídia, estado ou ator adulterados rejeita antes do resolvedor e do
++  mint.
++- Ator derivado pelo caminho humano divergente do ator do inbound rejeita antes
++  do resolvedor e do mint.
++- Resultado `none`, `ambiguous` ou overflow do resolvedor não produz
++  `CellReportMeetingTarget`; overflow continua sanitizado e não é convertido em
++  escolha arbitrária.
++- RLS válido no carregamento e trocado antes do mint rejeita na segunda chamada
++  de `require_tenant_scope`, sem emitir alvo.
++- O teste fixa `clock`; no instante exato da reunião, `now=clock()` mantém a
++  reunião inelegível, e somente instante posterior produz candidato. Não usar
++  relógio real nem `now=None`.
++- No único caso candidato, `_require_meeting_target` aceita o alvo apenas com a
++  mesma identidade e contexto inbound. Alterar inbound, ator ou `reuniao_id`
++  torna o alvo inválido. Todo caso confirma zero `flush`, `commit`, staging,
++  proposta, confirmação, outbox ou efeito de domínio. Os doubles de leitura e
++  handles root/nested sintéticos rejeitam qualquer write e nunca incluem writer
++  de consentimento ou permit positivo.
++
++### Proibições permanentes da sucessora
++
++Não criar ou acessar banco (inclusive local) ou ambiente compartilhado,
++migration, writer, fonte E4B,
++`OperationalConsentPermit` positivo, `_mint_operational_consent_permit`,
++leitura de `Pessoa.consentimento`, bypass de `purpose_consent`, staging, UoW,
++commit, runtime, caller, worker, webhook, rede, envio ou LLM. C09 e C10
++continuam `BLOCKED_BY_E4B`; o adaptador não chama proposta nem confirmação.
++
++
++## Encerramento e aceite do Orquestrador
++
++Encerrado em 2026-09-13T19:42:10.523019-03:00. A única rodada LENTE reprovou A7 no candidato
++original; o parecer está preservado em `LENTE-REVIEW.md`, com SHA base e hash
++integral. FORJA corrigiu somente este relatório e o Orquestrador verificou a
++correção, conforme `P1-VERIFIED.json`. Não houve segunda rodada LENTE nem
++aprovação independente atribuída ao candidato corrigido.
++
++| Critério | Aceite documental e evidência |
++|---|---|
++| A1 | PR362 adiado antes da abertura, recibo PR362-DISPOSITION.md; nenhum efeito remoto. |
++| A2 | Contrato comportamental aceito pela LENTE, mantendo fonte confiável e recusas. |
++| A3 | Finalidade externa, padrão deny-all; sem writer, permit positivo ou bypass. |
++| A4 | C01-C10 fechados na matriz, com evidência limitada e C09/C10 BLOCKED_BY_E4B. |
++| A5 | Somente documentos/recibos; 17 testes do resolvedor, zero falhas/erros/skips e guard_denials vazio; backend intacto. |
++| A6 | Uma revisão LENTE, P1 corrigido por FORJA e verificado objetivamente pelo Orquestrador. |
++| A7 | Ficha sucessora neste relatório fixa adapter, mint existente, testes, dependências, clock e recusas; sem novo contrato. |
++
++Os artefatos de encerramento acrescentam `LENTE-REVIEW.md`, `P1-VERIFIED.json`
++e `CLOSURE-RECEIPT.json`. Para reprodução a partir do Git, esta pasta agora
++versiona `FINAL-CANDIDATE-INDEX.json` e `FINAL-CANDIDATE.patch`.
++O índice cobre os 19 arquivos finais D6 e o runbook efetivamente lido,
++`docs/ops/MISSION-CONTROL.md`, publicado nesta correção. O patch reproduz
++esse conjunto sanitizado sobre a base `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
++Índice, patch e recibo de sanitização são excluídos do próprio conjunto para
++impedir autorreferência; seus bytes ficam ancorados pelo commit Git.
++
++A publicação de 14/09/2026 remove caminhos absolutos dos quatro registros
++autorizados, preservando resultados, horários e hashes de eventos históricos.
++`SANITIZATION-RECEIPT-20260914.json` registra hashes antes/depois e a origem
++do índice/patch históricos do controle. Referências antigas ao índice "no
++controle" são proveniência histórica; o índice versionado é o estado
++sanitizado atual. Os hashes antigos não atestam os bytes sanitizados, e não
++houve nova revisão LENTE. O teste do resolvedor não foi reexecutado.
++
++Para conferir o conjunto no checkout deste commit, a partir da raiz:
++
++```python
++import hashlib
++import json
++from pathlib import Path
++index = json.loads(Path("docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json").read_text())
++actual = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in index["files_sha256"]}
++assert actual == index["files_sha256"]
++records = "".join(p + "\0" + actual[p] + "\n" for p in sorted(actual))
++assert hashlib.sha256(records.encode()).hexdigest() == index["changed_files_digest_sha256"]
++patch = Path("docs/ops/d6-cell-report-contract/FINAL-CANDIDATE.patch").read_bytes()
++assert hashlib.sha256(patch).hexdigest() == index["patch_sha256"]
++```
++
++Para reconstruir, preserve somente patch e índice fora de um checkout limpo
++da base indicada. Nesse checkout, execute `git apply --check --unidiff-zero`
++e `git apply --unidiff-zero`, ambos recebendo o caminho do patch preservado.
++Confira os 20 hashes com o índice preservado. O patch usa contexto zero para
++não transportar linhas históricas alheias ao delta; aplique somente na base
++exata. Para rollback seletivo do conjunto, `git apply --reverse --unidiff-zero`
++exige primeiro conferir os mesmos hashes e ausência de mudanças posteriores.
++Isso é uma receita local, sem autorização de push, merge ou reversão remota.
++Os snapshots e hashes da revisão anterior permanecem históricos e intactos.
++
++Nenhum teste foi repetido após as correções documentais: o código e os testes
++executados permanecem byte-idênticos à base. A evidência não comprova o futuro
++adaptador nem a fonte externa de consentimento. A futura implementação também
++usa o runner offline com doubles de leitura, sem conexão a qualquer banco.
++
++Único gate humano: Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION. O contrato está entregue; a implementação
++seguinte ainda depende dessa decisão. E4b segue pausada, e todos os gates de
++banco, publicação, envio, ativação e PROD permanecem fora desta missão.
+diff --git a/docs/ops/d6-cell-report-contract/LENTE-REVIEW.md b/docs/ops/d6-cell-report-contract/LENTE-REVIEW.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/LENTE-REVIEW.md
+@@ -0,0 +1,65 @@
++# LENTE: parecer da única rodada independente
++
++Missão: M-2026-09-13-d6-cell-report-operational-contract.
++Revisora: LENTE, gpt-5.6-terra max, sessão distinta da FORJA.
++Modo: somente leitura/offline, worktree própria
++`.worktrees/d6-cell-report-contract-review-20260913`.
++Referência temporal da inspeção: 2026-09-13T19:27:12-03:00.
++Base: `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
++Patch integral revisado: `ba11308867c7a418ea18e0e1ffc53ee3db8e30ef2524b171811b3f0b7a4f87e2`.
++Fonte: parecer devolvido no terminal LENTE, capturado pelo Orquestrador.
++Rodada 1 de no máximo 1; nenhuma segunda revisão autorizada nesta missão.
++
++## Veredito sobre o candidato acima: NAO APTO
++
++A1, A3, A4 e A5 aptos no recorte documental. PR362 adiado como áudio-only,
++consentimento externo deny-all, C09/C10 BLOCKED_BY_E4B e backend preservado.
++A2 apto como contrato comportamental; a sucessora precisa explicitar
++`now=clock` e testar os vínculos do alvo.
++A6 depende de resolver o bloqueador A7.
++
++## P1 bloqueador, critério A7
++
++Em `docs/ops/d6-cell-report-contract/FINAL-REPORT.md:97`, a descrição da
++sucessora se limita a implementar e testar offline o adaptador.
++Faltam arquivos de implementação, módulos de teste, dependências e casos
++de aceite executáveis.
++
++Correção exigida pela LENTE: acrescentar no mesmo relatório um recorte
++executável, derivado do contrato existente em
++`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md:64`,
++sem alternativas pendentes, incluindo:
++
++- arquivos exatos do adaptador e do mint do alvo opaco;
++- arquivos de teste exatos;
++- CurrentUser, AgentTurnIdentity, resolvedor, validação do inbound,
++  alvo opaco, RLS e relógio injetado como dependências delimitadas;
++- tenant divergente, inbound ausente/adulterado, ator divergente, none,
++  ambiguidade, overflow, limite temporal com now=clock e alvo vinculado
++  ao mesmo inbound, ator e reunião;
++- proibições de writer, permit positivo, _mint_operational_consent_permit,
++  bypass de purpose_consent, staging, UoW, commit, runtime, rede e C09/C10.
++
++## Evidência confirmada pela LENTE
++
++16 arquivos, incluindo 11 não rastreados, byte-idênticos ao inventário
++`CANDIDATE-INDEX.json` do controle. Hash integral do patch confirmado.
++Hash semântico `7e27d897eee3696d0a985fc5ee169857de69368d0fccaab267dfd4680d642059`
++e normalizado `88ffb8fb186f1f7b81cd66d708f1812513aefd3ff4117006df4dbd90c7320ad8`
++reproduzidos. `git diff --check` passou, sem diff em backend ou manifesto.
++Recibos confirmam 17 testes, zero falhas/erros/skips e zero guard_denials.
++
++LENTE não executou pytest, não importou produto, não escreveu arquivos,
++não acessou banco, rede, hooks, runtime, credenciais ou PROD.
++QA visual não se aplica: nenhum fluxo ou UI alterado.
++
++## Tratamento do achado
++
++Este parecer permanece referente ao candidato exato acima.
++Correção pela FORJA e verificação objetiva pelo Orquestrador são a continuação
++da mesma missão prevista na ficha; não serão rotuladas como novo parecer APTO
++da LENTE. A worktree de revisão preserva o candidato original.
++
++Gate humano único permanece: Raniel autorizar nominalmente
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` após correção e aceite
++do contrato; a implementação não está autorizada nesta missão.
+diff --git a/docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json b/docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json
+@@ -0,0 +1,16 @@
++{
++  "mission": "M-2026-09-13-d6-cell-report-operational-contract",
++  "status": "PREPARATION_COMPLETE_CONTRACT_PENDING",
++  "at": "2026-09-13T18:47:01.083041-03:00",
++  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
++  "branch": "docs/d6-cell-report-operational-contract-20260913",
++  "worktree": ".",
++  "clean_before_preparation": true,
++  "pr362_disposition": "DEFERRED_AUDIO_LOCAL_ONLY_REMOTE_OPEN",
++  "consensus_source": "Consenso dos Conselheiros:16, read via own Maestri CLI",
++  "ficha_sha256": "22e4b14dc081def514b13eabeca2ad58cae475ee4643753c181021afd5aa8e12",
++  "pytest_status": "NOT_RUN_DURING_PREPARATION",
++  "delegation": "NOT_STARTED",
++  "next_human_gate": "Raniel autorizar M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION após aceite e única revisão",
++  "external_mutations": []
++}
+diff --git a/docs/ops/d6-cell-report-contract/P1-VERIFIED.json b/docs/ops/d6-cell-report-contract/P1-VERIFIED.json
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/P1-VERIFIED.json
+@@ -0,0 +1,16 @@
++{
++  "at": "2026-09-13T19:40:21.584954-03:00",
++  "verifier": "Orquestrador",
++  "method": "verificação objetiva do P1 após única rodada LENTE; não é novo parecer independente",
++  "reviewed_patch_sha256": "ba11308867c7a418ea18e0e1ffc53ee3db8e30ef2524b171811b3f0b7a4f87e2",
++  "changed_since_review": [
++    "docs/ops/d6-cell-report-contract/FINAL-REPORT.md"
++  ],
++  "corrected_report_sha256": "1434d304e8a80622850ee925cb69f6bc7fdc2cf43e96b8548306d5810bb05ba9",
++  "correction_patch_sha256": "436b5ce5fb26eda3a1317bdbd4dcf85794fe6ad83f028fc5365fb683e20c7410",
++  "acceptance": "P1-A7 RESOLVIDO; arquivos, interface, dependências e casos fixados; inbound existente, locks/handles/RLS preservados como obrigação futura",
++  "source_check": "_load_bound_inbound, _require_external_transaction e _mint_cell_report_meeting_target existentes no coordenador; meeting_has_passed com comparação estrita no domínio",
++  "tests": "17/17 do resolvedor inalterado, sem repetição para correção documental",
++  "review_rounds": 1,
++  "next_gate": "Raniel autorizar M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION"
++}
+diff --git a/docs/ops/d6-cell-report-contract/PATCH-REVIEW.md b/docs/ops/d6-cell-report-contract/PATCH-REVIEW.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/PATCH-REVIEW.md
+@@ -0,0 +1,107 @@
++# Patch revisável e rollback
++
++Registro histórico do candidato submetido à única revisão LENTE. Os hashes
++abaixo se reproduzem na worktree de revisão preservada, não na entrega após
++P1. Para o estado final, consulte FINAL-REPORT.md e o índice FINAL-CANDIDATE
++no controle.
++
++Base de comparação: `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
++Branch candidata: `docs/d6-cell-report-operational-contract-20260913`.
++Ambiente de montagem: `local/offline`.
++
++## Escopo para revisão independente
++
++O inventário integral está em `FINAL-REPORT.md`. O patch é exclusivamente
++documental: cinco arquivos rastreados modificados, seis documentos novos de
++candidato, três artefatos de abertura preservados e dois recibos sanitizados do
++runner. Não inclui `backend/app`, `backend/migrations`,
++`docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md`, flags, guardas, credenciais ou dados
++reais.
++
++O revisor deve comparar tanto os arquivos rastreados quanto os não rastreados,
++pois a ficha, o contrato e os recibos ainda não foram preparados para commit.
++Os comandos de controle já executados na worktree foram:
++
++```bash
++git diff --check 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++git diff --exit-code 7a7afa3d08927f3f5b2ed116638aed3131dde88b -- backend/app backend/migrations docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md
++git status --porcelain=v1 --untracked-files=all
++```
++
++## Hash de conteúdo semântico
++
++Em `2026-09-13T19:06:21-03:00`, o conjunto abaixo produziu
++`SHA-256 7e27d897eee3696d0a985fc5ee169857de69368d0fccaab267dfd4680d642059`:
++
++- `docs/ai/AI-BOOTSTRAP.md`
++- `docs/ai/PRD-COVERAGE.md`
++- `docs/WIKI-IGREJA12.md`
++- `docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md`
++- `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`
++- `docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md`
++- `docs/ops/POST-V1-MISSION-REGISTER.md`
++- `docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md`
++- `docs/sprints/2026-09-13-d6-cell-report-operational-contract.md`
++
++Reprodução, a partir da raiz da worktree, sem alterar arquivos:
++
++```bash
++sha256sum \
++  docs/ai/AI-BOOTSTRAP.md \
++  docs/ai/PRD-COVERAGE.md \
++  docs/WIKI-IGREJA12.md \
++  docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md \
++  docs/decisions/2026-09-13-d6-cell-report-operational-contract.md \
++  docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md \
++  docs/ops/POST-V1-MISSION-REGISTER.md \
++  docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md \
++  docs/sprints/2026-09-13-d6-cell-report-operational-contract.md | LC_ALL=C sort | sha256sum
++```
++
++## Hash do patchset completo
++
++PATCHSET_SHA256_NORMALIZADO: 88ffb8fb186f1f7b81cd66d708f1812513aefd3ff4117006df4dbd90c7320ad8
++
++O hash abaixo inclui os cinco arquivos rastreados modificados e os onze
++arquivos não rastreados do inventário. Para que os três documentos que exibem
++o próprio valor possam pertencer ao conjunto, a única normalização substitui
++`PENDING` ou o hash exibido por 64 zeros antes do cálculo. Nenhum outro byte é
++normalizado.
++
++```bash
++(
++  export LC_ALL=C
++  for candidate_file in \
++    docs/WIKI-IGREJA12.md \
++    docs/ai/AI-BOOTSTRAP.md \
++    docs/ai/PRD-COVERAGE.md \
++    docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md \
++    docs/decisions/2026-09-13-d6-cell-report-operational-contract.md \
++    docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md \
++    docs/ops/POST-V1-MISSION-REGISTER.md \
++    docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md \
++    docs/ops/d6-cell-report-contract/FINAL-REPORT.md \
++    docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json \
++    docs/ops/d6-cell-report-contract/PATCH-REVIEW.md \
++    docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md \
++    docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md \
++    docs/ops/d6-cell-report-contract/pytest-resolver.json \
++    docs/ops/d6-cell-report-contract/pytest-resolver.xml \
++    docs/sprints/2026-09-13-d6-cell-report-operational-contract.md
++  do
++    printf '%s ' "$candidate_file"
++    sed -E 's/PATCHSET_SHA256_NORMALIZADO: (PENDING|[0-9a-f]{64})/PATCHSET_SHA256_NORMALIZADO: 0000000000000000000000000000000000000000000000000000000000000000/' "$candidate_file" | sha256sum | awk '{print $1}'
++  done
++) | sha256sum
++```
++
++## Rollback
++
++O rollback autorizado pelo contrato é documental e seletivo. Depois de
++confirmar o patch, o hash e a ausência de alterações posteriores de terceiros,
++reverter somente os caminhos desta missão. Preservar a ficha,
++`OPENING-RECEIPT.json`, `PR362-DISPOSITION.md` e os recibos de teste.
++
++Não usar `git reset --hard`, `git clean`, remoção de worktree, banco, rede ou
++operação remota. Não há alteração de aplicação, schema ou ambiente
++compartilhado a compensar.
+diff --git a/docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md b/docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md
+@@ -0,0 +1,29 @@
++# Destino do PR #362 antes da abertura da missão D6 de relatório
++
++Decisão local do Orquestrador em 2026-09-13, sob ordem nominal de Raniel
++transmitida no chat e ressalvas conjuntas da nota `Consenso dos Conselheiros`,
++linha 16, lida nesta sessão.
++
++O PR #362 fica ADIADO como proposta exclusiva de áudio, fora da linha ativa
++de relatório de célula. Não será integrado, rebaseado, copiado nem usado como
++contrato concorrente nesta missão. Seu documento permanece uma proposta
++`DRAFT_CONTRACT / NOT_APPROVED / NO_CODE_AUTHORIZED`; áudio não é requisito
++do contrato operacional de relatório de célula por texto.
++
++O contrato ativo desta missão usará o identificador D6-CELL-REPORT e o arquivo
++`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`.
++Esse contrato referencia a proposta D6-AUDIO para delimitar o escopo, sem
++substituir ou aprovar suas decisões de transcrição, armazenamento e cobrança.
++
++Evidência: API pública GET `/repos/haniellevi/PastorAI-LionClaw-V1/pulls/362`
++e `/pulls/362/files?per_page=100`, consultadas em 2026-09-13 nesta sessão:
++PR OPEN, criado em 2026-09-03T11:57:33Z, branch
++`docs/d6-audio-caller-contract-v5`, head
++`e41998c5e9aa698bde60e062682064d91dc24fbf`, único arquivo adicionado
++`docs/decisions/2026-09-02-d6-audio-caller-contract.md` (1046 linhas).
++URL: https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/362
++
++Nenhuma mutação remota foi feita. A PR continua aberta no GitHub;
++ADIADO é o destino na fila local, não um fechamento remoto simulado.
++Esta decisão satisfaz a separação prévia dos dois escopos e não abre
++uma missão de áudio nem um gate de publicação.
+diff --git a/docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md b/docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md
+@@ -0,0 +1,32 @@
++# Matriz C01-C10 do contrato D6-CELL-REPORT
++
++Ambiente: `local/offline`. Base: `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
++Execução focal: `2026-09-13T18:57:15-03:00` a
++`2026-09-13T18:57:16-03:00`, 17 aprovados, sem recusas do runner. O recibo
++gerado é `pytest-resolver.json` e o JUnit é `pytest-resolver.xml`.
++
++Estados usados:
++
++- `VERIFICADO_OFFLINE`: o comportamento indicado foi exercitado no teste
++  identificado, com dados sintéticos e sem banco/rede. Não demonstra ambiente
++  vivo, RLS viva, caller, consentimento ou persistência.
++- `EXPECTATIVA_DOCUMENTADA`: a regra é exigência do contrato e possui fonte
++  source-only, mas a totalidade do cenário não foi exercitada nesta missão.
++- `BLOCKED_BY_E4B`: o caso depende de concessão externa aprovada de
++  `tarefas_operacionais`. Não foi executado, simulado ou marcado como skip.
++
++| ID | Cenário | Expectativa fechada | Evidência e fonte | Estado | Limite |
++|---|---|---|---|---|---|
++| C01 | Reunião fora da igreja confiável | Nenhum candidato é retornado quando os tenants de reunião e célula divergem do tenant server-bound. | Consulta e checagem em `backend/app/services/cell_report_meeting_resolver.py:249-305` e `backend/app/services/cell_report_meeting_resolver.py:340-362`; caso em `backend/tests/test_cell_report_meeting_resolver.py:152-175`; execução em `docs/ops/d6-cell-report-contract/pytest-resolver.json:4-26`. | `VERIFICADO_OFFLINE` | Fake session e monkeypatch de escopo no teste não provam RLS PostgreSQL nem emissão de alvo. |
++| C02 | Ator sem responsabilidade válida | Acesso inativo, duplicado, ausente ou sem papel ministerial não deve escolher ator nem produzir candidato. | Revalidação em `backend/app/services/cell_report_meeting_resolver.py:153-246`; subconjunto inativo/duplicado em `backend/tests/test_cell_report_meeting_resolver.py:371-390`; execução em `docs/ops/d6-cell-report-contract/pytest-resolver.json:4-26`. | `EXPECTATIVA_DOCUMENTADA` | A execução não possui caso dedicado de ausência de papel ministerial; não declara o cenário inteiro verificado. |
++| C03 | Reunião ausente | Resultado é `none`, sem alvo, quando não houver candidato elegível. | Resultado fechado em `backend/app/services/cell_report_meeting_resolver.py:145-150` e `backend/app/services/cell_report_meeting_resolver.py:401-427`. | `EXPECTATIVA_DOCUMENTADA` | A execução focal não possui caso dedicado de conjunto vazio após todas as revalidações. |
++| C04 | Duas reuniões elegíveis | Resultado é `ambiguous`, com ordem determinística e sem seleção silenciosa. | Ordenação em `backend/app/services/cell_report_meeting_resolver.py:401-427`; caso em `backend/tests/test_cell_report_meeting_resolver.py:178-198`; execução em `docs/ops/d6-cell-report-contract/pytest-resolver.json:4-26`. | `VERIFICADO_OFFLINE` | Não emite `CellReportMeetingTarget` nem inicia staging. |
++| C05 | Alvo de outro inbound/ator ou janela inválida | Divergência de inbound, ator, tenant ou tempo deve impedir emissão/uso do alvo antes de operação. | Janela e vínculos em `backend/app/services/cell_report_meeting_resolver.py:308-398`; inbound/ator em `backend/app/services/cell_report_whatsapp_coordinator.py:568-648`; alvo revalidado em `backend/app/services/cell_report_whatsapp_coordinator.py:403-432`; subconjunto no teste `backend/tests/test_cell_report_meeting_resolver.py:152-175`. | `EXPECTATIVA_DOCUMENTADA` | Não há adaptador entre resolvedor e alvo neste SHA; o teste focal não executa a ligação inbound para alvo. |
++| C06 | Consentimento ausente ou gate indisponível | Negar antes de proposta ou confirmação, sem writer, gravação ou concessão. | Gate em `backend/app/services/cell_report_whatsapp_coordinator.py:282-295`; fail-closed em `backend/app/services/cell_report_whatsapp_coordinator.py:669-692`; pré-staging em `backend/app/services/cell_report_whatsapp_coordinator.py:740-772` e `backend/app/services/cell_report_whatsapp_coordinator.py:820-858`; teste não executado em `backend/tests/test_cell_report_whatsapp_coordinator.py:310-337`. | `EXPECTATIVA_DOCUMENTADA` | A suíte do coordenador contém gates permissivos de teste e foi deliberadamente excluída desta missão. |
++| C07 | Consentimento retirado ou finalidade divergente | Negar. Papel, liderança, opt-out ou outro propósito não substituem `tarefas_operacionais`. | Finalidade em `backend/app/services/cell_report_whatsapp_coordinator.py:231-245` e `backend/app/services/cell_report_whatsapp_coordinator.py:651-666`; revalidação em `backend/app/services/cell_report_whatsapp_coordinator.py:669-727`; fonte externa em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md:25-28`. | `EXPECTATIVA_DOCUMENTADA` | Não existe fonte E4B nem writer de teste autorizado. |
++| C08 | Validade ou proveniência não comprovada | Negar. Não presumir expiração, prova ou proveniência que o domínio externo não forneça. | Permit não durável em `backend/app/services/cell_report_whatsapp_coordinator.py:248-268`; validade em `backend/app/services/cell_report_whatsapp_coordinator.py:457-485`; E4B ausente em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md:25-28`. | `EXPECTATIVA_DOCUMENTADA` | A validação de permit local não satisfaz catálogo, ledger ou recibo externo. |
++| C09 | Proposta que exige consentimento concedido | Não executar proposta positiva. | Gate em `backend/app/services/cell_report_whatsapp_coordinator.py:282-295`; proposta após permit em `backend/app/services/cell_report_whatsapp_coordinator.py:740-772`; bloqueio em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md:88-92`. | `BLOCKED_BY_E4B` | E4B é fonte externa ausente. Nenhum permit, writer ou monkeypatch positivo foi criado. |
++| C10 | Confirmação/persistência que exige consentimento concedido | Não executar confirmação, UoW, persistência ou resposta positiva. | Gate em `backend/app/services/cell_report_whatsapp_coordinator.py:282-295`; confirmação após permit em `backend/app/services/cell_report_whatsapp_coordinator.py:820-858`; bloqueio em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md:88-92`. | `BLOCKED_BY_E4B` | E4B é fonte externa ausente. Nenhuma confirmação positiva foi simulada. |
++
++Esta matriz é evidência de aceite do contrato, não um segundo contrato e não
++altera comportamento do produto.
+diff --git a/docs/ops/d6-cell-report-contract/pytest-resolver.json b/docs/ops/d6-cell-report-contract/pytest-resolver.json
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/pytest-resolver.json
+@@ -0,0 +1,27 @@
++{
++  "repository": ".",
++  "python": "3.13.14 (main, Aug  5 2026, 15:44:26) [Clang 22.1.3 ]",
++  "started_at": "2026-09-13T18:57:15.204460-03:00",
++  "finished_at": "2026-09-13T18:57:16.404801-03:00",
++  "pytest_args": [
++    "-q",
++    "-p",
++    "no:cacheprovider",
++    "-c",
++    "./backend/pytest.ini",
++    "-p",
++    "no:cacheprovider",
++    "--tb=short",
++    "-ra",
++    "-v",
++    "-o",
++    "faulthandler_timeout=20",
++    "--junitxml=./docs/ops/d6-cell-report-contract/pytest-resolver.xml",
++    "tests/test_cell_report_meeting_resolver.py"
++  ],
++  "pytest_exit_code": 0,
++  "guard_denials": [],
++  "reviewed_deterministic_subprocesses": [],
++  "environment_values": "clean allowlist, no application credentials",
++  "limits": "Parent Python audit events plus libpq/SQLAlchemy guards; two exact-script child invocations are allowed with clean environment and inherit sandbox restrictions, not the Python audit guard; not an OS isolation attestation"
++}
+diff --git a/docs/ops/d6-cell-report-contract/pytest-resolver.xml b/docs/ops/d6-cell-report-contract/pytest-resolver.xml
+new file mode 100644
+--- /dev/null
++++ b/docs/ops/d6-cell-report-contract/pytest-resolver.xml
+@@ -0,0 +1 @@
++<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="17" time="0.501" timestamp="2026-09-13T18:57:15.751727-03:00" hostname="raniel-Legion-5-Pro"><testcase classname="tests.test_cell_report_meeting_resolver" name="test_resolves_one_server_bound_pending_meeting_without_writes" time="0.004" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_rejects_cross_tenant_inactive_future_cancelled_or_completed[overrides0]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_rejects_cross_tenant_inactive_future_cancelled_or_completed[overrides1]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_rejects_cross_tenant_inactive_future_cancelled_or_completed[overrides2]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_rejects_cross_tenant_inactive_future_cancelled_or_completed[overrides3]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_rejects_cross_tenant_inactive_future_cancelled_or_completed[overrides4]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_multiple_meetings_are_ambiguous_in_deterministic_order" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_three_candidates_remain_ambiguous" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_candidate_overflow_is_rejected_instead_of_truncated" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_database_failure_does_not_retain_sql_or_parameter_traceback" time="0.002" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_tenant_scope_guard_rejects_before_domain_queries[missing]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_tenant_scope_guard_rejects_before_domain_queries[divergent]" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_meeting_query_has_explicit_tenant_actor_and_bounded_bindings" time="0.097" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_resolution_status_is_closed" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_suggested_id_is_only_accepted_after_full_revalidation" time="0.002" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_invalid_actor_or_meeting_id_fails_closed" time="0.001" /><testcase classname="tests.test_cell_report_meeting_resolver" name="test_inactive_or_ambiguous_authenticated_access_does_not_choose_an_actor" time="0.001" /></testsuite></testsuites>
+\ No newline at end of file
+diff --git a/docs/sprints/2026-09-13-d6-cell-report-operational-contract.md b/docs/sprints/2026-09-13-d6-cell-report-operational-contract.md
+new file mode 100644
+--- /dev/null
++++ b/docs/sprints/2026-09-13-d6-cell-report-operational-contract.md
+@@ -0,0 +1,39 @@
++---
++mission: M-2026-09-13-d6-cell-report-operational-contract
++status: concluida_offline
++base_sha: 7a7afa3d08927f3f5b2ed116638aed3131dde88b
++environment: local_offline
++---
++
++# D6-CELL-REPORT: contrato operacional de reunião confiável
++
++Em 2026-09-13, a missão produziu um candidato documental para delimitar a
++integração futura entre o resolvedor server-bound de reunião e o alvo opaco do
++coordenador. Não houve alteração de runtime, banco, migration, caller,
++consentimento, proposta, confirmação, commit, envio, áudio ou transcrição.
++
++O PR #362 permanece adiado localmente como proposta exclusiva de áudio, sem
++mutação da PR remota. A fonte de `tarefas_operacionais` é EXTERNA e ausente;
++o gate padrão continua deny-all. C09 e C10 ficam `BLOCKED_BY_E4B`, sem teste
++positivo ou concessão fabricada.
++
++O teste focal do resolvedor foi executado pelo runner offline em
++`2026-09-13T18:57:15-03:00` a `2026-09-13T18:57:16-03:00`: 17 aprovados,
++código de saída 0 e zero recusas do runner. Trata-se de dados sintéticos e não
++prova RLS viva, caller, banco ou consentimento. A suíte do coordenador não foi
++executada porque contém gates permissivos de teste incompatíveis com o escopo.
++
++Fonte canônica do recorte: `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`.
++Matriz e recibos: `docs/ops/d6-cell-report-contract/`.
++
++Próximo gate único: Raniel autorizar nominalmente
++`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` após revisão independente do
++candidato exato. Essa implementação futura permanece offline e não abre E4B,
++runtime, caller ou consentimento positivo.
++
++
++Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
++pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
++nenhuma segunda revisão ou implementação executada. Evidência final:
++`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
++Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.

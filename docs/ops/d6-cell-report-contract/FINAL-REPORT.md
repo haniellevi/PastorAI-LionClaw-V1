@@ -223,11 +223,46 @@ aprovação independente atribuída ao candidato corrigido.
 | A7 | Ficha sucessora neste relatório fixa adapter, mint existente, testes, dependências, clock e recusas; sem novo contrato. |
 
 Os artefatos de encerramento acrescentam `LENTE-REVIEW.md`, `P1-VERIFIED.json`
-e `CLOSURE-RECEIPT.json`. O inventário integral e o hash final sem autorreferência
-ficam no controle em `docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json`
-e `FINAL-CANDIDATE.patch`, sob a worktree `maestri-astra-workspace-plan`.
-Os hashes históricos acima continuam reproduzíveis na worktree de revisão
-`d6-cell-report-contract-review-20260913`, preservada sem alterações.
+e `CLOSURE-RECEIPT.json`. Para reprodução a partir do Git, esta pasta agora
+versiona `FINAL-CANDIDATE-INDEX.json` e `FINAL-CANDIDATE.patch`.
+O índice cobre os 19 arquivos finais D6 e o runbook efetivamente lido,
+`docs/ops/MISSION-CONTROL.md`, publicado nesta correção. O patch reproduz
+esse conjunto sanitizado sobre a base `7a7afa3d08927f3f5b2ed116638aed3131dde88b`.
+Índice, patch e recibo de sanitização são excluídos do próprio conjunto para
+impedir autorreferência; seus bytes ficam ancorados pelo commit Git.
+
+A publicação de 14/09/2026 remove caminhos absolutos dos quatro registros
+autorizados, preservando resultados, horários e hashes de eventos históricos.
+`SANITIZATION-RECEIPT-20260914.json` registra hashes antes/depois e a origem
+do índice/patch históricos do controle. Referências antigas ao índice "no
+controle" são proveniência histórica; o índice versionado é o estado
+sanitizado atual. Os hashes antigos não atestam os bytes sanitizados, e não
+houve nova revisão LENTE. O teste do resolvedor não foi reexecutado.
+
+Para conferir o conjunto no checkout deste commit, a partir da raiz:
+
+```python
+import hashlib
+import json
+from pathlib import Path
+index = json.loads(Path("docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json").read_text())
+actual = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in index["files_sha256"]}
+assert actual == index["files_sha256"]
+records = "".join(p + "\0" + actual[p] + "\n" for p in sorted(actual))
+assert hashlib.sha256(records.encode()).hexdigest() == index["changed_files_digest_sha256"]
+patch = Path("docs/ops/d6-cell-report-contract/FINAL-CANDIDATE.patch").read_bytes()
+assert hashlib.sha256(patch).hexdigest() == index["patch_sha256"]
+```
+
+Para reconstruir, preserve somente patch e índice fora de um checkout limpo
+da base indicada. Nesse checkout, execute `git apply --check --unidiff-zero`
+e `git apply --unidiff-zero`, ambos recebendo o caminho do patch preservado.
+Confira os 20 hashes com o índice preservado. O patch usa contexto zero para
+não transportar linhas históricas alheias ao delta; aplique somente na base
+exata. Para rollback seletivo do conjunto, `git apply --reverse --unidiff-zero`
+exige primeiro conferir os mesmos hashes e ausência de mudanças posteriores.
+Isso é uma receita local, sem autorização de push, merge ou reversão remota.
+Os snapshots e hashes da revisão anterior permanecem históricos e intactos.
 
 Nenhum teste foi repetido após as correções documentais: o código e os testes
 executados permanecem byte-idênticos à base. A evidência não comprova o futuro

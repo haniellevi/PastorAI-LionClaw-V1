@@ -26,7 +26,7 @@ Início: `2026-09-13T18:57:15.204460-03:00`.
 Fim: `2026-09-13T18:57:16.404801-03:00`.
 
 ```bash
-env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/raniel-linux/workspace/PastorAi-1.0/backend/.venv-runtime/bin/python -I -B /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/maestri-astra-workspace-plan/docs/ops/pr364-rebase/run_offline_pytest.py /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-operational-contract-20260913 /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-operational-contract-20260913/docs/ops/d6-cell-report-contract/pytest-resolver tests/test_cell_report_meeting_resolver.py
+env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../../backend/.venv-runtime/bin/python -I -B ../maestri-astra-workspace-plan/docs/ops/pr364-rebase/run_offline_pytest.py . ./docs/ops/d6-cell-report-contract/pytest-resolver tests/test_cell_report_meeting_resolver.py
 ```
 
 Resultado: `17 passed in 0.50s`, código de saída `0`,
