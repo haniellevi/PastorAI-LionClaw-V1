@@ -148,3 +148,128 @@ Conclusão diagnóstica: o exit 8 do launcher não decorre de bug do auditor. O 
 Teardown complementar: o contêiner foi removido com exit 0; a consulta posterior não encontrou seu nome e a porta loopback `55439` não possuía listener.
 
 Veredito atual: `BLOCKED_BY_DECLARED_TEST_CONTRACT_CONFLICT`. Não há evidência de regressão nos 18 oráculos E4b ou no replay 77. Há evidência direta de que o conjunto agregado declarado não pode passar no mesmo ciclo de vida de alvo exigido pelo launcher. O próximo passo exige mudança autorizada do contrato ou do launcher, nova revalidação completa e LENTE independente antes de qualquer push ou PR.
+
+## Revalidação final no candidato `dcaab98cae01a5986e39144a9ab28f33306f6e67`
+
+Data da evidência final: 2026-09-14T16:16:52-03:00. Esta seção preserva integralmente os recibos históricos acima e substitui o veredito operacional somente para o candidato final indicado nesta seção.
+
+### Identidade, fonte e limites
+
+| Campo | Evidência |
+| --- | --- |
+| Missão | `M-2026-09-14-e4b-catalog-chain-integration-readiness-offline` |
+| Branch | `rebase/e4b-catalog-chain-readiness-20260914` |
+| Candidato | `dcaab98cae01a5986e39144a9ab28f33306f6e67` |
+| Base | `615408514103be1d67bcafa182b5b3b05f1c3e73` |
+| Preflight | `HEAD` exato e worktree limpo |
+| Runtime local | Python 3.13.14, pytest 9.1.0, SQLAlchemy 2.0.50 |
+
+O diff entre base e candidato passou em `git diff --check`, exit 0. Os hashes SHA-256 de fonte relevante são: catálogo `88e588660f995f774fe298d2bd4e5ea80d399006379661156b7eff28a6940a57`, launcher de replay `753abf57747de9a28f6192617dfd7ea348cb7adf302d7acbd57f280de3d8ce3f` e workflow de catálogo `f2fc5ffc2943f7134a38dc251db2bffc1c7545956729862ed98a227dda2ff8c7`.
+
+Não houve rede externa, ambiente compartilhado, credencial real, `apply_migrations.py`, alteração de código, SQL, catálogo, flags, manifesto, commit, push, PR, merge ou ativação. O único arquivo alterado nesta missão é este relatório sanitizado.
+
+### Correção de ambiente e suíte backend offline
+
+A primeira execução desta etapa usou um snapshot confiável sem diretório `.git`. Ela coletou 6.905 itens, desmarcou 382 e selecionou 6.523 antes de ser interrompida pela correção de ambiente, exit 130. Esse snapshot não é fonte válida para testes que invocam Git e não produz recibo de passagens, falhas, skips ou deselected finais. O snapshot foi removido. Esta tentativa é classificada como `AMBIENTE_INVALIDO`, não como regressão do candidato.
+
+Foi então criado um clone Git local privado sob diretório temporário, com `umask 077`, objetos locais sem hardlinks, checkout detached no SHA exato, proprietário da sessão e diretórios em modo `700`. A suíte equivalente ao job backend offline foi iniciada no clone, sem `RLS_TEST_DATABASE_URL`, com seleção `-m "not rls_integration"` e timeout de 20 minutos. Ela excedeu o limite e foi encerrada pelo timeout, exit 137 após o sinal de término escalado. O modo silencioso não emitiu contagens finais, portanto coletados, passados, falhos, skips e deselected finais são `NÃO_EMITIDOS`; não devem ser inferidos. O clone privado foi removido e sua ausência foi confirmada. Esse timeout é evidência negativa de completude da suíte, não uma correção de fonte.
+
+### Verificação estática do catálogo
+
+`backend/scripts/verify_migration_catalog_ci.py` foi executado no worktree Git original com `event-name=pull_request`, candidato e base exatos e `push-before-sha` vazio. Resultado: exit 0, `RESULT=MIGRATION_CATALOG_CI_VERIFIED_OFFLINE`, 77 migrations, digest `162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801`, `HISTORICAL_CONSUMERS=VERIFIED_BLOCKED_ONLY`, `OPERATIONAL_AUTHORIZATION=BLOCKED` e `NEXT_STAGE_AUTHORIZED=false`.
+
+### PostgreSQL 17.6 descartável
+
+A imagem local e pinada foi `postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929`. Não houve pull nem conexão externa.
+
+| Job local | Contêiner e porta loopback | Resultado |
+| --- | --- | --- |
+| replay-current-head | `pastorai-e4b-final-replay-pg176-20260914`, ID curto `b811a55e9d1f`, porta `55439`, saudável, PostgreSQL 17.6 | O modo `REPLAY_MIGRATION_CATALOG_CURRENT_HEAD_PG17_DISPOSABLE` retornou exit 0, 77 migrations, digest esperado e major `17`. |
+| declared-nodeids, evidência válida | `pastorai-e4b-final-declared-pg176-20260914`, ID curto `1dbf4c478ffc`, porta `55440`, saudável, PostgreSQL 17.6, iniciado somente com banco `postgres` | No worktree Git original limpo, o modo `RUN_DECLARED_MIGRATION_TESTS_PG17_DISPOSABLE` retornou exit 0, 37 nodeids declarados, 37 coletados e 37 passados. O auditor falha fechado para erro, skip, xfail ou xpass em `backend/scripts/replay_migration_catalog_current_head_pg17.py:933-995`; por isso o recibo exit 0 prova zero desses estados. |
+
+O primeiro alvo foi removido após o replay, e a porta `55439` ficou sem listener. Antes da evidência válida de nodeids houve duas tentativas inválidas: uma URL local sem o esquema `postgresql+psycopg2`, rejeitada antes da coleta, e uma execução no snapshot sem `.git`, recusada pelo contrato posterior de ambiente. O contêiner correspondente foi removido antes da recriação; ambas são `AMBIENTE_INVALIDO`, não evidência de regressão.
+
+O segundo alvo foi removido após os checks. Consultas posteriores não encontraram nenhum dos dois nomes de contêiner e as portas `55439` e `55440` não tinham listener.
+
+### Guardas e limitação de ordenação
+
+O guarda de privacidade foi repetido no clone Git válido: 13 aprovados, exit 0.
+
+O guarda de replay completo foi repetido no clone Git válido após o modo declarado: 99 aprovados, 1 falha, 0 skips, exit 1. O único nodeid falho foi `backend/tests/test_replay_migration_catalog_current_head_pg17.py::test_appended_tenant_migration_replays_end_to_end_on_real_pg17`, na fase `call`, com `DatabaseContractError` sanitizado. A classificação é `LIMITACAO_DE_ORDENACAO_DO_ALVO`, não regressão atribuída ao diff: o teste remove e recria apenas o banco dedicado em `backend/tests/test_replay_migration_catalog_current_head_pg17.py:195-233`, enquanto o replay exige também ausência das quatro roles globais em `backend/scripts/replay_migration_catalog_current_head_pg17.py:524-566`. O modo declarado válido introduz essas roles no mesmo cluster antes do guarda. Não houve SQL manual, terceiro alvo, bypass ou nova tentativa.
+
+### Teardown e veredito final
+
+O snapshot inicial, o clone Git privado e todos os contêineres desta revalidação foram removidos. As verificações posteriores confirmaram ausência dos nomes de contêiner e das duas portas loopback. Nenhum recurso compartilhado foi modificado.
+
+Veredito final: `NOT_READY_FOR_PUSH_OR_PR`. O candidato final prova o CI estático, o replay oficial 77 e os 37 nodeids declarados no contexto Git correto. A revalidação completa não fica verde porque a suíte backend offline válida excedeu 20 minutos sem recibo final e o guarda de replay ficou em 99 aprovados e 1 falha por contrato de ciclo de vida do alvo após o job declarado. O próximo gate único é Raniel autorizar o diagnóstico e a correção desses dois bloqueios, seguido de nova revalidação completa e LENTE independente antes de push ou PR.
+
+## Diagnóstico local complementar autorizado
+
+Data da evidência: 2026-09-14T16:29:28-03:00. Esta seção mantém o candidato `dcaab98cae01a5986e39144a9ab28f33306f6e67`, a base `615408514103be1d67bcafa182b5b3b05f1c3e73` e o worktree Git original. No preflight, `HEAD` permaneceu exato; a única modificação era este relatório autorizado.
+
+### Guarda de replay em alvo fresco e exclusivo
+
+Foi criado um terceiro PostgreSQL local, sintético e descartável, sem replay anterior e sem execução do launcher de nodeids: imagem `postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929`, contêiner `pastorai-e4b-final-replay-guard-pg176-20260914`, ID curto `c16b1ae5d5f0`, porta loopback `55441`, banco inicial `postgres`, estado `healthy` e PostgreSQL 17.6.
+
+No checkout Git exato, somente `backend/tests/test_replay_migration_catalog_current_head_pg17.py` foi executado com `RLS_TEST_DATABASE_URL` local apontando a `/postgres`. Resultado: exit 0, 100 aprovados, 0 falhas, 0 skips, em 6,52 segundos. Esta execução isola e resolve o resultado histórico de 99 aprovados e 1 falha como consequência da reutilização ordenada de um cluster após o launcher declarado, não como falha do guarda neste candidato.
+
+O contêiner foi removido com exit 0; a consulta posterior não encontrou seu nome e a porta `55441` ficou sem listener.
+
+### Localização do timeout da suíte offline
+
+Foi criado outro clone Git local privado sob diretório temporário, com `umask 077`, objetos locais sem hardlinks, checkout detached no SHA exato, proprietário da sessão e diretórios em modo `700`. A sonda foi executada sem `RLS_TEST_DATABASE_URL`, com `pytest -vv --tb=no -m "not rls_integration"`, timeout de 180 segundos e saída exclusiva em arquivo temporário de modo `600`.
+
+A sonda retornou exit 137 após o timeout. O recorte sanitizado das cinco linhas anteriores e do último nodeid, sem caminho absoluto, foi:
+
+```text
+plataforma: Linux, Python 3.13.14, pytest 9.1.0
+rootdir: clone Git privado
+configfile: pytest.ini
+testpaths: tests
+collecting: 6.905 itens, 382 desmarcados, 6.523 selecionados
+iniciado, sem conclusão: tests/test_agenda_recipients_evt7_pr2.py::test_list_returns_recipients_for_admin
+```
+
+O nodeid foi executado isoladamente no mesmo clone, com timeout de 60 segundos e saída em segundo arquivo temporário protegido. Resultado: 1 item coletado, nenhuma conclusão emitida e exit 137. Não houve traceback bruto retido.
+
+Classificação: `TIMEOUT_DE_HARNESS_FORA_DO_DIFF_DIRETO`. O arquivo de teste, o fixture `app`, `backend/app/main.py` e `backend/app/routers/calendar.py` não mudaram entre base e candidato. O teste usa sessão e cliente falsos em `backend/tests/test_agenda_recipients_evt7_pr2.py:121-132`; o fixture cria o aplicativo em `backend/tests/conftest.py:564-584`. `backend/app/db/models.py` mudou para as declarações E4b, porém a coleta completa ocorreu antes do bloqueio, portanto não há prova de relação causal indireta. A evidência local sustenta que o timeout está fora do recorte direto E4b; a causa interna entre fixture, `TestClient` e rota não foi determinada sem instrumentação adicional, que não foi executada.
+
+Os dois arquivos de log temporários e o clone privado foram removidos, com ausência posterior confirmada. Não houve rede externa, banco compartilhado, SQL manual, `apply_migrations.py`, alteração de fonte, commit, push ou PR.
+
+### Efeito no veredito
+
+O guarda de replay está verde quando executado no alvo fresco exigido. A suíte backend offline completa continua sem recibo verde porque seu primeiro nodeid selecionado reproduz timeout isolado de 60 segundos. Este diagnóstico não cria gate novo nem altera o veredito `NOT_READY_FOR_PUSH_OR_PR`; ele reduz o bloqueio de suíte a um teste fora do diff direto e preserva a necessidade de tratamento, nova revalidação integral e LENTE independente.
+
+## Recibo definitivo da suíte offline
+
+Data: 2026-09-14T16:41:35-03:00. Esta seção substitui somente o veredito de
+timeout da seção anterior. Os recibos negativos permanecem acima como histórico
+das tentativas em ambiente inadequado.
+
+O mesmo nodeid que travou dentro do confinamento local foi executado fora desse
+confinamento, ainda com ambiente vazio, sem rede, credenciais ou banco, e passou
+em 1,25 segundo. A comparação na base `615408514103be1d67bcafa182b5b3b05f1c3e73`
+também reproduziu o timeout dentro do confinamento. A evidência localiza o
+travamento no harness confinado e não no patch E4b, sem atribuir uma syscall
+específica como causa.
+
+A suíte completa foi então executada no clone Git privado do candidato exato,
+com objetos sem hardlinks, diretórios sem escrita por grupo, `umask 077`, Python
+3.13.14, pytest 9.1.0, ambiente vazio e a seleção do CI
+`-m "not rls_integration" --durations=25`. Uma primeira passagem útil revelou
+que arquivos copiados localmente com modo `0664` eram recusados corretamente
+pelos guardas de layout. Após remover somente a escrita por grupo no clone
+descartável, os dois nodeids afetados passaram e o conteúdo Git permaneceu
+limpo no SHA exato.
+
+Resultado definitivo: exit 0, 6.516 aprovados, 7 skips existentes, 382
+desmarcados, zero falhas e zero erros em 80,83 segundos. Os skips não são usados
+como prova E4b. A prova PG17 declarada permaneceu separada e sem skips: 37
+nodeids declarados, 37 coletados e 37 aprovados. O clone privado foi usado apenas
+como fonte de teste local e será removido no teardown da missão.
+
+Veredito definitivo pré-LENTE: `READY_FOR_INDEPENDENT_REVIEW`. O candidato
+comprova catálogo 77, digest canônico, replay PostgreSQL 17, 37/37 nodeids
+declarados, guarda PG17 100/100 em alvo fresco, suíte backend offline completa e
+guarda de privacidade. Permanecem bloqueados push, PR, merge, banco compartilhado,
+credenciais, runtime e ativação.

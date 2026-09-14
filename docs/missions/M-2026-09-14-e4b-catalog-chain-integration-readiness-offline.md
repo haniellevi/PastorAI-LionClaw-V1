@@ -1,7 +1,7 @@
 ---
 project: igreja12
 document_kind: mission-control
-status: authorized_in_progress
+status: candidate_ready_for_independent_review
 authorized_by: Raniel
 authorized_on: 2026-09-14
 ---
@@ -53,13 +53,13 @@ plano_de_rollback:
   - a ref backup/e4b-c3-catalog-bound-executor-v3 permanece intacta como fonte de recuperação
 proximo_gate: Raniel decidir nominalmente entre autorizar push e PR do candidato revisado ou manter a cadeia retida
 encerramento:
-  status_final: pendente
-  sha_final: pendente
+  status_final: candidate_ready_for_independent_review
+  sha_final: commit local que contém esta ficha e o FINAL-REPORT; conferido pela LENTE no checkout exato
   branch_final: rebase/e4b-catalog-chain-readiness-20260914
   pr: nenhum
   mutacoes: worktree e branch locais da missão; nenhuma mutação externa de produto
-  evidencias: pendente
-  riscos_residuais: pendente
+  evidencias: REBASE-REPORT.md; CORRECTION-REPORT.md; REVALIDATION-REPORT.md; FINAL-REPORT.md
+  riscos_residuais: sete skips da suite ampla nao contam como prova E4b; replay local nao prova DEV, PROD ou autorizacao operacional
   registro: este arquivo e notas 01/02
 ```
 
