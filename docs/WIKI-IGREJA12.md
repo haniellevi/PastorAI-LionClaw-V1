@@ -1648,3 +1648,27 @@ ser validados no SHA exato antes de declarar a transição concluída.
 Somente laboratório: sem aplicação compartilhada, caller, concessão ou envio.
 Os indicadores operacionais continuam false. Próximo gate: revisão e
 autorização separada de merge; não é autorização de aplicação.
+## Contrato D6-CELL-REPORT: alvo confiável de reunião (2026-09-13)
+
+O contrato candidato em
+`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md` delimita
+a próxima fatia do relatório pelo WhatsApp. Ele registra que o resolvedor de
+reunião existente é read-only, devolve `none`, `candidate` ou `ambiguous`,
+e ainda não está ligado ao alvo opaco do coordenador. A missão não adicionou
+caller, runtime, worker, webhook, banco, migration, UoW, commit, envio, áudio
+ou transcrição.
+
+`tarefas_operacionais` permanece uma fonte EXTERNA que não existe neste
+recorte. Por isso, o gate público continua deny-all e C09/C10 ficam
+`BLOCKED_BY_E4B`. O runner offline verificou 17 testes sintéticos do
+resolvedor, sem provar RLS viva, consentimento ou operação. O PR #362 segue
+adiado localmente como áudio-only. A revisão independente do candidato precede
+o único próximo gate: Raniel autorizar a implementação offline do adaptador de
+alvo confiável.
+
+
+Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
+pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
+nenhuma segunda revisão ou implementação executada. Evidência final:
+`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
+Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.

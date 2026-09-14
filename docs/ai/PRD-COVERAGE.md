@@ -1576,3 +1576,25 @@ ordens e recibo vinculado ao SHA, ordem e digests. As provas históricas de
 Evidência de conclusão depende dos testes no commit exato; nenhum estado vivo
 foi revalidado. Authorizations continuam false; próximo gate é revisão e
 autorização separada de merge, sem autorização de aplicação ou runtime.
+## Contrato D6-CELL-REPORT entregue após revisão única (2026-09-13)
+
+Classificação preservada: `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO`.
+No SHA `7a7afa3d08927f3f5b2ed116638aed3131dde88b`, a missão
+`M-2026-09-13-d6-cell-report-operational-contract` documentou a interface
+futura entre o resolvedor de reunião server-bound e o alvo opaco do
+coordenador. Não implementou adaptador, caller, runtime, worker, webhook,
+consentimento, UoW, commit, envio, banco ou migration.
+
+A fonte de `tarefas_operacionais` continua EXTERNA e ausente. O default
+`DenyAllOperationalConsentGate` permanece, e os cenários positivos de proposta
+e confirmação são `BLOCKED_BY_E4B`, não aprovados nem skipped. O teste offline
+do resolvedor concluiu 17 aprovados com dados sintéticos; não prova RLS viva ou
+integração. O próximo gate é autorizar nominalmente a implementação offline do
+adaptador, após revisão independente do candidato documental.
+
+
+Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
+pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
+nenhuma segunda revisão ou implementação executada. Evidência final:
+`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
+Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.

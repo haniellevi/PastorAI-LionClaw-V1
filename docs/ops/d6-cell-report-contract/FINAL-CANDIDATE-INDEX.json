@@ -1,0 +1,39 @@
+{
+  "captured_at": "2026-09-14T09:27:35.829334-03:00",
+  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
+  "parent_commit": "144f6d8526e0e18fe8c92b2023c14b8f0c5f8458",
+  "branch": "docs/d6-cell-report-operational-contract-20260913",
+  "worktree": ".",
+  "scope": "Sanitized final D6 set: original 19 file paths plus the runbook; not a new independent review.",
+  "patch_format": "Unified diff, zero context; git apply --unidiff-zero on exact base only.",
+  "patch_sha256": "0fbef5e57e4785b2a3e2d09b16ed3ee345954f86ecadf3a328f093d2cf35a88f",
+  "changed_files_digest_algorithm": "SHA256 of UTF-8 concatenation of sorted path + NUL + file SHA256 + LF",
+  "changed_files_digest_sha256": "1922d219bcbe71674830a5e775488d91954facf6b1f99290739b2db28036b196",
+  "files_sha256": {
+    "docs/WIKI-IGREJA12.md": "a1e96899e5ddf229b4105bd25f32784513a53923a62a69743cccbd28d7ae4dc6",
+    "docs/ai/AI-BOOTSTRAP.md": "630e520859b6c7beabbcff26aa8f50d9857b8f66b5eaca01b0ea8e5f7b3f236a",
+    "docs/ai/PRD-COVERAGE.md": "de5fa97178f748ddb5fabfb4ccece92db09bb4b9e36e740ff9f185b615147d80",
+    "docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md": "29528f16557e40c467004ccc7b335888d300bd5da029ccac664fe085af763c1b",
+    "docs/decisions/2026-09-13-d6-cell-report-operational-contract.md": "a6879c11b808b74558afeb1584f8beaaa2e2c16874e692e235d1e93a74baeacb",
+    "docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md": "c47c3905f2550765389344d1b6cee25e3650130d99a5f6659b0c2902dc1ad97b",
+    "docs/ops/MISSION-CONTROL.md": "ad875b3ffcc5bfe42d5a0329d108c80299328e03a0654937f14d2d3b9c3f38be",
+    "docs/ops/POST-V1-MISSION-REGISTER.md": "3a63091c0abc5d4f3b17f62da55c42c600a78cca48eb8696b3c6b53a3f7006cc",
+    "docs/ops/d6-cell-report-contract/CLOSURE-RECEIPT.json": "aed3e3d51becd9249e0513de5f684ca1c253a968788afd739503a6da86619669",
+    "docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md": "7693c514605081a7325a6e25eec678cab523eee023b90eefc8f6172d432c884c",
+    "docs/ops/d6-cell-report-contract/FINAL-REPORT.md": "34f8397fd7abfb24bbc11e8e27b9f6b8ccce3972c189c24bef0d5e41dfb5b15f",
+    "docs/ops/d6-cell-report-contract/LENTE-REVIEW.md": "9d80d1397b42a6752dbf83d8f8bb97e10a431a66c83754a0e80bd1ee6981281f",
+    "docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json": "0b0eaf62b6fcc3b7cf9771922e3fb11312aae4ee6bdd66b6641ba30227c75d85",
+    "docs/ops/d6-cell-report-contract/P1-VERIFIED.json": "65139fd10a81781724f3ed9e602cd5a321f5cad2dd6587587d61817de98c2b0c",
+    "docs/ops/d6-cell-report-contract/PATCH-REVIEW.md": "5b1388113c4f4ca69d86346edb81acadc4c705f8162149799db3b79e801d82cb",
+    "docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md": "95b8fe402953ce743b9c3773314c18e83b59505e311a850887e671a832b63d59",
+    "docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md": "006e7f9b23a063895fa3bd9902bfb4047bcbe099fc882ccf832f2442c8f63264",
+    "docs/ops/d6-cell-report-contract/pytest-resolver.json": "191ac2c164df0932c037b4c4419584d6d78850589362a7ac7ad5fa1d43be5019",
+    "docs/ops/d6-cell-report-contract/pytest-resolver.xml": "4eee050e70e1c07e0087ccb8857b88135cf1af1cd8ddcd7166014cf96265b4ef",
+    "docs/sprints/2026-09-13-d6-cell-report-operational-contract.md": "fb90f90d95faccdb2e03d877a432fdbad6286a49419725211b8f963036901fc8"
+  },
+  "excluded_self_referential_artifacts": [
+    "docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json",
+    "docs/ops/d6-cell-report-contract/FINAL-CANDIDATE.patch",
+    "docs/ops/d6-cell-report-contract/SANITIZATION-RECEIPT-20260914.json"
+  ]
+}
