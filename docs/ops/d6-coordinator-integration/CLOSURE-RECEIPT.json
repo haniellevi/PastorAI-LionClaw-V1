@@ -1,0 +1,47 @@
+{
+  "verified_at": "2026-09-14T07:37:58.061890-03:00",
+  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
+  "reviewed_patch": "b8bef1a4cc226ab5c6a113430ce57976fc6609f4ea41bf4dfb4dd4aaeaeb5948",
+  "incremental_patch": "328913266f9eda3c79e2fb304e7cba8615e1f1bc7110dc7b19475db763792eb8",
+  "lente": "APTO",
+  "review_rounds": 1,
+  "findings": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 0
+  },
+  "candidate_unchanged": true,
+  "review_worktree_unchanged": true,
+  "previous_candidates_19_and_11_files_unchanged": true,
+  "tracked_files_equal_base": true,
+  "no_staged_changes": true,
+  "tests": 73,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "guard_denials": [],
+  "counts": {
+    "tests.test_cell_report_coordinator_integration_offline": 11,
+    "tests.test_cell_report_meeting_target_adapter": 32,
+    "tests.test_cell_report_meeting_resolver": 17,
+    "tests.test_source_contact_privacy.SourceContactPrivacyTests": 13
+  },
+  "test_start": "2026-09-14T07:19:54.524462-03:00",
+  "test_end": "2026-09-14T07:19:58.147096-03:00",
+  "test_new_sha256": "5d45938a4ddf255c8d6d8cbbb80a776472c1215c4787f72c973bb61b364e9df3",
+  "inherited_files_sha256": {
+    "backend/app/services/cell_report_meeting_target_adapter.py": "5dd551f7406085987a785695beff8500653e0aee4abcd41b7acec8148024b14f",
+    "backend/tests/test_cell_report_meeting_target_adapter.py": "77dfe9ecc6b8f88ebb1789c635e139c9774d14b0d643cb89421519cdd9f851d5"
+  },
+  "limits": "composição negativa offline; C09/C10 BLOCKED_BY_E4B; sem PostgreSQL/RLS/concorrência reais, fonte externa, caller/runtime ou efeito externo",
+  "runner_unchanged": true,
+  "mission": "M-D6-CELL-REPORT-COORDINATOR-INTEGRATION-OFFLINE",
+  "closed_at": "2026-09-14T07:40:52.045594-03:00",
+  "status": "CONCLUIDA_OFFLINE_LENTE_APTO",
+  "commits": 0,
+  "runtime_integration": false,
+  "external_effects": false,
+  "C09": "BLOCKED_BY_E4B",
+  "C10": "BLOCKED_BY_E4B",
+  "next_human_gate": "Raniel revisar entrega e autorizar retomada E4b em missão própria para fonte externa tarefas_operacionais"
+}
