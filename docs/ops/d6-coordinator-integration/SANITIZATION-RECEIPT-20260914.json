@@ -1,0 +1,20 @@
+{
+  "authorized_by": "Raniel, ordem nominal no chat em 2026-09-14",
+  "recorded_at": "2026-09-14T09:13:38.070992-03:00",
+  "pr": 395,
+  "parent_commit": "fea3964375890644b9839ece8f1f7ea30d26f55d",
+  "evidence_file": "docs/ops/d6-coordinator-integration/pytest.json",
+  "sha256_before": "8ad3a8789672cb6695cc76c5d4d78b3ad63a786baeaface7c5fb434aaea1f08b",
+  "sha256_after": "13110dae8412fd63114cd5ff0069d6f1324e0a5ab68284151af1f0c8e62921f9",
+  "replacement_count": 3,
+  "changed_json_pointers": [
+    "/repository",
+    "/pytest_args/4",
+    "/pytest_args/12"
+  ],
+  "path_reference_base": "mission worktree root",
+  "replacement": "Absolute worktree prefix replaced by dot; paths are relative to the mission worktree root.",
+  "verification": "Parsed JSON identical after only these three path replacements; pytest results, timestamps, arguments unrelated to paths and guard results unchanged.",
+  "unchanged_xml_sha256": "1dca8d2bb322a6f1fb440c09904e2a995ff5d4787282849bf627db641c99d026",
+  "limits": "Only pytest.json sanitized. XML and other mission records remain unchanged; this receipt does not attest sanitization of all artifacts."
+}
