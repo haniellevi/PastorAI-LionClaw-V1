@@ -139,12 +139,26 @@ def _write_sql(directory: Path, name: str, content: bytes = b"select 1;\n") -> P
 def test_versioned_head_verifies_real_catalog_and_keeps_gates_closed(
     capsys: Any, tmp_path: Path,
 ) -> None:
-    from tests.migration_catalog_fixtures import historical_initial_bytes
-    prior_content = historical_initial_bytes(HEAD_PATH.read_bytes())
-    prior = verifier.ApprovedPriorHead(content_sha256=hashlib.sha256(prior_content).hexdigest(), head=verifier._decode_json(prior_content))
+    from tests.migration_catalog_fixtures import immediate_approved_prior_bytes
+
+    current_content = HEAD_PATH.read_bytes()
+    source_head = verifier._decode_json(current_content)
+    prior_content = immediate_approved_prior_bytes(current_content)
+    prior_head = verifier._decode_json(prior_content)
+    assert hashlib.sha256(prior_content).hexdigest() == (
+        source_head["previous_approved_head_sha256"]
+    )
+    assert prior_head["current_head"]["migration_count"] == 76
+    assert prior_head["append_only_batches"] == (
+        source_head["append_only_batches"][:-1]
+    )
+    prior = verifier.ApprovedPriorHead(
+        content_sha256=hashlib.sha256(prior_content).hexdigest(),
+        head=prior_head,
+    )
     current = verifier.verify_versioned_head(approved_prior=prior)
-    assert current["current_head"]["migration_count"] == 76
-    assert len(current["append_only_batches"]) == 1
+    assert current["current_head"]["migration_count"] == 77
+    assert len(current["append_only_batches"]) == 2
     assert current["operational_authorization"] is False
     assert current["next_stage_authorized"] is False
     prior_path = tmp_path / "approved-prior.json"
@@ -158,7 +172,7 @@ def test_versioned_head_verifies_real_catalog_and_keeps_gates_closed(
     assert output.err == ""
     assert output.out.splitlines() == [
         "RESULT=MIGRATION_CATALOG_HEAD_VERIFIED_OFFLINE",
-        "CATALOG_MIGRATION_COUNT=76",
+        "CATALOG_MIGRATION_COUNT=77",
         f"CATALOG_DIGEST_SHA256={current['current_head']['digest_sha256']}",
         "OPERATIONAL_AUTHORIZATION=BLOCKED",
         "NEXT_STAGE_AUTHORIZED=false",
@@ -171,7 +185,7 @@ def test_initial_head_is_exact_historical_prefix() -> None:
     assert head["append_only_batches"] == []
     assert head["historical_prefix"]["migration_count"] == 75
     assert head["historical_prefix"]["entries"] == scanned[:75]
-    assert len(scanned) == 76
+    assert len(scanned) == 77
     assert head["current_head"] == {
         "digest_sha256": verifier.HISTORICAL_DIGEST_SHA256,
         "last_basename": verifier.HISTORICAL_LAST_BASENAME,

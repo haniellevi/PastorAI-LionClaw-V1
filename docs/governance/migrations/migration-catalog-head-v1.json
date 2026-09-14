@@ -105,15 +105,15 @@
     {
       "batch_id": "migration-catalog-append-0002",
       "entries": [
-        {"position": 76, "name": "20260910_142830_add_e4b_consent_persistence.sql", "sha256": "6952a2aaca04d6765a0bc77f831b2507e9cf5fd77d80f76e43b0816b06806e6b", "size_bytes": 49631}
+        {"position": 76, "name": "20260910_142830_add_e4b_consent_persistence.sql", "sha256": "64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd", "size_bytes": 49631}
       ],
       "previous_catalog_digest_sha256": "9942997137c34f807dbc9d0800add85ae3c74940df20f27e42361d0ce43c3fdc",
-      "resulting_catalog_digest_sha256": "ed6398ff6cfc15981208631075b724fb128991682e6c7e607acf72fb913a6ac2",
+      "resulting_catalog_digest_sha256": "162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801",
       "sequence": 2
     }
   ],
   "current_head": {
-    "digest_sha256": "ed6398ff6cfc15981208631075b724fb128991682e6c7e607acf72fb913a6ac2",
+    "digest_sha256": "162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801",
     "last_basename": "20260910_142830_add_e4b_consent_persistence.sql",
     "migration_count": 77
   },

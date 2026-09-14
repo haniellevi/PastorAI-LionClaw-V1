@@ -127,10 +127,10 @@ def _install_synthetic_append(
     content: bytes,
 ) -> Any:
     real_snapshot = replay.catalog_snapshot.validated_local_catalog_snapshot()
-    # Validate the complete current head, retaining its real append. The
+    # Validate the complete current head, retaining its real appends. The
     # adversarial fixture appends one more synthetic migration after it.
     assert replay.catalog.HISTORICAL_COUNT == 75
-    assert len(real_snapshot.entries) == 76
+    assert len(real_snapshot.entries) == 77
     assert real_snapshot.entries[74].name == replay.catalog.HISTORICAL_LAST_BASENAME
     entry_type = replay.catalog_snapshot.ValidatedCatalogEntry
     appended = entry_type(
@@ -1032,7 +1032,7 @@ create policy migration_catalog_e2e_tenant_barrier
     try:
         result = replay.replay_current_head_pg17()
 
-        assert result.migration_count == 77
+        assert result.migration_count == 78
         assert result.catalog_digest_sha256 == synthetic.catalog_digest_sha256
         assert result.postgres_version_num // 10_000 == 17
         with psycopg2.connect(replay_url, connect_timeout=5) as connection:

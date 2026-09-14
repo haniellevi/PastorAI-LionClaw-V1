@@ -296,15 +296,26 @@ def _point_catalog_at(
 def test_current_appended_head_requires_longitudinal_prior(
     tmp_path: Path,
 ) -> None:
+    from tests.migration_catalog_fixtures import immediate_approved_prior_bytes
+
+    current_content = ci.catalog_head.HEAD_PATH.read_bytes()
+    prior_content = immediate_approved_prior_bytes(current_content)
+    authenticated_head = ci.catalog_head.verify_versioned_head(
+        approved_prior=ci.catalog_head.ApprovedPriorHead(
+            content_sha256=hashlib.sha256(prior_content).hexdigest(),
+            head=ci.catalog_head._decode_json(prior_content),
+        )
+    )
+    current_head = authenticated_head["current_head"]
     result = _verify_with_fake_trust(
         tmp_path,
-        prior_content=ci.catalog_head.HEAD_PATH.read_bytes(),
+        prior_content=current_content,
     )
 
     assert result == ci.CiVerificationResult(
         event_name="pull_request",
-        migration_count=76,
-        catalog_digest_sha256=ci.catalog_head._decode_json(ci.catalog_head.HEAD_PATH.read_bytes())["current_head"]["digest_sha256"],
+        migration_count=current_head["migration_count"],
+        catalog_digest_sha256=current_head["digest_sha256"],
         prior_head_required=True,
     )
 
