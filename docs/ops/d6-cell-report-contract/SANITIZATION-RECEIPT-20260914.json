@@ -1,0 +1,55 @@
+{
+  "authorized_by": "Raniel, ordem nominal 2026-09-14",
+  "recorded_at": "2026-09-14T09:27:35.829705-03:00",
+  "parent_commit": "144f6d8526e0e18fe8c92b2023c14b8f0c5f8458",
+  "changed_files": [
+    {
+      "file": "docs/missions/M-2026-09-13-d6-cell-report-operational-contract.md",
+      "sha256_before": "390ff8fc75299128cb628b7668ee0d7fbed927306ed5b635f3d72b059dfa0550",
+      "sha256_after": "c47c3905f2550765389344d1b6cee25e3650130d99a5f6659b0c2902dc1ad97b",
+      "absolute_prefix_occurrences_removed": 5
+    },
+    {
+      "file": "docs/ops/d6-cell-report-contract/EXECUTION-RECORD.md",
+      "sha256_before": "e98730ba63822f67059ad15c8875e4065670c2c8062ba5efa2bc0d97db4bb800",
+      "sha256_after": "7693c514605081a7325a6e25eec678cab523eee023b90eefc8f6172d432c884c",
+      "absolute_prefix_occurrences_removed": 4
+    },
+    {
+      "file": "docs/ops/d6-cell-report-contract/OPENING-RECEIPT.json",
+      "sha256_before": "101f59bff593eb058417b65b6376836262a2af492e5a1f5d83a413077b2b29b8",
+      "sha256_after": "0b0eaf62b6fcc3b7cf9771922e3fb11312aae4ee6bdd66b6641ba30227c75d85",
+      "absolute_prefix_occurrences_removed": 1
+    },
+    {
+      "file": "docs/ops/d6-cell-report-contract/pytest-resolver.json",
+      "sha256_before": "b505ec0f2d81a3f424d9d6d2f0b807d966dc92bbae20a1a475429c873b233b3f",
+      "sha256_after": "191ac2c164df0932c037b4c4419584d6d78850589362a7ac7ad5fa1d43be5019",
+      "absolute_prefix_occurrences_removed": 3
+    },
+    {
+      "file": "docs/ops/d6-cell-report-contract/FINAL-REPORT.md",
+      "sha256_before": "5898d6ce260fcc9fb689f7466d1b09b5bac43244f285c7c21389cad93f72b6bd",
+      "sha256_after": "34f8397fd7abfb24bbc11e8e27b9f6b8ccce3972c189c24bef0d5e41dfb5b15f",
+      "change": "Replace unavailable final-evidence references with versioned reproducible sanitized set."
+    }
+  ],
+  "runbook": {
+    "path": "docs/ops/MISSION-CONTROL.md",
+    "source": "Control worktree, operational runbook actually read",
+    "sha256_before": "ad875b3ffcc5bfe42d5a0329d108c80299328e03a0654937f14d2d3b9c3f38be",
+    "sha256_after": "ad875b3ffcc5bfe42d5a0329d108c80299328e03a0654937f14d2d3b9c3f38be",
+    "byte_identical": true
+  },
+  "final_index": {
+    "path": "docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json",
+    "sha256_before_control": "3b0737d0f59381699b3ffaf522afa1a4db6ef1034516ced7276d5830ec0a4fa3",
+    "sha256_after": "4a9a436fb58ec3e37582412115f24fe1ba8853af3081a9e03c477a8422441434"
+  },
+  "final_patch": {
+    "path": "docs/ops/d6-cell-report-contract/FINAL-CANDIDATE.patch",
+    "sha256_before_control": "6297067707e2ac043c3ada84f2ad8acf95ffafc7543790d7aac0c28ca8e358f1",
+    "sha256_after": "0fbef5e57e4785b2a3e2d09b16ed3ee345954f86ecadf3a328f093d2cf35a88f"
+  },
+  "limits": "New patch regenerates the sanitized final set plus runbook, including prior one-line gate correction. Historical hashes remain historical. Results, code and pytest XML unchanged. No new LENTE review or rerun of resolver tests. Local path references are relative to the mission worktree root; command dependencies in sibling control worktree and clone root remain external local prerequisites."
+}
