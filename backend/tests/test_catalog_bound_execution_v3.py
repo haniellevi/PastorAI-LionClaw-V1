@@ -51,15 +51,15 @@ def _import_roots(tree: ast.AST) -> set[str]:
 
 
 def test_c3_binding_is_literal_complete_and_immutable() -> None:
-    assert execution.C3_BINDING.repository_sha1 == "02a4f1aecfcf0433455e1b5c93a96b10e2358a55"
+    assert execution.C3_BINDING.repository_sha1 == "36999c2f9bfca8035afb886509440fc3760d9154"
     assert execution.C3_BINDING.sql_sha256 == (
-        "6952a2aaca04d6765a0bc77f831b2507e9cf5fd77d80f76e43b0816b06806e6b"
+        "64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd"
     )
     assert execution.C3_BINDING.head_sha256 == (
-        "9b756191d6a3e89fca61b3c88015b1f76423692e09b12270239389bef63dd1f5"
+        "88e588660f995f774fe298d2bd4e5ea80d399006379661156b7eff28a6940a57"
     )
     assert execution.C3_BINDING.catalog_digest_sha256 == (
-        "ed6398ff6cfc15981208631075b724fb128991682e6c7e607acf72fb913a6ac2"
+        "162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801"
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         execution.C3_BINDING.repository_sha1 = "0" * 40

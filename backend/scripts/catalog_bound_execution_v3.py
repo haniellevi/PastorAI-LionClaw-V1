@@ -53,7 +53,7 @@ def _is_lower_hex(value: object, length: int) -> bool:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class C3Binding:
-    """Immutable literal identity for the C3 candidate supplied to V3."""
+    """Immutable literal identity for the integrated C3 snapshot supplied to V3."""
 
     repository_sha1: str
     sql_sha256: str
@@ -71,10 +71,10 @@ class C3Binding:
 
 
 C3_BINDING = C3Binding(
-    repository_sha1="02a4f1aecfcf0433455e1b5c93a96b10e2358a55",
-    sql_sha256="6952a2aaca04d6765a0bc77f831b2507e9cf5fd77d80f76e43b0816b06806e6b",
-    head_sha256="9b756191d6a3e89fca61b3c88015b1f76423692e09b12270239389bef63dd1f5",
-    catalog_digest_sha256="ed6398ff6cfc15981208631075b724fb128991682e6c7e607acf72fb913a6ac2",
+    repository_sha1="36999c2f9bfca8035afb886509440fc3760d9154",
+    sql_sha256="64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd",
+    head_sha256="88e588660f995f774fe298d2bd4e5ea80d399006379661156b7eff28a6940a57",
+    catalog_digest_sha256="162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801",
 )
 
 
