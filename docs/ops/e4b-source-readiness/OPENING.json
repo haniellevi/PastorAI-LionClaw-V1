@@ -1,0 +1,108 @@
+{
+  "time": "2026-09-14T08:22:08.701779-03:00",
+  "workspace": "IGREJA 12 - MANUAL",
+  "terminal": "Orquestrador",
+  "base": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307",
+  "branch": "docs/e4b-tarefas-operacionais-source-readiness-20260914",
+  "worktree": ".worktrees/e4b-tarefas-operacionais-source-readiness-20260914",
+  "initial_clean": true,
+  "publication_first_completed": [
+    393,
+    394,
+    395
+  ],
+  "sources": [
+    {
+      "path": "backend/app/domain/e4b_consent.py",
+      "sha256": "89c3044c6b13f55823add81a7ceb709e8ff525bd41f07e28cc0617faf9d14399",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/domain/purpose_consent.py",
+      "sha256": "80581f37227b3725b87354d1a3fcb1e9fab3db87da7db0afab1bb1b0ec25284e",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/domain/purpose_consent_governance.py",
+      "sha256": "a61a148749879606dc7187095fad5dc1525b1c83400a1cca72229c5b97a28037",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/domain/purpose_consent_security.py",
+      "sha256": "d9efd69da83ad1aa04da66032852a93d0d674ad3fe58335d75f76b1d2edb74c8",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/domain/consent_ledger_receipt.py",
+      "sha256": "7c697130cceb5bc33b2ef6d9f59b9e4f1dda7f8559fb99263169e57e9fab2255",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/services/e4b_consent_boundary.py",
+      "sha256": "b1bc5f6f4179f02b993b615c6a8a382eef17f38347c96818d6477e90e7042c00",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/services/e4b_consent_persistence.py",
+      "sha256": "77c161bfbb71eda1ce2b4a9d165c4b7fe56e8649a917dfb8d8a3f9403326694d",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/services/purpose_consent.py",
+      "sha256": "65a859c5db03916791b07e1a68245ccc0b953a765fd63fa59d89616b73d9ef28",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/services/purpose_consent_governance.py",
+      "sha256": "6e66587af7bc14b5a9f8034585dc1553a87a9aedd14c59d8e7d8c55452d2116c",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "backend/app/services/consent_ledger_receipt.py",
+      "sha256": "b9a6c14d61106bc4f11c35797708b516ca52d04704cd06ea33b93f149b82f0c3",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "docs/ops/e4-implementation/e4b-c3-persistence.md",
+      "sha256": "357577c9aa3c146c78b52348cb3aaf15fda1210f178ec65152f3ba6c8f1c1514",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md",
+      "sha256": "1a1bd1dc017f0dac4dd9180e0909c9f22a24454bf35a0b34506179321a58a6f6",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md",
+      "sha256": "39a309bd85f77abd870148ae7e208d53e9c9771ebadc32cb5abc5b49772599c0",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md",
+      "sha256": "ccf61369f01f2e66f5b7e32e8024d436dd21fceba4202d343efedf89bc9a6962",
+      "source_sha": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307"
+    },
+    {
+      "path": "docs/decisions/2026-09-13-d6-cell-report-operational-contract.md",
+      "sha256": "a6879c11b808b74558afeb1584f8beaaa2e2c16874e692e235d1e93a74baeacb",
+      "source_sha": "e04bcf0342ef06b8d0016904d593be2616700aa3"
+    },
+    {
+      "path": "backend/app/services/cell_report_whatsapp_coordinator.py",
+      "sha256": "5e1b3db5448d1532378a24c61e84cd55f8223033422de606f758bf6e33c15f2d",
+      "source_sha": "fea3964375890644b9839ece8f1f7ea30d26f55d"
+    },
+    {
+      "path": "docs/ops/d6-coordinator-integration/FINAL-REPORT.md",
+      "sha256": "a856bf8e58ffc6ec3a7d4725e66952f90a646fa2aa666036f7e6bf12188ec943",
+      "source_sha": "fea3964375890644b9839ece8f1f7ea30d26f55d"
+    },
+    {
+      "path": "docs/missions/M-2026-09-10-e4b-c3-replay-77.md",
+      "sha256": "8a401240e405f726785bad758440696bc18fb83920f1d2053adf548e538ca352",
+      "source_sha": "67659a3c69d94af465e5d3994b060c5e8dd89547"
+    }
+  ],
+  "review_rounds_started": 0,
+  "mode": "static-only; no pytest/import/product execution"
+}

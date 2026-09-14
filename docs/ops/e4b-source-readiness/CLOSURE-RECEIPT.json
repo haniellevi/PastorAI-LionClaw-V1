@@ -1,0 +1,27 @@
+{
+  "mission": "M-2026-09-14-e4b-tarefas-operacionais-source-readiness-offline",
+  "closed_at": "2026-09-14T08:55:22.317361-03:00",
+  "status": "CONCLUIDA_ESTATICA_APTO_DOCUMENTAL",
+  "base": "7b0b6bfd0e1b842d214576a3a1a7eff02acbb307",
+  "reviewed_patch_sha256": "81b5c39b193ef8106419e3ede1d4e6786871a06f38ee76c2ccc3f0deeab41ecd",
+  "review_rounds": 1,
+  "verdict": "APTO",
+  "findings": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 0
+  },
+  "reviewed_files_unchanged_before_closure": true,
+  "sources_unchanged": true,
+  "code_unchanged": true,
+  "pytest_executed": false,
+  "database_or_network_executed": false,
+  "commits_or_publication_e4b": false,
+  "next_mission": "M-E4B-TAREFAS-OPERACIONAIS-SOURCE-IMPLEMENTATION",
+  "next_gate": "Raniel revisar entrega e autorizar nominalmente a implementação com as pré-condições explícitas do pacote",
+  "limits": [
+    "deny-all",
+    "C09/C10 BLOCKED_BY_E4B",
+    "fonte externa não materializada por este diagnóstico"
+  ]
+}

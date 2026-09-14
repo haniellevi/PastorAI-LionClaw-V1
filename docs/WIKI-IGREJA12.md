@@ -1663,7 +1663,9 @@ deny-all, e C09/C10 permanecem `BLOCKED_BY_E4B`, sem caminho positivo ou bypass
 de `purpose_consent`. Os testes sintéticos e os merges não provam RLS viva,
 consentimento concedido nem operação. O PR #362 segue adiado como áudio-only.
 
-Gate humano vigente: Raniel autorizar nominalmente a retomada CONTROLADA do
-E4b para source-readiness offline, na missão
-`M-2026-09-14-e4b-tarefas-operacionais-source-readiness-offline`. O índice de
-evidências é `docs/sprints/2026-09-14-d6-batch-closure.md`.
+O source-readiness E4b está `CONCLUÍDO`. Gate humano vigente: Raniel autorizar
+nominalmente
+`OWNER_AUTHORIZE_CATALOG_MATERIALIZATION_FILADELFIA_TAREFAS_OPERACIONAIS`,
+limitado a materializar as referências no catálogo imutável e calcular o
+`entry_digest`. O índice de evidências é
+`docs/sprints/2026-09-14-d6-batch-closure.md`.
