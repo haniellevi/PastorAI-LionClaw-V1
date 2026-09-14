@@ -1954,7 +1954,9 @@ permanece; C09 e C10 seguem `BLOCKED_BY_E4B`, sem mint, permit positivo ou
 bypass de `purpose_consent`. Não houve ativação de runtime, worker, webhook,
 flags, banco, DEV, PROD ou redes.
 
-Gate humano vigente: Raniel autorizar nominalmente a retomada CONTROLADA do
-E4b para `M-2026-09-14-e4b-tarefas-operacionais-source-readiness-offline`,
-somente source-readiness offline. Evidência consolidada:
+O source-readiness E4b está `CONCLUÍDO`. Gate humano vigente: Raniel autorizar
+nominalmente
+`OWNER_AUTHORIZE_CATALOG_MATERIALIZATION_FILADELFIA_TAREFAS_OPERACIONAIS`,
+limitado a materializar as referências no catálogo imutável e calcular o
+`entry_digest`. Evidência consolidada:
 `docs/sprints/2026-09-14-d6-batch-closure.md`.

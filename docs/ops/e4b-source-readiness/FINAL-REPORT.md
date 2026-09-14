@@ -63,6 +63,16 @@ Elas são superadas pela matriz vigente deste relatório e do
 `IMPLEMENTATION-PACKET.md`: a implementation permanece fechada, e o único gate
 corrente é a materialização do catálogo Filadélfia.
 
+## Referência de evidência retida
+
+A branch remota `backup/e4b-c3-catalog-bound-executor-v3`, base
+`7b0b6bfd0e1b842d214576a3a1a7eff02acbb307`, está classificada como
+`REF_DE_EVIDENCIA_RETIDA`. A consulta somente leitura
+`git ls-remote origin refs/heads/backup/e4b-c3-catalog-bound-executor-v3`, em
+`2026-09-14T12:23:42-03:00`, confirmou essa ref no `origin` apontando para o
+SHA exato. Ela não pode ser apagada enquanto a cadeia E4b
+C0 -> C3 -> executor não estiver integrada à `main`.
+
 ## Achados
 
 | ID | Severidade | Achado | Evidência |
