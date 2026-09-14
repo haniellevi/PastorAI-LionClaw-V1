@@ -1576,25 +1576,23 @@ ordens e recibo vinculado ao SHA, ordem e digests. As provas históricas de
 Evidência de conclusão depende dos testes no commit exato; nenhum estado vivo
 foi revalidado. Authorizations continuam false; próximo gate é revisão e
 autorização separada de merge, sem autorização de aplicação ou runtime.
-## Contrato D6-CELL-REPORT entregue após revisão única (2026-09-13)
+## Contrato e integração D6-CELL-REPORT entregues (2026-09-14)
 
-Classificação preservada: `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO`.
-No SHA `7a7afa3d08927f3f5b2ed116638aed3131dde88b`, a missão
-`M-2026-09-13-d6-cell-report-operational-contract` documentou a interface
-futura entre o resolvedor de reunião server-bound e o alvo opaco do
-coordenador. Não implementou adaptador, caller, runtime, worker, webhook,
-consentimento, UoW, commit, envio, banco ou migration.
+Classificação: `ENTREGUE NA MAIN / OFFLINE / INERTE / SEM ATIVAÇÃO`. O contrato
+foi integrado pela PR #393 (`e890358`), o adaptador entre o resolvedor
+server-bound e o alvo opaco pela PR #394 (`e641436`) e a composição offline com
+a fronteira de recusa padrão do coordenador pela PR #395 (`11c06d03`). Essas
+entregas não adicionam caller, runtime, worker, webhook, banco, migration,
+credencial, envio ou ativação.
 
-A fonte de `tarefas_operacionais` continua EXTERNA e ausente. O default
-`DenyAllOperationalConsentGate` permanece, e os cenários positivos de proposta
-e confirmação são `BLOCKED_BY_E4B`, não aprovados nem skipped. O teste offline
-do resolvedor concluiu 17 aprovados com dados sintéticos; não prova RLS viva ou
-integração. O próximo gate é autorizar nominalmente a implementação offline do
-adaptador, após revisão independente do candidato documental.
+A fonte de `tarefas_operacionais` continua EXTERNA e ausente. O
+`DenyAllOperationalConsentGate` permanece como default, e C09/C10 seguem
+`BLOCKED_BY_E4B`, sem caminho positivo, mint, permit ou bypass de
+`purpose_consent`. Os merges e os testes offline não provam consentimento,
+RLS viva nem efeito operacional.
 
-
-Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
-pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
-nenhuma segunda revisão ou implementação executada. Evidência final:
-`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
-Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+Gate humano vigente: Raniel autorizar nominalmente a retomada CONTROLADA do
+E4b para `M-2026-09-14-e4b-tarefas-operacionais-source-readiness-offline`,
+limitada a source-readiness offline. Evidências do lote:
+`docs/sprints/2026-09-14-d6-batch-closure.md` e relatórios referenciados pelos
+três sprints D6.

@@ -1648,27 +1648,22 @@ ser validados no SHA exato antes de declarar a transição concluída.
 Somente laboratório: sem aplicação compartilhada, caller, concessão ou envio.
 Os indicadores operacionais continuam false. Próximo gate: revisão e
 autorização separada de merge; não é autorização de aplicação.
-## Contrato D6-CELL-REPORT: alvo confiável de reunião (2026-09-13)
+## D6-CELL-REPORT: contrato, alvo e composição offline (2026-09-14)
 
-O contrato candidato em
-`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md` delimita
-a próxima fatia do relatório pelo WhatsApp. Ele registra que o resolvedor de
-reunião existente é read-only, devolve `none`, `candidate` ou `ambiguous`,
-e ainda não está ligado ao alvo opaco do coordenador. A missão não adicionou
-caller, runtime, worker, webhook, banco, migration, UoW, commit, envio, áudio
-ou transcrição.
+O contrato em
+`docs/decisions/2026-09-13-d6-cell-report-operational-contract.md` foi
+integrado pela PR #393 (`e890358`). A PR #394 (`e641436`) entregou o adaptador
+entre o resolvedor server-bound e o alvo opaco, e a PR #395 (`11c06d03`)
+entregou sua composição offline com a recusa padrão do coordenador. O conjunto
+está na `main`, inerte e sem ativação; não adiciona caller, runtime, worker,
+webhook, banco, migration, credencial, envio, áudio ou transcrição.
 
-`tarefas_operacionais` permanece uma fonte EXTERNA que não existe neste
-recorte. Por isso, o gate público continua deny-all e C09/C10 ficam
-`BLOCKED_BY_E4B`. O runner offline verificou 17 testes sintéticos do
-resolvedor, sem provar RLS viva, consentimento ou operação. O PR #362 segue
-adiado localmente como áudio-only. A revisão independente do candidato precede
-o único próximo gate: Raniel autorizar a implementação offline do adaptador de
-alvo confiável.
+`tarefas_operacionais` permanece uma fonte EXTERNA ausente. O default continua
+deny-all, e C09/C10 permanecem `BLOCKED_BY_E4B`, sem caminho positivo ou bypass
+de `purpose_consent`. Os testes sintéticos e os merges não provam RLS viva,
+consentimento concedido nem operação. O PR #362 segue adiado como áudio-only.
 
-
-Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
-pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
-nenhuma segunda revisão ou implementação executada. Evidência final:
-`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
-Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+Gate humano vigente: Raniel autorizar nominalmente a retomada CONTROLADA do
+E4b para source-readiness offline, na missão
+`M-2026-09-14-e4b-tarefas-operacionais-source-readiness-offline`. O índice de
+evidências é `docs/sprints/2026-09-14-d6-batch-closure.md`.
