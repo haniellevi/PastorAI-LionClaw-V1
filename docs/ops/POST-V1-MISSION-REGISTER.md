@@ -1957,7 +1957,7 @@ coordenador não foi executada porque contém gates permissivos de teste.
 concessão. O default deny-all permanece; C09 e C10 são
 `BLOCKED_BY_E4B`. Não houve mudança em runtime, backend de produto, migrations,
 flags, manifesto, banco, DEV, PROD ou redes. O candidato aguarda revisão
-independente. Próximo gate único: Raniel autorizar nominalmente
+independente. Gate humano único: Raniel autorizar nominalmente
 `M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION`, offline e limitado ao
 adaptador do alvo confiável, sem abrir E4B ou qualquer efeito.
 
