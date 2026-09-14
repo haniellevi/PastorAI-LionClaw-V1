@@ -1941,29 +1941,20 @@ O próximo gate técnico único é
 offline de projeções e writers mínimos com testes PostgreSQL 17 descartáveis.
 ### M-2026-09-13-d6-cell-report-operational-contract
 
-Ambiente: local/offline. Base:
-`7a7afa3d08927f3f5b2ed116638aed3131dde88b`. A missão criou o candidato
-documental `D6-CELL-REPORT` para a interface futura entre o resolvedor
-server-bound de reunião e o alvo opaco do coordenador. PR #362 foi delimitado
-como áudio-only adiado localmente, sem mutação remota.
+Ambiente de entrega: local/offline. O contrato `D6-CELL-REPORT` foi integrado
+pela PR #393 (`e890358`), o adaptador resolvedor para alvo opaco pela PR #394
+(`e641436`) e a composição offline com a recusa padrão do coordenador pela PR
+#395 (`11c06d03`). O lote está na `main`, inerte e sem ativação. O PR #362 ficou
+adiado como áudio-only, sem merge e com a branch preservada.
 
-O teste focal autorizado concluiu em
-`2026-09-13T18:57:16-03:00`: 17 aprovados, saída 0,
-`OFFLINE_GUARD_DENIALS=0`. Ele usa dados sintéticos e não prova RLS viva,
-caller, consentimento, banco, commit, envio ou efeito externo. A suíte do
-coordenador não foi executada porque contém gates permissivos de teste.
+Os testes do lote usam dados sintéticos e não provam RLS viva, caller,
+consentimento, banco, commit, envio ou efeito externo. `tarefas_operacionais`
+continua EXTERNA, sem fonte aprovada, writer ou concessão. O default deny-all
+permanece; C09 e C10 seguem `BLOCKED_BY_E4B`, sem mint, permit positivo ou
+bypass de `purpose_consent`. Não houve ativação de runtime, worker, webhook,
+flags, banco, DEV, PROD ou redes.
 
-`tarefas_operacionais` continua EXTERNA, sem fonte aprovada, writer ou
-concessão. O default deny-all permanece; C09 e C10 são
-`BLOCKED_BY_E4B`. Não houve mudança em runtime, backend de produto, migrations,
-flags, manifesto, banco, DEV, PROD ou redes. O candidato aguarda revisão
-independente. Gate humano único: Raniel autorizar nominalmente
-`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION`, offline e limitado ao
-adaptador do alvo confiável, sem abrir E4B ou qualquer efeito.
-
-
-Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
-pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
-nenhuma segunda revisão ou implementação executada. Evidência final:
-`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
-Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
+Gate humano vigente: Raniel autorizar nominalmente a retomada CONTROLADA do
+E4b para `M-2026-09-14-e4b-tarefas-operacionais-source-readiness-offline`,
+somente source-readiness offline. Evidência consolidada:
+`docs/sprints/2026-09-14-d6-batch-closure.md`.
