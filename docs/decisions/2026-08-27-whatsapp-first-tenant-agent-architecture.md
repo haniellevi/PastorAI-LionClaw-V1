@@ -893,12 +893,19 @@ V2; qualquer wiring exige uma missão e revisão separadas.
 
 ### Gate sucessor desta fatia offline
 
-O único gate sucessor é
-`OWNER_AUTHORIZE_D6_CELL_REPORT_OPERATIONAL_CONTRACT`. Ele exige decisão humana
-separada sobre o resolvedor confiável de reunião e a finalidade/consentimento
-operacional antes de qualquer wiring. Não autoriza caller, runtime, worker,
-webhook, `AgentConfig`, commit, outbox, send, áudio, LLM, migration, banco,
-DEV, PROD, deploy ou alteração de flags. Nesta etapa,
+O gate `OWNER_AUTHORIZE_D6_CELL_REPORT_OPERATIONAL_CONTRACT` foi consumido
+somente para a missão documental local
+`M-2026-09-13-d6-cell-report-operational-contract`. O resultado é o contrato
+em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`, com revisão única concluída e P1 do relatório corrigido. Ele separa o resolvedor de reunião read-only
+da fonte EXTERNA e ausente de `tarefas_operacionais`; não cria caller, runtime,
+worker, webhook, `AgentConfig`, commit, outbox, send, áudio, LLM, migration,
+banco, DEV, PROD, deploy ou alteração de flags.
+
+O único gate sucessor é Raniel autorizar nominalmente
+`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` após essa revisão. Ele permite
+apenas o adaptador offline entre o resolvedor e o alvo opaco, com testes de
+recusa/resolução. E4B, qualquer concessão positiva, persistência, confirmação,
+runtime e efeito externo continuam bloqueados. Nesta etapa,
 `operational_authorization=false` e `next_stage_authorized=false` permanecem
 estritos.
 

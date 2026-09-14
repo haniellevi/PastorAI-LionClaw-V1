@@ -1,0 +1,47 @@
+{
+  "time": "2026-09-13T23:38:40.580951-03:00",
+  "verifier": "Orquestrador",
+  "verification": "objetiva do único P1, não uma segunda rodada LENTE",
+  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
+  "original_lente_verdict": "NAO APTO",
+  "original_patch": "b972ddf7e0f79d3395b4834df103d29a34a2f3210644d5c0fee3288f2b5f58b3",
+  "p1": "autoflush implícito",
+  "status": "CORRIGIDO_VERIFICADO",
+  "adapter_ast_preserved_except_no_autoflush_context": true,
+  "adapter_sha256": "5dd551f7406085987a785695beff8500653e0aee4abcd41b7acec8148024b14f",
+  "test_sha256": "77dfe9ecc6b8f88ebb1789c635e139c9774d14b0d643cb89421519cdd9f851d5",
+  "tests": 62,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "guard_denials": [],
+  "tests_by_class": {
+    "tests.test_cell_report_meeting_target_adapter": 32,
+    "tests.test_cell_report_meeting_resolver": 17,
+    "tests.test_source_contact_privacy.SourceContactPrivacyTests": 13
+  },
+  "test_started_at": "2026-09-13T23:32:48.467304-03:00",
+  "test_finished_at": "2026-09-13T23:32:51.061725-03:00",
+  "runner_unchanged": true,
+  "review_copy_unchanged": true,
+  "previous_documentary_candidate_19_files_unchanged": true,
+  "tracked_files_equal_base": true,
+  "changed_paths_for_p1": [
+    "backend/app/services/cell_report_meeting_target_adapter.py",
+    "backend/tests/test_cell_report_meeting_target_adapter.py",
+    "docs/ops/d6-meeting-target-implementation/EXECUTION-RECORD.md",
+    "docs/ops/d6-meeting-target-implementation/FINAL-REPORT.md",
+    "docs/ops/d6-meeting-target-implementation/pytest.json",
+    "docs/ops/d6-meeting-target-implementation/pytest.xml"
+  ],
+  "p1_patch_sha256": "99b2eeec7218dfd9286ccf6c8e8b802aed6dafcc3c88ab2393e7ff7d84e8ca05",
+  "test_evidence": "double execute emula autoflush e flush sempre recusa; todos os selects protegidos; restauração no sucesso com default True e em recusa com True/False",
+  "test_evidence_lines": [
+    "backend/tests/test_cell_report_meeting_target_adapter.py:45",
+    "backend/tests/test_cell_report_meeting_target_adapter.py:113",
+    "backend/tests/test_cell_report_meeting_target_adapter.py:322",
+    "backend/tests/test_cell_report_meeting_target_adapter.py:628",
+    "backend/tests/test_cell_report_meeting_target_adapter.py:682"
+  ],
+  "limits": "sem PostgreSQL, RLS/locks/concorrência reais ou consentimento; C09/C10 BLOCKED_BY_E4B; sem nova aprovação LENTE"
+}
