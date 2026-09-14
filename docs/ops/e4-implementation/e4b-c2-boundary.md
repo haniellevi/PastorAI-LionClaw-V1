@@ -122,7 +122,7 @@ Horário da validação final: `2026-09-09T23:47:11-03:00`.
 | --- | --- | --- |
 | Sintaxe | `PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/tmp/e4b-c2-boundary-pycache /tmp/pastorai-pr390-full-gNlSYEGL/venv/bin/python -B -m py_compile backend/app/domain/e4b_consent.py backend/app/services/e4b_consent_boundary.py backend/tests/test_e4b_consent_domain.py backend/tests/test_e4b_consent_boundary.py` | Aprovada, com cache somente em `/tmp`. |
 | Domínio e boundary puros | `PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. /tmp/pastorai-pr390-full-gNlSYEGL/venv/bin/python -B -m pytest -c /dev/null --noconftest -p no:cacheprovider -q tests/test_e4b_consent_domain.py tests/test_e4b_consent_boundary.py` em `backend` | `67 passed in 0.41s`, sem carregar `conftest.py` global. |
-| Espaços no patch | `git -C /home/raniel-linux/workspace/PastorAi-1.0/.worktrees/e4b-c2-boundary-v1 diff --check` e `git diff --no-index --check /dev/null <cada arquivo novo>` | Sem saída; os três `--no-index` retornaram somente o código esperado de diferença, sem erro de espaço. |
+| Espaços no patch | `git -C <repo>/.worktrees/e4b-c2-boundary-v1 diff --check` e `git diff --no-index --check /dev/null <cada arquivo novo>` | Sem saída; os três `--no-index` retornaram somente o código esperado de diferença, sem erro de espaço. |
 | Escopo | Busca estática delimitada aos três arquivos C2 | Sem import de ORM, sessão, engine, SQL, DML, migration, transação, lock, router, worker ou adapter concreto no módulo. |
 
 Hash SHA-256 de código: `b1bc5f6f4179f02b993b615c6a8a382eef17f38347c96818d6477e90e7042c00`.

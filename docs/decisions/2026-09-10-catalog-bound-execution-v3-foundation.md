@@ -55,7 +55,7 @@ schema ou ambiente precisa de compensação porque esta decisão não executa I/
 ## Evidência local
 
 No worktree
-`/home/raniel-linux/workspace/PastorAi-1.0/.worktrees/e4b-c3-catalog-bound-executor-v3`,
+`<repo>/.worktrees/e4b-c3-catalog-bound-executor-v3`,
 branch `feat/e4b-c3-catalog-bound-executor-v3`, a pré-condição foi registrada
 em 2026-09-10T23:07:55-03:00 no SHA
 `02a4f1aecfcf0433455e1b5c93a96b10e2358a55`, com estado inicial limpo. A

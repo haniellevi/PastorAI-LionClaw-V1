@@ -4,7 +4,7 @@
 
 Implementação delimitada em `backend/app/domain/e4b_consent.py`, com testes
 sintéticos em `backend/tests/test_e4b_consent_domain.py`. A worktree é
-`/home/raniel-linux/workspace/PastorAi-1.0/.worktrees/e4b-domain-c0-luna-v1`, na
+`<repo>/.worktrees/e4b-domain-c0-luna-v1`, na
 branch `feat/e4b-domain-c0-luna-v1`, baseada em
 `c76b14b06188f33b2421b3ad426e359dc0ef487e`.
 
