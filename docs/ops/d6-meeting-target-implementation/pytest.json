@@ -1,0 +1,29 @@
+{
+  "repository": "/home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-meeting-target-implementation-20260913",
+  "python": "3.13.14 (main, Aug  5 2026, 15:44:26) [Clang 22.1.3 ]",
+  "started_at": "2026-09-13T23:32:48.467304-03:00",
+  "finished_at": "2026-09-13T23:32:51.061725-03:00",
+  "pytest_args": [
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "-c",
+    "/home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-meeting-target-implementation-20260913/backend/pytest.ini",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "-ra",
+    "-v",
+    "-o",
+    "faulthandler_timeout=20",
+    "--junitxml=/home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-meeting-target-implementation-20260913/docs/ops/d6-meeting-target-implementation/pytest.xml",
+    "tests/test_cell_report_meeting_target_adapter.py",
+    "tests/test_cell_report_meeting_resolver.py",
+    "tests/test_source_contact_privacy.py"
+  ],
+  "pytest_exit_code": 0,
+  "guard_denials": [],
+  "reviewed_deterministic_subprocesses": [],
+  "environment_values": "clean allowlist, no application credentials",
+  "limits": "Parent Python audit events plus libpq/SQLAlchemy guards; two exact-script child invocations are allowed with clean environment and inherit sandbox restrictions, not the Python audit guard; not an OS isolation attestation"
+}
