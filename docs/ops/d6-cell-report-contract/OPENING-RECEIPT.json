@@ -1,0 +1,16 @@
+{
+  "mission": "M-2026-09-13-d6-cell-report-operational-contract",
+  "status": "PREPARATION_COMPLETE_CONTRACT_PENDING",
+  "at": "2026-09-13T18:47:01.083041-03:00",
+  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
+  "branch": "docs/d6-cell-report-operational-contract-20260913",
+  "worktree": "/home/raniel-linux/workspace/PastorAi-1.0/.worktrees/d6-cell-report-operational-contract-20260913",
+  "clean_before_preparation": true,
+  "pr362_disposition": "DEFERRED_AUDIO_LOCAL_ONLY_REMOTE_OPEN",
+  "consensus_source": "Consenso dos Conselheiros:16, read via own Maestri CLI",
+  "ficha_sha256": "22e4b14dc081def514b13eabeca2ad58cae475ee4643753c181021afd5aa8e12",
+  "pytest_status": "NOT_RUN_DURING_PREPARATION",
+  "delegation": "NOT_STARTED",
+  "next_human_gate": "Raniel autorizar M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION após aceite e única revisão",
+  "external_mutations": []
+}

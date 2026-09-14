@@ -1,0 +1,23 @@
+{
+  "mission": "M-2026-09-13-d6-cell-report-operational-contract",
+  "status": "CONCLUIDA_OFFLINE",
+  "closed_at": "2026-09-13T19:42:10.523019-03:00",
+  "base": "7a7afa3d08927f3f5b2ed116638aed3131dde88b",
+  "branch": "docs/d6-cell-report-operational-contract-20260913",
+  "review_rounds": 1,
+  "lente_original_verdict": "NAO_APTO_P1_A7",
+  "reviewed_patch_sha256": "ba11308867c7a418ea18e0e1ffc53ee3db8e30ef2524b171811b3f0b7a4f87e2",
+  "p1_disposition": "corrigido pela FORJA e verificado objetivamente pelo Orquestrador; sem segundo parecer LENTE",
+  "pytest": {
+    "passed": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "guard_denials": 0,
+    "scope": "resolvedor existente, sem banco; não comprova adaptação futura"
+  },
+  "next_human_gate": "Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION",
+  "external_mutations": [],
+  "final_patch_index": "controle: docs/ops/d6-cell-report-contract/FINAL-CANDIDATE-INDEX.json",
+  "final_report_sha256": "5898d6ce260fcc9fb689f7466d1b09b5bac43244f285c7c21389cad93f72b6bd"
+}

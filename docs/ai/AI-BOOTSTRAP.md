@@ -1415,3 +1415,24 @@ O único gate futuro é
 Ele cobre somente preflight nominal do ambiente conforme runbook; não autoriza
 aplicar SQL, ativar o agente ou enviar. Esta entrega não consome gate legal ou
 de consentimento, nem cria credencial, login, flag, provisionamento ou canário.
+## Contrato operacional D6-CELL-REPORT (2026-09-13)
+
+A missão local `M-2026-09-13-d6-cell-report-operational-contract`, sobre o
+SHA `7a7afa3d08927f3f5b2ed116638aed3131dde88b`, produziu o contrato candidato
+em `docs/decisions/2026-09-13-d6-cell-report-operational-contract.md`. Ele
+não altera o estado de produto: o resolvedor de reunião segue read-only e sem
+caller WhatsApp, enquanto `tarefas_operacionais` permanece precondição
+EXTERNA sem fonte aprovada. O gate padrão continua deny-all.
+
+O runner offline executou 17 testes sintéticos do resolvedor, sem banco/rede,
+com saída 0. Isso não prova RLS viva, caller, consentimento, persistência ou
+operação. C09 e C10 permanecem `BLOCKED_BY_E4B`; o único próximo gate é Raniel
+autorizar a implementação offline
+`M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION` após revisão independente.
+
+
+Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
+pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
+nenhuma segunda revisão ou implementação executada. Evidência final:
+`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
+Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.
