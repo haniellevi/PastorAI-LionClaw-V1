@@ -2,6 +2,7 @@
 
 import datetime as dt
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -110,7 +111,23 @@ def rls_database_url(maintenance_database_url):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180,
         )
         assert result.returncode == 0, "canonical disposable replay failed (output withheld)"
-        assert b"CATALOG_MIGRATION_COUNT=76\n" in result.stdout
+        authenticated_head = json.loads(
+            (
+                snapshot.repository
+                / "docs/governance/migrations/migration-catalog-head-v1.json"
+            ).read_bytes()
+        )
+        current_head = authenticated_head["current_head"]
+        assert (
+            b"CATALOG_MIGRATION_COUNT="
+            + str(current_head["migration_count"]).encode("ascii")
+            + b"\n"
+        ) in result.stdout
+        assert (
+            b"CATALOG_DIGEST_SHA256="
+            + current_head["digest_sha256"].encode("ascii")
+            + b"\n"
+        ) in result.stdout
         # Restart probes inherit this variable: bind them to this fixture's
         # disposable database, never the maintenance database used to create it.
         with pytest.MonkeyPatch.context() as environment:

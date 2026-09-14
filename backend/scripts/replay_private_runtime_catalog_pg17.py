@@ -85,8 +85,8 @@ HISTORICAL_DIGEST_SHA256 = (
 HISTORICAL_LAST_BASENAME = (
     "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql"
 )
-PUBLIC_CURRENT_COUNT = HISTORICAL_COUNT + 1
-PUBLIC_APPEND_COUNT = 1
+PUBLIC_CURRENT_COUNT = HISTORICAL_COUNT + 2
+PUBLIC_APPEND_COUNT = PUBLIC_CURRENT_COUNT - HISTORICAL_COUNT
 COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE = "PUBLIC_APPEND_THEN_PRIVATE"
 COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND = "PRIVATE_THEN_PUBLIC_APPEND"
 COMPOSITION_ORDERS = (
@@ -292,8 +292,10 @@ def _public_entry_mapping(migration: Any) -> dict[str, object]:
     }
 
 
-def _split_public_catalog(public_loaded: Any) -> tuple[tuple[Any, ...], Any]:
-    """Validate the complete 76-entry public head and its immutable prefix."""
+def _split_public_catalog(
+    public_loaded: Any,
+) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """Validate the complete current public head and its immutable prefix."""
 
     migrations = getattr(public_loaded, "migrations", None)
     if type(migrations) is not tuple or len(migrations) != PUBLIC_CURRENT_COUNT:
@@ -315,25 +317,27 @@ def _split_public_catalog(public_loaded: Any) -> tuple[tuple[Any, ...], Any]:
         raise SourceContractError from exc
     if historical_digest != HISTORICAL_DIGEST_SHA256:
         raise SourceContractError
-    candidate = append[0]
-    if (
-        candidate.scope != "TENANT"
-        or not candidate.affected_relations
-        or not candidate.pg17_test_nodeids
-        or not candidate.cross_tenant_test_nodeids
-        or not set(candidate.cross_tenant_test_nodeids).issubset(
-            set(candidate.pg17_test_nodeids)
-        )
-        or candidate.name <= HISTORICAL_LAST_BASENAME
-    ):
-        raise SourceContractError
+    previous_name = HISTORICAL_LAST_BASENAME
+    for candidate in append:
+        if (
+            candidate.scope != "TENANT"
+            or not candidate.affected_relations
+            or not candidate.pg17_test_nodeids
+            or not candidate.cross_tenant_test_nodeids
+            or not set(candidate.cross_tenant_test_nodeids).issubset(
+                set(candidate.pg17_test_nodeids)
+            )
+            or candidate.name <= previous_name
+        ):
+            raise SourceContractError
+        previous_name = candidate.name
     if (
         type(public_loaded.digest_sha256) is not str
         or re.fullmatch(r"[0-9a-f]{64}", public_loaded.digest_sha256) is None
         or public_loaded.digest_sha256 == HISTORICAL_DIGEST_SHA256
     ):
         raise SourceContractError
-    return historical, candidate
+    return historical, append
 
 
 def _stable_stat(value: os.stat_result) -> tuple[int, ...]:
@@ -511,8 +515,8 @@ def _load_composed_source() -> tuple[Any, str, LoadedPrivateCatalog]:
         raise SourceContractError from exc
     # The public head is authenticated in full by the pinned current-head
     # loader.  Keep the historical proof separate: the private runtime remains
-    # anchored to the exact 75-entry prefix while this transition admits one
-    # and only one public TENANT append.
+    # anchored to the exact 75-entry prefix while this transition admits the
+    # complete current sequence of public TENANT appends.
     _split_public_catalog(public_loaded)
 
     try:
@@ -2165,7 +2169,7 @@ def replay_private_runtime_catalog_pg17(
     if composition_order not in COMPOSITION_ORDERS:
         raise CliUsageError
     public_loaded, scaffold, private_loaded = _load_composed_source()
-    _historical_public, public_append = _split_public_catalog(public_loaded)
+    _historical_public, public_appends = _split_public_catalog(public_loaded)
     database_url, database_name = _read_disposable_url()
     if connect is None:
         try:
@@ -2203,11 +2207,12 @@ def replay_private_runtime_catalog_pg17(
                 public_replay._ensure_ledgers_absent(cursor)
 
             if composition_order == COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE:
-                _apply_public_migration(
-                    cursor=cursor,
-                    connection=connection,
-                    migration=public_append,
-                )
+                for public_append in public_appends:
+                    _apply_public_migration(
+                        cursor=cursor,
+                        connection=connection,
+                        migration=public_append,
+                    )
                 _apply_private_migrations(
                     cursor=cursor,
                     connection=connection,
@@ -2219,11 +2224,12 @@ def replay_private_runtime_catalog_pg17(
                     connection=connection,
                     private_loaded=private_loaded,
                 )
-                _apply_public_migration(
-                    cursor=cursor,
-                    connection=connection,
-                    migration=public_append,
-                )
+                for public_append in public_appends:
+                    _apply_public_migration(
+                        cursor=cursor,
+                        connection=connection,
+                        migration=public_append,
+                    )
 
             cross_tenant, direct_select_denied, dml_denied = (
                 _validate_private_projection_contract(
@@ -2246,9 +2252,9 @@ def replay_private_runtime_catalog_pg17(
         historical_public_last_basename=HISTORICAL_LAST_BASENAME,
         public_migration_count=len(public_loaded.migrations),
         public_digest_sha256=public_loaded.digest_sha256,
-        public_append_count=PUBLIC_APPEND_COUNT,
-        public_append_last_basename=public_append.name,
-        public_append_last_sha256=public_append.sha256,
+        public_append_count=len(public_appends),
+        public_append_last_basename=public_appends[-1].name,
+        public_append_last_sha256=public_appends[-1].sha256,
         private_migration_count=len(private_loaded.migrations),
         private_digest_sha256=private_loaded.digest_sha256,
         private_last_basename=private_loaded.migrations[-1].name,

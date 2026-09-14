@@ -1,4 +1,4 @@
-"""Offline contract tests for the public-76/private-1 composition boundary."""
+"""Offline contract tests for the current-public/private-1 composition boundary."""
 
 from __future__ import annotations
 
@@ -51,12 +51,12 @@ receipt = _load(
 
 def test_full_public_head_is_authenticated_before_private_prefix_binding() -> None:
     public, _scaffold, private = replay._load_composed_source()
-    prefix, append = replay._split_public_catalog(public)
+    prefix, appends = replay._split_public_catalog(public)
 
-    assert len(public.migrations) == 76
+    assert len(public.migrations) == 77
     assert len(prefix) == replay.HISTORICAL_COUNT == 75
-    assert len((append,)) == replay.PUBLIC_APPEND_COUNT
-    assert append.scope == "TENANT"
+    assert len(appends) == replay.PUBLIC_APPEND_COUNT == 2
+    assert all(append.scope == "TENANT" for append in appends)
     assert public.digest_sha256 != replay.HISTORICAL_DIGEST_SHA256
     assert private.migrations
     assert private.migrations[0].position == 0
@@ -88,7 +88,10 @@ def test_public_append_controls_are_not_bypassed(
     public, _scaffold, _private = replay._load_composed_source()
     prefix = public.migrations[: replay.HISTORICAL_COUNT]
     forged_append = mutator(public.migrations[-1])
-    forged = replace(public, migrations=(*prefix, forged_append))
+    forged = replace(
+        public,
+        migrations=(*prefix, *public.migrations[75:-1], forged_append),
+    )
     with pytest.raises(replay.SourceContractError):
         replay._split_public_catalog(forged)
 
@@ -99,10 +102,10 @@ def test_receipt_binds_full_public_state_and_both_composition_orders() -> None:
         private_digest_sha256="a" * 64,
         private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
         private_last_sha256="b" * 64,
-        public_migration_count=76,
+        public_migration_count=77,
         public_digest_sha256="d" * 64,
-        public_append_count=1,
-        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_count=2,
+        public_append_last_basename="20260910_142830_add_e4b_consent_persistence.sql",
         public_append_last_sha256="e" * 64,
         source_git_sha="f" * 40,
     )
@@ -117,9 +120,9 @@ def test_receipt_binds_full_public_state_and_both_composition_orders() -> None:
     assert len(receipts) == 2
     for lines in receipts:
         assert "PUBLIC_HISTORICAL_MIGRATION_COUNT=75" in lines
-        assert "PUBLIC_CATALOG_MIGRATION_COUNT=76" in lines
-        assert "PUBLIC_CATALOG_APPEND_COUNT=1" in lines
-        assert "COMBINED_CATALOG_MIGRATION_COUNT=77" in lines
+        assert "PUBLIC_CATALOG_MIGRATION_COUNT=77" in lines
+        assert "PUBLIC_CATALOG_APPEND_COUNT=2" in lines
+        assert "COMBINED_CATALOG_MIGRATION_COUNT=78" in lines
         assert "SOURCE_GIT_SHA=" + "f" * 40 in lines
     assert receipts[0] != receipts[1]
 

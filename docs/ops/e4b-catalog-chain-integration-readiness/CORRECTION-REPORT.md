@@ -61,3 +61,40 @@ Todos os comandos abaixo usaram Python `3.13.14`, `env -i`, `PYTHONDONTWRITEBYTE
 O erro `DATABASE_CONTRACT_INVALID` e os dois `OperationalError` de alvo sintético permanecem sem diagnóstico nesta fase, porque não são consequência do head 76 para 77 e investigar o alvo exigiria PostgreSQL descartável. A única decisão humana que destrava a continuidade é autorizar uma fase própria de replay PG17 para o alvo, incluindo o ambiente descartável correspondente.
 
 Além disso, a asserção real desatualizada em `backend/tests/test_migration_catalog_ci.py` não pode ser corrigida sem ampliar a allowlist. O Orquestrador deve decidir se a próxima alteração autorizada inclui esse teste e um commit do candidato, para que o comando de CI autentique o novo SHA. Nada foi commitado, enviado, mesclado ou ativado.
+
+## Reconciliação dos consumidores posteriores
+
+Em 2026-09-14, a validação do candidato `36999c2f9bfca8035afb886509440fc3760d9154`
+mostrou que consumidores incorporados à main depois da criação da cadeia ainda
+limitavam o catálogo público a um único append. A continuação da mesma correção
+preservou o prefixo histórico de 75 e o prior aprovado de 76, passando a aceitar o
+head público corrente de 77, dois appends TENANT ordenados e a composição privada
+de 78 migrations.
+
+Foram ajustados somente os consumidores e suas provas em
+`replay_private_runtime_catalog_pg17.py`, `verify_private_runtime_catalog_ci.py`,
+`verify_private_runtime_catalog_v1.py`, `verify_private_runtime_pg17_receipt.py`,
+`test_capture_migration_history_evidence.py`,
+`test_consent_evidence_store_canonical_pg17.py`,
+`test_consent_evidence_store_source_boundary.py`,
+`test_private_runtime_catalog_ci_v1.py`,
+`test_public_private_catalog_compatibility.py` e
+`test_replay_private_runtime_catalog_pg17.py`. Cada append público continua a
+exigir scope TENANT, intent fechado, nodeids PG17 e cross-tenant, ordem de nome e
+integridade de bytes. Nenhum SQL, modelo, serviço E4b, manifesto, flag ou gate foi
+alterado nesta continuação.
+
+O verificador privado retornou `PRIVATE_RUNTIME_CATALOG_SOURCE_VERIFIED`, 77
+migrations públicas, digest `162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801`,
+dois appends públicos, uma migration privada e gates fechados. Os 51 testes focais
+dos consumidores privados passaram. A guarda de privacidade passou 13 de 13 e as
+provas de catálogo, head, snapshot e replay guard passaram com exit 0. A suíte
+completa no worktree não gera prova válida porque o guarda histórico rejeita o
+diretório gravável pelo grupo antes de ler o catálogo; ela deverá ser executada em
+snapshot privado do SHA commitado, como exige o contrato operacional.
+
+O recibo `REVALIDATION-REPORT.md` conserva as tentativas negativas e o replay 77
+bem-sucedido para rastreabilidade. O próximo passo técnico já autorizado é criar o
+SHA local desta correção e revalidá-lo em snapshot privado e PostgreSQL 17
+descartável. O único gate humano permanece a decisão nominal de Raniel sobre push
+e PR após a revisão independente.

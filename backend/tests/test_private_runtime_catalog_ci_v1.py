@@ -178,7 +178,7 @@ def _private_module(source_result: SimpleNamespace) -> SimpleNamespace:
     )
 
 
-def test_public_source_accepts_current_head_with_one_tenant_append() -> None:
+def test_public_source_accepts_current_head_with_two_tenant_appends() -> None:
     source = _load(
         REPO_ROOT / "backend/scripts/verify_private_runtime_catalog_v1.py",
         "private_runtime_catalog_source_compatibility_test",
@@ -188,9 +188,9 @@ def test_public_source_accepts_current_head_with_one_tenant_append() -> None:
 
     assert result.historical_count == 75
     assert result.historical_digest_sha256 == HISTORICAL_DIGEST
-    assert result.migration_count == 76
-    assert result.append_count == 1
-    assert result.entries[-1].scope == "TENANT"
+    assert result.migration_count == 77
+    assert result.append_count == 2
+    assert all(entry.scope == "TENANT" for entry in result.entries[75:])
 
 
 def test_closed_string_list_rejects_unexpected_container_without_type_error() -> None:
@@ -527,17 +527,17 @@ def test_workflow_requires_source_proof_and_real_pg17_receipt() -> None:
         private_digest_sha256="d" * 64,
         private_last_basename=PRIVATE_BASENAME,
         private_last_sha256="e" * 64,
-        public_migration_count=76,
+        public_migration_count=77,
         public_digest_sha256="f" * 64,
-        public_append_count=1,
-        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_count=2,
+        public_append_last_basename="20260910_142830_add_e4b_consent_persistence.sql",
         public_append_last_sha256="a" * 64,
         source_git_sha="b" * 40,
     )
-    assert "PUBLIC_CATALOG_MIGRATION_COUNT=76" in expected
-    assert "PUBLIC_CATALOG_APPEND_COUNT=1" in expected
+    assert "PUBLIC_CATALOG_MIGRATION_COUNT=77" in expected
+    assert "PUBLIC_CATALOG_APPEND_COUNT=2" in expected
     assert "PRIVATE_CATALOG_MIGRATION_COUNT=1" in expected
-    assert "COMBINED_CATALOG_MIGRATION_COUNT=77" in expected
+    assert "COMBINED_CATALOG_MIGRATION_COUNT=78" in expected
     assert "verify_private_runtime_pg17_receipt.py" in workflow
     assert "migration_catalog_current_head_disposable" in workflow
     assert "migration_private_runtime_disposable" not in workflow

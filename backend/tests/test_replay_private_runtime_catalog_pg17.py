@@ -107,11 +107,13 @@ def test_receipt_contract_rejects_historical_public_only_receipt() -> None:
         )
 
 
-def test_public_source_requires_complete_head_and_single_tenant_append() -> None:
+def test_public_source_requires_complete_head_and_two_tenant_appends() -> None:
     public_loaded, _scaffold, _private = replay._load_composed_source()
-    historical, candidate = replay._split_public_catalog(public_loaded)
+    historical, appends = replay._split_public_catalog(public_loaded)
+    candidate = appends[-1]
     assert len(historical) == replay.HISTORICAL_COUNT
-    assert candidate.scope == "TENANT"
+    assert len(appends) == replay.PUBLIC_APPEND_COUNT == 2
+    assert all(append.scope == "TENANT" for append in appends)
     assert len(public_loaded.migrations) == replay.PUBLIC_CURRENT_COUNT
     assert replay.COMPOSITION_ORDERS == (
         replay.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
@@ -134,7 +136,10 @@ def test_public_source_requires_complete_head_and_single_tenant_append() -> None
         replay._split_public_catalog(malformed[0])
     with pytest.raises(replay.SourceContractError):
         replay._split_public_catalog(malformed[1])
-    invalid_scope = replace(public_loaded, migrations=(*historical, malformed[2]))
+    invalid_scope = replace(
+        public_loaded,
+        migrations=(*historical, *appends[:-1], malformed[2]),
+    )
     with pytest.raises(replay.SourceContractError):
         replay._split_public_catalog(invalid_scope)
     with pytest.raises(replay.SourceContractError):
@@ -147,10 +152,10 @@ def test_receipt_explicitly_binds_current_public_catalog_and_composition_order()
         private_digest_sha256="a" * 64,
         private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
         private_last_sha256="b" * 64,
-        public_migration_count=76,
+        public_migration_count=77,
         public_digest_sha256="d" * 64,
-        public_append_count=1,
-        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_count=2,
+        public_append_last_basename="20260910_142830_add_e4b_consent_persistence.sql",
         public_append_last_sha256="e" * 64,
         source_git_sha="f" * 40,
     )
@@ -162,9 +167,9 @@ def test_receipt_explicitly_binds_current_public_catalog_and_composition_order()
         **common,
         composition_order=receipt.COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND,
     )
-    assert "PUBLIC_CATALOG_MIGRATION_COUNT=76" in first
-    assert "PUBLIC_CATALOG_APPEND_COUNT=1" in first
-    assert "COMBINED_CATALOG_MIGRATION_COUNT=77" in first
+    assert "PUBLIC_CATALOG_MIGRATION_COUNT=77" in first
+    assert "PUBLIC_CATALOG_APPEND_COUNT=2" in first
+    assert "COMBINED_CATALOG_MIGRATION_COUNT=78" in first
     assert "SOURCE_GIT_SHA=" + "f" * 40 in first
     assert first != second
     assert sum(left != right for left, right in zip(first, second)) == 1
@@ -175,16 +180,16 @@ def test_replay_print_result_matches_receipt_payload(capsys: pytest.CaptureFixtu
         historical_public_migration_count=75,
         historical_public_digest_sha256=receipt.HISTORICAL_DIGEST_SHA256,
         historical_public_last_basename="20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql",
-        public_migration_count=76,
+        public_migration_count=77,
         public_digest_sha256="d" * 64,
-        public_append_count=1,
-        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_count=2,
+        public_append_last_basename="20260910_142830_add_e4b_consent_persistence.sql",
         public_append_last_sha256="e" * 64,
         private_migration_count=1,
         private_digest_sha256="a" * 64,
         private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
         private_last_sha256="b" * 64,
-        combined_migration_count=77,
+        combined_migration_count=78,
         composition_order=replay.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
         source_git_sha="f" * 40,
         postgres_version_num=170006,
@@ -200,10 +205,10 @@ def test_replay_print_result_matches_receipt_payload(capsys: pytest.CaptureFixtu
         private_digest_sha256="a" * 64,
         private_last_basename="20260904_120000_private_runtime_load_turn_context.sql",
         private_last_sha256="b" * 64,
-        public_migration_count=76,
+        public_migration_count=77,
         public_digest_sha256="d" * 64,
-        public_append_count=1,
-        public_append_last_basename="20260909_004005_consent_evidence_store_lab.sql",
+        public_append_count=2,
+        public_append_last_basename="20260910_142830_add_e4b_consent_persistence.sql",
         public_append_last_sha256="e" * 64,
         source_git_sha="f" * 40,
         composition_order=replay.COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE,
