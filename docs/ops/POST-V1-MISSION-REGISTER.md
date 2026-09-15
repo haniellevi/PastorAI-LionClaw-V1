@@ -1954,9 +1954,12 @@ permanece; C09 e C10 seguem `BLOCKED_BY_E4B`, sem mint, permit positivo ou
 bypass de `purpose_consent`. Não houve ativação de runtime, worker, webhook,
 flags, banco, DEV, PROD ou redes.
 
-O source-readiness E4b está `CONCLUÍDO`. Gate humano vigente: Raniel autorizar
-nominalmente
-`OWNER_AUTHORIZE_CATALOG_MATERIALIZATION_FILADELFIA_TAREFAS_OPERACIONAIS`,
-limitado a materializar as referências no catálogo imutável e calcular o
-`entry_digest`. Evidência consolidada:
+O source-readiness E4b está `CONCLUÍDO`. O preflight read-only do head 77 em DEV
+registrou 33 das 77 migrations no ledger público, prefixo canônico somente nas
+posições 0 a 24, oito posições divergentes, 44 arquivos ausentes e as seis
+relações E4b ausentes. A decisão é
+`NO_GO_DEV_LEDGER_DIVERGENCE_AND_NO_AUTHORIZED_APPLY_RUNNER`; nenhuma migration
+foi aplicada. Gate humano vigente: Raniel decide manter o `NO_GO` ou autorizar
+missão própria de remediação do histórico DEV e do executor catalog-bound.
+Evidência: `docs/ops/migration-head77-dev-apply-readiness/`; índice D6:
 `docs/sprints/2026-09-14-d6-batch-closure.md`.

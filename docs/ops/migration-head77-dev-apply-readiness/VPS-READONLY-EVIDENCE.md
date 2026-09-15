@@ -45,6 +45,8 @@ autorizado não lê labels nem manifesto de build. Assim, a coleta está complet
 para o runbook e demonstra release, tag, image ID e saúde observados; ela não
 é uma atestação criptográfica de que os bytes da imagem derivam de `c525d6a`.
 
-A saída DEV também permanece pendente. Nenhuma migration foi aplicada e esta
-evidência não abre gate de deploy, runtime, envio, billing, broadcast ou
+A coleta DEV foi concluída em `2026-09-14T23:18:03-03:00`, com atribuição ao
+ambiente `Igreja12-dev` confirmada humanamente por Raniel. A transcrição
+sanitizada não contém target binding técnico. Nenhuma migration foi aplicada e
+esta evidência não abre gate de deploy, runtime, envio, billing, broadcast ou
 `AgentConfig.ativo`.

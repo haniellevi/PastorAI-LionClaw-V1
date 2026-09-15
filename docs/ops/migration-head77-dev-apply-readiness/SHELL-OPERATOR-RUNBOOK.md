@@ -24,7 +24,7 @@ runbook:
 ```bash
 date --iso-8601=seconds
 readlink -f /opt/pastorai-current
-docker ps --no-trunc --format 'table {{.Names}}\t{{.Image}}\t{{.ID}}\t{{.Status}}' | grep -E 'pastorai-(backend|queue-worker|cron-worker|broadcast-worker)'
+docker ps --no-trunc --format 'table {{.Names}}\t{{.Image}}\t{{.ID}}\t{{.Status}}' | grep -E 'pastorai[_-](backend|queue[_-]worker|cron[_-]worker|broadcast[_-]worker)'
 docker image ls --no-trunc --format 'table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}' pastorai-backend:latest
 ```
 

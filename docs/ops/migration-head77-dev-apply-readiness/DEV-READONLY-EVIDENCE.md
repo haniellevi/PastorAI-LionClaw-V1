@@ -23,6 +23,7 @@ nem alteração e foi substituída pela execução bem-sucedida via `psql`.
 | Ledger público | `33` migrations |
 | Ledger nativo | `6` migrations |
 | Relações E4b | seis ausentes |
+| ACL das relações E4b | `INCONCLUSIVA`; a consulta limita os grantees antes de `aclexplode` |
 | Escopo | `LEDGER_METADATA_AND_PGCATALOG_ONLY` |
 | Rollback final | concluído |
 | Alterações | nenhuma |
@@ -100,6 +101,14 @@ proíbe inferir equivalência por versão, posição ou semelhança temporal.
 `e4b_consent_hold_events`, `e4b_consent_holds`,
 `e4b_consent_operations`, `e4b_consent_receipts`,
 `e4b_consent_retentions` e `e4b_consent_streams` retornaram `ABSENT`.
+
+A ausência atual das relações impediu observar ACLs nelas. Além disso, a
+consulta do preflight enumera somente `PUBLIC`, `anon`, `authenticated`,
+`service_role` e `agent_runtime` antes de associar `aclexplode`; portanto, ela
+não enumera roles customizadas e não certifica ausência de grant inesperado.
+Essa checagem permanece `INCONCLUSIVA`. A missão própria de remediação deve
+corrigir a consulta para enumerar todos os grantees diretos e reexecutá-la em
+DEV antes de qualquer pedido de apply, sem inferir segurança desta coleta.
 
 ## Reconciliação local
 

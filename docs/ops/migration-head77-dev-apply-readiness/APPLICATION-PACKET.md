@@ -33,6 +33,7 @@ Além disso, não existe runner catalog-bound autorizado para essa operação.
 | Ledger nativo | seis versões independentes; nenhum mapeamento inferido |
 | Diferença catálogo para ledger público | 44 arquivos, incluindo evidence store e E4b |
 | Relações E4b | seis ausentes |
+| Checagem de ACL E4b | `INCONCLUSIVA`; whitelist anterior a `aclexplode` não enumera roles customizadas |
 | Alteração produzida | nenhuma |
 
 A reconciliação completa, incluindo as oito posições divergentes e os 44
@@ -80,8 +81,13 @@ evidência sanitizada. Uma lacuna bloqueia a aplicação inteira.
    Nenhuma delas pode ser preenchida, reordenada ou reparada por inferência.
 6. As seis relações E4b estão todas ausentes, antes de uma aplicação ainda não
    realizada, ou todas presentes com a forma exata esperada depois de uma
-   aplicação já comprovada. Presença parcial, objeto homônimo, metadado
-   divergente, RLS não forçada, policy incompleta ou ACL adicional abortam.
+   aplicação já comprovada. A checagem ACL desta coleta é `INCONCLUSIVA`, pois
+   a whitelist anterior a `aclexplode` não enumera roles customizadas; ela não
+   certifica ausência de grant inesperado. A missão de remediação deve corrigir
+   a consulta para enumerar todos os grantees diretos e reexecutá-la em DEV
+   antes de qualquer pedido de apply. Presença parcial, objeto homônimo,
+   metadado divergente, RLS não forçada, policy incompleta ou ACL adicional
+   abortam.
 7. Uma missão separada entregou um executor catalog-bound de aplicação que
    autentica o snapshot, os bytes do SQL e do head, o alvo DEV, o principal,
    PostgreSQL 17, TLS e a decisão de cutover antes de qualquer SQL.
