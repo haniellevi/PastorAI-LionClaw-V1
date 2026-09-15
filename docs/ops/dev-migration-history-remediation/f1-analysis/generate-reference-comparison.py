@@ -6,11 +6,37 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
 import sys
 from typing import Iterable
+
+
+def _load_dev_receipt_contract() -> object:
+    module_name = "f1_dev_receipt_contract"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
+    source = Path(__file__).with_name("dev_receipt_contract.py")
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("DEV receipt contract unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_dev_contract = _load_dev_receipt_contract()
+DEV_RECEIPT_CONTRACT = _dev_contract.DEV_RECEIPT_CONTRACT
+DEV_RECEIPT_CONTRACT_SHA256 = _dev_contract.DEV_RECEIPT_CONTRACT_SHA256
+DEV_RECEIPT_PROFILES = _dev_contract.DEV_RECEIPT_PROFILES
+DEV_ALLOWED_MARKERS = _dev_contract.DEV_ALLOWED_MARKERS
+SEALED_F1 = _dev_contract.SEALED_F1
+STRICT_FUTURE = _dev_contract.STRICT_FUTURE
+validate_dev_safe_index = _dev_contract.validate_dev_safe_index
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -19,6 +45,7 @@ INVENTORY_PATH = REPO_ROOT / "docs" / "ops" / "dev-migration-history-remediation
 FROZEN_SQL_SHA256 = "8829decd0f0101329058ad07900ce7b7ca8b1c4fe5695f4e3cec05cff4bf288c"
 FROZEN_AGGREGATE_SHA256 = "956187b9711ea9d67e9f8fdf31c3980e3ebbf64da98401c275f1dc80d2a91a29"
 SAFE_INDEX_FORMAT = "F1_CATALOG_SAFE_INDEX_V3"
+TRACE_FORMAT = "F1_REFERENCE_STRUCTURAL_TRACE_V2"
 NOT_SCHEMA_DECIDABLE = {13, 17, 21, 22, 30, 32, 33, 34, 38}
 PARTIAL = {12, 15, 19, 36, 37}
 ABSENT = {40, 41, 42, 43, 44}
@@ -54,6 +81,27 @@ CONTROL_RECORD_TYPES = {
     "NATIVE_LEDGER_ENTRY",
     "NATIVE_LEDGER_STATEMENT_FINGERPRINT",
 }
+TRACE_RECORD_TYPES = {
+    "CATALOG_SCHEMA",
+    "CATALOG_RELATION",
+    "CATALOG_COLUMN",
+    "CATALOG_CONSTRAINT",
+    "CATALOG_INDEX",
+    "CATALOG_RLS_POLICY",
+    "CATALOG_FUNCTION",
+    "CATALOG_TRIGGER",
+    "CATALOG_TYPE",
+}
+TRACE_ENTRY_FIELDS = {
+    "introduced_safe_key_sha256",
+    "migration_sha256",
+    "modified_safe_key_sha256",
+    "position",
+    "record_type_counts",
+    "retired_safe_key_sha256",
+    "safe_key_sha256",
+    "transition_record_types",
+}
 SAFE_INDEX_FIELDS = {
     "format",
     "receipt_marker_counts",
@@ -64,14 +112,8 @@ SAFE_INDEX_FIELDS = {
     "source",
     "source_observed_record_type_counts",
 }
-REQUIRED_DEV_CONTROL_TYPES = {
-    "TARGET_DIGEST",
-    "F1_SESSION",
-    "PUBLIC_LEDGER_COUNT_EXPECTATION",
-    "NATIVE_LEDGER_COUNT_EXPECTATION",
-}
 ALLOWED_RECEIPT_MARKERS = {
-    "DEV": {"BEGIN", "SET", "ROLLBACK", "ROLLBACK_COMPLETED_F1"},
+    "DEV": DEV_ALLOWED_MARKERS,
     "REFERENCE": {
         "BEGIN",
         "SET",
@@ -113,8 +155,13 @@ def _valid_count_map(value: object, allowed_names: set[str]) -> bool:
     )
 
 
-def _read_index(path: Path, source: str) -> dict[str, object]:
-    document = json.loads(path.read_text(encoding="ascii"))
+def _read_index(
+    path: Path,
+    source: str,
+    dev_profile: str = SEALED_F1,
+) -> dict[str, object]:
+    raw = path.read_bytes()
+    document = json.loads(raw.decode("ascii"))
     if (
         not isinstance(document, dict)
         or set(document) != SAFE_INDEX_FIELDS
@@ -167,19 +214,15 @@ def _read_index(path: Path, source: str) -> dict[str, object]:
     markers = document.get("receipt_marker_counts")
     if not _valid_count_map(markers, ALLOWED_RECEIPT_MARKERS[source]):
         raise ValueError("safe index receipt marker contract invalid")
-    if markers.get("BEGIN", 0) > 1 or markers.get("SET", 0) > 5 or markers.get("ROLLBACK", 0) > 1:
-        raise ValueError("safe index psql marker count invalid")
     receipt_state = document.get("rollback_receipt_state")
     if source == "DEV":
-        if any(observed.get(name) != 1 for name in REQUIRED_DEV_CONTROL_TYPES):
-            raise ValueError("safe index DEV control receipt incomplete")
-        rollback_echo = markers.get("ROLLBACK_COMPLETED_F1", 0)
-        rollback_command = markers.get("ROLLBACK", 0)
-        if rollback_echo > 1 or rollback_command > 1 or not (rollback_echo or rollback_command):
-            raise ValueError("safe index DEV rollback receipt incomplete")
-        expected_state = "F1_ECHO_OBSERVED" if rollback_echo else "PSQL_ROLLBACK_COMMAND_OBSERVED"
-        if receipt_state != expected_state:
-            raise ValueError("safe index DEV rollback state invalid")
+        if dev_profile not in DEV_RECEIPT_PROFILES:
+            raise ValueError("safe index DEV profile invalid")
+        validate_dev_safe_index(
+            document,
+            dev_profile,
+            hashlib.sha256(raw).hexdigest(),
+        )
     else:
         if (
             markers.get("REFERENCE_CATALOG_ADAPTER") != 1
@@ -193,7 +236,7 @@ def _read_index(path: Path, source: str) -> dict[str, object]:
 def _read_trace(path: Path) -> dict[int, dict[str, object]]:
     document = json.loads(path.read_text(encoding="ascii"))
     if (
-        document.get("format") != "F1_REFERENCE_STRUCTURAL_TRACE_V1"
+        document.get("format") != TRACE_FORMAT
         or document.get("migration_count") != 77
         or document.get("postgres_version_num") != 170006
         or not isinstance(document.get("catalog_digest_sha256"), str)
@@ -204,12 +247,17 @@ def _read_trace(path: Path) -> dict[int, dict[str, object]]:
     if not isinstance(migrations, list) or len(migrations) != 77:
         raise ValueError("trace migration count invalid")
     for entry in migrations:
-        if not isinstance(entry, dict):
+        if not isinstance(entry, dict) or set(entry) != TRACE_ENTRY_FIELDS:
             raise ValueError("trace entry invalid")
         position = entry.get("position")
         source_hash = entry.get("migration_sha256")
         keys = entry.get("safe_key_sha256")
         counts = entry.get("record_type_counts")
+        transition_types = entry.get("transition_record_types")
+        transition_sets = {
+            state: entry.get(f"{state}_safe_key_sha256")
+            for state in ("introduced", "retired", "modified")
+        }
         if (
             not isinstance(position, int)
             or position in trace
@@ -220,7 +268,33 @@ def _read_trace(path: Path) -> dict[int, dict[str, object]]:
             or len(keys) != len(set(keys))
             or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in keys)
             or not isinstance(counts, dict)
-            or any(not isinstance(name, str) or not isinstance(value, int) or value < 0 for name, value in counts.items())
+            or any(
+                not isinstance(name, str)
+                or name not in TRACE_RECORD_TYPES
+                or not isinstance(value, int)
+                or isinstance(value, bool)
+                or value <= 0
+                for name, value in counts.items()
+            )
+            or not isinstance(transition_types, dict)
+            or set(transition_types) != set(keys)
+            or any(
+                not isinstance(key, str)
+                or re.fullmatch(r"[0-9a-f]{64}", key) is None
+                or not isinstance(record_type, str)
+                or record_type not in TRACE_RECORD_TYPES
+                for key, record_type in transition_types.items()
+            )
+            or any(
+                not isinstance(values, list)
+                or values != sorted(values)
+                or len(values) != len(set(values))
+                or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in values)
+                for values in transition_sets.values()
+            )
+            or set().union(*(set(values) for values in transition_sets.values())) != set(keys)
+            or sum(len(values) for values in transition_sets.values()) != len(keys)
+            or counts != dict(sorted(Counter(transition_types.values()).items()))
         ):
             raise ValueError("trace entry shape invalid")
         trace[position] = entry
@@ -253,21 +327,94 @@ def _inventory_entries(catalog_entries: list[tuple[str, str]]) -> list[tuple[str
     return entries
 
 
-def _render_counts(reference: dict[str, str], dev: dict[str, str], key_types: dict[str, str], keys: list[str]) -> str:
-    expected = Counter(key_types[key] for key in keys if key in reference)
+def _terminal_retirement_plan(
+    entry: dict[str, object],
+    position: int,
+    trace: dict[int, dict[str, object]],
+    reference: dict[str, str],
+) -> tuple[list[str], list[str], list[str]]:
+    """Separa chaves finais, ausências terminais e lacunas não comprovadas.
+
+    Uma chave que não existe no catálogo final só é aceita como ausência esperada
+    se a própria entrada a retirou ou se uma entrada posterior do replay a
+    retirou explicitamente. A regra não usa nome, posição conhecida ou uma lista
+    de exceções; qualquer lacuna sem retirada direcional permanece bloqueante.
+    """
+    final_keys: list[str] = []
+    terminal_absence: list[str] = []
+    unresolved_reference_gap: list[str] = []
+    current_retired = set(entry["retired_safe_key_sha256"])
+    later_retired = {
+        key
+        for later_position, later_entry in trace.items()
+        if later_position > position
+        for key in later_entry["retired_safe_key_sha256"]
+    }
+    for key in entry["safe_key_sha256"]:
+        if key in reference:
+            final_keys.append(key)
+        elif key in current_retired or key in later_retired:
+            terminal_absence.append(key)
+        else:
+            unresolved_reference_gap.append(key)
+    return final_keys, terminal_absence, unresolved_reference_gap
+
+
+def _equality_for_plan(
+    final_keys: list[str],
+    terminal_absence: list[str],
+    unresolved_reference_gap: list[str],
+    reference: dict[str, str],
+    dev: dict[str, str],
+) -> str:
+    expected_count = len(final_keys) + len(terminal_absence)
+    if not expected_count:
+        return "NO_STRUCTURAL_TRACE" if not unresolved_reference_gap else "DIFFERENT_OR_PARTIAL"
+    final_matches = sum(dev.get(key) == reference[key] for key in final_keys)
+    absent_matches = sum(key not in dev for key in terminal_absence)
+    if (
+        not unresolved_reference_gap
+        and final_matches + absent_matches == expected_count
+    ):
+        return "EQUAL"
+    return "DIFFERENT_OR_PARTIAL"
+
+
+def _render_counts(
+    reference: dict[str, str],
+    dev: dict[str, str],
+    key_types: dict[str, str],
+    transition_types: dict[str, str],
+    final_keys: list[str],
+    terminal_absence: list[str],
+) -> str:
+    expected = Counter(key_types[key] for key in final_keys)
+    expected.update(transition_types[key] for key in terminal_absence)
     matched = Counter(
         key_types[key]
-        for key in keys
-        if key in reference and dev.get(key) == reference[key]
+        for key in final_keys
+        if dev.get(key) == reference[key]
+    )
+    matched.update(
+        transition_types[key]
+        for key in terminal_absence
+        if key not in dev
     )
     if not expected:
         return "NONE 0/0"
     return "; ".join(f"{name} {matched[name]}/{expected[name]}" for name in sorted(expected))
 
 
-def _classify(number: int, equality: str, dev_present_count: int) -> str:
+def _classify(
+    number: int,
+    equality: str,
+    dev_present_count: int,
+    unresolved_reference_gap: list[str],
+) -> str:
     if number in NOT_SCHEMA_DECIDABLE:
         return "NOT_SCHEMA_DECIDABLE"
+    if unresolved_reference_gap:
+        return "PARTIAL_OR_CONFLICTING"
     if number in PARTIAL:
         return "PARTIAL_OR_CONFLICTING"
     if number in ABSENT:
@@ -288,11 +435,16 @@ def _canonical_annex(markdown: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev-index", required=True)
+    parser.add_argument(
+        "--dev-profile",
+        choices=tuple(sorted(DEV_RECEIPT_PROFILES)),
+        default=SEALED_F1,
+    )
     parser.add_argument("--reference-index", required=True)
     parser.add_argument("--trace", required=True)
     args = parser.parse_args()
     try:
-        dev_document = _read_index(Path(args.dev_index), "DEV")
+        dev_document = _read_index(Path(args.dev_index), "DEV", args.dev_profile)
         reference_document = _read_index(Path(args.reference_index), "REFERENCE")
         trace = _read_trace(Path(args.trace))
         entries = _inventory_entries(_catalog_entries())
@@ -321,47 +473,98 @@ def main() -> int:
         entry = trace[position]
         if entry["migration_sha256"] != migration_hash:
             raise SystemExit("FAIL=REFERENCE_TRACE_SOURCE_MISMATCH")
-        keys = [key for key in entry["safe_key_sha256"] if key in reference]
-        missing_from_reference = len(entry["safe_key_sha256"]) - len(keys)
-        matched = [key for key in keys if dev.get(key) == reference[key]]
-        dev_present = [key for key in keys if key in dev]
+        final_keys, terminal_absence, unresolved_reference_gap = _terminal_retirement_plan(
+            entry,
+            position,
+            trace,
+            reference,
+        )
+        comparison_keys = sorted(final_keys + terminal_absence)
+        transition_types = entry["transition_record_types"]
+        matched = [key for key in final_keys if dev.get(key) == reference[key]]
+        terminal_absence_matches = [key for key in terminal_absence if key not in dev]
+        dev_present = [key for key in comparison_keys if key in dev]
         acl_only = [
             key
-            for key in keys
+            for key in final_keys
             if key in dev
             and dev[key] != reference[key]
             and key_types[key] in ACL_STATE_RECORD_TYPES
             and dev_definition[key] == reference_definition[key]
         ]
-        reference_hash = _digest(b"F1-REFERENCE-MIGRATION-v1\0", ((key, reference[key]) for key in keys))
-        dev_hash = _digest(b"F1-DEV-MIGRATION-v1\0", ((key, dev.get(key, "ABSENT")) for key in keys))
-        equality = (
-            "EQUAL"
-            if keys and len(matched) == len(keys) and missing_from_reference == 0
-            else ("NO_STRUCTURAL_TRACE" if not keys else "DIFFERENT_OR_PARTIAL")
+        expected_values = {
+            **{key: reference[key] for key in final_keys},
+            **{key: "EXPECTED_TERMINAL_ABSENCE" for key in terminal_absence},
+        }
+        observed_values = {
+            key: dev.get(key, "ABSENT")
+            for key in comparison_keys
+        }
+        reference_hash = _digest(
+            b"F1-REFERENCE-MIGRATION-v1\0",
+            ((key, expected_values[key]) for key in comparison_keys),
+        )
+        dev_hash = _digest(
+            b"F1-DEV-MIGRATION-v1\0",
+            ((key, observed_values[key]) for key in comparison_keys),
+        )
+        equality = _equality_for_plan(
+            final_keys,
+            terminal_absence,
+            unresolved_reference_gap,
+            reference,
+            dev,
         )
         if equality == "EQUAL":
             divergence = "NONE"
-        elif keys and missing_from_reference == 0 and len(matched) + len(acl_only) == len(keys):
+        elif (
+            comparison_keys
+            and not unresolved_reference_gap
+            and len(matched) + len(terminal_absence_matches) + len(acl_only)
+            == len(comparison_keys)
+        ):
             divergence = "ACL_ONLY"
-        elif not keys:
+        elif not comparison_keys and not unresolved_reference_gap:
             divergence = "NO_STRUCTURAL_TRACE"
         else:
             divergence = "DEFINITION_OR_MISSING_REFERENCE"
-        classification = _classify(number, equality, len(dev_present))
+        classification = _classify(
+            number,
+            equality,
+            len(dev_present),
+            unresolved_reference_gap,
+        )
+        if classification == "PHYSICAL_EFFECTS_PRESENT" and equality != "EQUAL":
+            raise SystemExit("FAIL=PRESENT_WITH_NON_EQUAL")
         totals[classification] += 1
         divergence_totals[divergence] += 1
+        lifecycle = (
+            "TERMINAL_RETIREMENT={retired}; UNRESOLVED_REFERENCE_GAP={unresolved}".format(
+                retired=len(terminal_absence),
+                unresolved=len(unresolved_reference_gap),
+            )
+            if entry["safe_key_sha256"]
+            else "NO_STRUCTURAL_TRACE"
+        )
         rows.append(
             "| {number} | `{name}` | `{keyset}` | `{reference_hash}` | `{dev_hash}` | "
-            "{equality} | `{divergence}` | {counts} | `{classification}` |".format(
+            "{equality} | `{lifecycle}` | `{divergence}` | {counts} | `{classification}` |".format(
                 number=number,
                 name=migration_name,
-                keyset=_digest(b"F1-MIGRATION-KEYSET-v1\0", ((key, "KEY") for key in keys)),
+                keyset=_digest(b"F1-MIGRATION-KEYSET-v1\0", ((key, "KEY") for key in comparison_keys)),
                 reference_hash=reference_hash,
                 dev_hash=dev_hash,
                 equality=equality,
+                lifecycle=lifecycle,
                 divergence=divergence,
-                counts=_render_counts(reference, dev, key_types, keys),
+                counts=_render_counts(
+                    reference,
+                    dev,
+                    key_types,
+                    transition_types,
+                    final_keys,
+                    terminal_absence,
+                ),
                 classification=classification,
             )
         )
@@ -389,6 +592,14 @@ SHA-256 de `record_type`, `schema_ref`, `relation_ref`, `object_ref` e ordinal
 opaco de ocorrência. O anexo nunca imprime esses componentes, definições,
 binding, dado de domínio ou nome/OID de role inesperada.
 
+Antes da comparação, parser e comparador aplicam a mesma tabela de contrato
+DEV. Nesta rodada, `SEALED_F1` aceita eco interno de rollback `0/1` somente
+quando a regeneração local valida arquivo regular, modo `0600`, hash pinado e
+índice DEV pinado. `STRICT_FUTURE` exige o eco interno; ele não herda a
+exceção selada. O contrato exige os dois ledgers nas cardinalidades esperadas,
+seis fingerprints nativos, preflight antes do rollback e nenhum catálogo após
+o terminal. Nenhum caminho pessoal ou byte da transcrição entra neste anexo.
+
 O índice opaco V3 inclui também `definition_sha256`. Em
 `CATALOG_SCHEMA` e `CATALOG_RELATION`, ele normaliza somente `acl_state`; nos
 outros record types ele continua a cobrir o payload completo. Assim,
@@ -398,6 +609,15 @@ o contrato de plataforma Supabase e, isoladamente, não prova drift DEV. Ela
 continua conservadoramente parcial porque sua igualdade não é `EQUAL`. Grants
 diretos, default ACL, grantee e qualquer outra definição nunca recebem o rótulo
 `ACL_ONLY` por essa normalização.
+
+O traço V2 separa, por chave segura, `INTRODUCED`, `RETIRED` e `MODIFIED`. Uma
+chave do delta que não chega ao catálogo final não é descartada por contagem ou
+por nome: ela só ganha expectativa de ausência se o próprio traço a marca como
+retirada na mesma migration ou em migration posterior. Sem essa retirada
+direcional, `UNRESOLVED_REFERENCE_GAP` mantém a linha diferente e impede
+`PHYSICAL_EFFECTS_PRESENT` ou `PHYSICAL_EFFECTS_ABSENT`, exceto pelo teto
+independente de `NOT_SCHEMA_DECIDABLE`. Essa regra cobre remoção e substituição
+sem uma allowlist de objetos transitórios.
 
 `ANNEX_CANONICAL_SHA256={annex_placeholder}`
 
@@ -414,11 +634,14 @@ alteração de ambiente.
 
 ## Comparação por migration
 
-Em `TIPO a/b`, `a` é a quantidade de chaves com payload DEV idêntico e `b` a
-quantidade de chaves estruturais finais da referência atribuídas ao delta local
-da migration. `NO_STRUCTURAL_TRACE` é esperado para efeitos só de dados,
-reconciliação ou no-op condicional. A classificação final ainda respeita esse
-teto: igualdade estrutural não transforma DML em prova de aplicação.
+Em `TIPO a/b`, `a` é a quantidade de expectativas satisfeitas e `b` a
+quantidade de chaves atribuídas ao delta local: uma chave final exige payload
+DEV idêntico; uma retirada terminal exige a sua ausência em DEV. O campo
+`Ciclo de vida` reporta quantas expectativas de ausência foram provadas pelo
+traço e quantas lacunas ficaram sem retirada direcional. `NO_STRUCTURAL_TRACE`
+é esperado para efeitos só de dados, reconciliação ou no-op condicional. A
+classificação final ainda respeita esse teto: igualdade estrutural não
+transforma DML em prova de aplicação.
 
 As contagens de auditoria estática já registradas na matriz são uma assinatura
 de fonte, não uma substituição desta comparação. Três pontos permanecem
@@ -430,8 +653,8 @@ atribui quatro deltas de metadado relacional; o item 39 mantém `CON 13/13` e
 mais três índices de suporte a constraints, por isso a linha catalográfica é
 `CATALOG_INDEX 14/14`; helpers `pg_temp` não entram no coletor persistente.
 
-| # | Migration fonte | Chaves seguras SHA-256 | Hash referência | Hash DEV | Igualdade | Natureza da diferença | Contagens por record_type, DEV/ref | Classificação F1 |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- |
+| # | Migration fonte | Chaves seguras SHA-256 | Hash referência | Hash DEV | Igualdade | Ciclo de vida | Natureza da diferença | Contagens por record_type, DEV/ref | Classificação F1 |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {rows}
 
 ## Resultado limitado
@@ -451,6 +674,9 @@ Natureza das diferenças: `NONE={no_difference}`, `ACL_ONLY={acl_only}`,
 `NO_STRUCTURAL_TRACE={no_structural_trace}`. `ACL_ONLY` separa o caso limitado
 de `acl_state`, mas não altera a classificação conservadora nem transforma a
 diferença local versus plataforma em prova de drift DEV.
+
+Guarda derivada: `PRESENT_WITH_NON_EQUAL=0`. O gerador falha antes de escrever
+o anexo se uma linha presente não tiver igualdade `EQUAL`.
 
 Este anexo recomenda somente a continuação documental da estratégia A. A opção
 B permanece apenas elegível pela declaração humana já recebida e não está

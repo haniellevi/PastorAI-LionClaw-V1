@@ -9,13 +9,14 @@ repo_root="$(git -C "$analysis_dir" rev-parse --show-toplevel)"
 frozen_sql="$repo_root/docs/ops/dev-migration-history-remediation/DEV-READONLY-F1.sql"
 indexer="$analysis_dir/catalog-safe-index.py"
 tracer="$analysis_dir/capture-reference-deltas.py"
-output_dir="${1:?uso: run-pg17-reference.sh /tmp/f1-reference-XXXXXX}"
-evidence_path="${2:?uso: run-pg17-reference.sh /tmp/f1-reference-XXXXXX /caminho/evidencia}"
+output_dir="${1:-}"
+evidence_path="${2:-}"
 container_name="igreja12-f1-reference-pg17"
 postgres_image="postgres:17.6-trixie"
 runtime_image="pastorai-agent-local-validation-v1-backend:3799272"
 frozen_sql_sha256="8829decd0f0101329058ad07900ce7b7ca8b1c4fe5695f4e3cec05cff4bf288c"
 evidence_sha256="b1c3e1bda63b55e7c5496d318bcf039d9a4d130de60ced535d918be233313e1b"
+sealed_dev_index_sha256="a783fa04da2df40981c24e464b8fc4cb997be5b8d535e9dc7d307498636ebf25"
 postgres_image_id="sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929"
 local_password="f1_local_disposable_only"
 
@@ -23,6 +24,10 @@ fail() {
   printf '%s\n' "RESULT=FAIL_REFERENCE_${1}"
   exit "${2:-1}"
 }
+
+if [[ "$#" -ne 2 ]]; then
+  fail USAGE 2
+fi
 
 case "$output_dir" in
   /tmp/f1-reference-*) ;;
@@ -32,13 +37,14 @@ esac
 if [[ ! -d "$output_dir" ]] || [[ -n "$(find "$output_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail OUTPUT_DIRECTORY_CONTRACT 3
 fi
-if [[ ! -f "$evidence_path" ]]; then
+if [[ ! -f "$evidence_path" || -L "$evidence_path" ]]; then
   fail EVIDENCE_PATH_CONTRACT 4
 fi
 if ! evidence_mode="$(stat -c '%a' -- "$evidence_path" 2>/dev/null)" || [[ "$evidence_mode" != 600 ]]; then
   fail EVIDENCE_MODE 4
 fi
-if [[ "$(sha256sum -- "$evidence_path" | awk '{print $1}')" != "$evidence_sha256" ]]; then
+if ! evidence_digest="$(sha256sum -- "$evidence_path" 2>/dev/null | awk '{print $1}')" \
+  || [[ "$evidence_digest" != "$evidence_sha256" ]]; then
   fail EVIDENCE_SHA256 4
 fi
 if [[ ! -f "$frozen_sql" ]] || [[ ! -f "$indexer" ]] || [[ ! -f "$tracer" ]]; then
@@ -46,6 +52,16 @@ if [[ ! -f "$frozen_sql" ]] || [[ ! -f "$indexer" ]] || [[ ! -f "$tracer" ]]; th
 fi
 if [[ "$(sha256sum "$frozen_sql" | awk '{print $1}')" != "$frozen_sql_sha256" ]]; then
   fail FROZEN_SQL_SHA256 5
+fi
+if ! python3 -I -B "$indexer" \
+  --source DEV \
+  --dev-profile SEALED_F1 \
+  --input "$evidence_path" \
+  --output "$output_dir/dev-catalog-safe-index.json" >/dev/null 2>&1; then
+  fail DEV_INDEX_REGENERATION 5
+fi
+if [[ "$(sha256sum "$output_dir/dev-catalog-safe-index.json" | awk '{print $1}')" != "$sealed_dev_index_sha256" ]]; then
+  fail DEV_INDEX_SHA256 5
 fi
 if docker container inspect "$container_name" >/dev/null 2>&1; then
   fail EXISTING_DISPOSABLE_CONTAINER 6
@@ -117,11 +133,6 @@ for required in \
   'POSTGRESQL_MAJOR=17'; do
   [[ "$trace_output" == *"$required"* ]] || fail TRACE_RECEIPT 14
 done
-
-python3 -I -B "$indexer" \
-  --source DEV \
-  --input "$evidence_path" \
-  --output "$output_dir/dev-catalog-safe-index.json" >/dev/null
 
 {
   cat <<'PSQL'
@@ -217,6 +228,7 @@ printf '%s\n' 'TRACE_DATABASE_RECREATED_VIA_POSTGRES=true'
 printf '%s\n' 'TRACE_FRESH_CONTRACT=PASS'
 printf '%s\n' 'OFFICIAL_HARNESS_REPLAY=PASS'
 printf '%s\n' "FROZEN_SQL_SHA256=$frozen_sql_sha256"
+printf '%s\n' "SEALED_DEV_INDEX_SHA256=$sealed_dev_index_sha256"
 printf '%s\n' "DEV_INDEX_SHA256=$(sha256sum "$output_dir/dev-catalog-safe-index.json" | awk '{print $1}')"
 printf '%s\n' "REFERENCE_INDEX_SHA256=$(sha256sum "$output_dir/reference-catalog-safe-index.json" | awk '{print $1}')"
 printf '%s\n' "TRACE_SHA256=$(sha256sum "$output_dir/reference-trace.json" | awk '{print $1}')"

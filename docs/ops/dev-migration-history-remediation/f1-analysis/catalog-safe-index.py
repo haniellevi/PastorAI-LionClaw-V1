@@ -17,11 +17,38 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
 import sys
 from typing import Iterable
+
+
+def _load_dev_receipt_contract() -> object:
+    module_name = "f1_dev_receipt_contract"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
+    source = Path(__file__).with_name("dev_receipt_contract.py")
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("DEV receipt contract unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_dev_contract = _load_dev_receipt_contract()
+DEV_RECEIPT_CONTRACT = _dev_contract.DEV_RECEIPT_CONTRACT
+DEV_RECEIPT_CONTRACT_SHA256 = _dev_contract.DEV_RECEIPT_CONTRACT_SHA256
+DEV_RECEIPT_PROFILES = _dev_contract.DEV_RECEIPT_PROFILES
+SEALED_F1 = _dev_contract.SEALED_F1
+STRICT_FUTURE = _dev_contract.STRICT_FUTURE
+validate_dev_raw_receipt = _dev_contract.validate_dev_raw_receipt
+validate_dev_safe_index = _dev_contract.validate_dev_safe_index
+validate_sealed_f1_evidence = _dev_contract.validate_sealed_f1_evidence
 
 
 CATALOG_SHAPES = {
@@ -282,13 +309,6 @@ ALLOWED_PIPE_RECORD_TYPES_BY_SOURCE = {
     "REFERENCE": frozenset(CATALOG_SHAPES),
 }
 
-REQUIRED_DEV_RECORDS = {
-    "TARGET_DIGEST",
-    "F1_SESSION",
-    "PUBLIC_LEDGER_COUNT_EXPECTATION",
-    "NATIVE_LEDGER_COUNT_EXPECTATION",
-}
-
 ACL_STATE_RECORD_TYPES = {"CATALOG_SCHEMA", "CATALOG_RELATION"}
 
 
@@ -347,21 +367,28 @@ def _definition_fields(fields: tuple[str, ...]) -> tuple[str, ...]:
     return fields
 
 
-def _accept_nonpipe_line(raw_line: str, source: str, markers: Counter[str]) -> None:
+def _accept_nonpipe_line(
+    raw_line: str,
+    source: str,
+    markers: Counter[str],
+) -> tuple[str, str] | None:
     marker = raw_line.strip()
     if not marker or PSQL_ROW_FOOTER.fullmatch(marker) or PSQL_TABLE_SEPARATOR.fullmatch(marker):
-        return
+        return None
     if marker not in ALLOWED_MARKERS_BY_SOURCE[source]:
         raise ValueError("unrecognized psql marker")
     markers[marker] += 1
     if marker in ABORT_MARKERS_BY_SOURCE[source]:
         raise ValueError("abort marker observed")
+    return "marker", marker
 
 
 def _accept_pipe_line(
     raw_line: str,
     source: str,
     observed_records: Counter[str],
+    observed_rows: dict[str, list[tuple[str, ...]]],
+    events: list[tuple[str, str]],
 ) -> tuple[tuple[str, str, str, str], tuple[str, ...]] | None:
     fields = tuple(part.strip() for part in raw_line.split("|"))
     if fields in PSQL_HEADERS:
@@ -375,6 +402,8 @@ def _accept_pipe_line(
     if len(fields) not in allowed_shapes:
         raise ValueError("recognized record shape invalid")
     observed_records[record_type] += 1
+    observed_rows[record_type].append(fields)
+    events.append(("record", record_type))
     if record_type not in CATALOG_SHAPES:
         return None
     return _key_components(fields), fields
@@ -394,7 +423,37 @@ def _valid_count_map(value: object, allowed_names: set[str] | frozenset[str]) ->
     )
 
 
-def _validate_document(document: object, source: str) -> bool:
+def _valid_dev_raw_receipt(
+    observed_records: Counter[str],
+    observed_rows: dict[str, list[tuple[str, ...]]],
+    observed_markers: Counter[str],
+    events: list[tuple[str, str]],
+    profile: str,
+) -> str:
+    """Exige o contrato terminal completo antes de criar qualquer índice.
+
+    As linhas são usadas somente nesta validação de processo. Elas nunca entram
+    no JSON, que conserva apenas hashes de registros catalográficos conhecidos.
+    """
+    return validate_dev_raw_receipt(
+        observed_records,
+        observed_rows,
+        observed_markers,
+        events,
+        profile,
+    )
+
+
+def _serialized_document(document: object) -> bytes:
+    return (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+
+
+def _validate_document(
+    document: object,
+    source: str,
+    dev_profile: str,
+    serialized_sha256: str | None,
+) -> bool:
     if not isinstance(document, dict) or set(document) != INDEX_FIELDS:
         return False
     if document.get("format") != INDEX_FORMAT or document.get("source") != source:
@@ -444,19 +503,13 @@ def _validate_document(document: object, source: str) -> bool:
     markers = document.get("receipt_marker_counts")
     if not _valid_count_map(markers, allowed_markers):
         return False
-    if markers.get("BEGIN", 0) > 1 or markers.get("SET", 0) > 5 or markers.get("ROLLBACK", 0) > 1:
-        return False
     receipt_state = document.get("rollback_receipt_state")
     if source == "DEV":
-        if any(observed.get(name) != 1 for name in REQUIRED_DEV_RECORDS):
+        try:
+            validate_dev_safe_index(document, dev_profile, serialized_sha256)
+        except ValueError:
             return False
-        rollback_echo = markers.get("ROLLBACK_COMPLETED_F1", 0)
-        rollback_command = markers.get("ROLLBACK", 0)
-        if rollback_echo > 1 or rollback_command > 1 or not (rollback_echo or rollback_command):
-            return False
-        return receipt_state == (
-            "F1_ECHO_OBSERVED" if rollback_echo else "PSQL_ROLLBACK_COMMAND_OBSERVED"
-        )
+        return True
     if (
         markers.get("REFERENCE_CATALOG_ADAPTER") != 1
         or markers.get("REFERENCE_CATALOG_ROLLBACK_COMPLETED") != 1
@@ -465,19 +518,45 @@ def _validate_document(document: object, source: str) -> bool:
     return receipt_state == "REFERENCE_ECHO_OBSERVED"
 
 
-def _parse(raw: str, source: str) -> tuple[dict[str, object], Counter[str]]:
+def _parse(
+    raw: str,
+    source: str,
+    dev_profile: str = STRICT_FUTURE,
+) -> tuple[dict[str, object], Counter[str]]:
     if source not in ALLOWED_MARKERS_BY_SOURCE:
         raise ValueError("source invalid")
+    if source == "DEV" and dev_profile not in DEV_RECEIPT_PROFILES:
+        raise ValueError("DEV receipt profile invalid")
     records: list[tuple[tuple[str, str, str, str], tuple[str, ...]]] = []
     observed_records: Counter[str] = Counter()
+    observed_rows: dict[str, list[tuple[str, ...]]] = defaultdict(list)
     observed_markers: Counter[str] = Counter()
+    events: list[tuple[str, str]] = []
     for raw_line in raw.splitlines():
         if "|" not in raw_line:
-            _accept_nonpipe_line(raw_line, source, observed_markers)
+            event = _accept_nonpipe_line(raw_line, source, observed_markers)
+            if event is not None:
+                events.append(event)
             continue
-        accepted = _accept_pipe_line(raw_line, source, observed_records)
+        accepted = _accept_pipe_line(
+            raw_line,
+            source,
+            observed_records,
+            observed_rows,
+            events,
+        )
         if accepted is not None:
             records.append(accepted)
+
+    dev_receipt_state = None
+    if source == "DEV":
+        dev_receipt_state = _valid_dev_raw_receipt(
+            observed_records,
+            observed_rows,
+            observed_markers,
+            events,
+            dev_profile,
+        )
 
     grouped: dict[tuple[str, str, str, str], list[tuple[str, ...]]] = defaultdict(list)
     for key, fields in records:
@@ -514,16 +593,10 @@ def _parse(raw: str, source: str) -> tuple[dict[str, object], Counter[str]]:
         "source_observed_record_type_counts": dict(sorted(observed_records.items())),
         "receipt_marker_counts": dict(sorted(observed_markers.items())),
         "rollback_receipt_state": (
-            "F1_ECHO_OBSERVED"
-            if source == "DEV" and observed_markers["ROLLBACK_COMPLETED_F1"]
-            else (
-                "PSQL_ROLLBACK_COMMAND_OBSERVED"
-                if source == "DEV"
-                else "REFERENCE_ECHO_OBSERVED"
-            )
+            dev_receipt_state if source == "DEV" else "REFERENCE_ECHO_OBSERVED"
         ),
     }
-    if not _validate_document(document, source):
+    if not _validate_document(document, source, dev_profile, None):
         raise ValueError("safe index document contract invalid")
     return document, observed_records
 
@@ -531,6 +604,11 @@ def _parse(raw: str, source: str) -> tuple[dict[str, object], Counter[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--source", choices=("DEV", "REFERENCE"), required=True)
+    parser.add_argument(
+        "--dev-profile",
+        choices=tuple(sorted(DEV_RECEIPT_PROFILES)),
+        default=STRICT_FUTURE,
+    )
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -538,18 +616,28 @@ def main() -> int:
     if output_path.parent != output_path.parent.resolve():
         raise SystemExit("FAIL=PATH_CONTRACT")
     try:
+        input_path: Path | None = None
         if args.input == "-":
+            if args.source == "DEV" and args.dev_profile == SEALED_F1:
+                raise ValueError("sealed evidence stdin invalid")
             raw = sys.stdin.read()
         else:
             input_path = Path(args.input)
             if not input_path.is_file():
                 raise ValueError("input path invalid")
+            if args.source == "DEV" and args.dev_profile == SEALED_F1:
+                validate_sealed_f1_evidence(input_path)
             raw = input_path.read_text(encoding="utf-8")
-        document, _observed = _parse(raw, args.source)
-        output_path.write_text(
-            json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n",
-            encoding="ascii",
-        )
+        document, _observed = _parse(raw, args.source, args.dev_profile)
+        serialized = _serialized_document(document)
+        if not _validate_document(
+            document,
+            args.source,
+            args.dev_profile,
+            hashlib.sha256(serialized).hexdigest(),
+        ):
+            raise ValueError("safe index document contract invalid")
+        output_path.write_bytes(serialized)
     except (OSError, UnicodeError, ValueError) as exc:
         raise SystemExit("FAIL=CATALOG_SAFE_INDEX") from exc
     print("RESULT=PASS_F1_CATALOG_SAFE_INDEX")

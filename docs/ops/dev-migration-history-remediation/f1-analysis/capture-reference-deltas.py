@@ -4,7 +4,9 @@
 O harness importado continua sendo o executor de referência: este invólucro
 somente intercepta seu cursor após cada SQL validado e calcula deltas de
 metadados em memória. O arquivo produzido contém posições, hashes de migration,
-hashes de chave e contagens, sem identificadores brutos de catálogo.
+hashes de chave e contagens, sem identificadores brutos de catálogo. A versão
+V2 separa introdução, retirada e modificação de uma chave, para que o
+comparador só aceite uma ausência terminal quando o replay prova a retirada.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ TRACE_TYPES = (
     "CATALOG_TRIGGER",
     "CATALOG_TYPE",
 )
+TRACE_FORMAT = "F1_REFERENCE_STRUCTURAL_TRACE_V2"
 TRACE_PHASE = "BOOTSTRAP"
 
 
@@ -374,18 +377,37 @@ class _ProxyCursor:
             TRACE_PHASE = "REPLAY_MIGRATION_SNAPSHOT"
             current = _snapshot(self._cursor)
             migration = self._migration_by_sql[query]
-            changed = sorted(
-                key for key in set(self._prior) | set(current)
-                if self._prior.get(key) != current.get(key)
+            prior_keys = set(self._prior)
+            current_keys = set(current)
+            introduced = sorted(current_keys - prior_keys)
+            retired = sorted(prior_keys - current_keys)
+            modified = sorted(
+                key
+                for key in prior_keys & current_keys
+                if self._prior[key] != current[key]
             )
+            changed = sorted(introduced + retired + modified)
+            transition_types = {
+                key: (current.get(key) or self._prior.get(key))[0]
+                for key in changed
+            }
+            if (
+                set(transition_types) != set(changed)
+                or any(record_type not in TRACE_TYPES for record_type in transition_types.values())
+            ):
+                raise RuntimeError("transition type coverage invalid")
             type_counts: dict[str, int] = {}
             for key in changed:
-                record_type = (current.get(key) or self._prior.get(key))[0]
+                record_type = transition_types[key]
                 type_counts[record_type] = type_counts.get(record_type, 0) + 1
             self._trace[migration.position] = {
                 "migration_sha256": migration.sha256,
                 "safe_key_sha256": changed,
                 "record_type_counts": dict(sorted(type_counts.items())),
+                "introduced_safe_key_sha256": introduced,
+                "retired_safe_key_sha256": retired,
+                "modified_safe_key_sha256": modified,
+                "transition_record_types": dict(sorted(transition_types.items())),
             }
             self._prior = current
         return result
@@ -466,7 +488,7 @@ def main() -> int:
     if result.migration_count != 77 or len(trace) != 77:
         raise SystemExit("FAIL=TRACE_INCOMPLETE")
     document = {
-        "format": "F1_REFERENCE_STRUCTURAL_TRACE_V1",
+        "format": TRACE_FORMAT,
         "catalog_digest_sha256": result.catalog_digest_sha256,
         "migration_count": result.migration_count,
         "postgres_version_num": result.postgres_version_num,

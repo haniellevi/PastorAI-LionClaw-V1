@@ -33,7 +33,10 @@ idênticas sem a confirmação `R1`.
 Os hashes de definição, expressão e configuração permanecem evidência opaca do
 catálogo, sem definição bruta no repositório. `PHYSICAL_EFFECTS_PRESENT` exige
 que todas as subassinaturas estruturais aplicáveis da linha coincidam e que
-`R1` seja `EQUAL`, sem chave do traço ausente da referência;
+`R1` seja `EQUAL`. Uma chave do traço ausente da referência só satisfaz essa
+regra quando o traço direcional V2 comprova a retirada na mesma migration ou
+em migration posterior e a chave também está ausente em DEV; sem essa prova,
+ela permanece uma lacuna e bloqueia a classe positiva;
 `PHYSICAL_EFFECTS_ABSENT` exige que nenhuma exista; `PARTIAL_OR_CONFLICTING`
 cobre uma lacuna ou um nível de ACL não observável. Para DML, seed,
 reconciliação ou no-op condicional, a coluna própria registra o estado
@@ -55,9 +58,9 @@ comando psql de rollback, sem copiar a transcrição. A declaração humana inde
 `D02` identifica somente as contagens e os históricos opacos dos ledgers;
 `D03` o catálogo público; `D04` a ausência sanitizada de `agent_private`,
 `recovery` e `agent_runtime`; `D05` os dois privilégios opacos de schema
-público. `R1` é o replay PG17 local das 77 migrations, o traço por chave segura
-e a comparação DEV/ref documentada no anexo de referência. Nenhum código de
-evidência prova aplicação de migration.
+público. `R1` é o replay PG17 local das 77 migrations, o traço direcional por
+chave segura e a comparação DEV/ref documentada no anexo de referência. Nenhum
+código de evidência prova aplicação de migration.
 
 | # | Migration do catálogo | Evidência DEV sanitizada | Assinatura estrutural auditada | Limite de DML ou histórico | Classificação F1 |
 | ---: | --- | --- | --- | --- | --- |
@@ -78,7 +81,7 @@ evidência prova aplicação de migration.
 | 15 | `20260707_011455_igreja_logo_branding.sql` | `D02,D03,D05,R1` | `REL 1/1; COL 1/1; POL 1/1; ACL coluna 0/1`. | Sem efeito de linhas na aplicação. | `PARTIAL_OR_CONFLICTING` |
 | 16 | `20260708_160128_sec3a_app_users_password_changed_at.sql` | `D02,D03,R1` | `REL 1/1; COL 1/1` | Sem efeito de linhas na aplicação. | `PHYSICAL_EFFECTS_PRESENT` |
 | 17 | `20260708_164756_backfill_celula_membro_canonico.sql` | `D02,R1` | Estado estrutural persistente: `REL 0/0`. | Backfill e inserções históricas não foram lidos. | `NOT_SCHEMA_DECIDABLE` |
-| 18 | `20260708_172106_sec3b_password_reset_tokens_single_use.sql` | `D02,D03,R1` | `REL 1/1; COL 6/6; CON 2/2; IDX 2/2`; os contadores fecham, mas `R1` tem chave do traço ausente da referência e não é `EQUAL`. | Sem efeito de linhas na aplicação. | `PARTIAL_OR_CONFLICTING` |
+| 18 | `20260708_172106_sec3b_password_reset_tokens_single_use.sql` | `D02,D03,R1` | `REL 1/1; COL 6/6; CON 2/2; IDX 2/2`. `R1` V2 prova uma retirada terminal posterior para a chave transitória do coletor e confirma sua ausência em DEV, portanto fecha `EQUAL`. | Sem efeito de linhas na aplicação. | `PHYSICAL_EFFECTS_PRESENT` |
 | 19 | `20260708_221808_igreja_dono_id_grant_update.sql` | `D02,D05,R1` | `ACL coluna 0/1`; o grant por coluna não é enumerado por `relacl`. | Sem efeito de linhas na aplicação. | `PARTIAL_OR_CONFLICTING` |
 | 20 | `20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql` | `D02,D03,R1` | `REL 1/1; IDX 1/1` | Sem efeito de linhas na aplicação. | `PHYSICAL_EFFECTS_PRESENT` |
 | 21 | `20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql` | `D02,R1` | Estado estrutural persistente: `REL 0/0`. | Reclassificação de linhas não foi lida. | `NOT_SCHEMA_DECIDABLE` |
@@ -109,8 +112,8 @@ evidência prova aplicação de migration.
 ## Fechamento de cobertura
 
 - Linhas de catálogo auditadas: `44/44`.
-- `PHYSICAL_EFFECTS_PRESENT`: `13`.
-- `PARTIAL_OR_CONFLICTING`: `17`.
+- `PHYSICAL_EFFECTS_PRESENT`: `14`.
+- `PARTIAL_OR_CONFLICTING`: `16`.
 - `PHYSICAL_EFFECTS_ABSENT`: `5`.
 - `NOT_SCHEMA_DECIDABLE`: `9`.
 
@@ -120,7 +123,8 @@ isso passam a `PARTIAL_OR_CONFLICTING`. O item 5 mantém `REL 3/3` na fonte,
 mas o anexo mostra `CATALOG_RELATION 0/3` em DEV/ref; o item 30 continua
 `NOT_SCHEMA_DECIDABLE` pelo DML e sem referência a `recovery`; o item 39 fecha
 por referência com 13 constraints e 11 índices explícitos, além de três
-índices de suporte a constraints. O item 18 passa a parcial porque igualdade
-de contagens não compensa uma chave do traço ausente da referência. O ledger
-público permanece não-prefixo do catálogo; nenhuma classe autoriza alterar,
-reordenar ou reconhecer entrada de ledger.
+índices de suporte a constraints. O item 18 fecha porque o traço V2 prova a
+retirada terminal posterior da chave transitória e DEV não a mantém; sem essa
+prova direcional, a mesma lacuna continuaria parcial. O ledger público permanece
+não-prefixo do catálogo; nenhuma classe autoriza alterar, reordenar ou
+reconhecer entrada de ledger.

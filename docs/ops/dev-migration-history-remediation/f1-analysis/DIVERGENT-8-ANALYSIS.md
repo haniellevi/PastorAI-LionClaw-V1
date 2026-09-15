@@ -11,7 +11,7 @@ alteração de ledger, reordenação, backfill ou reaplicação.
 
 A coluna de assinatura usa a auditoria estrutural corrigida da matriz e a
 comparação de chaves seguras do anexo de referência, SHA-256 canônico
-`ad5e21e746967862555899a1c5c7c2d90ee6c020edbbab85edfcbac241644b57`.
+`944f77ac4e84421cf1ba89e6d0dc7bb52e314721ff5e7222baaaa611838a6e5e`.
 Presença parcial de componentes não transforma o ledger aplicado em prefixo,
 nem permite reconhecer uma entrada ausente como aplicada. Cada posição continua
 uma dependência obrigatória de qualquer epoch ou cutover futuro.
