@@ -73,15 +73,32 @@ def test_strategy_c_service_keeps_abstract_store_without_postgres_dependency():
             assert all("consent_evidence_store_postgres" not in item.name for item in node.names)
 
 
-def test_source_only_delivery_keeps_75_prefix_one_append_and_closed_gates():
-    head = json.loads((ROOT / "docs/governance/migrations/migration-catalog-head-v1.json").read_text())
-    assert head["current_head"]["migration_count"] == 76
-    assert len(head["historical_prefix"]["entries"]) == 75
-    assert len(head["append_only_batches"]) == 1
-    assert len(head["append_only_batches"][0]["entries"]) == 1
-    assert head["append_only_batches"][0]["entries"][0]["position"] == 75
-    assert head["previous_approved_head_sha256"] == (
-        "a591923ce771349d286cdc424d599c593e070ecea0271f3909c64719258658b4"
+def test_source_only_delivery_keeps_75_prefix_current_head_and_closed_gates():
+    from scripts import verify_migration_catalog_head as catalog_head
+    from tests.migration_catalog_fixtures import immediate_approved_prior_bytes
+
+    content = (
+        ROOT / "docs/governance/migrations/migration-catalog-head-v1.json"
+    ).read_bytes()
+    prior_content = immediate_approved_prior_bytes(content)
+    prior = catalog_head.ApprovedPriorHead(
+        content_sha256=hashlib.sha256(prior_content).hexdigest(),
+        head=catalog_head._decode_json(prior_content),
     )
+    head = catalog_head.verify_versioned_head(approved_prior=prior)
+    appended = [
+        entry
+        for batch in head["append_only_batches"]
+        for entry in batch["entries"]
+    ]
+
+    assert head["current_head"]["migration_count"] == 77
+    assert len(head["historical_prefix"]["entries"]) == 75
+    assert len(head["append_only_batches"]) == 2
+    assert [entry["position"] for entry in appended] == [75, 76]
+    assert head["current_head"]["migration_count"] == 75 + len(appended)
+    assert head["previous_approved_head_sha256"] == hashlib.sha256(
+        prior_content
+    ).hexdigest()
     assert head["operational_authorization"] is False
     assert head["next_stage_authorized"] is False

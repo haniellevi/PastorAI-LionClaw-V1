@@ -38,6 +38,7 @@ HISTORICAL_DIGEST_SHA256 = (
 HISTORICAL_LAST_BASENAME = (
     "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql"
 )
+MAX_PUBLIC_APPEND_BATCHES = 2
 GIT_SHA_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 MAX_MODULE_BYTES = 4_194_304
 PRIVATE_HEAD_RELATIVE_PATH = (
@@ -300,7 +301,8 @@ def _validate_private_snapshot(
         or public_count != expected_public_migration_count
         or public_digest != expected_public_digest_sha256
         or public_count < HISTORICAL_COUNT
-        or public_append_count not in {0, 1}
+        or public_append_count < 0
+        or public_append_count > MAX_PUBLIC_APPEND_BATCHES
         or public_count != HISTORICAL_COUNT + public_append_count
         or private_count < 0
         or (
@@ -351,7 +353,7 @@ def _validate_private_snapshot(
     # The public append transition is deliberately independent from the
     # private stream.  A commit that advances the public head must not smuggle
     # in a private migration or rewrite its private head.
-    if public_append_count == 1 and (
+    if public_append_count > 0 and (
         prior_head is None
         or current_head != prior_head
         or current_entries != prior_entries
@@ -435,7 +437,7 @@ def verify_ci(
             type(legacy_count) is not int
             or type(legacy_digest) is not str
             or legacy_count < HISTORICAL_COUNT
-            or legacy_count > HISTORICAL_COUNT + 1
+            or legacy_count > HISTORICAL_COUNT + MAX_PUBLIC_APPEND_BATCHES
             or (
                 legacy_count != HISTORICAL_COUNT
                 and not getattr(legacy_result, "prior_head_required", False)

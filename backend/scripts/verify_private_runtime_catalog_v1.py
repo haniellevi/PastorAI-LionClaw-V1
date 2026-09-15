@@ -41,7 +41,7 @@ HISTORICAL_DIGEST_SHA256 = (
 HISTORICAL_LAST_BASENAME = (
     "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql"
 )
-MAX_PUBLIC_APPEND_BATCHES = 1
+MAX_PUBLIC_APPEND_BATCHES = 2
 PUBLIC_INTENT_PREFIX = b"-- PASTORAI_MIGRATION_INTENT_V1="
 VERIFIED_RESULT = "RESULT=PRIVATE_RUNTIME_CATALOG_SOURCE_VERIFIED"
 OPERATIONAL_BLOCK = "OPERATIONAL_AUTHORIZATION=BLOCKED"
@@ -196,7 +196,7 @@ def verify_public_catalog_compatibility() -> PublicCatalogCompatibility:
     stable reads of the head, schema, and every catalog file.  Only after that
     complete validation do we apply the private-runtime compatibility rule:
     the first 75 entries must remain the pinned prefix and this transition may
-    contain at most one public TENANT append.
+    contain at most two public TENANT appends.
     """
 
     try:

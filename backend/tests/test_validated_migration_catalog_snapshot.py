@@ -49,11 +49,15 @@ def test_public_catalog_snapshot_is_immutable_source_evidence() -> None:
         sha256=head["historical_prefix"]["entries"][-1]["sha256"],
         size_bytes=head["historical_prefix"]["entries"][-1]["size_bytes"],
     )
-    assert len(snapshot.entries) == 76
-    assert len(head["append_only_batches"]) == 1
-    appended = head["append_only_batches"][0]["entries"]
-    assert len(appended) == 1
-    assert snapshot.entries[-1] == snapshot_api.ValidatedCatalogEntry(**appended[0])
+    assert len(snapshot.entries) == 77
+    assert len(head["append_only_batches"]) == 2
+    first_append, second_append = head["append_only_batches"]
+    assert snapshot.entries[75] == snapshot_api.ValidatedCatalogEntry(
+        **first_append["entries"][0]
+    )
+    assert snapshot.entries[76] == snapshot_api.ValidatedCatalogEntry(
+        **second_append["entries"][0]
+    )
     assert snapshot.operational_authorization is False
     assert snapshot.next_stage_authorized is False
 

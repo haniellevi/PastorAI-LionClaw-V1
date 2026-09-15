@@ -66,8 +66,8 @@ PUBLIC_MIGRATION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,255}\.sql$"
 BASENAME_RE = re.compile(
     r"^[0-9]{8}_[0-9]{6}_[a-z][a-z0-9_]{0,119}\.sql$"
 )
-PUBLIC_CURRENT_COUNT = HISTORICAL_COUNT + 1
-PUBLIC_APPEND_COUNT = 1
+PUBLIC_CURRENT_COUNT = HISTORICAL_COUNT + 2
+PUBLIC_APPEND_COUNT = PUBLIC_CURRENT_COUNT - HISTORICAL_COUNT
 COMPOSITION_PUBLIC_APPEND_THEN_PRIVATE = "PUBLIC_APPEND_THEN_PRIVATE"
 COMPOSITION_PRIVATE_THEN_PUBLIC_APPEND = "PRIVATE_THEN_PUBLIC_APPEND"
 COMPOSITION_ORDERS = (
@@ -80,7 +80,7 @@ COMPOSITION_ORDERS = (
 DEFAULT_PUBLIC_DIGEST = "a" * 64
 DEFAULT_PUBLIC_APPEND_SHA = "b" * 64
 DEFAULT_SOURCE_GIT_SHA = "c" * 40
-DEFAULT_PUBLIC_APPEND_BASENAME = "20260909_004005_consent_evidence_store_lab.sql"
+DEFAULT_PUBLIC_APPEND_BASENAME = "20260910_142830_add_e4b_consent_persistence.sql"
 
 
 class ReceiptVerificationError(RuntimeError):
@@ -316,12 +316,7 @@ def _authenticated_public_fields(
         if len(append) != PUBLIC_APPEND_COUNT:
             raise ReceiptVerificationError
         historical_last = prefix[-1]
-        candidate = append[0]
-        if (
-            historical_last.name
-            != "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql"
-            or candidate.name <= historical_last.name
-        ):
+        if historical_last.name != HISTORICAL_LAST_BASENAME:
             raise ReceiptVerificationError
         public_catalog = public_snapshot.catalog
         historical_digest = public_catalog._catalog_digest(
@@ -336,35 +331,45 @@ def _authenticated_public_fields(
             or current_digest == HISTORICAL_DIGEST_SHA256
         ):
             raise ReceiptVerificationError
-        append_sha = candidate.sha256
-        if type(append_sha) is not str or SHA256_RE.fullmatch(append_sha) is None:
-            raise ReceiptVerificationError
-        candidate_path = public_catalog.MIGRATIONS_DIR / candidate.name
-        candidate_record = public_catalog._read_stable_file(
-            candidate_path,
-            maximum_size=public_catalog.MAX_MIGRATION_BYTES,
-            error_type=public_catalog.CatalogDriftError,
-        )
-        first_line, separator, _rest = candidate_record.content.partition(b"\n")
-        if not separator or not first_line.startswith(PUBLIC_INTENT_PREFIX):
-            raise ReceiptVerificationError
-        intent = public_catalog._decode_json(first_line[len(PUBLIC_INTENT_PREFIX) :])
-        if (
-            type(intent) is not dict
-            or intent.get("scope") != "TENANT"
-            or intent.get("operational_authorization") is not False
-            or intent.get("next_stage_authorized") is not False
-            or intent.get("migration_basename") != candidate.name
-            or len(candidate_record.content) != candidate.size_bytes
-            or hashlib.sha256(candidate_record.content).hexdigest() != append_sha
-        ):
-            raise ReceiptVerificationError
+        previous_name = historical_last.name
+        for candidate in append:
+            append_sha = candidate.sha256
+            if (
+                type(append_sha) is not str
+                or SHA256_RE.fullmatch(append_sha) is None
+                or candidate.name <= previous_name
+            ):
+                raise ReceiptVerificationError
+            candidate_path = public_catalog.MIGRATIONS_DIR / candidate.name
+            candidate_record = public_catalog._read_stable_file(
+                candidate_path,
+                maximum_size=public_catalog.MAX_MIGRATION_BYTES,
+                error_type=public_catalog.CatalogDriftError,
+            )
+            first_line, separator, _rest = candidate_record.content.partition(b"\n")
+            if not separator or not first_line.startswith(PUBLIC_INTENT_PREFIX):
+                raise ReceiptVerificationError
+            intent = public_catalog._decode_json(
+                first_line[len(PUBLIC_INTENT_PREFIX) :]
+            )
+            if (
+                type(intent) is not dict
+                or intent.get("scope") != "TENANT"
+                or intent.get("operational_authorization") is not False
+                or intent.get("next_stage_authorized") is not False
+                or intent.get("migration_basename") != candidate.name
+                or len(candidate_record.content) != candidate.size_bytes
+                or hashlib.sha256(candidate_record.content).hexdigest() != append_sha
+            ):
+                raise ReceiptVerificationError
+            previous_name = candidate.name
+        last_append = append[-1]
         return {
             "public_migration_count": len(entries),
             "public_digest_sha256": current_digest,
             "public_append_count": len(append),
-            "public_append_last_basename": candidate.name,
-            "public_append_last_sha256": append_sha,
+            "public_append_last_basename": last_append.name,
+            "public_append_last_sha256": last_append.sha256,
         }
     except ReceiptVerificationError:
         raise

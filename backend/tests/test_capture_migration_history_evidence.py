@@ -319,7 +319,7 @@ def test_expected_catalog_digest_matches_fixed_repository_catalog() -> None:
         entry for batch in head["append_only_batches"] for entry in batch["entries"]
     ]
     assert catalog == represented
-    assert len(catalog) == head["current_head"]["migration_count"] == 76
+    assert len(catalog) == head["current_head"]["migration_count"] == 77
     assert capture._catalog_digest(catalog) == head["current_head"]["digest_sha256"]
     assert capture._catalog_digest(catalog[:75]) == (
         capture.EXPECTED_CATALOG_DIGEST_SHA256
