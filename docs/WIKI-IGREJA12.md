@@ -1664,12 +1664,15 @@ deny-all, e C09/C10 permanecem `BLOCKED_BY_E4B`, sem caminho positivo ou bypass
 de `purpose_consent`. Os testes sintéticos e os merges não provam RLS viva,
 consentimento concedido nem operação. O PR #362 segue adiado como áudio-only.
 
-O source-readiness E4b está `CONCLUÍDO`. Gate humano vigente: Raniel autorizar
-nominalmente
-`OWNER_AUTHORIZE_CATALOG_MATERIALIZATION_FILADELFIA_TAREFAS_OPERACIONAIS`,
-limitado a materializar as referências no catálogo imutável e calcular o
-`entry_digest`. O índice de evidências é
-`docs/sprints/2026-09-14-d6-batch-closure.md`.
+O source-readiness E4b está `CONCLUÍDO`. O preflight read-only do head 77 em DEV
+registrou 33 das 77 migrations no ledger público, prefixo canônico somente nas
+posições 0 a 24, oito posições divergentes, 44 arquivos ausentes e as seis
+relações E4b ausentes. A decisão é
+`NO_GO_DEV_LEDGER_DIVERGENCE_AND_NO_AUTHORIZED_APPLY_RUNNER`; nenhuma migration
+foi aplicada. Gate humano vigente: Raniel decide manter o `NO_GO` ou autorizar
+missão própria de remediação do histórico DEV e do executor catalog-bound. As
+evidências estão em `docs/ops/migration-head77-dev-apply-readiness/`; o índice
+D6 permanece em `docs/sprints/2026-09-14-d6-batch-closure.md`.
 
 ## Fundação V3 catalog-bound, 2026-09-10
 
