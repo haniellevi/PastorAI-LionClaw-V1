@@ -7,6 +7,7 @@
 | Classe da fonte | captura externa única, somente leitura |
 | SHA-256 da captura aceita | `18d2e78ffc16d26f20f1e58459969c9c3bcc5cf58896c33c6225daedd01f6cb9` |
 | Modo e tamanho | `0600`, `405404` bytes |
+| Horário explícito da coleta | `2026-09-16T13:17:21-03:00` |
 | Cópias físicas e lógicas | `1` e `1` |
 | Captura anterior | prefixo `5fbd1c8f` está `SUPERSEDED` e é rejeitado como fonte |
 | Caminho local | não persistido |

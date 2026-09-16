@@ -7,6 +7,7 @@
 | Classe da fonte | captura externa de diagnóstico de forma, somente leitura |
 | SHA-256 total aceito | `8a8601efc9e6bbc7d8772570a2d78535073c13e999753bf12ea92bdcf6868bd3` |
 | Modo e tamanho | `0600`, `2182` bytes |
+| Horário explícito da coleta | `2026-09-16T12:52:26-03:00` |
 | Regra aceita | `DUPLICATED_IDENTICAL_CAPTURE_2X` |
 | Cópias físicas | exatamente `2` |
 | SHA-256 de cada metade | `d9f8deff50021757469a6dd0b1ec0ad9858bdd8602b40d1a74514dd24287624d` |

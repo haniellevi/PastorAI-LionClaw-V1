@@ -5,6 +5,11 @@ candidate_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 sql_file="$candidate_dir/PROD-READONLY-F2-DIAG-v2.sql"
 container_name="igreja12-f2-prod-diag-v2-pg17"
 image_ref="postgres:17.6-trixie"
+runner_path="$candidate_dir/run-pg17-f2-prod-diag-v2-e2e.sh"
+existing_container_rc=6
+container_owned=false
+owned_container_id=""
+ownership_fixture_child="${F2_PROD_DIAG_OWNERSHIP_FIXTURE_CHILD:-0}"
 binding_primary="1111111111111111111111111111111111111111111111111111111111111111"
 binding_alternate="2222222222222222222222222222222222222222222222222222222222222222"
 
@@ -14,9 +19,60 @@ fail() {
 }
 
 cleanup() {
-  docker stop "$container_name" >/dev/null 2>&1 || true
+  local current_container_id
+  [[ "$container_owned" == true ]] || return 0
+  current_container_id="$(docker container inspect -f '{{.Id}}' "$container_name" 2>/dev/null || true)"
+  if [[ -n "$owned_container_id" && "$current_container_id" == "$owned_container_id" ]]; then
+    docker stop "$owned_container_id" >/dev/null 2>&1 || true
+  fi
+  container_owned=false
+  owned_container_id=""
 }
-trap cleanup EXIT
+
+block_existing_container() {
+  printf '%s\n' 'RESULT=BLOCKED_EXISTING_DISPOSABLE_CONTAINER'
+  exit "$existing_container_rc"
+}
+
+run_owned_container() {
+  if ! owned_container_id="$(docker run --pull=never --rm --network none --name "$container_name" \
+    --mount "type=bind,src=$candidate_dir,dst=/f2,readonly" \
+    -e POSTGRES_HOST_AUTH_METHOD=trust \
+    -d "$image_ref" 2>/dev/null)"; then
+    if docker container inspect "$container_name" >/dev/null 2>&1; then
+      block_existing_container
+    fi
+    printf '%s\n' 'RESULT=BLOCKED_PG17_6_CONTAINER_START'
+    exit 8
+  fi
+  [[ "$owned_container_id" =~ ^[0-9a-f]{64}$ ]] || fail CONTAINER_OWNERSHIP_ID_INVALID 12
+  container_owned=true
+  trap cleanup EXIT
+}
+
+wait_for_owned_container_running() {
+  local container_state
+  for _attempt in $(seq 1 20); do
+    container_state="$(docker inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null || true)"
+    [[ "$container_state" == 'running' ]] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+run_ownership_fixture() {
+  local fixture_child_output fixture_child_rc
+  run_owned_container
+  set +e
+  fixture_child_output="$(F2_PROD_DIAG_OWNERSHIP_FIXTURE_CHILD=1 bash "$runner_path" 2>&1)"
+  fixture_child_rc=$?
+  set -e
+  [[ "$fixture_child_rc" -eq "$existing_container_rc" && \
+    "$fixture_child_output" == 'RESULT=BLOCKED_EXISTING_DISPOSABLE_CONTAINER' ]] \
+    || fail OWNERSHIP_FIXTURE_CHILD_CONTRACT 13
+  wait_for_owned_container_running || fail OWNERSHIP_FIXTURE_CONTAINER_NOT_RUNNING 14
+  cleanup
+}
 
 if ! command -v docker >/dev/null 2>&1; then
   printf '%s\n' 'RESULT=BLOCKED_DOCKER_UNAVAILABLE'
@@ -99,20 +155,18 @@ then
 fi
 
 if docker container inspect "$container_name" >/dev/null 2>&1; then
-  printf '%s\n' 'RESULT=BLOCKED_EXISTING_DISPOSABLE_CONTAINER'
-  exit 6
+  block_existing_container
+fi
+if [[ "$ownership_fixture_child" == '1' ]]; then
+  fail OWNERSHIP_FIXTURE_CHILD_WITHOUT_PREEXISTING_CONTAINER 15
 fi
 if ! docker image inspect "$image_ref" >/dev/null 2>&1; then
   printf '%s\n' 'RESULT=BLOCKED_PG17_6_IMAGE_UNAVAILABLE'
   exit 7
 fi
-if ! docker run --pull=never --rm --network none --name "$container_name" \
-  --mount "type=bind,src=$candidate_dir,dst=/f2,readonly" \
-  -e POSTGRES_HOST_AUTH_METHOD=trust \
-  -d "$image_ref" >/dev/null 2>&1; then
-  printf '%s\n' 'RESULT=BLOCKED_PG17_6_CONTAINER_START'
-  exit 8
-fi
+
+run_ownership_fixture
+run_owned_container
 
 for _attempt in $(seq 1 60); do
   if docker exec "$container_name" pg_isready -U postgres -d postgres >/dev/null 2>&1; then

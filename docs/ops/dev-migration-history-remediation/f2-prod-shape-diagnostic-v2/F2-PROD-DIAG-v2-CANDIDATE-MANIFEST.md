@@ -23,9 +23,9 @@ local não prova identidade de PROD, causa de drift, migration aplicada ou
 autorização humana para uma sessão viva.
 
 ```text
-PATCH_CANONICAL_SHA256=710c44205b2d9b4583f5b5b01318c888f4af675178aa926f77c6f16270a84375
-SELF_CANONICAL_SHA256=b0c1f0118806ab2678d9c06c62080a60b9dd57c9ff51916b5c03ff7fcbaad2eb
-AGGREGATE_SHA256=aab8a7ea976d28660c36732d151caf7e6900be3f9905ca9d060deab9f951a35b
+PATCH_CANONICAL_SHA256=9c1c4e82848429fe752af5b776624a3300db2ba4b6e08546e8ca8f23a8f64031
+SELF_CANONICAL_SHA256=26ed988a45d3976a37a8ddca391cef5ef075d79eac953e33bcd1150f8af1abec
+AGGREGATE_SHA256=7423b33d648c2b207f9dd79b9d48ee5bd31b2c21ecb9d2fac7dfaaa092fa3b24
 ```
 
 ## Arquivos cobertos
@@ -35,7 +35,7 @@ AGGREGATE_SHA256=aab8a7ea976d28660c36732d151caf7e6900be3f9905ca9d060deab9f951a35
 | `F2-PROD-DIAG-v2-CANDIDATE-MANIFEST.md` | `SELF_CANONICAL_SHA256` |
 | `PROD-READONLY-F2-DIAG-v2.sql` | `adadffddce30e6f1ac55bc78934c1cf89a2fd7f53eae576d6b8b4d4edfb88135` |
 | `RANIEL-PROD-DIAG-v2-RUNBOOK.md` | `bcbe7d1ff19cd18350ac8e5c7d84aa597e4e39d05aa220cb8d20b9a67dae9e95` |
-| `run-pg17-f2-prod-diag-v2-e2e.sh` | `f103ea095e440abba0e30f252c3d4fe5b933af8be39da4fceb203ad2d77c8d58` |
+| `run-pg17-f2-prod-diag-v2-e2e.sh` | `18e41290d88ed4786e7070f9d81074b0ff3ef4f73344186e7ba43bc6ef83969f` |
 
 Os três campos dinâmicos são normalizados para 64 caracteres `0` no cálculo
 canônico. O patch vincula caminho UTF-8, NUL, bytes canônicos e NUL dos quatro
