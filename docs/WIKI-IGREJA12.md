@@ -1673,12 +1673,13 @@ e nativo `32`. Os mecanismos divergem, e a identidade sanitizada das `32`
 entradas PROD está indisponível e bloqueia um epoch PROD. Essas observações não
 provam aplicação, autorização ou causalidade.
 
-O merge do PR #402 permanece retido e exige frase nominal de Raniel, mesmo após
-parecer `APTO` conjunto de OpenCode e CLAUDE sobre os bytes exatos. Qualquer
-fase executável, inclusive reconciliação, epoch ou cutover, exige missão
-separada com seus próprios trust anchors e gate nominal. As evidências de
-readiness permanecem em `docs/ops/migration-head77-dev-apply-readiness/`; o
-índice D6 permanece em `docs/sprints/2026-09-14-d6-batch-closure.md`.
+A decisão operacional permanece
+`NO_GO_DEV_LEDGER_DIVERGENCE_AND_NO_AUTHORIZED_APPLY_RUNNER`; nenhuma migration
+foi aplicada. Qualquer fase executável, inclusive reconciliação, epoch ou
+cutover, exige missão separada com seus próprios trust anchors e gate nominal.
+As evidências de readiness permanecem em
+`docs/ops/migration-head77-dev-apply-readiness/`; o índice D6 permanece em
+`docs/sprints/2026-09-14-d6-batch-closure.md`.
 
 ## Fundação V3 catalog-bound, 2026-09-10
 
