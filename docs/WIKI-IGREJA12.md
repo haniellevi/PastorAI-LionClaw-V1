@@ -1664,15 +1664,22 @@ deny-all, e C09/C10 permanecem `BLOCKED_BY_E4B`, sem caminho positivo ou bypass
 de `purpose_consent`. Os testes sintéticos e os merges não provam RLS viva,
 consentimento concedido nem operação. O PR #362 segue adiado como áudio-only.
 
-O source-readiness E4b está `CONCLUÍDO`. O preflight read-only do head 77 em DEV
-registrou 33 das 77 migrations no ledger público, prefixo canônico somente nas
-posições 0 a 24, oito posições divergentes, 44 arquivos ausentes e as seis
-relações E4b ausentes. A decisão é
+O source-readiness E4b está `CONCLUÍDO`. O preflight read-only do head `77` em
+DEV registrou `33` das `77` migrations no ledger público, prefixo canônico
+somente nas posições 0 a 24, oito posições divergentes, 44 arquivos ausentes e
+as seis relações E4b ausentes. A comparação documental F2 acrescenta `6`
+entradas no ledger nativo de DEV e registra PROD v2 com ledger público ausente
+e nativo `32`. Os mecanismos divergem, e a identidade sanitizada das `32`
+entradas PROD está indisponível e bloqueia um epoch PROD. Essas observações não
+provam aplicação, autorização ou causalidade.
+
+A decisão operacional permanece
 `NO_GO_DEV_LEDGER_DIVERGENCE_AND_NO_AUTHORIZED_APPLY_RUNNER`; nenhuma migration
-foi aplicada. Gate humano vigente: Raniel decide manter o `NO_GO` ou autorizar
-missão própria de remediação do histórico DEV e do executor catalog-bound. As
-evidências estão em `docs/ops/migration-head77-dev-apply-readiness/`; o índice
-D6 permanece em `docs/sprints/2026-09-14-d6-batch-closure.md`.
+foi aplicada. Qualquer fase executável, inclusive reconciliação, epoch ou
+cutover, exige missão separada com seus próprios trust anchors e gate nominal.
+As evidências de readiness permanecem em
+`docs/ops/migration-head77-dev-apply-readiness/`; o índice D6 permanece em
+`docs/sprints/2026-09-14-d6-batch-closure.md`.
 
 ## Fundação V3 catalog-bound, 2026-09-10
 

@@ -1,0 +1,61 @@
+{
+  "base_git_sha": "f856f53f48e79a53609ff699d5603119f60202e0",
+  "catalog_source": {
+    "catalog_digest_sha256": "162854e0f753f5ad867aacae6b450d46d5c4bd68f8c3089be144d133ddc73801",
+    "entry_count": 77,
+    "next_stage_authorized": false,
+    "operational_authorization": false,
+    "state": "SOURCE_ONLY_VALIDATED"
+  },
+  "comparison_limits": {
+    "catalog_is_not_an_environment": true,
+    "ledger_or_schema_observation_is_not_application_proof": true,
+    "prod_native_entry_identity_available": false,
+    "prod_v2_is_shape_and_cardinality_only": true
+  },
+  "dev_observation": {
+    "capture": {
+      "copies_logical": 1,
+      "copies_physical": 1,
+      "mode": "0600",
+      "path_persisted": false,
+      "sha256": "18d2e78ffc16d26f20f1e58459969c9c3bcc5cf58896c33c6225daedd01f6cb9",
+      "size_bytes": 405404
+    },
+    "human_declarations": [
+      "DIGEST_CONFERE",
+      "PREFIXO_BINDING_0=0/0/0",
+      "F2_TARGET_DIGEST_VERIFIED_PREFIX_ABSENT"
+    ],
+    "ledger_observation": {
+      "native_entry_count": 6,
+      "native_presence": "PRESENT",
+      "public_entry_count": 33,
+      "public_presence": "PRESENT"
+    },
+    "receipt_state": "ROLLBACK_COMPLETED_F2_DEV",
+    "session_state": "PG170006_REPEATABLE_READ_READ_ONLY_ROW_SECURITY_OFF",
+    "superseded_capture_sha256_prefix": "5fbd1c8f"
+  },
+  "format": "F2_THREE_STATE_SANITIZED_INVENTORY_V1",
+  "prod_observation": {
+    "capture": {
+      "copies_logical": 1,
+      "copies_physical": 2,
+      "deduplication_state": "DUPLICATED_IDENTICAL_CAPTURE_2X",
+      "half_sha256": "d9f8deff50021757469a6dd0b1ec0ad9858bdd8602b40d1a74514dd24287624d",
+      "mode": "0600",
+      "path_persisted": false,
+      "sha256": "8a8601efc9e6bbc7d8772570a2d78535073c13e999753bf12ea92bdcf6868bd3",
+      "size_bytes": 2182
+    },
+    "ledger_observation": {
+      "native_entry_identity": "UNAVAILABLE",
+      "native_presence": "PRESENT",
+      "native_row_count": 32,
+      "public_presence": "ABSENT"
+    },
+    "receipt_state": "ROLLBACK_COMPLETED_F2_PROD_DIAG",
+    "session_state": "PG170006_REPEATABLE_READ_READ_ONLY_ROW_SECURITY_OFF"
+  }
+}
