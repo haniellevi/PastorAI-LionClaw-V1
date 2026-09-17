@@ -21,8 +21,15 @@ troque a consulta sem nova conferência.
    arquivo novo `0600`. Rejeite caminho existente com outro modo ou symlink.
 4. Avise o monitor responsável. A sessão única usa uma conexão e pode gerar
    alerta ou consumir uma vaga; não suprima monitor, pool, firewall ou limite.
-5. Gere binding novo de 32 bytes em 64 hexadecimais minúsculos. Ele não reutiliza
-   qualquer coleta anterior e não entra em argv, ambiente, histórico ou arquivo.
+5. Gere binding novo de 32 bytes em 64 hexadecimais minúsculos dentro do
+   gerenciador de senhas ou cofre criptografado controlado pelo Raniel. Registre
+   ali a missão, o alvo e a tentativa; o binding não entra em repositório, PR,
+   canvas, log, argv, ambiente, histórico ou captura.
+6. Raniel é o custodiante do binding até a decisão da futura bijeção offline.
+   Após essa decisão ser aceita ou rejeitada, ele apaga o binding em até 24
+   horas e registra somente um recibo sanitizado da exclusão. A bijeção futura
+   só pode usar o binding depois de os conselheiros conferirem SHA-256, modo
+   `0600`, arquivo regular e ausência de symlink na captura.
 
 ## Abertura sem histórico e sem eco
 
@@ -30,6 +37,15 @@ No terminal dedicado:
 
 ```bash
 set +o history
+umask 077
+f2_evidence_dir='<evidence-directory>'
+f2_cast="$f2_evidence_dir/f2-prod-cohort-a-identity-cast.txt"
+[[ -d "$f2_evidence_dir" && ! -L "$f2_evidence_dir" ]] || exit 1
+[[ "$(stat -c '%a' "$f2_evidence_dir")" == 700 ]] || exit 1
+[[ ! -e "$f2_cast" && ! -L "$f2_cast" ]] || exit 1
+install -m 600 /dev/null "$f2_cast" || exit 1
+[[ -f "$f2_cast" && ! -L "$f2_cast" ]] || exit 1
+[[ "$(stat -c '%a' "$f2_cast")" == 600 ]] || exit 1
 f2_tty_state="$(stty -g)"
 trap 'stty "$f2_tty_state"; unset f2_tty_state' EXIT HUP INT TERM
 stty -echo
@@ -46,6 +62,9 @@ Dentro do `psql`, nenhuma linha vem antes destas:
 \o <evidence-directory>/f2-prod-cohort-a-identity-cast.txt
 \i <repo-root>/docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/PROD-READONLY-F2-COHORT-A.sql
 ```
+
+O caminho literal passado a `\o` precisa ser exatamente o arquivo regular
+pré-criado em `f2_cast`. Não use outro caminho, symlink ou arquivo preexistente.
 
 O SQL encerra o cliente após `ROLLBACK`. O último registro precisa ser
 `ROLLBACK_COMPLETED_F2_PROD_COHORT_A_IDENTITY`. Qualquer `F2_ABORT_*`
@@ -70,7 +89,8 @@ Recalcule `TARGET_DIGEST` fora da transcrição usando a fórmula já aprovada,
 com separador byte `0x1f`, e confirme prefixo do binding igual a zero na
 captura, em `~/.psql_history` e no histórico do shell. Não imprima binding,
 database, porta, versão ou digest em documentação. Limpe o scrollback somente
-depois dessas conferências.
+depois dessas conferências. Preserve o binding somente no cofre definido no
+preflight, sob custódia do Raniel e com a regra de exclusão ali fixada.
 
 ## Entrega permitida
 
