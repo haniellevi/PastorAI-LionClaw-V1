@@ -8,8 +8,10 @@ container_name="igreja12-f2-prod-cohort-a-pg17"
 image_ref="postgres:17.6-trixie"
 runner_path="$candidate_dir/run-pg17-f2-prod-cohort-a-e2e.sh"
 existing_container_rc=6
+name_release_timeout_rc=17
 container_owned=false
 owned_container_id=""
+docker_run_stderr_file=""
 ownership_fixture_child="${F2_COHORT_A_OWNERSHIP_FIXTURE_CHILD:-0}"
 binding_primary="1111111111111111111111111111111111111111111111111111111111111111"
 binding_alternate="2222222222222222222222222222222222222222222222222222222222222222"
@@ -22,6 +24,10 @@ fail() {
 
 cleanup() {
   local current_container_id
+  if [[ -n "$docker_run_stderr_file" ]]; then
+    rm -f -- "$docker_run_stderr_file"
+  fi
+  docker_run_stderr_file=""
   if [[ -n "$tmp_dir" && -d "$tmp_dir" ]]; then
     rm -rf -- "$tmp_dir"
   fi
@@ -40,20 +46,67 @@ block_existing_container() {
   exit "$existing_container_rc"
 }
 
+wait_name_free() {
+  local _attempt
+  for _attempt in $(seq 1 60); do
+    if ! docker container inspect "$container_name" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail CONTAINER_NAME_RELEASE_TIMEOUT "$name_release_timeout_rc"
+}
+
+clear_docker_run_stderr() {
+  if [[ -n "$docker_run_stderr_file" ]]; then
+    rm -f -- "$docker_run_stderr_file"
+  fi
+  docker_run_stderr_file=""
+}
+
+print_sanitized_docker_run_stderr() {
+  python3 -I -B - "$docker_run_stderr_file" "$candidate_dir" <<'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+text = text.replace(sys.argv[2], "<candidate_dir>")
+home_prefix = re.escape("/" + "home" + "/")
+text = re.sub(home_prefix + r"[^/\s\"']+", "<home>/<user>", text)
+sys.stderr.write(text)
+PY
+}
+
 run_owned_container() {
-  if ! owned_container_id="$(docker run --pull=never --rm --network none --name "$container_name" \
+  local docker_run_rc
+  docker_run_stderr_file="$(mktemp /tmp/igreja12-f2-cohort-a-docker-run-stderr.XXXXXX)" ||
+    fail DOCKER_STDERR_CAPTURE
+  [[ "$(stat -c '%a' "$docker_run_stderr_file")" == 600 ]] ||
+    fail DOCKER_STDERR_CAPTURE_MODE
+  trap cleanup EXIT
+  set +e
+  owned_container_id="$(docker run --pull=never --rm --network none --name "$container_name" \
     --mount "type=bind,src=$candidate_dir,dst=/f2,readonly" \
     -e POSTGRES_HOST_AUTH_METHOD=trust \
-    -d "$image_ref" 2>/dev/null)"; then
+    -d "$image_ref" 2>"$docker_run_stderr_file")"
+  docker_run_rc=$?
+  set -e
+  if [[ "$docker_run_rc" -ne 0 ]]; then
     if docker container inspect "$container_name" >/dev/null 2>&1; then
+      clear_docker_run_stderr
       block_existing_container
     fi
+    print_sanitized_docker_run_stderr || true
+    clear_docker_run_stderr
     printf '%s\n' 'RESULT=BLOCKED_PG17_6_CONTAINER_START'
     exit 8
   fi
+  clear_docker_run_stderr
   [[ "$owned_container_id" =~ ^[0-9a-f]{64}$ ]] || fail CONTAINER_OWNERSHIP_ID_INVALID 12
   container_owned=true
-  trap cleanup EXIT
 }
 
 run_ownership_fixture() {
@@ -162,6 +215,7 @@ if ! docker image inspect "$image_ref" >/dev/null 2>&1; then
 fi
 
 run_ownership_fixture
+wait_name_free
 run_owned_container
 
 for _attempt in $(seq 1 60); do

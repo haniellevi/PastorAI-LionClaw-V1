@@ -16,9 +16,9 @@ qualquer resultado de coleta ficam fora do conjunto.
 Os três campos abaixo são substituídos por 64 zeros no cálculo canônico:
 
 ```text
-PATCH_CANONICAL_SHA256=01dc8b39da5653ddb71f9a0b403f8f05418678cfa531ca87a18537c182e6d364
-SELF_CANONICAL_SHA256=7acec1518ff859629543530f79d26ad875136f9d7716bcdba6ad61f1b5b94f2d
-AGGREGATE_SHA256=75e4bff42513b595d82c26da3f61b92684dacfa22ca4fbd01e554064075cbb1e
+PATCH_CANONICAL_SHA256=0474efde8e075eae99bc9362cd1fded26975b8da652cdcf22e8db967efcb3c92
+SELF_CANONICAL_SHA256=6c4d75d9608b0f37986e4bec362f5be4da91c70a251e00f264f21bf4351b8c00
+AGGREGATE_SHA256=eb52b7dcac005fdfbe5a0d605e366285e1527f22b867cfd0e3efda3948941b80
 ```
 
 ## Arquivos cobertos
@@ -32,7 +32,7 @@ AGGREGATE_SHA256=75e4bff42513b595d82c26da3f61b92684dacfa22ca4fbd01e554064075cbb1
 | `docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/PROD-READONLY-F2-COHORT-A.sql` | `84898a80b53c41e3dbaf6b68bea2911a99116ccbf48e6f4f05eed6562c9ba7e7` |
 | `docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/RANIEL-PROD-COHORT-A-RUNBOOK.md` | `e6389e95a92b2489694fa556ef8201716d7b37037e656173392f0f922733e772` |
 | `docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/SOURCE-PINS.md` | `c4ce335e33c27d915f2462a04ec3535d4ec514c6ca91c5c3a888668d245f5f85` |
-| `docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/run-pg17-f2-prod-cohort-a-e2e.sh` | `b8d0249c9eb321c414f3f9fc316fb9c19305451d1279677eb6ec22f8cdbafbf0` |
+| `docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/run-pg17-f2-prod-cohort-a-e2e.sh` | `63cfe37f11b1a8e688ab7bbf5d3e6c2c1a11f92cdac46f973079f43bc39aba54` |
 | `docs/ops/dev-migration-history-remediation/f2-prod-cohort-a-identity-readonly/test_validate_f2_prod_cohort_a_package.py` | `b84a25a2f858ffb5055fca67047ada6c556bc85bdb9d67df4d6d30d3f8ac10c8` |
 
 ## Reprodutor autocanônico
