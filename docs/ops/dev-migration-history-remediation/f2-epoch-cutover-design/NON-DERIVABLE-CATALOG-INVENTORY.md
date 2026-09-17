@@ -39,5 +39,4 @@ próprio e alteraria o universo fechado `77/75`; este candidato não a autoriza.
 
 ## Próximo gate único
 
-O próximo gate é parecer `APTO` conjunto de OpenCode e QWEN 3.8 FLASH sobre os
-mesmos bytes. Nenhuma mudança de catálogo ou ledger é autorizada.
+Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.

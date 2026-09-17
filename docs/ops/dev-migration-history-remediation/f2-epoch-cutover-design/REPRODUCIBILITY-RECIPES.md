@@ -92,7 +92,10 @@ e não são anonimização.
 ## Reproduzir a derivação contra captura congelada
 
 O aceite determinístico local já foi concluído pelo Orquestrador, sem ambiente
-vivo e sem imprimir conteúdo. A captura congelada teve SHA-256
+vivo e sem imprimir conteúdo. A receita abaixo é permitida somente após gate
+humano futuro próprio. Ela autentica captura, derivador e snapshot privado
+antes de invocar o derivador; qualquer divergência falha fechada. A captura
+congelada teve SHA-256
 `c7831ca5d17b8c250e2cd7a6bc1a5f65c66ddcd874ddbca214c16f4d067b8830`; o
 derivador teve SHA-256
 `d3f0e9610ace59d704bb5e77dc49e52f6f115cdf2b7847a8bd7e0b5bcc3c85e8`; e o
@@ -106,25 +109,70 @@ variáveis locais de caminho, sem imprimir conteúdo da captura:
 ```bash
 set +o history
 umask 077
+
+f2_expected_capture_sha256='c7831ca5d17b8c250e2cd7a6bc1a5f65c66ddcd874ddbca214c16f4d067b8830'
+f2_expected_deriver_sha256='d3f0e9610ace59d704bb5e77dc49e52f6f115cdf2b7847a8bd7e0b5bcc3c85e8'
+f2_expected_source_commit='de1ea1e659be9a4f2a988740b72a9ed8edd68bfb'
+f2_expected_migrations_tree='ff84b1274a342ea47e1e378446ed72caa27cef4b'
+f2_expected_output_sha256='5399bb7db895be26c7fb0dcaf67375d0aa7a78c58c03de80b50ed27a9fd2944d'
+
 f2_capture_path='<frozen-evidence-directory>/f2-prod-native-identity-cast.txt'
 f2_deriver_path='<approved-deriver-path>/derive_catalog_native_keys.py'
+f2_source_root='<private-trusted-snapshot-of-de1ea1e>'
+f2_catalog_dir="$f2_source_root/backend/migrations"
 f2_output_path='<frozen-evidence-directory>/f2-prod-native-derived-comparison.json'
-[[ -f "$f2_capture_path" && "$(stat -c '%a' "$f2_capture_path")" == 600 ]] || {
-  printf '%s\n' 'RESULT=FAIL_F2_EPOCH_CAPTURE_MODE'
+
+f2_fail() {
+  printf '%s\n' "$1"
   exit 1
 }
+
+[[ -f "$f2_capture_path" && ! -L "$f2_capture_path" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_CAPTURE_SOURCE'
+[[ "$(stat -c '%a' "$f2_capture_path")" == 600 ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_CAPTURE_MODE'
+[[ "$(sha256sum "$f2_capture_path" | awk '{print $1}')" == "$f2_expected_capture_sha256" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_CAPTURE_SHA256'
+
+[[ -f "$f2_deriver_path" && ! -L "$f2_deriver_path" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_DERIVER_SOURCE'
+[[ "$(sha256sum "$f2_deriver_path" | awk '{print $1}')" == "$f2_expected_deriver_sha256" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_DERIVER_SHA256'
+
+[[ "$(git -C "$f2_source_root" rev-parse HEAD)" == "$f2_expected_source_commit" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_SOURCE_COMMIT'
+[[ "$(git -C "$f2_source_root" rev-parse HEAD:backend/migrations)" == "$f2_expected_migrations_tree" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_MIGRATIONS_TREE'
+[[ -z "$(git -C "$f2_source_root" status --porcelain --untracked-files=all -- backend/migrations)" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_MIGRATIONS_WORKTREE'
+
+if [[ -e "$f2_output_path" ]]; then
+  [[ -f "$f2_output_path" && ! -L "$f2_output_path" &&
+     "$(stat -c '%a' "$f2_output_path")" == 600 ]] ||
+    f2_fail 'RESULT=FAIL_F2_EPOCH_OUTPUT_MODE'
+  : > "$f2_output_path"
+else
+  install -m 600 /dev/null "$f2_output_path" ||
+    f2_fail 'RESULT=FAIL_F2_EPOCH_OUTPUT_CREATE'
+fi
+[[ "$(stat -c '%a' "$f2_output_path")" == 600 ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_OUTPUT_MODE'
+
 python3 -I -B "$f2_deriver_path" \
-  --catalog-dir backend/migrations \
+  --catalog-dir "$f2_catalog_dir" \
   --prod-capture "$f2_capture_path" \
-  > "$f2_output_path" || {
-  printf '%s\n' 'RESULT=FAIL_F2_EPOCH_DERIVATION'
-  exit 1
-}
-[[ "$(sha256sum "$f2_output_path" | awk '{print $1}')" == 5399bb7db895be26c7fb0dcaf67375d0aa7a78c58c03de80b50ed27a9fd2944d ]] || {
-  printf '%s\n' 'RESULT=FAIL_F2_EPOCH_JSON_SHA256'
-  exit 1
-}
-unset f2_capture_path f2_deriver_path f2_output_path
+  > "$f2_output_path" ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_DERIVATION'
+[[ "$(stat -c '%a' "$f2_output_path")" == 600 ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_OUTPUT_MODE'
+[[ "$(sha256sum "$f2_output_path" | awk '{print $1}')" == "$f2_expected_output_sha256" ]] ||
+  f2_fail 'RESULT=FAIL_F2_EPOCH_JSON_SHA256'
+
+unset f2_expected_capture_sha256 f2_expected_deriver_sha256
+unset f2_expected_source_commit f2_expected_migrations_tree
+unset f2_expected_output_sha256 f2_capture_path f2_deriver_path
+unset f2_source_root f2_catalog_dir f2_output_path
+unset -f f2_fail
 printf '%s\n' 'RESULT=PASS_F2_EPOCH_JSON_BYTE_IDENTITY'
 ```
 
@@ -143,6 +191,4 @@ explícita do universo; este pacote não a propõe nem a autoriza.
 
 ## Próximo gate único
 
-O próximo gate é parecer `APTO` conjunto de OpenCode e QWEN 3.8 FLASH sobre
-estes bytes. Commit, push, PR, merge e qualquer uso da captura continuam
-retidos.
+Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.

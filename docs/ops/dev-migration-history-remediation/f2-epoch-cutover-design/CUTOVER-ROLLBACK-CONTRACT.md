@@ -24,15 +24,15 @@ automática deste pacote.
 
 | Fase | Objetivo limitado | Pré-condições verificáveis | Gate de fase, se futuramente proposto | Falha fechada | Rollback ou compensação |
 | --- | --- | --- | --- | --- | --- |
-| 0. Revisão deste candidato | Validar bytes, escopo e fontes sanitizadas. | Manifesto reproduzível, contagens consistentes e ausência de dado privado. | Parecer `APTO` conjunto de OpenCode e QWEN 3.8 FLASH. | Qualquer divergência encerra a revisão. | Descartar somente os sete arquivos locais. |
+| 0. Revisão e publicação documental | Validar bytes, escopo e fontes sanitizadas. | Manifesto reproduzível, contagens consistentes e ausência de dado privado. | APTO conjunto de OpenCode e QWEN concluído nesta rodada; PR #403 publicado. | Qualquer divergência encerra a revisão. | Reverter apenas por novo commit documental antes do merge. |
 | 1. Definição de epoch DEV | Documentar trust anchors próprios de DEV, sem importar PROD. | Atestação humana DEV, fontes DEV congeladas, recibos e forma próprios. | Autorização humana DEV futura, nominal e separada. | Identidade, recibo ou fonte insuficiente. | Manter ledger DEV intacto e registrar a lacuna. |
 | 2. Fechamento de lacuna PROD | Avaliar evidência adicional somente se a fonte futura for autorizada. | JSON externo válido, identidade PROD externa e evidência extra das coortes `22/8`. | Autorização humana PROD futura, nominal e separada. | Hash, modo, recibo, forma, identidade ou determinismo divergentes. | Parar, preservar ambos os ledgers e manter `UNMATCHED_IN_CATALOG`. |
 | 3. Decisão de cutover | Delimitar impacto, proprietário, tenant, executor e compensação sem alterar história. | Epochs independentes aceitos, critérios operacionais revisados e plano de compensação verificável. | Gate humano novo, específico para a decisão de cutover. | Qualquer pré-condição ausente ou ambiguidade. | Nenhum efeito é iniciado. |
 | 4. Fase executável futura | Somente após aprovação explícita, executar um plano fora deste pacote. | Executor revisado, autorização nominal, escopo tenant, observabilidade e compensação aprovados. | Gate humano novo, específico para uma única execução. | Timeout, lock, schema, tenant, autorização ou ledger fora do contrato. | Encerrar, preservar fatos históricos e usar somente compensação futura aprovada. |
 
 Os gates das fases 1 a 4 não são próximos gates e não existem como autorização
-vigente. A única próxima decisão deste candidato é a revisão conjunta da fase
-0.
+vigente. A revisão conjunta da fase 0 foi concluída; o único próximo gate
+humano é a decisão nominal de merge do PR #403.
 
 ## Critérios de aceite antes de qualquer fase executável futura
 
@@ -57,5 +57,4 @@ reordenação.
 
 ## Próximo gate único
 
-O único próximo gate é parecer `APTO` conjunto de OpenCode e QWEN 3.8 FLASH
-sobre os mesmos bytes. Commit, push, PR, merge e execução continuam retidos.
+Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.

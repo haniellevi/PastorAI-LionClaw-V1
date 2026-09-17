@@ -8,20 +8,20 @@ pacote é documental, local e bloqueado para operação.
 
 | Campo | Valor |
 | --- | --- |
-| Base e HEAD local | `de1ea1e659be9a4f2a988740b72a9ed8edd68bfb` |
+| Pino fonte da derivação | `de1ea1e659be9a4f2a988740b72a9ed8edd68bfb` |
 | Branch | `docs/f2-epoch-cutover-design-20260916` |
 | Catálogo top-level | `77` arquivos `.sql` |
 | Digest de basenames | `950bde59ce2b65b4596a6ca9ecf284a85aa18ba49dba9b8cac6913004b8fa415` |
 | Árvore de migrations | `ff84b1274a342ea47e1e378446ed72caa27cef4b` |
-| Estado | candidato documental, sem banco, rede, DEV, PROD, VPS, executor ou materialização |
+| Estado | publicado no PR #403; sem banco, DEV, PROD, VPS, executor ou materialização |
 
 A autocanonização substitui somente os três valores dinâmicos abaixo por `64`
 zeros. Todos os outros bytes dos sete arquivos participam dos cálculos.
 
 ```text
-PATCH_CANONICAL_SHA256=a912d92aad925599985d1e7fc0646e18fc96f4b5e02b20b4af5d3b2dce68c918
-SELF_CANONICAL_SHA256=1f26c5d1fb49014d2d59eed5d5aadcac83b38d6acb925e90ce68d3266b762590
-AGGREGATE_SHA256=8781afa8acd4ada75969d32b481c21d9c7a7bf583250b58b68e62579b0d580a9
+PATCH_CANONICAL_SHA256=102984699f06acddb2c9802aa7c774efaf4a9452ec6846addaaa05c6a7fd682c
+SELF_CANONICAL_SHA256=a9abcda1475e1e6d44c2eea991fbee9e3ab58e4f14aff8bd603cf5bc6dbe4d11
+AGGREGATE_SHA256=56e169658aa9a022a369c3fe7440c3cbdcf36ad00151e51257c87ff4fbba050f
 ```
 
 ## Arquivos cobertos
@@ -29,16 +29,35 @@ AGGREGATE_SHA256=8781afa8acd4ada75969d32b481c21d9c7a7bf583250b58b68e62579b0d580a
 | Arquivo relativo | SHA-256 |
 | --- | --- |
 | `CANDIDATE-MANIFEST.md` | `SELF_CANONICAL_SHA256` |
-| `CUTOVER-ROLLBACK-CONTRACT.md` | `e77e9606a5902724bba3e4257c95a55cd70a9361f719e58321be795b9683f002` |
-| `DECISION-PACKET.md` | `c8558ef461552892d069219f5217b10b5721ac134948a097ffde0ca2b8d42b02` |
-| `EPOCH-TRUST-ANCHORS.md` | `9eb6898b986cd088ebd68bb7e7275830e9b25f21da9f4f5fb2faec7797055b9d` |
-| `NON-DERIVABLE-CATALOG-INVENTORY.md` | `9b677feb4549b8562108a48810b580d0911b634b1b248ad6e421b3ccb07e0c46` |
-| `PROD-UNMATCHED-EVIDENCE-MATRIX.md` | `369b814b8efbcd51e376f1196ca35fc8bb5e9d3183582b0e03f7b5ff5bbb75f8` |
-| `REPRODUCIBILITY-RECIPES.md` | `65ec8498ba6e47bc89ac8a157e4318fc0ebd04f806de64e1fcbc69868e010e29` |
+| `CUTOVER-ROLLBACK-CONTRACT.md` | `bedbb53e9bceb05587e28fbc0b02048c6b26ed81e1b45b31ea8a62f6f1cf32b9` |
+| `DECISION-PACKET.md` | `989bfd3cdc2fc900a03d47fe6b511afd471d06ca68daeaf4a45645a40a4343d1` |
+| `EPOCH-TRUST-ANCHORS.md` | `5eb5c91f16d6f5b32751daf7d45a12f56f6b710c9db99f8a7ebf8cd821196cba` |
+| `NON-DERIVABLE-CATALOG-INVENTORY.md` | `0f6a665ad4bea211c1925676bc34ae627e2ea99018e27d5bed33c6893c388c2c` |
+| `PROD-UNMATCHED-EVIDENCE-MATRIX.md` | `8f2a787f019f2b1db76f5e5a06dfd2da280d19618fc031932825759033f65273` |
+| `REPRODUCIBILITY-RECIPES.md` | `0788565cd2c3ebabc24fb57aca45900b19bff8c3bdb6a6621241104222ece5fe` |
 
 `PATCH_CANONICAL_SHA256` vincula os caminhos ordenados, NUL e bytes canônicos.
 `SELF_CANONICAL_SHA256` é o hash do manifesto após normalização. O agregado
 vincula cada caminho ao hash bruto, usando o self canônico para o manifesto.
+
+## Recibo da rodada corretiva pós-publicação
+
+O parecer anterior ligado ao patch
+`6968c9781870db19d3fb0773ea099368cf380915b7abaf8e9d1b01b51c083fc2`
+e ao agregado
+`8781afa8acd4ada75969d32b481c21d9c7a7bf583250b58b68e62579b0d580a9`
+fica `SUPERSEDED` pela mudança de bytes desta rodada. A nova conferência conjunta
+vincula-se somente aos hashes regenerados abaixo.
+
+A rodada corrige as três threads do PR #403: autenticação fail-closed da
+captura, do derivador e do snapshot pinado antes da derivação; criação ou
+rejeição segura da saída conforme modo `0600`; e reconciliação do gate vigente
+nos oito arquivos. A ficha permanece fora do conjunto autocanônico dos sete
+documentos e foi conferida separadamente:
+
+```text
+FICHA_SHA256=c0d73d5a8e9d1972b68f9c002845605fdd931290430922842a80894356baa705
+```
 
 ## Reprodutor autocanônico
 
@@ -128,6 +147,4 @@ PY
 
 ## Próximo gate único
 
-O único próximo gate é parecer `APTO` conjunto de OpenCode e QWEN 3.8 FLASH
-sobre estes bytes exatos. Commit, push, PR, merge e qualquer fase executável
-permanecem retidos.
+Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.

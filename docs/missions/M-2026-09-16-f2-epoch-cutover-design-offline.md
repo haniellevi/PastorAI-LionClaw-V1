@@ -77,8 +77,8 @@ plano_de_rollback:
   - nenhuma compensação de banco existe porque esta missão não produz escrita
 fora_de_escopo:
   - PROD, DEV, VPS, banco, migration, ledger write, executor, epoch materializado, cutover, deploy, credencial, envio, billing, broadcast, Brevo e ativação
-  - commit, push, PR e merge
-proximo_gate: OpenCode e QWEN 3.8 FLASH conferem os mesmos bytes do pacote; após APTO conjunto, qualquer commit, push, PR ou fase executável exige decisão humana própria
+  - merge; commit, push e PR #403 já publicados, sem autorizar integração
+proximo_gate: Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.
 ```
 
 ## Fontes congeladas permitidas

@@ -42,5 +42,4 @@ candidata, sem afirmar aplicação.
 
 ## Próximo gate único
 
-O único próximo gate é parecer `APTO` conjunto de OpenCode e QWEN 3.8 FLASH
-sobre estes bytes. Commit, push, PR e merge seguem retidos.
+Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.
