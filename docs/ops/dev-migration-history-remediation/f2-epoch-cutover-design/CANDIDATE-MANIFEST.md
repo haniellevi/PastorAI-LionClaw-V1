@@ -19,9 +19,9 @@ A autocanonização substitui somente os três valores dinâmicos abaixo por `64
 zeros. Todos os outros bytes dos sete arquivos participam dos cálculos.
 
 ```text
-PATCH_CANONICAL_SHA256=a5f7f6e85dd395a9b3008ed1acdbd755e9369e04ec7a57a744cc56fd27f99f56
-SELF_CANONICAL_SHA256=7c14b4a91593c835fa71c11be045faf08b5eda39a9c4594bfc60ad2118bad4df
-AGGREGATE_SHA256=d580741b490dc6ec7ca1856ac2c3cdd2853ebaf60ce6736328f41b1196e79237
+PATCH_CANONICAL_SHA256=0b3c53eca0b7dc49e0f5826c1753de46297efcf3f9d78aec643ce6e461511672
+SELF_CANONICAL_SHA256=1b1d5a606b0e5f01a2e0c556e2980e1616264fd2df9e7107427a10bb6877a1e2
+AGGREGATE_SHA256=81bd86340a764e48b8947e5bcb4182b0a510e29e0edb9b822d1b205fd0715b14
 ```
 
 ## Arquivos cobertos
@@ -147,4 +147,4 @@ PY
 
 ## Próximo gate único
 
-Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.
+Esta regeneração vincula a receita nova SHA-256 `84e6a7378f9eb063434a5b2642075bb21c721b814fd9eb4f4cd3810c7327a802`. O APTO e a publicação do PR #403 referem-se aos bytes anteriores e não são transportados. O patch `892d66d56d7d4609a1a5bd51953e2b7c1d1646998ad6a568b18475cde13eb612` e o commit `d1aad87edc54aac8c9bcf311e903caeeec6c297f` ficam `SUPERSEDED` nesta rodada. Os bytes novos foram conferidos por OpenCode+QWEN na missão DEV epoch PR #404 antes da publicação, sendo essa a origem do APTO. O merge continua retido.

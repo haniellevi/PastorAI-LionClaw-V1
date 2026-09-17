@@ -11,7 +11,7 @@ do conjunto.
 | --- | --- |
 | Base e HEAD | `48c57f7bca780b652bf16c096f4d1859918018c9` |
 | Branch | `docs/f2-dev-epoch-design-20260917` |
-| SHA-256 da ficha, incluída no agregado | `3fb3e65f005e572c0f197c844136dbe7c94f090c7e05f70fc5f2647be62471b4` |
+| SHA-256 da ficha, incluída no agregado | `d0426e62b37450aa14c46a33a8e950901e1bc3cbae69d432cdfc51e2f9205c7d` |
 | Fonte DEV aceita | `18d2e78ffc16d26f20f1e58459969c9c3bcc5cf58896c33c6225daedd01f6cb9` |
 | Estado | candidato documental local, sem ambiente vivo ou materialização |
 
@@ -19,16 +19,16 @@ Os três campos dinâmicos abaixo são substituídos por `64` zeros para o cálc
 canônico. Nenhum outro byte é normalizado.
 
 ```text
-PATCH_CANONICAL_SHA256=9c0c11c71ee5da8c418bfa51f92847f0016973fa6f8e96d1f719ea905e3bc218
-SELF_CANONICAL_SHA256=38e5783848d5247069f966e7110861e252acaa3ea4574b0777ead5fe92dcb8ec
-AGGREGATE_SHA256=12d40428b6a583393a194df304a1b7802a4371e3a45187aef00cffd2098984bc
+PATCH_CANONICAL_SHA256=422f3e0debb13691f11d338765678a6e9d655faf1a4c3cf6ab8049e9b95c2447
+SELF_CANONICAL_SHA256=509b2456eeea8ba0ed5276e4af6daf4b56897e01f3288d679c8b8a28b7db4ac7
+AGGREGATE_SHA256=7aead4d3f03822714db29e415b772628be39d7c15212559f2f759274b0532dec
 ```
 
 ## Arquivos cobertos
 
 | Arquivo relativo | SHA-256 |
 | --- | --- |
-| `docs/missions/M-2026-09-17-f2-dev-epoch-design-offline.md` | `3fb3e65f005e572c0f197c844136dbe7c94f090c7e05f70fc5f2647be62471b4` |
+| `docs/missions/M-2026-09-17-f2-dev-epoch-design-offline.md` | `d0426e62b37450aa14c46a33a8e950901e1bc3cbae69d432cdfc51e2f9205c7d` |
 | `docs/ops/dev-migration-history-remediation/f2-dev-epoch-design/CANDIDATE-MANIFEST.md` | `SELF_CANONICAL_SHA256` |
 | `docs/ops/dev-migration-history-remediation/f2-dev-epoch-design/DECISION-PACKET.md` | `3b2e2621ef52da4a6d63ad5d61d184e756f7ba518d3f4f2b007e5f1ff95180d2` |
 | `docs/ops/dev-migration-history-remediation/f2-dev-epoch-design/DEV-EPOCH-TRUST-ANCHORS.md` | `a1007c6c87899684e106e944821b26bae93131e4759c900e0fd40ed859696fa7` |
@@ -36,7 +36,7 @@ AGGREGATE_SHA256=12d40428b6a583393a194df304a1b7802a4371e3a45187aef00cffd2098984b
 | `docs/ops/dev-migration-history-remediation/f2-dev-epoch-design/MATERIALIZABILITY-GAPS.md` | `82f37336bf384a2a7501866099802d83c03f99f30b7d09ab2d67f9da9d5de087` |
 | `docs/ops/dev-migration-history-remediation/f2-dev-epoch-design/NO-IMPORT-CONTRACT.md` | `426e97993ae1f628f26a7c4e138053f686a813c931e91313ebc0667457f44773` |
 | `docs/ops/dev-migration-history-remediation/f2-dev-epoch-design/SOURCE-CONFERENCE.md` | `8765901b72d6593bbc365b92ffd45b06ac826d9fb7af7730c2dd09e0a7dce6a7` |
-| `docs/ops/dev-migration-history-remediation/f2-epoch-cutover-design/CANDIDATE-MANIFEST.md` | `ad62ad573d1d05700ef5a1e63c63101e3eb1ba1076a654d251ca426030c09ef5` |
+| `docs/ops/dev-migration-history-remediation/f2-epoch-cutover-design/CANDIDATE-MANIFEST.md` | `fced634c3ec78c8d4ddd87caf55de56ed18379d3e17ee09c6faffb3ec1f5e44b` |
 | `docs/ops/dev-migration-history-remediation/f2-epoch-cutover-design/REPRODUCIBILITY-RECIPES.md` | `84e6a7378f9eb063434a5b2642075bb21c721b814fd9eb4f4cd3810c7327a802` |
 
 `PATCH_CANONICAL_SHA256` vincula caminho ordenado, NUL e bytes canônicos.
@@ -82,7 +82,7 @@ expected_package_files = (
     'SOURCE-CONFERENCE.md',
 )
 mission = Path('docs/missions/M-2026-09-17-f2-dev-epoch-design-offline.md')
-mission_sha256 = '3fb3e65f005e572c0f197c844136dbe7c94f090c7e05f70fc5f2647be62471b4'
+mission_sha256 = 'd0426e62b37450aa14c46a33a8e950901e1bc3cbae69d432cdfc51e2f9205c7d'
 dynamic = re.compile(
     rb'(?m)^(PATCH_CANONICAL_SHA256|SELF_CANONICAL_SHA256|AGGREGATE_SHA256)='
     rb'[0-9a-f]{64}$'

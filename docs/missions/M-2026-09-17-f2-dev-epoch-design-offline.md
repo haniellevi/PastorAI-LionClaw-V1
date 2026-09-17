@@ -1,9 +1,9 @@
 ---
 id: M-2026-09-17-f2-dev-epoch-design-offline
-status: ficha_preparada_aguarda_conferencia_conjunta
+status: f1_f3_produzidos_pr_404_publicado_merge_retido
 environment: local_offline_documental_only
 execution_authorized: false
-authorization_scope: ficha_only_before_package_bytes
+authorization_scope: f1_f3_documental_pr_404_publicado_merge_retido
 ---
 
 # F2: desenho documental do epoch DEV
@@ -123,5 +123,7 @@ proximo_gate: Raniel autorizar nominalmente o merge do futuro PR desta missão a
 
 ## Limite desta etapa
 
-Somente esta ficha foi preparada. Nenhum outro arquivo do pacote, captura,
-ambiente, SQL, runner, manifesto, commit, push ou PR foi criado ou alterado.
+F1-F3 produziram esta ficha, os sete documentos e os dois legados; o commit
+inicial `d1aad87edc54aac8c9bcf311e903caeeec6c297f` e o PR #404 foram publicados.
+A rodada corretiva única está em curso. Nenhum ambiente ou fase executável é
+autorizado; o único gate permanece a autorização nominal de Raniel para merge.
