@@ -116,7 +116,7 @@ f2_expected_source_commit='de1ea1e659be9a4f2a988740b72a9ed8edd68bfb'
 f2_expected_migrations_tree='ff84b1274a342ea47e1e378446ed72caa27cef4b'
 f2_expected_output_sha256='5399bb7db895be26c7fb0dcaf67375d0aa7a78c58c03de80b50ed27a9fd2944d'
 
-f2_capture_path='<frozen-evidence-directory>/f2-prod-native-identity-cast.txt'
+f2_capture_path='<frozen-evidence-directory>/f2-prod-native-identity-cast-retry-01.txt'
 f2_deriver_path='<approved-deriver-path>/derive_catalog_native_keys.py'
 f2_source_root='<private-trusted-snapshot-of-de1ea1e>'
 f2_catalog_dir="$f2_source_root/backend/migrations"

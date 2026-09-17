@@ -19,9 +19,9 @@ A autocanonização substitui somente os três valores dinâmicos abaixo por `64
 zeros. Todos os outros bytes dos sete arquivos participam dos cálculos.
 
 ```text
-PATCH_CANONICAL_SHA256=102984699f06acddb2c9802aa7c774efaf4a9452ec6846addaaa05c6a7fd682c
-SELF_CANONICAL_SHA256=a9abcda1475e1e6d44c2eea991fbee9e3ab58e4f14aff8bd603cf5bc6dbe4d11
-AGGREGATE_SHA256=56e169658aa9a022a369c3fe7440c3cbdcf36ad00151e51257c87ff4fbba050f
+PATCH_CANONICAL_SHA256=0b3c53eca0b7dc49e0f5826c1753de46297efcf3f9d78aec643ce6e461511672
+SELF_CANONICAL_SHA256=1b1d5a606b0e5f01a2e0c556e2980e1616264fd2df9e7107427a10bb6877a1e2
+AGGREGATE_SHA256=81bd86340a764e48b8947e5bcb4182b0a510e29e0edb9b822d1b205fd0715b14
 ```
 
 ## Arquivos cobertos
@@ -34,7 +34,7 @@ AGGREGATE_SHA256=56e169658aa9a022a369c3fe7440c3cbdcf36ad00151e51257c87ff4fbba050
 | `EPOCH-TRUST-ANCHORS.md` | `5eb5c91f16d6f5b32751daf7d45a12f56f6b710c9db99f8a7ebf8cd821196cba` |
 | `NON-DERIVABLE-CATALOG-INVENTORY.md` | `0f6a665ad4bea211c1925676bc34ae627e2ea99018e27d5bed33c6893c388c2c` |
 | `PROD-UNMATCHED-EVIDENCE-MATRIX.md` | `8f2a787f019f2b1db76f5e5a06dfd2da280d19618fc031932825759033f65273` |
-| `REPRODUCIBILITY-RECIPES.md` | `0788565cd2c3ebabc24fb57aca45900b19bff8c3bdb6a6621241104222ece5fe` |
+| `REPRODUCIBILITY-RECIPES.md` | `84e6a7378f9eb063434a5b2642075bb21c721b814fd9eb4f4cd3810c7327a802` |
 
 `PATCH_CANONICAL_SHA256` vincula os caminhos ordenados, NUL e bytes canônicos.
 `SELF_CANONICAL_SHA256` é o hash do manifesto após normalização. O agregado
@@ -147,4 +147,4 @@ PY
 
 ## Próximo gate único
 
-Estado vigente após a rodada corretiva do PR #403: OpenCode e QWEN concluíram o APTO conjunto sobre estes bytes, e o commit e o push corretivos foram publicados no PR #403. O MERGE permanece retido até frase nominal de Raniel, e qualquer fase executável exige gate humano próprio.
+Esta regeneração vincula a receita nova SHA-256 `84e6a7378f9eb063434a5b2642075bb21c721b814fd9eb4f4cd3810c7327a802`. O APTO e a publicação do PR #403 referem-se aos bytes anteriores e não são transportados. O patch `892d66d56d7d4609a1a5bd51953e2b7c1d1646998ad6a568b18475cde13eb612` e o commit `d1aad87edc54aac8c9bcf311e903caeeec6c297f` ficam `SUPERSEDED` nesta rodada. Os bytes novos foram conferidos por OpenCode+QWEN na missão DEV epoch PR #404 antes da publicação, sendo essa a origem do APTO. O merge continua retido.
