@@ -10,15 +10,17 @@ qualquer resultado de coleta ficam fora do conjunto.
 | --- | --- |
 | Base e HEAD local | `18ecd50472a309de3ac838f898f3a6ade9ff763d` |
 | Branch | `docs/f2-prod-cohort-a-identity-readonly-20260917` |
-| Estado | briefing local, SQL e runner propostos e não executados |
+| Estado | briefing local; runner definitivo `63cfe37f11b1a8e688ab7bbf5d3e6c2c1a11f92cdac46f973079f43bc39aba54` executado uma vez em PostgreSQL 17.6 local descartável, com rede `none`, sem portas e sem PROD, DEV ou VPS; `RESULT=PASS_PG17_F2_PROD_COHORT_A_IDENTITY`; recibo privado `0600` SHA-256 `467ef43d940e3afd182b6a1020171bc81c6df77cc3f2fd89e40b47498acf4fcf`; horário `2026-09-17T14:07:58-03:00`; SQL permanece proposta não executada |
 | Gate único | `OWNER_AUTHORIZE_PROD_UNMATCHED_IDENTITY_EVIDENCE_READ_ONLY` |
+
+Essa execução local não autoriza coleta PROD nem qualquer ação externa.
 
 Os três campos abaixo são substituídos por 64 zeros no cálculo canônico:
 
 ```text
-PATCH_CANONICAL_SHA256=0474efde8e075eae99bc9362cd1fded26975b8da652cdcf22e8db967efcb3c92
-SELF_CANONICAL_SHA256=6c4d75d9608b0f37986e4bec362f5be4da91c70a251e00f264f21bf4351b8c00
-AGGREGATE_SHA256=eb52b7dcac005fdfbe5a0d605e366285e1527f22b867cfd0e3efda3948941b80
+PATCH_CANONICAL_SHA256=b4630ac36146b1106d43f4b5129feb834e2587bbf88a8d11d408f97b3f1a60aa
+SELF_CANONICAL_SHA256=8a264aed706c3fcada8882f41a22b24510c9749c218b544279513d3423248773
+AGGREGATE_SHA256=763be534d5da3f82d5e9a9b4210e144e8193f9e422490173d7a00ea6cbe63de3
 ```
 
 ## Arquivos cobertos
