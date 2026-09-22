@@ -1,0 +1,51 @@
+{
+  "schema": "e4b-operational-dependencies-v1",
+  "mode": "PRECHECK_NEGATIVE_ONLY",
+  "closure_status": "NOT_PROVEN",
+  "runtime_status": "NOT_EVALUATED",
+  "historical_runtime_evidence": "SYNTHETIC_ABSENCE_ACCEPTED_NOT_BOUND_TO_RECEIPT",
+  "dependency_manifest": null,
+  "resolver": {
+    "accepted_forms": [
+      "literal_import",
+      "literal_file_reference",
+      "catalog_closed_migration_list",
+      "metadata_closed_glob"
+    ],
+    "blocked_forms": [
+      "dynamic_import",
+      "computed_path",
+      "open_glob",
+      "missing_transitive_dependency",
+      "external_runtime_requirement"
+    ]
+  },
+  "path_policy": {
+    "encoding": "ASCII",
+    "syntax": "relative-posix-components-[A-Za-z0-9._-]+",
+    "unknown_action": "BLOCK",
+    "protected_categories": [
+      "env_basename_and_env_dot_star_including_examples",
+      "secrets_directory",
+      "pem_and_key_suffixes",
+      "id_rsa_and_id_ed25519_basenames",
+      "clerk_scripts",
+      "target_users_json",
+      "clerk_production_migration",
+      "backup_dump_export_directories_and_suffixes",
+      "media_directories_and_suffixes"
+    ],
+    "eligible_prefixes": [
+      "backend/app/",
+      "backend/migrations/",
+      "backend/scripts/",
+      "backend/tests/",
+      "docs/governance/migrations/",
+      "docs/missions/",
+      "docs/ops/e4b-filadelfia-catalog-materialization/"
+    ],
+    "eligible_exact": [
+      "backend/requirements.lock"
+    ]
+  }
+}
