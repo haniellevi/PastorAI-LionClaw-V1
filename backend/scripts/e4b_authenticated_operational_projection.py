@@ -43,7 +43,7 @@ FIXED_GIT_ENV = MappingProxyType(
 _HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _RECIPE_ID = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}\Z")
-_COMPONENT = re.compile(rb"[A-Za-z0-9._-]+\Z")
+_COMPONENT = re.compile(rb"[A-Za-z0-9._\[\]-]+\Z")
 _PUBLICATION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _MAX_RECEIPT_BYTES = 65_536
 _MAX_MANIFEST_BYTES = 1_048_576
@@ -92,6 +92,21 @@ _PROTECTED_SUFFIXES = (
     ".webm",
     ".webp",
     ".zip",
+)
+_PROTECTED_DATA_MARKERS = {
+    "backup",
+    "backups",
+    "dump",
+    "dumps",
+    "export",
+    "exports",
+    "media",
+}
+_PROTECTED_DATA_SUFFIXES = (
+    ".csv",
+    ".flac",
+    ".json",
+    ".sql",
 )
 
 
@@ -324,6 +339,12 @@ def classify_path(path: bytes) -> str:
         return "PROTECTED"
     if folded_basename.endswith(_PROTECTED_SUFFIXES):
         return "PROTECTED"
+    basename_markers = set(re.split(r"[._-]+", folded_basename))
+    if (
+        basename_markers & _PROTECTED_DATA_MARKERS
+        and folded_basename.endswith(_PROTECTED_DATA_SUFFIXES)
+    ):
+        return "PROTECTED"
     if folded.startswith("backend/scripts/clerk_"):
         return "PROTECTED"
     if (
@@ -335,7 +356,7 @@ def classify_path(path: bytes) -> str:
         return "PROTECTED"
     if canonical in _ELIGIBLE_EXACT or canonical.startswith(_ELIGIBLE_PREFIXES):
         return "ELIGIBLE"
-    return "UNKNOWN"
+    return "OMITTED"
 
 
 def preflight_blocked(
@@ -422,7 +443,7 @@ def materialize_authenticated_projection(
     if not _facts_match_anchors(facts_before, anchors):
         raise ProjectionSourceError("REPOSITORY_ANCHOR_MISMATCH")
     tree_before = _call_reader(reader, "list_tree", anchors.expected_tree_sha)
-    tree_result = _validate_tree(tree_before)
+    tree_result = _validate_tree(tree_before, allow_ordinary=True)
     if isinstance(tree_result, str):
         raise ProjectionSourceError(tree_result)
     entries_by_path, protected_ids, protected_commitment = tree_result
@@ -444,7 +465,7 @@ def materialize_authenticated_projection(
     ):
         raise ProjectionSourceError("REPOSITORY_TOCTOU")
     tree_after = _call_reader(reader, "list_tree", anchors.expected_tree_sha)
-    tree_after_result = _validate_tree(tree_after)
+    tree_after_result = _validate_tree(tree_after, allow_ordinary=True)
     if isinstance(tree_after_result, str):
         raise ProjectionSourceError("TREE_TOCTOU")
     if _tree_metadata_digest(tree_after_result[0]) != tree_digest_before:
@@ -455,14 +476,18 @@ def materialize_authenticated_projection(
     parent, parent_descriptor = _open_private_destination_parent(destination_parent)
     reservation_name: str | None = None
     reservation_descriptor: int | None = None
+    reservation_identity: tuple[int, int] | None = None
     staging_name: str | None = None
     staging_descriptor: int | None = None
+    staging_identity: tuple[int, int] | None = None
     try:
         reservation_descriptor = _reserve_publication(parent_descriptor, publication_name)
         reservation_name = publication_name
+        reservation_identity = _directory_identity(reservation_descriptor)
         if not _parent_path_matches_descriptor(parent, parent_descriptor):
             raise ProjectionSourceError("DESTINATION_CHANGED")
         staging_name, staging_descriptor = _reserve_staging(parent_descriptor)
+        staging_identity = _directory_identity(staging_descriptor)
         for item, blob in blobs:
             _write_staged_file(staging_descriptor, item, blob)
         _verify_private_root(staging_descriptor, manifest.files)
@@ -501,10 +526,22 @@ def materialize_authenticated_projection(
         staging_descriptor = None
         return PublishedProjection(root_handle=root_handle, receipt=receipt)
     except ProjectionSourceError:
-        _cleanup_attempt(parent_descriptor, staging_name, reservation_name)
+        _cleanup_attempt(
+            parent_descriptor,
+            staging_name,
+            staging_identity,
+            reservation_name,
+            reservation_identity,
+        )
         raise
     except OSError:
-        _cleanup_attempt(parent_descriptor, staging_name, reservation_name)
+        _cleanup_attempt(
+            parent_descriptor,
+            staging_name,
+            staging_identity,
+            reservation_name,
+            reservation_identity,
+        )
         raise ProjectionSourceError("MATERIALIZATION_FAILED") from None
     finally:
         if staging_descriptor is not None:
@@ -618,6 +655,8 @@ def _valid_sha256(value: object) -> bool:
 
 def _validate_tree(
     tree_entries: object,
+    *,
+    allow_ordinary: bool = False,
 ) -> tuple[dict[str, TreeEntry], set[str], str] | str:
     if type(tree_entries) not in {tuple, list}:
         return "TREE_METADATA_INVALID"
@@ -647,7 +686,7 @@ def _validate_tree(
         if folded in casefold_paths:
             return "PATH_CASEFOLD_COLLISION"
         classification = classify_path(entry.path)
-        if classification == "UNKNOWN":
+        if classification == "OMITTED" and not allow_ordinary:
             return "UNKNOWN_PATH_CLASS"
         if classification == "INVALID":
             return "PATH_INVALID"
@@ -960,6 +999,7 @@ def _parse_manifest_omission(raw_omission: object) -> ManifestOmission:
         raise ProjectionSourceError("MANIFEST_INVALID") from None
     if _canonical_path(encoded) != path or classify_path(encoded) not in {
         "ELIGIBLE",
+        "OMITTED",
         "PROTECTED",
     }:
         raise ProjectionSourceError("MANIFEST_INVALID")
@@ -1119,7 +1159,8 @@ def _open_reserved_private_directory(parent_descriptor: int, name: str) -> int:
         if not valid:
             if descriptor is not None:
                 os.close(descriptor)
-            _remove_owned_tree_at(parent_descriptor, name)
+            # No trusted inode identity exists if opening or validation failed.
+            # Retain the name rather than deleting a possibly replaced directory.
 
 
 def _entry_exists(parent_descriptor: int, name: str) -> bool:
@@ -1209,6 +1250,16 @@ def _validate_private_directory_descriptor(descriptor: int) -> None:
         or stat.S_IMODE(info.st_mode) != 0o700
     ):
         raise ProjectionSourceError("MATERIALIZATION_LINK_INVALID")
+
+
+def _directory_identity(descriptor: int) -> tuple[int, int]:
+    try:
+        info = os.fstat(descriptor)
+    except OSError:
+        raise ProjectionSourceError("MATERIALIZATION_LINK_INVALID") from None
+    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise ProjectionSourceError("MATERIALIZATION_LINK_INVALID")
+    return info.st_dev, info.st_ino
 
 
 def _write_private_regular_file(
@@ -1444,15 +1495,21 @@ def _root_digest(manifest: tuple[ManifestFile, ...]) -> str:
 def _cleanup_attempt(
     parent_descriptor: int,
     staging_name: str | None,
+    staging_identity: tuple[int, int] | None,
     reservation_name: str | None,
+    reservation_identity: tuple[int, int] | None,
 ) -> None:
     if staging_name is not None:
-        _remove_owned_tree_at(parent_descriptor, staging_name)
+        _remove_owned_tree_at(parent_descriptor, staging_name, staging_identity)
     if reservation_name is not None:
-        _remove_owned_tree_at(parent_descriptor, reservation_name)
+        _remove_owned_tree_at(parent_descriptor, reservation_name, reservation_identity)
 
 
-def _remove_owned_tree_at(parent_descriptor: int, name: str) -> None:
+def _remove_owned_tree_at(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int] | None = None,
+) -> None:
     try:
         descriptor = os.open(name, _directory_open_flags(), dir_fd=parent_descriptor)
     except OSError:
@@ -1461,7 +1518,13 @@ def _remove_owned_tree_at(parent_descriptor: int, name: str) -> None:
         info = os.fstat(descriptor)
         if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
             return
+        if expected_identity is not None and (info.st_dev, info.st_ino) != expected_identity:
+            return
         _remove_owned_children(descriptor)
+        if expected_identity is not None:
+            # A directory cannot be unlinked by descriptor with portable stdlib APIs.
+            # Retain the empty attempt shell instead of racing on a mutable name.
+            return
         try:
             current = os.lstat(name, dir_fd=parent_descriptor)
         except OSError:

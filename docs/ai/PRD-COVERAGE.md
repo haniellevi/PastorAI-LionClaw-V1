@@ -9,6 +9,14 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Recorte E4b source-only de 22/09/2026: a projeção autenticada possui uma API
+explícita que confere fatos e árvore fornecidos pelo adaptador, exige manifesto
+fechado, lê apenas blobs selecionados e materializa uma raiz privada antes de
+emitir recibo com `operational_authorization = false`. O fornecedor externo de
+âncoras ainda não é verificável nesta fatia; o handle não está ligado a caller,
+consumidor ou runtime. Não há banco, DEV, PROD, ativação ou autorização
+operacional.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,

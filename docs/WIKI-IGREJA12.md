@@ -1,5 +1,14 @@
 # Wiki do projeto Igreja 12
 
+## Projeção autenticada E4b source-only, 22/09/2026
+
+A fatia atual adiciona uma API explícita que confere fatos e árvore fornecidos
+pelo adaptador, exige manifesto fechado, lê apenas blobs selecionados e
+materializa uma raiz privada antes de emitir recibo com
+`operational_authorization = false`. O fornecedor externo de âncoras permanece
+pendente e o handle não está ligado a caller, consumidor ou runtime. Nenhuma
+fonte real, banco, DEV, PROD, ativação ou autorização operacional foi aberta.
+
 Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).
 O plano descreve prova de apresentação/manifestação, recibo durável e integração
 segura com o ledger existente. Somente documentação: sem migration, runtime,
