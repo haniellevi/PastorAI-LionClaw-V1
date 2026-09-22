@@ -1,5 +1,16 @@
 # Wiki do projeto Igreja 12
 
+## Precheck negativo da projeção operacional E4b, 22/09/2026
+
+O recorte source-only da projeção operacional E4b adiciona um precheck puro
+para declarações sintéticas de política, árvore, seleção, fechamento de
+dependências e recibo de patch. O resultado é sempre `BLOCKED`, com
+`operational_authorization = false`; o módulo não lê blobs, materializa raiz,
+chama consumidor nem autentica uma fonte operacional. Manifesto fechado,
+entradas confiáveis, verificação de arquivos e publicação atômica permanecem
+pendentes em gate futuro separado. Não houve acesso a banco, DEV, PROD,
+runtime, dados reais ou ativação.
+
 Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).
 O plano descreve prova de apresentação/manifestação, recibo durável e integração
 segura com o ledger existente. Somente documentação: sem migration, runtime,

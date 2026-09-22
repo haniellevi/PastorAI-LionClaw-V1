@@ -1,0 +1,71 @@
+{
+  "schema": "e4b-operational-projection-blocked-receipt-schema-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "operational_authorization",
+    "reason",
+    "closure_status",
+    "runtime_status",
+    "selected_path_count",
+    "protected_object_commitment_sha256",
+    "patch_receipt_status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "e4b-operational-projection-blocked-receipt-v1"
+    },
+    "status": {
+      "const": "BLOCKED"
+    },
+    "operational_authorization": {
+      "const": false
+    },
+    "reason": {
+      "enum": [
+        "TRUST_POLICY_INVALID",
+        "TREE_METADATA_INVALID",
+        "PATH_INVALID",
+        "TREE_ORDER_INVALID",
+        "PATH_CASEFOLD_COLLISION",
+        "UNKNOWN_PATH_CLASS",
+        "SELECTION_INVALID",
+        "PROTECTED_OBJECT_ALIAS",
+        "PATCH_RECEIPT_INVALID",
+        "DEPENDENCY_RESOLUTION_INVALID",
+        "DEPENDENCY_CLOSURE_NOT_PROVEN",
+        "DEPENDENCY_SELECTION_INCOMPLETE",
+        "SOURCE_ONLY_EXECUTION_DISABLED"
+      ]
+    },
+    "closure_status": {
+      "enum": [
+        "NOT_PROVEN",
+        "FORGED_RESOLVED_NOT_EXECUTED"
+      ]
+    },
+    "runtime_status": {
+      "const": "NOT_EVALUATED"
+    },
+    "selected_path_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "protected_object_commitment_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "patch_receipt_status": {
+      "enum": [
+        "NOT_READ",
+        "INVALID",
+        "VALID"
+      ]
+    }
+  }
+}
