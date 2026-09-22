@@ -1,5 +1,33 @@
 # Wiki do projeto Igreja 12
 
+## Precheck negativo da projeção operacional E4b, 22/09/2026
+
+O recorte source-only da projeção operacional E4b adiciona um precheck puro
+para declarações sintéticas de política, árvore, seleção, fechamento de
+dependências e recibo de patch. O resultado é sempre `BLOCKED`, com
+`operational_authorization = false`; o módulo não lê blobs, materializa raiz,
+chama consumidor nem autentica uma fonte operacional. Manifesto fechado,
+entradas confiáveis, verificação de arquivos e publicação atômica permanecem
+pendentes em gate futuro separado. Não houve acesso a banco, DEV, PROD,
+runtime, dados reais ou ativação.
+
+## Projeção autenticada E4b source-only, 22/09/2026
+
+A etapa seguinte adiciona uma API explícita que confere fatos e árvore
+fornecidos pelo adaptador, exige manifesto fechado, lê apenas blobs selecionados
+e materializa uma raiz privada antes de emitir recibo com
+`operational_authorization = false`. O fornecedor externo de âncoras permanece
+pendente e o handle não está ligado a caller, consumidor ou runtime. Nenhuma
+fonte real, banco, DEV, PROD, ativação ou autorização operacional foi aberta.
+
+## Adaptador Git local E4b source-only, 22/09/2026
+
+O adaptador local opera apenas sobre um handle privado e imutável fornecido
+externamente. Ele fixa ambiente e argumentos, desabilita rede e lazy fetch,
+limita tempo e bytes e confere a identidade dos descritores no início de cada
+comando. A construção do handle permanece ausente; nenhuma fonte, caller,
+consumidor, runtime, banco, DEV, PROD ou ativação foi aberta.
+
 ## Âncoras externas E4b source-only, 22/09/2026
 
 O parser inerte aceita somente bytes de âncoras sintéticas e mantém separadas a

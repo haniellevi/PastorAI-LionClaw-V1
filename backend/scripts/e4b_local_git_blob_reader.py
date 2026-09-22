@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import selectors
+import signal
 import stat
 import subprocess
 import threading
@@ -186,6 +187,13 @@ def _safe_close(resource: object | None) -> None:
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> None:
+    if getattr(process, "returncode", None) is None:
+        process_id = getattr(process, "pid", None)
+        if type(process_id) is int and process_id > 0:
+            try:
+                os.killpg(process_id, signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
     try:
         running = process.poll() is None
     except Exception:
@@ -223,6 +231,7 @@ def _run_git_command(
             shell=False,
             close_fds=True,
             pass_fds=pass_fds,
+            start_new_session=True,
         )
     except (OSError, ValueError):
         raise _LocalGitCommandFailure("LOCAL_GIT_COMMAND_FAILED") from None
@@ -242,7 +251,7 @@ def _run_git_command(
             if remaining <= 0:
                 raise _LocalGitCommandFailure("LOCAL_GIT_TIMEOUT")
             events = selector.select(remaining)  # type: ignore[attr-defined]
-            if not events and process.poll() is None:
+            if not events:
                 continue
             chunk = os.read(stream.fileno(), max_stdout_bytes + 1 - len(collected))  # type: ignore[attr-defined]
             if not chunk:
