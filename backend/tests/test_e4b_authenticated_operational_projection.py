@@ -593,15 +593,23 @@ class AuthenticatedProjectionTests(unittest.TestCase):
             "expected_manifest_sha256": "0" * 64,
         }
         values.update(overrides)
-        anchors = object.__new__(self.projection.VerifiedSourceTrustAnchors)
-        for name, value in values.items():
-            setattr(anchors, name, value)
-        return anchors
+        return tuple.__new__(
+            self.projection.VerifiedSourceTrustAnchors,
+            tuple(values.values()),
+        )
 
     def _replace_verified_anchors(self, anchors, **overrides):
         values = {
-            name: getattr(anchors, name)
-            for name in self.projection.VerifiedSourceTrustAnchors.__slots__
+            "expected_commit_sha": anchors.expected_commit_sha,
+            "expected_tree_sha": anchors.expected_tree_sha,
+            "expected_parent_sha": anchors.expected_parent_sha,
+            "expected_base_sha": anchors.expected_base_sha,
+            "expected_ancestry_digest_sha256": anchors.expected_ancestry_digest_sha256,
+            "expected_patch_receipt_sha256": anchors.expected_patch_receipt_sha256,
+            "expected_patch_digest_sha256": anchors.expected_patch_digest_sha256,
+            "expected_patch_recipe_id": anchors.expected_patch_recipe_id,
+            "expected_patch_recipe_version": anchors.expected_patch_recipe_version,
+            "expected_manifest_sha256": anchors.expected_manifest_sha256,
         }
         values.update(overrides)
         return self._verified_anchors(**values)

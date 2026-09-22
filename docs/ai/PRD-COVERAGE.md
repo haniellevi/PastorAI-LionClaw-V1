@@ -9,6 +9,13 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Recorte E4b source-only de 22/09/2026: o parser inerte aceita somente bytes de
+âncoras externas sintéticas e separa declaração canônica de capacidade
+verificada. A capacidade nominal usa uma tupla imutável e continua sem fábrica,
+adotador, desserializador ou autoridade operacional. O fornecedor de snapshot
+privado e a vinculação de proveniência permanecem em gate futuro; não há fonte
+real, runtime, banco, DEV, PROD ou ativação.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,

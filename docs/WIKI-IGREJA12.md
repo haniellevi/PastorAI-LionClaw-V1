@@ -1,5 +1,14 @@
 # Wiki do projeto Igreja 12
 
+## Âncoras externas E4b source-only, 22/09/2026
+
+O parser inerte aceita somente bytes de âncoras sintéticas e mantém separadas a
+declaração canônica e a capacidade verificada. A capacidade nominal é uma tupla
+imutável, sem fábrica, adotador, desserializador ou autoridade operacional
+nesta fatia. O fornecedor de snapshot privado e a vinculação de proveniência
+continuam em gate futuro; nenhuma fonte real, runtime, banco, DEV, PROD ou
+ativação foi aberta.
+
 Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).
 O plano descreve prova de apresentação/manifestação, recibo durável e integração
 segura com o ledger existente. Somente documentação: sem migration, runtime,
