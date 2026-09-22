@@ -24,9 +24,23 @@ from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = BACKEND_ROOT / "scripts" / "e4b_authenticated_operational_projection.py"
+ANCHORS_PATH = BACKEND_ROOT / "scripts" / "e4b_external_trust_anchors.py"
+ANCHORS_MODULE_NAME = "e4b_external_trust_anchors"
+
+
+def load_external_anchor_module():
+    sys.modules.pop(ANCHORS_MODULE_NAME, None)
+    spec = importlib.util.spec_from_file_location(ANCHORS_MODULE_NAME, ANCHORS_PATH)
+    if spec is None or spec.loader is None:
+        raise AssertionError("external anchor module cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[ANCHORS_MODULE_NAME] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_projection_module():
+    load_external_anchor_module()
     spec = importlib.util.spec_from_file_location("e4b_projection_under_test", MODULE_PATH)
     if spec is None or spec.loader is None:
         raise AssertionError("projection module cannot be loaded")
@@ -563,6 +577,43 @@ class AuthenticatedProjectionTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.projection = load_projection_module()
 
+    def _verified_anchors(self, **overrides):
+        """White-box test fixture, equivalent to arbitrary in-process code."""
+
+        values = {
+            "expected_commit_sha": "a" * 40,
+            "expected_tree_sha": "b" * 40,
+            "expected_parent_sha": "c" * 40,
+            "expected_base_sha": "d" * 40,
+            "expected_ancestry_digest_sha256": "e" * 64,
+            "expected_patch_receipt_sha256": "f" * 64,
+            "expected_patch_digest_sha256": "f" * 64,
+            "expected_patch_recipe_id": "e4b-patch-replay",
+            "expected_patch_recipe_version": 1,
+            "expected_manifest_sha256": "0" * 64,
+        }
+        values.update(overrides)
+        return tuple.__new__(
+            self.projection.VerifiedSourceTrustAnchors,
+            tuple(values.values()),
+        )
+
+    def _replace_verified_anchors(self, anchors, **overrides):
+        values = {
+            "expected_commit_sha": anchors.expected_commit_sha,
+            "expected_tree_sha": anchors.expected_tree_sha,
+            "expected_parent_sha": anchors.expected_parent_sha,
+            "expected_base_sha": anchors.expected_base_sha,
+            "expected_ancestry_digest_sha256": anchors.expected_ancestry_digest_sha256,
+            "expected_patch_receipt_sha256": anchors.expected_patch_receipt_sha256,
+            "expected_patch_digest_sha256": anchors.expected_patch_digest_sha256,
+            "expected_patch_recipe_id": anchors.expected_patch_recipe_id,
+            "expected_patch_recipe_version": anchors.expected_patch_recipe_version,
+            "expected_manifest_sha256": anchors.expected_manifest_sha256,
+        }
+        values.update(overrides)
+        return self._verified_anchors(**values)
+
     def _inputs(
         self, *, tree_entries=None, files=None, omitted=None, blobs=None, later_tree=None
     ):
@@ -643,7 +694,7 @@ class AuthenticatedProjectionTests(unittest.TestCase):
         patch_bytes = json.dumps(
             patch_receipt, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        anchors = self.projection.SourceTrustAnchors(
+        anchors = self._verified_anchors(
             expected_commit_sha=facts.commit_sha,
             expected_tree_sha=facts.tree_sha,
             expected_parent_sha=facts.parent_sha,
@@ -1178,22 +1229,18 @@ class AuthenticatedProjectionTests(unittest.TestCase):
         drifted_manifest = json.dumps(
             decoded_manifest, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        drifted_anchors = self.projection.SourceTrustAnchors(
-            **{
-                **anchors.__dict__,
-                "expected_manifest_sha256": hashlib.sha256(drifted_manifest).hexdigest(),
-            }
+        drifted_anchors = self._replace_verified_anchors(
+            anchors,
+            expected_manifest_sha256=hashlib.sha256(drifted_manifest).hexdigest(),
         )
         decoded_patch = json.loads(patch_bytes)
         decoded_patch["patch"]["digest_sha256"] = "0" * 64
         repinned_patch = json.dumps(
             decoded_patch, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        repinned_anchors = self.projection.SourceTrustAnchors(
-            **{
-                **anchors.__dict__,
-                "expected_patch_receipt_sha256": hashlib.sha256(repinned_patch).hexdigest(),
-            }
+        repinned_anchors = self._replace_verified_anchors(
+            anchors,
+            expected_patch_receipt_sha256=hashlib.sha256(repinned_patch).hexdigest(),
         )
         with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
             os.chmod(temporary, 0o700)
@@ -1222,11 +1269,9 @@ class AuthenticatedProjectionTests(unittest.TestCase):
         duplicate_bytes = json.dumps(
             duplicate, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        duplicate_anchors = self.projection.SourceTrustAnchors(
-            **{
-                **anchors.__dict__,
-                "expected_manifest_sha256": hashlib.sha256(duplicate_bytes).hexdigest(),
-            }
+        duplicate_anchors = self._replace_verified_anchors(
+            anchors,
+            expected_manifest_sha256=hashlib.sha256(duplicate_bytes).hexdigest(),
         )
         absent = json.loads(manifest_bytes)
         absent["omitted"].append(
@@ -1240,11 +1285,9 @@ class AuthenticatedProjectionTests(unittest.TestCase):
         absent_bytes = json.dumps(
             absent, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        absent_anchors = self.projection.SourceTrustAnchors(
-            **{
-                **anchors.__dict__,
-                "expected_manifest_sha256": hashlib.sha256(absent_bytes).hexdigest(),
-            }
+        absent_anchors = self._replace_verified_anchors(
+            anchors,
+            expected_manifest_sha256=hashlib.sha256(absent_bytes).hexdigest(),
         )
         extra_tree = (
             self.projection.TreeEntry(

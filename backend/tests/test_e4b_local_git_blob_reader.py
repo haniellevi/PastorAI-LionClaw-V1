@@ -18,10 +18,15 @@ from unittest.mock import patch
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+ANCHORS_PATH = BACKEND_ROOT / "scripts" / "e4b_external_trust_anchors.py"
 CORE_PATH = BACKEND_ROOT / "scripts" / "e4b_authenticated_operational_projection.py"
 ADAPTER_PATH = BACKEND_ROOT / "scripts" / "e4b_local_git_blob_reader.py"
+ANCHORS_MODULE_NAME = "e4b_external_trust_anchors"
 CORE_MODULE_NAME = "e4b_authenticated_operational_projection"
 ADAPTER_MODULE_NAME = "e4b_local_git_blob_reader"
+_MODULE_ABSENT = object()
+_MODULE_PREDECESSORS: dict[str, object] = {}
+_LOADED_MODULES: dict[str, object] = {}
 
 _TEST_GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -36,15 +41,56 @@ _TEST_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOE
 _TEST_EXECUTABLE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
+def _remember_predecessor(name: str) -> None:
+    if name not in _MODULE_PREDECESSORS:
+        _MODULE_PREDECESSORS[name] = sys.modules.get(name, _MODULE_ABSENT)
+
+
+def _restore_predecessor_if_current(name: str, module: object) -> None:
+    if sys.modules.get(name) is not module:
+        return
+    predecessor = _MODULE_PREDECESSORS[name]
+    if predecessor is _MODULE_ABSENT:
+        sys.modules.pop(name, None)
+    else:
+        sys.modules[name] = predecessor
+
+
+def _restore_current_if_partial(name: str, module: object, current: object) -> None:
+    if sys.modules.get(name) is not module:
+        return
+    if current is _MODULE_ABSENT:
+        sys.modules.pop(name, None)
+    else:
+        sys.modules[name] = current
+
+
 def load_module(name: str, path: Path):
-    sys.modules.pop(name, None)
+    _remember_predecessor(name)
+    current_module = sys.modules.get(name, _MODULE_ABSENT)
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise AssertionError("candidate module cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        _restore_current_if_partial(name, module, current_module)
+        raise
+    _LOADED_MODULES[name] = module
     return module
+
+
+def load_external_trust_anchors():
+    return load_module(ANCHORS_MODULE_NAME, ANCHORS_PATH)
+
+
+def tearDownModule() -> None:
+    for name, module in tuple(_LOADED_MODULES.items()):
+        _restore_predecessor_if_current(name, module)
+    _LOADED_MODULES.clear()
+    _MODULE_PREDECESSORS.clear()
 
 
 def run_test_git(repository: Path, *arguments: str) -> bytes:
@@ -128,6 +174,7 @@ class LocalGitBlobReaderTests(unittest.TestCase):
         if executable is None:
             raise unittest.SkipTest("local Git executable unavailable")
         cls.git_executable = os.path.realpath(executable)
+        load_external_trust_anchors()
         cls.core = load_module(CORE_MODULE_NAME, CORE_PATH)
         cls.adapter = load_module(ADAPTER_MODULE_NAME, ADAPTER_PATH)
 

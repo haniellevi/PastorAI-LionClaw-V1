@@ -67,12 +67,49 @@ concurrent or repeated close cannot close a later reused descriptor.
 
 ## Independent anchors
 
-`SourceTrustAnchors` contains externally obtained expected values for commit,
-tree, parent, base, ancestry digest, patch-receipt byte digest, patch digest,
-patch recipe/version and dependency-manifest byte digest. The materializer does
-not accept those values from repository metadata, the patch receipt or the
-manifest as their own authority. Each declaration is compared to the separate
-anchor before a blob read.
+`e4b_external_trust_anchors.py` is an inert, pure in-memory parser for a
+synthetic external-anchor bundle. It accepts only `bytes` or absence, has no
+path, descriptor, environment, Git, filesystem, process, socket or network
+API, and applies a fixed 1,024-byte limit before UTF-8 decoding. The closed
+flat bundle contains exact `schema`, `version`, and `algorithm` declarations,
+then the current expected commit, tree, parent, base, ancestry digest,
+patch-receipt digest, patch digest, recipe id/version, and mandatory opaque
+manifest digest. It contains neither a self-digest nor an authority, signature,
+issuer, trust-root, or operational-authorization value.
+
+The canonical byte representation uses this exact field order, compact JSON
+separators, ASCII-safe JSON encoding, and exactly one final LF. Parsing uses
+strict UTF-8, duplicate-key rejection, exact scalar types, lowercase fixed-size
+hashes, and the supported `sha256` algorithm, schema/version, and patch
+recipe/version. Parse followed by serialization is byte-identical only for
+canonical input. Absence, malformed input, non-canonical bytes, missing,
+unknown or duplicate fields, malformed digests, unsupported declarations, and
+limit excess have fixed sanitized codes. Invalid UTF-8, invalid JSON syntax,
+and decoder-depth failure all intentionally share `ANCHOR_MALFORMED`; the JSON
+decoder provides no safer useful distinction without echoing untrusted input.
+
+The parser returns `ParsedSourceTrustAnchors`, which is a syntactic declaration
+only. `VerifiedSourceTrustAnchors` is a nominal, immutable tuple capability
+reserved for a future separately reviewed immutable-snapshot authority. This
+slice has no factory, adopter, converter, deserializer, or public function that
+produces it. A test-only `tuple.__new__` fixture represents arbitrary code in
+the same Python interpreter and is outside the runtime API boundary; the exact
+type is not claimed as protection against arbitrary in-process code.
+
+Because the bundle deliberately has no self-authentication or authority value,
+a differently canonical bundle can only become a different parsed declaration,
+never a verified capability. That distinction is intentional and prevents this
+parser from claiming provenance it cannot establish.
+
+`materialize_authenticated_projection()` requires the exact verified type as
+its first action. Absence, parsed declarations, subclasses, and any other type
+raise `TRUST_ANCHORS_UNVERIFIED` before patch parsing, manifest parsing, reader
+calls, blob requests, destination validation, or filesystem work. A lexically
+invalid exact capability raises `TRUST_ANCHORS_INVALID` at the same boundary.
+The materializer still does not accept repository metadata, a patch receipt, or
+a manifest as their own authority. A future authority must bind the verified
+capability to independently authenticated provenance before this source-only
+interface can be adopted.
 
 Both the patch receipt and dependency manifest are strict JSON objects with
 closed keys, duplicate-key rejection, exact scalar types, canonical path order

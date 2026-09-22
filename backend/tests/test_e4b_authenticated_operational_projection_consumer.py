@@ -12,28 +12,68 @@ import unittest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = BACKEND_ROOT / "scripts" / "e4b_authenticated_operational_projection_consumer.py"
+ANCHORS_PATH = BACKEND_ROOT / "scripts" / "e4b_external_trust_anchors.py"
 PROJECTION_PATH = BACKEND_ROOT / "scripts" / "e4b_authenticated_operational_projection.py"
+ANCHORS_MODULE_NAME = "e4b_external_trust_anchors"
+_MODULE_ABSENT = object()
+_MODULE_PREDECESSORS: dict[str, object] = {}
+_LOADED_MODULES: dict[str, object] = {}
 
 
 def load_consumer_module():
-    spec = importlib.util.spec_from_file_location("e4b_projection_consumer_under_test", MODULE_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("projection consumer module cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module("e4b_projection_consumer_under_test", MODULE_PATH)
+
+
+def _remember_predecessor(name: str) -> None:
+    if name not in _MODULE_PREDECESSORS:
+        _MODULE_PREDECESSORS[name] = sys.modules.get(name, _MODULE_ABSENT)
+
+
+def _restore_predecessor_if_current(name: str, module: object) -> None:
+    if sys.modules.get(name) is not module:
+        return
+    predecessor = _MODULE_PREDECESSORS[name]
+    if predecessor is _MODULE_ABSENT:
+        sys.modules.pop(name, None)
+    else:
+        sys.modules[name] = predecessor
+
+
+def _restore_current_if_partial(name: str, module: object, current: object) -> None:
+    if sys.modules.get(name) is not module:
+        return
+    if current is _MODULE_ABSENT:
+        sys.modules.pop(name, None)
+    else:
+        sys.modules[name] = current
 
 
 def load_module(name: str, path: Path):
-    sys.modules.pop(name, None)
+    _remember_predecessor(name)
+    current_module = sys.modules.get(name, _MODULE_ABSENT)
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise AssertionError("candidate module cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        _restore_current_if_partial(name, module, current_module)
+        raise
+    _LOADED_MODULES[name] = module
     return module
+
+
+def load_external_trust_anchors():
+    return load_module(ANCHORS_MODULE_NAME, ANCHORS_PATH)
+
+
+def tearDownModule() -> None:
+    for name, module in tuple(_LOADED_MODULES.items()):
+        _restore_predecessor_if_current(name, module)
+    _LOADED_MODULES.clear()
+    _MODULE_PREDECESSORS.clear()
 
 
 class ExplodingMapping(Mapping[str, object]):
@@ -106,6 +146,7 @@ class ProjectionConsumerTests(unittest.TestCase):
 class ConsumerBoundaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        load_external_trust_anchors()
         cls.projection = load_module("e4b_authenticated_operational_projection", PROJECTION_PATH)
         cls.consumer = load_module(
             "e4b_authenticated_operational_projection_consumer", MODULE_PATH

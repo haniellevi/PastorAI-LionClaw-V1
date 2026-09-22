@@ -32,6 +32,13 @@ cada comando. Esta fatia não constrói o handle e não habilita fonte, caller,
 consumidor ou runtime. Não há banco, DEV, PROD, ativação ou autorização
 operacional.
 
+O parser inerte de âncoras externas da mesma data aceita somente bytes
+sintéticos e separa declaração canônica de capacidade verificada. A capacidade
+nominal usa uma tupla imutável e continua sem fábrica, adotador, desserializador
+ou autoridade operacional. O fornecedor de snapshot privado e a vinculação de
+proveniência permanecem em gate futuro; não há fonte real, runtime, banco, DEV,
+PROD ou ativação.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,
