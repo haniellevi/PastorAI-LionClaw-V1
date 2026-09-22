@@ -5,6 +5,13 @@
   "runtime_status": "NOT_EVALUATED",
   "manifest_schema": "e4b-operational-dependency-manifest-v1",
   "manifest_anchor": "sha256-of-external-manifest-bytes",
+  "closed_manifest_builder": "PURE_IN_MEMORY_SYNTHETIC_ONLY",
+  "closed_manifest_builder_status": "NOT_ADOPTED_NO_VERIFIED_CAPABILITY",
+  "closed_manifest_builder_closure": "RELATIVE_TO_DECLARED_INVENTORY_AND_SYNTHETIC_SELECTION_ONLY",
+  "closed_manifest_builder_inventory": "METADATA_ONLY_NO_DIGEST_FOR_OMITTED_OR_PROTECTED",
+  "closed_manifest_builder_selection": "ELIGIBLE_PATH_PLUS_DECLARED_SHA256_ONLY",
+  "closed_manifest_builder_quota": "4096_DECLARED_ENTRIES_WITH_EXACT_1MIB_SERIALIZATION_LIMIT",
+  "closed_manifest_builder_verifier": "PURE_RELATIVE_COVERAGE_PROVENANCE_ORDER_AND_DRIFT_REVALIDATION",
   "required_candidate_fields": [
     "commit_sha",
     "tree_sha",
