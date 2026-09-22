@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -519,6 +520,7 @@ class LocalGitBlobReaderTests(unittest.TestCase):
         self.assertFalse(keywords["shell"])
         self.assertTrue(keywords["close_fds"])
         self.assertEqual(keywords["pass_fds"], (7, 8))
+        self.assertTrue(keywords["start_new_session"])
 
         class RegisterFailure:
             def register(self, *_args):
@@ -580,6 +582,61 @@ class LocalGitBlobReaderTests(unittest.TestCase):
             )
         self.assertEqual(result.stdout, b"ok\n")
         self.assertGreaterEqual(process.wait_calls, 1)
+
+    def test_no_event_after_parent_exit_times_out_without_read(self) -> None:
+        class NoEventSelector:
+            def register(self, *_args):
+                return None
+
+            def select(self, _timeout):
+                return []
+
+            def close(self):
+                return None
+
+        process = FakeProcess(PlainStream())
+        process._alive = False
+        with patch.object(
+            self.adapter.subprocess, "Popen", return_value=process
+        ), patch.object(
+            self.adapter.selectors, "DefaultSelector", return_value=NoEventSelector()
+        ), patch.object(
+            self.adapter.time, "monotonic", side_effect=(0.0, 0.0, 0.2)
+        ), patch.object(
+            self.adapter.os,
+            "read",
+            side_effect=AssertionError("read must follow a selector event"),
+        ):
+            with self.assertRaises(self.adapter._LocalGitCommandFailure) as raised:
+                self.adapter._run_git_command(
+                    ("/proc/self/fd/1", "rev-parse"),
+                    cwd="/proc/self/fd/1",
+                    environment={},
+                    timeout_seconds=0.1,
+                    max_stdout_bytes=32,
+                    pass_fds=(),
+                )
+        self.assertEqual(raised.exception.code, "LOCAL_GIT_TIMEOUT")
+        self.assertGreaterEqual(process.wait_calls, 1)
+
+    def test_descendant_inherited_stdout_cannot_extend_timeout(self) -> None:
+        script = (
+            "import subprocess,sys; "
+            "subprocess.Popen([sys.executable,'-c','import time; time.sleep(2)'])"
+        )
+        started = time.monotonic()
+        with self.assertRaises(self.adapter._LocalGitCommandFailure) as raised:
+            self.adapter._run_git_command(
+                (sys.executable, "-c", script),
+                cwd=self.temporary.name,
+                environment={"PATH": "/usr/bin:/bin"},
+                timeout_seconds=0.1,
+                max_stdout_bytes=32,
+                pass_fds=(),
+            )
+        elapsed = time.monotonic() - started
+        self.assertEqual(raised.exception.code, "LOCAL_GIT_TIMEOUT")
+        self.assertLess(elapsed, 1.0)
 
         def new_context():
             descriptors = [os.open("/dev/null", os.O_RDONLY | os.O_CLOEXEC) for _ in range(3)]
