@@ -30,6 +30,13 @@
   "materialization_root": "retained-parent-fd-and-exact-files-and-directories-through-nofollow-dir-fds",
   "published_root_access": "descriptor-bound-relative-manifest-read-with-idempotent-close",
   "reader_failure_surface": "fixed-projection-source-error-without-adapter-text",
+  "local_git_reader": "explicit-injected-typed-handle-only-reader-with-closed-child-environment",
+  "local_git_ancestry": "typed-commit-tree-parent-base-and-sorted-rev-list-ancestry-digest",
+  "local_git_limits": "bounded-time-and-stdout-with-no-fetch-archive-replace-or-network-protocol",
+  "local_git_handle_status": "NO_RUNTIME_PATH_OR_DESCRIPTOR_FACTORY_FUTURE_PRIVATE_IMMUTABLE_HANDLE_REQUIRED",
+  "local_git_handle_threat_model": "arbitrary-same-interpreter-code-can-forge-python-private-state-outside-runtime-api-boundary",
+  "local_git_config_boundary": "private-minimal-gitdir-excludes-source-local-include-conditional-and-worktree-config-when-supplied-storage-is-immutable",
+  "local_git_object_boundary": "descriptor-bound-object-directory-with-pre-invocation-alternates-rejection-requires-future-private-immutable-object-control-and-executable",
   "rejected_manifest_conditions": [
     "absent",
     "duplicate_path",

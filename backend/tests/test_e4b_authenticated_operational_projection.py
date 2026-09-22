@@ -536,11 +536,13 @@ class FakeGitReader:
         }:
             raise AssertionError("adapter received a non-fixed environment")
 
-    def inspect_commit(self, commit_sha: str, environment):
+    def inspect_commit(self, commit_sha: str, expected_base_sha: str, environment):
         self._check_environment(environment)
         self.fact_calls += 1
         if commit_sha != self.facts.commit_sha:
             raise AssertionError("unexpected commit request")
+        if expected_base_sha != self.facts.base_sha:
+            raise AssertionError("unexpected base request")
         return self.facts if self.fact_calls == 1 else self.later_facts
 
     def list_tree(self, tree_sha: str, environment):
