@@ -39,6 +39,13 @@ ou autoridade operacional. O fornecedor de snapshot privado e a vinculação de
 proveniência permanecem em gate futuro; não há fonte real, runtime, banco, DEV,
 PROD ou ativação.
 
+O builder de manifesto fechado da mesma data opera somente sobre inventário e
+seleção sintéticos declarados, fecha a partição entre arquivos selecionados e
+omissões e emite JSON canônico. Ele não lê árvore ou blob, não obtém âncora, não
+constrói reader, snapshot ou capability e permanece `NOT_ADOPTED`. A fonte
+confiável, a instância real do manifesto, o caller e a ativação continuam em
+gates futuros; não há runtime, banco, DEV ou PROD.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,

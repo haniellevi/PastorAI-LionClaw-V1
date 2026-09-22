@@ -122,6 +122,50 @@ files and omitted metadata must equal the complete classified tree. Omitted
 entries carry path, object id, mode and size only; their blobs are never read.
 This closes tree coverage without treating a protected path as selectable.
 
+## Closed manifest builder
+
+`e4b_dependency_manifest_builder.py` is a separate pure in-memory builder for
+synthetic declared inputs. It has no entrypoint and does not construct a reader,
+capability, filesystem path, descriptor, subprocess, socket, environment,
+clock, source snapshot or runtime adapter. It therefore cannot inspect a tree,
+read a blob, obtain an anchor, materialize a projection or authorize adoption.
+
+Its `InventoryMetadata` records only declared path, object id, mode and size.
+Its `ResolvedSelection` records a declared eligible path plus SHA-256 only for a
+selected file. The builder derives the ordered omitted list from the declared
+inventory and never accepts, requests, serializes or verifies a digest for an
+omitted or protected entry. Classification applies the same four literal policy
+tables as the core and the permanent offline test compares those tables by AST;
+the builder has no runtime import from the core.
+
+The builder normalizes the entire declared inventory before resolution. Exact
+duplicate metadata is rejected, conflicting metadata is rejected, and a
+casefold collision anywhere in the declared selected-plus-omitted partition is
+rejected before serialization. A selected path must be eligible, and its object
+id must not alias a protected inventory entry. `UNKNOWN` and `DYNAMIC` remain
+terminal synthetic statuses, so neither produces a manifest.
+
+The only count quota is 4,096 declared entries. It bounds allocation before
+normalization and is conservative relative to the independent exact 1 MiB
+serialized-byte limit. There is no path-length quota and no second selected-list
+quota: canonical path parsing alone defines accepted paths, while the selection
+cannot exceed its declared inventory. Canonical serialization retains exact
+candidate provenance, sorted selected files, sorted omitted metadata, compact
+ASCII JSON and one final LF.
+
+The builder accepts an exact built-in integer `size` in `0..2^63-1` before any decimal conversion.
+This is a conservative restriction specific to the builder.
+Every manifest emitted by the builder remains accepted by the parser.
+This does not claim bidirectional equivalence. The parser can accept inputs
+outside the builder's physical-size restriction.
+
+Any coverage, provenance, order or drift verdict is relative only to the
+declared inventory and the synthetic resolution supplied to that invocation.
+It does not prove repository closure, availability, source authenticity,
+snapshot containment, external trust, fc09 closure or operational authority.
+The candidate remains inert until a separately reviewed authority supplies a
+verified private source under its own contract.
+
 ## Extraction order
 
 1. Validate anchors, patch receipt and manifest bytes.
