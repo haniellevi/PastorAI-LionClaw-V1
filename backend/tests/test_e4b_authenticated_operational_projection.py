@@ -721,6 +721,81 @@ class AuthenticatedProjectionTests(unittest.TestCase):
             self.assertEqual(reader.blob_calls, [])
             self.assertEqual(list(Path(temporary).iterdir()), [])
 
+    def test_sensitive_data_artifact_names_reject_before_blob(self) -> None:
+        protected_paths = (
+            "backend/scripts/prod_dump.sql",
+            "backend/tests/customer_export.csv",
+            "backend/app/private_media.flac",
+        )
+        for index, path in enumerate(protected_paths, start=1):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    self.projection.classify_path(path.encode("ascii")), "PROTECTED"
+                )
+                files = [(path, str(index) * 40, "100644", b"synthetic\n")]
+                anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs(
+                    files=files
+                )
+                with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+                    os.chmod(temporary, 0o700)
+                    self._assert_error(
+                        "MANIFEST_INVALID",
+                        lambda: self._materialize(
+                            anchors, manifest_bytes, patch_bytes, reader, temporary
+                        ),
+                    )
+                    self.assertEqual(reader.fact_calls, 0)
+                    self.assertEqual(reader.blob_calls, [])
+
+    def test_complete_tree_allows_manifested_ordinary_omissions(self) -> None:
+        ordinary = (
+            (".github/workflows/backend-tests.yml", "3" * 40, "100644", 0),
+            ("AGENTS.md", "4" * 40, "100644", 0),
+            ("frontend/src/app/ativar/[token]/route.ts", "5" * 40, "100644", 0),
+        )
+        entries = [
+            self.projection.TreeEntry(
+                path=path.encode("ascii"),
+                object_id=object_id,
+                kind="blob",
+                mode=mode,
+                size=size,
+            )
+            for path, object_id, mode, size in ordinary
+        ]
+        entries.extend(
+            (
+                self.projection.TreeEntry(
+                    path=b"backend/scripts/example.py",
+                    object_id="1" * 40,
+                    kind="blob",
+                    mode="100644",
+                    size=6,
+                ),
+                self.projection.TreeEntry(
+                    path=b"backend/scripts/run.py",
+                    object_id="2" * 40,
+                    kind="blob",
+                    mode="100755",
+                    size=5,
+                ),
+            )
+        )
+        entries.sort(key=lambda entry: entry.path)
+        anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs(
+            tree_entries=entries,
+            omitted=ordinary,
+        )
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            os.chmod(temporary, 0o700)
+            published = self._materialize(
+                anchors, manifest_bytes, patch_bytes, reader, temporary
+            )
+            try:
+                self.assertEqual(reader.blob_calls, ["1" * 40, "2" * 40])
+            finally:
+                published.close()
+
     def test_descriptor_traversal_prevents_ancestor_symlink_escape(self) -> None:
         files = [("backend/scripts/unit.py", "1" * 40, "100644", b"alpha\n")]
         anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs(files=files)
@@ -756,7 +831,13 @@ class AuthenticatedProjectionTests(unittest.TestCase):
                 )
             self.assertTrue(swapped)
             self.assertFalse((escaped / "unit.py").exists())
-            self.assertEqual(sorted(path.name for path in Path(temporary).iterdir()), ["outside"])
+            remaining = list(Path(temporary).iterdir())
+            self.assertIn(escaped, remaining)
+            attempt_shells = [path for path in remaining if path != escaped]
+            self.assertEqual(len(attempt_shells), 2)
+            self.assertTrue(
+                all(path.is_dir() and not list(path.iterdir()) for path in attempt_shells)
+            )
 
     def test_parent_descriptor_blocks_swap_before_staging_creation(self) -> None:
         anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs()
@@ -792,7 +873,10 @@ class AuthenticatedProjectionTests(unittest.TestCase):
             self.assertTrue(state["swapped"])
             self.assertFalse((outside / "parent-swap" / "root").exists())
             self.assertFalse((outside / "parent-swap" / "backend/scripts/example.py").exists())
-            self.assertFalse((moved / "parent-swap").exists())
+            self.assertTrue((outside / "parent-swap").is_dir())
+            self.assertEqual(list((outside / "parent-swap").iterdir()), [])
+            self.assertTrue((moved / "parent-swap").is_dir())
+            self.assertEqual(list((moved / "parent-swap").iterdir()), [])
 
     def test_root_handle_stays_bound_after_final_check_and_closes(self) -> None:
         anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs()
@@ -877,7 +961,11 @@ class AuthenticatedProjectionTests(unittest.TestCase):
                         anchors, manifest_bytes, patch_bytes, reader, temporary
                     ),
                 )
-            self.assertEqual(list(Path(temporary).iterdir()), [])
+            attempt_shells = list(Path(temporary).iterdir())
+            self.assertEqual(len(attempt_shells), 2)
+            self.assertTrue(
+                all(path.is_dir() and not list(path.iterdir()) for path in attempt_shells)
+            )
 
     def test_adapter_exceptions_are_sanitized_and_internal_errors_preserved(self) -> None:
         for method_name in ("inspect_commit", "list_tree", "read_blob"):
@@ -968,7 +1056,7 @@ class AuthenticatedProjectionTests(unittest.TestCase):
             self.assertEqual(reader.blob_calls, [])
             self.assertEqual(list(Path(temporary).iterdir()), [])
 
-    def test_protected_alias_unknown_path_mode_and_link_block_before_blob(self) -> None:
+    def test_protected_alias_unmanifested_path_mode_and_link_block_before_blob(self) -> None:
         cases = []
         protected = self.projection.TreeEntry(
             path=b".env.synthetic.example",
@@ -987,7 +1075,7 @@ class AuthenticatedProjectionTests(unittest.TestCase):
         cases.append(("PROTECTED_OBJECT_ALIAS", (protected, selected)))
         cases.append(
             (
-                "UNKNOWN_PATH_CLASS",
+                "MANIFEST_TREE_DRIFT",
                 (
                     self.projection.TreeEntry(
                         path=b"misc/unknown.txt",
@@ -1268,8 +1356,141 @@ class AuthenticatedProjectionTests(unittest.TestCase):
                         anchors, manifest_bytes, patch_bytes, reader, temporary
                     ),
                 )
-            self.assertEqual(sorted(item.name for item in Path(temporary).iterdir()), ["sentinel"])
             self.assertEqual(sentinel.read_text(encoding="ascii"), "keep")
+            attempt_shells = [item for item in Path(temporary).iterdir() if item != sentinel]
+            self.assertEqual(len(attempt_shells), 2)
+            self.assertIn("run", {item.name for item in attempt_shells})
+            self.assertTrue(
+                any(item.name.startswith(".e4b-stage-") for item in attempt_shells)
+            )
+            self.assertTrue(
+                all(item.is_dir() and not list(item.iterdir()) for item in attempt_shells)
+            )
+
+    def test_cleanup_preserves_replacement_of_reserved_publication(self) -> None:
+        anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs()
+
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            os.chmod(temporary, 0o700)
+            parent = Path(temporary)
+
+            def replace_reservation_then_fail(*_args, **_kwargs):
+                (parent / "run").rename(parent / "original-run")
+                replacement = parent / "run"
+                replacement.mkdir(mode=0o700)
+                raise OSError("synthetic write failure")
+
+            with patch.object(
+                self.projection,
+                "_write_staged_file",
+                replace_reservation_then_fail,
+            ):
+                self._assert_error(
+                    "MATERIALIZATION_FAILED",
+                    lambda: self._materialize(
+                        anchors, manifest_bytes, patch_bytes, reader, temporary
+                    ),
+                )
+            self.assertTrue((parent / "run").is_dir())
+            self.assertEqual(list((parent / "run").iterdir()), [])
+            self.assertTrue((parent / "original-run").is_dir())
+
+    def test_owned_cleanup_never_rmdirs_authenticated_name(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            os.chmod(temporary, 0o700)
+            parent = Path(temporary)
+            owned = parent / "owned"
+            owned.mkdir(mode=0o700)
+            parent_descriptor = os.open(temporary, self.projection._directory_open_flags())
+            owned_descriptor = os.open(
+                "owned",
+                self.projection._directory_open_flags(),
+                dir_fd=parent_descriptor,
+            )
+            try:
+                identity = self.projection._directory_identity(owned_descriptor)
+            finally:
+                os.close(owned_descriptor)
+
+            original_rmdir = self.projection.os.rmdir
+            rmdir_calls = 0
+
+            def swap_empty_replacement_then_rmdir(name, *args, **kwargs):
+                nonlocal rmdir_calls
+                rmdir_calls += 1
+                owned.rename(parent / "owned-original")
+                owned.mkdir(mode=0o700)
+                return original_rmdir(name, *args, **kwargs)
+
+            try:
+                with patch.object(
+                    self.projection.os,
+                    "rmdir",
+                    swap_empty_replacement_then_rmdir,
+                ):
+                    self.projection._remove_owned_tree_at(
+                        parent_descriptor,
+                        "owned",
+                        identity,
+                    )
+            finally:
+                os.close(parent_descriptor)
+            self.assertEqual(rmdir_calls, 0)
+            self.assertTrue(owned.is_dir())
+
+    def test_failed_publication_open_retains_empty_replacement(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            os.chmod(temporary, 0o700)
+            parent = Path(temporary)
+            parent_descriptor = os.open(temporary, self.projection._directory_open_flags())
+
+            def replace_then_fail(parent_fd, name):
+                os.rename(name, f"{name}-original", src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+                os.mkdir(name, 0o700, dir_fd=parent_fd)
+                raise OSError("synthetic open failure")
+
+            try:
+                with patch.object(
+                    self.projection,
+                    "_open_private_child_directory",
+                    replace_then_fail,
+                ):
+                    with self.assertRaises(OSError):
+                        self.projection._reserve_publication(parent_descriptor, "run")
+            finally:
+                os.close(parent_descriptor)
+            self.assertTrue((parent / "run").is_dir())
+            self.assertTrue((parent / "run-original").is_dir())
+
+    def test_failed_staging_open_retains_empty_replacement(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            os.chmod(temporary, 0o700)
+            parent = Path(temporary)
+            parent_descriptor = os.open(temporary, self.projection._directory_open_flags())
+            original_name = None
+
+            def replace_then_fail(parent_fd, name):
+                nonlocal original_name
+                original_name = f"{name}-original"
+                os.rename(name, original_name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+                os.mkdir(name, 0o700, dir_fd=parent_fd)
+                raise OSError("synthetic open failure")
+
+            try:
+                with patch.object(
+                    self.projection,
+                    "_open_private_child_directory",
+                    replace_then_fail,
+                ):
+                    with self.assertRaises(OSError):
+                        self.projection._reserve_staging(parent_descriptor)
+            finally:
+                os.close(parent_descriptor)
+            if original_name is None:
+                raise AssertionError("staging name was not captured")
+            replacement_name = original_name.removesuffix("-original")
+            self.assertTrue((parent / replacement_name).is_dir())
+            self.assertTrue((parent / original_name).is_dir())
 
     def test_publication_name_is_single_writer_safe(self) -> None:
         anchors, manifest_bytes, patch_bytes, reader, _facts = self._inputs()
