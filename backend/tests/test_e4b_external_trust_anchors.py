@@ -258,6 +258,41 @@ class ExternalTrustAnchorsTests(unittest.TestCase):
                 self.assertEqual(manifest_probe.calls, 0)
                 self.assertEqual(filesystem_probe.calls, 0)
 
+    def test_verified_wrong_arity_is_invalid_before_any_spy(self) -> None:
+        values = tuple(self._values().values())
+        for candidate_values in ((), values[:-1], (*values, "unexpected")):
+            candidate = tuple.__new__(
+                self.anchors.VerifiedSourceTrustAnchors,
+                candidate_values,
+            )
+            with self.subTest(length=len(candidate_values)):
+                self.assertFalse(
+                    self.anchors.is_valid_verified_source_trust_anchors(candidate)
+                )
+                reader_probe = CallProbe()
+                manifest_probe = CallProbe()
+                filesystem_probe = CallProbe()
+                with (
+                    patch.object(self.core, "_call_reader", reader_probe.reject),
+                    patch.object(self.core, "_parse_dependency_manifest", manifest_probe.reject),
+                    patch.object(self.core, "_valid_external_patch_receipt", manifest_probe.reject),
+                    patch.object(self.core.os, "open", filesystem_probe.reject),
+                    patch.object(self.core.os, "mkdir", filesystem_probe.reject),
+                ):
+                    with self.assertRaises(self.core.ProjectionSourceError) as raised:
+                        self.core.materialize_authenticated_projection(
+                            anchors=candidate,
+                            manifest_bytes=b"not-read",
+                            patch_receipt_bytes=b"not-read",
+                            reader=reader_probe,
+                            destination_parent="/not-read",
+                            publication_name="not-read",
+                        )
+                self.assertEqual(raised.exception.code, "TRUST_ANCHORS_INVALID")
+                self.assertEqual(reader_probe.calls, 0)
+                self.assertEqual(manifest_probe.calls, 0)
+                self.assertEqual(filesystem_probe.calls, 0)
+
     def test_ast_proves_no_runtime_verified_constructor_or_io_import(self) -> None:
         source = ANCHORS_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source)

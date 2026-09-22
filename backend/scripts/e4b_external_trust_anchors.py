@@ -193,6 +193,8 @@ def is_valid_verified_source_trust_anchors(value: object) -> bool:
 
     if type(value) is not VerifiedSourceTrustAnchors:
         return False
+    if len(value) != len(_ANCHOR_FIELDS):
+        return False
     try:
         _validate_anchor_values(_anchor_values(value))
     except (AttributeError, ExternalTrustAnchorError):
