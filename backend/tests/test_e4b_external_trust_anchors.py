@@ -83,10 +83,10 @@ class ExternalTrustAnchorsTests(unittest.TestCase):
 
         values = self._values()
         values.update(overrides)
-        verified = object.__new__(self.anchors.VerifiedSourceTrustAnchors)
-        for name, value in values.items():
-            setattr(verified, name, value)
-        return verified
+        return tuple.__new__(
+            self.anchors.VerifiedSourceTrustAnchors,
+            tuple(values.values()),
+        )
 
     def test_canonical_round_trip_is_byte_identity_and_has_no_self_digest(self) -> None:
         raw = self._canonical_bytes()
@@ -209,6 +209,10 @@ class ExternalTrustAnchorsTests(unittest.TestCase):
         )
         verified = self._verified_white_box()
         self.assertTrue(self.anchors.is_valid_verified_source_trust_anchors(verified))
+        original_commit = verified.expected_commit_sha
+        with self.assertRaises(AttributeError):
+            verified.expected_commit_sha = "0" * 40
+        self.assertEqual(verified.expected_commit_sha, original_commit)
         for callback in (
             lambda: copy.copy(verified),
             lambda: copy.deepcopy(verified),
@@ -227,7 +231,7 @@ class ExternalTrustAnchorsTests(unittest.TestCase):
         class VerifiedSubclass(self.anchors.VerifiedSourceTrustAnchors):
             pass
 
-        subclass = object.__new__(VerifiedSubclass)
+        subclass = tuple.__new__(VerifiedSubclass, ())
         for candidate in (None, parsed, mutated_parsed, subclass):
             with self.subTest(candidate_type=type(candidate).__name__):
                 reader_probe = CallProbe()
@@ -250,6 +254,41 @@ class ExternalTrustAnchorsTests(unittest.TestCase):
                             publication_name="not-read",
                         )
                 self.assertEqual(raised.exception.code, "TRUST_ANCHORS_UNVERIFIED")
+                self.assertEqual(reader_probe.calls, 0)
+                self.assertEqual(manifest_probe.calls, 0)
+                self.assertEqual(filesystem_probe.calls, 0)
+
+    def test_verified_wrong_arity_is_invalid_before_any_spy(self) -> None:
+        values = tuple(self._values().values())
+        for candidate_values in ((), values[:-1], (*values, "unexpected")):
+            candidate = tuple.__new__(
+                self.anchors.VerifiedSourceTrustAnchors,
+                candidate_values,
+            )
+            with self.subTest(length=len(candidate_values)):
+                self.assertFalse(
+                    self.anchors.is_valid_verified_source_trust_anchors(candidate)
+                )
+                reader_probe = CallProbe()
+                manifest_probe = CallProbe()
+                filesystem_probe = CallProbe()
+                with (
+                    patch.object(self.core, "_call_reader", reader_probe.reject),
+                    patch.object(self.core, "_parse_dependency_manifest", manifest_probe.reject),
+                    patch.object(self.core, "_valid_external_patch_receipt", manifest_probe.reject),
+                    patch.object(self.core.os, "open", filesystem_probe.reject),
+                    patch.object(self.core.os, "mkdir", filesystem_probe.reject),
+                ):
+                    with self.assertRaises(self.core.ProjectionSourceError) as raised:
+                        self.core.materialize_authenticated_projection(
+                            anchors=candidate,
+                            manifest_bytes=b"not-read",
+                            patch_receipt_bytes=b"not-read",
+                            reader=reader_probe,
+                            destination_parent="/not-read",
+                            publication_name="not-read",
+                        )
+                self.assertEqual(raised.exception.code, "TRUST_ANCHORS_INVALID")
                 self.assertEqual(reader_probe.calls, 0)
                 self.assertEqual(manifest_probe.calls, 0)
                 self.assertEqual(filesystem_probe.calls, 0)
@@ -305,6 +344,7 @@ class ExternalTrustAnchorsTests(unittest.TestCase):
         ]
         self.assertEqual(constructor_calls, [])
         self.assertNotIn("object.__new__", source)
+        self.assertNotIn("tuple.__new__", source)
         self.assertNotIn("from_path", source)
         self.assertNotIn("from_fd", source)
 

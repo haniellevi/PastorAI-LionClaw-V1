@@ -9,12 +9,42 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
-Recorte E4b source-only de 22/09/2026: o builder de manifesto fechado opera
-somente sobre inventário e seleção sintéticos declarados, fecha a partição entre
-arquivos selecionados e omissões e emite JSON canônico. Ele não lê árvore ou
-blob, não obtém âncora, não constrói reader, snapshot ou capability e permanece
-`NOT_ADOPTED`. A fonte confiável, a instância real do manifesto, o caller e a
-ativação continuam em gates futuros; não há runtime, banco, DEV ou PROD.
+Recorte E4b source-only de 22/09/2026: o precheck de projeção operacional
+valida somente declarações sintéticas de política, árvore, seleção, fechamento
+de dependências e recibo de patch. Ele sempre produz recibo `BLOCKED`, com
+`operational_authorization = false`; não lê blobs, materializa raiz, chama
+consumidor nem autentica uma fonte operacional. Manifesto fechado, entradas
+confiáveis, verificação de arquivos e publicação atômica continuam pendentes em
+gate futuro separado. Este recorte não reclassifica o produto nem prova banco,
+DEV, PROD, runtime ou ativação.
+
+A etapa seguinte da mesma data possui uma API explícita que confere fatos e
+árvore fornecidos pelo adaptador, exige manifesto fechado, lê apenas blobs
+selecionados e materializa uma raiz privada antes de emitir recibo com
+`operational_authorization = false`. O fornecedor externo de âncoras ainda não
+é verificável nesta fatia; o handle não está ligado a caller, consumidor ou
+runtime. Não há banco, DEV, PROD, ativação ou autorização operacional.
+
+O adaptador Git local da mesma data usa somente um handle privado e imutável
+fornecido externamente, fixa ambiente e argumentos, desabilita rede e lazy
+fetch, limita tempo e bytes e confere a identidade dos descritores no início de
+cada comando. Esta fatia não constrói o handle e não habilita fonte, caller,
+consumidor ou runtime. Não há banco, DEV, PROD, ativação ou autorização
+operacional.
+
+O parser inerte de âncoras externas da mesma data aceita somente bytes
+sintéticos e separa declaração canônica de capacidade verificada. A capacidade
+nominal usa uma tupla imutável e continua sem fábrica, adotador, desserializador
+ou autoridade operacional. O fornecedor de snapshot privado e a vinculação de
+proveniência permanecem em gate futuro; não há fonte real, runtime, banco, DEV,
+PROD ou ativação.
+
+O builder de manifesto fechado da mesma data opera somente sobre inventário e
+seleção sintéticos declarados, fecha a partição entre arquivos selecionados e
+omissões e emite JSON canônico. Ele não lê árvore ou blob, não obtém âncora, não
+constrói reader, snapshot ou capability e permanece `NOT_ADOPTED`. A fonte
+confiável, a instância real do manifesto, o caller e a ativação continuam em
+gates futuros; não há runtime, banco, DEV ou PROD.
 
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,

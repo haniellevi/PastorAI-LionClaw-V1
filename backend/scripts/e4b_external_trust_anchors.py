@@ -101,13 +101,24 @@ class ParsedSourceTrustAnchors:
     expected_manifest_sha256: str
 
 
-class VerifiedSourceTrustAnchors:
+class VerifiedSourceTrustAnchors(tuple):
     """Opaque capability reserved for a future immutable snapshot supplier."""
 
-    __slots__ = _ANCHOR_FIELDS
+    __slots__ = ()
 
-    def __init__(self, *_args: object, **_kwargs: object) -> None:
+    def __new__(cls, *_args: object, **_kwargs: object):
         _raise(ExternalAnchorErrorCode.VERIFIED_UNAVAILABLE)
+
+    expected_commit_sha = property(lambda self: self[0])
+    expected_tree_sha = property(lambda self: self[1])
+    expected_parent_sha = property(lambda self: self[2])
+    expected_base_sha = property(lambda self: self[3])
+    expected_ancestry_digest_sha256 = property(lambda self: self[4])
+    expected_patch_receipt_sha256 = property(lambda self: self[5])
+    expected_patch_digest_sha256 = property(lambda self: self[6])
+    expected_patch_recipe_id = property(lambda self: self[7])
+    expected_patch_recipe_version = property(lambda self: self[8])
+    expected_manifest_sha256 = property(lambda self: self[9])
 
     def __copy__(self):
         _raise(ExternalAnchorErrorCode.VERIFIED_UNAVAILABLE)
@@ -181,6 +192,8 @@ def is_valid_verified_source_trust_anchors(value: object) -> bool:
     """Lexically validate a capability supplied by a future trusted authority."""
 
     if type(value) is not VerifiedSourceTrustAnchors:
+        return False
+    if len(value) != len(_ANCHOR_FIELDS):
         return False
     try:
         _validate_anchor_values(_anchor_values(value))

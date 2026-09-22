@@ -89,10 +89,10 @@ and decoder-depth failure all intentionally share `ANCHOR_MALFORMED`; the JSON
 decoder provides no safer useful distinction without echoing untrusted input.
 
 The parser returns `ParsedSourceTrustAnchors`, which is a syntactic declaration
-only. `VerifiedSourceTrustAnchors` is a nominal, nonconstructible capability
+only. `VerifiedSourceTrustAnchors` is a nominal, immutable tuple capability
 reserved for a future separately reviewed immutable-snapshot authority. This
 slice has no factory, adopter, converter, deserializer, or public function that
-produces it. A test-only `object.__new__` fixture represents arbitrary code in
+produces it. A test-only `tuple.__new__` fixture represents arbitrary code in
 the same Python interpreter and is outside the runtime API boundary; the exact
 type is not claimed as protection against arbitrary in-process code.
 
