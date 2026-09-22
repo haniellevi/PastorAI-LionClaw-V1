@@ -20,6 +20,17 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol, Sequence
 import weakref
 
+if __package__:
+    from .e4b_external_trust_anchors import (
+        VerifiedSourceTrustAnchors,
+        is_valid_verified_source_trust_anchors,
+    )
+else:
+    from e4b_external_trust_anchors import (  # type: ignore[no-redef]
+        VerifiedSourceTrustAnchors,
+        is_valid_verified_source_trust_anchors,
+    )
+
 
 BLOCKED_RECEIPT_SCHEMA = "e4b-operational-projection-blocked-receipt-v1"
 FINAL_RECEIPT_SCHEMA = "e4b-operational-projection-final-receipt-v1"
@@ -122,20 +133,6 @@ class DependencyResolution:
     status: str
     required_paths: tuple[str, ...]
     reason: str
-
-
-@dataclass(frozen=True)
-class SourceTrustAnchors:
-    expected_commit_sha: str
-    expected_tree_sha: str
-    expected_parent_sha: str
-    expected_base_sha: str
-    expected_ancestry_digest_sha256: str
-    expected_patch_receipt_sha256: str
-    expected_patch_digest_sha256: str
-    expected_patch_recipe_id: str
-    expected_patch_recipe_version: int
-    expected_manifest_sha256: str
 
 
 @dataclass(frozen=True)
@@ -402,7 +399,7 @@ def preflight_blocked(
 
 def materialize_authenticated_projection(
     *,
-    anchors: SourceTrustAnchors,
+    anchors: VerifiedSourceTrustAnchors,
     manifest_bytes: bytes,
     patch_receipt_bytes: bytes,
     reader: GitBlobReader,
@@ -415,6 +412,8 @@ def materialize_authenticated_projection(
     with operational authorization fixed to false and never invokes a consumer.
     """
 
+    if type(anchors) is not VerifiedSourceTrustAnchors:
+        raise ProjectionSourceError("TRUST_ANCHORS_UNVERIFIED")
     if not _valid_source_anchors(anchors):
         raise ProjectionSourceError("TRUST_ANCHORS_INVALID")
     if not _valid_external_patch_receipt(anchors, patch_receipt_bytes):
@@ -584,19 +583,7 @@ def _valid_policy(policy: object) -> bool:
 
 
 def _valid_source_anchors(anchors: object) -> bool:
-    if type(anchors) is not SourceTrustAnchors:
-        return False
-    return _valid_anchor_scalars(
-        anchors.expected_commit_sha,
-        anchors.expected_tree_sha,
-        anchors.expected_parent_sha,
-        anchors.expected_base_sha,
-        anchors.expected_ancestry_digest_sha256,
-        anchors.expected_patch_receipt_sha256,
-        anchors.expected_patch_digest_sha256,
-        anchors.expected_patch_recipe_id,
-        anchors.expected_patch_recipe_version,
-    ) and _valid_sha256(anchors.expected_manifest_sha256)
+    return is_valid_verified_source_trust_anchors(anchors)
 
 
 def _valid_anchor_scalars(
@@ -737,7 +724,7 @@ def _valid_patch_receipt(policy: TrustPolicy, raw: object) -> bool:
     )
 
 
-def _valid_external_patch_receipt(anchors: SourceTrustAnchors, raw: object) -> bool:
+def _valid_external_patch_receipt(anchors: VerifiedSourceTrustAnchors, raw: object) -> bool:
     return _validate_patch_receipt_fields(
         raw,
         anchors.expected_commit_sha,
@@ -856,7 +843,7 @@ def _candidate_matches(
 
 
 def _parse_dependency_manifest(
-    anchors: SourceTrustAnchors, raw: object
+    anchors: VerifiedSourceTrustAnchors, raw: object
 ) -> DependencyManifest:
     if type(raw) is not bytes or not 0 < len(raw) <= _MAX_MANIFEST_BYTES:
         raise ProjectionSourceError("MANIFEST_INVALID")
@@ -979,7 +966,7 @@ def _parse_manifest_omission(raw_omission: object) -> ManifestOmission:
     return ManifestOmission(path=path, object_id=object_id, mode=mode, size=size)
 
 
-def _facts_match_anchors(facts: object, anchors: SourceTrustAnchors) -> bool:
+def _facts_match_anchors(facts: object, anchors: VerifiedSourceTrustAnchors) -> bool:
     if type(facts) is not RepositoryFacts:
         return False
     if not all(
