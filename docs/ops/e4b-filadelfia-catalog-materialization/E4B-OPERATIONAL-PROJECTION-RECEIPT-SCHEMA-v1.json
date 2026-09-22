@@ -1,71 +1,36 @@
 {
-  "schema": "e4b-operational-projection-blocked-receipt-schema-v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema",
-    "status",
-    "operational_authorization",
-    "reason",
-    "closure_status",
-    "runtime_status",
-    "selected_path_count",
-    "protected_object_commitment_sha256",
-    "patch_receipt_status"
-  ],
-  "properties": {
-    "schema": {
-      "const": "e4b-operational-projection-blocked-receipt-v1"
+  "schema": "e4b-operational-projection-receipt-schema-v1",
+  "oneOf": [
+    {
+      "title": "blocked-precheck-receipt",
+      "schema": "e4b-operational-projection-blocked-receipt-v1",
+      "status": "BLOCKED",
+      "operational_authorization": false
     },
-    "status": {
-      "const": "BLOCKED"
-    },
-    "operational_authorization": {
-      "const": false
-    },
-    "reason": {
-      "enum": [
-        "TRUST_POLICY_INVALID",
-        "TREE_METADATA_INVALID",
-        "PATH_INVALID",
-        "TREE_ORDER_INVALID",
-        "PATH_CASEFOLD_COLLISION",
-        "UNKNOWN_PATH_CLASS",
-        "SELECTION_INVALID",
-        "PROTECTED_OBJECT_ALIAS",
-        "PATCH_RECEIPT_INVALID",
-        "DEPENDENCY_RESOLUTION_INVALID",
-        "DEPENDENCY_CLOSURE_NOT_PROVEN",
-        "DEPENDENCY_SELECTION_INCOMPLETE",
-        "SOURCE_ONLY_EXECUTION_DISABLED"
-      ]
-    },
-    "closure_status": {
-      "enum": [
-        "NOT_PROVEN",
-        "FORGED_RESOLVED_NOT_EXECUTED"
-      ]
-    },
-    "runtime_status": {
-      "const": "NOT_EVALUATED"
-    },
-    "selected_path_count": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "protected_object_commitment_sha256": {
-      "type": [
-        "string",
-        "null"
+    {
+      "title": "final-source-receipt",
+      "schema": "e4b-operational-projection-final-receipt-v1",
+      "status": "FINALIZED_SOURCE_ONLY",
+      "operational_authorization": false,
+      "required": [
+        "commit_sha",
+        "tree_sha",
+        "parent_sha",
+        "base_sha",
+        "ancestry_digest_sha256",
+        "patch_receipt_sha256",
+        "patch_digest_sha256",
+        "manifest_sha256",
+        "root_digest_sha256",
+        "protected_object_commitment_sha256",
+        "file_count"
       ],
-      "pattern": "^[0-9a-f]{64}$"
-    },
-    "patch_receipt_status": {
-      "enum": [
-        "NOT_READ",
-        "INVALID",
-        "VALID"
+      "forbidden": [
+        "root_path",
+        "selected_paths",
+        "protected_paths",
+        "object_ids"
       ]
     }
-  }
+  ]
 }

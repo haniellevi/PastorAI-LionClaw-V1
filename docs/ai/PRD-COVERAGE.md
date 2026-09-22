@@ -18,6 +18,13 @@ confiáveis, verificação de arquivos e publicação atômica continuam pendent
 gate futuro separado. Este recorte não reclassifica o produto nem prova banco,
 DEV, PROD, runtime ou ativação.
 
+A etapa seguinte da mesma data possui uma API explícita que confere fatos e
+árvore fornecidos pelo adaptador, exige manifesto fechado, lê apenas blobs
+selecionados e materializa uma raiz privada antes de emitir recibo com
+`operational_authorization = false`. O fornecedor externo de âncoras ainda não
+é verificável nesta fatia; o handle não está ligado a caller, consumidor ou
+runtime. Não há banco, DEV, PROD, ativação ou autorização operacional.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,

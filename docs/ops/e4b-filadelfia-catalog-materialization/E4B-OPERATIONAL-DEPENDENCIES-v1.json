@@ -1,51 +1,47 @@
 {
   "schema": "e4b-operational-dependencies-v1",
-  "mode": "PRECHECK_NEGATIVE_ONLY",
-  "closure_status": "NOT_PROVEN",
+  "mode": "EXTERNAL_CLOSED_MANIFEST_REQUIRED",
+  "closure_status": "NOT_PROVEN_FOR_FC09",
   "runtime_status": "NOT_EVALUATED",
-  "historical_runtime_evidence": "SYNTHETIC_ABSENCE_ACCEPTED_NOT_BOUND_TO_RECEIPT",
-  "dependency_manifest": null,
-  "resolver": {
-    "accepted_forms": [
-      "literal_import",
-      "literal_file_reference",
-      "catalog_closed_migration_list",
-      "metadata_closed_glob"
-    ],
-    "blocked_forms": [
-      "dynamic_import",
-      "computed_path",
-      "open_glob",
-      "missing_transitive_dependency",
-      "external_runtime_requirement"
-    ]
-  },
-  "path_policy": {
-    "encoding": "ASCII",
-    "syntax": "relative-posix-components-[A-Za-z0-9._-]+",
-    "unknown_action": "BLOCK",
-    "protected_categories": [
-      "env_basename_and_env_dot_star_including_examples",
-      "secrets_directory",
-      "pem_and_key_suffixes",
-      "id_rsa_and_id_ed25519_basenames",
-      "clerk_scripts",
-      "target_users_json",
-      "clerk_production_migration",
-      "backup_dump_export_directories_and_suffixes",
-      "media_directories_and_suffixes"
-    ],
-    "eligible_prefixes": [
-      "backend/app/",
-      "backend/migrations/",
-      "backend/scripts/",
-      "backend/tests/",
-      "docs/governance/migrations/",
-      "docs/missions/",
-      "docs/ops/e4b-filadelfia-catalog-materialization/"
-    ],
-    "eligible_exact": [
-      "backend/requirements.lock"
-    ]
-  }
+  "manifest_schema": "e4b-operational-dependency-manifest-v1",
+  "manifest_anchor": "sha256-of-external-manifest-bytes",
+  "required_candidate_fields": [
+    "commit_sha",
+    "tree_sha",
+    "parent_sha",
+    "base_sha",
+    "ancestry_digest_sha256"
+  ],
+  "required_file_fields": [
+    "path",
+    "object_id",
+    "mode",
+    "size",
+    "sha256"
+  ],
+  "required_omission_fields": [
+    "path",
+    "object_id",
+    "mode",
+    "size"
+  ],
+  "tree_coverage": "selected-files-plus-ordered-omitted-metadata-must-equal-tree",
+  "path_classification": "casefolded-protected-categories-before-any-blob-request",
+  "materialization_root": "retained-parent-fd-and-exact-files-and-directories-through-nofollow-dir-fds",
+  "published_root_access": "descriptor-bound-relative-manifest-read-with-idempotent-close",
+  "reader_failure_surface": "fixed-projection-source-error-without-adapter-text",
+  "rejected_manifest_conditions": [
+    "absent",
+    "duplicate_path",
+    "extra_key",
+    "unordered_path",
+    "tree_absence",
+    "tree_metadata_drift",
+    "blob_size_drift",
+    "blob_hash_drift",
+    "protected_object_alias",
+    "protected_casefold_variant_selected",
+    "unexpected_materialized_directory"
+  ],
+  "default": "INERT_NO_FC09_MANIFEST_EMBEDDED"
 }
