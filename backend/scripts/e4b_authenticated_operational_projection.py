@@ -290,7 +290,10 @@ class GitBlobReader(Protocol):
     """Injected local object adapter; it must not fetch or use an archive."""
 
     def inspect_commit(
-        self, commit_sha: str, environment: Mapping[str, str]
+        self,
+        commit_sha: str,
+        expected_base_sha: str,
+        environment: Mapping[str, str],
     ) -> RepositoryFacts: ...
 
     def list_tree(
@@ -439,7 +442,12 @@ def materialize_authenticated_projection(
         raise ProjectionSourceError("PATCH_RECEIPT_INVALID")
     manifest = _parse_dependency_manifest(anchors, manifest_bytes)
 
-    facts_before = _call_reader(reader, "inspect_commit", anchors.expected_commit_sha)
+    facts_before = _call_reader(
+        reader,
+        "inspect_commit",
+        anchors.expected_commit_sha,
+        anchors.expected_base_sha,
+    )
     if not _facts_match_anchors(facts_before, anchors):
         raise ProjectionSourceError("REPOSITORY_ANCHOR_MISMATCH")
     tree_before = _call_reader(reader, "list_tree", anchors.expected_tree_sha)
@@ -459,7 +467,12 @@ def materialize_authenticated_projection(
             raise ProjectionSourceError("BLOB_HASH_MISMATCH")
         blobs.append((item, blob))
 
-    facts_after = _call_reader(reader, "inspect_commit", anchors.expected_commit_sha)
+    facts_after = _call_reader(
+        reader,
+        "inspect_commit",
+        anchors.expected_commit_sha,
+        anchors.expected_base_sha,
+    )
     if not _same_facts(facts_before, facts_after) or not _facts_match_anchors(
         facts_after, anchors
     ):

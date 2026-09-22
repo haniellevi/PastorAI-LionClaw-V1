@@ -25,6 +25,13 @@ selecionados e materializa uma raiz privada antes de emitir recibo com
 é verificável nesta fatia; o handle não está ligado a caller, consumidor ou
 runtime. Não há banco, DEV, PROD, ativação ou autorização operacional.
 
+O adaptador Git local da mesma data usa somente um handle privado e imutável
+fornecido externamente, fixa ambiente e argumentos, desabilita rede e lazy
+fetch, limita tempo e bytes e confere a identidade dos descritores no início de
+cada comando. Esta fatia não constrói o handle e não habilita fonte, caller,
+consumidor ou runtime. Não há banco, DEV, PROD, ativação ou autorização
+operacional.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,
