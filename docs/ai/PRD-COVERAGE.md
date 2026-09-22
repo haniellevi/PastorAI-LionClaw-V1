@@ -9,6 +9,15 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Recorte E4b source-only de 22/09/2026: o precheck de projeção operacional
+valida somente declarações sintéticas de política, árvore, seleção, fechamento
+de dependências e recibo de patch. Ele sempre produz recibo `BLOCKED`, com
+`operational_authorization = false`; não lê blobs, materializa raiz, chama
+consumidor nem autentica uma fonte operacional. Manifesto fechado, entradas
+confiáveis, verificação de arquivos e publicação atômica continuam pendentes em
+gate futuro separado. Este recorte não reclassifica o produto nem prova banco,
+DEV, PROD, runtime ou ativação.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,
