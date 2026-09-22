@@ -4,8 +4,8 @@
 
 O adaptador local opera apenas sobre um handle privado e imutável fornecido
 externamente. Ele fixa ambiente e argumentos, desabilita rede e lazy fetch,
-limita tempo e bytes e confere a identidade dos descritores antes e depois de
-cada comando. A construção do handle permanece ausente; nenhuma fonte, caller,
+limita tempo e bytes e confere a identidade dos descritores no início de cada
+comando. A construção do handle permanece ausente; nenhuma fonte, caller,
 consumidor, runtime, banco, DEV, PROD ou ativação foi aberta.
 
 Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).

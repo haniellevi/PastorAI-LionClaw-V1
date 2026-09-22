@@ -12,7 +12,7 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 Recorte E4b source-only de 22/09/2026: o adaptador Git local usa somente um
 handle privado e imutável fornecido externamente, fixa ambiente e argumentos,
 desabilita rede e lazy fetch, limita tempo e bytes e confere identidade dos
-descritores antes e depois de cada comando. Esta fatia não constrói o handle e
+descritores no início de cada comando. Esta fatia não constrói o handle e
 não habilita fonte, caller, consumidor ou runtime. Não há banco, DEV, PROD,
 ativação ou autorização operacional.
 

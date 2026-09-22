@@ -95,21 +95,25 @@ class ScriptedRunner:
 class FakeProcess:
     def __init__(self, stream) -> None:
         self.stdout = stream
+        self.returncode = None
         self.kill_calls = 0
         self.wait_calls = 0
         self._alive = True
 
     def poll(self):
-        return None if self._alive else 0
+        return None if self._alive else self.returncode
 
     def kill(self) -> None:
         self.kill_calls += 1
         self._alive = False
+        self.returncode = -9
 
     def wait(self, timeout=None):
         self.wait_calls += 1
         self._alive = False
-        return 0
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
 
 
 class PlainStream:
@@ -569,9 +573,10 @@ class LocalGitBlobReaderTests(unittest.TestCase):
                 raise RuntimeError("selector close")
 
         process = FakeProcess(BadCloseStream())
+        process.pid = 12345
         with patch.object(self.adapter.subprocess, "Popen", return_value=process), patch.object(
             self.adapter.selectors, "DefaultSelector", return_value=ClosingSelector()
-        ):
+        ), patch.object(self.adapter.os, "killpg") as kill_group:
             result = self.adapter._run_git_command(
                 ("/proc/self/fd/1", "rev-parse"),
                 cwd="/proc/self/fd/1",
@@ -582,6 +587,7 @@ class LocalGitBlobReaderTests(unittest.TestCase):
             )
         self.assertEqual(result.stdout, b"ok\n")
         self.assertGreaterEqual(process.wait_calls, 1)
+        kill_group.assert_not_called()
 
     def test_no_event_after_parent_exit_times_out_without_read(self) -> None:
         class NoEventSelector:

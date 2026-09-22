@@ -187,12 +187,13 @@ def _safe_close(resource: object | None) -> None:
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> None:
-    process_id = getattr(process, "pid", None)
-    if type(process_id) is int and process_id > 0:
-        try:
-            os.killpg(process_id, signal.SIGKILL)
-        except (OSError, ValueError):
-            pass
+    if getattr(process, "returncode", None) is None:
+        process_id = getattr(process, "pid", None)
+        if type(process_id) is int and process_id > 0:
+            try:
+                os.killpg(process_id, signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
     try:
         running = process.poll() is None
     except Exception:
