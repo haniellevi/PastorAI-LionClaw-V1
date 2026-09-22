@@ -1,5 +1,14 @@
 # Wiki do projeto Igreja 12
 
+## Builder de manifesto fechado E4b source-only, 22/09/2026
+
+O builder puro opera somente sobre inventário e seleção sintéticos declarados,
+fecha a partição entre arquivos selecionados e omissões e emite JSON canônico.
+Ele não lê árvore ou blob, não obtém âncora, não constrói reader, snapshot ou
+capability e permanece `NOT_ADOPTED`. A fonte confiável, a instância real do
+manifesto, o caller e a ativação continuam em gates futuros; nenhum runtime,
+banco, DEV ou PROD foi aberto.
+
 Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).
 O plano descreve prova de apresentação/manifestação, recibo durável e integração
 segura com o ledger existente. Somente documentação: sem migration, runtime,

@@ -9,6 +9,13 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Recorte E4b source-only de 22/09/2026: o builder de manifesto fechado opera
+somente sobre inventário e seleção sintéticos declarados, fecha a partição entre
+arquivos selecionados e omissões e emite JSON canônico. Ele não lê árvore ou
+blob, não obtém âncora, não constrói reader, snapshot ou capability e permanece
+`NOT_ADOPTED`. A fonte confiável, a instância real do manifesto, o caller e a
+ativação continuam em gates futuros; não há runtime, banco, DEV ou PROD.
+
 Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,
