@@ -35,6 +35,7 @@ let root: Root;
 
 const STATUS = {
   configurado: true,
+  enviosExternosPermitidos: true,
   modelo: "jev-latest",
   timeoutSegundos: 2,
   igrejas: [
@@ -102,6 +103,15 @@ describe("JevModal", () => {
 
     expect(document.body.textContent).toContain("Não configurada");
     expect(document.body.textContent).toContain("Nenhuma (desligado)");
+    expect(findButton("Testar conexão")?.disabled).toBe(true);
+  });
+
+  it("com ALLOW_REAL_SENDS desligado, o teste fica desabilitado", async () => {
+    fetchJevStatus.mockResolvedValue({ ...STATUS, enviosExternosPermitidos: false });
+    render();
+    await flush();
+
+    expect(document.body.textContent).toContain("Desligados");
     expect(findButton("Testar conexão")?.disabled).toBe(true);
   });
 

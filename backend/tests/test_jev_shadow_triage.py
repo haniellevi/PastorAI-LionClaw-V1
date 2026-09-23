@@ -27,6 +27,8 @@ _PESSOA_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 def _sem_env_typesafe(monkeypatch) -> None:
     for var in ("TYPESAFE_API_KEY", "JEV_SHADOW_TRIAGE_IGREJA_IDS"):
         monkeypatch.delenv(var, raising=False)
+    # Guard B2 aberto por padrão nestes testes; o caso fechado é explícito.
+    monkeypatch.setattr(jev_triage, "external_sends_allowed", lambda: True)
 
 
 def _settings(**overrides: object) -> TriageSettings:
@@ -168,6 +170,29 @@ def test_qualquer_falha_vira_none(handler) -> None:
         )
         is None
     )
+
+
+def test_guard_de_envios_fechado_nao_chama_api(monkeypatch) -> None:
+    monkeypatch.setattr(jev_triage, "external_sends_allowed", lambda: False)
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("ALLOW_REAL_SENDS fechado: nada pode sair")
+
+    assert (
+        jev_triage.run_shadow_triage(
+            _settings(),
+            "oi",
+            termo_pendente=False,
+            remetente_ministerial=False,
+            transport=_transport(handler),
+        )
+        is None
+    )
+
+
+def test_url_da_api_exige_https() -> None:
+    with pytest.raises(ValueError):
+        _settings(typesafe_api_url="http://api.typesafe.ai/v1/systemone")
 
 
 def test_texto_vazio_nao_chama_api() -> None:

@@ -9,11 +9,15 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.models import PlatformAuditLog
+from app.config import get_settings
 from app.routers import platform_jev
 from app.services import semantic_triage as jev_triage
 from app.services.semantic_triage import ShadowTriage, TriageSettings
+from app.services.rate_limit import RateLimiter, get_rate_limiter
 from tests.conftest import FakeClerk, make_app_user
-from tests.test_platform_admin import _AUTH, PlatformDB, _wire
+from tests.test_platform_admin import _AUTH, PlatformDB
+from tests.test_platform_admin import _wire as _wire_admin
+from tests.test_rate_limit import FakeRedis
 
 _IGREJA = uuid.UUID("11111111-1111-1111-1111-111111111111")
 _FANTASMA = uuid.UUID("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
@@ -24,6 +28,13 @@ _SECRET = "tsk-segredo-que-nunca-sai"
 def _sem_env_typesafe(monkeypatch) -> None:
     for var in ("TYPESAFE_API_KEY", "JEV_SHADOW_TRIAGE_IGREJA_IDS"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(platform_jev, "external_sends_allowed", lambda: True)
+
+
+def _wire(app, *, db, clerk):
+    limiter = RateLimiter(redis_client=FakeRedis())
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
+    return _wire_admin(app, db=db, clerk=clerk)
 
 
 def _use_settings(monkeypatch, **values: object) -> None:
@@ -58,6 +69,7 @@ def test_status_nao_devolve_a_chave_e_resolve_nomes(app, monkeypatch) -> None:
     body = resp.json()
     assert _SECRET not in json.dumps(body)
     assert body["configurado"] is True
+    assert body["enviosExternosPermitidos"] is True
     assert body["modelo"] == "jev-latest"
     assert body["idsInvalidos"] == 1
     assert body["igrejas"] == [
@@ -83,6 +95,35 @@ def test_teste_sem_chave_responde_409_sem_chamar_api(app, monkeypatch) -> None:
     monkeypatch.setattr(jev_triage, "run_shadow_triage", _boom)
     client = _wire(app, db=_admin_db(), clerk=FakeClerk())
     assert client.post("/admin/jev/teste", headers=_AUTH).status_code == 409
+
+
+def test_teste_com_envios_desligados_responde_409(app, monkeypatch) -> None:
+    _use_settings(monkeypatch, typesafe_api_key=_SECRET)
+    monkeypatch.setattr(platform_jev, "external_sends_allowed", lambda: False)
+
+    def _boom(*a, **k):  # pragma: no cover
+        raise AssertionError("não deveria chamar o Jev")
+
+    monkeypatch.setattr(jev_triage, "run_shadow_triage", _boom)
+    client = _wire(app, db=_admin_db(), clerk=FakeClerk())
+    resp = client.post("/admin/jev/teste", headers=_AUTH)
+    assert resp.status_code == 409
+    assert "ALLOW_REAL_SENDS" in resp.json()["detail"]
+    status_body = client.get("/admin/jev", headers=_AUTH).json()
+    assert status_body["enviosExternosPermitidos"] is False
+
+
+def test_teste_tem_limite_de_taxa_por_operador(app, monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "rate_limit_auth_enabled", True, raising=False)
+    _use_settings(monkeypatch, typesafe_api_key=_SECRET)
+    monkeypatch.setattr(jev_triage, "run_shadow_triage", lambda *a, **k: None)
+    client = _wire(app, db=_admin_db(), clerk=FakeClerk())
+    codes = [
+        client.post("/admin/jev/teste", headers=_AUTH).status_code
+        for _ in range(platform_jev.TESTE_LIMITE_POR_JANELA + 1)
+    ]
+    assert codes[:-1] == [502] * platform_jev.TESTE_LIMITE_POR_JANELA
+    assert codes[-1] == 429
 
 
 @pytest.mark.parametrize("disponivel", [True, False])

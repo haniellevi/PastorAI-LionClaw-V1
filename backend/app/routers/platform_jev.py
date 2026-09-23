@@ -20,8 +20,13 @@ from app.db.models import Igreja, PlatformAuditLog
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.services import semantic_triage as jev_triage
+from app.services.outbound_guard import external_sends_allowed
+from app.services.rate_limit import RateLimiter, get_rate_limiter
 
 router = APIRouter(prefix="/admin", tags=["platform-admin-jev"])
+
+# Cada teste gasta tokens de terceiro: poucos por janela por operador.
+TESTE_LIMITE_POR_JANELA = 10
 
 # Mensagem inventada: o teste nunca envia dado de pessoa real.
 MENSAGEM_TESTE = "Estou muito triste, perdi minha avó semana passada. Orem por mim."
@@ -34,6 +39,8 @@ class JevIgrejaOut(BaseModel):
 
 class JevStatusOut(BaseModel):
     configurado: bool
+    # Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste).
+    enviosExternosPermitidos: bool  # noqa: N815
     modelo: str
     timeoutSegundos: float  # noqa: N815
     igrejas: list[JevIgrejaOut]
@@ -71,6 +78,7 @@ def get_jev_status(
         nomes = {str(i.id): i.nome for i in rows.all()}
     return JevStatusOut(
         configurado=jev_triage.is_configured(settings),
+        enviosExternosPermitidos=external_sends_allowed(),
         modelo=settings.typesafe_model,
         timeoutSegundos=settings.typesafe_timeout_seconds,
         igrejas=[
@@ -85,6 +93,7 @@ def get_jev_status(
 def post_jev_teste(
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> JevTesteOut:
     """Chama o Jev com a mensagem sintética fixa e devolve as respostas."""
     settings = jev_triage.get_triage_settings()
@@ -93,6 +102,14 @@ def post_jev_teste(
             status_code=status.HTTP_409_CONFLICT,
             detail="TYPESAFE_API_KEY não configurada no ambiente",
         )
+    if not external_sends_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Envios externos desligados (ALLOW_REAL_SENDS)",
+        )
+    limiter.enforce_account(
+        str(admin.app_user_id), "platform-jev-teste", TESTE_LIMITE_POR_JANELA
+    )
     result = jev_triage.run_shadow_triage(
         settings,
         MENSAGEM_TESTE,

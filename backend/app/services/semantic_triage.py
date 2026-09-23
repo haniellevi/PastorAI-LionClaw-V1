@@ -10,9 +10,13 @@ Contrato do modo sombra:
     etapa G12 ou tool; o runtime só grava um evento auditável com as
     probabilidades, sem o texto da mensagem;
   * desligado por padrão: só roda para igrejas listadas explicitamente em
-    `JEV_SHADOW_TRIAGE_IGREJA_IDS` e com `TYPESAFE_API_KEY` configurada;
-  * a mensagem é mascarada (CPF, e-mail, sequências longas de dígitos) antes
-    de sair do servidor, e nenhum nome/telefone/identificador é enviado;
+    `JEV_SHADOW_TRIAGE_IGREJA_IDS`, com `TYPESAFE_API_KEY` configurada e com o
+    guard global de efeitos externos aberto (`ALLOW_REAL_SENDS`);
+  * o corpo da mensagem sai como a pessoa escreveu, redigindo apenas CPF,
+    e-mail e sequências de 7+ dígitos contíguos (`mask_text`). Nome,
+    endereço, telefone formatado ("(11) 99999-8888") e conteúdo pastoral
+    sensível (fé, saúde, crise) SAEM em claro para a TypeSafe. Os únicos
+    campos adicionados pelo servidor são o canal e um booleano de papel;
   * qualquer falha (rede, timeout, resposta inesperada) vira `None` — o turno
     do agente nunca depende deste módulo.
 
@@ -34,12 +38,13 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.orm import Session
 
 from app.agent.masking import log_agent_event, mask_text
 from app.domain import consent as consent_rules
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 if TYPE_CHECKING:
     from app.agent.context import TrustedAgentContext
@@ -65,6 +70,14 @@ class TriageSettings(BaseSettings):
     typesafe_api_url: str = Field(default="https://api.typesafe.ai/v1/systemone")
     typesafe_model: str = Field(default="jev-latest")
     typesafe_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+
+    @field_validator("typesafe_api_url")
+    @classmethod
+    def _url_https(cls, value: str) -> str:
+        # O header Authorization carrega a chave: nunca em texto claro.
+        if not value.startswith("https://"):
+            raise ValueError("TYPESAFE_API_URL precisa usar https://")
+        return value
 
 
 @lru_cache
@@ -161,7 +174,10 @@ def build_request(
     remetente_ministerial: bool,
     model: str,
 ) -> dict[str, Any]:
-    """Monta o corpo do POST /v1/systemone (puro, testável)."""
+    """Monta o corpo do POST /v1/systemone (puro, testável).
+
+    `mask_text` é redação parcial, não anonimização: ver o contrato no topo.
+    """
     state = {
         "mensagem": mask_text(texto),
         "canal": "WhatsApp oficial de uma igreja evangélica",
@@ -260,6 +276,11 @@ def run_shadow_triage(
 ) -> ShadowTriage | None:
     """Uma chamada ao Jev; `None` em qualquer falha (nunca levanta)."""
     if not texto.strip():
+        return None
+    # Mesmo gate deny-by-default dos demais provedores externos (B2): sem
+    # ALLOW_REAL_SENDS nenhum texto sai e nenhum token é gasto.
+    if not external_sends_allowed():
+        log_suppressed("JEV", "shadow_triage")
         return None
     payload = build_request(
         texto,

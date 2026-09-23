@@ -6,7 +6,9 @@
  * Somente leitura: a chave (TYPESAFE_API_KEY) e a lista de igrejas
  * (JEV_SHADOW_TRIAGE_IGREJA_IDS) ficam no ambiente do backend, porque gravar
  * segredo de plataforma no banco exige migration própria. A chave nunca chega
- * ao navegador. "Testar conexão" usa uma mensagem sintética fixa do backend.
+ * ao navegador. "Testar conexão" usa uma mensagem sintética fixa do backend e
+ * respeita o guard global ALLOW_REAL_SENDS. Mudanças no .env só valem após
+ * reiniciar o backend.
  */
 import { useCallback, useEffect, useState } from "react";
 
@@ -100,7 +102,7 @@ export function JevModal({ token, onClose, onExpired }: JevModalProps) {
               size="sm"
               loading={busy}
               loadingText="Testando…"
-              disabled={!status?.configurado}
+              disabled={!status?.configurado || !status?.enviosExternosPermitidos}
               onClick={() => void runTest()}
             >
               Testar conexão
@@ -113,7 +115,8 @@ export function JevModal({ token, onClose, onExpired }: JevModalProps) {
         Modo sombra: o Jev só registra probabilidades ao lado da decisão das
         regras; não muda rota, resposta, consentimento nem etapa. A chave e a
         lista de igrejas são configuradas no ambiente do backend
-        (<code>TYPESAFE_API_KEY</code> e <code>JEV_SHADOW_TRIAGE_IGREJA_IDS</code>).
+        (<code>TYPESAFE_API_KEY</code> e <code>JEV_SHADOW_TRIAGE_IGREJA_IDS</code>) e
+        só valem após reiniciar o backend.
       </p>
 
       {error ? (
@@ -135,6 +138,14 @@ export function JevModal({ token, onClose, onExpired }: JevModalProps) {
             <dt className="sub">Chave de API</dt>
             <dd style={{ margin: 0 }}>
               {status.configurado ? "Configurada" : "Não configurada"}
+            </dd>
+          </div>
+          <div>
+            <dt className="sub">Envios externos (ALLOW_REAL_SENDS)</dt>
+            <dd style={{ margin: 0 }}>
+              {status.enviosExternosPermitidos
+                ? "Permitidos"
+                : "Desligados — nenhuma chamada ao Jev sai do servidor"}
             </dd>
           </div>
           <div>

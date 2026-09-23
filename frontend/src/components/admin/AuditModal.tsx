@@ -23,6 +23,7 @@ const ACAO_LABEL: Record<string, string> = {
   plano_criar: "Criou plano",
   plano_editar: "Editou plano",
   plano_excluir: "Excluiu plano",
+  jev_testar: "Testou conexão do Jev",
 };
 
 function quando(iso: string | null): string {

@@ -976,6 +976,8 @@ export async function resolveAgenteRequest(
 export interface AdminJevStatus {
   /** Chave presente no ambiente do backend (a chave nunca é devolvida). */
   configurado: boolean;
+  /** Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste). */
+  enviosExternosPermitidos: boolean;
   modelo: string;
   timeoutSegundos: number;
   /** Igrejas em modo sombra; nome null = id listado que não existe. */
