@@ -44,6 +44,7 @@ from app.routers import (
     pipeline,
     platform_admin,
     platform_consent_governance,
+    platform_jev,
     reports,
     roles,
     setup,
@@ -250,6 +251,8 @@ def create_app() -> FastAPI:
     # D2B2b3A: preparação DRAFT_ONLY pelo Console Master. A superfície
     # nasce desligada e não autoriza aprovação, catálogo, writer ou runtime.
     app.include_router(platform_consent_governance.router)
+    # Triagem Jev: status somente leitura + teste com mensagem sintética.
+    app.include_router(platform_jev.router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:

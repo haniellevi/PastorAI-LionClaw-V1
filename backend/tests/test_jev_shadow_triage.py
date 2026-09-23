@@ -23,6 +23,12 @@ _CONVERSATION_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 _PESSOA_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 
 
+@pytest.fixture(autouse=True)
+def _sem_env_typesafe(monkeypatch) -> None:
+    for var in ("TYPESAFE_API_KEY", "JEV_SHADOW_TRIAGE_IGREJA_IDS"):
+        monkeypatch.delenv(var, raising=False)
+
+
 def _settings(**overrides: object) -> TriageSettings:
     values: dict[str, object] = {
         "typesafe_api_key": "test-key",

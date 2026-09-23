@@ -65,6 +65,22 @@ listas de palavras. As falhas conhecidas são:
      pode conter dado sensível (fé, pedido de oração, crise);
   2. revisão independente (Sarah) com GO.
 
+## Admin Master
+
+O botão **Jev** no Console da Plataforma (`JevModal`) usa `GET /admin/jev` e
+`POST /admin/jev/teste`, restritos a `get_platform_admin`. Ele mostra se a
+chave está configurada (sem devolvê-la, nem parcialmente), o modelo, o timeout
+e as igrejas da lista, com seus nomes. O teste de conexão envia só uma
+mensagem sintética fixa e grava `jev_testar` em `platform_audit_logs`, sem o
+e-mail do operador.
+
+A chave e a lista continuam no ambiente de deploy. Gravar esse segredo pelo
+console exigiria uma tabela global, que o contrato de migration v1 recusa
+(`GLOBAL` falha fechado), e a aplicação de migrations está bloqueada.
+
+Calibração em 2026-09-23 com 20 mensagens sintéticas: 20/20 como esperado,
+com latência de cerca de 0,9 s por chamada.
+
 ## Integração pendente (gate D3)
 
 `app/config.py`, `app/agent/runtime.py` e `app/workers/queue_worker.py` estão

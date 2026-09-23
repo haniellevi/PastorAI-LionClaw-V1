@@ -125,19 +125,32 @@ class ShadowTriage:
         }
 
 
-def shadow_enabled_for(settings: TriageSettings, igreja_id: uuid.UUID) -> bool:
-    """True só com chave configurada e a igreja na lista explícita."""
-    if not settings.typesafe_api_key.strip():
-        return False
+def is_configured(settings: TriageSettings) -> bool:
+    return bool(settings.typesafe_api_key.strip())
+
+
+def parse_allowlist(raw: str) -> tuple[set[uuid.UUID], int]:
+    """Ids válidos da lista e quantos itens inválidos foram ignorados."""
     allowed: set[uuid.UUID] = set()
-    for raw in settings.jev_shadow_triage_igreja_ids.split(","):
-        raw = raw.strip()
-        if not raw:
+    invalid = 0
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
             continue
         try:
-            allowed.add(uuid.UUID(raw))
+            allowed.add(uuid.UUID(item))
         except ValueError:
-            logger.warning("JEV_SHADOW_TRIAGE_IGREJA_IDS contém um id inválido")
+            invalid += 1
+    return allowed, invalid
+
+
+def shadow_enabled_for(settings: TriageSettings, igreja_id: uuid.UUID) -> bool:
+    """True só com chave configurada e a igreja na lista explícita."""
+    if not is_configured(settings):
+        return False
+    allowed, invalid = parse_allowlist(settings.jev_shadow_triage_igreja_ids)
+    if invalid:
+        logger.warning("JEV_SHADOW_TRIAGE_IGREJA_IDS contém um id inválido")
     return igreja_id in allowed
 
 
