@@ -25,6 +25,8 @@ from app.services.rate_limit import RateLimiter, get_rate_limiter
 
 router = APIRouter(prefix="/admin", tags=["platform-admin-jev"])
 
+INTEGRADO_AO_AGENTE = False
+
 # Cada teste gasta tokens de terceiro: poucos por janela por operador.
 TESTE_LIMITE_POR_JANELA = 10
 
@@ -39,6 +41,9 @@ class JevIgrejaOut(BaseModel):
 
 class JevStatusOut(BaseModel):
     configurado: bool
+    # Nenhum turno do agente chama a triagem ainda (gate D3): a lista não gera
+    # evento algum até a integração. Troca para True no PR que ligar o runtime.
+    integradoAoAgente: bool  # noqa: N815
     # Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste).
     enviosExternosPermitidos: bool  # noqa: N815
     modelo: str
@@ -78,6 +83,7 @@ def get_jev_status(
         nomes = {str(i.id): i.nome for i in rows.all()}
     return JevStatusOut(
         configurado=jev_triage.is_configured(settings),
+        integradoAoAgente=INTEGRADO_AO_AGENTE,
         enviosExternosPermitidos=external_sends_allowed(),
         modelo=settings.typesafe_model,
         timeoutSegundos=settings.typesafe_timeout_seconds,

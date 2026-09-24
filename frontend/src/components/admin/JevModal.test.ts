@@ -35,6 +35,7 @@ let root: Root;
 
 const STATUS = {
   configurado: true,
+  integradoAoAgente: false,
   enviosExternosPermitidos: true,
   modelo: "jev-latest",
   timeoutSegundos: 2,
@@ -89,6 +90,8 @@ describe("JevModal", () => {
     const text = document.body.textContent!;
     expect(document.querySelector(".ds-dialog-title")?.textContent).toBe("Triagem Jev");
     expect(text).toContain("Configurada");
+    expect(text).toContain("Não integrada");
+    expect(text).toContain("sem efeito até a integração");
     expect(text).toContain("jev-latest");
     expect(text).toContain("Igreja Piloto");
     expect(text).toContain("i2 (não encontrada)");

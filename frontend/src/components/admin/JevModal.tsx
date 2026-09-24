@@ -135,6 +135,14 @@ export function JevModal({ token, onClose, onExpired }: JevModalProps) {
       ) : status ? (
         <dl style={{ display: "grid", gap: "var(--s2)", margin: 0 }}>
           <div>
+            <dt className="sub">Integração com o agente</dt>
+            <dd style={{ margin: 0 }}>
+              {status.integradoAoAgente
+                ? "Ligada: turnos das igrejas listadas geram eventos de sombra"
+                : "Não integrada: nenhum turno chama o Jev ainda, a lista não tem efeito"}
+            </dd>
+          </div>
+          <div>
             <dt className="sub">Chave de API</dt>
             <dd style={{ margin: 0 }}>
               {status.configurado ? "Configurada" : "Não configurada"}
@@ -155,7 +163,11 @@ export function JevModal({ token, onClose, onExpired }: JevModalProps) {
             </dd>
           </div>
           <div>
-            <dt className="sub">Igrejas em modo sombra</dt>
+            <dt className="sub">
+              {status.integradoAoAgente
+                ? "Igrejas em modo sombra"
+                : "Igrejas na lista (sem efeito até a integração)"}
+            </dt>
             <dd style={{ margin: 0 }}>
               {status.igrejas.length === 0 ? (
                 "Nenhuma (desligado)"

@@ -57,11 +57,11 @@ listas de palavras. As falhas conhecidas são:
   `JEV_SHADOW_TRIAGE_IGREJA_IDS`, com `TYPESAFE_API_KEY` configurada **e**
   com o guard global `ALLOW_REAL_SENDS` aberto. Isso vale também para o teste
   de conexão do Admin Master.
-- **O corpo da mensagem sai como a pessoa escreveu.** `mask_text` redige
-  apenas CPF, e-mail e sequências de 7 ou mais dígitos contíguos. Nome,
-  endereço, telefone formatado (por exemplo `(11) 99999-8888`) e conteúdo
-  pastoral sensível (fé, saúde, crise) **saem em claro** para a TypeSafe. É
-  redação parcial, não pseudonimização. O servidor só acrescenta o canal e um
+- **O corpo da mensagem sai como a pessoa escreveu.** `redact_for_egress`
+  redige apenas CPF, e-mail, telefones (inclusive formatados, como
+  `(11) 99999-8888`) e sequências de 7 ou mais dígitos. Nome, endereço e
+  conteúdo pastoral sensível (fé, saúde, crise) **saem em claro** para a
+  TypeSafe. É redação parcial, não pseudonimização. O servidor só acrescenta o canal e um
   booleano de papel ministerial. Ids, nome e telefone do cadastro não são
   acrescentados.
 - O evento `jev_shadow_triage` em `agent_conversation_logs` guarda só

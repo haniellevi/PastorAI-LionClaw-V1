@@ -1,5 +1,27 @@
 # Wiki do projeto Igreja 12
 
+## Triagem Jev (TypeSafe) em modo sombra, não integrada, 23/09/2026
+
+Entrou o módulo `backend/app/services/semantic_triage.py`. Ele faz perguntas
+tipadas ao Jev sobre uma mensagem inbound: risco pastoral, pedido de opt-out,
+aceite de termo pendente e intenção. O estado é `MODULO_ENTREGUE_NAO_INTEGRADO`,
+porque nenhum turno do agente chama o módulo. `runtime.py` continua congelado
+pelo gate D3, e ligar o módulo exige revisão desse gate e tirar a chamada de
+rede (cerca de 0,9 s) de dentro da transação do turno.
+
+O Admin Master ganhou o botão **Jev**, que só lê o estado da configuração de
+deploy e tem um teste de conexão com mensagem sintética fixa. O teste é
+auditado como `jev_testar` e tem limite por operador. Para qualquer egresso,
+são necessários ao mesmo tempo `TYPESAFE_API_KEY`, `ALLOW_REAL_SENDS` e, no
+caminho do agente, a igreja em `JEV_SHADOW_TRIAGE_IGREJA_IDS`.
+
+A redação antes do egresso é parcial. Ela tira CPF, e-mail, telefones e
+sequências longas de dígitos, mas nome, endereço e o relato pastoral saem em
+claro. Nenhuma igreja pode ser listada sem DPA e base legal para dado sensível
+com transferência internacional. Decisão em
+`docs/decisions/2026-09-23-jev-shadow-triage.md`. Não houve acesso a banco,
+DEV, PROD, runtime ou dado real.
+
 ## Precheck negativo da projeção operacional E4b, 22/09/2026
 
 O recorte source-only da projeção operacional E4b adiciona um precheck puro

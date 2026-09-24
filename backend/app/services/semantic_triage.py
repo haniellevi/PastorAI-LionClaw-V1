@@ -13,10 +13,11 @@ Contrato do modo sombra:
     `JEV_SHADOW_TRIAGE_IGREJA_IDS`, com `TYPESAFE_API_KEY` configurada e com o
     guard global de efeitos externos aberto (`ALLOW_REAL_SENDS`);
   * o corpo da mensagem sai como a pessoa escreveu, redigindo apenas CPF,
-    e-mail e sequências de 7+ dígitos contíguos (`mask_text`). Nome,
-    endereço, telefone formatado ("(11) 99999-8888") e conteúdo pastoral
-    sensível (fé, saúde, crise) SAEM em claro para a TypeSafe. Os únicos
-    campos adicionados pelo servidor são o canal e um booleano de papel;
+    e-mail, telefones (inclusive formatados) e sequências de 7+ dígitos
+    (`redact_for_egress`). Nome, endereço e conteúdo pastoral sensível (fé,
+    saúde, crise) SAEM em claro para a TypeSafe: exige DPA antes de listar
+    qualquer igreja. Os únicos campos adicionados pelo servidor são o canal e
+    um booleano de papel;
   * qualquer falha (rede, timeout, resposta inesperada) vira `None` — o turno
     do agente nunca depende deste módulo.
 
@@ -31,6 +32,7 @@ a ser feita somente quando esse gate for revisado.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -52,6 +54,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger("pastorai.services.semantic_triage")
 
 EVENTO_SHADOW = "jev_shadow_triage"
+
+# Telefones brasileiros com separadores, que `mask_text` não pega, como
+# "+55 (DD) 9XXXX-XXXX", "DD 9XXXX-XXXX" ou "XXXX XXXX".
+_PHONE_RE = re.compile(
+    r"(?:\+?55[\s.-]?)?(?:\(?\d{2}\)?[\s.-]?)?9?\d{4}[\s.-]\d{4}\b"
+)
+
+
+def redact_for_egress(texto: str) -> str:
+    """Redação aplicada antes de qualquer envio à TypeSafe.
+
+    Parcial por natureza: nome, endereço e relato pastoral continuam no texto.
+    """
+    return _PHONE_RE.sub("***", mask_text(texto))
 
 
 class TriageSettings(BaseSettings):
@@ -176,10 +192,10 @@ def build_request(
 ) -> dict[str, Any]:
     """Monta o corpo do POST /v1/systemone (puro, testável).
 
-    `mask_text` é redação parcial, não anonimização: ver o contrato no topo.
+    `redact_for_egress` é redação parcial, não anonimização: ver o contrato.
     """
     state = {
-        "mensagem": mask_text(texto),
+        "mensagem": redact_for_egress(texto),
         "canal": "WhatsApp oficial de uma igreja evangélica",
         "remetente_e_lider_ou_pastor": remetente_ministerial,
     }

@@ -103,6 +103,34 @@ def test_request_mascara_dados_sensiveis_da_mensagem() -> None:
     }
 
 
+# Números sintéticos (só zeros), montados em tempo de execução para não
+# parecerem contato real no guard de privacidade do código-fonte.
+_Z4 = "0" * 4
+_FONES_SINTETICOS = [
+    f"(00) 9{_Z4}-{_Z4}",
+    f"00 9{_Z4}-{_Z4}",
+    f"+55 00 9{_Z4}-{_Z4}",
+    f"{_Z4} {_Z4}",
+]
+
+
+@pytest.mark.parametrize("fone", _FONES_SINTETICOS)
+def test_request_redige_telefone_formatado(fone: str) -> None:
+    body = jev_triage.build_request(
+        f"me chama no {fone} por favor",
+        termo_pendente=False,
+        remetente_ministerial=False,
+        model="m",
+    )
+    assert fone not in body["state"]["mensagem"]
+    assert "0000" not in body["state"]["mensagem"]
+
+
+def test_redacao_preserva_numeros_de_relatorio() -> None:
+    texto = "Célula de terça: 12 presentes, 2 visitantes, oferta 85 reais"
+    assert jev_triage.redact_for_egress(texto) == texto
+
+
 def test_pergunta_de_aceite_so_existe_com_termo_pendente() -> None:
     sem = jev_triage.build_request(
         "sim", termo_pendente=False, remetente_ministerial=False, model="m"

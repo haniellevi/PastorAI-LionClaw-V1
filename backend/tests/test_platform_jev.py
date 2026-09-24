@@ -69,6 +69,7 @@ def test_status_nao_devolve_a_chave_e_resolve_nomes(app, monkeypatch) -> None:
     body = resp.json()
     assert _SECRET not in json.dumps(body)
     assert body["configurado"] is True
+    assert body["integradoAoAgente"] is False
     assert body["enviosExternosPermitidos"] is True
     assert body["modelo"] == "jev-latest"
     assert body["idsInvalidos"] == 1
