@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.session import get_session_factory
 from app.db.tenant_session import mark_tenant_scoped
 
@@ -249,6 +250,12 @@ def _escalation_text(breach: SlaBreach) -> str:
     )
 
 
+def _sla_whatsapp_allowed(igreja_id: uuid.UUID) -> bool:
+    """MVP: SLA por WhatsApp só com WHATSAPP_SLA_ENABLED e igreja piloto."""
+    settings = get_settings()
+    return settings.whatsapp_sla_enabled and settings.whatsapp_piloto(igreja_id)
+
+
 def _instance(session: Session, igreja_id: uuid.UUID) -> str | None:
     conn = session.execute(
         select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
@@ -366,6 +373,12 @@ class SlaEngine:
             )
             recipients = [phone] if phone else []
             texto = _charge_text(breach)
+
+        if not _sla_whatsapp_allowed(breach.igreja_id):
+            # MVP: sem SLA por WhatsApp para esta igreja. Nada é reservado: a
+            # cobrança fica pendente e sai quando a flag/piloto for ligado. O
+            # item de coordenação (escalação) acima já é criado normalmente.
+            return False
 
         marker = reserve_agent_event(
             session,

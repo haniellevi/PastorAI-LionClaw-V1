@@ -38,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent.masking import release_agent_event, reserve_agent_event
+from app.config import get_settings
 from app.db.models import (
     AgentConversationLog,
     AppUser,
@@ -122,6 +123,14 @@ def _autoupgrade_sent_event_name(
     único parcial.
     """
     return f"subscription_upgrade:{operation_id}:{plano}:sent"
+
+
+def _notify_instance(db: Session, igreja_id: uuid.UUID) -> str | None:
+    """Instância WhatsApp oficial da igreja (None sem conexão)."""
+    conn = db.execute(
+        select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
+    ).scalar_one_or_none()
+    return conn.instance if conn else None
 
 
 def notify_autoupgrade(
@@ -213,10 +222,7 @@ def notify_autoupgrade(
 
     # Lidas ANTES da reserva (gap-2): só valores simples sobrevivem até o
     # send, nenhuma query fica pendurada numa transação aberta pelo envio.
-    conn = db.execute(
-        select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
-    ).scalar_one_or_none()
-    instance = conn.instance if conn else None
+    instance = _notify_instance(db, igreja_id)
     phones = _admin_phones(db, igreja_id)
 
     marker = reserve_agent_event(
@@ -281,6 +287,10 @@ def _deliver_upgrade_notification(
     após sucesso. Nunca reverte nem bloqueia o billing.
     """
     if op.notify_status != "pending":
+        return False
+    if not get_settings().whatsapp_piloto(igreja_id):
+        # MVP: aviso automático por WhatsApp só em igreja piloto. Fica
+        # 'pending' (nada reservado nem enviado) e sai quando a igreja entrar.
         return False
     try:
         outcome = notify_autoupgrade(
