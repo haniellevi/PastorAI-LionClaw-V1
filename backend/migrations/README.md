@@ -11,7 +11,9 @@ preservado na branch `archive/governanca-2026-09`.
    e policies por `igreja_id`, no mesmo padrão das tabelas existentes.
 3. Escreva o rollback como comentário no fim do arquivo.
 4. Nunca edite uma migration que já foi aplicada em DEV ou PROD; crie outra.
-5. Não use `BEGIN`/`COMMIT` no arquivo; o aplicador abre a transação.
+5. O aplicador controla a transação. Um `begin;`/`commit;` que envolve o
+   arquivo inteiro é removido automaticamente (é o padrão histórico).
+   Qualquer outro controle de transação no meio do arquivo é recusado.
 
 ## Aplicar
 
@@ -27,6 +29,11 @@ MIGRATION_DATABASE_URL="<url do banco>" python scripts/migrate.py apply <arquivo
 - **DEV primeiro.** Depois PROD, com **backup antes** (runbook de produção),
   anotando no registro da fatia (`docs/sprints/`) o que foi aplicado e quando.
 - A URL nunca vai para argumento de linha de comando, log ou commit.
+
+## Pausadas
+
+Arquivos com `-- OPERATIONAL_AUTHORIZATION=BLOCKED` (E4B e laboratório de
+evidência de consentimento) ficam fora de `status` e `apply` até a Fase 5.
 
 ## Histórico
 

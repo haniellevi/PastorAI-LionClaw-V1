@@ -17,16 +17,54 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import re
 import sys
 
 MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations"
 DATABASE_URL_ENV = "MIGRATION_DATABASE_URL"
 LEDGER = "public.schema_migrations"
+# Migrations de frentes pausadas (governança E4B/consentimento) trazem este
+# marcador no cabeçalho: ficam fora de `status` e `apply` até a Fase 5.
+PAUSED_MARKER = "OPERATIONAL_AUTHORIZATION=BLOCKED"
+_TX_LINE = re.compile(r"^\s*(begin|commit|rollback|start\s+transaction)\s*;\s*$", re.I)
+
+
+def is_paused(path: pathlib.Path) -> bool:
+    return PAUSED_MARKER in path.read_text(encoding="utf-8")
 
 
 def migration_files(directory: pathlib.Path = MIGRATIONS_DIR) -> list[str]:
-    """Arquivos .sql do topo da pasta, em ordem de nome (= ordem de aplicação)."""
-    return sorted(p.name for p in directory.glob("*.sql") if p.is_file())
+    """Arquivos .sql do topo da pasta, em ordem de nome (= ordem de aplicação),
+    sem as migrations pausadas."""
+    return sorted(
+        p.name for p in directory.glob("*.sql") if p.is_file() and not is_paused(p)
+    )
+
+
+def strip_outer_transaction(sql: str) -> str:
+    """Remove o `begin;`/`commit;` externo para o runner controlar a transação.
+
+    Assim a migration e o registro no ledger são confirmados juntos. Qualquer
+    outro controle de transação no arquivo é recusado.
+    """
+    lines = sql.splitlines()
+
+    def _is_code(line: str) -> bool:
+        stripped = line.strip()
+        return bool(stripped) and not stripped.startswith("--")
+
+    code_idx = [i for i, line in enumerate(lines) if _is_code(line)]
+    if code_idx:
+        first, last = code_idx[0], code_idx[-1]
+        if (
+            first != last
+            and re.match(r"^\s*begin\s*;\s*$", lines[first], re.I)
+            and re.match(r"^\s*commit\s*;\s*$", lines[last], re.I)
+        ):
+            lines = lines[:first] + lines[first + 1 : last] + lines[last + 1 :]
+    if any(_TX_LINE.match(line) for line in lines):
+        raise ValueError("controle de transação no meio da migration")
+    return "\n".join(lines) + "\n"
 
 
 def pending(files: list[str], applied: set[str]) -> list[str]:
@@ -68,7 +106,12 @@ def cmd_apply(conn, name: str, *, transactional: bool) -> int:
     path = MIGRATIONS_DIR / name
     if path.name != name or not path.is_file() or path.suffix != ".sql":
         sys.exit(f"arquivo inválido: {name}")
-    sql = path.read_text(encoding="utf-8")
+    if is_paused(path):
+        sys.exit(f"{name} pertence a uma frente pausada ({PAUSED_MARKER})")
+    try:
+        sql = strip_outer_transaction(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        sys.exit(f"{name}: {exc}")
     with conn.cursor() as cur:
         if name in _applied(cur):
             sys.exit(f"{name} já está registrada em {LEDGER}")

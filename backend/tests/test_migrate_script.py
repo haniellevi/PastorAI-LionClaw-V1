@@ -99,3 +99,51 @@ def test_falha_faz_rollback_e_nao_registra() -> None:
         migrate.cmd_apply(conn, name, transactional=True)
     assert conn.rollbacks == 1
     assert name not in conn.applied
+
+
+def test_remove_so_o_begin_commit_externo() -> None:
+    sql = "-- cabeçalho\nbegin;\ncreate table t (id int);\ncommit;\n-- fim\n"
+    out = migrate.strip_outer_transaction(sql)
+    assert "begin;" not in out.lower() and "commit;" not in out.lower()
+    assert "create table t" in out
+
+
+def test_sem_wrapper_fica_igual() -> None:
+    sql = "create index concurrently i on t (id);\n"
+    assert migrate.strip_outer_transaction(sql).strip() == sql.strip()
+
+
+def test_recusa_commit_no_meio() -> None:
+    with pytest.raises(ValueError):
+        migrate.strip_outer_transaction("begin;\nselect 1;\ncommit;\nselect 2;\n")
+
+
+def test_todas_as_migrations_do_catalogo_sao_executaveis_pelo_runner() -> None:
+    for name in migrate.migration_files():
+        migrate.strip_outer_transaction(
+            (migrate.MIGRATIONS_DIR / name).read_text(encoding="utf-8")
+        )
+
+
+def test_migrations_pausadas_ficam_fora_e_sao_recusadas() -> None:
+    pausadas = [
+        p.name for p in migrate.MIGRATIONS_DIR.glob("*.sql") if migrate.is_paused(p)
+    ]
+    assert pausadas, "esperava as migrations E4B/consentimento marcadas"
+    assert not set(pausadas) & set(migrate.migration_files())
+    with pytest.raises(SystemExit):
+        migrate.cmd_apply(_Conn(), pausadas[0], transactional=True)
+
+
+def test_apply_executa_sem_o_wrapper_externo() -> None:
+    name = next(
+        n
+        for n in migrate.migration_files()
+        if (migrate.MIGRATIONS_DIR / n).read_text(encoding="utf-8").lower().count("begin;")
+    )
+    conn = _Conn()
+    migrate.cmd_apply(conn, name, transactional=True)
+    executed_sql = conn.executed[2]  # to_regclass, select ledger, migration
+    assert not any(
+        line.strip().lower() in {"begin;", "commit;"} for line in executed_sql.splitlines()
+    )
