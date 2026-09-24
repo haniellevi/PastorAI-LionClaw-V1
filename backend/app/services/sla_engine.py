@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.session import get_session_factory
 from app.db.tenant_session import mark_tenant_scoped
 
@@ -250,6 +251,11 @@ def _escalation_text(breach: SlaBreach) -> str:
 
 
 def _instance(session: Session, igreja_id: uuid.UUID) -> str | None:
+    # MVP: SLA por WhatsApp só com WHATSAPP_SLA_ENABLED e igreja piloto. Sem
+    # instância, a breach fica só registrada (mesmo caminho de "sem conexão").
+    settings = get_settings()
+    if not (settings.whatsapp_sla_enabled and settings.whatsapp_piloto(igreja_id)):
+        return None
     conn = session.execute(
         select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
     ).scalar_one_or_none()

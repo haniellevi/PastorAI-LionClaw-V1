@@ -2369,6 +2369,11 @@ def _run_agent_legacy(
         session.close()
 
 
+def _whatsapp_reply_enabled(igreja_id: object) -> bool:
+    """Igreja piloto do MVP? Ver ``Settings.whatsapp_piloto``."""
+    return get_settings().whatsapp_piloto(igreja_id)
+
+
 def run_agent_for_message(
     session_factory: Any,
     outcome: IngestionOutcome,
@@ -2385,11 +2390,11 @@ def run_agent_for_message(
     the orchestrator because its tools may mutate tenant state.  An unresolved
     execution is quarantined rather than run a second time.
 
-    ``agent_session_factory`` is explicit at the production entrypoint and is
-    bound to the least-privilege ``agent_runtime`` PostgreSQL role.  The
-    sentinel default preserves the pre-D2A signature for isolated tests and
-    old integrations; it is not used by ``main``.  Passing ``None`` is a
-    fail-closed disablement and never falls back to ``session_factory``.
+    Production (``main``) uses the sentinel default: the turn runs on
+    ``session_factory`` with the tenant fixed and proven by
+    ``_scope_agent_session`` (RLS by ``igreja_id``).  Passing a dedicated
+    ``agent_session_factory`` selects the paused D2A path; ``None`` disables
+    the turn and never falls back to ``session_factory``.
     """
     trusted_identity_enabled = (
         get_settings().agent_trusted_inbound_identity_enabled
@@ -2420,6 +2425,12 @@ def run_agent_for_message(
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
     igreja_id = _require_agent_igreja_id(outcome)
+
+    # Piloto do MVP: o agente só roda para igrejas listadas em
+    # WHATSAPP_PILOTO_IGREJA_IDS. Fora da lista a mensagem fica só ingerida (inbox),
+    # sem reserva de resposta, LLM ou envio.
+    if not _whatsapp_reply_enabled(igreja_id):
+        return AgentRunDisposition.COMPLETED
 
     provider_message_id = _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
@@ -2672,27 +2683,6 @@ def _build_redis() -> Any:
     )
 
 
-def _build_agent_runtime_session_factory() -> Any | None:
-    """Load the dedicated runtime factory, keeping the worker fail-closed.
-
-    The D2A migration intentionally leaves the role ``NOLOGIN`` until a later
-    operational gate.  A missing URL therefore disables automatic agent turns
-    while ingestion remains healthy; it must never select ``DATABASE_URL`` as
-    an implicit substitute.
-    """
-
-    from app.db.agent_runtime_session import (  # noqa: PLC0415
-        AgentRuntimeConfigurationError,
-        get_agent_runtime_session_factory,
-    )
-
-    try:
-        return get_agent_runtime_session_factory()
-    except AgentRuntimeConfigurationError as exc:
-        logger.warning("Dedicated agent runtime disabled: %s", exc)
-        return None
-
-
 def main() -> None:  # pragma: no cover - process entrypoint
     logging.basicConfig(
         level=logging.INFO,
@@ -2703,14 +2693,18 @@ def main() -> None:  # pragma: no cover - process entrypoint
     # One client per worker process keeps TCP/TLS connections warm across
     # messages and is closed deterministically on graceful shutdown or error.
     with EvolutionClient() as evolution_client:
-        agent_runtime_session_factory = _build_agent_runtime_session_factory()
-        agent_runner = None
-        if agent_runtime_session_factory is not None:
-            agent_runner = partial(
-                run_agent_for_message,
-                agent_session_factory=agent_runtime_session_factory,
-                evolution_client=evolution_client,
+        # MVP Fase 1: o agente roda na sessão principal com tenant fixado
+        # (mark_tenant_scoped + require_tenant_scope → RLS por igreja_id). A
+        # sessão dedicada D2A está pausada: ela devolve sempre "unavailable".
+        if get_settings().agent_runtime_database_url.strip():
+            logger.warning(
+                "AGENT_RUNTIME_DATABASE_URL ignorada: sessão dedicada D2A pausada "
+                "no MVP; o agente usa a sessão principal com RLS"
             )
+        agent_runner = partial(
+            run_agent_for_message,
+            evolution_client=evolution_client,
+        )
         worker = QueueWorker(
             agent_runner=agent_runner,
             media_resolver=partial(

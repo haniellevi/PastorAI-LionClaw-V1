@@ -160,11 +160,10 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
-      # AGENT_RUNTIME_DATABASE_URL is intentionally supplied only by the
-      # selected env_file.  Keeping one source avoids Compose shell
-      # interpolation silently overwriting a value from PASTORAI_ENV_FILE.
-      # Empty keeps automatic agent turns disabled; runtime code never falls
-      # back to DATABASE_URL.
+      # MVP Fase 1: o agente roda na sessão principal com RLS, só para as
+      # igrejas em WHATSAPP_PILOTO_IGREJA_IDS (env_file). Vazio = só ingestão.
+      # Envio real ainda exige ALLOW_REAL_SENDS=true. AGENT_RUNTIME_DATABASE_URL
+      # (sessão dedicada D2A) está pausada e é ignorada pelo worker.
     command: ["python", "-m", "app.workers.queue_worker"]
     healthcheck:
       test:

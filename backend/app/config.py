@@ -170,6 +170,23 @@ class Settings(BaseSettings):
     agent_default_model: str = Field(default="gpt-5.6-luna")
     # Current LGPD consent term version (delta-040). Bumping it forces re-accept.
     agent_term_version: str = Field(default="v1")
+    # MVP (piloto): igrejas (igreja_id separados por vírgula) com WhatsApp
+    # AUTOMÁTICO — o agente responde e os avisos automáticos podem sair. Vazio =
+    # nenhuma (só ingestão). O envio real ainda depende de ALLOW_REAL_SENDS.
+    # Envios feitos por uma pessoa no painel não dependem desta lista.
+    whatsapp_piloto_igreja_ids: str = Field(default="")
+    # Cobranças/escalações de SLA por WhatsApp (cron). Desligado por padrão
+    # mesmo nas igrejas piloto: ao ligar, o acúmulo pendente sai de uma vez.
+    whatsapp_sla_enabled: bool = Field(default=False)
+
+    def whatsapp_piloto(self, igreja_id: object) -> bool:
+        wanted = str(igreja_id).strip().lower()
+        allowed = {
+            item.strip().lower()
+            for item in self.whatsapp_piloto_igreja_ids.split(",")
+            if item.strip()
+        }
+        return bool(wanted) and wanted in allowed
 
     # ---- Asaas (billing/assinatura - US-36/RF-42) ---------------------------
     asaas_api_url: str = Field(default="https://api.asaas.com/v3")

@@ -195,21 +195,53 @@ obrigatórios de produto.
 
 ### Fase 1 — O bot responde no WhatsApp (3 a 5 dias)
 
-- [ ] Worker: se `AGENT_RUNTIME_DATABASE_URL` estiver vazio, usar a sessão
-      principal (`session_factory` + `set_tenant_context`), o caminho que já
-      existe e tem testes.
-- [ ] Runtime: remover o retorno fixo `runtime_effects_unavailable` do caminho
-      principal (ele continua só para a sessão dedicada).
-- [ ] Nova env `WHATSAPP_REPLY_IGREJA_IDS`: envio real só para igrejas piloto,
-      mesmo com `ALLOW_REAL_SENDS=true`.
-- [ ] Verificar se a instância Evolution está conectada antes de enviar.
-      Timeout ou 5xx vira uma nova tentativa limitada, em vez de "ambígua para
-      sempre".
-- [ ] Teste real: número de teste manda "oi", recebe o termo, responde "sim"
-      e recebe a saudação.
+- [x] Worker: o agente roda na sessão principal com o tenant fixado
+      (`mark_tenant_scoped` + `require_tenant_scope`, RLS por `igreja_id`).
+      A sessão dedicada D2A está pausada e `AGENT_RUNTIME_DATABASE_URL` é
+      ignorada.
+- [x] Nova env `WHATSAPP_PILOTO_IGREJA_IDS`. O WhatsApp automático (agente,
+      aviso de billing e SLA) só vale para igrejas piloto, mesmo com
+      `ALLOW_REAL_SENDS=true`. Envios feitos por uma pessoa no painel não
+      dependem da lista.
+- [x] Nova env `WHATSAPP_SLA_ENABLED` (desligada). Cobranças de SLA por
+      WhatsApp só com ela ligada **e** igreja piloto, para evitar que o
+      acúmulo saia de uma vez quando o freio global abrir.
+- [ ] Verificar a instância Evolution antes de enviar; timeout ou 5xx vira
+      nova tentativa limitada, em vez de "ambígua para sempre" (B3; fatia
+      própria).
+- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo).
 
-**Pronto quando:** as mensagens para o número da igreja piloto recebem
-resposta em menos de 10 s e aparecem no inbox do painel.
+**Pronto quando:** as mensagens para o número da Filadélfia recebem resposta
+em menos de 10 s e aparecem no inbox do painel.
+
+#### Passo a passo para ligar na Filadélfia (proprietário)
+
+1. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
+   (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`).
+2. **Banco de PROD:** o worker usa as colunas de reserva de resposta da
+   migration `20260826_030508_*agent_reply*`. Confira se ela já foi aplicada:
+   `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py status`. Se
+   estiver pendente, faça backup e aplique com `migrate.py apply`.
+3. **Painel da Filadélfia → Agente:** credencial OpenAI validada e ativa,
+   agente **ativo**, comportamento com o tom da igreja.
+4. **`.env` de PROD:**
+   - `WHATSAPP_PILOTO_IGREJA_IDS=<igreja_id da Filadélfia>` (copie do Admin
+     Master);
+   - `ALLOW_REAL_SENDS=true`. Isso também libera envios feitos por pessoas
+     no painel de qualquer igreja: inbox, broadcast "agora" e LLM do
+     assistente. Brevo, Asaas e aviso de agenda têm flags próprias
+     desligadas;
+   - `WHATSAPP_SLA_ENABLED=false` por enquanto.
+
+   Reinicie os serviços.
+5. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
+   número da Filadélfia. Esperado: o termo LGPD. Responda "sim". Esperado:
+   a saudação. As duas conversas aparecem no inbox.
+6. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
+   ou `ALLOW_REAL_SENDS=false` e reiniciar.
+
+Nesta fase o agente ainda responde com textos fixos, e o LLM só reescreve a
+saudação. Responder de verdade à mensagem da pessoa é a Fase 2.
 
 ### Fase 2 — O agente fica útil (1 a 2 semanas)
 

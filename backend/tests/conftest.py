@@ -600,6 +600,26 @@ def _rate_limit_auth_disabled(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _whatsapp_reply_liberado_nos_testes(monkeypatch):
+    """Libera a lista de igrejas piloto (WHATSAPP_PILOTO_IGREJA_IDS) e o SLA por
+    WhatsApp na suíte.
+
+    Em produção a lista vazia desliga o WhatsApp automático. Os testes de turno já existentes
+    exercitam o agente com igrejas sintéticas; o comportamento real da lista é
+    coberto em test_whatsapp_piloto.py, que restaura o método original.
+    """
+    from app.config import Settings, get_settings
+    from app.workers import queue_worker
+
+    monkeypatch.setattr(Settings, "whatsapp_piloto", lambda self, igreja_id: True)
+    monkeypatch.setattr(get_settings(), "whatsapp_sla_enabled", True, raising=False)
+    monkeypatch.setattr(
+        queue_worker, "_whatsapp_reply_enabled", lambda igreja_id: True
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _celulas_requests_enabled(monkeypatch):
     """O fluxo de Solicitações de célula nasce atrás de flag OFF (rollout).
 
