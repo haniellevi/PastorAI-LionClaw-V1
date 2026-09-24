@@ -88,8 +88,6 @@ jobs:
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest --strict-markers \
             -m rls_integration -o addopts= -p no:cacheprovider -rA \
-            --deselect tests/test_replay_migration_catalog_current_head_pg17.py::test_appended_tenant_migration_replays_end_to_end_on_real_pg17 \
-            --deselect tests/test_replay_migration_catalog_current_head_pg17.py::test_appended_tenant_migration_e2e_rejects_weak_or_undeclared_delta \
             --junitxml=rls-results.xml \
             tests
 

@@ -1,5 +1,9 @@
 # PastorAI / Igreja 12 — mapa central de finalização da V1
 
+> **Histórico (2026-09-24).** O guia operacional agora é
+> [`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`](MVP-PLANO-SIMPLIFICACAO.md), aprovado
+> pelo proprietário. Este documento fica como registro e não define prioridade.
+
 Atualizado e revalidado em 2026-08-22 (America/Sao_Paulo).
 **V1_ENCERRADA.**
 

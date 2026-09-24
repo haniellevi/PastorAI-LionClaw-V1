@@ -33,15 +33,8 @@ def test_workflow_coleta_backend_por_marker_e_isola_somente_replay_fresco() -> N
     assert "-m rls_integration" in marker_step
     assert "--junitxml=rls-results.xml" in marker_step
     assert "\n            tests\n" in marker_step
-    assert marker_step.count("--deselect tests/test_") == 2
-    assert (
-        "--deselect tests/test_replay_migration_catalog_current_head_pg17.py::"
-        "test_appended_tenant_migration_replays_end_to_end_on_real_pg17"
-    ) in marker_step
-    assert (
-        "--deselect tests/test_replay_migration_catalog_current_head_pg17.py::"
-        "test_appended_tenant_migration_e2e_rejects_weak_or_undeclared_delta"
-    ) in marker_step
+    # Sem deselects: toda a suíte marcada roda no Postgres descartável.
+    assert "--deselect" not in marker_step
 
 
 def test_workflow_falha_com_skip_parcial_ou_zero_testes() -> None:

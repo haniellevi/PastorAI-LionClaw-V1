@@ -3,23 +3,38 @@
 SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → enviar) com WhatsApp, IA e billing. MVP gerado pelo pipeline `development-v2` do LionClaw (16 sprints). Repositório: https://github.com/haniellevi/PastorAI-LionClaw-V1
 
 ## Stack
-- **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — histórico `0001…0017` (numeração congelada); **novas migrations usam nome por timestamp** `AAAAMMDD_HHMMSS_slug.sql` e o fluxo local `new_migration.py draft` → edição/revisão → `new_migration.py prepare-head`, sempre vinculado ao SHA explícito. `prepare-head` somente renderiza o head candidato; a publicação conjunta do SQL/head é separada e deve usar o parent exato. Esses comandos não aprovam nem aplicam SQL. Aplicação manual, runner legado direto, SQL Editor e `db push` são proibidos. O candidato catalog-bound atual permite somente `list`; toda operação de banco permanece bloqueada até trust anchors, evidência DEV/PROD e gate próprios. Ver `backend/migrations/README.md`.
+- **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — nome `AAAAMMDD_HHMMSS_slug.sql`, aplicadas uma a uma com `python scripts/migrate.py` (DEV primeiro; PROD com backup antes). Ver `backend/migrations/README.md`.
 - **Frontend**: Next.js 15.5.25 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
 - **Serviços externos**: Supabase, Clerk, Evolution API (WhatsApp), OpenAI, Asaas (billing), Brevo (e-mail de convite), Google Calendar.
 - **Docs do pipeline**: `docs/Docs<id>/` (PRD, SPEC, sprints, design).
 
 ## Regras de Trabalho — SEGUIR SEMPRE
 
-### Bootstrap obrigatorio de contexto
+### Guia operacional: MVP enxuto
 
-Antes de investigar ou implementar o encerramento da V1, leia
-`docs/ops/V1-FINALIZATION-MAP.md`: a versão integrada desse mapa é a fonte
-operacional de verdade para sequência, escopo, gates e riscos da V1. Leia também
-`docs/audits/2026-07-27-project-source-of-truth.md` como histórico de produto e
-código, confirme `origin/main` e compare o commit do worktree com
-`code-review-graph status`. Use o CRG antes de Grep/Read e use Graphify para
-arquitetura/documentacao. Se o grafo estiver em outro commit, trate-o como
-desatualizado e reconstrua antes de confiar nele.
+A fonte de verdade para prioridade, fases e regras é
+`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`. Leia antes de começar qualquer trabalho.
+`docs/ops/V1-FINALIZATION-MAP.md` e a governança de migration/consentimento
+(E4B, D3, D6, D2A, atestações, catálogo) são **históricos e pausados**
+(branch `archive/governanca-2026-09`): não abra missão nova nessas frentes
+antes da Fase 5 do plano.
+
+Regras do MVP:
+- **Uma fatia vertical por vez**, na ordem do plano; cada fatia termina em algo
+  que um pastor ou contato usa, testado de ponta a ponta (mensagem real no
+  número de teste quando envolver WhatsApp).
+- **PR pequeno, merge rápido, `main` sempre implantável.** CI obrigatório:
+  `backend-tests`, `frontend-ci`, `e2e-critical`, `rls-integration`.
+- **Sem testes que congelam hash de arquivo ou leem texto de documento.**
+- **Documentação mínima:** atualizar o plano e registrar a fatia em
+  `docs/sprints/`. Sem ADR por fatia.
+- **Revisão independente (Sarah) só** para migration em PROD e mudanças de
+  RLS/autenticação.
+- Travas que ficam: RLS por `igreja_id`, segredos fora do git, opt-out,
+  `ALLOW_REAL_SENDS` + lista de igrejas piloto, `AgentConfig.ativo`, backup
+  antes de migration em PROD, termo LGPD na primeira conversa.
+
+Use o code-review-graph antes de Grep/Read quando ele estiver no commit atual.
 
 1. **Git é o seguro.** Antes de qualquer feature (manual ou pipeline), criar uma **branch nova**. Ao final, revisar `git diff` e commitar. Nunca trabalhar direto na `main` sem branch. Nada se perde, tudo é reversível.
 
@@ -36,7 +51,7 @@ desatualizado e reconstrua antes de confiar nele.
 ## Cuidados técnicos
 - **RLS / multi-tenant**: todo endpoint e query respeita `igreja_id`. Nunca vazar dados entre igrejas. ⚠️ O role de conexão do Supabase (`postgres`) tem **BYPASSRLS**; por isso `set_tenant_context` (em `app/db/rls.py`) faz `SET LOCAL ROLE authenticated` — sem isso a RLS é ignorada e as queries vazam entre tenants. Não remover.
 - **Backend `:8000`**: mudanças no backend só valem após reiniciar o uvicorn.
-- **Testes**: rodar `pytest` (dentro de `backend/`, com o venv ativo) antes de commitar.
+- **Testes**: rodar `./test-local.sh` (raiz) antes de commitar — usa Python 3.13 (`backend/.venv-runtime`), Node 24 (`.nvmrc`) e `umask 022`, iguais ao CI. O `backend/.venv` antigo (3.12) e o Node global (26) geram falhas falsas.
 - **Segredos**: nunca commitar `.env` real — só `.env.example`. O `.gitignore` já protege.
 
 ## Onde trabalhar

@@ -9,16 +9,16 @@ autoriza um efeito externo.
 Antes de analisar, planejar ou alterar o projeto:
 
 1. confirme repositório, branch, SHA e estado do worktree;
-2. leia [`docs/ai/AI-BOOTSTRAP.md`](docs/ai/AI-BOOTSTRAP.md);
-3. leia [`docs/ai/PRD-COVERAGE.md`](docs/ai/PRD-COVERAGE.md) quando a tarefa
-   envolver escopo, requisito, roadmap ou definição de pronto;
-4. leia [`docs/WIKI-IGREJA12.md`](docs/WIKI-IGREJA12.md) e o runbook específico
-   antes de qualquer tarefa operacional;
-5. fixe critérios de aceite, riscos de tenant, testes e rollback antes de
-   alterar código ou schema.
+2. leia [`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`](docs/ops/MVP-PLANO-SIMPLIFICACAO.md):
+   ele é o guia operacional (fases, prioridades, regras e travas);
+3. leia [`docs/ai/PRD-COVERAGE.md`](docs/ai/PRD-COVERAGE.md) só quando a
+   tarefa envolver escopo ou requisito;
+4. para tarefa operacional, leia o runbook específico em `docs/ops/`.
 
-Um snapshot documental não substitui o código atual, o CI do mesmo SHA ou o
-estado vivo do ambiente correto.
+A governança de migration e consentimento (E4B, D3, D6, D2A, atestações,
+catálogo, F1/F2) e o `V1-FINALIZATION-MAP.md` estão **pausados e são
+históricos** (branch `archive/governanca-2026-09`). Não abra missão nessas
+frentes antes da Fase 5 do plano.
 
 ## Ordem das fontes de verdade
 
@@ -55,7 +55,8 @@ de produção.
 - Registros oficiais e documentos aprovados pelo admin são as fontes de
   conhecimento da igreja.
 - Universidade da Vida e Capacitação Destino ainda não são módulos completos.
-- Relatório de célula pelo WhatsApp é a primeira fatia vertical da nova fase.
+- A prioridade atual é o agente responder no WhatsApp da igreja piloto
+  (Filadélfia); ver as fases do plano do MVP.
 - OpenAI BYO é a credencial de IA da igreja. OpenRouter não integra o PastorAI.
 
 ## Segurança, tenant e dados
@@ -107,49 +108,28 @@ sem ler seu conteúdo.
 
 ## Contrato de mudança
 
-- Trabalhe em branch ou worktree própria e preserve alterações do usuário.
-- Mudança estrutural atualiza a fonte canônica, a matriz de cobertura e a Wiki.
-- Banco ou Supabase exige migration imperativa, RLS, grants e revokes
-  explícitos, testes cross-tenant, rollback ou compensação e verificação em
-  PostgreSQL descartável antes de qualquer ambiente compartilhado.
-- Nova migration nasce somente pelo fluxo `new_migration.py draft` e
-  `prepare-head`, vinculado ao SHA exato. O SQL e o head candidato precisam
-  formar uma única árvore Git revisada; o preparador nunca publica o head e
-  nunca autoriza aplicação.
-- Não invoque `backend/scripts/apply_migrations.py` diretamente. Ele é um
-  artefato legado de hash congelado. O wrapper catalog-bound corrente permite
-  somente inspeção source-only e mantém todos os comandos de banco bloqueados
-  até trust anchors, atestações DEV/PROD e gate de cutover separados.
-- A visão dinâmica para consumidores novos vem de
-  `backend/scripts/validated_migration_catalog_snapshot.py`; não acrescente APIs
-  ao verificador histórico byte-pinado apenas para atender um consumidor novo.
-- Para escopo tenant, a intent da migration deve enumerar relações afetadas,
-  controles RLS/ACL e testes PG17/cross-tenant realmente coletados e executados
-  sem skip. A fronteira de autoria v1 aceita somente `TENANT`; `GLOBAL` deve
-  falhar fechado até possuir contrato, revisão e testes versionados próprios.
-  Metadado declarativo nunca substitui o replay nem a revisão humana do SQL.
-  O replay corrente inventaria todas as tabelas/partições `public`, rejeita
-  criação, remoção ou mudança de fronteira não declarada e exige `igreja_id`,
-  RLS/ACL direta e policy forte em cada relação nova/declarada; não é prova
-  genérica de outros schemas, views, funções, papéis, memberships,
-  `BYPASSRLS` ou default ACLs.
-- Captura, atestação, reconciliação ou aplicação de migrations exige fonte em
-  snapshot privado do SHA exato criado por
-  `backend/scripts/trusted_repository_snapshot.py`; o checkout compartilhado
-  não é uma fonte operacional confiável e não deve receber `chmod` recursivo.
-- Não implemente UV ou CD a partir de placeholders. Primeiro aprove um PRD
-  próprio e a máquina de estados anterior da jornada.
-- Use as versões fixadas pelo projeto. O frontend usa Node 24, não Node 20 nem
-  a versão global do shell.
-- Registre evidência com SHA, ambiente, horário e limite. Não converta ausência
-  de prova em conclusão positiva.
+- Trabalhe em branch ou worktree própria, com PR pequeno, e preserve
+  alterações do usuário.
+- Uma fatia vertical por vez, na ordem do plano do MVP, testada de ponta a
+  ponta.
+- CI obrigatório: `backend-tests`, `frontend-ci`, `e2e-critical` e
+  `rls-integration`. Não crie testes que congelam hash de arquivo ou leem texto
+  de documento.
+- Banco: migration `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback
+  comentado, aplicada com `backend/scripts/migrate.py` (DEV primeiro; PROD com
+  backup antes). Ver `backend/migrations/README.md`. Não use
+  `apply_migrations.py` nem os wrappers catalog-bound (pausados).
+- Revisão independente só para migration em PROD e mudanças de
+  RLS/autenticação.
+- Não implemente UV ou CD a partir de placeholders antes da Fase 5.
+- Use as versões fixadas pelo projeto: Python 3.13 e Node 24 (`.nvmrc`), com
+  `umask 022`.
 
 ## Regra de manutenção
 
-Quando arquitetura, requisito ou estado operacional mudar:
+Ao fechar uma fatia:
 
-1. atualize o documento ou código primário;
-2. atualize `docs/ai/PRD-COVERAGE.md` se a classificação mudar;
-3. atualize a Wiki e o registro operacional quando o estado vivo mudar;
-4. registre testes e SHA sem inferir produção;
-5. mantenha exatamente um próximo gate que exija autorização.
+1. atualize o checklist da fase em `docs/ops/MVP-PLANO-SIMPLIFICACAO.md`;
+2. registre a fatia em `docs/sprints/AAAA-MM-DD-titulo.md`;
+3. atualize `docs/ai/PRD-COVERAGE.md` só se a classificação de um domínio
+   mudar.
