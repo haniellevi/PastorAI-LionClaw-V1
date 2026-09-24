@@ -176,7 +176,7 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
       `V1-FINALIZATION-MAP.md`, `MISSION-CONTROL.md` e `AI-BOOTSTRAP.md` como
       históricos.
 - [x] Criar `archive/governanca-2026-09` e remover do `main` os testes de
-      governança, hash e documento (58 arquivos, ~46 mil linhas) e 6
+      governança, hash e documento (59 arquivos, ~46 mil linhas) e 6
       workflows de CI de governança.
 - [x] Processo simples de migration: `backend/scripts/migrate.py` e
       `backend/migrations/README.md` reescrito.
