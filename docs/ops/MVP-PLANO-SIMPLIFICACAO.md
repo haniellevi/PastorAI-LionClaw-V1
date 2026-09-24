@@ -1,9 +1,11 @@
 # Igreja 12 — Plano de simplificação e caminho para o MVP
 
-Criado em 2026-09-23, sobre `origin/main` `9132d82`. Este documento propõe
-**substituir** `docs/ops/V1-FINALIZATION-MAP.md` como guia operacional, que
-passaria a ser histórico. A substituição só vale depois que o proprietário
-aprovar as decisões da seção 5.
+Criado em 2026-09-23 sobre `origin/main` `9132d82`. **Aprovado pelo
+proprietário em 2026-09-24**, com todas as decisões da seção 5. É o guia
+operacional do projeto. `docs/ops/V1-FINALIZATION-MAP.md` passa a ser
+histórico.
+
+**Igreja piloto: Filadélfia** (já cadastrada, com dados e WhatsApp conectado).
 
 Objetivo único do MVP: **uma igreja piloto conecta o WhatsApp, o agente de IA
 responde às pessoas de forma útil e os pastores acompanham tudo no painel.**
@@ -157,8 +159,8 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 1. Arquivo `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback comentado.
 2. O CI roda a migration num PostgreSQL descartável (reaproveitando o job já
    existente).
-3. **DEV:** `psql "$DEV_DATABASE_URL" -f arquivo.sql`, com registro numa tabela
-   simples `schema_migrations`.
+3. **DEV:** `MIGRATION_DATABASE_URL=... python scripts/migrate.py apply <arquivo> --yes`,
+   que registra em `public.schema_migrations` na mesma transação.
 4. **PROD:** backup, o mesmo comando, verificação e registro no log da fatia.
 5. Uma vez só: reconciliar as 44 pendentes do DEV, ou recriar o DEV a partir
    do schema de PROD (é o mais simples).
@@ -169,19 +171,27 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 
 ### Fase 0 — Destravar o processo (1 a 2 dias)
 
-- [ ] Proprietário aprova as decisões da seção 5.
-- [ ] Atualizar `CLAUDE.md` e `AGENTS.md` com as regras 3.1 a 3.4. Marcar
-      `V1-FINALIZATION-MAP.md` como histórico.
-- [ ] Criar `archive/governanca-2026-09` e remover do `main` os testes de
-      hash e de documento, e os jobs de CI de governança (ou torná-los
-      opcionais na proteção da branch).
-- [ ] Ambiente local igual ao CI: `umask 022`, Python 3.13 e Node 24.
-      Suíte local verde.
-- [ ] Limpar worktrees e branches mortas (manter só `main` e as ativas) e
-      arquivar as 9 missões abertas.
+- [x] Proprietário aprova as decisões da seção 5.
+- [x] Atualizar `CLAUDE.md` e `AGENTS.md` com as regras 3.1 a 3.4. Marcar
+      `V1-FINALIZATION-MAP.md`, `MISSION-CONTROL.md` e `AI-BOOTSTRAP.md` como
+      históricos.
+- [x] Criar `archive/governanca-2026-09` e remover do `main` os testes de
+      governança, hash e documento (58 arquivos, ~46 mil linhas) e 6
+      workflows de CI de governança.
+- [x] Processo simples de migration: `backend/scripts/migrate.py` e
+      `backend/migrations/README.md` reescrito.
+- [x] Ambiente local igual ao CI: `./test-local.sh` (Python 3.13 do
+      `backend/.venv-runtime`, Node 24 do `.nvmrc`, `umask 022`). Backend e
+      frontend (854 testes) verdes localmente.
+- [x] Checks obrigatórios da `main`: `backend-tests`, `frontend-ci`,
+      `e2e-critical`, `rls-integration` e Vercel.
+- [ ] Limpar worktrees e branches mortas (só as limpas e já integradas).
+- [ ] Reconciliar ou recriar o DEV (44 migrations pendentes) com
+      `scripts/migrate.py status`. Precisa da URL do DEV, que fica com o
+      proprietário.
 
-**Pronto quando:** `pytest` e `vitest` passam localmente, e o CI tem só os
-4 jobs obrigatórios.
+**Pronto quando:** `./test-local.sh` passa, e o CI tem só os jobs
+obrigatórios de produto.
 
 ### Fase 1 — O bot responde no WhatsApp (3 a 5 dias)
 
@@ -245,22 +255,17 @@ UV e Capacitação, e Enviar editável.
 
 ---
 
-## 5. Decisões do proprietário (necessárias antes da Fase 0)
+## 5. Decisões do proprietário (aprovadas em 2026-09-24)
 
-1. **Aprovar** a troca do guia operacional para este plano.
-2. **Autorizar** a remoção dos testes de hash e de documento, e a
-   desobrigação dos jobs de CI de governança. O agente não pode fazer isso
-   sozinho: as ferramentas bloqueiam a remoção de testes de segurança sem
-   autorização explícita.
-3. **Autorizar** o processo simples de migration (3.4) e a reconciliação ou
+1. Aprovada a troca do guia operacional para este plano.
+2. Autorizada a remoção dos testes de hash e de documento, e a desobrigação
+   dos jobs de CI de governança.
+3. Autorizado o processo simples de migration (3.4) e a reconciliação ou
    recriação do DEV.
-4. **Autorizar** a volta do agente ao caminho de sessão principal com RLS
+4. Autorizada a volta do agente ao caminho de sessão principal com RLS
    (Fase 1), pausando a sessão dedicada D2A.
-5. **Escolher** a igreja piloto e o número de teste.
-6. **Maestri:** pausar até a Fase 3 e trabalhar direto com um agente por
-   fatia.
-
----
+5. Igreja piloto: **Filadélfia**. O número de teste ainda precisa ser definido.
+6. Maestri pausado até a Fase 3; trabalho direto, um agente por fatia.
 
 ## 6. Lista de bugs e lacunas (viva)
 

@@ -6,6 +6,12 @@ last_reviewed: 2026-09-07
 reviewed_by: Raniel
 ---
 
+> **Histórico (2026-09-24).** O guia operacional agora é
+> [`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`](MVP-PLANO-SIMPLIFICACAO.md), aprovado
+> pelo proprietário. Todas as missões abertas abaixo estão **arquivadas**
+> (governança pausada até a Fase 5).
+
+
 # Mission Control
 
 Formato obrigatório de qualquer missão conduzida no canvas Maestri. O
