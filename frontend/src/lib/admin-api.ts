@@ -969,3 +969,60 @@ export async function resolveAgenteRequest(
   if (!res.ok) await throwMutationError(res, "Não foi possível resolver a requisição.");
   return asJson<AdminAgenteRequest>(res);
 }
+
+// ---------------------------------------------------------------------------
+// Triagem Jev (TypeSafe) — status somente leitura + teste sintético
+// ---------------------------------------------------------------------------
+export interface AdminJevStatus {
+  /** Chave presente no ambiente do backend (a chave nunca é devolvida). */
+  configurado: boolean;
+  /** False enquanto nenhum turno do agente chama a triagem (gate D3). */
+  integradoAoAgente: boolean;
+  /** Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste). */
+  enviosExternosPermitidos: boolean;
+  modelo: string;
+  timeoutSegundos: number;
+  /** Igrejas em modo sombra; nome null = id listado que não existe. */
+  igrejas: { id: string; nome: string | null }[];
+  idsInvalidos: number;
+}
+
+export interface AdminJevTeste {
+  ok: boolean;
+  modelo: string;
+  latenciaMs: number;
+  intencao: string;
+  riscoPastoral: number;
+  pedeOptout: number;
+}
+
+/** Lê o status da triagem Jev (configuração do deploy). */
+export async function fetchJevStatus(token: string): Promise<AdminJevStatus> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/jev`, { headers: authHeaders(token) });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) {
+    throw new AdminRequestError(res.status, "Não foi possível carregar o status do Jev.");
+  }
+  return asJson<AdminJevStatus>(res);
+}
+
+/** Testa a conexão com o Jev usando a mensagem sintética fixa do backend. */
+export async function testJev(token: string): Promise<AdminJevTeste> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/jev/teste`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível testar o Jev.");
+  return asJson<AdminJevTeste>(res);
+}

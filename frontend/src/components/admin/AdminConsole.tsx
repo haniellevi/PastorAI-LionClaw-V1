@@ -25,6 +25,7 @@ import { useAdminAuth } from "@/lib/admin-auth-context";
 import { AuditModal } from "./AuditModal";
 import { ChurchPage } from "./ChurchPage";
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
+import { JevModal } from "./JevModal";
 import { OrquestradorModal } from "./OrquestradorModal";
 import { PlanosManagerModal } from "./PlanosManagerModal";
 
@@ -73,6 +74,7 @@ export function AdminConsole() {
   const [planosOpen, setPlanosOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [orquestradorOpen, setOrquestradorOpen] = useState(false);
+  const [jevOpen, setJevOpen] = useState(false);
   const [viewing, setViewing] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -195,6 +197,9 @@ export function AdminConsole() {
         <div style={{ display: "flex", gap: "var(--s2)" }}>
           <Button variant="ghost" size="sm" onClick={() => setOrquestradorOpen(true)}>
             Orquestrador
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setJevOpen(true)}>
+            Jev
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setPlanosOpen(true)}>
             Planos
@@ -340,6 +345,10 @@ export function AdminConsole() {
           onClose={() => setOrquestradorOpen(false)}
           onExpired={logout}
         />
+      ) : null}
+
+      {jevOpen && token ? (
+        <JevModal token={token} onClose={() => setJevOpen(false)} onExpired={logout} />
       ) : null}
     </div>
   );
