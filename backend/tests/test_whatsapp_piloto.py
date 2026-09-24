@@ -68,30 +68,65 @@ def test_helper_do_worker_le_a_lista(monkeypatch, ids: str, esperado: bool) -> N
     assert _REAL_HELPER(_PILOTO) is esperado
 
 
-class _ConnSession:
-    """Sessão mínima: devolve uma conexão WhatsApp para qualquer select."""
-
-    def execute(self, _stmt):
-        conn = type("Conn", (), {"instance": "inst-1"})()
-        return type("R", (), {"scalar_one_or_none": lambda self: conn})()
+def test_padroes_seguros_de_producao() -> None:
+    fields = Settings.model_fields
+    assert fields["whatsapp_piloto_igreja_ids"].default == ""
+    assert fields["whatsapp_sla_enabled"].default is False
 
 
 @pytest.mark.parametrize(
     "ids,sla,esperado",
     [
-        ("", True, None),  # igreja fora do piloto
-        (str(_PILOTO), False, None),  # piloto, mas SLA por WhatsApp desligado
-        (str(_PILOTO), True, "inst-1"),
+        ("", True, False),  # igreja fora do piloto
+        (str(_PILOTO), False, False),  # piloto, mas SLA por WhatsApp desligado
+        (str(_PILOTO), True, True),
     ],
 )
-def test_sla_so_envia_em_piloto_com_flag(monkeypatch, ids, sla, esperado) -> None:
+def test_sla_whatsapp_so_em_piloto_com_flag(monkeypatch, ids, sla, esperado) -> None:
     settings = _settings(ids)
     settings.whatsapp_sla_enabled = sla
     monkeypatch.setattr(sla_engine, "get_settings", lambda: settings)
-    assert sla_engine._instance(_ConnSession(), _PILOTO) == esperado
+    assert sla_engine._sla_whatsapp_allowed(_PILOTO) is esperado
 
 
-@pytest.mark.parametrize("ids,esperado", [("", None), (str(_PILOTO), "inst-1")])
-def test_aviso_de_billing_so_em_piloto(monkeypatch, ids, esperado) -> None:
-    monkeypatch.setattr(billing_worker, "get_settings", lambda: _settings(ids))
-    assert billing_worker._notify_instance(_ConnSession(), _PILOTO) == esperado
+class _NadaSession:
+    """Sessão mínima: nenhum marcador existente, nenhum registro encontrado."""
+
+    def execute(self, _stmt):
+        return type("R", (), {"first": lambda self: None})()
+
+    def get(self, *_a):
+        return None
+
+
+def test_sla_fechado_adia_sem_reservar_marcador(monkeypatch) -> None:
+    from app.agent import masking
+
+    monkeypatch.setattr(sla_engine, "get_settings", lambda: _settings(""))
+
+    def _nao_reserva(*_a, **_k):  # pragma: no cover
+        raise AssertionError("gate fechado: nada é reservado (a cobrança fica pendente)")
+
+    monkeypatch.setattr(masking, "reserve_agent_event", _nao_reserva)
+    breach = sla_engine.SlaBreach(
+        igreja_id=_PILOTO,
+        source="work_queue",
+        item_id=uuid.uuid4(),
+        kind="fonovisita",
+        status=sla_engine.SlaStatus.COBRANCA,
+        titulo="Ligar para visitante",
+    )
+    engine = sla_engine.SlaEngine(evolution=object())
+    assert engine._dispatch(_NadaSession(), breach, "inst-1") is False
+
+
+def test_aviso_de_billing_fora_do_piloto_fica_pendente(monkeypatch) -> None:
+    monkeypatch.setattr(billing_worker, "get_settings", lambda: _settings(""))
+
+    def _nao_notifica(*_a, **_k):  # pragma: no cover
+        raise AssertionError("fora do piloto nada é enviado")
+
+    monkeypatch.setattr(billing_worker, "notify_autoupgrade", _nao_notifica)
+    op = type("Op", (), {"notify_status": "pending", "to_plano": "101_200", "id": uuid.uuid4()})()
+    assert billing_worker._deliver_upgrade_notification(None, op, _PILOTO, object()) is False
+    assert op.notify_status == "pending"

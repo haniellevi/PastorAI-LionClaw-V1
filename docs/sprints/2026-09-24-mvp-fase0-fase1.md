@@ -25,11 +25,14 @@
 
 - A sessão dedicada D2A foi pausada: ela devolvia sempre "unavailable" e
   impedia qualquer resposta.
-- A lista de piloto cobre todo o WhatsApp automático. Ligar
+- A lista de piloto cobre o agente, o aviso de billing e o SLA. Ligar
   `ALLOW_REAL_SENDS` sozinho mandaria cobranças de SLA acumuladas para
-  líderes de todas as igrejas com WhatsApp conectado.
-- O SLA por WhatsApp tem flag própria, para o acúmulo não sair de uma vez no
-  go-live.
+  líderes de todas as igrejas com WhatsApp conectado. O aviso de agenda
+  (`AGENDA_NOTIFY_ENABLED`) e o broadcast agendado (`BROADCAST_ASYNC_ENABLED`)
+  **não** passam pela lista; têm flags próprias, desligadas.
+- O SLA por WhatsApp tem flag própria. Com ela desligada, a cobrança fica
+  pendente (nada é consumido); ao ligar, o acúmulo sai de uma vez, então
+  limpe a fila antes. O aviso de billing fora do piloto também fica pendente.
 
 ## Pendente / próximo passo
 

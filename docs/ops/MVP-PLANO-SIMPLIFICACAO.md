@@ -204,8 +204,11 @@ obrigatórios de produto.
       `ALLOW_REAL_SENDS=true`. Envios feitos por uma pessoa no painel não
       dependem da lista.
 - [x] Nova env `WHATSAPP_SLA_ENABLED` (desligada). Cobranças de SLA por
-      WhatsApp só com ela ligada **e** igreja piloto, para evitar que o
-      acúmulo saia de uma vez quando o freio global abrir.
+      WhatsApp só com ela ligada **e** igreja piloto. Enquanto estiver
+      desligada, as cobranças ficam pendentes; ao ligar, o acúmulo sai de uma
+      vez, então limpe a fila antes. Aviso de agenda e broadcast agendado têm
+      flags próprias (`AGENDA_NOTIFY_ENABLED`, `BROADCAST_ASYNC_ENABLED`) e não
+      passam pela lista.
 - [ ] Verificar a instância Evolution antes de enviar; timeout ou 5xx vira
       nova tentativa limitada, em vez de "ambígua para sempre" (B3; fatia
       própria).

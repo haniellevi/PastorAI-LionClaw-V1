@@ -2396,6 +2396,12 @@ def run_agent_for_message(
     ``agent_session_factory`` selects the paused D2A path; ``None`` disables
     the turn and never falls back to ``session_factory``.
     """
+    # Piloto do MVP: o agente só roda para igrejas listadas em
+    # WHATSAPP_PILOTO_IGREJA_IDS. Primeira instrução: fora da lista a mensagem
+    # fica só ingerida (inbox), sem identidade, sessão, reserva, LLM ou envio.
+    if not _whatsapp_reply_enabled(outcome.igreja_id):
+        return AgentRunDisposition.COMPLETED
+
     trusted_identity_enabled = (
         get_settings().agent_trusted_inbound_identity_enabled
     )
@@ -2425,12 +2431,6 @@ def run_agent_for_message(
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
     igreja_id = _require_agent_igreja_id(outcome)
-
-    # Piloto do MVP: o agente só roda para igrejas listadas em
-    # WHATSAPP_PILOTO_IGREJA_IDS. Fora da lista a mensagem fica só ingerida (inbox),
-    # sem reserva de resposta, LLM ou envio.
-    if not _whatsapp_reply_enabled(igreja_id):
-        return AgentRunDisposition.COMPLETED
 
     provider_message_id = _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
@@ -2696,6 +2696,10 @@ def main() -> None:  # pragma: no cover - process entrypoint
         # MVP Fase 1: o agente roda na sessão principal com tenant fixado
         # (mark_tenant_scoped + require_tenant_scope → RLS por igreja_id). A
         # sessão dedicada D2A está pausada: ela devolve sempre "unavailable".
+        pilotos = [
+            i for i in get_settings().whatsapp_piloto_igreja_ids.split(",") if i.strip()
+        ]
+        logger.info("WhatsApp automático: %d igreja(s) piloto", len(pilotos))
         if get_settings().agent_runtime_database_url.strip():
             logger.warning(
                 "AGENT_RUNTIME_DATABASE_URL ignorada: sessão dedicada D2A pausada "

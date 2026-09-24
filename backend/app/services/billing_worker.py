@@ -126,9 +126,7 @@ def _autoupgrade_sent_event_name(
 
 
 def _notify_instance(db: Session, igreja_id: uuid.UUID) -> str | None:
-    """Instância para o aviso automático; None fora das igrejas piloto (MVP)."""
-    if not get_settings().whatsapp_piloto(igreja_id):
-        return None
+    """Instância WhatsApp oficial da igreja (None sem conexão)."""
     conn = db.execute(
         select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
     ).scalar_one_or_none()
@@ -289,6 +287,10 @@ def _deliver_upgrade_notification(
     após sucesso. Nunca reverte nem bloqueia o billing.
     """
     if op.notify_status != "pending":
+        return False
+    if not get_settings().whatsapp_piloto(igreja_id):
+        # MVP: aviso automático por WhatsApp só em igreja piloto. Fica
+        # 'pending' (nada reservado nem enviado) e sai quando a igreja entrar.
         return False
     try:
         outcome = notify_autoupgrade(
