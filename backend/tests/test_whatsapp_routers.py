@@ -1338,5 +1338,5 @@ def test_fetch_instances_parsing_both_shapes() -> None:
 
     body = [{"name": "other", "connectionStatus": "close"}, flat]
     assert EvolutionClient._select_instance(body, "igreja-x")["name"] == "igreja-x"
-    # sem match → cai no primeiro dict (servidor de instância única)
-    assert EvolutionClient._select_instance([nested], "zzz") == nested
+    # Sem correspondência, nunca usar estado/número de outra igreja.
+    assert EvolutionClient._select_instance([nested], "zzz") == {}

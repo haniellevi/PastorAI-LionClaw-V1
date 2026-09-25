@@ -13,13 +13,16 @@ from sqlalchemy.exc import IntegrityError
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.domain.conversations import parse_message_event
 from app.domain.phone import normalize_phone
+from app.workers import queue_worker as worker_module
 from app.workers.queue_worker import (
+    AGENT_REPLY_RETRY_BACKOFF_SECONDS,
     AmbiguousPessoaIdentity,
     DEAD_LETTER_QUEUE,
     MAX_ATTEMPTS,
     REDIS_CONNECT_TIMEOUT_SECONDS,
     REDIS_MAX_CONNECTIONS,
     REDIS_SOCKET_TIMEOUT_SECONDS,
+    SCHEDULED_RETRY_QUEUE,
     WEBHOOK_QUEUE,
     WORKER_LEASE_SECONDS,
     WORKER_REGISTRY,
@@ -47,6 +50,8 @@ class FakeRedis:
         self.lists: dict[str, list[str]] = {}
         self.kv: dict[str, str] = {}
         self.sets: dict[str, set[str]] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
+        self.hashes: dict[str, dict[str, str]] = {}
         self.direct_lrem_calls = 0
         self.failed_transition_calls = 0
         self.fence_calls: list[tuple[str, str]] = []
@@ -124,13 +129,191 @@ class FakeRedis:
         values.remove(value)
         return 1
 
+    def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        values = self.zsets.setdefault(key, {})
+        added = 0
+        for value, score in mapping.items():
+            if value not in values:
+                added += 1
+            values[value] = float(score)
+        return added
+
+    def zscore(self, key: str, value: str) -> float | None:
+        return self.zsets.get(key, {}).get(value)
+
+    def zrangebyscore(self, key: str, minimum: float, maximum: float) -> list[str]:
+        values = self.zsets.get(key, {})
+        return [
+            value
+            for value, score in sorted(values.items(), key=lambda item: (item[1], item[0]))
+            if minimum <= score <= maximum
+        ]
+
+    def zrem(self, key: str, value: str) -> int:
+        values = self.zsets.get(key, {})
+        if value not in values:
+            return 0
+        del values[value]
+        return 1
+
     def eval(self, script: str, numkeys: int, *values: str) -> int:
-        if numkeys == 3 and "LREM" in script:
-            # Failed claims move only when the same worker still owns both the
-            # live lease and the raw item in its private processing list.  The
-            # destination is persisted before removing the source claim so a
-            # failed source removal stays recoverable rather than losing work.
-            lease_key, processing, target, worker_id, raw, replacement = values
+        def remove_once(items: list[str], value: str) -> int:
+            try:
+                items.pop(items.index(value))
+            except ValueError:
+                return 0
+            return 1
+
+        def owner_is_live(state: dict[str, str]) -> bool:
+            owner = state.get("owner")
+            owner_lease = state.get("owner_lease")
+            owner_processing = state.get("owner_processing")
+            return bool(
+                owner
+                and owner_lease
+                and owner_processing
+                and self.kv.get(owner_lease) == owner
+                and state.get("raw") in self.lists.get(owner_processing, [])
+            )
+
+        def current_is_owner(
+            state: dict[str, str], lease_key: str, processing: str, worker_id: str, raw: str
+        ) -> bool:
+            return (
+                state.get("raw") == raw
+                and state.get("status") == "processing"
+                and state.get("owner") == worker_id
+                and state.get("owner_lease") == lease_key
+                and state.get("owner_processing") == processing
+            )
+
+        if numkeys == 2 and "ZRANGEBYSCORE" in script:
+            scheduled, ready, due_at = values
+            moved = 0
+            for replacement in self.zrangebyscore(scheduled, float("-inf"), float(due_at)):
+                destination = self.lists.setdefault(ready, [])
+                if replacement not in destination:
+                    self.lpush(ready, replacement)
+                self.zrem(scheduled, replacement)
+                moved += 1
+            return moved
+
+        if numkeys == 6 and "HGET" in script:
+            (
+                lease_key,
+                processing,
+                state_key,
+                scheduled,
+                ready,
+                dead,
+                worker_id,
+                raw,
+                now,
+                _ttl,
+            ) = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            items = self.lists.get(processing, [])
+            if raw not in items:
+                return 0
+            state = self.hashes.get(state_key)
+            if not state:
+                return 0
+            replacement = state["raw"]
+            status = state["status"]
+            if status == "processing":
+                if owner_is_live(state):
+                    if replacement == raw and current_is_owner(
+                        state, lease_key, processing, worker_id, raw
+                    ):
+                        return 0
+                    return remove_once(items, raw)
+                if replacement == raw:
+                    state.update(
+                        {
+                            "status": "processing",
+                            "owner": worker_id,
+                            "owner_lease": lease_key,
+                            "owner_processing": processing,
+                        }
+                    )
+                    return 0
+                if replacement not in self.lists.get(ready, []):
+                    self.lpush(ready, replacement)
+                state["status"] = "ready"
+                state.pop("owner", None)
+                state.pop("owner_lease", None)
+                state.pop("owner_processing", None)
+                return remove_once(items, raw)
+            if replacement == raw and status != "dead":
+                due_at = float(state["retry_at"]) if state["retry_at"] else None
+                if status == "ready" or (due_at is not None and due_at <= float(now)):
+                    state.update(
+                        {
+                            "status": "processing",
+                            "owner": worker_id,
+                            "owner_lease": lease_key,
+                            "owner_processing": processing,
+                        }
+                    )
+                    return 0
+            if status == "scheduled":
+                if (
+                    replacement not in self.zsets.get(scheduled, {})
+                    and replacement not in self.lists.get(ready, [])
+                ):
+                    self.zadd(scheduled, {replacement: float(state["retry_at"])})
+            elif status == "ready":
+                if replacement not in self.lists.get(ready, []):
+                    self.lpush(ready, replacement)
+            elif status == "dead":
+                if replacement not in self.lists.get(dead, []):
+                    self.lpush(dead, replacement)
+            elif status == "done":
+                return remove_once(items, raw)
+            else:
+                return -1
+            return remove_once(items, raw)
+
+        if numkeys == 3 and "A successful canonical claim" in script:
+            lease_key, processing, state_key, worker_id, raw, _ttl = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            items = self.lists.get(processing, [])
+            if raw not in items:
+                return 0
+            state = self.hashes.get(state_key)
+            if state:
+                if state.get("raw") != raw:
+                    return 0
+                if state.get("status") == "processing":
+                    if not current_is_owner(
+                        state, lease_key, processing, worker_id, raw
+                    ):
+                        return 0
+                    state["status"] = "done"
+                    state.pop("owner", None)
+                    state.pop("owner_lease", None)
+                    state.pop("owner_processing", None)
+                elif state.get("status") != "done":
+                    return 0
+            return self.lrem(processing, 1, raw)
+
+        if numkeys == 4 and "A failed claim" in script:
+            (
+                lease_key,
+                processing,
+                target,
+                state_key,
+                worker_id,
+                raw,
+                replacement,
+                failure,
+                retry_at,
+                next_attempts,
+                status,
+                _ttl,
+            ) = values
             self.failed_transition_calls += 1
             if self.kv.get(lease_key) != worker_id:
                 return 0
@@ -139,35 +322,118 @@ class FakeRedis:
                 index = items.index(raw)
             except ValueError:
                 return 0
-            destination = self.lists.setdefault(target, [])
-            if replacement not in destination:
-                self.lpush(target, replacement)
+            state = self.hashes.get(state_key)
+            if state:
+                if (
+                    int(state["attempts"]) != int(next_attempts) - 1
+                    or state.get("raw") != raw
+                    or state.get("status") != "processing"
+                ):
+                    return 0
+                if any(
+                    state.get(field) is not None
+                    for field in ("owner", "owner_lease", "owner_processing")
+                ):
+                    if not current_is_owner(
+                        state, lease_key, processing, worker_id, raw
+                    ):
+                        return 0
+                else:
+                    state.update(
+                        {
+                            "owner": worker_id,
+                            "owner_lease": lease_key,
+                            "owner_processing": processing,
+                        }
+                    )
+            self.hashes[state_key] = {
+                "raw": replacement,
+                "attempts": next_attempts,
+                "retry_at": retry_at,
+                "status": status,
+            }
+            if failure in {"before_destination", "target_write_error"}:
+                return -10
+            if retry_at:
+                self.zadd(target, {replacement: float(retry_at)})
+            else:
+                destination = self.lists.setdefault(target, [])
+                if replacement not in destination:
+                    self.lpush(target, replacement)
+            if failure in {"after_destination", "before_source"}:
+                return -12
             items.pop(index)
+            if failure == "after_source":
+                return -15
             return 1
 
-        if numkeys == 3:  # marker mutation only for the live raw-item owner
-            lease_key, processing, marker_key, worker_id, raw, expected, *rest = values
+        if numkeys == 4 and "redis.call('SET', KEYS[3]" in script:
+            (
+                lease_key,
+                processing,
+                marker_key,
+                state_key,
+                worker_id,
+                raw,
+                expected,
+                done,
+                _ttl,
+            ) = values
             if self.kv.get(lease_key) != worker_id:
                 return 0
             if raw not in self.lists.get(processing, []):
                 return 0
+            state = self.hashes.get(state_key)
+            if state and not current_is_owner(
+                state, lease_key, processing, worker_id, raw
+            ):
+                return 0
             if self.kv.get(marker_key) != expected:
                 return 0
-            if rest:
-                done, _ttl = rest
-                self.kv[marker_key] = done
-            else:
-                self.kv.pop(marker_key, None)
+            self.kv[marker_key] = done
             return 1
 
-        if "LRANGE" in script:  # atomic worker lease + private-list ownership
-            lease_key, processing, worker_id, raw, *_ttl = values
+        if numkeys == 4 and "redis.call('DEL', KEYS[3])" in script:
+            lease_key, processing, marker_key, state_key, worker_id, raw, expected = values
             if self.kv.get(lease_key) != worker_id:
                 return 0
-            owned = raw in self.lists.get(processing, [])
-            if owned and _ttl:
-                self.fence_calls.append((worker_id, _ttl[0]))
+            if raw not in self.lists.get(processing, []):
+                return 0
+            state = self.hashes.get(state_key)
+            if state and not current_is_owner(
+                state, lease_key, processing, worker_id, raw
+            ):
+                return 0
+            if self.kv.get(marker_key) != expected:
+                return 0
+            self.kv.pop(marker_key, None)
+            return 1
+
+        if numkeys == 3 and "EXPIRE" in script:
+            lease_key, processing, state_key, worker_id, raw, ttl, _state_ttl = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            state = self.hashes.get(state_key)
+            owned = raw in self.lists.get(processing, []) and (
+                not state
+                or current_is_owner(state, lease_key, processing, worker_id, raw)
+            )
+            if owned:
+                self.fence_calls.append((worker_id, ttl))
             return int(owned)
+
+        if numkeys == 3 and "LRANGE" in script:
+            lease_key, processing, state_key, worker_id, raw = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            state = self.hashes.get(state_key)
+            return int(
+                raw in self.lists.get(processing, [])
+                and (
+                    not state
+                    or current_is_owner(state, lease_key, processing, worker_id, raw)
+                )
+            )
 
         assert numkeys == 1
         key, *args = values
@@ -1861,3 +2127,378 @@ def test_build_redis_has_bounded_pool_and_timeouts(monkeypatch) -> None:
     assert captured["socket_connect_timeout"] == REDIS_CONNECT_TIMEOUT_SECONDS
     assert captured["socket_timeout"] == REDIS_SOCKET_TIMEOUT_SECONDS
     assert captured["max_connections"] == REDIS_MAX_CONNECTIONS
+
+
+def test_agent_transport_retry_exhausts_budget_only_after_persisted_deadlines(monkeypatch):
+    from app.workers.queue_worker import AgentReplyRetryable
+
+    redis = FakeRedis()
+    clock = [1_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    worker_id = "agent-bounded"
+    queue.register_worker(worker_id)
+    worker = QueueWorker(queue=queue, session_factory=lambda: None, worker_id=worker_id)
+    attempts = []
+
+    def retry(envelope, **kwargs):
+        attempts.append(envelope.attempts)
+        raise AgentReplyRetryable("synthetic transient send failure")
+
+    monkeypatch.setattr(worker, "handle_envelope", retry)
+    queue.enqueue(_parsed_payload("BOUNDED-AGENT"))
+    while True:
+        raw = queue.claim(worker_id, timeout=0)
+        if raw is None:
+            deadlines = redis.zsets.get(SCHEDULED_RETRY_QUEUE, {})
+            if not deadlines:
+                break
+            deadline = min(deadlines.values())
+            assert deadline > clock[0]
+            assert attempts == list(range(len(attempts)))
+            clock[0] = deadline
+            continue
+        worker._handle_raw(raw)
+
+    assert attempts == list(range(MAX_ATTEMPTS))
+    assert redis.lists.get(WEBHOOK_QUEUE) in (None, [])
+    assert redis.zsets.get(SCHEDULED_RETRY_QUEUE) in (None, {})
+    assert len(redis.lists[DEAD_LETTER_QUEUE]) == 1
+    assert _Envelope.from_json(redis.lists[DEAD_LETTER_QUEUE][0]).attempts == MAX_ATTEMPTS
+
+
+def test_agent_retry_schedule_survives_restart_and_leaves_ready_envelopes_independent(
+    monkeypatch,
+):
+    from app.workers.queue_worker import AgentReplyRetryable
+
+    redis = FakeRedis()
+    clock = [2_000.0]
+    first_queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    first_worker_id = "agent-retry-first"
+    first_queue.register_worker(first_worker_id)
+    first_worker = QueueWorker(
+        queue=first_queue,
+        session_factory=lambda: None,
+        worker_id=first_worker_id,
+    )
+    calls: list[int] = []
+
+    def retry(envelope, **kwargs):
+        calls.append(envelope.attempts)
+        raise AgentReplyRetryable("synthetic transient send failure")
+
+    monkeypatch.setattr(first_worker, "handle_envelope", retry)
+    first_queue.enqueue(_parsed_payload("SCHEDULED-RETRY"))
+    raw = first_queue.claim(first_worker_id, timeout=0)
+    assert raw is not None
+    first_worker._handle_raw(raw)  # noqa: SLF001
+
+    scheduled = redis.zsets[SCHEDULED_RETRY_QUEUE]
+    assert len(scheduled) == 1
+    replacement, deadline = next(iter(scheduled.items()))
+    persisted = _Envelope.from_json(replacement)
+    assert persisted.attempts == 1
+    assert persisted.retry_at == pytest.approx(
+        clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    )
+
+    restarted_queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    restarted_worker_id = "agent-retry-restarted"
+    restarted_queue.register_worker(restarted_worker_id)
+    assert restarted_queue.recover_pending(restarted_worker_id) == 0
+    assert restarted_queue.claim(restarted_worker_id, timeout=0) is None
+    assert calls == [0]
+
+    restarted_queue.enqueue(_parsed_payload("READY-DOES-NOT-WAIT"))
+    ready_raw = restarted_queue.claim(restarted_worker_id, timeout=0)
+    assert ready_raw is not None
+    assert _Envelope.from_json(ready_raw).payload["data"]["key"]["id"] == "READY-DOES-NOT-WAIT"
+    restarted_queue.ack(restarted_worker_id, ready_raw)
+    assert calls == [0]
+
+    clock[0] = deadline
+    retry_raw = restarted_queue.claim(restarted_worker_id, timeout=0)
+    assert retry_raw == replacement
+    assert _Envelope.from_json(retry_raw).attempts == 1
+
+
+def test_recovered_partial_schedule_does_not_bypass_the_persisted_deadline() -> None:
+    """A source copy left by Lua is reconciled in favor of its delayed retry."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    clock = [5_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    old_worker_id = "retry-partial-old"
+    new_worker_id = "retry-partial-new"
+    queue.register_worker(old_worker_id)
+    original = _Envelope(payload=_parsed_payload("PARTIAL-SCHEDULE"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(old_worker_id, timeout=0) == raw
+
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    replacement = _Envelope(
+        payload=original.payload,
+        attempts=1,
+        claim_id=original.claim_id,
+        retry_at=deadline,
+    ).to_json()
+    state_key = worker_module._retry_state_key(original.claim_id)
+    assert redis.eval(
+        worker_module._MOVE_FAILED_CLAIM_SCRIPT,
+        4,
+        queue._lease_key(old_worker_id),  # noqa: SLF001
+        queue.processing_queue(old_worker_id),
+        SCHEDULED_RETRY_QUEUE,
+        state_key,
+        old_worker_id,
+        raw,
+        replacement,
+        "after_destination",
+        str(deadline),
+        "1",
+        "scheduled",
+        str(worker_module.RETRY_STATE_TTL_SECONDS),
+    ) == -12
+    assert redis.lists[queue.processing_queue(old_worker_id)] == [raw]
+    assert redis.zsets[SCHEDULED_RETRY_QUEUE] == {replacement: deadline}
+    assert redis.hashes[state_key]["raw"] == replacement
+
+    redis.delete(queue._lease_key(old_worker_id))  # noqa: SLF001
+    queue.register_worker(new_worker_id)
+    assert queue.recover_pending(new_worker_id) == 1
+    assert queue.claim(new_worker_id, timeout=0) is None
+    assert redis.lists[queue.processing_queue(new_worker_id)] == []
+    assert redis.zsets[SCHEDULED_RETRY_QUEUE] == {replacement: deadline}
+
+    clock[0] = deadline
+    # If recovery races exactly with promotion, the source raw is still
+    # discarded in favor of the replacement already made ready at the deadline.
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(new_worker_id, timeout=0) is None
+    assert queue.claim(new_worker_id, timeout=0) == replacement
+
+
+def test_newer_retry_wins_when_old_raw_is_ready_in_the_opposite_order() -> None:
+    """A stale source must not discard its newer same-claim replacement."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    clock = [6_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    first_worker_id = "retry-order-first"
+    second_worker_id = "retry-order-second"
+    queue.register_worker(first_worker_id)
+    queue.register_worker(second_worker_id)
+    original = _Envelope(payload=_parsed_payload("ORDER-INVERTED"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(first_worker_id, timeout=0) == raw
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    queue.transition_failed_claim(
+        first_worker_id,
+        raw,
+        original,
+        retry_at=deadline,
+    )
+
+    clock[0] = deadline
+    queue._promote_due_retries()  # noqa: SLF001
+    replacement = redis.lists[WEBHOOK_QUEUE][0]
+    assert _Envelope.from_json(replacement).attempts == 1
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(second_worker_id, timeout=0) == replacement
+    queue.ack(second_worker_id, replacement)
+    assert queue.claim(second_worker_id, timeout=0) is None
+    assert redis.hashes[worker_module._retry_state_key(original.claim_id)]["attempts"] == "1"
+
+
+def test_stale_raw_is_discarded_when_the_canonical_retry_is_processing_elsewhere() -> None:
+    """A replacement claimed by W2 remains canonical while W1 recovers its source."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    clock = [7_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    first_worker_id = "retry-processing-first"
+    second_worker_id = "retry-processing-second"
+    queue.register_worker(first_worker_id)
+    queue.register_worker(second_worker_id)
+    original = _Envelope(payload=_parsed_payload("CANONICAL-PROCESSING"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(first_worker_id, timeout=0) == raw
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    queue.transition_failed_claim(
+        first_worker_id,
+        raw,
+        original,
+        retry_at=deadline,
+    )
+
+    clock[0] = deadline
+    replacement = queue.claim(second_worker_id, timeout=0)
+    assert replacement is not None
+    assert _Envelope.from_json(replacement).attempts == 1
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(first_worker_id, timeout=0) is None
+    assert redis.lists[queue.processing_queue(second_worker_id)] == [replacement]
+    assert redis.hashes[worker_module._retry_state_key(original.claim_id)]["attempts"] == "1"
+
+
+def test_canonical_retry_owner_closes_claim_reconcile_window() -> None:
+    """A duplicate made before reconciliation cannot survive its live owner."""
+
+    class PausingFakeRedis(FakeRedis):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pause_destination = ""
+            self.pause_reached = Event()
+            self.resume = Event()
+            self._paused = False
+
+        def brpoplpush(self, source: str, destination: str, timeout: int = 0):
+            raw = super().brpoplpush(source, destination, timeout)
+            if (
+                raw is not None
+                and destination == self.pause_destination
+                and not self._paused
+            ):
+                self._paused = True
+                self.pause_reached.set()
+                assert self.resume.wait(timeout=2)
+            return raw
+
+    redis = PausingFakeRedis()
+    clock = [10_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    old_worker = "canonical-old"
+    recovery_worker = "canonical-recovery"
+    canonical_worker = "canonical-owner"
+    stale_worker = "canonical-stale"
+    duplicate_worker = "canonical-duplicate"
+    for worker_id in (
+        old_worker,
+        recovery_worker,
+        canonical_worker,
+        stale_worker,
+        duplicate_worker,
+    ):
+        queue.register_worker(worker_id)
+
+    original = _Envelope(payload=_parsed_payload("CANONICAL-OWNER"))
+    raw_old = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw_old)
+    assert queue.claim(old_worker, timeout=0) == raw_old
+
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    raw_canonical = _Envelope(
+        payload=original.payload,
+        attempts=1,
+        claim_id=original.claim_id,
+        retry_at=deadline,
+    ).to_json()
+    state_key = worker_module._retry_state_key(original.claim_id)
+    assert redis.eval(
+        worker_module._MOVE_FAILED_CLAIM_SCRIPT,
+        4,
+        queue._lease_key(old_worker),  # noqa: SLF001
+        queue.processing_queue(old_worker),
+        SCHEDULED_RETRY_QUEUE,
+        state_key,
+        old_worker,
+        raw_old,
+        raw_canonical,
+        "after_destination",
+        str(deadline),
+        "1",
+        "scheduled",
+        str(worker_module.RETRY_STATE_TTL_SECONDS),
+    ) == -12
+
+    clock[0] = deadline
+    queue._promote_due_retries()  # noqa: SLF001
+    redis.delete(queue._lease_key(old_worker))  # noqa: SLF001
+    assert queue.recover_pending(recovery_worker) == 1
+
+    redis.pause_destination = queue.processing_queue(canonical_worker)
+    canonical_claim: list[str | None] = []
+    errors: list[BaseException] = []
+
+    def claim_canonical() -> None:
+        try:
+            canonical_claim.append(queue.claim(canonical_worker, timeout=0))
+        except BaseException as exc:  # pragma: no cover - assertion relay
+            errors.append(exc)
+
+    thread = Thread(target=claim_canonical)
+    thread.start()
+    assert redis.pause_reached.wait(timeout=2)
+    assert queue.claim(stale_worker, timeout=0) is None
+    assert redis.zscore(SCHEDULED_RETRY_QUEUE, raw_canonical) == deadline
+    redis.resume.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert not errors
+    assert canonical_claim == [raw_canonical]
+    assert redis.hashes[state_key] == {
+        "raw": raw_canonical,
+        "attempts": "1",
+        "retry_at": str(deadline),
+        "status": "processing",
+        "owner": canonical_worker,
+        "owner_lease": queue._lease_key(canonical_worker),  # noqa: SLF001
+        "owner_processing": queue.processing_queue(canonical_worker),
+    }
+
+    # The stale reconciliation recreated the due ZSET member while B was
+    # between BRPOPLPUSH and its claim fence. C can move that duplicate, but it
+    # cannot receive it while B's canonical owner is still live.
+    assert queue.claim(duplicate_worker, timeout=0) is None
+    assert redis.lists[queue.processing_queue(canonical_worker)] == [raw_canonical]
+    assert redis.lists[queue.processing_queue(duplicate_worker)] == []
+
+
+def test_expired_canonical_owner_is_recovered_without_resetting_retry_state() -> None:
+    """A new live owner resumes the canonical raw after the old lease expires."""
+
+    redis = FakeRedis()
+    clock = [11_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    old_worker = "expired-canonical-old"
+    new_worker = "expired-canonical-new"
+    queue.register_worker(old_worker)
+    queue.register_worker(new_worker)
+    original = _Envelope(payload=_parsed_payload("EXPIRED-CANONICAL"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(old_worker, timeout=0) == raw
+
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    queue.transition_failed_claim(
+        old_worker,
+        raw,
+        original,
+        retry_at=deadline,
+    )
+    clock[0] = deadline
+    canonical = queue.claim(old_worker, timeout=0)
+    assert canonical is not None
+    state_key = worker_module._retry_state_key(original.claim_id)
+    assert redis.hashes[state_key]["owner"] == old_worker
+
+    redis.delete(queue._lease_key(old_worker))  # noqa: SLF001
+    assert queue.recover_pending(new_worker) == 1
+    recovered = queue.claim(new_worker, timeout=0)
+
+    assert recovered == canonical
+    assert redis.hashes[state_key] == {
+        "raw": canonical,
+        "attempts": "1",
+        "retry_at": str(deadline),
+        "status": "processing",
+        "owner": new_worker,
+        "owner_lease": queue._lease_key(new_worker),  # noqa: SLF001
+        "owner_processing": queue.processing_queue(new_worker),
+    }

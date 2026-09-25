@@ -31,7 +31,7 @@ desabilitada no registro de capacidades do agente.
 - O backend implantado contém o mesmo commit ou um descendente revisado.
 - `/health` responde `ok` e `/ready` responde `ready`.
 - A instância Evolution da igreja está online.
-- A fila de entrada e a fila de processamento estão vazias.
+- As filas de entrada, processamento e retry agendado estão vazias.
 - A dead-letter canônica está vazia. Um item legado sem metadados seguros não
   pode ser atribuído ao número do canário por suposição: ele bloqueia a
   ativação até ser preservado por uma quarentena atômica, em gate separado,
@@ -282,7 +282,24 @@ casos:
 - mensagem ou mutação em outro tenant;
 - perda de saúde do backend, Redis, worker ou Evolution.
 
-Resultado ambíguo nunca recebe reenvio automático.
+Para versões anteriores a B3, resultado ambíguo nunca recebe reenvio automático.
+Na fatia B3 do plano MVP, autorizada para desenvolvimento em 25/09/2026,
+timeout de leitura/escrita e HTTP 408/5xx do envio do agente passam a consumir
+o orçamento de até cinco tentativas por envelope, seguido de dead-letter.
+Cada tentativa consulta a instância por nome exato e reconfirma a posse do
+claim imediatamente antes do POST. Broadcast mantém a regra conservadora;
+falha de confirmação local e demais resultados não classificados continuam
+em quarentena. Essa exceção pode duplicar uma resposta que a Evolution já
+aceitou. Os critérios de abortar o canário continuam válidos, e a implementação
+local não autoriza canário, envio real, deploy ou replay manual da dead-letter.
+
+Na correção P1 da PR416, essas tentativas retentáveis aguardam prazos
+persistidos de 5, 15, 30 e 60 segundos antes das tentativas dois a cinco. Uma
+retry agendada é trabalho pendente no preflight e não deve ser promovida antes
+do prazo para limpar a fila. A reconciliação usa o estado canônico do claim,
+de modo que uma cópia antiga recuperada não consome nem redefine o orçamento,
+inclusive quando a cópia nova já está em processamento. Não há tratamento de
+`Retry-After` neste recorte.
 
 ## Quarentena de dead-letter legada
 

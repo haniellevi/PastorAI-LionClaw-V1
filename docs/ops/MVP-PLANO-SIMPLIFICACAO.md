@@ -209,9 +209,11 @@ obrigatórios de produto.
       vez, então limpe a fila antes. Aviso de agenda e broadcast agendado têm
       flags próprias (`AGENDA_NOTIFY_ENABLED`, `BROADCAST_ASYNC_ENABLED`) e não
       passam pela lista.
-- [ ] Verificar a instância Evolution antes de enviar; timeout ou 5xx vira
+- [x] Verificar a instância Evolution antes de enviar; timeout ou 5xx vira
       nova tentativa limitada, em vez de "ambígua para sempre" (B3; fatia
-      própria).
+      própria). Implementação local em 25/09: até cinco tentativas por envelope,
+      depois dead-letter; sem teste real ou deploy. Timeout após envio pode
+      duplicar resposta, pois a Evolution não garante idempotência nesse fluxo.
 - [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo).
 
 **Pronto quando:** as mensagens para o número da Filadélfia recebem resposta

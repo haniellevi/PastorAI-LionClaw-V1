@@ -559,3 +559,109 @@ def test_reconnect_with_number_resets_session_before_pairing(monkeypatch) -> Non
     res = EvolutionClient(_settings()).reconnect("igreja-1", numero="5511999998888")
     assert res.pairing_code == "PAIR-0001"
     assert res.qr is None
+
+
+@pytest.mark.parametrize("state", ["close", "connecting", "online", None])
+def test_agent_send_waits_for_connected_instance(monkeypatch, state):
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        assert request.url.params["instanceName"] == "igreja-1"
+        return httpx.Response(200, json=[{"name": "igreja-1", "connectionStatus": state}])
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_agent_text("igreja-1", "5511", "oi")
+    assert result.status == "falhou_retentavel"
+    assert calls == ["GET"]
+
+
+@pytest.mark.parametrize("failure", [408, 500, 502, 503, 504, "read", "write"])
+def test_agent_send_transient_failure_can_retry(monkeypatch, failure):
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json=[{"name": "igreja-1", "connectionStatus": "open"}])
+        if failure == "read":
+            raise httpx.ReadTimeout("synthetic", request=request)
+        if failure == "write":
+            raise httpx.WriteTimeout("synthetic", request=request)
+        return httpx.Response(failure)
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_agent_text("igreja-1", "5511", "oi")
+    assert result.status == "falhou_retentavel"
+    assert calls == ["GET", "POST"]
+
+
+def test_agent_send_guard_blocks_status_and_send(monkeypatch):
+    def handler(request):
+        pytest.fail("network while sends disabled")
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings(allow_real_sends=False)).send_agent_text("i", "5511", "oi")
+    assert result.status == "suprimido"
+
+
+@pytest.mark.parametrize("code,expected", [(200, "aceito"), (401, "falhou_permanente")])
+@pytest.mark.parametrize("state", ["open", "connected"])
+def test_worker_uses_agent_preflight_and_classification(monkeypatch, code, expected, state):
+    from app.workers.queue_worker import _send_agent_reply
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json=[{"name": "igreja-1", "connectionStatus": state}])
+        return httpx.Response(code)
+    _use_transport(monkeypatch, handler)
+    result = _send_agent_reply(EvolutionClient(_settings()), "igreja-1", "5511", "oi")
+    assert result == expected
+    assert calls == ["GET", "POST"]
+
+
+@pytest.mark.parametrize("failure", [503, "timeout", "wrong_instance"])
+def test_agent_status_failure_never_posts(monkeypatch, failure):
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("synthetic", request=request)
+        if failure == "wrong_instance":
+            return httpx.Response(200, json=[{"name": "other", "connectionStatus": "open"}])
+        return httpx.Response(failure)
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).send_agent_text("igreja-1", "5511", "oi").status == "falhou_retentavel"
+    assert calls == ["GET"]
+
+
+@pytest.mark.parametrize("code", [400, 401, 403, 404])
+def test_agent_status_permanent_error_does_not_retry(monkeypatch, code):
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(code)
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).send_agent_text("igreja-1", "5511", "oi").status == "falhou_permanente"
+    assert calls == ["GET"]
+
+
+def test_worker_lost_ownership_after_status_cannot_post(monkeypatch):
+    from app.workers.queue_worker import _send_agent_reply, ClaimOwnershipLost
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(200, json=[{"name": "igreja-1", "connectionStatus": "open"}])
+    def guard():
+        assert calls == ["GET"]
+        raise ClaimOwnershipLost("synthetic lease loss")
+    _use_transport(monkeypatch, handler)
+    with pytest.raises(ClaimOwnershipLost):
+        _send_agent_reply(EvolutionClient(_settings()), "igreja-1", "5511", "oi", ownership_guard=guard)
+    assert calls == ["GET"]
+
+
+@pytest.mark.parametrize("invalid", ["config", "json"])
+def test_agent_invalid_preflight_is_terminal(monkeypatch, invalid):
+    def handler(request):
+        assert invalid == "json"
+        return httpx.Response(200, text="not json")
+    _use_transport(monkeypatch, handler)
+    settings = _settings(evolution_api_url="" if invalid == "config" else "http://evo:8080")
+    assert EvolutionClient(settings).send_agent_text("igreja-1", "5511", "oi").status == "falhou_permanente"
