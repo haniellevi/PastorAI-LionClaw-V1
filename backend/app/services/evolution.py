@@ -22,7 +22,7 @@ import logging
 import math
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.utils import parsedate_to_datetime
 from threading import Lock
 
@@ -395,6 +395,38 @@ class EvolutionClient:
             raise EvolutionError("Falha ao enviar mensagem pela Evolution API") from exc
         return True
 
+    def send_agent_text(
+        self, instance: str, telefone: str, texto: str
+    ) -> BroadcastSendResult:
+        """Check connectivity, then attempt one agent reply.
+
+        The webhook queue owns the bounded retry budget. A timeout/5xx after
+        POST may duplicate a reply: Evolution has no idempotency guarantee.
+        Broadcasts retain their conservative unknown-outcome policy.
+        """
+        if not external_sends_allowed(self._settings):
+            return BroadcastSendResult(
+                status="suprimido", error_class="envio_externo_bloqueado"
+            )
+        try:
+            connection = self.fetch_status(instance)
+        except EvolutionError:
+            return BroadcastSendResult(
+                status="falhou_retentavel", error_class="status_indisponivel"
+            )
+        if connection.status != "online":
+            return BroadcastSendResult(
+                status="falhou_retentavel", error_class="instancia_desconectada"
+            )
+        result = self.send_text_classificado(instance, telefone, texto)
+        retryable = {"read_timeout", "write_timeout", "http_408"}
+        if result.status == "desconhecido" and (
+            result.error_class in retryable
+            or (result.error_class or "").startswith("http_5")
+        ):
+            return replace(result, status="falhou_retentavel")
+        return result
+
     def send_text_classificado(
         self, instance: str, telefone: str, texto: str
     ) -> BroadcastSendResult:
@@ -676,9 +708,8 @@ class EvolutionClient:
     def _select_instance(body: object, instance: str) -> dict:
         """Pick the entry matching `instance` from a fetchInstances response.
 
-        Evolution returns a list (one item per instance); filtering by name may
-        still return several on some versions. Falls back to the first dict
-        entry when no name matches (single-instance servers).
+        Evolution may ignore the name filter. Never use another tenant's
+        connection state or paired number when the requested name is absent.
         """
         items = body if isinstance(body, list) else [body]
         for item in items:
@@ -687,9 +718,6 @@ class EvolutionClient:
             inner = item.get("instance") if isinstance(item.get("instance"), dict) else item
             name = inner.get("instanceName") or inner.get("name") or item.get("name")
             if name == instance:
-                return item
-        for item in items:
-            if isinstance(item, dict):
                 return item
         return {}
 

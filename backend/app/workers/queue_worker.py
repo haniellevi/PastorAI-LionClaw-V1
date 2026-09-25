@@ -2169,9 +2169,11 @@ def _release_agent_execution_reservation(
 def _send_agent_reply(
     client: Any, instance: str | None, telefone: str | None, response: str
 ) -> str:
-    """Classify one provider call conservatively without exposing its response."""
+    """Use the agent connectivity/retry policy without exposing provider data."""
 
-    classified = getattr(client, "send_text_classificado", None)
+    classified = getattr(client, "send_agent_text", None)
+    if classified is None:
+        classified = getattr(client, "send_text_classificado", None)
     if classified is None:
         classified = getattr(client, "send_text_classified", None)
     try:
@@ -2192,13 +2194,14 @@ def _deliver_agent_reply_intent(
     *,
     evolution_client: Any | None,
 ) -> None:
-    """Run at most one Evolution transport for a durable reply intent.
+    """Run at most one Evolution transport per attempt of a durable reply intent.
 
     Evolution does not provide an idempotency key contract.  Therefore an
     in-flight, ambiguous, failed, or suppressed intent is never auto-sent
     again; only a persisted ``ia_pendente`` intent can cross the provider
-    boundary.  Operators can reconcile quarantined rows safely before any
-    manual recovery.
+    boundary. Known timeout/5xx outcomes return to pending and consume the
+    webhook queue's MAX_ATTEMPTS budget. A lost confirmation still requires
+    manual reconciliation; retries can duplicate a provider-accepted reply.
     """
 
     _require_agent_igreja_id(outcome)
@@ -2298,7 +2301,7 @@ def _deliver_agent_reply_intent(
             _quarantine_agent_reply(session_factory, outcome, intent)
             return
         if released:
-            raise AgentReplyRetryable("Evolution rejected agent reply before send")
+            raise AgentReplyRetryable("Evolution agent reply requires bounded retry")
         return
 
     if status == "desconhecido":

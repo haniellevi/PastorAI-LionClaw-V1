@@ -1861,3 +1861,31 @@ def test_build_redis_has_bounded_pool_and_timeouts(monkeypatch) -> None:
     assert captured["socket_connect_timeout"] == REDIS_CONNECT_TIMEOUT_SECONDS
     assert captured["socket_timeout"] == REDIS_SOCKET_TIMEOUT_SECONDS
     assert captured["max_connections"] == REDIS_MAX_CONNECTIONS
+
+
+def test_agent_transport_retry_exhausts_queue_budget(monkeypatch):
+    from app.workers.queue_worker import AgentReplyRetryable
+
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "agent-bounded"
+    queue.register_worker(worker_id)
+    worker = QueueWorker(queue=queue, session_factory=lambda: None, worker_id=worker_id)
+    attempts = []
+
+    def retry(envelope, **kwargs):
+        attempts.append(envelope.attempts)
+        raise AgentReplyRetryable("synthetic transient send failure")
+
+    monkeypatch.setattr(worker, "handle_envelope", retry)
+    queue.enqueue(_parsed_payload("BOUNDED-AGENT"))
+    for _ in range(MAX_ATTEMPTS + 1):
+        raw = queue.claim(worker_id, timeout=0)
+        if raw is None:
+            break
+        worker._handle_raw(raw)
+
+    assert attempts == list(range(MAX_ATTEMPTS))
+    assert redis.lists.get(WEBHOOK_QUEUE) in (None, [])
+    assert len(redis.lists[DEAD_LETTER_QUEUE]) == 1
+    assert _Envelope.from_json(redis.lists[DEAD_LETTER_QUEUE][0]).attempts == MAX_ATTEMPTS
