@@ -202,10 +202,35 @@ if state_key then
     end
     local current_attempts_raw = redis.call('HGET', state_key, 'attempts')
     local current_attempts = current_attempts_raw and tonumber(current_attempts_raw) or nil
-    if current_attempts and current_attempts >= next_attempts then
-        -- A newer or equivalent canonical replacement already exists. Leave
-        -- this stale source recoverable; reconciliation will remove it.
-        return 0
+    if current_attempts then
+        -- A retry raw is allowed to advance only from the canonical state it
+        -- owns. A private processing list alone is insufficient because a
+        -- partial transition can leave the same raw in more than one list.
+        if current_attempts ~= next_attempts - 1
+            or redis.call('HGET', state_key, 'raw') ~= ARGV[2]
+            or redis.call('HGET', state_key, 'status') ~= 'processing' then
+            return 0
+        end
+        local owner = redis.call('HGET', state_key, 'owner')
+        local owner_lease = redis.call('HGET', state_key, 'owner_lease')
+        local owner_processing = redis.call('HGET', state_key, 'owner_processing')
+        if owner or owner_lease or owner_processing then
+            if owner ~= ARGV[1]
+                or owner_lease ~= KEYS[1]
+                or owner_processing ~= KEYS[2] then
+                return 0
+            end
+        else
+            -- R4 may leave an in-flight canonical state without an owner while
+            -- this raw is still recoverable. The first valid transition adopts
+            -- it atomically rather than accepting an unfenced mutation.
+            redis.call(
+                'HSET', state_key,
+                'owner', ARGV[1],
+                'owner_lease', KEYS[1],
+                'owner_processing', KEYS[2]
+            )
+        end
     end
     local saved = redis.pcall(
         'HSET', state_key,
@@ -219,6 +244,15 @@ if state_key then
     end
     local expires = redis.pcall('EXPIRE', state_key, ARGV[8])
     if type(expires) == 'table' and expires.err then
+        return -9
+    end
+    local cleared = redis.pcall(
+        'HDEL', state_key,
+        'owner',
+        'owner_lease',
+        'owner_processing'
+    )
+    if type(cleared) == 'table' and cleared.err then
         return -9
     end
 end
@@ -322,7 +356,8 @@ return moved
 _RECONCILE_RETRY_CLAIM_SCRIPT = """
 -- A claimed raw may be an older copy left by a partial transition. The hash is
 -- canonical for its claim id, so queue order and the location of another copy
--- never decide which attempt is allowed to run.
+-- never decide which attempt is allowed to run. Once a canonical raw is in a
+-- private list, its owner is part of this hash and fences every later effect.
 local lease_type = redis.call('TYPE', KEYS[1]).ok
 local processing_type = redis.call('TYPE', KEYS[2]).ok
 local state_type = redis.call('TYPE', KEYS[3]).ok
@@ -383,14 +418,97 @@ local function list_has(items, value)
     return false
 end
 
+local function adopt_current_owner()
+    local saved = redis.pcall(
+        'HSET', KEYS[3],
+        'status', 'processing',
+        'owner', ARGV[1],
+        'owner_lease', KEYS[1],
+        'owner_processing', KEYS[2]
+    )
+    if type(saved) == 'table' and saved.err then
+        return false
+    end
+    local expires = redis.pcall('EXPIRE', KEYS[3], ARGV[4])
+    if type(expires) == 'table' and expires.err then
+        return false
+    end
+    return true
+end
+
+local function owner_is_live()
+    local owner = redis.call('HGET', KEYS[3], 'owner')
+    local owner_lease = redis.call('HGET', KEYS[3], 'owner_lease')
+    local owner_processing = redis.call('HGET', KEYS[3], 'owner_processing')
+    if not owner or not owner_lease or not owner_processing then
+        return false
+    end
+    if redis.call('TYPE', owner_lease).ok ~= 'string'
+        or redis.call('TYPE', owner_processing).ok ~= 'list'
+        or redis.call('GET', owner_lease) ~= owner then
+        return false
+    end
+    return list_has(redis.call('LRANGE', owner_processing, 0, -1), replacement)
+end
+
+local function current_is_owner()
+    return redis.call('HGET', KEYS[3], 'owner') == ARGV[1]
+        and redis.call('HGET', KEYS[3], 'owner_lease') == KEYS[1]
+        and redis.call('HGET', KEYS[3], 'owner_processing') == KEYS[2]
+end
+
+if status == 'processing' then
+    if owner_is_live() then
+        if replacement == ARGV[2] and current_is_owner() then
+            return 0
+        end
+        return redis.call('LREM', KEYS[2], 1, ARGV[2])
+    end
+    if replacement == ARGV[2] then
+        if not adopt_current_owner() then
+            return -9
+        end
+        return 0
+    end
+
+    -- The previous owner has truly expired. Restore the canonical raw before
+    -- discarding this stale source so a partial transition cannot lose the
+    -- persisted attempt, deadline, or only recoverable copy.
+    if not list_has(redis.call('LRANGE', KEYS[5], 0, -1), replacement) then
+        local pushed = redis.pcall('LPUSH', KEYS[5], replacement)
+        if type(pushed) == 'table' and pushed.err then
+            return -7
+        end
+    end
+    local restored = redis.pcall('HSET', KEYS[3], 'status', 'ready')
+    if type(restored) == 'table' and restored.err then
+        return -9
+    end
+    local cleared = redis.pcall(
+        'HDEL', KEYS[3],
+        'owner',
+        'owner_lease',
+        'owner_processing'
+    )
+    if type(cleared) == 'table' and cleared.err then
+        return -9
+    end
+    local expires = redis.pcall('EXPIRE', KEYS[3], ARGV[4])
+    if type(expires) == 'table' and expires.err then
+        return -9
+    end
+    return redis.call('LREM', KEYS[2], 1, ARGV[2])
+end
+
 if replacement == ARGV[2] and status ~= 'dead' then
     local due_at = tonumber(retry_at)
     if status == 'scheduled' and not due_at then
         return -5
     end
-    if status ~= 'scheduled' or due_at <= now then
-        redis.call('HSET', KEYS[3], 'status', 'processing')
-        redis.call('EXPIRE', KEYS[3], ARGV[4])
+    if status == 'ready' or (status == 'scheduled' and due_at <= now) then
+        if not adopt_current_owner() then
+            return -9
+        end
         return 0
     end
 end
@@ -420,7 +538,9 @@ elseif status == 'dead' then
             return -8
         end
     end
-elseif status ~= 'processing' then
+elseif status == 'done' then
+    return redis.call('LREM', KEYS[2], 1, ARGV[2])
+else
     return -5
 end
 return redis.call('LREM', KEYS[2], 1, ARGV[2])
@@ -431,12 +551,31 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then
     return 0
 end
 local items = redis.call('LRANGE', KEYS[2], 0, -1)
+local owned = false
 for _, item in ipairs(items) do
     if item == ARGV[2] then
-        return 1
+        owned = true
+        break
     end
 end
-return 0
+if not owned then
+    return 0
+end
+local state_type = redis.call('TYPE', KEYS[3]).ok
+if state_type == 'none' then
+    return 1
+end
+if state_type ~= 'hash' then
+    return 0
+end
+if redis.call('HGET', KEYS[3], 'raw') ~= ARGV[2]
+    or redis.call('HGET', KEYS[3], 'status') ~= 'processing'
+    or redis.call('HGET', KEYS[3], 'owner') ~= ARGV[1]
+    or redis.call('HGET', KEYS[3], 'owner_lease') ~= KEYS[1]
+    or redis.call('HGET', KEYS[3], 'owner_processing') ~= KEYS[2] then
+    return 0
+end
+return 1
 """
 
 _RELEASE_MARKER_IF_OWNED_SCRIPT = """
@@ -446,6 +585,17 @@ end
 local items = redis.call('LRANGE', KEYS[2], 0, -1)
 for _, item in ipairs(items) do
     if item == ARGV[2] then
+        local state_type = redis.call('TYPE', KEYS[4]).ok
+        if state_type ~= 'none' and (
+            state_type ~= 'hash'
+            or redis.call('HGET', KEYS[4], 'raw') ~= ARGV[2]
+            or redis.call('HGET', KEYS[4], 'status') ~= 'processing'
+            or redis.call('HGET', KEYS[4], 'owner') ~= ARGV[1]
+            or redis.call('HGET', KEYS[4], 'owner_lease') ~= KEYS[1]
+            or redis.call('HGET', KEYS[4], 'owner_processing') ~= KEYS[2]
+        ) then
+            return 0
+        end
         if redis.call('GET', KEYS[3]) == ARGV[3] then
             return redis.call('DEL', KEYS[3])
         end
@@ -462,7 +612,21 @@ end
 local items = redis.call('LRANGE', KEYS[2], 0, -1)
 for _, item in ipairs(items) do
     if item == ARGV[2] then
+        local state_type = redis.call('TYPE', KEYS[3]).ok
+        if state_type ~= 'none' and (
+            state_type ~= 'hash'
+            or redis.call('HGET', KEYS[3], 'raw') ~= ARGV[2]
+            or redis.call('HGET', KEYS[3], 'status') ~= 'processing'
+            or redis.call('HGET', KEYS[3], 'owner') ~= ARGV[1]
+            or redis.call('HGET', KEYS[3], 'owner_lease') ~= KEYS[1]
+            or redis.call('HGET', KEYS[3], 'owner_processing') ~= KEYS[2]
+        ) then
+            return 0
+        end
         redis.call('EXPIRE', KEYS[1], ARGV[3])
+        if state_type == 'hash' then
+            redis.call('EXPIRE', KEYS[3], ARGV[4])
+        end
         return 1
     end
 end
@@ -476,6 +640,17 @@ end
 local items = redis.call('LRANGE', KEYS[2], 0, -1)
 for _, item in ipairs(items) do
     if item == ARGV[2] then
+        local state_type = redis.call('TYPE', KEYS[4]).ok
+        if state_type ~= 'none' and (
+            state_type ~= 'hash'
+            or redis.call('HGET', KEYS[4], 'raw') ~= ARGV[2]
+            or redis.call('HGET', KEYS[4], 'status') ~= 'processing'
+            or redis.call('HGET', KEYS[4], 'owner') ~= ARGV[1]
+            or redis.call('HGET', KEYS[4], 'owner_lease') ~= KEYS[1]
+            or redis.call('HGET', KEYS[4], 'owner_processing') ~= KEYS[2]
+        ) then
+            return 0
+        end
         if redis.call('GET', KEYS[3]) == ARGV[3] then
             redis.call('SET', KEYS[3], ARGV[4], 'EX', ARGV[5])
             return 1
@@ -484,6 +659,54 @@ for _, item in ipairs(items) do
     end
 end
 return 0
+"""
+
+_ACK_CLAIM_SCRIPT = """
+-- A successful canonical claim becomes done in the same Redis operation that
+-- removes its private-list copy. A stale duplicate can never ACK after the
+-- canonical owner changed or after it already reached a terminal state.
+local lease_type = redis.call('TYPE', KEYS[1]).ok
+local processing_type = redis.call('TYPE', KEYS[2]).ok
+local state_type = redis.call('TYPE', KEYS[3]).ok
+if lease_type ~= 'string' or processing_type ~= 'list' then
+    return 0
+end
+if state_type ~= 'none' and state_type ~= 'hash' then
+    return 0
+end
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+local owned = false
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        owned = true
+        break
+    end
+end
+if not owned then
+    return 0
+end
+if state_type == 'hash' then
+    local status = redis.call('HGET', KEYS[3], 'status')
+    if redis.call('HGET', KEYS[3], 'raw') ~= ARGV[2] then
+        return 0
+    end
+    if status == 'processing' then
+        if redis.call('HGET', KEYS[3], 'owner') ~= ARGV[1]
+            or redis.call('HGET', KEYS[3], 'owner_lease') ~= KEYS[1]
+            or redis.call('HGET', KEYS[3], 'owner_processing') ~= KEYS[2] then
+            return 0
+        end
+        redis.call('HSET', KEYS[3], 'status', 'done')
+        redis.call('HDEL', KEYS[3], 'owner', 'owner_lease', 'owner_processing')
+        redis.call('EXPIRE', KEYS[3], ARGV[3])
+    elseif status ~= 'done' then
+        return 0
+    end
+end
+return redis.call('LREM', KEYS[2], 1, ARGV[2])
 """
 
 # Postgres error code for unique_violation (23505) — the only IntegrityError
@@ -1421,22 +1644,42 @@ class WebhookQueue:
             raise ValueError("Webhook retry backoff is exhausted")
         return self._clock() + AGENT_REPLY_RETRY_BACKOFF_SECONDS[attempts]
 
-    def ack(self, worker_id: str, raw: str) -> None:
-        """Acknowledge one claimed item after success, ignore, or requeue."""
-        self._redis.lrem(self.processing_queue(worker_id), 1, raw)
+    def ack(self, worker_id: str, raw: str) -> bool:
+        """Acknowledge one claim without letting a stale canonical copy win."""
+        try:
+            envelope = _Envelope.from_json(raw)
+        except (TypeError, ValueError):
+            return bool(self._redis.lrem(self.processing_queue(worker_id), 1, raw))
+        try:
+            return bool(
+                self._redis.eval(
+                    _ACK_CLAIM_SCRIPT,
+                    3,
+                    self._lease_key(worker_id),
+                    self.processing_queue(worker_id),
+                    _retry_state_key(envelope.claim_id),
+                    worker_id,
+                    raw,
+                    str(RETRY_STATE_TTL_SECONDS),
+                )
+            )
+        except Exception:  # noqa: BLE001 - retain an unverified claim for recovery
+            logger.warning("Webhook claim acknowledgement could not be verified")
+            return False
 
     def owns_claim(self, worker_id: str, raw: str) -> bool:
         """Return whether this live worker still owns this exact queue item.
 
-        Lease and private-list membership are checked in one Redis script so a
-        recovered item cannot be processed concurrently by its expired owner.
+        Lease, private-list membership and canonical retry ownership are checked
+        in one Redis script so a recovered copy cannot cross an effect fence.
         """
         return bool(
             self._redis.eval(
                 _OWNS_CLAIM_SCRIPT,
-                2,
+                3,
                 self._lease_key(worker_id),
                 self.processing_queue(worker_id),
+                _retry_state_key(_Envelope.from_json(raw).claim_id),
                 worker_id,
                 raw,
             )
@@ -1454,12 +1697,14 @@ class WebhookQueue:
             owned = bool(
                 self._redis.eval(
                     _FENCE_CLAIM_SCRIPT,
-                    2,
+                    3,
                     self._lease_key(worker_id),
                     self.processing_queue(worker_id),
+                    _retry_state_key(_Envelope.from_json(raw).claim_id),
                     worker_id,
                     raw,
                     str(WORKER_LEASE_SECONDS),
+                    str(RETRY_STATE_TTL_SECONDS),
                 )
             )
         except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
@@ -1568,10 +1813,11 @@ class WebhookQueue:
         return bool(
             self._redis.eval(
                 _MARK_DONE_IF_OWNED_SCRIPT,
-                3,
+                4,
                 self._lease_key(worker_id),
                 self.processing_queue(worker_id),
                 key,
+                _retry_state_key(claim_id),
                 worker_id,
                 raw,
                 self._claim_marker(claim_id),
@@ -1602,10 +1848,11 @@ class WebhookQueue:
         return bool(
             self._redis.eval(
                 _RELEASE_MARKER_IF_OWNED_SCRIPT,
-                3,
+                4,
                 self._lease_key(worker_id),
                 self.processing_queue(worker_id),
                 key,
+                _retry_state_key(claim_id),
                 worker_id,
                 raw,
                 self._claim_marker(claim_id),

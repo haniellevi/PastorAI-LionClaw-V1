@@ -1380,3 +1380,157 @@ def test_b3_recovered_worker_cannot_ack_before_preflight_owner_releases(msg_engi
         assert not redis.lists.get(worker_module.DEAD_LETTER_QUEUE)
     finally:
         http.close()
+
+
+def test_b3_canonical_owner_survives_execution_lease_release_before_retry_transition(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A duplicate canonical raw cannot resend between PG release and Redis EVAL."""
+
+    from tests.test_whatsapp_worker import FakeRedis
+
+    class PausingFakeRedis(FakeRedis):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pause_destination = ""
+            self.pause_reached = threading.Event()
+            self.resume = threading.Event()
+            self._paused = False
+
+        def brpoplpush(self, source: str, destination: str, timeout: int = 0):
+            raw = super().brpoplpush(source, destination, timeout)
+            if (
+                raw is not None
+                and destination == self.pause_destination
+                and not self._paused
+            ):
+                self._paused = True
+                self.pause_reached.set()
+                assert self.resume.wait(timeout=2)
+            return raw
+
+    factory = _factory(msg_engine_fx)
+    _seed_agent_delivery(factory)
+    agent_calls = _stub_agent(monkeypatch)
+    evolution = _ClassifiedEvolution("falhou_retentavel", "aceito")
+    redis = PausingFakeRedis()
+    clock = [4_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    old_worker = "r5-old"
+    recovery_worker = "r5-recovery"
+    owner_worker = "r5-owner"
+    stale_worker = "r5-stale"
+    competing_worker = "r5-competing"
+    for worker_id in (
+        old_worker,
+        recovery_worker,
+        owner_worker,
+        stale_worker,
+        competing_worker,
+    ):
+        queue.register_worker(worker_id)
+
+    payload = _payload("B3-R5-LEASE-WINDOW")
+    original = _Envelope(payload=payload)
+    raw_old = original.to_json()
+    redis.lpush(worker_module.WEBHOOK_QUEUE, raw_old)
+    assert queue.claim(old_worker, timeout=0) == raw_old
+    first_deadline = clock[0] + worker_module.AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    canonical = _Envelope(
+        payload=payload,
+        attempts=1,
+        claim_id=original.claim_id,
+        retry_at=first_deadline,
+    ).to_json()
+    state_key = worker_module._retry_state_key(original.claim_id)
+    assert redis.eval(
+        worker_module._MOVE_FAILED_CLAIM_SCRIPT,
+        4,
+        queue._lease_key(old_worker),  # noqa: SLF001
+        queue.processing_queue(old_worker),
+        worker_module.SCHEDULED_RETRY_QUEUE,
+        state_key,
+        old_worker,
+        raw_old,
+        canonical,
+        "after_destination",
+        str(first_deadline),
+        "1",
+        "scheduled",
+        str(worker_module.RETRY_STATE_TTL_SECONDS),
+    ) == -12
+
+    clock[0] = first_deadline
+    queue._promote_due_retries()  # noqa: SLF001
+    redis.delete(queue._lease_key(old_worker))  # noqa: SLF001
+    assert queue.recover_pending(recovery_worker) == 1
+    redis.pause_destination = queue.processing_queue(owner_worker)
+    owner_claim: list[str | None] = []
+    claim_errors: list[BaseException] = []
+
+    def claim_owner() -> None:
+        try:
+            owner_claim.append(queue.claim(owner_worker, timeout=0))
+        except BaseException as exc:  # pragma: no cover - assertion relay
+            claim_errors.append(exc)
+
+    claim_thread = threading.Thread(target=claim_owner)
+    claim_thread.start()
+    assert redis.pause_reached.wait(timeout=2)
+    assert queue.claim(stale_worker, timeout=0) is None
+    redis.resume.set()
+    claim_thread.join(timeout=2)
+    assert not claim_thread.is_alive()
+    assert not claim_errors
+    assert owner_claim == [canonical]
+
+    workers = {
+        worker_id: QueueWorker(
+            queue=queue,
+            session_factory=factory,
+            worker_id=worker_id,
+            agent_runner=lambda sf, outcome, guard: run_agent_for_message(
+                sf, outcome, guard, evolution_client=evolution
+            ),
+        )
+        for worker_id in (owner_worker, competing_worker)
+    }
+    competing_claims: list[str | None] = []
+    original_close = worker_module._AgentExecutionLease.close
+    released = False
+
+    def close_then_compete(lease) -> None:
+        nonlocal released
+        original_close(lease)
+        if released:
+            return
+        released = True
+        competing_raw = queue.claim(competing_worker, timeout=0)
+        competing_claims.append(competing_raw)
+        if competing_raw is not None:
+            workers[competing_worker]._handle_raw(competing_raw)  # noqa: SLF001
+
+    monkeypatch.setattr(worker_module._AgentExecutionLease, "close", close_then_compete)
+    workers[owner_worker]._handle_raw(canonical)  # noqa: SLF001
+
+    assert competing_claims == [None]
+    assert len(evolution.calls) == 1
+    assert agent_calls == ["agent"]
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_pendente"]
+    scheduled = redis.zsets[worker_module.SCHEDULED_RETRY_QUEUE]
+    assert len(scheduled) == 1
+    retry_raw, second_deadline = next(iter(scheduled.items()))
+    assert _Envelope.from_json(retry_raw).attempts == 2
+    assert second_deadline == pytest.approx(
+        first_deadline + worker_module.AGENT_REPLY_RETRY_BACKOFF_SECONDS[1]
+    )
+    assert redis.hashes[state_key]["attempts"] == "2"
+    assert redis.hashes[state_key]["status"] == "scheduled"
+
+    clock[0] = second_deadline
+    retry = queue.claim(competing_worker, timeout=0)
+    assert retry == retry_raw
+    workers[competing_worker]._handle_raw(retry)  # noqa: SLF001
+    assert len(evolution.calls) == 2
+    assert agent_calls == ["agent"]
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]

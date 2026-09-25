@@ -21,6 +21,7 @@ import pytest
 import redis
 
 from app.workers.queue_worker import (
+    _ACK_CLAIM_SCRIPT,
     _MOVE_DUE_RETRIES_SCRIPT,
     _MOVE_FAILED_CLAIM_SCRIPT,
     _RECONCILE_RETRY_CLAIM_SCRIPT,
@@ -224,6 +225,29 @@ def _reconcile(
             owner,
             raw,
             str(now),
+            str(RETRY_STATE_TTL_SECONDS),
+        )
+    )
+
+
+def _ack(
+    client: redis.Redis,
+    *,
+    lease: str,
+    processing: str,
+    state_key: str,
+    owner: str,
+    raw: str,
+) -> int:
+    return int(
+        client.eval(
+            _ACK_CLAIM_SCRIPT,
+            3,
+            lease,
+            processing,
+            state_key,
+            owner,
+            raw,
             str(RETRY_STATE_TTL_SECONDS),
         )
     )
@@ -673,7 +697,14 @@ def test_real_redis7_newer_retry_survives_old_raw_left_ready_in_inverse_order(
     ) == 0
     assert redis7.hget(state_key, "attempts") == "1"
 
-    assert redis7.lrem(processing, 1, replacement) == 1
+    assert _ack(
+        redis7,
+        lease=lease,
+        processing=processing,
+        state_key=state_key,
+        owner="owner-a",
+        raw=replacement,
+    ) == 1
     assert redis7.rpoplpush(ready, processing) == raw
     assert _reconcile(
         redis7,
@@ -752,3 +783,130 @@ def test_real_redis7_stale_source_cannot_run_while_retry_is_processing_elsewhere
     assert redis7.lrange(processing, 0, -1) == []
     assert redis7.lrange(second_processing, 0, -1) == [replacement]
     assert redis7.hget(state_key, "attempts") == "1"
+
+
+def test_real_redis7_canonical_owner_fences_duplicate_and_recovers_after_expiry(
+    redis7: redis.Redis,
+) -> None:
+    """The canonical raw has one live owner, then transfers after lease expiry."""
+
+    suffix = "canonical-owner-fence"
+    lease, processing, scheduled, raw, replacement = _seed(redis7, suffix=suffix)
+    claim_id = f"claim-{suffix}"
+    state_key = _retry_state_key(claim_id)
+    ready = f"m08:ready:{suffix}"
+    dead = f"m08:dead:{suffix}"
+    owner_b = "owner-b"
+    owner_c = "owner-c"
+    lease_b = f"m08:lease:{suffix}:b"
+    processing_b = f"m08:processing:{suffix}:b"
+    stale_lease = f"m08:lease:{suffix}:stale"
+    stale_processing = f"m08:processing:{suffix}:stale"
+    lease_c = f"m08:lease:{suffix}:c"
+    processing_c = f"m08:processing:{suffix}:c"
+    duplicate_processing = f"m08:processing:{suffix}:duplicate"
+    duplicate_lease = f"m08:lease:{suffix}:duplicate"
+    due_at = 23_000.0
+
+    assert _move_with_state(
+        redis7,
+        lease=lease,
+        processing=processing,
+        target=scheduled,
+        state_key=state_key,
+        owner="owner-a",
+        raw=raw,
+        replacement=replacement,
+        failure="after_destination",
+        scheduled_at=due_at,
+    ) == -12
+    assert _promote(redis7, scheduled=scheduled, ready=ready, now=due_at) == 1
+
+    # B moves the canonical retry before its reconcile. A recovered stale raw
+    # can therefore rebuild the due ZSET member, exactly as the R4 race did.
+    redis7.delete(lease)
+    redis7.set(lease_b, owner_b)
+    assert redis7.rpoplpush(ready, processing_b) == replacement
+    redis7.set(stale_lease, "owner-stale")
+    assert redis7.rpoplpush(processing, stale_processing) == raw
+    assert _reconcile(
+        redis7,
+        lease=stale_lease,
+        processing=stale_processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-stale",
+        raw=raw,
+        now=due_at,
+    ) == 1
+    assert redis7.zscore(scheduled, replacement) == due_at
+    assert _reconcile(
+        redis7,
+        lease=lease_b,
+        processing=processing_b,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner=owner_b,
+        raw=replacement,
+        now=due_at,
+    ) == 0
+    assert redis7.hgetall(state_key) == {
+        "raw": replacement,
+        "attempts": "1",
+        "retry_at": str(due_at),
+        "status": "processing",
+        "owner": owner_b,
+        "owner_lease": lease_b,
+        "owner_processing": processing_b,
+    }
+
+    # A partial source can leave a second exact canonical raw. Its private
+    # lease/list is not an ownership proof once B owns the state hash.
+    assert _promote(redis7, scheduled=scheduled, ready=ready, now=due_at) == 1
+    redis7.set(duplicate_lease, "owner-duplicate")
+    assert redis7.rpoplpush(ready, duplicate_processing) == replacement
+    assert _reconcile(
+        redis7,
+        lease=duplicate_lease,
+        processing=duplicate_processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-duplicate",
+        raw=replacement,
+        now=due_at,
+    ) == 1
+    assert redis7.lrange(duplicate_processing, 0, -1) == []
+    assert redis7.lrange(processing_b, 0, -1) == [replacement]
+
+    # Once B's Redis lease truly disappears, C can recover the same canonical
+    # raw without rewinding the persisted attempt or its original deadline.
+    redis7.delete(lease_b)
+    redis7.set(lease_c, owner_c)
+    redis7.rpush(processing_c, replacement)
+    assert _reconcile(
+        redis7,
+        lease=lease_c,
+        processing=processing_c,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner=owner_c,
+        raw=replacement,
+        now=due_at,
+    ) == 0
+    assert redis7.hgetall(state_key) == {
+        "raw": replacement,
+        "attempts": "1",
+        "retry_at": str(due_at),
+        "status": "processing",
+        "owner": owner_c,
+        "owner_lease": lease_c,
+        "owner_processing": processing_c,
+    }
