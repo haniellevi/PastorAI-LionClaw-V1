@@ -1226,3 +1226,66 @@ def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, 
         assert requests.count("GET") == worker_module.MAX_ATTEMPTS
         assert _agent_reply_states(factory, _IGREJA_A) == ["ia_pendente"]
         assert len(redis.lists[worker_module.DEAD_LETTER_QUEUE]) == 1
+
+
+@pytest.mark.parametrize("first_status", ["open", "close", "503"])
+def test_b3_recovered_worker_cannot_ack_before_preflight_owner_releases(msg_engine_fx, monkeypatch, first_status):
+    import httpx
+    from app.config import Settings
+    from app.services.evolution import EvolutionClient
+    from tests.test_whatsapp_worker import FakeRedis
+
+    factory = _factory(msg_engine_fx)
+    _seed_agent_delivery(factory)
+    agent_calls = _stub_agent(monkeypatch)
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    requests = []
+    recovered_raw = []
+    workers = {}
+
+    def transport(request):
+        requests.append(request.method)
+        if requests == ["GET"]:
+            # W2 recovers while W1 is still inside GET, before W1's release CAS.
+            redis.kv.pop(queue._lease_key("b3-w1"), None)
+            assert queue.recover_pending("b3-w2") == 1
+            raw = queue.claim("b3-w2", timeout=0)
+            assert raw is not None
+            recovered_raw.append(raw)
+            workers["b3-w2"]._handle_raw(raw)
+            if first_status == "503":
+                return httpx.Response(503)
+            return httpx.Response(200, json=[{"name": "igreja-1", "connectionStatus": first_status}])
+        if request.method == "GET":
+            return httpx.Response(200, json=[{"name": "igreja-1", "connectionStatus": "open"}])
+        return httpx.Response(200)
+
+    http = httpx.Client(transport=httpx.MockTransport(transport), base_url="http://evo.test")
+    evolution = EvolutionClient(Settings(_env_file=None, allow_real_sends=True,
+        evolution_api_url="http://evo.test", evolution_api_key="synthetic"))
+    monkeypatch.setattr(evolution, "_http_client", lambda _: http)
+    for name in ("b3-w1", "b3-w2", "b3-w3"):
+        queue.register_worker(name)
+        workers[name] = QueueWorker(queue=queue, session_factory=factory, worker_id=name,
+            agent_runner=lambda sf, outcome, guard: run_agent_for_message(
+                sf, outcome, guard, evolution_client=evolution))
+    queue.enqueue(_payload("B3-RECOVERY-RACE"))
+    try:
+        workers["b3-w1"]._handle_raw(queue.claim("b3-w1", timeout=0))
+        assert requests == ["GET"]
+        assert _agent_reply_states(factory, _IGREJA_A) == ["ia_pendente"]
+        assert redis.lists[queue.processing_queue("b3-w2")] == recovered_raw
+
+        redis.kv.pop(queue._lease_key("b3-w2"), None)
+        assert queue.recover_pending("b3-w3") == 1
+        raw = queue.claim("b3-w3", timeout=0)
+        assert raw is not None
+        workers["b3-w3"]._handle_raw(raw)
+        assert requests == ["GET", "GET", "POST"]
+        assert agent_calls == ["agent"]
+        assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
+        assert redis.lists[queue.processing_queue("b3-w3")] == []
+        assert not redis.lists.get(worker_module.DEAD_LETTER_QUEUE)
+    finally:
+        http.close()

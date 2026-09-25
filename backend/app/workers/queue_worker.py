@@ -2608,17 +2608,19 @@ def run_agent_for_message(
                 except Exception:
                     _quarantine_agent_execution(session_factory, outcome, intent)
                     raise
+        # Keep the lease through transport and any pre-send release to pending.
+        # Otherwise a recovered worker could ACK an in-flight intent just
+        # before its original owner safely returns it to pending after GET.
+        if intent is not None:
+            _deliver_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                ownership_guard,
+                evolution_client=evolution_client,
+            )
     finally:
         execution_lease.close()
-
-    if intent is not None:
-        _deliver_agent_reply_intent(
-            session_factory,
-            outcome,
-            intent,
-            ownership_guard,
-            evolution_client=evolution_client,
-        )
     return AgentRunDisposition.COMPLETED
 
 
