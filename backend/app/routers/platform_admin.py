@@ -49,7 +49,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
-from app.services.asaas import MIN_UNDEFINED_PAYMENT_VALUE
+from app.services.asaas import AsaasClient, MIN_UNDEFINED_PAYMENT_VALUE, get_asaas_client
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.billing import (
     find_blocking_plan_change_for_plan,
@@ -67,12 +67,21 @@ from app.services.clerk import (
     ClerkUnavailableError,
     get_clerk_client,
 )
+from app.services.evolution import EvolutionClient, get_evolution_client
 from app.services.invite_identity import (
     assert_invite_email_available,
     get_invite_identity_db,
 )
 from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.rate_limit import RateLimiter, get_rate_limiter
+from app.services.storage import SupabaseStorage, get_storage
+from app.services.tenant_deletion import (
+    TenantDeletionActor,
+    TenantDeletionBlocked,
+    TenantDeletionNotFound,
+    delete_tenant_locally,
+    run_pending_cleanup,
+)
 
 logger = logging.getLogger("pastorai.platform_admin")
 
@@ -718,35 +727,51 @@ def delete_igreja(
     igreja_id: str,
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
+    clerk: ClerkClient = Depends(get_clerk_client),
+    evolution: EvolutionClient = Depends(get_evolution_client),
+    asaas: AsaasClient = Depends(get_asaas_client),
+    storage: SupabaseStorage = Depends(get_storage),
 ) -> None:
-    """Excluir uma igreja e TODOS os seus dados (cross-tenant, irreversível).
-
-    O schema tem ON DELETE CASCADE em todas as tabelas filhas (app_users,
-    pessoas, células, conversas…), então remover a igreja limpa tudo sem deixar
-    órfãos. Operação destrutiva — a UI exige confirmação. Suspender (PATCH
-    status) é o caminho normal; excluir é para igrejas de teste/erro.
-    """
-    try:
-        ig_uuid = uuid.UUID(igreja_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
-        ) from exc
-
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == ig_uuid)
-    ).scalar_one_or_none()
-    if igreja is None:
+    """Delete local tenant data, then resume its durable external cleanup."""
+    target_id = _as_uuid(igreja_id)
+    if target_id is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         )
-
-    _audit(
-        db, admin, "excluir", "igreja", igreja.id, igreja.nome,
-        {"status": igreja.status, "plano": igreja.plano},
+    actor = TenantDeletionActor(
+        app_user_id=_as_uuid(admin.app_user_id), email=getattr(admin, "email", None)
     )
-    db.delete(igreja)
-    db.commit()
+    try:
+        result = delete_tenant_locally(db, target_id, actor)
+        # The local delete and its cleanup manifest are durable before any
+        # provider client is permitted to run.
+        db.commit()
+    except TenantDeletionNotFound as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        ) from exc
+    except TenantDeletionBlocked as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Tenant deletion transaction failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Não foi possível excluir a igreja",
+        ) from exc
+    run_pending_cleanup(
+        db,
+        actor,
+        result.pending_tasks,
+        clerk=clerk,
+        evolution=evolution,
+        asaas=asaas,
+        storage=storage,
+    )
 
 
 def _seed_role_permissions(db: Session, igreja_id: uuid.UUID) -> None:

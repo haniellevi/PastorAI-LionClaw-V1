@@ -233,10 +233,10 @@ class AppUser(Base):
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    igreja_id: Mapped[uuid.UUID] = mapped_column(
+    igreja_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("igrejas.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     clerk_user_id: Mapped[str | None] = mapped_column(
         Text, unique=True, nullable=True

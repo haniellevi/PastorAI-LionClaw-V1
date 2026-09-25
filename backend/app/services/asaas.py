@@ -17,6 +17,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -28,6 +29,7 @@ logger = logging.getLogger("pastorai.asaas")
 MIN_UNDEFINED_PAYMENT_VALUE = 5.0
 ASAAS_OWNERSHIP_PREFIX = "pastorai-"
 _DOCUMENT_DIGITS_RE = re.compile(r"\D+")
+_ASAAS_RESOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 # Descrição exata da cobrança avulsa de setup, congelada na operação durável.
 SETUP_CHARGE_DESCRIPTION = "PastorAI — taxa de setup"
 # Cobrança avulsa que recupera uma mensalidade ESTORNADA (nunca uma assinatura).
@@ -153,6 +155,11 @@ def customer_external_reference(igreja_id: object) -> str:
 def is_pastorai_external_reference(value: object) -> bool:
     """Whether ``value`` belongs to the reserved PastorAI namespace."""
     return isinstance(value, str) and value.startswith(ASAAS_OWNERSHIP_PREFIX)
+
+
+def is_valid_subscription_id(value: object) -> bool:
+    """Whether an id is safe to place in an Asaas subscription resource path."""
+    return isinstance(value, str) and bool(_ASAAS_RESOURCE_ID_RE.fullmatch(value))
 
 
 @dataclass(frozen=True)
@@ -484,6 +491,65 @@ class AsaasClient:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
         return body if isinstance(body, dict) else None
+
+    def cancel_subscription(
+        self,
+        subscription_id: str,
+        *,
+        expected_external_reference: str,
+    ) -> bool:
+        """Cancel one PastorAI-owned recurring subscription.
+
+        Ownership is proven before any request. A missing subscription is an
+        idempotent success; a 200 only completes when Asaas explicitly returns
+        the same subscription id with ``deleted: true``.
+        """
+        expected_reference = self._require_owned_reference(
+            expected_external_reference, resource="Assinatura"
+        )
+        if not asaas_billing_writes_allowed(self._settings):
+            self._suppress_or_reject_mutation("cancel_subscription")
+            return False
+        if not is_valid_subscription_id(subscription_id):
+            raise AsaasError("Identificador de assinatura inválido")
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resource_path = f"/subscriptions/{quote(subscription_id, safe='')}"
+                owned = client.get(resource_path, headers=headers)
+                if owned.status_code == 404:
+                    return True
+                owned.raise_for_status()
+                owned_resource = self._require_owned_resource(
+                    owned.json(),
+                    expected_external_reference=expected_reference,
+                    resource="Assinatura",
+                )
+                if str(owned_resource.get("id") or "") != subscription_id:
+                    raise AsaasOwnershipError("Assinatura remota divergente")
+                deleted = client.delete(
+                    resource_path, headers=headers
+                )
+                if deleted.status_code == 404:
+                    return True
+                deleted.raise_for_status()
+                body = deleted.json()
+        except AsaasOwnershipError:
+            raise
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas subscription cancellation failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao cancelar a assinatura no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas cancellation response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        if (
+            not isinstance(body, dict)
+            or str(body.get("id") or "") != subscription_id
+            or body.get("deleted") is not True
+        ):
+            raise AsaasError("O Asaas não confirmou o cancelamento da assinatura")
+        return True
 
     def create_one_time_charge(
         self,

@@ -18,11 +18,13 @@ without mislabeling an outage as a wrong password.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import jwt
@@ -48,6 +50,7 @@ _RESET_ISSUER = "pastorai-reset"
 _INVITE_ISSUER = "pastorai-invite"
 # Invite link validity (delta-042: "link que expira em 7 dias").
 _INVITE_TTL_DAYS = 7
+_CLERK_RESOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 
 
 class ClerkAuthError(Exception):
@@ -60,6 +63,11 @@ class ClerkAuthError(Exception):
 
 class ClerkUnavailableError(Exception):
     """Raised when Clerk cannot reliably accept or reject credentials."""
+
+
+def is_valid_clerk_user_id(value: object) -> bool:
+    """Whether an id is safe to place in Clerk's user resource path."""
+    return isinstance(value, str) and bool(_CLERK_RESOURCE_ID_RE.fullmatch(value))
 
 
 @dataclass(frozen=True)
@@ -432,6 +440,8 @@ class ClerkClient:
     def delete_user(self, clerk_user_id: str) -> None:
         """Apaga uma identidade criada nesta operação para compensar falha local."""
 
+        if not is_valid_clerk_user_id(clerk_user_id):
+            raise ClerkAuthError("Identificador Clerk inválido")
         secret = self._settings.clerk_secret_key
         if not secret:
             raise ClerkAuthError("Clerk secret key is not configured")
@@ -441,7 +451,7 @@ class ClerkClient:
         }
         try:
             resp = self._http_client().delete(
-                f"/users/{clerk_user_id}", headers=headers
+                f"/users/{quote(clerk_user_id, safe='')}", headers=headers
             )
             if resp.status_code == 404:
                 return

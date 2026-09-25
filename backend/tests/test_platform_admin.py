@@ -33,9 +33,17 @@ from app.db.models import (
     UserRole,
 )
 from app.db.session import get_db
+from app.routers import platform_admin as platform_admin_router
+from app.services.asaas import get_asaas_client
 from app.services.brevo import BrevoError, get_brevo_client
 from app.services.clerk import ClerkUnavailableError, get_clerk_client
+from app.services.evolution import get_evolution_client
 from app.services.invite_identity import get_invite_identity_db
+from app.services.storage import get_storage
+from app.services.tenant_deletion import (
+    TenantDeletionNotFound,
+    TenantDeletionResult,
+)
 from tests.conftest import FakeClerk, make_app_user
 
 # Catálogo padrão usado pelo fake quando o teste não fornece planos: os 3
@@ -166,6 +174,7 @@ class PlatformDB:
         self.added: list = []
         self.deleted: list = []
         self.committed = False
+        self.rolled_back = False
         self.statements: list = []
 
     def execute(self, statement, params=None) -> _Result:
@@ -258,6 +267,9 @@ class PlatformDB:
     def commit(self) -> None:
         self.committed = True
 
+    def rollback(self) -> None:
+        self.rolled_back = True
+
     def refresh(self, obj) -> None:  # pragma: no cover - not exercised
         pass
 
@@ -282,6 +294,9 @@ def _wire(app, *, db, clerk, mailer=None, identity_db=None) -> TestClient:
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_clerk_client] = lambda: clerk
     app.dependency_overrides[get_invite_identity_db] = lambda: identity_db or db
+    app.dependency_overrides[get_evolution_client] = lambda: object()
+    app.dependency_overrides[get_asaas_client] = lambda: object()
+    app.dependency_overrides[get_storage] = lambda: object()
     if mailer is not None:
         app.dependency_overrides[get_brevo_client] = lambda: mailer
     return TestClient(app)
@@ -329,6 +344,18 @@ def test_admin_me_returns_identity(app) -> None:
     body = resp.json()
     assert body["email"] == "pr@x.com"
     assert body["nome"] == "Raniel"
+
+
+def test_admin_me_keeps_detached_platform_admin_access(app) -> None:
+    user = make_app_user(email="master@example.test", nome="Master")
+    user.igreja_id = None
+    user.igreja = None
+    db = PlatformDB(gate_app_user=user, admin_marker="pa1")
+
+    resp = _wire(app, db=db, clerk=FakeClerk()).get("/admin/me", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "master@example.test"
 
 
 def test_admin_me_blocks_non_admin(app) -> None:
@@ -871,6 +898,21 @@ def test_admin_login_ignores_billing_block(app) -> None:
     assert resp.json()["token"]
 
 
+def test_admin_login_keeps_detached_platform_admin_access(app) -> None:
+    user = make_app_user(email="master@example.test")
+    user.igreja_id = None
+    user.igreja = None
+    db = PlatformDB(gate_app_user=user, admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.post(
+        "/admin/login", json={"email": "master@example.test", "password": "x"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["token"]
+
+
 def test_admin_login_blocks_non_master(app) -> None:
     # Credencial válida, mas a conta não está na allowlist de plataforma.
     db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
@@ -1011,26 +1053,34 @@ def test_admin_igreja_detail_404(app) -> None:
 # ---------------------------------------------------------------------------
 # DELETE /admin/igrejas/{id} (CRUD completo)
 # ---------------------------------------------------------------------------
-def test_admin_delete_igreja(app) -> None:
-    igreja = SimpleNamespace(
-        id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None
-    )
+def test_admin_delete_igreja(app, monkeypatch) -> None:
     db = PlatformDB(
-        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+        gate_app_user=make_app_user(), admin_marker="pa1"
     )
+    seen: list[object] = []
+
+    def local_delete(received_db, igreja_id, actor):
+        seen.append(igreja_id)
+        return TenantDeletionResult(igreja_id, True, ())
+
+    monkeypatch.setattr(platform_admin_router, "delete_tenant_locally", local_delete)
     client = _wire(app, db=db, clerk=FakeClerk())
     resp = client.delete(
         "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
     )
     assert resp.status_code == 204
-    assert db.deleted == [igreja]
     assert db.committed is True
+    assert len(seen) == 1
 
 
-def test_admin_delete_igreja_404(app) -> None:
+def test_admin_delete_igreja_404(app, monkeypatch) -> None:
     db = PlatformDB(
         gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=None
     )
+    def missing(*_args):
+        raise TenantDeletionNotFound("missing")
+
+    monkeypatch.setattr(platform_admin_router, "delete_tenant_locally", missing)
     client = _wire(app, db=db, clerk=FakeClerk())
     resp = client.delete(
         "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
@@ -1406,19 +1456,21 @@ def test_admin_audit_blocks_non_master(app) -> None:
     assert client.get("/admin/audit", headers=_AUTH).status_code == 403
 
 
-def test_admin_delete_igreja_writes_audit(app) -> None:
-    igreja = SimpleNamespace(
-        id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None
-    )
+def test_admin_delete_igreja_delegates_durable_audit_to_service(app, monkeypatch) -> None:
     db = PlatformDB(
-        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+        gate_app_user=make_app_user(), admin_marker="pa1"
     )
+    calls: list[object] = []
+
+    def local_delete(received_db, igreja_id, actor):
+        calls.append((igreja_id, actor))
+        return TenantDeletionResult(igreja_id, True, ())
+
+    monkeypatch.setattr(platform_admin_router, "delete_tenant_locally", local_delete)
     client = _wire(app, db=db, clerk=FakeClerk())
     resp = client.delete(f"/admin/igrejas/{_IG_ID}", headers=_AUTH)
     assert resp.status_code == 204
-    assert any(
-        isinstance(o, PlatformAuditLog) and o.acao == "excluir" for o in db.added
-    )
+    assert len(calls) == 1 and db.committed is True
 
 
 # ---------------------------------------------------------------------------

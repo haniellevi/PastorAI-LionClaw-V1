@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, replace
 from email.utils import parsedate_to_datetime
 from threading import Lock
+from urllib.parse import quote
 
 import httpx
 
@@ -370,6 +371,44 @@ class EvolutionClient:
                 "Falha ao desconectar na Evolution API"
             ) from exc
         return ConnectionResult(status="offline")
+
+    def delete_instance(self, instance: str) -> bool:
+        """Delete a tenant-owned Evolution instance after local deletion.
+
+        The endpoint is idempotent: a missing instance is already cleaned up.
+        A successful response must carry the v2 instance-delete success shape;
+        accepting a generic HTTP 200 would turn an API rejection into false
+        completion of the durable cleanup task.
+        """
+        if not isinstance(instance, str) or not instance.strip():
+            raise EvolutionError("Identificador de instância inválido")
+        if not external_sends_allowed(self._settings):
+            self._suppress_or_reject_mutation("delete_instance")
+            return False
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            client = self._http_client(base_url)
+            resp = client.delete(
+                f"/instance/delete/{quote(instance, safe='')}", headers=headers
+            )
+            if resp.status_code == 404:
+                return True
+            if resp.status_code != 200:
+                resp.raise_for_status()
+                raise EvolutionError("Resposta inesperada ao excluir instância")
+            body = resp.json()
+        except EvolutionError:
+            raise
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution instance delete failed: %s", type(exc).__name__)
+            raise EvolutionError("Falha ao excluir instância na Evolution API") from exc
+        except ValueError as exc:
+            logger.warning("Evolution instance delete returned invalid JSON")
+            raise EvolutionError("Resposta inesperada da Evolution API") from exc
+        if not isinstance(body, dict) or body.get("status") != "SUCCESS" or body.get("error") is not False:
+            raise EvolutionError("A Evolution não confirmou a exclusão da instância")
+        return True
 
     def send_text(self, instance: str, telefone: str, texto: str) -> bool:
         """Send a text message through the official number (agent single reply).

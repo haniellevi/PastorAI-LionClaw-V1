@@ -189,6 +189,14 @@ def _resolve_current_user(
             detail="Sua conta não está vinculada a nenhuma igreja",
         )
 
+    # A allowlisted platform admin can remain authenticated after its tenant is
+    # deleted, but it must never receive a tenant RLS context.
+    if app_user.igreja_id is None or app_user.igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sua conta não está vinculada a nenhuma igreja",
+        )
+
     if app_user.status == REVOKED_USER_STATUS:
         # Access revoked by an admin (RF-04): block even on a still-valid JWT.
         raise HTTPException(
