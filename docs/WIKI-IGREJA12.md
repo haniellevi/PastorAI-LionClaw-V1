@@ -8,24 +8,33 @@ Asaas, logo e mídia, preservando somente o `AppUser` que está na allowlist de
 plataforma. Essa conta fica sem tenant e recebe 403 nos caminhos de tenant;
 o console master continua pelo login administrativo dedicado.
 
-`reset_tudo.py` é dry-run por padrão, exige URL PostgreSQL explícita, role com
-`rolsuper` ou `rolbypassrls`, backup atestado e confirmação interativa do host.
-O reset mantém schema, migrations, planos, admins e audit de plataforma. Nenhum
-banco compartilhado, backup ou provedor foi acionado nesta fatia.
+`reset_tudo.py` é dry-run por padrão e recebe a URL PostgreSQL somente por
+`RESET_DATABASE_URL` ou prompt protegido, nunca por argv. Exige role com
+`rolsuper` ou `rolbypassrls`, backup atestado com cabeçalho `pg_dump` reconhecido
+e confirmação interativa do host. O reset mantém schema, migrations, planos,
+admins e audit de plataforma. Nenhum banco compartilhado, backup ou provedor
+foi acionado nesta fatia.
 
-No reset, toda tabela ordinária ou particionada `public.e4b_*` é enumerada
-antes de DML. Ausente ou vazia permite seguir; qualquer contagem positiva
-produz `BLOCKED_E4B_POPULATED`, nomes e contagens sem PII, código `3` e rollback.
-A execução repete a checagem sob locks depois da confirmação do host. A
-limitação evita contornar retenção imutável. A migration segue o processo
-simples do MVP por `migrate.py`. Contrato e operação futura estão em
+No reset, toda tabela ordinária ou particionada `public.e4b_*` e o ledger
+`consentimento_finalidade_evento`, quando existe, são enumerados antes de DML.
+Ausente ou vazia permite seguir; qualquer contagem positiva produz
+`BLOCKED_E4B_POPULATED`, nomes e contagens sem PII, código `3` e rollback. A
+execução repete a checagem sob locks depois da confirmação do host. No DELETE
+individual, tabelas E4B com `igreja_id` são filtradas pela igreja e tabela
+desconhecida sem essa coluna falha fechada quando povoada; o ledger segue o
+cascade de Pessoa permitido pelo guard append-only. A limitação evita contornar
+retenção imutável. A migration segue o processo simples do MVP por `migrate.py`.
+Contrato e operação futura estão em
 `docs/decisions/2026-09-25-tenant-deletion.md` e
-`docs/ops/TENANT-DELETION-RESET-RUNBOOK.md`. O próximo gate humano único desta
-fatia é Raniel autorizar o merge por número da PR B. No candidato local baseado
-em `34d3a7282b3c712b0e5f7bc636bb2a20b72db929`, `./test-local.sh` passou com
-4.970 testes backend, 854 frontend e typecheck; RLS em PostgreSQL 17 sintético
-passou com 288 testes, sem falha ou skip. Isso não prova banco compartilhado,
-provedor ou execução real.
+`docs/ops/TENANT-DELETION-RESET-RUNBOOK.md`. Após o commit local, o subcomando
+`drain-external` recompõe os manifestos do audit, mantém dry-run por padrão e
+retorna código `4` enquanto houver pendências ou rejeições. Ele reaplica
+`search_path=public` antes de cada tarefa e audita o host confirmado. O próximo
+gate humano único desta fatia é Raniel autorizar o merge por número da PR B.
+No candidato local R6 baseado em `8284b7a112ff2debbc556a67cd2d6666920f4fa1`,
+`./test-local.sh` passou com 4.982 testes backend, 854 frontend e typecheck; RLS
+em PostgreSQL 17 sintético passou com 308 testes, sem falha, erro ou skip. Isso
+não prova banco compartilhado, provedor ou execução real.
 
 ## Triagem Jev (TypeSafe) em modo sombra, não integrada, 23/09/2026
 

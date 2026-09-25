@@ -4,21 +4,16 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     AppUser,
     ConsentRecord,
     Conversation,
-    E4bConsentHold,
-    E4bConsentHoldEvent,
-    E4bConsentOperation,
-    E4bConsentReceipt,
-    E4bConsentRetention,
-    E4bConsentStream,
     Igreja,
     Message,
     PasswordResetToken,
@@ -58,15 +53,9 @@ _TASK_KINDS = {
     "storage_media",
     "storage_logo",
 }
-_E4B_MODELS = (
-    E4bConsentHoldEvent,
-    E4bConsentHold,
-    E4bConsentRetention,
-    E4bConsentReceipt,
-    E4bConsentStream,
-    E4bConsentOperation,
-)
+_PRE_DETACH_DELETE_MODELS = (ConsentRecord, Message, Conversation, UserRole)
 _E4B_SCHEMA = "public"
+_CONSENT_LEDGER_TABLE = "consentimento_finalidade_evento"
 _MEDIA_BATCH_SIZE = 100
 
 
@@ -83,7 +72,7 @@ class TenantDeletionBlocked(TenantDeletionError):
 
 
 class E4bPopulatedError(TenantDeletionBlocked):
-    """A reset found rows in one or more protected E4B tables."""
+    """A protected reset relation still contains rows."""
 
     code = "BLOCKED_E4B_POPULATED"
 
@@ -108,6 +97,7 @@ class CleanupDeferred(TenantDeletionError):
 class TenantDeletionActor:
     app_user_id: uuid.UUID | None
     email: str | None
+    execution_host: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +119,19 @@ class TenantDeletionResult:
 class CleanupOutcome:
     task_id: uuid.UUID
     status: str
+
+
+@dataclass(frozen=True)
+class CleanupRejection:
+    igreja_id: uuid.UUID
+    task_id: uuid.UUID | None
+    kind: str
+
+
+@dataclass(frozen=True)
+class CleanupDrainState:
+    pending_tasks: tuple[CleanupTask, ...]
+    rejected_tasks: tuple[CleanupRejection, ...]
 
 
 @dataclass(frozen=True)
@@ -167,8 +170,31 @@ def _reset_e4b_table_names(session: Session) -> tuple[str, ...]:
     return tuple(str(name) for name in rows)
 
 
+def _table_exists(session: Session, table: str) -> bool:
+    return bool(
+        session.execute(
+            text(
+                "select exists ("
+                "select 1 from pg_catalog.pg_class c "
+                "join pg_catalog.pg_namespace n on n.oid = c.relnamespace "
+                "where n.nspname = :schema and c.relname = :table "
+                "and c.relkind in ('r', 'p')"
+                ")"
+            ),
+            {"schema": _E4B_SCHEMA, "table": table},
+        ).scalar_one()
+    )
+
+
+def _reset_protected_table_names(session: Session) -> tuple[str, ...]:
+    tables = set(_reset_e4b_table_names(session))
+    if _table_exists(session, _CONSENT_LEDGER_TABLE):
+        tables.add(_CONSENT_LEDGER_TABLE)
+    return tuple(sorted(tables))
+
+
 def _reset_e4b_counts(session: Session, *, lock_tables: bool) -> dict[str, int]:
-    tables = _reset_e4b_table_names(session)
+    tables = _reset_protected_table_names(session)
     schema = _quote_identifier(_E4B_SCHEMA)
     if lock_tables:
         for table in tables:
@@ -208,6 +234,10 @@ def _audit(
     igreja_name: str | None,
     detail: dict[str, object] | None = None,
 ) -> None:
+    audit_detail = dict(detail) if detail is not None else None
+    if actor.execution_host is not None:
+        audit_detail = audit_detail or {}
+        audit_detail["execution_host"] = actor.execution_host
     session.add(
         PlatformAuditLog(
             actor_id=actor.app_user_id,
@@ -216,7 +246,7 @@ def _audit(
             alvo_tipo="igreja",
             alvo_id=igreja_id,
             alvo_nome=igreja_name,
-            detalhe=detail,
+            detalhe=audit_detail,
         )
     )
 
@@ -294,39 +324,98 @@ def _task_from_event(event: PlatformAuditLog) -> CleanupTask | None:
     return CleanupTask(task_id=task_id, igreja_id=event.alvo_id, kind=kind, payload=payload)
 
 
-def _pending_tasks(events: list[PlatformAuditLog]) -> tuple[CleanupTask, ...]:
+def _cleanup_task_states(
+    events: list[PlatformAuditLog],
+) -> tuple[tuple[CleanupTask, ...], tuple[CleanupRejection, ...]]:
     tasks: dict[uuid.UUID, CleanupTask] = {}
     terminal: set[uuid.UUID] = set()
+    rejections: list[CleanupRejection] = []
     for event in events:
         task = _task_from_event(event)
-        if task is None:
-            continue
-        if event.acao == _PENDING:
+        if task is not None and event.acao == _PENDING:
             tasks[task.task_id] = task
-        elif event.acao in {_DONE, _REJECTED}:
+        elif task is not None and event.acao in {_DONE, _REJECTED}:
             terminal.add(task.task_id)
-    return tuple(task for task_id, task in tasks.items() if task_id not in terminal)
+            if event.acao == _REJECTED:
+                rejections.append(
+                    CleanupRejection(task.igreja_id, task.task_id, task.kind)
+                )
+        elif event.acao == _REJECTED and event.alvo_id is not None:
+            detail = event.detalhe
+            kind = detail.get("kind") if isinstance(detail, dict) else None
+            if isinstance(kind, str) and kind in _TASK_KINDS:
+                rejections.append(CleanupRejection(event.alvo_id, None, kind))
+    return (
+        tuple(task for task_id, task in tasks.items() if task_id not in terminal),
+        tuple(rejections),
+    )
+
+
+def _pending_tasks(events: list[PlatformAuditLog]) -> tuple[CleanupTask, ...]:
+    return _cleanup_task_states(events)[0]
 
 
 def _has_delete_record(events: list[PlatformAuditLog]) -> bool:
     return any(event.acao in {_LOCAL_DELETED, _LEGACY_DELETED} for event in events)
 
 
-def _e4b_models_present(session: Session) -> tuple[type[object], ...]:
-    inspector = inspect(session.connection())
-    return tuple(model for model in _E4B_MODELS if inspector.has_table(model.__tablename__))
+def load_cleanup_drain_state(session: Session) -> CleanupDrainState:
+    """Recover durable external cleanup work after local tenant commits."""
+    _require_reset_principal(session)
+    events_by_tenant: dict[uuid.UUID, list[PlatformAuditLog]] = {}
+    events = session.execute(
+        select(PlatformAuditLog)
+        .where(PlatformAuditLog.alvo_tipo == "igreja")
+        .order_by(PlatformAuditLog.created_at, PlatformAuditLog.id)
+    ).scalars()
+    for event in events:
+        if event.alvo_id is not None:
+            events_by_tenant.setdefault(event.alvo_id, []).append(event)
+
+    pending: list[CleanupTask] = []
+    rejected: list[CleanupRejection] = []
+    for tenant_events in events_by_tenant.values():
+        if not _has_delete_record(tenant_events):
+            continue
+        tenant_pending, tenant_rejected = _cleanup_task_states(tenant_events)
+        pending.extend(tenant_pending)
+        rejected.extend(tenant_rejected)
+    return CleanupDrainState(tuple(pending), tuple(rejected))
+
+
+def _e4b_table_has_tenant_column(session: Session, table: str) -> bool:
+    return bool(
+        session.execute(
+            text(
+                "select exists ("
+                "select 1 from pg_catalog.pg_attribute a "
+                "join pg_catalog.pg_class c on c.oid = a.attrelid "
+                "join pg_catalog.pg_namespace n on n.oid = c.relnamespace "
+                "where n.nspname = :schema and c.relname = :table "
+                "and a.attname = 'igreja_id' and a.attnum > 0 and not a.attisdropped"
+                ")"
+            ),
+            {"schema": _E4B_SCHEMA, "table": table},
+        ).scalar_one()
+    )
 
 
 def _assert_e4b_empty(session: Session, igreja_id: uuid.UUID) -> None:
-    """Fail before DML when an immutable E4B table still has tenant rows."""
-    for model in _e4b_models_present(session):
-        marker = session.execute(
-            select(model.igreja_id).where(model.igreja_id == igreja_id).limit(1)
-        ).scalar_one_or_none()
-        if marker is not None:
-            raise TenantDeletionBlocked(
-                "A igreja contém dados E4B imutáveis e não pode ser excluída"
-            )
+    """Fail closed for every populated E4B table relevant to this tenant."""
+    schema = _quote_identifier(_E4B_SCHEMA)
+    populated: dict[str, int] = {}
+    for table in _reset_e4b_table_names(session):
+        qualified = f"{schema}.{_quote_identifier(table)}"
+        statement = f"select count(*) from {qualified}"
+        parameters: dict[str, object] = {}
+        if _e4b_table_has_tenant_column(session, table):
+            statement += " where igreja_id = :igreja_id"
+            parameters["igreja_id"] = igreja_id
+        count = int(session.execute(text(statement), parameters).scalar_one())
+        if count:
+            populated[table] = count
+    if populated:
+        raise E4bPopulatedError(populated)
 
 
 def _split_tenant_paths(
@@ -507,10 +596,8 @@ def delete_tenant_locally(
     # consentimento_finalidade_evento is append-only. Its pessoa FK is CASCADE,
     # so it is removed by the Pessoa delete below at trigger depth > 1 instead
     # of bypassing the ledger guard with a direct DELETE.
-    session.execute(delete(ConsentRecord).where(ConsentRecord.igreja_id == igreja.id))
-    session.execute(delete(Message).where(Message.igreja_id == igreja.id))
-    session.execute(delete(Conversation).where(Conversation.igreja_id == igreja.id))
-    session.execute(delete(UserRole).where(UserRole.igreja_id == igreja.id))
+    for model in _PRE_DETACH_DELETE_MODELS:
+        session.execute(delete(model).where(model.igreja_id == igreja.id))
 
     non_platform_clerk_ids = [
         clerk_user_id
@@ -695,11 +782,14 @@ def run_pending_cleanup(
     evolution: EvolutionClient,
     asaas: AsaasClient,
     storage: SupabaseStorage,
+    before_task: Callable[[Session], None] | None = None,
 ) -> tuple[CleanupOutcome, ...]:
     """Execute only durable pending tasks after the local transaction committed."""
     outcomes: list[CleanupOutcome] = []
     for task in tasks:
         try:
+            if before_task is not None:
+                before_task(session)
             _execute_cleanup_task(
                 session,
                 task,

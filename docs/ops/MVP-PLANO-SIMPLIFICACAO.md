@@ -181,6 +181,9 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [x] Processo simples de migration: `backend/scripts/migrate.py` e
       `backend/migrations/README.md` reescrito. É o processo aprovado para a
       fatia de exclusão e reset de tenant.
+- [x] Candidato local de exclusão e reset de tenant: transação única, manifesto
+      externo durável, drain idempotente, bloqueios E4B e ledger no reset total.
+      Continua sem banco compartilhado, provedor ou execução real.
 - [x] Ambiente local igual ao CI: `./test-local.sh` (Python 3.13 do
       `backend/.venv-runtime`, Node 24 do `.nvmrc`, `umask 022`). Backend e
       frontend (854 testes) verdes localmente.

@@ -1,11 +1,13 @@
 """Executa a migration de identidade sem tenant em PostgreSQL descartável."""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 import uuid
 
 import psycopg2
 import pytest
-from psycopg2.errors import InsufficientPrivilege, NotNullViolation
+from psycopg2.errors import CheckViolation, LockNotAvailable, NotNullViolation
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
@@ -125,7 +127,7 @@ def test_tenant_cannot_create_identity_without_church(migrated_db):
     cursor, _ = migrated_db
     cursor.execute("select set_config('app.tenant_igreja_id',%s,true)", (A,))
     cursor.execute("set local role authenticated")
-    with pytest.raises(InsufficientPrivilege):
+    with pytest.raises(CheckViolation):
         cursor.execute("insert into app_users(id,igreja_id) values(%s,null)", (str(uuid.uuid4()),))
 
 
@@ -133,7 +135,7 @@ def test_tenant_cannot_detach_its_own_user(migrated_db):
     cursor, _ = migrated_db
     cursor.execute("select set_config('app.tenant_igreja_id',%s,true)", (A,))
     cursor.execute("set local role authenticated")
-    with pytest.raises(InsufficientPrivilege):
+    with pytest.raises(CheckViolation):
         cursor.execute("update app_users set igreja_id=null where id=%s", (USER_A,))
 
 
@@ -146,13 +148,13 @@ def test_absent_tenant_context_reads_nothing(migrated_db):
     assert cursor.fetchone() == (0,)
 
 
-def test_migration_keeps_rls_forced_and_public_without_access(migrated_db):
+def test_migration_keeps_rls_without_forcing_owner_and_public_without_access(migrated_db):
     cursor, schema = migrated_db
     cursor.execute(
         "select relrowsecurity,relforcerowsecurity from pg_class where oid=%s::regclass",
         (schema + ".app_users",),
     )
-    assert cursor.fetchone() == (True, True)
+    assert cursor.fetchone() == (True, False)
     cursor.execute("select has_table_privilege('anon',%s,'SELECT')", (schema + ".app_users",))
     assert cursor.fetchone() == (False,)
     cursor.execute(
@@ -203,6 +205,9 @@ def simple_runner_connection(rls_database_url):
                 create table public.app_users (
                     id uuid primary key, igreja_id uuid not null
                 );
+                create table public.platform_admins (
+                    app_user_id uuid primary key references public.app_users(id) on delete cascade
+                );
                 create table public.schema_migrations (name text primary key);
             """)
         connection.commit()
@@ -232,7 +237,7 @@ def test_simple_runner_commits_exact_migration_and_ledger_together(simple_runner
             select relrowsecurity, relforcerowsecurity from pg_class
             where oid='public.app_users'::regclass
         """)
-        assert cursor.fetchone() == (True, True)
+        assert cursor.fetchone() == (True, False)
     with pytest.raises(SystemExit, match="já está registrada"):
         migrate.cmd_apply(connection, MIGRATION.name, transactional=True)
 
@@ -268,3 +273,231 @@ def test_simple_runner_reverts_ddl_when_ledger_write_fails(simple_runner_connect
             where oid='public.app_users'::regclass
         """)
         assert cursor.fetchone() == (False, False)
+
+
+def test_owner_without_bypass_resolves_real_jwt_helper(migrated_db):
+    cursor, schema = migrated_db
+    owner = "detach_owner_" + uuid.uuid4().hex
+    cursor.execute(f"create role {owner} nologin nosuperuser nobypassrls")
+    cursor.execute(f"grant usage, create on schema {schema} to {owner}")
+    helper = MIGRATION.parent / "20260624_090102_current_igreja_id_guard_empty_claims.sql"
+    sql = migrate.strip_outer_transaction(helper.read_text())
+    sql = sql.replace("public.", schema + ".").replace(
+        "search_path = public, pg_temp", f"search_path = {schema}, pg_temp"
+    )
+    cursor.execute(sql)
+    cursor.execute(f"alter table app_users owner to {owner}")
+    cursor.execute(f"alter function current_igreja_id() owner to {owner}")
+    cursor.execute("select set_config('app.tenant_igreja_id','',true)")
+    cursor.execute("select set_config('request.jwt.claims',%s,true)",
+                   ('{"sub":"synthetic-a"}',))
+    cursor.execute("set local role authenticated")
+    cursor.execute("select current_igreja_id()::text")
+    assert cursor.fetchone() == (A,)
+    cursor.execute("select id::text from app_users order by id")
+    assert cursor.fetchall() == [(ADMIN,), (USER_A,)]
+
+
+@pytest.mark.parametrize("operation", ("insert", "update"))
+def test_privileged_writer_cannot_create_null_non_admin(migrated_db, operation):
+    cursor, _ = migrated_db
+    with pytest.raises(CheckViolation):
+        if operation == "insert":
+            cursor.execute("insert into app_users(id,igreja_id) values(%s,null)",
+                           (str(uuid.uuid4()),))
+        else:
+            cursor.execute("update app_users set igreja_id=null where id=%s", (USER_A,))
+
+
+@pytest.mark.parametrize("operation", ("delete", "update"))
+def test_cannot_remove_allowlist_membership_from_detached_admin(migrated_db, operation):
+    cursor, _ = migrated_db
+    _detach(cursor)
+    with pytest.raises(CheckViolation):
+        if operation == "delete":
+            cursor.execute("delete from platform_admins where app_user_id=%s", (ADMIN,))
+        else:
+            cursor.execute("update platform_admins set app_user_id=%s where app_user_id=%s",
+                           (USER_B, ADMIN))
+
+
+def test_allowlist_removal_after_reassociation_is_allowed(migrated_db):
+    cursor, _ = migrated_db
+    _detach(cursor)
+    cursor.execute("update app_users set igreja_id=%s where id=%s", (B, ADMIN))
+    cursor.execute("delete from platform_admins where app_user_id=%s", (ADMIN,))
+    assert cursor.rowcount == 1
+
+
+def test_deleting_detached_identity_can_cascade_its_allowlist_entry(migrated_db):
+    cursor, _ = migrated_db
+    _detach(cursor)
+    cursor.execute("delete from app_users where id=%s", (ADMIN,))
+    cursor.execute("select count(*) from platform_admins")
+    assert cursor.fetchone() == (0,)
+
+
+def test_truncate_cannot_orphan_detached_admin(migrated_db):
+    cursor, _ = migrated_db
+    _detach(cursor)
+    with pytest.raises(CheckViolation):
+        cursor.execute("truncate platform_admins")
+
+
+@pytest.mark.parametrize("first_operation", ("detach", "remove_allowlist"))
+def test_detach_and_allowlist_removal_are_serialized(
+    simple_runner_connection, first_operation, rls_database_url
+):
+    first = simple_runner_connection
+    migrate.cmd_apply(first, MIGRATION.name, transactional=True)
+    with first.cursor() as cur:
+        cur.execute("insert into public.app_users values(%s,%s)", (ADMIN, A))
+        cur.execute("insert into public.platform_admins values(%s)", (ADMIN,))
+    first.commit()
+    url = make_url(rls_database_url).set(drivername="postgresql", database=first.info.dbname)
+    second = psycopg2.connect(url.render_as_string(hide_password=False))
+    detach = "update public.app_users set igreja_id=null where id=%s"
+    remove = "delete from public.platform_admins where app_user_id=%s"
+    first_sql, second_sql = (detach, remove) if first_operation == "detach" else (remove, detach)
+    try:
+        with first.cursor() as cur:
+            cur.execute(first_sql, (ADMIN,))
+        with second.cursor() as cur:
+            cur.execute("set local lock_timeout='100ms'")
+            with pytest.raises(LockNotAvailable):
+                cur.execute(second_sql, (ADMIN,))
+        second.rollback()
+        first.commit()
+        with second.cursor() as cur:
+            with pytest.raises(CheckViolation):
+                cur.execute(second_sql, (ADMIN,))
+        second.rollback()
+    finally:
+        second.close()
+
+
+def test_competing_identity_guards_reject_one_transaction_without_orphans(
+    simple_runner_connection, rls_database_url
+):
+    first = simple_runner_connection
+    migrate.cmd_apply(first, MIGRATION.name, transactional=True)
+    with first.cursor() as cur:
+        cur.execute("insert into public.app_users values(%s,%s)", (ADMIN, A))
+        cur.execute("insert into public.platform_admins values(%s)", (ADMIN,))
+    first.commit()
+    url = make_url(rls_database_url).set(drivername="postgresql", database=first.info.dbname)
+    second = psycopg2.connect(url.render_as_string(hide_password=False))
+    barrier = Barrier(2)
+
+    def compete(connection, sql):
+        barrier.wait(timeout=5)
+        try:
+            with connection.cursor() as cur:
+                cur.execute(sql, (ADMIN,))
+            connection.commit()
+            return "committed"
+        except (CheckViolation, LockNotAvailable):
+            connection.rollback()
+            return "rolled_back"
+
+    try:
+        for connection, table, column in (
+            (first, "app_users", "id"), (second, "platform_admins", "app_user_id")
+        ):
+            with connection.cursor() as cur:
+                cur.execute("set local deadlock_timeout='100ms'")
+                cur.execute("set local lock_timeout='5s'")
+                cur.execute(f"select 1 from public.{table} where {column}=%s for update", (ADMIN,))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            detach = pool.submit(compete, first,
+                                 "update public.app_users set igreja_id=null where id=%s")
+            revoke = pool.submit(compete, second,
+                                 "delete from public.platform_admins where app_user_id=%s")
+            assert sorted((detach.result(timeout=10), revoke.result(timeout=10))) == [
+                "committed", "rolled_back"
+            ]
+        with first.cursor() as cur:
+            cur.execute("""
+                select count(*) from public.app_users u
+                where u.igreja_id is null and not exists (
+                    select 1 from public.platform_admins a where a.app_user_id=u.id
+                )
+            """)
+            assert cur.fetchone() == (0,)
+    finally:
+        second.close()
+
+
+@pytest.mark.parametrize("detach_first", (False, True))
+def test_truncate_and_detach_preserve_invariant_without_reverse_row_lock(
+    simple_runner_connection, rls_database_url, detach_first
+):
+    first = simple_runner_connection
+    migrate.cmd_apply(first, MIGRATION.name, transactional=True)
+    with first.cursor() as cur:
+        cur.execute("insert into public.app_users values(%s,%s)", (ADMIN, A))
+        cur.execute("insert into public.platform_admins values(%s)", (ADMIN,))
+    first.commit()
+    url = make_url(rls_database_url).set(drivername="postgresql", database=first.info.dbname)
+    second = psycopg2.connect(url.render_as_string(hide_password=False))
+    try:
+        with first.cursor() as cur:
+            cur.execute("select 1 from public.app_users where id=%s for update", (ADMIN,))
+            if detach_first:
+                cur.execute("update public.app_users set igreja_id=null where id=%s", (ADMIN,))
+        with second.cursor() as cur:
+            cur.execute("set local lock_timeout='100ms'")
+            if detach_first:
+                with pytest.raises(LockNotAvailable):
+                    cur.execute("truncate public.platform_admins")
+            else:
+                with pytest.raises(CheckViolation):
+                    cur.execute("truncate public.platform_admins")
+        if detach_first:
+            second.rollback()
+            first.commit()
+            with second.cursor() as cur:
+                with pytest.raises(CheckViolation):
+                    cur.execute("truncate public.platform_admins")
+            second.rollback()
+        else:
+            second.rollback()
+            with first.cursor() as cur:
+                cur.execute("update public.app_users set igreja_id=null where id=%s", (ADMIN,))
+            first.commit()
+    finally:
+        second.close()
+
+
+def test_truncate_empty_allowlist_is_also_rejected(migrated_db):
+    cursor, _ = migrated_db
+    cursor.execute("delete from platform_admins")
+    with pytest.raises(CheckViolation):
+        cursor.execute("truncate platform_admins")
+
+
+def test_repeatable_read_cannot_detach_after_concurrent_allowlist_removal(
+    simple_runner_connection, rls_database_url
+):
+    first = simple_runner_connection
+    migrate.cmd_apply(first, MIGRATION.name, transactional=True)
+    with first.cursor() as cur:
+        cur.execute("insert into public.app_users values(%s,%s)", (ADMIN, A))
+        cur.execute("insert into public.platform_admins values(%s)", (ADMIN,))
+    first.commit()
+    url = make_url(rls_database_url).set(drivername="postgresql", database=first.info.dbname)
+    second = psycopg2.connect(url.render_as_string(hide_password=False))
+    try:
+        with first.cursor() as cur:
+            cur.execute("set transaction isolation level repeatable read")
+            cur.execute("select count(*) from public.platform_admins")
+            assert cur.fetchone() == (1,)
+        with second.cursor() as cur:
+            cur.execute("delete from public.platform_admins where app_user_id=%s", (ADMIN,))
+        second.commit()
+        with first.cursor() as cur:
+            with pytest.raises((CheckViolation, psycopg2.errors.SerializationFailure)):
+                cur.execute("update public.app_users set igreja_id=null where id=%s", (ADMIN,))
+        first.rollback()
+    finally:
+        second.close()

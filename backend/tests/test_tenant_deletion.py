@@ -117,6 +117,62 @@ def test_retry_rechecks_a_surviving_clerk_binding_before_deleting() -> None:
     assert any("LOCK TABLE public.app_users" in str(s) for s in session.statements)
 
 
+def test_cleanup_audit_records_the_confirmed_execution_host() -> None:
+    session = _CleanupSession()
+    task = _task()
+
+    class WorkingClerk:
+        def delete_user(self, _clerk_user_id: str) -> None:
+            return None
+
+    outcomes = run_pending_cleanup(
+        session,
+        TenantDeletionActor(
+            None,
+            "reset_tudo",
+            execution_host="localhost",
+        ),
+        (task,),
+        clerk=WorkingClerk(),
+        evolution=object(),
+        asaas=object(),
+        storage=object(),
+    )
+
+    assert outcomes[0].status == "done"
+    assert session.added[-1].detalhe["execution_host"] == "localhost"
+
+
+def test_cleanup_calls_transaction_setup_before_every_task() -> None:
+    session = _CleanupSession()
+    first = _task()
+    second = CleanupTask(
+        task_id=uuid.uuid4(),
+        igreja_id=uuid.uuid4(),
+        kind="clerk_user",
+        payload={"clerk_user_id": "clerk-deleted-tenant-second"},
+    )
+    setup_calls: list[uuid.UUID] = []
+
+    class WorkingClerk:
+        def delete_user(self, _clerk_user_id: str) -> None:
+            return None
+
+    outcomes = run_pending_cleanup(
+        session,
+        TenantDeletionActor(None, "reset_tudo"),
+        (first, second),
+        clerk=WorkingClerk(),
+        evolution=object(),
+        asaas=object(),
+        storage=object(),
+        before_task=lambda _session: setup_calls.append(uuid.uuid4()),
+    )
+
+    assert [outcome.status for outcome in outcomes] == ["done", "done"]
+    assert len(setup_calls) == 2
+
+
 def test_delete_route_commits_local_manifest_before_cleanup(monkeypatch) -> None:
     order: list[str] = []
     target_id = uuid.uuid4()

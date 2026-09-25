@@ -13,6 +13,9 @@ O manifesto fica no plano de plataforma e não possui FK para a igreja. Repetir
 tarefas pendentes e tenta novamente. Antes de cada efeito externo, a tarefa
 trava a relação local do recurso e confirma que nenhum vínculo sobrevivente
 passou a usar o mesmo Clerk ID, instance, assinatura ou caminho de Storage.
+O subcomando `drain-external` recupera esses manifestos depois do commit local;
+ele não cria efeito em dry-run e permanece não terminal enquanto houver tarefa
+pendente ou rejeitada.
 
 ## Dados locais e preservação do master
 
@@ -31,9 +34,12 @@ tenant seguem o cascade de `igrejas`. Tokens de reset dos Clerk IDs removidos
 também são apagados; tokens do master preservado permanecem.
 
 As relações E4B podem estar ausentes enquanto a migration correspondente está
-pausada. Se alguma delas existir e contiver linha da igreja, a exclusão falha
-antes de DML, commit ou chamada externa. Não há tentativa de contornar os
-guards imutáveis nem de excluir retenções E4B nesta fatia.
+pausada. A exclusão enumera toda tabela ordinária ou particionada
+`public.e4b_*`: quando houver `igreja_id`, conta somente a igreja solicitada;
+uma tabela desconhecida sem essa coluna e com linhas bloqueia por segurança.
+Se houver relação relevante povoada, a exclusão falha antes de DML, commit ou
+chamada externa. Não há tentativa de contornar guards imutáveis nem de excluir
+retenções E4B nesta fatia.
 
 ## Recursos externos
 
@@ -48,36 +54,53 @@ igreja recriada tenha o mesmo UUID.
 
 ## Reset por CLI
 
-`backend/scripts/reset_tudo.py` recebe `--database-url` explícita, aceita
-somente PostgreSQL com host único verificável e bloqueia opções ou variáveis
-libpq que possam redirecionar o destino, incluindo `PGPORT` e `PGOPTIONS`.
-Em cada transação de contagem ou execução, fixa `search_path` local em `public`.
-Dry-run é o padrão e mostra apenas host e contagens. Ele exige principal efetivo
-`rolsuper` ou `rolbypassrls`
+`backend/scripts/reset_tudo.py` nunca aceita URL no argv. Ela lê
+`RESET_DATABASE_URL` ou solicita a URL por `getpass`, aceita somente PostgreSQL
+com host único verificável e bloqueia opções ou variáveis libpq que possam
+redirecionar o destino, incluindo `PGPORT` e `PGOPTIONS`. A URL, usuário e senha
+não aparecem no help nem nos erros. Em cada transação de contagem, execução ou
+tarefa do drain, fixa `search_path` local em `public`; essa repetição cobre o
+commit individual de cada efeito externo. Dry-run é o padrão e mostra apenas
+host e contagens. Ele exige principal efetivo `rolsuper` ou `rolbypassrls`
 antes de contar ou apagar, pois uma role tenant poderia enxergar subconjunto e
 produzir falso sucesso.
 
 Antes de exibir as contagens, o reset enumera todas as tabelas ordinárias ou
-particionadas `public.e4b_*`. Tabela ausente ou vazia permite seguir. Qualquer
-contagem positiva interrompe o dry-run e a execução com
+particionadas `public.e4b_*` e, quando existir,
+`consentimento_finalidade_evento`. Tabela ausente ou vazia permite seguir.
+Qualquer contagem positiva interrompe o dry-run e a execução com
 `BLOCKED_E4B_POPULATED`, lista somente `tabela=contagem`, retorna código `3` e
-faz rollback sem criar auditoria ou apagar dado. Na execução, depois de bloquear
-`igrejas`, ele bloqueia essas tabelas e repete a contagem antes do primeiro DML;
-assim uma linha inserida depois do dry-run não pode passar para a exclusão.
+faz rollback sem criar auditoria ou apagar dado. O bloqueio do ledger vale
+somente para o reset total: a exclusão individual continua usando o cascade de
+Pessoa, que é o caminho permitido pelo guard append-only. Na execução, depois
+de bloquear `igrejas`, ele bloqueia essas tabelas e repete a contagem antes do
+primeiro DML; assim uma linha inserida depois do dry-run não pode passar para a
+exclusão.
 
 Com `--execute`, o operador informa `--backup-path`, atesta
-`--backup-confirmed` e digita exatamente o host depois de ver as contagens.
-O arquivo precisa ser regular e não vazio, mas nunca é aberto. O reset adquire
+`--backup-confirmed` e digita exatamente o host depois de ver as contagens. O
+arquivo precisa ser regular, não vazio e não symlink; a CLI abre somente os
+primeiros 512 bytes de modo não bloqueante para reconhecer `PGDMP` ou o
+cabeçalho de dump PostgreSQL em texto, sem registrar conteúdo. O reset adquire
 `LOCK TABLE igrejas IN SHARE ROW EXCLUSIVE MODE`, bloqueia criação concorrente,
 apaga todas as igrejas em uma transação e deixa as limpezas externas pendentes
-no audit. `planos`, `schema_migrations`, masters e auditoria de plataforma não
-são apagados.
+no audit, com o host confirmado. `planos`, `schema_migrations`, masters e
+auditoria de plataforma não são apagados.
+
+Depois desse commit, `drain-external` reabre o audit sob a mesma credencial,
+mostra `pendentes` e `rejeitadas` em dry-run e exige `--execute` mais a mesma
+confirmação de host para chamar provedores. Cada resultado também registra o
+host no audit. Ele retorna código `4` enquanto existir pendência ou rejeição,
+portanto uma repetição idempotente nunca comunica conclusão falsa.
 
 ## Limites e próximo gate
 
 Esta decisão descreve somente candidato local. Nenhum banco compartilhado,
 backup, provedor ou exclusão real foi acionado. Uma falha após um commit pode
 ter resultado indeterminado; o operador consulta o audit antes de repetir.
+Para `55P03`, `40001` ou outro erro transacional, faz rollback da operação
+inteira, consulta o audit e reinicia a transação completa com todas as
+revalidações. Não tenta um `UPDATE` isolado para recuperar a concorrência.
 
 O processo simples do MVP, por `backend/scripts/migrate.py`, é a fonte aprovada
 para a migration desta fatia. O próximo gate humano único é Raniel autorizar o

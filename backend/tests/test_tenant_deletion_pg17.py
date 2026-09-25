@@ -18,9 +18,11 @@ from app.services.tenant_deletion import (
     TenantResetPermissionError,
     collect_reset_counts,
     delete_tenant_locally,
+    load_cleanup_drain_state,
     reset_all_tenants,
     run_pending_cleanup,
 )
+from scripts import reset_tudo
 from tests.conftest_rls import rls_database_url  # noqa: F401
 
 pytestmark = pytest.mark.rls_integration
@@ -56,10 +58,10 @@ create table app_users (
   pessoa_id uuid,
   celula_pendente_id uuid,
   unique (igreja_id, id),
-  foreign key (igreja_id, pessoa_id)
+  constraint app_users_tenant_pessoa_fkey foreign key (igreja_id, pessoa_id)
     references pessoas(igreja_id, id)
 );
-alter table pessoas add constraint pessoas_archived_by_tenant_fkey
+alter table pessoas add constraint pessoas_tenant_arquivada_por_fkey
   foreign key (igreja_id, arquivada_por)
   references app_users(igreja_id, id);
 
@@ -95,7 +97,7 @@ create table conversations (
   id uuid primary key,
   igreja_id uuid not null references igrejas(id) on delete cascade,
   assumido_por uuid,
-  foreign key (igreja_id, assumido_por)
+  constraint conversations_tenant_assumido_por_fkey foreign key (igreja_id, assumido_por)
     references app_users(igreja_id, id)
 );
 
@@ -104,7 +106,7 @@ create table messages (
   igreja_id uuid not null references igrejas(id) on delete cascade,
   media_path text,
   enviado_por uuid,
-  foreign key (igreja_id, enviado_por)
+  constraint messages_tenant_enviado_por_fkey foreign key (igreja_id, enviado_por)
     references app_users(igreja_id, id)
 );
 
@@ -115,7 +117,7 @@ create table consent_records (
   ator_id uuid,
   foreign key (igreja_id, pessoa_id)
     references pessoas(igreja_id, id),
-  foreign key (igreja_id, ator_id)
+  constraint consent_records_tenant_ator_fkey foreign key (igreja_id, ator_id)
     references app_users(igreja_id, id)
 );
 
@@ -251,6 +253,7 @@ def _seed_graph(
     *,
     suffix: str = "",
     igreja_id: uuid.UUID | None = None,
+    include_consent_event: bool = True,
 ) -> dict[str, uuid.UUID]:
     ids = {
         name: uuid.uuid4()
@@ -328,19 +331,20 @@ def _seed_graph(
                 "master": ids["master"],
             },
         )
-        connection.execute(
-            text(
-                "insert into consentimento_finalidade_evento "
-                "(id, igreja_id, pessoa_id, registrado_por_app_user_id) "
-                "values (:id, :igreja, :pessoa, :master)"
-            ),
-            {
-                "id": ids["event"],
-                "igreja": ids["igreja"],
-                "pessoa": ids["pessoa"],
-                "master": ids["master"],
-            },
-        )
+        if include_consent_event:
+            connection.execute(
+                text(
+                    "insert into consentimento_finalidade_evento "
+                    "(id, igreja_id, pessoa_id, registrado_por_app_user_id) "
+                    "values (:id, :igreja, :pessoa, :master)"
+                ),
+                {
+                    "id": ids["event"],
+                    "igreja": ids["igreja"],
+                    "pessoa": ids["pessoa"],
+                    "master": ids["master"],
+                },
+            )
         connection.execute(
             text(
                 "insert into pessoa_arquivamento_evento "
@@ -565,6 +569,17 @@ def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
 
     session = Session(tenant_deletion_engine, future=True)
     try:
+        drained = load_cleanup_drain_state(session)
+        session.rollback()
+    finally:
+        session.close()
+    assert {task.task_id: task for task in drained.pending_tasks} == {
+        task.task_id: task for task in initial.pending_tasks
+    }
+    assert drained.rejected_tasks == ()
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
         first_outcomes = run_pending_cleanup(
             session,
             actor,
@@ -590,6 +605,15 @@ def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
 
     session = Session(tenant_deletion_engine, future=True)
     try:
+        after_failure = load_cleanup_drain_state(session)
+        session.rollback()
+    finally:
+        session.close()
+    assert after_failure.pending_tasks == (clerk_task,)
+    assert after_failure.rejected_tasks == ()
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
         recovered = delete_tenant_locally(session, ids["igreja"], actor)
         assert recovered.deleted_now is False
         assert recovered.pending_tasks == (clerk_task,)
@@ -609,6 +633,14 @@ def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
     assert [outcome.status for outcome in second_outcomes] == ["done"]
     session = Session(tenant_deletion_engine, future=True)
     try:
+        after_success = load_cleanup_drain_state(session)
+        session.rollback()
+    finally:
+        session.close()
+    assert after_success.pending_tasks == ()
+    assert after_success.rejected_tasks == ()
+    session = Session(tenant_deletion_engine, future=True)
+    try:
         third = delete_tenant_locally(session, ids["igreja"], actor)
         third_outcomes = run_pending_cleanup(
             session,
@@ -626,6 +658,25 @@ def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
     assert third.pending_tasks == ()
     assert third_outcomes == ()
     assert clerk.calls == ["clerk-member-cleanup", "clerk-member-cleanup"]
+
+
+def test_cli_reapplies_public_search_path_after_each_cleanup_commit(
+    tenant_deletion_engine: Engine,
+) -> None:
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        for _ in range(2):
+            reset_tudo._set_public_search_path(session)
+            assert session.execute(
+                text("select current_schemas(false)")
+            ).scalar_one() == ["public"]
+            session.commit()
+            assert session.execute(
+                text("select current_schemas(false)")
+            ).scalar_one() == [_SCHEMA, "public"]
+            session.rollback()
+    finally:
+        session.close()
 
 
 def test_local_failure_rolls_back_manifest_and_all_tenant_mutations(
@@ -677,11 +728,13 @@ def test_reset_all_tenants_preserves_platform_and_schema_relations(
         tenant_deletion_engine,
         suffix="reset-a",
         igreja_id=uuid.UUID("00000000-0000-0000-0000-000000000101"),
+        include_consent_event=False,
     )
     second = _seed_graph(
         tenant_deletion_engine,
         suffix="reset-b",
         igreja_id=uuid.UUID("00000000-0000-0000-0000-000000000102"),
+        include_consent_event=False,
     )
     with tenant_deletion_engine.begin() as connection:
         connection.execute(
@@ -737,7 +790,11 @@ def test_reset_allows_absent_or_empty_e4b_tables(
     monkeypatch: pytest.MonkeyPatch,
     create_empty_table: bool,
 ) -> None:
-    _seed_graph(tenant_deletion_engine, suffix="e4b-empty")
+    _seed_graph(
+        tenant_deletion_engine,
+        suffix="e4b-empty",
+        include_consent_event=False,
+    )
     # Runtime enumerates public. The fixture uses one disposable schema, so
     # replace only this namespace seam; all SQL persistence stays real.
     monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
@@ -767,8 +824,16 @@ def test_reset_blocks_all_populated_e4b_tables_before_dml(
     tenant_deletion_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    first = _seed_graph(tenant_deletion_engine, suffix="e4b-first")
-    second = _seed_graph(tenant_deletion_engine, suffix="e4b-second")
+    first = _seed_graph(
+        tenant_deletion_engine,
+        suffix="e4b-first",
+        include_consent_event=False,
+    )
+    second = _seed_graph(
+        tenant_deletion_engine,
+        suffix="e4b-second",
+        include_consent_event=False,
+    )
     # Runtime enumerates public. The fixture uses one disposable schema, so
     # replace only this namespace seam; all SQL persistence stays real.
     monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
@@ -828,8 +893,16 @@ def test_reset_rechecks_e4b_after_dry_run_before_any_delete(
     tenant_deletion_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    first = _seed_graph(tenant_deletion_engine, suffix="e4b-recheck-first")
-    second = _seed_graph(tenant_deletion_engine, suffix="e4b-recheck-second")
+    first = _seed_graph(
+        tenant_deletion_engine,
+        suffix="e4b-recheck-first",
+        include_consent_event=False,
+    )
+    second = _seed_graph(
+        tenant_deletion_engine,
+        suffix="e4b-recheck-second",
+        include_consent_event=False,
+    )
     # Runtime enumerates public. The fixture uses one disposable schema, so
     # replace only this namespace seam; all SQL persistence stays real.
     monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
@@ -865,6 +938,40 @@ def test_reset_rechecks_e4b_after_dry_run_before_any_delete(
     assert first["igreja"] != second["igreja"]
 
 
+def test_reset_blocks_populated_consent_ledger_before_any_dml(
+    tenant_deletion_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _seed_graph(tenant_deletion_engine, suffix="ledger-reset-first")
+    second = _seed_graph(tenant_deletion_engine, suffix="ledger-reset-second")
+    # The CLI fixes public; this PG fixture keeps its disposable schema by
+    # replacing only the catalog namespace used by the reset guard.
+    monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        with pytest.raises(E4bPopulatedError) as preflight:
+            collect_reset_counts(session)
+        assert preflight.value.table_counts == {"consentimento_finalidade_evento": 2}
+        session.rollback()
+        with pytest.raises(E4bPopulatedError) as execution:
+            reset_all_tenants(session, TenantDeletionActor(None, "reset_tudo"))
+        assert execution.value.table_counts == preflight.value.table_counts
+        session.rollback()
+    finally:
+        session.close()
+
+    assert _count(tenant_deletion_engine, "igrejas") == 2
+    assert _count(tenant_deletion_engine, "consentimento_finalidade_evento") == 2
+    assert _count(tenant_deletion_engine, "platform_audit_log") == 0
+    with tenant_deletion_engine.connect() as connection:
+        for ids in (first, second):
+            assert connection.execute(
+                text("select igreja_id from app_users where id = :id"),
+                {"id": ids["master"]},
+            ).scalar_one() == ids["igreja"]
+
+
 def test_reset_rolls_back_the_first_tenant_when_the_second_delete_fails(
     tenant_deletion_engine: Engine,
 ) -> None:
@@ -872,11 +979,13 @@ def test_reset_rolls_back_the_first_tenant_when_the_second_delete_fails(
         tenant_deletion_engine,
         suffix="rollback-a",
         igreja_id=uuid.UUID("00000000-0000-0000-0000-000000000201"),
+        include_consent_event=False,
     )
     second = _seed_graph(
         tenant_deletion_engine,
         suffix="rollback-b",
         igreja_id=uuid.UUID("00000000-0000-0000-0000-000000000202"),
+        include_consent_event=False,
     )
     with tenant_deletion_engine.begin() as connection:
         connection.exec_driver_sql(
@@ -915,10 +1024,100 @@ def test_reset_rolls_back_the_first_tenant_when_the_second_delete_fails(
             ).scalar_one() == ids["igreja"]
 
 
+def test_delete_skips_generic_e4b_rows_owned_by_another_tenant(
+    tenant_deletion_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _seed_graph(tenant_deletion_engine, suffix="e4b-delete-first")
+    second = _seed_graph(tenant_deletion_engine, suffix="e4b-delete-second")
+    monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
+    with tenant_deletion_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "create table e4b_tenant_guard ("
+            "id uuid primary key, igreja_id uuid not null"
+            ")"
+        )
+        connection.execute(
+            text("insert into e4b_tenant_guard (id, igreja_id) values (:id, :igreja)"),
+            {"id": uuid.uuid4(), "igreja": second["igreja"]},
+        )
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        result = delete_tenant_locally(
+            session,
+            first["igreja"],
+            TenantDeletionActor(first["master"], "master@test"),
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    assert result.deleted_now is True
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        with pytest.raises(E4bPopulatedError) as blocked:
+            delete_tenant_locally(
+                session,
+                second["igreja"],
+                TenantDeletionActor(second["master"], "master@test"),
+            )
+        assert blocked.value.table_counts == {"e4b_tenant_guard": 1}
+        session.rollback()
+    finally:
+        session.close()
+
+    assert _count(tenant_deletion_engine, "igrejas") == 1
+    with tenant_deletion_engine.connect() as connection:
+        assert connection.execute(
+            text("select igreja_id from app_users where id = :id"),
+            {"id": second["master"]},
+        ).scalar_one() == second["igreja"]
+        assert connection.execute(
+            text(
+                "select count(*) from platform_audit_log "
+                "where alvo_id = :igreja"
+            ),
+            {"igreja": second["igreja"]},
+        ).scalar_one() == 0
+
+
+def test_delete_blocks_populated_generic_e4b_table_without_tenant_column(
+    tenant_deletion_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ids = _seed_graph(tenant_deletion_engine, suffix="e4b-unknown")
+    monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
+    with tenant_deletion_engine.begin() as connection:
+        connection.exec_driver_sql("create table e4b_unknown_guard (id uuid primary key)")
+        connection.execute(
+            text("insert into e4b_unknown_guard (id) values (:id)"),
+            {"id": uuid.uuid4()},
+        )
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        with pytest.raises(E4bPopulatedError) as blocked:
+            delete_tenant_locally(
+                session,
+                ids["igreja"],
+                TenantDeletionActor(ids["master"], "master@test"),
+            )
+        assert blocked.value.table_counts == {"e4b_unknown_guard": 1}
+        session.rollback()
+    finally:
+        session.close()
+
+    assert _count(tenant_deletion_engine, "igrejas") == 1
+    assert _count(tenant_deletion_engine, "platform_audit_log") == 0
+
+
 def test_e4b_rows_block_before_manifest_or_local_delete(
     tenant_deletion_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ids = _seed_graph(tenant_deletion_engine)
+    monkeypatch.setattr(tenant_deletion_service, "_E4B_SCHEMA", _SCHEMA)
     with tenant_deletion_engine.begin() as connection:
         connection.exec_driver_sql(
             """
