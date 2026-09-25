@@ -631,6 +631,73 @@ def test_agent_reply_retryable_failure_releases_intent_without_rerunning_agent(
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
 
 
+def test_duplicate_provider_delivery_does_not_advance_scheduled_agent_retry(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A new raw delivery cannot replace or wake the persisted retry owner."""
+    from tests.test_whatsapp_worker import FakeRedis
+
+    factory = _factory(msg_engine_fx)
+    _seed_agent_delivery(factory)
+    agent_calls = _stub_agent(monkeypatch)
+    evolution = _ClassifiedEvolution("falhou_retentavel", "aceito")
+    redis = FakeRedis()
+    clock = [4_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    worker_id = "scheduled-dedupe"
+    queue.register_worker(worker_id)
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=factory,
+        worker_id=worker_id,
+        agent_runner=lambda sf, outcome, guard: run_agent_for_message(
+            sf, outcome, guard, evolution_client=evolution
+        ),
+    )
+    payload = _payload("SCHEDULED-DEDUPE")
+    queue.enqueue(payload)
+    first_raw = queue.claim(worker_id, timeout=0)
+    assert first_raw is not None
+    first = _Envelope.from_json(first_raw)
+    worker._handle_raw(first_raw)  # noqa: SLF001
+
+    scheduled = redis.zsets[worker_module.SCHEDULED_RETRY_QUEUE]
+    assert len(scheduled) == 1
+    replacement, deadline = next(iter(scheduled.items()))
+    assert _Envelope.from_json(replacement).claim_id == first.claim_id
+    assert _Envelope.from_json(replacement).attempts == 1
+    assert len(evolution.calls) == 1
+
+    # Same provider id, but a fresh queue claim id. It must be ACKed as a
+    # duplicate without mutating the delayed owner or invoking Evolution.
+    queue.enqueue(payload)
+    duplicate_raw = queue.claim(worker_id, timeout=0)
+    assert duplicate_raw is not None
+    assert _Envelope.from_json(duplicate_raw).claim_id != first.claim_id
+    worker._handle_raw(duplicate_raw)  # noqa: SLF001
+    assert redis.zsets[worker_module.SCHEDULED_RETRY_QUEUE] == {replacement: deadline}
+    assert len(evolution.calls) == 1
+    assert queue.claim(worker_id, timeout=0) is None
+
+    clock[0] = deadline
+    retry_raw = queue.claim(worker_id, timeout=0)
+    assert retry_raw == replacement
+    worker._handle_raw(retry_raw)  # noqa: SLF001
+    assert agent_calls == ["agent"]
+    assert len(evolution.calls) == 2
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
+    assert redis.zsets.get(worker_module.SCHEDULED_RETRY_QUEUE) in (None, {})
+
+    # Final `done` marker rejects a later redelivery too, without resetting the
+    # completed retry budget or making a new outbound intent.
+    queue.enqueue(payload)
+    final_duplicate_raw = queue.claim(worker_id, timeout=0)
+    assert final_duplicate_raw is not None
+    worker._handle_raw(final_duplicate_raw)  # noqa: SLF001
+    assert len(evolution.calls) == 2
+    assert agent_calls == ["agent"]
+
+
 def test_agent_reply_suppressed_is_recorded_and_never_auto_resent(
     msg_engine_fx: Engine, monkeypatch
 ) -> None:
@@ -1167,7 +1234,8 @@ def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, 
     _seed_igreja_with_connection(factory, igreja_id=_IGREJA_B, instance="igreja-2")
     agent_calls = _stub_agent(monkeypatch)
     redis = FakeRedis()
-    queue = WebhookQueue(redis_client=redis)
+    clock = [3_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
     worker_id = "b3-integration"
     queue.register_worker(worker_id)
     requests = []
@@ -1199,11 +1267,28 @@ def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, 
         agent_runner=lambda sf, outcome, guard: run_agent_for_message(
             sf, outcome, guard, evolution_client=evolution))
     queue.enqueue(_payload("B3-FULL-FLOW"))
+    scheduled_deadlines: list[float] = []
     try:
-        for _ in range(worker_module.MAX_ATTEMPTS + 1):
+        while True:
             raw = queue.claim(worker_id, timeout=0)
             if raw is None:
-                break
+                deadlines = redis.zsets.get(worker_module.SCHEDULED_RETRY_QUEUE, {})
+                if not deadlines:
+                    break
+                replacement, deadline = min(deadlines.items(), key=lambda item: item[1])
+                assert deadline > clock[0]
+                assert deadline == pytest.approx(
+                    clock[0] + worker_module.AGENT_REPLY_RETRY_BACKOFF_SECONDS[
+                        len(scheduled_deadlines)
+                    ]
+                )
+                assert _Envelope.from_json(replacement).retry_at == pytest.approx(deadline)
+                request_count = len(requests)
+                assert queue.claim(worker_id, timeout=0) is None
+                assert len(requests) == request_count
+                scheduled_deadlines.append(deadline)
+                clock[0] = deadline
+                continue
             worker._handle_raw(raw)
     finally:
         http.close()
@@ -1211,6 +1296,12 @@ def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, 
     assert agent_calls == ["agent"]
     assert all(value == "Resposta da IA" for value in texts)
     assert _agent_reply_states(factory, _IGREJA_B) == []
+    expected_schedules = 1 if scenario == "recover" else (
+        worker_module.MAX_ATTEMPTS - 1
+        if scenario in {"timeout", "5xx", "offline", "wrong_instance"}
+        else 0
+    )
+    assert len(scheduled_deadlines) == expected_schedules
     if scenario == "recover":
         assert len(texts) == 2
         assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]

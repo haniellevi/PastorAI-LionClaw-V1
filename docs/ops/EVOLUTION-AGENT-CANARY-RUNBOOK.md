@@ -31,7 +31,7 @@ desabilitada no registro de capacidades do agente.
 - O backend implantado contém o mesmo commit ou um descendente revisado.
 - `/health` responde `ok` e `/ready` responde `ready`.
 - A instância Evolution da igreja está online.
-- A fila de entrada e a fila de processamento estão vazias.
+- As filas de entrada, processamento e retry agendado estão vazias.
 - A dead-letter canônica está vazia. Um item legado sem metadados seguros não
   pode ser atribuído ao número do canário por suposição: ele bloqueia a
   ativação até ser preservado por uma quarentena atômica, em gate separado,
@@ -292,6 +292,14 @@ falha de confirmação local e demais resultados não classificados continuam
 em quarentena. Essa exceção pode duplicar uma resposta que a Evolution já
 aceitou. Os critérios de abortar o canário continuam válidos, e a implementação
 local não autoriza canário, envio real, deploy ou replay manual da dead-letter.
+
+Na correção P1 da PR416, essas tentativas retentáveis aguardam prazos
+persistidos de 5, 15, 30 e 60 segundos antes das tentativas dois a cinco. Uma
+retry agendada é trabalho pendente no preflight e não deve ser promovida antes
+do prazo para limpar a fila. A reconciliação usa o estado canônico do claim,
+de modo que uma cópia antiga recuperada não consome nem redefine o orçamento,
+inclusive quando a cópia nova já está em processamento. Não há tratamento de
+`Retry-After` neste recorte.
 
 ## Quarentena de dead-letter legada
 

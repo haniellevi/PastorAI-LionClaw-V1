@@ -20,7 +20,13 @@ from collections.abc import Iterator
 import pytest
 import redis
 
-from app.workers.queue_worker import _MOVE_FAILED_CLAIM_SCRIPT
+from app.workers.queue_worker import (
+    _MOVE_DUE_RETRIES_SCRIPT,
+    _MOVE_FAILED_CLAIM_SCRIPT,
+    _RECONCILE_RETRY_CLAIM_SCRIPT,
+    RETRY_STATE_TTL_SECONDS,
+    _retry_state_key,
+)
 
 
 pytestmark = pytest.mark.redis7
@@ -135,20 +141,102 @@ def _move(
     raw: str,
     replacement: str,
     failure: str = "",
+    scheduled_at: float | None = None,
 ) -> int:
+    args: list[str | int] = [
+        _MOVE_FAILED_CLAIM_SCRIPT,
+        3,
+        lease,
+        processing,
+        target,
+        owner,
+        raw,
+        replacement,
+        failure,
+    ]
+    if scheduled_at is not None:
+        args.append(str(scheduled_at))
+    return int(
+        client.eval(*args)
+    )
+
+
+def _move_with_state(
+    client: redis.Redis,
+    *,
+    lease: str,
+    processing: str,
+    target: str,
+    state_key: str,
+    owner: str,
+    raw: str,
+    replacement: str,
+    attempts: int = 1,
+    status: str = "scheduled",
+    failure: str = "",
+    scheduled_at: float | None = None,
+) -> int:
+    """Exercise the production transition shape, including its claim state."""
+    retry_at = "" if scheduled_at is None else str(scheduled_at)
     return int(
         client.eval(
             _MOVE_FAILED_CLAIM_SCRIPT,
-            3,
+            4,
             lease,
             processing,
             target,
+            state_key,
             owner,
             raw,
             replacement,
             failure,
+            retry_at,
+            str(attempts),
+            status,
+            str(RETRY_STATE_TTL_SECONDS),
         )
     )
+
+
+def _reconcile(
+    client: redis.Redis,
+    *,
+    lease: str,
+    processing: str,
+    state_key: str,
+    scheduled: str,
+    ready: str,
+    dead: str,
+    owner: str,
+    raw: str,
+    now: float,
+) -> int:
+    return int(
+        client.eval(
+            _RECONCILE_RETRY_CLAIM_SCRIPT,
+            6,
+            lease,
+            processing,
+            state_key,
+            scheduled,
+            ready,
+            dead,
+            owner,
+            raw,
+            str(now),
+            str(RETRY_STATE_TTL_SECONDS),
+        )
+    )
+
+
+def _promote(
+    client: redis.Redis,
+    *,
+    scheduled: str,
+    ready: str,
+    now: float,
+) -> int:
+    return int(client.eval(_MOVE_DUE_RETRIES_SCRIPT, 2, scheduled, ready, str(now)))
 
 
 @pytest.mark.parametrize(
@@ -323,3 +411,344 @@ def test_real_redis7_concurrent_calls_produce_one_valid_transition(
         assert sorted(results) == [0, 1]
         assert redis7.lrange(processing, 0, -1) == []
         assert redis7.lrange(target, 0, -1) == [replacement]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "before_destination",
+        "target_write_error",
+        "after_destination",
+        "before_source",
+        "after_source",
+    ],
+)
+def test_real_redis7_scheduled_failure_points_preserve_source_or_retry(
+    redis7: redis.Redis, failure: str
+) -> None:
+    """The delayed destination has the same no-loss contract as the ready list."""
+    for attempt in range(50):
+        lease, processing, scheduled, raw, replacement = _seed(
+            redis7, suffix=f"scheduled-{failure}-{attempt}"
+        )
+        due_at = 10_000.0 + attempt
+        result = _move(
+            redis7,
+            lease=lease,
+            processing=processing,
+            target=scheduled,
+            owner="owner-a",
+            raw=raw,
+            replacement=replacement,
+            failure=failure,
+            scheduled_at=due_at,
+        )
+
+        assert result < 0
+        source = redis7.lrange(processing, 0, -1)
+        persisted_retry = redis7.zscore(scheduled, replacement)
+        assert raw in source or persisted_retry == due_at
+
+        if raw in source:
+            assert _move(
+                redis7,
+                lease=lease,
+                processing=processing,
+                target=scheduled,
+                owner="owner-a",
+                raw=raw,
+                replacement=replacement,
+                scheduled_at=due_at,
+            ) == 1
+
+        assert redis7.lrange(processing, 0, -1) == []
+        assert redis7.zscore(scheduled, replacement) == due_at
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "before_destination",
+        "target_write_error",
+        "after_destination",
+        "before_source",
+        "after_source",
+    ],
+)
+def test_real_redis7_stateful_schedule_failure_is_recoverable(
+    redis7: redis.Redis, failure: str
+) -> None:
+    """Canonical state repairs every partial scheduled transition without a spin."""
+    suffix = f"stateful-scheduled-{failure}"
+    lease, processing, scheduled, raw, replacement = _seed(redis7, suffix=suffix)
+    claim_id = f"claim-{suffix}"
+    state_key = _retry_state_key(claim_id)
+    due_at = 11_000.0
+
+    assert _move_with_state(
+        redis7,
+        lease=lease,
+        processing=processing,
+        target=scheduled,
+        state_key=state_key,
+        owner="owner-a",
+        raw=raw,
+        replacement=replacement,
+        failure=failure,
+        scheduled_at=due_at,
+    ) < 0
+    assert redis7.hgetall(state_key) == {
+        "raw": replacement,
+        "attempts": "1",
+        "retry_at": str(due_at),
+        "status": "scheduled",
+    }
+
+    if raw in redis7.lrange(processing, 0, -1):
+        recovered_lease = f"m08:lease:{suffix}:recovered"
+        recovered_processing = f"m08:processing:{suffix}:recovered"
+        ready = f"m08:ready:{suffix}"
+        dead = f"m08:dead:{suffix}"
+        assert redis7.rpoplpush(processing, recovered_processing) == raw
+        redis7.set(recovered_lease, "owner-b")
+        assert _reconcile(
+            redis7,
+            lease=recovered_lease,
+            processing=recovered_processing,
+            state_key=state_key,
+            scheduled=scheduled,
+            ready=ready,
+            dead=dead,
+            owner="owner-b",
+            raw=raw,
+            now=due_at - 0.001,
+        ) == 1
+        assert redis7.lrange(recovered_processing, 0, -1) == []
+
+    assert redis7.lrange(processing, 0, -1) == []
+    assert redis7.zscore(scheduled, replacement) == due_at
+
+
+def test_real_redis7_scheduled_retry_waits_then_promotes_once(redis7: redis.Redis) -> None:
+    """A future retry stays outside the ready list until its persisted deadline."""
+    lease, processing, scheduled, raw, replacement = _seed(redis7, suffix="scheduled-due")
+    ready = "m08:ready:scheduled-due"
+    due_at = 12_345.0
+
+    assert _move(
+        redis7,
+        lease=lease,
+        processing=processing,
+        target=scheduled,
+        owner="owner-a",
+        raw=raw,
+        replacement=replacement,
+        scheduled_at=due_at,
+    ) == 1
+    assert redis7.lrange(processing, 0, -1) == []
+    assert _promote(redis7, scheduled=scheduled, ready=ready, now=due_at - 0.001) == 0
+    assert redis7.lrange(ready, 0, -1) == []
+    assert redis7.zscore(scheduled, replacement) == due_at
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                lambda _unused: _promote(
+                    redis7, scheduled=scheduled, ready=ready, now=due_at
+                ),
+                range(2),
+            )
+        )
+
+    assert sorted(results) == [0, 1]
+    assert redis7.zrange(scheduled, 0, -1) == []
+    assert redis7.lrange(ready, 0, -1) == [replacement]
+
+
+def test_real_redis7_recovered_partial_schedule_keeps_its_deadline(
+    redis7: redis.Redis,
+) -> None:
+    """The recovered source cannot outrun a retry persisted before source removal."""
+    lease, processing, scheduled, raw, replacement = _seed(
+        redis7, suffix="scheduled-partial"
+    )
+    due_at = 20_000.0
+    state_key = _retry_state_key("claim-scheduled-partial")
+    assert _move_with_state(
+        redis7,
+        lease=lease,
+        processing=processing,
+        target=scheduled,
+        state_key=state_key,
+        owner="owner-a",
+        raw=raw,
+        replacement=replacement,
+        failure="after_destination",
+        scheduled_at=due_at,
+    ) == -12
+    recovered_lease = "m08:lease:scheduled-partial:recovered"
+    recovered_processing = "m08:processing:scheduled-partial:recovered"
+    ready = "m08:ready:partial"
+    dead = "m08:dead:partial"
+    redis7.rpoplpush(processing, recovered_processing)
+    redis7.set(recovered_lease, "owner-b")
+
+    assert _reconcile(
+        redis7,
+        lease=recovered_lease,
+        processing=recovered_processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-b",
+        raw=raw,
+        now=due_at - 0.001,
+    ) == 1
+    assert redis7.lrange(recovered_processing, 0, -1) == []
+    assert _promote(
+        redis7, scheduled=scheduled, ready=ready, now=due_at - 0.001
+    ) == 0
+    redis7.lpush(ready, raw)
+    assert _promote(
+        redis7, scheduled=scheduled, ready=ready, now=due_at
+    ) == 1
+    redis7.rpoplpush(ready, recovered_processing)
+    assert _reconcile(
+        redis7,
+        lease=recovered_lease,
+        processing=recovered_processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-b",
+        raw=raw,
+        now=due_at,
+    ) == 1
+    assert redis7.lrange(recovered_processing, 0, -1) == []
+    assert redis7.lrange(ready, 0, -1) == [replacement]
+
+
+def test_real_redis7_newer_retry_survives_old_raw_left_ready_in_inverse_order(
+    redis7: redis.Redis,
+) -> None:
+    """A ready stale source cannot discard the newer raw claimed ahead of it."""
+    lease, processing, scheduled, raw, replacement = _seed(
+        redis7, suffix="state-order-inverted"
+    )
+    claim_id = "claim-state-order-inverted"
+    state_key = _retry_state_key(claim_id)
+    ready = "m08:ready:state-order-inverted"
+    dead = "m08:dead:state-order-inverted"
+    due_at = 21_000.0
+
+    assert _move_with_state(
+        redis7,
+        lease=lease,
+        processing=processing,
+        target=scheduled,
+        state_key=state_key,
+        owner="owner-a",
+        raw=raw,
+        replacement=replacement,
+        scheduled_at=due_at,
+    ) == 1
+    assert _promote(redis7, scheduled=scheduled, ready=ready, now=due_at) == 1
+    # LPUSH leaves the old source at the head and the newer retry at the tail,
+    # where RPOPLPUSH claims the newer retry first.
+    redis7.lpush(ready, raw)
+    assert redis7.rpoplpush(ready, processing) == replacement
+    assert _reconcile(
+        redis7,
+        lease=lease,
+        processing=processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-a",
+        raw=replacement,
+        now=due_at,
+    ) == 0
+    assert redis7.hget(state_key, "attempts") == "1"
+
+    assert redis7.lrem(processing, 1, replacement) == 1
+    assert redis7.rpoplpush(ready, processing) == raw
+    assert _reconcile(
+        redis7,
+        lease=lease,
+        processing=processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-a",
+        raw=raw,
+        now=due_at,
+    ) == 1
+    assert redis7.lrange(processing, 0, -1) == []
+    assert redis7.lrange(ready, 0, -1) == []
+    assert redis7.hget(state_key, "attempts") == "1"
+
+
+def test_real_redis7_stale_source_cannot_run_while_retry_is_processing_elsewhere(
+    redis7: redis.Redis,
+) -> None:
+    """A state in processing still rejects an older raw claimed by another worker."""
+    lease, processing, scheduled, raw, replacement = _seed(
+        redis7, suffix="state-processing-other-worker"
+    )
+    claim_id = "claim-state-processing-other-worker"
+    state_key = _retry_state_key(claim_id)
+    ready = "m08:ready:state-processing-other-worker"
+    dead = "m08:dead:state-processing-other-worker"
+    second_lease = "m08:lease:state-processing-other-worker:second"
+    second_processing = "m08:processing:state-processing-other-worker:second"
+    due_at = 22_000.0
+
+    assert _move_with_state(
+        redis7,
+        lease=lease,
+        processing=processing,
+        target=scheduled,
+        state_key=state_key,
+        owner="owner-a",
+        raw=raw,
+        replacement=replacement,
+        scheduled_at=due_at,
+    ) == 1
+    assert _promote(redis7, scheduled=scheduled, ready=ready, now=due_at) == 1
+
+    redis7.set(second_lease, "owner-b")
+    assert redis7.rpoplpush(ready, second_processing) == replacement
+    assert _reconcile(
+        redis7,
+        lease=second_lease,
+        processing=second_processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-b",
+        raw=replacement,
+        now=due_at,
+    ) == 0
+
+    redis7.lpush(ready, raw)
+    assert redis7.rpoplpush(ready, processing) == raw
+    assert _reconcile(
+        redis7,
+        lease=lease,
+        processing=processing,
+        state_key=state_key,
+        scheduled=scheduled,
+        ready=ready,
+        dead=dead,
+        owner="owner-a",
+        raw=raw,
+        now=due_at,
+    ) == 1
+    assert redis7.lrange(processing, 0, -1) == []
+    assert redis7.lrange(second_processing, 0, -1) == [replacement]
+    assert redis7.hget(state_key, "attempts") == "1"

@@ -14,12 +14,14 @@ from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.domain.conversations import parse_message_event
 from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
+    AGENT_REPLY_RETRY_BACKOFF_SECONDS,
     AmbiguousPessoaIdentity,
     DEAD_LETTER_QUEUE,
     MAX_ATTEMPTS,
     REDIS_CONNECT_TIMEOUT_SECONDS,
     REDIS_MAX_CONNECTIONS,
     REDIS_SOCKET_TIMEOUT_SECONDS,
+    SCHEDULED_RETRY_QUEUE,
     WEBHOOK_QUEUE,
     WORKER_LEASE_SECONDS,
     WORKER_REGISTRY,
@@ -47,6 +49,8 @@ class FakeRedis:
         self.lists: dict[str, list[str]] = {}
         self.kv: dict[str, str] = {}
         self.sets: dict[str, set[str]] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
+        self.hashes: dict[str, dict[str, str]] = {}
         self.direct_lrem_calls = 0
         self.failed_transition_calls = 0
         self.fence_calls: list[tuple[str, str]] = []
@@ -124,13 +128,107 @@ class FakeRedis:
         values.remove(value)
         return 1
 
+    def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        values = self.zsets.setdefault(key, {})
+        added = 0
+        for value, score in mapping.items():
+            if value not in values:
+                added += 1
+            values[value] = float(score)
+        return added
+
+    def zscore(self, key: str, value: str) -> float | None:
+        return self.zsets.get(key, {}).get(value)
+
+    def zrangebyscore(self, key: str, minimum: float, maximum: float) -> list[str]:
+        values = self.zsets.get(key, {})
+        return [
+            value
+            for value, score in sorted(values.items(), key=lambda item: (item[1], item[0]))
+            if minimum <= score <= maximum
+        ]
+
+    def zrem(self, key: str, value: str) -> int:
+        values = self.zsets.get(key, {})
+        if value not in values:
+            return 0
+        del values[value]
+        return 1
+
     def eval(self, script: str, numkeys: int, *values: str) -> int:
-        if numkeys == 3 and "LREM" in script:
-            # Failed claims move only when the same worker still owns both the
-            # live lease and the raw item in its private processing list.  The
-            # destination is persisted before removing the source claim so a
-            # failed source removal stays recoverable rather than losing work.
-            lease_key, processing, target, worker_id, raw, replacement = values
+        if numkeys == 2 and "ZRANGEBYSCORE" in script:
+            scheduled, ready, due_at = values
+            moved = 0
+            for replacement in self.zrangebyscore(scheduled, float("-inf"), float(due_at)):
+                destination = self.lists.setdefault(ready, [])
+                if replacement not in destination:
+                    self.lpush(ready, replacement)
+                self.zrem(scheduled, replacement)
+                moved += 1
+            return moved
+
+        if numkeys == 6 and "HGET" in script:
+            (
+                lease_key,
+                processing,
+                state_key,
+                scheduled,
+                ready,
+                dead,
+                worker_id,
+                raw,
+                now,
+                _ttl,
+            ) = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            items = self.lists.get(processing, [])
+            try:
+                index = items.index(raw)
+            except ValueError:
+                return 0
+            state = self.hashes.get(state_key)
+            if not state:
+                return 0
+            replacement = state["raw"]
+            status = state["status"]
+            if replacement == raw and status != "dead":
+                due_at = float(state["retry_at"]) if state["retry_at"] else None
+                if status != "scheduled" or (due_at is not None and due_at <= float(now)):
+                    state["status"] = "processing"
+                    return 0
+            if status == "scheduled":
+                if (
+                    replacement not in self.zsets.get(scheduled, {})
+                    and replacement not in self.lists.get(ready, [])
+                ):
+                    self.zadd(scheduled, {replacement: float(state["retry_at"])})
+            elif status == "ready":
+                if replacement not in self.lists.get(ready, []):
+                    self.lpush(ready, replacement)
+            elif status == "dead":
+                if replacement not in self.lists.get(dead, []):
+                    self.lpush(dead, replacement)
+            elif status != "processing":
+                return -1
+            items.pop(index)
+            return 1
+
+        if numkeys == 4 and "HSET" in script and "LREM" in script:
+            (
+                lease_key,
+                processing,
+                target,
+                state_key,
+                worker_id,
+                raw,
+                replacement,
+                failure,
+                retry_at,
+                next_attempts,
+                status,
+                _ttl,
+            ) = values
             self.failed_transition_calls += 1
             if self.kv.get(lease_key) != worker_id:
                 return 0
@@ -139,10 +237,59 @@ class FakeRedis:
                 index = items.index(raw)
             except ValueError:
                 return 0
-            destination = self.lists.setdefault(target, [])
-            if replacement not in destination:
-                self.lpush(target, replacement)
+            state = self.hashes.get(state_key)
+            if state and int(state["attempts"]) >= int(next_attempts):
+                return 0
+            self.hashes[state_key] = {
+                "raw": replacement,
+                "attempts": next_attempts,
+                "retry_at": retry_at,
+                "status": status,
+            }
+            if failure in {"before_destination", "target_write_error"}:
+                return -10
+            if retry_at:
+                self.zadd(target, {replacement: float(retry_at)})
+            else:
+                destination = self.lists.setdefault(target, [])
+                if replacement not in destination:
+                    self.lpush(target, replacement)
+            if failure in {"after_destination", "before_source"}:
+                return -12
             items.pop(index)
+            if failure == "after_source":
+                return -15
+            return 1
+
+        if numkeys == 3 and "LREM" in script:
+            # Failed claims move only when the same worker still owns both the
+            # live lease and the raw item in its private processing list.  The
+            # destination is persisted before removing the source claim so a
+            # failed source removal stays recoverable rather than losing work.
+            lease_key, processing, target, worker_id, raw, replacement, *rest = values
+            self.failed_transition_calls += 1
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            items = self.lists.get(processing, [])
+            try:
+                index = items.index(raw)
+            except ValueError:
+                return 0
+            failure = rest[0] if rest else ""
+            if failure in {"before_destination", "target_write_error"}:
+                return -10
+            scheduled_at = rest[1] if len(rest) > 1 else ""
+            if scheduled_at:
+                self.zadd(target, {replacement: float(scheduled_at)})
+            else:
+                destination = self.lists.setdefault(target, [])
+                if replacement not in destination:
+                    self.lpush(target, replacement)
+            if failure in {"after_destination", "before_source"}:
+                return -12
+            items.pop(index)
+            if failure == "after_source":
+                return -15
             return 1
 
         if numkeys == 3:  # marker mutation only for the live raw-item owner
@@ -1863,11 +2010,12 @@ def test_build_redis_has_bounded_pool_and_timeouts(monkeypatch) -> None:
     assert captured["max_connections"] == REDIS_MAX_CONNECTIONS
 
 
-def test_agent_transport_retry_exhausts_queue_budget(monkeypatch):
+def test_agent_transport_retry_exhausts_budget_only_after_persisted_deadlines(monkeypatch):
     from app.workers.queue_worker import AgentReplyRetryable
 
     redis = FakeRedis()
-    queue = WebhookQueue(redis_client=redis)
+    clock = [1_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
     worker_id = "agent-bounded"
     queue.register_worker(worker_id)
     worker = QueueWorker(queue=queue, session_factory=lambda: None, worker_id=worker_id)
@@ -1879,13 +2027,202 @@ def test_agent_transport_retry_exhausts_queue_budget(monkeypatch):
 
     monkeypatch.setattr(worker, "handle_envelope", retry)
     queue.enqueue(_parsed_payload("BOUNDED-AGENT"))
-    for _ in range(MAX_ATTEMPTS + 1):
+    while True:
         raw = queue.claim(worker_id, timeout=0)
         if raw is None:
-            break
+            deadlines = redis.zsets.get(SCHEDULED_RETRY_QUEUE, {})
+            if not deadlines:
+                break
+            deadline = min(deadlines.values())
+            assert deadline > clock[0]
+            assert attempts == list(range(len(attempts)))
+            clock[0] = deadline
+            continue
         worker._handle_raw(raw)
 
     assert attempts == list(range(MAX_ATTEMPTS))
     assert redis.lists.get(WEBHOOK_QUEUE) in (None, [])
+    assert redis.zsets.get(SCHEDULED_RETRY_QUEUE) in (None, {})
     assert len(redis.lists[DEAD_LETTER_QUEUE]) == 1
     assert _Envelope.from_json(redis.lists[DEAD_LETTER_QUEUE][0]).attempts == MAX_ATTEMPTS
+
+
+def test_agent_retry_schedule_survives_restart_and_leaves_ready_envelopes_independent(
+    monkeypatch,
+):
+    from app.workers.queue_worker import AgentReplyRetryable
+
+    redis = FakeRedis()
+    clock = [2_000.0]
+    first_queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    first_worker_id = "agent-retry-first"
+    first_queue.register_worker(first_worker_id)
+    first_worker = QueueWorker(
+        queue=first_queue,
+        session_factory=lambda: None,
+        worker_id=first_worker_id,
+    )
+    calls: list[int] = []
+
+    def retry(envelope, **kwargs):
+        calls.append(envelope.attempts)
+        raise AgentReplyRetryable("synthetic transient send failure")
+
+    monkeypatch.setattr(first_worker, "handle_envelope", retry)
+    first_queue.enqueue(_parsed_payload("SCHEDULED-RETRY"))
+    raw = first_queue.claim(first_worker_id, timeout=0)
+    assert raw is not None
+    first_worker._handle_raw(raw)  # noqa: SLF001
+
+    scheduled = redis.zsets[SCHEDULED_RETRY_QUEUE]
+    assert len(scheduled) == 1
+    replacement, deadline = next(iter(scheduled.items()))
+    persisted = _Envelope.from_json(replacement)
+    assert persisted.attempts == 1
+    assert persisted.retry_at == pytest.approx(
+        clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    )
+
+    restarted_queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    restarted_worker_id = "agent-retry-restarted"
+    restarted_queue.register_worker(restarted_worker_id)
+    assert restarted_queue.recover_pending(restarted_worker_id) == 0
+    assert restarted_queue.claim(restarted_worker_id, timeout=0) is None
+    assert calls == [0]
+
+    restarted_queue.enqueue(_parsed_payload("READY-DOES-NOT-WAIT"))
+    ready_raw = restarted_queue.claim(restarted_worker_id, timeout=0)
+    assert ready_raw is not None
+    assert _Envelope.from_json(ready_raw).payload["data"]["key"]["id"] == "READY-DOES-NOT-WAIT"
+    restarted_queue.ack(restarted_worker_id, ready_raw)
+    assert calls == [0]
+
+    clock[0] = deadline
+    retry_raw = restarted_queue.claim(restarted_worker_id, timeout=0)
+    assert retry_raw == replacement
+    assert _Envelope.from_json(retry_raw).attempts == 1
+
+
+def test_recovered_partial_schedule_does_not_bypass_the_persisted_deadline() -> None:
+    """A source copy left by Lua is reconciled in favor of its delayed retry."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    clock = [5_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    old_worker_id = "retry-partial-old"
+    new_worker_id = "retry-partial-new"
+    queue.register_worker(old_worker_id)
+    original = _Envelope(payload=_parsed_payload("PARTIAL-SCHEDULE"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(old_worker_id, timeout=0) == raw
+
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    replacement = _Envelope(
+        payload=original.payload,
+        attempts=1,
+        claim_id=original.claim_id,
+        retry_at=deadline,
+    ).to_json()
+    state_key = worker_module._retry_state_key(original.claim_id)
+    assert redis.eval(
+        worker_module._MOVE_FAILED_CLAIM_SCRIPT,
+        4,
+        queue._lease_key(old_worker_id),  # noqa: SLF001
+        queue.processing_queue(old_worker_id),
+        SCHEDULED_RETRY_QUEUE,
+        state_key,
+        old_worker_id,
+        raw,
+        replacement,
+        "after_destination",
+        str(deadline),
+        "1",
+        "scheduled",
+        str(worker_module.RETRY_STATE_TTL_SECONDS),
+    ) == -12
+    assert redis.lists[queue.processing_queue(old_worker_id)] == [raw]
+    assert redis.zsets[SCHEDULED_RETRY_QUEUE] == {replacement: deadline}
+    assert redis.hashes[state_key]["raw"] == replacement
+
+    redis.delete(queue._lease_key(old_worker_id))  # noqa: SLF001
+    queue.register_worker(new_worker_id)
+    assert queue.recover_pending(new_worker_id) == 1
+    assert queue.claim(new_worker_id, timeout=0) is None
+    assert redis.lists[queue.processing_queue(new_worker_id)] == []
+    assert redis.zsets[SCHEDULED_RETRY_QUEUE] == {replacement: deadline}
+
+    clock[0] = deadline
+    # If recovery races exactly with promotion, the source raw is still
+    # discarded in favor of the replacement already made ready at the deadline.
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(new_worker_id, timeout=0) is None
+    assert queue.claim(new_worker_id, timeout=0) == replacement
+
+
+def test_newer_retry_wins_when_old_raw_is_ready_in_the_opposite_order() -> None:
+    """A stale source must not discard its newer same-claim replacement."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    clock = [6_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    first_worker_id = "retry-order-first"
+    second_worker_id = "retry-order-second"
+    queue.register_worker(first_worker_id)
+    queue.register_worker(second_worker_id)
+    original = _Envelope(payload=_parsed_payload("ORDER-INVERTED"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(first_worker_id, timeout=0) == raw
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    queue.transition_failed_claim(
+        first_worker_id,
+        raw,
+        original,
+        retry_at=deadline,
+    )
+
+    clock[0] = deadline
+    queue._promote_due_retries()  # noqa: SLF001
+    replacement = redis.lists[WEBHOOK_QUEUE][0]
+    assert _Envelope.from_json(replacement).attempts == 1
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(second_worker_id, timeout=0) == replacement
+    queue.ack(second_worker_id, replacement)
+    assert queue.claim(second_worker_id, timeout=0) is None
+    assert redis.hashes[worker_module._retry_state_key(original.claim_id)]["attempts"] == "1"
+
+
+def test_stale_raw_is_discarded_when_the_canonical_retry_is_processing_elsewhere() -> None:
+    """A replacement claimed by W2 remains canonical while W1 recovers its source."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    clock = [7_000.0]
+    queue = WebhookQueue(redis_client=redis, clock=lambda: clock[0])
+    first_worker_id = "retry-processing-first"
+    second_worker_id = "retry-processing-second"
+    queue.register_worker(first_worker_id)
+    queue.register_worker(second_worker_id)
+    original = _Envelope(payload=_parsed_payload("CANONICAL-PROCESSING"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(first_worker_id, timeout=0) == raw
+    deadline = clock[0] + AGENT_REPLY_RETRY_BACKOFF_SECONDS[0]
+    queue.transition_failed_claim(
+        first_worker_id,
+        raw,
+        original,
+        retry_at=deadline,
+    )
+
+    clock[0] = deadline
+    replacement = queue.claim(second_worker_id, timeout=0)
+    assert replacement is not None
+    assert _Envelope.from_json(replacement).attempts == 1
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(first_worker_id, timeout=0) is None
+    assert redis.lists[queue.processing_queue(second_worker_id)] == [replacement]
+    assert redis.hashes[worker_module._retry_state_key(original.claim_id)]["attempts"] == "1"

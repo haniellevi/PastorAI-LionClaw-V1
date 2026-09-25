@@ -37,6 +37,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import math
 import signal
 import time
 import uuid
@@ -94,12 +95,19 @@ logger = logging.getLogger("pastorai.queue_worker")
 WEBHOOK_QUEUE = "pastorai:webhooks"
 PROCESSING_QUEUE = "pastorai:webhooks:processing"
 DEAD_LETTER_QUEUE = "pastorai:webhooks:dead"
+SCHEDULED_RETRY_QUEUE = "pastorai:webhooks:retry-scheduled"
+RETRY_STATE_PREFIX = "pastorai:webhooks:retry-state:"
 PROCESSED_PREFIX = "pastorai:processed:"
 WORKER_REGISTRY = "pastorai:webhooks:workers"
 WORKER_LEASE_PREFIX = "pastorai:webhooks:worker-lease:"
 WORKER_RECOVERY_LOCK_PREFIX = "pastorai:webhooks:recovery-lock:"
 PROCESSED_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
+RETRY_STATE_TTL_SECONDS = PROCESSED_TTL_SECONDS
 MAX_ATTEMPTS = 5
+# Four waits precede the second through fifth effective delivery attempts.
+# The total window gives Evolution a bounded opportunity to reconnect without
+# tying up a worker or allowing retries to spin through the budget.
+AGENT_REPLY_RETRY_BACKOFF_SECONDS = (5, 15, 30, 60)
 BRPOP_TIMEOUT = 5  # seconds
 WORKER_LEASE_SECONDS = 30
 WORKER_HEARTBEAT_SECONDS = 10
@@ -142,18 +150,30 @@ return 0
 _MOVE_FAILED_CLAIM_SCRIPT = """
 -- A failed claim must never disappear if Redis rejects a later write.  Redis
 -- does not roll back earlier Lua mutations after a command error, so validate
--- every key first, persist the replacement first, and only then remove the
--- original claim.  A rare failure after LPUSH leaves a recoverable duplicate;
--- the next owner sees the replacement and removes the original without
--- enqueueing a second copy.
+-- every key first, persist the canonical replacement first, and only then
+-- remove the original claim. The per-claim state lets recovery distinguish an
+-- old raw from its newer replacement even when the replacement is processing.
 local lease_type = redis.call('TYPE', KEYS[1]).ok
 local processing_type = redis.call('TYPE', KEYS[2]).ok
 local target_type = redis.call('TYPE', KEYS[3]).ok
+local state_key = KEYS[4]
+local retry_at = ARGV[5] or ''
+local scheduled = retry_at ~= ''
 if lease_type ~= 'string' or processing_type ~= 'list' then
     return 0
 end
-if target_type ~= 'none' and target_type ~= 'list' then
+if scheduled then
+    if target_type ~= 'none' and target_type ~= 'zset' then
+        return -1
+    end
+elseif target_type ~= 'none' and target_type ~= 'list' then
     return -1
+end
+if state_key then
+    local state_type = redis.call('TYPE', state_key).ok
+    if state_type ~= 'none' and state_type ~= 'hash' then
+        return -2
+    end
 end
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then
     return 0
@@ -171,6 +191,38 @@ if not owned then
     return 0
 end
 
+local replacement = ARGV[3]
+if state_key then
+    local next_attempts = tonumber(ARGV[6])
+    local status = ARGV[7]
+    if not next_attempts or (
+        status ~= 'scheduled' and status ~= 'ready' and status ~= 'dead'
+    ) then
+        return -3
+    end
+    local current_attempts_raw = redis.call('HGET', state_key, 'attempts')
+    local current_attempts = current_attempts_raw and tonumber(current_attempts_raw) or nil
+    if current_attempts and current_attempts >= next_attempts then
+        -- A newer or equivalent canonical replacement already exists. Leave
+        -- this stale source recoverable; reconciliation will remove it.
+        return 0
+    end
+    local saved = redis.pcall(
+        'HSET', state_key,
+        'raw', replacement,
+        'attempts', ARGV[6],
+        'retry_at', retry_at,
+        'status', status
+    )
+    if type(saved) == 'table' and saved.err then
+        return -9
+    end
+    local expires = redis.pcall('EXPIRE', state_key, ARGV[8])
+    if type(expires) == 'table' and expires.err then
+        return -9
+    end
+end
+
 -- Test-only failure points exercise Redis's non-transactional error model in
 -- a real Redis 7 server.  Runtime callers never pass ARGV[4].
 local failure = ARGV[4] or ''
@@ -179,17 +231,24 @@ if failure == 'before_destination' or failure == 'target_write_error' then
 end
 
 local destination_has_replacement = false
-if target_type == 'list' then
+if scheduled and target_type == 'zset' then
+    destination_has_replacement = redis.call('ZSCORE', KEYS[3], replacement) ~= false
+elseif target_type == 'list' then
     local target_items = redis.call('LRANGE', KEYS[3], 0, -1)
     for _, item in ipairs(target_items) do
-        if item == ARGV[3] then
+        if item == replacement then
             destination_has_replacement = true
             break
         end
     end
 end
 if not destination_has_replacement then
-    local pushed = redis.pcall('LPUSH', KEYS[3], ARGV[3])
+    local pushed
+    if scheduled then
+        pushed = redis.pcall('ZADD', KEYS[3], retry_at, replacement)
+    else
+        pushed = redis.pcall('LPUSH', KEYS[3], replacement)
+    end
     if type(pushed) == 'table' and pushed.err then
         return -11
     end
@@ -212,6 +271,159 @@ if failure == 'after_source' then
     return -15
 end
 return 1
+"""
+
+_MOVE_DUE_RETRIES_SCRIPT = """
+-- A scheduled retry is promoted only after its persisted deadline. The
+-- replacement is copied before ZREM so an unexpected Redis command error can
+-- leave a recoverable duplicate, never a lost envelope. A later promotion
+-- reconciles that duplicate by removing the scheduled member without copying
+-- it again.
+local scheduled_type = redis.call('TYPE', KEYS[1]).ok
+local ready_type = redis.call('TYPE', KEYS[2]).ok
+if scheduled_type ~= 'none' and scheduled_type ~= 'zset' then
+    return -1
+end
+if ready_type ~= 'none' and ready_type ~= 'list' then
+    return -2
+end
+if scheduled_type == 'none' then
+    return 0
+end
+
+local due = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+local moved = 0
+for _, replacement in ipairs(due) do
+    local ready_items = redis.call('LRANGE', KEYS[2], 0, -1)
+    local already_ready = false
+    for _, item in ipairs(ready_items) do
+        if item == replacement then
+            already_ready = true
+            break
+        end
+    end
+    if not already_ready then
+        local pushed = redis.pcall('LPUSH', KEYS[2], replacement)
+        if type(pushed) == 'table' and pushed.err then
+            return -10
+        end
+    end
+    local removed = redis.pcall('ZREM', KEYS[1], replacement)
+    if type(removed) == 'table' and removed.err then
+        return -11
+    end
+    if removed == 1 then
+        moved = moved + 1
+    end
+end
+return moved
+"""
+
+_RECONCILE_RETRY_CLAIM_SCRIPT = """
+-- A claimed raw may be an older copy left by a partial transition. The hash is
+-- canonical for its claim id, so queue order and the location of another copy
+-- never decide which attempt is allowed to run.
+local lease_type = redis.call('TYPE', KEYS[1]).ok
+local processing_type = redis.call('TYPE', KEYS[2]).ok
+local state_type = redis.call('TYPE', KEYS[3]).ok
+local scheduled_type = redis.call('TYPE', KEYS[4]).ok
+local ready_type = redis.call('TYPE', KEYS[5]).ok
+local dead_type = redis.call('TYPE', KEYS[6]).ok
+if lease_type ~= 'string' or processing_type ~= 'list' then
+    return 0
+end
+if state_type == 'none' then
+    return 0
+end
+if state_type ~= 'hash' then
+    return -1
+end
+if scheduled_type ~= 'none' and scheduled_type ~= 'zset' then
+    return -2
+end
+if ready_type ~= 'none' and ready_type ~= 'list' then
+    return -3
+end
+if dead_type ~= 'none' and dead_type ~= 'list' then
+    return -4
+end
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+
+local processing_items = redis.call('LRANGE', KEYS[2], 0, -1)
+local owned = false
+for _, item in ipairs(processing_items) do
+    if item == ARGV[2] then
+        owned = true
+        break
+    end
+end
+if not owned then
+    return 0
+end
+
+local replacement = redis.call('HGET', KEYS[3], 'raw')
+local status = redis.call('HGET', KEYS[3], 'status')
+local retry_at = redis.call('HGET', KEYS[3], 'retry_at')
+local now = tonumber(ARGV[3])
+if not replacement or not status then
+    return -5
+end
+if not now then
+    return -5
+end
+
+local function list_has(items, value)
+    for _, replacement in ipairs(items) do
+        if replacement == value then
+            return true
+        end
+    end
+    return false
+end
+
+if replacement == ARGV[2] and status ~= 'dead' then
+    local due_at = tonumber(retry_at)
+    if status == 'scheduled' and not due_at then
+        return -5
+    end
+    if status ~= 'scheduled' or due_at <= now then
+        redis.call('HSET', KEYS[3], 'status', 'processing')
+        redis.call('EXPIRE', KEYS[3], ARGV[4])
+        return 0
+    end
+end
+
+if status == 'scheduled' then
+    local in_schedule = scheduled_type == 'zset'
+        and redis.call('ZSCORE', KEYS[4], replacement) ~= false
+    local in_ready = ready_type == 'list'
+        and list_has(redis.call('LRANGE', KEYS[5], 0, -1), replacement)
+    if not in_schedule and not in_ready then
+        local pushed = redis.pcall('ZADD', KEYS[4], retry_at, replacement)
+        if type(pushed) == 'table' and pushed.err then
+            return -6
+        end
+    end
+elseif status == 'ready' then
+    if not (ready_type == 'list' and list_has(redis.call('LRANGE', KEYS[5], 0, -1), replacement)) then
+        local pushed = redis.pcall('LPUSH', KEYS[5], replacement)
+        if type(pushed) == 'table' and pushed.err then
+            return -7
+        end
+    end
+elseif status == 'dead' then
+    if not (dead_type == 'list' and list_has(redis.call('LRANGE', KEYS[6], 0, -1), replacement)) then
+        local pushed = redis.pcall('LPUSH', KEYS[6], replacement)
+        if type(pushed) == 'table' and pushed.err then
+            return -8
+        end
+    end
+elseif status ~= 'processing' then
+    return -5
+end
+return redis.call('LREM', KEYS[2], 1, ARGV[2])
 """
 
 _OWNS_CLAIM_SCRIPT = """
@@ -1028,10 +1240,15 @@ class _Envelope:
     attempts: int = 0
     claim_id: str = ""
     failure: _FailureMetadata | None = None
+    retry_at: float | None = None
 
     def __post_init__(self) -> None:
         if not self.claim_id:
             self.claim_id = uuid.uuid4().hex
+        if self.retry_at is not None:
+            self.retry_at = float(self.retry_at)
+            if not math.isfinite(self.retry_at):
+                raise ValueError("Webhook retry deadline must be finite")
 
     def to_json(self) -> str:
         data: dict[str, Any] = {
@@ -1041,6 +1258,8 @@ class _Envelope:
         }
         if self.failure is not None:
             data["failure"] = self.failure.to_json_value()
+        if self.retry_at is not None:
+            data["retry_at"] = self.retry_at
         return json.dumps(data)
 
     @classmethod
@@ -1060,14 +1279,27 @@ class _Envelope:
             attempts=int(data.get("attempts", 0)),
             claim_id=claim_id,
             failure=_FailureMetadata.from_json_value(data.get("failure")),
+            retry_at=data.get("retry_at"),
         )
+
+
+def _retry_state_key(claim_id: str) -> str:
+    """Return an opaque Redis key for the canonical retry state of one claim."""
+    digest = sha256(claim_id.encode("utf-8")).hexdigest()
+    return f"{RETRY_STATE_PREFIX}{digest}"
 
 
 class WebhookQueue:
     """Reliable Redis-list handoff for webhook payloads."""
 
-    def __init__(self, redis_client: Any | None = None) -> None:
+    def __init__(
+        self,
+        redis_client: Any | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self._redis = redis_client or _build_redis()
+        self._clock = clock or time.time
 
     def enqueue(self, payload: dict[str, Any]) -> None:
         """Push a new webhook payload onto the queue (attempts=0)."""
@@ -1123,12 +1355,71 @@ class WebhookQueue:
             self._redis.srem(WORKER_REGISTRY, worker_id)
 
     def claim(self, worker_id: str, timeout: int = BRPOP_TIMEOUT) -> str | None:
-        """Move the oldest ready item to this worker's private processing list."""
-        return self._redis.brpoplpush(
+        """Move a ready item to this worker after promoting due retries."""
+        self._promote_due_retries()
+        raw = self._redis.brpoplpush(
             WEBHOOK_QUEUE,
             self.processing_queue(worker_id),
             timeout=timeout,
         )
+        if raw is None:
+            return None
+        try:
+            envelope = _Envelope.from_json(raw)
+        except (TypeError, ValueError):
+            return raw
+        if self._reconcile_retry_claim(worker_id, raw, envelope.claim_id):
+            return None
+        return raw
+
+    def _promote_due_retries(self) -> None:
+        """Atomically make only expired persisted retries visible to workers."""
+        try:
+            moved = self._redis.eval(
+                _MOVE_DUE_RETRIES_SCRIPT,
+                2,
+                SCHEDULED_RETRY_QUEUE,
+                WEBHOOK_QUEUE,
+                str(self._clock()),
+            )
+        except Exception as exc:  # noqa: BLE001 - unknown queue state is unsafe
+            raise RuntimeError("Webhook scheduled retry could not be promoted") from exc
+        if moved < 0:
+            raise RuntimeError("Webhook scheduled retry queue is not usable")
+
+    def _reconcile_retry_claim(
+        self,
+        worker_id: str,
+        raw: str,
+        claim_id: str,
+    ) -> bool:
+        """Drop or repair a raw that lost to its canonical retry replacement."""
+        try:
+            reconciled = self._redis.eval(
+                _RECONCILE_RETRY_CLAIM_SCRIPT,
+                6,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                _retry_state_key(claim_id),
+                SCHEDULED_RETRY_QUEUE,
+                WEBHOOK_QUEUE,
+                DEAD_LETTER_QUEUE,
+                worker_id,
+                raw,
+                str(self._clock()),
+                str(RETRY_STATE_TTL_SECONDS),
+            )
+        except Exception as exc:  # noqa: BLE001 - unknown queue state is unsafe
+            raise RuntimeError("Webhook scheduled retry could not be reconciled") from exc
+        if reconciled < 0:
+            raise RuntimeError("Webhook scheduled retry queue is not usable")
+        return bool(reconciled)
+
+    def agent_reply_retry_at(self, attempts: int) -> float:
+        """Return the persisted deadline after this effective retry failure."""
+        if attempts < 0 or attempts >= len(AGENT_REPLY_RETRY_BACKOFF_SECONDS):
+            raise ValueError("Webhook retry backoff is exhausted")
+        return self._clock() + AGENT_REPLY_RETRY_BACKOFF_SECONDS[attempts]
 
     def ack(self, worker_id: str, raw: str) -> None:
         """Acknowledge one claimed item after success, ignore, or requeue."""
@@ -1328,6 +1619,7 @@ class WebhookQueue:
         envelope: _Envelope,
         *,
         failure: _FailureMetadata | None = None,
+        retry_at: float | None = None,
     ) -> None:
         """Move a failed claim only while its worker still owns a live lease."""
         next_attempts = envelope.attempts + 1
@@ -1336,21 +1628,37 @@ class WebhookQueue:
             attempts=next_attempts,
             claim_id=envelope.claim_id,
             failure=failure or envelope.failure,
+            retry_at=retry_at,
         )
         if next_attempts >= MAX_ATTEMPTS:
             target = DEAD_LETTER_QUEUE
+            status = "dead"
+            replacement.retry_at = None
+        elif retry_at is not None:
+            target = SCHEDULED_RETRY_QUEUE
+            status = "scheduled"
         else:
             target = WEBHOOK_QUEUE
+            status = "ready"
+        args: list[str] = [
+            self._lease_key(worker_id),
+            self.processing_queue(worker_id),
+            target,
+            _retry_state_key(envelope.claim_id),
+            worker_id,
+            raw,
+            replacement.to_json(),
+            "",
+            str(replacement.retry_at) if replacement.retry_at is not None else "",
+            str(next_attempts),
+            status,
+            str(RETRY_STATE_TTL_SECONDS),
+        ]
         try:
             moved = self._redis.eval(
                 _MOVE_FAILED_CLAIM_SCRIPT,
-                3,
-                self._lease_key(worker_id),
-                self.processing_queue(worker_id),
-                target,
-                worker_id,
-                raw,
-                replacement.to_json(),
+                4,
+                *args,
             )
         except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
             raise ClaimOwnershipLost(
@@ -1565,11 +1873,18 @@ class QueueWorker:
                 failure.error_class,
             )
             try:
+                retry_at = None
+                if (
+                    isinstance(exc, AgentReplyRetryable)
+                    and envelope.attempts + 1 < MAX_ATTEMPTS
+                ):
+                    retry_at = self._queue.agent_reply_retry_at(envelope.attempts)
                 self._queue.transition_failed_claim(
                     self._worker_id,
                     raw,
                     envelope,
                     failure=failure,
+                    retry_at=retry_at,
                 )
             except ClaimOwnershipLost:
                 # The raw item remains in (or was recovered from) the private
