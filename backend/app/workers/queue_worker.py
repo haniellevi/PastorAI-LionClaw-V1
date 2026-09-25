@@ -2167,20 +2167,28 @@ def _release_agent_execution_reservation(
 
 
 def _send_agent_reply(
-    client: Any, instance: str | None, telefone: str | None, response: str
+    client: Any, instance: str | None, telefone: str | None, response: str,
+    *, ownership_guard: ClaimGuard | None = None,
 ) -> str:
     """Use the agent connectivity/retry policy without exposing provider data."""
 
-    classified = getattr(client, "send_agent_text", None)
-    if classified is None:
-        classified = getattr(client, "send_text_classificado", None)
+    agent_send = getattr(client, "send_agent_text", None)
+    classified = getattr(client, "send_text_classificado", None)
     if classified is None:
         classified = getattr(client, "send_text_classified", None)
     try:
+        if callable(agent_send):
+            result = agent_send(
+                instance, telefone, response, before_send=ownership_guard
+            )
+            status = getattr(result, "status", None)
+            return status if isinstance(status, str) else "desconhecido"
         if callable(classified):
             status = getattr(classified(instance, telefone, response), "status", None)
             return status if isinstance(status, str) else "desconhecido"
         sent = client.send_text(instance, telefone, response)
+    except ClaimOwnershipLost:
+        raise
     except Exception:  # noqa: BLE001 - an unclassified call may have reached Evolution
         return "desconhecido"
     return "aceito" if sent is True else "suprimido"
@@ -2237,11 +2245,24 @@ def _deliver_agent_reply_intent(
     ):
         return
 
+    def send_with(client: Any) -> str:
+        return _send_agent_reply(
+            client, outcome.instance, outcome.telefone, intent.response,
+            ownership_guard=ownership_guard,
+        )
+
     try:
         # Immediate pre-effect guard.  If it fails, no provider call happened,
         # so returning the intent to pending is safe for the recovered owner.
         if ownership_guard is not None:
             ownership_guard()
+        if evolution_client is None:
+            from app.services.evolution import EvolutionClient  # noqa: PLC0415
+
+            with EvolutionClient() as client:
+                status = send_with(client)
+        else:
+            status = send_with(evolution_client)
     except ClaimOwnershipLost:
         try:
             _transition_agent_reply_intent(
@@ -2254,17 +2275,6 @@ def _deliver_agent_reply_intent(
         except Exception:  # noqa: BLE001 - leave unresolved rather than resend blindly
             logger.warning("Agent reply ownership was lost before transport")
         raise
-
-    def send_with(client: Any) -> str:
-        return _send_agent_reply(client, outcome.instance, outcome.telefone, intent.response)
-
-    if evolution_client is None:
-        from app.services.evolution import EvolutionClient  # noqa: PLC0415
-
-        with EvolutionClient() as client:
-            status = send_with(client)
-    else:
-        status = send_with(evolution_client)
 
     if status == "aceito":
         try:

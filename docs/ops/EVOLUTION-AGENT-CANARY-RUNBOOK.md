@@ -282,7 +282,16 @@ casos:
 - mensagem ou mutação em outro tenant;
 - perda de saúde do backend, Redis, worker ou Evolution.
 
-Resultado ambíguo nunca recebe reenvio automático.
+Para versões anteriores a B3, resultado ambíguo nunca recebe reenvio automático.
+Na fatia B3 do plano MVP, autorizada para desenvolvimento em 25/09/2026,
+timeout de leitura/escrita e HTTP 408/5xx do envio do agente passam a consumir
+o orçamento de até cinco tentativas por envelope, seguido de dead-letter.
+Cada tentativa consulta a instância por nome exato e reconfirma a posse do
+claim imediatamente antes do POST. Broadcast mantém a regra conservadora;
+falha de confirmação local e demais resultados não classificados continuam
+em quarentena. Essa exceção pode duplicar uma resposta que a Evolution já
+aceitou. Os critérios de abortar o canário continuam válidos, e a implementação
+local não autoriza canário, envio real, deploy ou replay manual da dead-letter.
 
 ## Quarentena de dead-letter legada
 

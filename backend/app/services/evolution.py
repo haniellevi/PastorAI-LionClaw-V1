@@ -20,7 +20,7 @@ import hashlib
 import hmac
 import logging
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from dataclasses import dataclass, replace
 from email.utils import parsedate_to_datetime
@@ -396,7 +396,8 @@ class EvolutionClient:
         return True
 
     def send_agent_text(
-        self, instance: str, telefone: str, texto: str
+        self, instance: str, telefone: str, texto: str,
+        *, before_send: Callable[[], None] | None = None,
     ) -> BroadcastSendResult:
         """Check connectivity, then attempt one agent reply.
 
@@ -410,7 +411,18 @@ class EvolutionClient:
             )
         try:
             connection = self.fetch_status(instance)
-        except EvolutionError:
+        except EvolutionError as exc:
+            cause = exc.__cause__
+            if not isinstance(cause, httpx.HTTPError):
+                return BroadcastSendResult(
+                    status="falhou_permanente", error_class="status_invalido"
+                )
+            if isinstance(cause, httpx.HTTPStatusError):
+                code = cause.response.status_code
+                if 400 <= code < 500 and code not in {408, 429}:
+                    return BroadcastSendResult(
+                        status="falhou_permanente", error_class=f"status_http_{code}"
+                    )
             return BroadcastSendResult(
                 status="falhou_retentavel", error_class="status_indisponivel"
             )
@@ -418,6 +430,8 @@ class EvolutionClient:
             return BroadcastSendResult(
                 status="falhou_retentavel", error_class="instancia_desconectada"
             )
+        if before_send is not None:
+            before_send()
         result = self.send_text_classificado(instance, telefone, texto)
         retryable = {"read_timeout", "write_timeout", "http_408"}
         if result.status == "desconhecido" and (

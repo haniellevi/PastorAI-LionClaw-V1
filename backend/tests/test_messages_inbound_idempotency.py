@@ -827,6 +827,7 @@ def test_agent_execution_lease_keeps_postgres_connection_checked_out(
     engine = create_engine(
         msg_engine_fx.url,
         future=True,
+        connect_args={"options": f"-c search_path={_SCHEMA}"},
         pool_size=1,
         max_overflow=1,
         pool_timeout=2,
@@ -890,6 +891,7 @@ def test_agent_execution_lease_invalidates_after_acquire_commit_failure(
     engine = create_engine(
         msg_engine_fx.url,
         future=True,
+        connect_args={"options": f"-c search_path={_SCHEMA}"},
         pool_size=1,
         max_overflow=1,
         pool_timeout=2,
@@ -1150,3 +1152,77 @@ def test_agent_reply_recovers_legacy_response_hash_intent_without_rerunning_agen
     finally:
         session.close()
     assert count == 1
+
+
+@pytest.mark.parametrize("scenario", ["timeout", "5xx", "recover", "offline", "wrong_instance", "401", "lost_lease"])
+def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, scenario):
+    import json
+    import httpx
+    from app.config import Settings
+    from app.services.evolution import EvolutionClient
+    from tests.test_whatsapp_worker import FakeRedis
+
+    factory = _factory(msg_engine_fx)
+    _seed_agent_delivery(factory)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_B, instance="igreja-2")
+    agent_calls = _stub_agent(monkeypatch)
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "b3-integration"
+    queue.register_worker(worker_id)
+    requests = []
+    texts = []
+
+    def transport(request):
+        requests.append(request.method)
+        if request.method == "GET":
+            assert request.url.params["instanceName"] == "igreja-1"
+            if scenario == "401":
+                return httpx.Response(401)
+            if scenario == "lost_lease":
+                redis.kv.pop(queue._lease_key(worker_id), None)
+            return httpx.Response(200, json=[{
+                "name": "igreja-2" if scenario == "wrong_instance" else "igreja-1",
+                "connectionStatus": "close" if scenario == "offline" else "open",
+            }])
+        assert request.url.path == "/message/sendText/igreja-1"
+        texts.append(json.loads(request.content)["text"])
+        if scenario == "timeout":
+            raise httpx.ReadTimeout("synthetic", request=request)
+        return httpx.Response(200 if scenario == "recover" and len(texts) > 1 else 503)
+
+    http = httpx.Client(transport=httpx.MockTransport(transport), base_url="http://evo.test")
+    evolution = EvolutionClient(Settings(_env_file=None, allow_real_sends=True,
+        evolution_api_url="http://evo.test", evolution_api_key="synthetic"))
+    monkeypatch.setattr(evolution, "_http_client", lambda _: http)
+    worker = QueueWorker(queue=queue, session_factory=factory, worker_id=worker_id,
+        agent_runner=lambda sf, outcome, guard: run_agent_for_message(
+            sf, outcome, guard, evolution_client=evolution))
+    queue.enqueue(_payload("B3-FULL-FLOW"))
+    try:
+        for _ in range(worker_module.MAX_ATTEMPTS + 1):
+            raw = queue.claim(worker_id, timeout=0)
+            if raw is None:
+                break
+            worker._handle_raw(raw)
+    finally:
+        http.close()
+
+    assert agent_calls == ["agent"]
+    assert all(value == "Resposta da IA" for value in texts)
+    assert _agent_reply_states(factory, _IGREJA_B) == []
+    if scenario == "recover":
+        assert len(texts) == 2
+        assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
+        assert not redis.lists.get(worker_module.DEAD_LETTER_QUEUE)
+    elif scenario in {"401", "lost_lease"}:
+        assert texts == []
+        assert requests == ["GET"]
+        expected = "ia_falhou" if scenario == "401" else "ia_pendente"
+        assert _agent_reply_states(factory, _IGREJA_A) == [expected]
+        assert not redis.lists.get(worker_module.DEAD_LETTER_QUEUE)
+    else:
+        assert len(texts) == (0 if scenario in {"offline", "wrong_instance"} else 5)
+        assert requests.count("GET") == worker_module.MAX_ATTEMPTS
+        assert _agent_reply_states(factory, _IGREJA_A) == ["ia_pendente"]
+        assert len(redis.lists[worker_module.DEAD_LETTER_QUEUE]) == 1
