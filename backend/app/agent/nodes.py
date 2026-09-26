@@ -54,12 +54,18 @@ _HUMAN_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
         rf"{_HUMAN_TARGET}\b",
     ),
     re.compile(r"\btem\s+alguem\s+ai\b"),
-    re.compile(rf"\b(?:chama|chame|chamem)\s+(?:(?:o|a|um|uma)\s+)?{_HUMAN_TARGET}\b"),
-    re.compile(rf"\bquero\s+(?:(?:o|a|um|uma)\s+){_HUMAN_TARGET}\b"),
+    re.compile(
+        rf"\b(?:chama|chame|chamem)\s+(?:(?:o|a|um|uma)\s+)?"
+        rf"{_HUMAN_TARGET}\b\s*[?.!]*\s*$"
+    ),
+    re.compile(
+        rf"\bquero\s+(?:(?:o|a|um|uma)\s+){_HUMAN_TARGET}\b\s*[?.!]*\s*$"
+    ),
     re.compile(r"\b(?:quero|preciso\s+de)\s+(?:atendimento\s+humano|ajuda\s+humana)\b"),
     re.compile(
-        r"\b(?:pode\s+)?me\s+(?:passar|transfere|transfira)\s+para\s+"
-        rf"(?:(?:o|a|um|uma)\s+)?{_HUMAN_TARGET}\b"
+        r"\b(?:(?:pode\s+)?me\s+(?:passar|passa|passe|transfere|transfira)|"
+        r"(?:pode\s+)?(?:passe|transfere|transfira))\s+para\s+"
+        rf"(?:(?:o|a|um|uma)\s+)?{_HUMAN_TARGET}\b\s*[?.!]*\s*$"
     ),
 )
 _CRISIS_INTENT = (

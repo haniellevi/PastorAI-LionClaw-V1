@@ -84,9 +84,10 @@ nominal e runbook específico:
 - `BREVO_SEND_MODE`;
 - `BROADCAST_ASYNC_ENABLED`;
 - `AgentConfig.ativo` por igreja;
-- `TYPESAFE_API_KEY` + `JEV_SHADOW_TRIAGE_IGREJA_IDS` (triagem Jev em modo
-  sombra, também sujeita a `ALLOW_REAL_SENDS`; envia texto pastoral em claro a
-  processador terceiro e exige DPA antes de listar qualquer igreja).
+- chave e igrejas da triagem Jev (Console da Plataforma ou `TYPESAFE_API_KEY` +
+  `JEV_SHADOW_TRIAGE_IGREJA_IDS`; modo sombra, também sujeito a
+  `ALLOW_REAL_SENDS`; envia texto pastoral em claro a processador terceiro e
+  exige DPA antes de listar qualquer igreja).
 
 Merge, teste verde, migration criada, credencial validada ou canário anterior
 não abre gate para uma ação futura. Canários de agente, broadcast, Brevo e

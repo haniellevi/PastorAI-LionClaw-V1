@@ -974,8 +974,16 @@ export async function resolveAgenteRequest(
 // Triagem Jev (TypeSafe) — status somente leitura + teste sintético
 // ---------------------------------------------------------------------------
 export interface AdminJevStatus {
-  /** Chave presente no ambiente do backend (a chave nunca é devolvida). */
+  /** Há chave utilizável, do console ou do ambiente (a chave nunca é devolvida). */
   configurado: boolean;
+  /** De onde vem a chave em uso. */
+  chaveOrigem: "console" | "ambiente" | null;
+  /** A chave salva no console não decifra (SECRETS_ENCRYPTION_KEY trocada). */
+  chaveIlegivel: boolean;
+  /** ISO 8601 da última troca de chave pelo console. */
+  chaveAtualizadaEm: string | null;
+  /** Data (AAAA-MM-DD) do DPA com a TypeSafe informada no console. */
+  dpaAssinadoEm: string | null;
   /** False enquanto nenhum turno do agente chama a triagem. */
   integradoAoAgente: boolean;
   /** Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste). */
@@ -985,6 +993,17 @@ export interface AdminJevStatus {
   /** Igrejas em modo sombra; nome null = id listado que não existe. */
   igrejas: { id: string; nome: string | null }[];
   idsInvalidos: number;
+}
+
+/** Configuração salva pelo console; campo nulo cai no ambiente do backend. */
+export interface AdminJevConfigInput {
+  /** Só para gravar: vazio ou ausente mantém a chave salva. */
+  apiKey?: string;
+  removerChave?: boolean;
+  modelo: string | null;
+  timeoutSegundos: number | null;
+  dpaAssinadoEm: string | null;
+  igrejaIds: string[];
 }
 
 export interface AdminJevTeste {
@@ -1018,6 +1037,26 @@ export async function fetchJevStatus(token: string): Promise<AdminJevStatus> {
   if (!res.ok) {
     throw new AdminRequestError(res.status, "Não foi possível carregar o status do Jev.");
   }
+  return asJson<AdminJevStatus>(res);
+}
+
+/** Salva a configuração do Jev (a chave vai cifrada e nunca volta). */
+export async function saveJevConfig(
+  token: string,
+  input: AdminJevConfigInput,
+): Promise<AdminJevStatus> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/jev/config`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 404) throw new AdminRequestError(404, JEV_BACKEND_DESATUALIZADO);
+  if (!res.ok) await throwMutationError(res, "Não foi possível salvar a configuração do Jev.");
   return asJson<AdminJevStatus>(res);
 }
 

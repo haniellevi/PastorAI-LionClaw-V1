@@ -353,7 +353,12 @@ export function AdminConsole() {
       ) : null}
 
       {jevOpen && token ? (
-        <JevModal token={token} onClose={() => setJevOpen(false)} onExpired={logout} />
+        <JevModal
+          token={token}
+          igrejas={igrejas?.map(({ id, nome }) => ({ id, nome }))}
+          onClose={() => setJevOpen(false)}
+          onExpired={logout}
+        />
       ) : null}
     </div>
   );

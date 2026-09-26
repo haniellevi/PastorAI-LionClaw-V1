@@ -14,6 +14,18 @@ proximidade. Ausência ou ambiguidade não vira informação inventada.
 [Configuração e limites](sprints/2026-09-26-mvp-fase2-fatia2.md).
 Esta entrega de código não comprova deploy ou teste com uma igreja real.
 
+## Configuração do Jev pelo Console da Plataforma, 26/09/2026
+
+O modal **Jev** do console ganhou um formulário. Nele o master salva a chave
+da TypeSafe, o modelo, o timeout, a data do DPA e as igrejas em modo sombra.
+A chave vai cifrada com a mesma cifra das chaves OpenAI das igrejas e nunca
+volta à tela. A lista de igrejas só aceita igreja com data de DPA, e o banco
+também recusa. Campo vazio usa o ambiente, e a mudança vale na hora.
+`ALLOW_REAL_SENDS` e a URL da API ficam só no servidor. A tabela nova
+`platform_jev_settings` (migration `20260926_120446`) entra no PROD por decisão
+separada, depois da sessão de reconciliação com a Sarah. Sem ela o deploy
+funciona: o console mostra só o ambiente, e salvar pede a migration.
+
 ## Jev: erro do console, custo em US$ e avaliação offline J0, 26/09/2026
 
 O aviso "Não foi possível carregar o status do Jev" no Console da Plataforma

@@ -14,6 +14,11 @@ from dataclasses import dataclass
 
 _PUBLIC_BLOCK_OPEN = "[informacoes_publicas]"
 _PUBLIC_BLOCK_CLOSE = "[/informacoes_publicas]"
+_PUBLIC_MARKER = re.compile(
+    r"\[\s*(?P<closing>/)?\s*informacoes_publicas\b[^\]\r\n]*"
+    r"(?:\]|(?=\r?\n)|$)",
+    re.IGNORECASE,
+)
 _MAX_PROFILE_CHARS = 4_000
 _MAX_VALUE_CHARS = 400
 _MAX_CELLS = 5
@@ -43,6 +48,10 @@ _CELL_LOOKUP_INTENT = re.compile(
 )
 _CELL_BARE_BAIRRO_REQUEST = re.compile(
     r"^celula(?:s)?\s+(?:no|na|em|do|da)\s+(?:bairro\s+)?"
+)
+_CELL_QUESTION_BAIRRO_REQUEST = re.compile(
+    r"^(?:tem|existe|existem|ha)\s+(?:uma\s+)?celula(?:s)?\s+"
+    r"(?:no|na|em|do|da)\s+(?:bairro\s+)?[a-z0-9].*\?\s*$"
 )
 
 _HOURS_MISSING = (
@@ -99,6 +108,36 @@ def _normalized(value: object) -> str:
         if not unicodedata.combining(character)
     )
     return " ".join(without_accents.split())
+
+
+def style_profile_without_public_info(comportamento: object) -> str:
+    """Keep only style text that is outside every public-info marker span.
+
+    A malformed or orphan marker starts a fail-closed span through the end of
+    the profile, so rejected public data never becomes the LLM fallback.
+    """
+
+    if not isinstance(comportamento, str):
+        return ""
+    parts: list[str] = []
+    cursor = 0
+    depth = 0
+    for marker in _PUBLIC_MARKER.finditer(comportamento):
+        closing = marker.group("closing") is not None
+        if depth == 0:
+            parts.append(comportamento[cursor : marker.start()])
+        if closing:
+            if depth == 0:
+                depth = 1
+            else:
+                depth -= 1
+                if depth == 0:
+                    cursor = marker.end()
+        else:
+            depth += 1
+    if depth == 0:
+        parts.append(comportamento[cursor:])
+    return "".join(parts).strip()
 
 
 def _parse_cell(value: str) -> _PublicCell | None:
@@ -183,13 +222,16 @@ def _request(value: object) -> tuple[str, str | None] | None:
     if not text:
         return None
     if re.search(r"\bcelula(?:s)?\b", text) and (
-        _CELL_LOOKUP_INTENT.search(text) or _CELL_BARE_BAIRRO_REQUEST.search(text)
+        _CELL_LOOKUP_INTENT.search(text)
+        or _CELL_BARE_BAIRRO_REQUEST.search(text)
+        or _CELL_QUESTION_BAIRRO_REQUEST.search(text)
     ):
         bairro = _CELL_BAIRRO.search(text)
         return "celula", bairro.group("bairro").strip() if bairro else None
     if (
         re.search(r"\bhorarios?\s+(?:do|de)?\s*culto\b", text)
         or re.search(r"\bque\s+horas?\s+(?:e|eh|sera)?\s*(?:o\s+)?culto\b", text)
+        or re.search(r"\ba\s+que\s+horas?\s+comeca\s+(?:o\s+)?culto\b", text)
     ):
         return "horarios_culto", None
     if (
@@ -198,6 +240,10 @@ def _request(value: object) -> tuple[str, str | None] | None:
     ):
         return "endereco_igreja", None
     return None
+
+
+def _public_reply(value: str) -> str:
+    return value.replace("<", "[").replace(">", "]")[:_MAX_REPLY_CHARS]
 
 
 def resolve_public_info_reply(
@@ -222,27 +268,27 @@ def resolve_public_info_reply(
             if info is not None and info.horarios_culto is not None
             else _HOURS_MISSING
         )
-        return answer[:_MAX_REPLY_CHARS]
+        return _public_reply(answer)
     if kind == "endereco_igreja":
         answer = (
             f"Endereço da igreja: {info.endereco_igreja}."
             if info is not None and info.endereco_igreja is not None
             else _ADDRESS_MISSING
         )
-        return answer[:_MAX_REPLY_CHARS]
+        return _public_reply(answer)
 
     if info is None or not info.celulas:
-        return _CELL_MISSING
+        return _public_reply(_CELL_MISSING)
     if bairro is None:
-        return _CELL_NEEDS_BAIRRO
+        return _public_reply(_CELL_NEEDS_BAIRRO)
     bairro_key = _normalized(bairro)
     match = next((cell for cell in info.celulas if cell.bairro_key == bairro_key), None)
     if match is None:
-        return _CELL_MISSING
+        return _public_reply(_CELL_MISSING)
     answer = (
         f"Há uma célula com informações públicas no bairro {match.bairro}: "
         f"{match.nome}."
     )
     if match.encontro is not None:
         answer = f"{answer} Encontro: {match.encontro}."
-    return answer[:_MAX_REPLY_CHARS]
+    return _public_reply(answer)

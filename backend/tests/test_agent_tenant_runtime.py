@@ -1189,7 +1189,8 @@ def test_runtime_fails_closed_when_config_adapter_has_no_matching_tenant(
                         ativo=True,
                         comportamento=(
                             "[informacoes_publicas]\n"
-                            "horarios_culto = Canário do tenant B\n"
+                            "celula = Centro | Celula do lider Joao "
+                            "(11 98765-4321) | Rua das Flores 100\n"
                             "[/informacoes_publicas]"
                         ),
                     ),
@@ -1202,6 +1203,7 @@ def test_runtime_fails_closed_when_config_adapter_has_no_matching_tenant(
 
     session = _ConfigMismatchSession()
     provider_calls: list[str] = []
+    audit_calls: list[dict[str, object]] = []
     monkeypatch.setattr(runtime, "require_tenant_scope", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         runtime,
@@ -1209,7 +1211,11 @@ def test_runtime_fails_closed_when_config_adapter_has_no_matching_tenant(
         lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
     )
     monkeypatch.setattr(runtime, "_active_credential", lambda *_args: object())
-    monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "log_agent_event",
+        lambda _session, **kwargs: audit_calls.append(kwargs),
+    )
     monkeypatch.setattr(
         runtime,
         "resolve_public_info_reply",
@@ -1236,4 +1242,7 @@ def test_runtime_fails_closed_when_config_adapter_has_no_matching_tenant(
     assert result == runtime.AgentTurnResult(handled=False, reason="config_ausente")
     assert session.commits == 1
     assert provider_calls == []
+    for blocked in ("Celula do lider Joao", "11 98765-4321", "Rua das Flores 100"):
+        assert blocked not in str(result)
+        assert all(blocked not in repr(call) for call in audit_calls)
     assert "agent_configs.igreja_id" in str(session.statements[3])

@@ -1,6 +1,7 @@
 # MVP fase 2, fatia 2: handoff e consultas públicas
 
-Base: `b45e99408feb33531c4d11500c7661c212f17c9c` (merge #419).
+Base inicial: `b45e99408feb33531c4d11500c7661c212f17c9c` (merge #419).
+Base integrada: `7480eac9fa349e89d1a4d9baa9d9b1d3195923bd` (merge #420).
 Ambiente de implementação e testes: local, fixtures sintéticas. Nenhum acesso
 a DEV, PROD, VPS, banco real, provedor ou credencial.
 
@@ -56,11 +57,14 @@ Encontro de célula aceita dia da semana e horário opcional, por exemplo
 
 O perfil completo deve ter até 4.000 caracteres, cada valor até 400 e a
 resposta até 1.600. Se o perfil exceder o limite, a consulta não usa o bloco.
-Essas restrições valem para as consultas públicas; o comportamento livre e
-as respostas gerais existentes continuam no caminho do LLM.
+O bloco público inteiro é excluído do perfil enviado ao LLM, inclusive quando
+inválido; o texto de estilo fora dele permanece no caminho das respostas gerais.
+Delimitadores malformados também devem falhar fechados. A resposta pública
+registra evento de auditoria sem copiar pergunta ou dados do perfil.
 
 Exemplos de consultas: `que horas é o culto?`, `onde fica a igreja?` e
-`célula no bairro Centro`. O bairro é comparado sem acentos e sem distinção
+`célula no bairro Centro`, `tem célula no bairro Centro?` e
+`a que horas começa o culto?`. O bairro é comparado sem acentos e sem distinção
 de maiúsculas, com correspondência completa. Sem dado configurado, o agente
 informa que não o encontrou. Um pedido de proximidade sem bairro não expõe
 uma lista nem usa localização da pessoa.

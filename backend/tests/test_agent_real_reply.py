@@ -117,6 +117,50 @@ def test_reply_prompt_neutralizes_closing_delimiters_from_every_untrusted_field(
         assert neutralized in prompt
 
 
+@pytest.mark.parametrize(
+    ("profile", "expected_style"),
+    (
+        (
+            "Estilo externo.\n[INFORMACOES_PUBLICAS]\nDADO-BLOQUEADO\n"
+            "[/INFORMACOES_PUBLICAS]\nTom breve.",
+            ("Estilo externo.", "Tom breve."),
+        ),
+        (
+            "Estilo externo [informacoes_publicas] DADO-BLOQUEADO "
+            "[/informacoes_publicas] Tom breve.",
+            ("Estilo externo", "Tom breve."),
+        ),
+        (
+            "Estilo externo.\n[informacoes_publicas]\nDADO-BLOQUEADO",
+            ("Estilo externo.",),
+        ),
+        (
+            "Estilo externo.\n[informacoes_publicas]\nDADO-BLOQUEADO\n"
+            "[informacoes_publicas]\nDADO-BLOQUEADO-2\n"
+            "[/informacoes_publicas]\n[/informacoes_publicas]\nTom breve.",
+            ("Estilo externo.", "Tom breve."),
+        ),
+        (
+            "Estilo externo.\n[informacoes_publicas DADO-BLOQUEADO\nTom breve.",
+            ("Estilo externo.",),
+        ),
+    ),
+)
+def test_reply_prompt_removes_public_info_blocks_before_provider(
+    profile: str,
+    expected_style: tuple[str, ...],
+) -> None:
+    _system, prompt = runtime._build_reply_prompt(profile, "pergunta", [])
+
+    profile_text = prompt.split("<perfil_igreja>\n", 1)[1].split(
+        "\n</perfil_igreja>", 1
+    )[0]
+    assert "DADO-BLOQUEADO" not in prompt
+    assert "informacoes_publicas" not in prompt.casefold()
+    for style in expected_style:
+        assert style in profile_text
+
+
 @pytest.mark.parametrize("size", (1599, 1600, 1601))
 def test_reply_limit_holds_at_the_1600_character_boundary(size: int) -> None:
     assert len(runtime._limit_agent_reply("x" * size)) == min(size, 1600)
@@ -388,7 +432,14 @@ def test_process_inbound_wires_persisted_profile_current_and_history_to_provider
         SimpleNamespace(
             igreja_id=igreja_id,
             ativo=True,
-            comportamento="Perfil da igreja distinto",
+            comportamento=(
+                "Tom acolhedor externo.\n"
+                "[informacoes_publicas]\n"
+                "celula = Centro | Celula do lider Joao (11 98765-4321) | "
+                "Rua das Flores 100\n"
+                "[/informacoes_publicas]\n"
+                "Tom breve externo."
+            ),
         ),
         dt.datetime(2026, 9, 26, 12, tzinfo=dt.UTC),
         persisted_current,
@@ -398,6 +449,7 @@ def test_process_inbound_wires_persisted_profile_current_and_history_to_provider
         ],
     )
     captured: list[tuple[str, str]] = []
+    audit_calls: list[dict[str, object]] = []
     state_texts: list[str] = []
     usage = object()
 
@@ -407,7 +459,7 @@ def test_process_inbound_wires_persisted_profile_current_and_history_to_provider
 
         def complete(self, system: str, user: str) -> object:
             captured.append((system, user))
-            return SimpleNamespace(texto="resposta do provider", usage=usage)
+            return SimpleNamespace(texto="", usage=usage)
 
     monkeypatch.setattr(runtime, "require_tenant_scope", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -445,7 +497,11 @@ def test_process_inbound_wires_persisted_profile_current_and_history_to_provider
         },
     )
     monkeypatch.setattr(runtime, "_execute_tools_for_context", lambda *_args: ([], []))
-    monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "log_agent_event",
+        lambda _session, **kwargs: audit_calls.append(kwargs),
+    )
     monkeypatch.setattr(runtime, "log_ai_usage", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(runtime, "decrypt_secret", lambda _value: "synthetic")
     monkeypatch.setattr(runtime, "LLMClient", FakeClient)
@@ -459,13 +515,23 @@ def test_process_inbound_wires_persisted_profile_current_and_history_to_provider
         provider_message_id="provider-ok",
     )
 
-    assert result.response == "resposta do provider"
+    assert result.response == "rascunho determinístico"
     assert state_texts == [persisted_current]
     assert session.message_queries == 3
     assert session.commits == 1
     assert len(captured) == 1
     provider_payload = captured[0][1]
-    assert "Perfil da igreja distinto" in provider_payload
+    assert "Tom acolhedor externo." in provider_payload
+    assert "Tom breve externo." in provider_payload
+    for blocked in (
+        "informacoes_publicas",
+        "Celula do lider Joao",
+        "11 98765-4321",
+        "Rua das Flores 100",
+    ):
+        assert blocked not in provider_payload
+        assert blocked not in (result.response or "")
+        assert all(blocked not in repr(call) for call in audit_calls)
     assert persisted_current in provider_payload
     assert "histórico mais antigo" in provider_payload
     assert "histórico confirmado" in provider_payload
@@ -523,6 +589,8 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
         [],
     )
     state_texts: list[str] = []
+    call_order: list[str] = []
+    audit_calls: list[dict[str, object]] = []
     effects = nodes.empty_turn_effects()
     effects["intake_update"] = {"origem": "nao-pode-ser-aplicada"}
     effects["tool_calls"] = [{"name": "nao-pode-ser-executada"}]
@@ -568,7 +636,6 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
         "_apply_consent",
         "_apply_optout",
         "_execute_tools_for_context",
-        "log_agent_event",
         "log_ai_usage",
         "_reply_with_llm",
         "_load_recent_conversation_history",
@@ -580,6 +647,19 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
                 "consulta pública não pode produzir efeito nem chamar provider"
             ),
         )
+
+    def audit(_session: object, **kwargs: object) -> None:
+        call_order.append("audit")
+        audit_calls.append(kwargs)
+
+    original_commit = session.commit
+
+    def commit() -> None:
+        call_order.append("commit")
+        original_commit()
+
+    monkeypatch.setattr(runtime, "log_agent_event", audit)
+    monkeypatch.setattr(session, "commit", commit)
 
     result = runtime.process_inbound_message(
         session,
@@ -598,6 +678,15 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
     assert state_texts == [persisted_current]
     assert session.message_queries == 1
     assert session.commits == 1
+    assert call_order == ["audit", "commit"]
+    assert audit_calls == [
+        {
+            "igreja_id": igreja_id,
+            "evento": "agent_public_info_reply",
+            "payload": {},
+            "conversation_id": conversation_id,
+        }
+    ]
 
 
 def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch) -> None:
