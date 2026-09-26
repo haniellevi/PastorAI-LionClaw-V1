@@ -7,7 +7,9 @@ import {
   adminLogin,
   fetchAdminMe,
   fetchIgrejaConsentGovernance,
+  fetchJevStatus,
   initializeIgrejaConsentGovernance,
+  testJev,
   updateIgrejaConsentGovernancePurpose,
 } from "./admin-api";
 
@@ -130,6 +132,55 @@ describe("fetchAdminMe", () => {
     expect(getSignal()?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await assertion;
+  });
+});
+
+describe("triagem Jev", () => {
+  const DESATUALIZADO =
+    "Backend em produção desatualizado (sem /admin/jev); faça o deploy do backend.";
+
+  it("aponta backend desatualizado quando o status devolve 404", async () => {
+    mockResponse(404, { detail: "Not Found" });
+
+    await expect(fetchJevStatus("token")).rejects.toMatchObject({
+      status: 404,
+      message: DESATUALIZADO,
+    });
+  });
+
+  it("mantém a mensagem genérica para outras falhas do status", async () => {
+    mockResponse(500);
+
+    const err = await fetchJevStatus("token").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AdminRequestError);
+    expect(err).toMatchObject({
+      status: 500,
+      message: "Não foi possível carregar o status do Jev.",
+    });
+  });
+
+  it("trata falha de rede do status como indisponibilidade", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(fetchJevStatus("token")).rejects.toMatchObject({ kind: "network" });
+  });
+
+  it("não mostra o 'Not Found' cru do FastAPI no teste de conexão", async () => {
+    mockResponse(404, { detail: "Not Found" });
+
+    await expect(testJev("token")).rejects.toMatchObject({
+      status: 404,
+      message: DESATUALIZADO,
+    });
+  });
+
+  it("preserva o detalhe do backend nas recusas do teste", async () => {
+    mockResponse(409, { detail: "Envios externos desligados (ALLOW_REAL_SENDS)" });
+
+    await expect(testJev("token")).rejects.toMatchObject({
+      status: 409,
+      message: "Envios externos desligados (ALLOW_REAL_SENDS)",
+    });
   });
 });
 

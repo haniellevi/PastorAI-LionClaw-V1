@@ -43,6 +43,7 @@ import {
   type AdminIgrejaDetail,
   type UpdateIgrejaInput,
 } from "@/lib/admin-api";
+import { formatAiCostUsd } from "@/lib/ai-cost";
 
 import type { PlanoOption } from "./CreateIgrejaModal";
 import { ConsentGovernanceDraftTab } from "./ConsentGovernanceDraftTab";
@@ -469,7 +470,7 @@ function DashboardTab({
           label="Setup inicial"
           value={detail ? brl(detail.setupFeeAplicavel) : "…"}
         />
-        <Stat label="Custo de IA" value={detail ? brl(detail.custoIa) : "…"} />
+        <Stat label="Custo de IA" value={detail ? formatAiCostUsd(detail.custoIa) : "…"} />
         <Stat
           label="Chave de IA"
           value={agente ? CRED_LABEL[agente.credencialStatus] ?? "—" : "…"}

@@ -41,8 +41,8 @@ class JevIgrejaOut(BaseModel):
 
 class JevStatusOut(BaseModel):
     configurado: bool
-    # Nenhum turno do agente chama a triagem ainda (gate D3): a lista não gera
-    # evento algum até a integração. Troca para True no PR que ligar o runtime.
+    # Nenhum turno do agente chama a triagem ainda: a lista não gera evento
+    # algum até a integração. Troca para True no PR que ligar o runtime.
     integradoAoAgente: bool  # noqa: N815
     # Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste).
     enviosExternosPermitidos: bool  # noqa: N815
