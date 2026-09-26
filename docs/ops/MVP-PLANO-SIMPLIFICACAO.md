@@ -229,13 +229,17 @@ Ordem revisada em 26/09: o banco vem antes do código, porque o `main` mapeia
 colunas e tabelas que o backend antigo não usava.
 
 1. **Backup** do banco de PROD.
-2. **Banco de PROD antes do deploy:** confira por SQL se estão aplicadas
-   `20260822_225752_celula_membro_evento_audit_table` (células) e
-   `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
-   (reserva de resposta do worker). O preflight de 28/08 viu
-   `public.schema_migrations` ausente, e `migrate.py` recusa rodar sem ele:
-   crie o ledger antes (é migration em PROD, com revisão da Sarah). Depois
-   aplique as pendentes com
+2. **Banco de PROD antes do deploy** (toda migration em PROD passa pela
+   revisão da Sarah). O `main` depende de
+   `20260822_225752_celula_membro_evento_audit_table` (transferir ou remover
+   membro de célula), `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
+   (reserva de resposta do worker) e
+   `20260925_183811_preserve_platform_admins_on_tenant_deletion` (exclusão de
+   tenant; muda a RLS de `app_users`). Confira cada uma por SQL: a tabela ou
+   a coluna existe? O preflight de 28/08 viu `public.schema_migrations`
+   ausente, e o `migrate.py` recusa rodar sem ele. **Não crie o ledger vazio:**
+   o `status` passaria a listar como pendentes migrations que já estão em
+   PROD. Registre nele só as já aplicadas e depois aplique as que faltam com
    `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py apply <arquivo> --yes`.
 3. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
    (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`),
