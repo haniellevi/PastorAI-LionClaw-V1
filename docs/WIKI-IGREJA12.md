@@ -1,5 +1,23 @@
 # Wiki do projeto Igreja 12
 
+## Jev: erro do console, custo em US$ e avaliação offline J0, 26/09/2026
+
+O aviso "Não foi possível carregar o status do Jev" no Console da Plataforma
+era um 404: o frontend da Vercel já estava no `main`, mas o backend de
+produção era anterior à PR #413. O console agora diz que o backend está
+desatualizado; a correção é o deploy, com o banco antes do código (passo a
+passo da Fase 1 no plano MVP). O custo de IA, estimado em dólar, passou a ser
+exibido em US$ em vez de R$.
+
+Entrou `backend/scripts/jev_eval.py`, que mede as regras atuais num corpus
+sintético pt-BR com armadilhas (`backend/scripts/data/jev_corpus_v1.jsonl`,
+207 frases) e, com `TYPESAFE_API_KEY` e `--jev`, o Jev com as mesmas perguntas
+do módulo sombra, em instruções PT e EN, com teto de custo. Sem chave, o
+baseline já mostra os erros das regras: nenhuma crise detectada, 24% dos
+pedidos de opt-out, 8 de 14 respostas negativas contadas como aceite do termo
+e todas as armadilhas de CSIM silenciando o contato. O Jev continua fora do
+turno do agente.
+
 ## Exclusão de tenant e reset administrativo, candidata local, 25/09/2026
 
 O candidato local separa exclusão em transação SQL e limpeza externa posterior.

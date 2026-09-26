@@ -976,7 +976,7 @@ export async function resolveAgenteRequest(
 export interface AdminJevStatus {
   /** Chave presente no ambiente do backend (a chave nunca é devolvida). */
   configurado: boolean;
-  /** False enquanto nenhum turno do agente chama a triagem (gate D3). */
+  /** False enquanto nenhum turno do agente chama a triagem. */
   integradoAoAgente: boolean;
   /** Guard global ALLOW_REAL_SENDS: fechado, nada sai (nem o teste). */
   enviosExternosPermitidos: boolean;
@@ -996,6 +996,14 @@ export interface AdminJevTeste {
   pedeOptout: number;
 }
 
+/**
+ * 404 nas rotas do Jev = backend anterior à PR #413. O frontend da Vercel sai do
+ * `main` automaticamente e o backend é implantado à mão, então os dois podem
+ * ficar defasados; a mensagem aponta a causa em vez de um erro genérico.
+ */
+const JEV_BACKEND_DESATUALIZADO =
+  "Backend em produção desatualizado (sem /admin/jev); faça o deploy do backend.";
+
 /** Lê o status da triagem Jev (configuração do deploy). */
 export async function fetchJevStatus(token: string): Promise<AdminJevStatus> {
   let res: Response;
@@ -1006,6 +1014,7 @@ export async function fetchJevStatus(token: string): Promise<AdminJevStatus> {
   }
   if (res.status === 401) throw new AdminSessionExpiredError();
   if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (res.status === 404) throw new AdminRequestError(404, JEV_BACKEND_DESATUALIZADO);
   if (!res.ok) {
     throw new AdminRequestError(res.status, "Não foi possível carregar o status do Jev.");
   }
@@ -1023,6 +1032,7 @@ export async function testJev(token: string): Promise<AdminJevTeste> {
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
+  if (res.status === 404) throw new AdminRequestError(404, JEV_BACKEND_DESATUALIZADO);
   if (!res.ok) await throwMutationError(res, "Não foi possível testar o Jev.");
   return asJson<AdminJevTeste>(res);
 }
