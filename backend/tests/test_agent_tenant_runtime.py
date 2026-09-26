@@ -270,6 +270,89 @@ def test_worker_flag_off_preserves_legacy_runtime_signature(monkeypatch) -> None
     assert calls == [(outcome.igreja_id, outcome.conversation_id, outcome.texto)]
 
 
+def test_worker_flag_off_passes_persisted_inbound_anchor_when_available(monkeypatch) -> None:
+    inbound_message_id = uuid.uuid4()
+    outcome = queue_worker.IngestionOutcome(
+        result=queue_worker.IngestionResult.REGISTERED,
+        conversation_id=uuid.uuid4(),
+        igreja_id=uuid.uuid4(),
+        inbound=True,
+        texto="mensagem sintética",
+        inbound_message_id=inbound_message_id,
+    )
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        queue_worker,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(queue_worker, "mark_tenant_scoped", lambda *a, **k: None)
+    monkeypatch.setattr(queue_worker, "require_tenant_scope", lambda *a, **k: None)
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda _session, **kwargs: calls.append(kwargs)
+        or SimpleNamespace(handled=False, suppressed=False, response=None),
+    )
+
+    disposition = queue_worker.run_agent_for_message(
+        lambda: SimpleNamespace(close=lambda: None),
+        outcome,
+    )
+
+    assert disposition is queue_worker.AgentRunDisposition.COMPLETED
+    assert calls == [
+        {
+            "igreja_id": outcome.igreja_id,
+            "conversation_id": outcome.conversation_id,
+            "texto": outcome.texto,
+            "inbound_message_id": inbound_message_id,
+            "provider_message_id": None,
+        }
+    ]
+
+
+@pytest.mark.parametrize("fallback", ("classified", "plain"))
+def test_fallback_transport_rechecks_ownership_after_handoff_probe(
+    fallback: str,
+) -> None:
+    calls: list[str] = []
+    lease_is_current = True
+
+    def before_transport() -> bool:
+        nonlocal lease_is_current
+        calls.append("handoff_probe")
+        lease_is_current = False
+        return True
+
+    def ownership_guard() -> None:
+        calls.append("ownership_guard")
+        if not lease_is_current:
+            raise queue_worker.ClaimOwnershipLost("synthetic ownership loss")
+
+    if fallback == "classified":
+        client = SimpleNamespace(
+            send_text_classificado=lambda *_args: calls.append("client")
+            or SimpleNamespace(status="aceito")
+        )
+    else:
+        client = SimpleNamespace(
+            send_text=lambda *_args: calls.append("client") or True
+        )
+
+    with pytest.raises(queue_worker.ClaimOwnershipLost):
+        queue_worker._send_agent_reply(
+            client,
+            "instance",
+            "5500000000003",
+            "resposta sintética",
+            ownership_guard=ownership_guard,
+            before_transport=before_transport,
+        )
+
+    assert calls == ["handoff_probe", "ownership_guard"]
+
+
 def test_worker_uses_explicit_dedicated_factory_for_runtime_turn(monkeypatch) -> None:
     outcome = queue_worker.IngestionOutcome(
         result=queue_worker.IngestionResult.REGISTERED,
@@ -687,7 +770,7 @@ def test_dedicated_runtime_reads_projection_then_stops_before_effects(monkeypatc
     for name in (
         "_active_credential",
         "_execute_tools_for_context",
-        "_refine_with_llm",
+        "_reply_with_llm",
         "log_agent_event",
         "log_ai_usage",
         "run_turn",

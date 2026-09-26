@@ -25,7 +25,11 @@ Ambiente: nuvem, dados sintéticos. Nenhum acesso a DEV, PROD, VPS ou TypeSafe.
   `adb6b6e`). Variáveis do Jev vazias em `deploy/.env.example`. Banner de
   sucesso do teste do Jev com estilo neutro.
 
-## Baseline das regras (sem Jev)
+## Baseline histórico das regras (sem Jev, anterior ao PR #419)
+
+Resultados do PR #418 sobre a base `92eed57`. O PR #419 altera as regras de
+crise e aceite; os números abaixo preservam a medição anterior e não medem
+o candidato integrado. Nenhum novo resultado do corpus é afirmado aqui.
 
 | Sinal | Resultado no corpus |
 |---|---|
@@ -60,8 +64,8 @@ o tráfego real.
   da decisão de GO.
 - J1 (sombra) só com J0 = GO, DPA com a TypeSafe e termo LGPD que cite IA e
   processador estrangeiro.
-- Correções de regex B4, B5 e B15 e detecção de crise B6, na Fase 2, usando
-  este corpus como critério.
+- Reavaliar o corpus após as correções de B4 e B6 do PR #419; manter B5 e B15
+  no backlog da Fase 2. Os resultados anteriores não provam o estado atual.
 
 ## Verificação
 

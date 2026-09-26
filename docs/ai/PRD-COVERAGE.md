@@ -173,8 +173,14 @@ significa ativa em produção.
 
 - o LangGraph possui rotas especializadas, mas não os especialistas de produto
   completos;
-- o LLM refina apenas respostas determinísticas e não recebe histórico nem
-  conhecimento institucional;
+- na fatia 1 da fase 2 MVP, o LLM responde à mensagem atual com o perfil
+  `AgentConfig.comportamento` e até dez mensagens anteriores da mesma conversa
+  e igreja; sem checkpointer nem consulta nova a conhecimento institucional;
+- handoff por regex de pedido/crise pausa a IA e deixa atendimento pendente no
+  inbox; opt-out prevalece e o aceite B4 recusa frases com ressalva;
+- limite de 1600 caracteres e instruções para não inventar fatos estão no
+  caminho da resposta; testes sintéticos não provam qualidade factual geral,
+  deploy ou as 20 conversas reais exigidas para encerrar a fase 2;
 - o relatório é analisado e registrado como evento, mas não grava
   `celula_reuniao`;
 - a fronteira transacional candidata pode preparar e materializar o relatório;

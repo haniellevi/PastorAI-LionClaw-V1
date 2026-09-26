@@ -15,6 +15,8 @@ behaviour deterministic and unit-testable without a database or an LLM.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Annotated, Any, TypedDict
 
 from langgraph.channels import UntrackedValue
@@ -39,6 +41,81 @@ ROUTE_INTAKE = "intake"
 
 # Conversation states (mirrors domain.conversations.VALID_ESTADOS).
 ESTADO_HUMANO = "humano"
+
+_HUMAN_TARGET = r"(?:pessoa|alguem|(?:ser\s+)?humano|pastor(?:a)?|lider|atendente)"
+_HUMAN_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:quero|preciso|gostaria|poderia|posso)\s+"
+        r"(?:falar|conversar)\s+com\s+(?:(?:o|a|um|uma)\s+)?"
+        rf"{_HUMAN_TARGET}\b",
+    ),
+    re.compile(
+        r"\b(?:quero|preciso|gostaria)\s+de\s+(?:uma?\s+)?"
+        rf"{_HUMAN_TARGET}\b",
+    ),
+    re.compile(r"\btem\s+alguem\s+ai\b"),
+    re.compile(r"\b(?:quero|preciso\s+de)\s+(?:atendimento\s+humano|ajuda\s+humana)\b"),
+    re.compile(
+        r"\b(?:pode\s+)?me\s+(?:passar|transfere|transfira)\s+para\s+"
+        rf"(?:(?:o|a|um|uma)\s+)?{_HUMAN_TARGET}\b"
+    ),
+)
+_CRISIS_INTENT = (
+    r"(?:estou\s+pensando\s+em|to\s+pensando\s+em|pensando\s+em|"
+    r"penso\s+em|quero|queria|prefiro|vou|tenho\s+vontade\s+de)"
+)
+_CRISIS_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        rf"\b{_CRISIS_INTENT}\s+"
+        r"(?:me\s+(?:matar|suicidar|machucar|cortar|automutil\w*)|"
+        r"(?:matar|suicidar)-me|suicid\w*|automutil\w*|"
+        r"morrer(?!\s+de\s+(?:rir|saudade)\b)|"
+        r"tirar\s+(?:a\s+)?minha\s+vida|"
+        r"acabar\s+com\s+(?:tudo|(?:a\s+)?minha\s+vida)|"
+        r"dar\s+um\s+fim(?:\s+na\s+minha\s+vida)?)\b",
+    ),
+    re.compile(r"\btenho\s+pensamentos?\s+suicid\w*\b"),
+    re.compile(
+        r"\bnao\s+(?:aguento|suporto|quero|consigo)\s+"
+        r"(?:mais\s+)?(?:viver|(?:a\s+)?vida)\b"
+    ),
+    re.compile(r"\bcansei\s+de\s+viver\b"),
+)
+_BARE_CRISIS_HANDOFF_PATTERN = re.compile(
+    r"\b(?:suicid\w*|automutil\w*|me\s+(?:matar|suicidar|machucar|cortar)|"
+    r"(?:matar|suicidar)-me|acabar\s+com\s+(?:a\s+)?minha\s+vida|"
+    r"dar\s+um\s+fim)\b"
+)
+_NEGATED_HANDOFF_PREFIX = re.compile(r"\bnao\s+$")
+_NEGATED_CRISIS_CONTEXT = re.compile(
+    rf"\bnao\s+(?:{_CRISIS_INTENT}\s+)?(?:me\s+)?$"
+)
+
+
+def is_handoff_request(texto: str | None) -> bool:
+    """Recognize explicit human-help or self-harm requests without model input."""
+    if not isinstance(texto, str):
+        return False
+    texto = "".join(
+        char for char in unicodedata.normalize("NFKD", texto.casefold())
+        if not unicodedata.combining(char)
+    )
+    if any(
+        _NEGATED_HANDOFF_PREFIX.search(texto[: match.start()]) is None
+        for pattern in _CRISIS_HANDOFF_PATTERNS
+        for match in pattern.finditer(texto)
+    ):
+        return True
+    if any(
+        _NEGATED_CRISIS_CONTEXT.search(texto[: match.start()]) is None
+        for match in _BARE_CRISIS_HANDOFF_PATTERN.finditer(texto)
+    ):
+        return True
+    return any(
+        _NEGATED_HANDOFF_PREFIX.search(texto[: match.start()]) is None
+        for pattern in _HUMAN_HANDOFF_PATTERNS
+        for match in pattern.finditer(texto)
+    )
 
 # Onboarding fields collected beyond the baseline (name+telefone). Collecting
 # any of these requires an accepted, current consent term (delta-040).
@@ -160,6 +237,9 @@ def route_intent(
     texto = state.get("texto") or ""
     if consent_rules.is_optout_request(texto):
         return ROUTE_OPTOUT
+
+    if is_handoff_request(texto):
+        return ROUTE_HANDOFF
 
     needs_term = consent_rules.needs_reaccept(
         context.legacy_term.accepted_version,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain import consent
 from app.domain.report import looks_like_report, parse_cell_report
 
@@ -29,6 +31,50 @@ def test_is_acceptance_detects_affirmatives() -> None:
     assert consent.is_acceptance("sim, concordo")
     assert not consent.is_acceptance("não quero")
     assert not consent.is_acceptance("")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "sim, mas não quero",
+        "SIM! Mas não quero aceitar.",
+        "aceito, porém não agora",
+        "sim, não quero receber mensagens",
+        "sim, mas preciso pensar",
+        "sim, quero sair da lista",
+    ],
+)
+def test_is_acceptance_rejects_qualified_or_conflicting_replies(reply: str) -> None:
+    assert not consent.is_acceptance(reply)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["sim", "Aceito!", "SIM, CONCORDO.", "De acordo.", "Pode sim!"],
+)
+def test_is_acceptance_keeps_clear_affirmatives(reply: str) -> None:
+    assert consent.is_acceptance(reply)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["eu aceito", "sim aceito", "ok, aceito", "CLARO QUE SIM!"],
+)
+def test_is_acceptance_allows_short_unambiguous_replies(reply: str) -> None:
+    assert consent.is_acceptance(reply)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "eu aceito, mas não agora",
+        "sim aceito, porém tenho dúvidas",
+        "ok, aceito, MAS não quero",
+        "claro que sim, NÃO",
+    ],
+)
+def test_is_acceptance_rejects_qualified_replies_even_with_known_phrase(reply: str) -> None:
+    assert not consent.is_acceptance(reply)
 
 
 # ---- opt-out (US-32 / RNF-06) ---------------------------------------------

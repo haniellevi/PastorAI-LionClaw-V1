@@ -7,9 +7,9 @@ import type { Conversation, ConversationEstado } from "@/lib/conversations-api";
 
 export type AgentAvailability = "active" | "paused_by_church" | "unknown";
 
-/** Estado efetivo da conversa: a fila de espera (espera_desde) tem prioridade. */
+/** Estado visual: espera_desde indica fila enquanto não há responsável. */
 export function effectiveEstado(c: Conversation): ConversationEstado {
-  if (c.estado === "humano") return "humano";
+  if (c.estado === "humano" && (c.assumidoPor || !c.esperaDesde)) return "humano";
   if (c.estado === "aguardando" || c.esperaDesde) return "aguardando";
   return "ia";
 }

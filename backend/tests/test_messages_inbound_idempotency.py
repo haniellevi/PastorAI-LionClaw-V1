@@ -37,17 +37,19 @@ Mapa:
 
 from __future__ import annotations
 
+import datetime as dt
 import threading
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 import app.db.session  # noqa: F401 - registra o listener after_begin (paridade prod)
+from app.agent import runtime as runtime_module
 from app.db.models import Base, Conversation, Igreja, Message, WhatsappConnection
 from app.deps import CurrentUser
 from app.domain.conversations import ParsedMessage
@@ -738,6 +740,558 @@ def test_agent_reply_recovery_after_intent_before_transport_reuses_text_once(
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
 
 
+def test_handoff_race_ambiguates_inflight_intent_before_provider_transport(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A handoff fences a reply that reached transport state before HTTP."""
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-HANDOFF-RACE",
+        claim_id="agent-handoff-race",
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory, outcome, "Resposta que não pode sair"
+    )
+    assert intent is not None
+    assert intent.state == worker_module._AGENT_REPLY_PENDING
+    original_transition = worker_module._transition_agent_reply_intent
+
+    def transition_then_handoff(*args, **kwargs):
+        transitioned = original_transition(*args, **kwargs)
+        if (
+            transitioned
+            and kwargs.get("expected") == worker_module._AGENT_REPLY_PENDING
+            and kwargs.get("target") == worker_module._AGENT_REPLY_IN_FLIGHT
+        ):
+            handoff_session = factory()
+            try:
+                worker_module._scope_agent_session(handoff_session, outcome)
+                handoff_session.execute(
+                    update(Conversation)
+                    .where(
+                        Conversation.id == conversation_id,
+                        Conversation.igreja_id == _IGREJA_A,
+                    )
+                    .values(estado="humano")
+                )
+                handoff_session.commit()
+            finally:
+                handoff_session.close()
+        return transitioned
+
+    monkeypatch.setattr(
+        worker_module, "_transition_agent_reply_intent", transition_then_handoff
+    )
+    evolution = _ClassifiedEvolution("aceito")
+
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=evolution,
+    )
+
+    assert evolution.calls == []
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_ambigua"]
+
+
+def test_handoff_suppression_survives_ia_release_and_does_not_touch_other_tenant(
+    msg_engine_fx: Engine,
+) -> None:
+    """A pending reply older than handoff cannot cross transport after release."""
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_B, instance="igreja-b")
+    foreign_conversation_id = _seed_agent_conversation(factory, igreja_id=_IGREJA_B)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-HANDOFF-DURABLE",
+        claim_id="agent-handoff-durable",
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory, outcome, "Resposta anterior ao handoff"
+    )
+    assert intent is not None
+    assert intent.state == worker_module._AGENT_REPLY_PENDING
+
+    session = factory()
+    try:
+        session.add(
+            Message(
+                igreja_id=_IGREJA_B,
+                conversation_id=foreign_conversation_id,
+                direcao="out",
+                autor="ia",
+                agent_reply_state=worker_module._AGENT_REPLY_PENDING,
+                texto="Resposta de outro tenant",
+                tipo="texto",
+                provider_message_id="agent-reply:foreign-handoff",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    handoff_session = factory()
+    try:
+        worker_module._scope_agent_session(handoff_session, outcome)
+        marked = runtime_module._mark_conversation_for_handoff(
+            handoff_session,
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+        )
+        assert marked is not None
+        handoff_session.commit()
+    finally:
+        handoff_session.close()
+
+    release_session = factory()
+    try:
+        worker_module._scope_agent_session(release_session, outcome)
+        release_session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(estado="ia")
+        )
+        release_session.commit()
+    finally:
+        release_session.close()
+
+    evolution = _ClassifiedEvolution("aceito")
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=evolution,
+    )
+
+    assert evolution.calls == []
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_suprimida"]
+    assert _agent_reply_states(factory, _IGREJA_B) == ["ia_pendente"]
+
+
+def test_handoff_suppression_is_not_revived_by_prepare_after_ia_release(
+    msg_engine_fx: Engine,
+) -> None:
+    """The prepare CAS cannot revive a terminal handoff suppression."""
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-HANDOFF-PREPARE-CAS",
+        claim_id="agent-handoff-prepare-cas",
+    )
+    reserved = worker_module._reserve_agent_reply_intent(factory, outcome)
+    assert reserved is not None
+    assert worker_module._transition_agent_reply_intent(
+        factory,
+        outcome,
+        reserved,
+        expected=worker_module._AGENT_REPLY_RESERVED,
+        target=worker_module._AGENT_REPLY_EXECUTING,
+    )
+
+    handoff_session = factory()
+    try:
+        worker_module._scope_agent_session(handoff_session, outcome)
+        marked = runtime_module._mark_conversation_for_handoff(
+            handoff_session,
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+        )
+        assert marked is not None
+        handoff_session.commit()
+    finally:
+        handoff_session.close()
+
+    release_session = factory()
+    try:
+        worker_module._scope_agent_session(release_session, outcome)
+        release_session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(estado="ia")
+        )
+        release_session.commit()
+    finally:
+        release_session.close()
+
+    prepared = worker_module._prepare_agent_reply_intent(
+        factory, outcome, "Resposta tardia"
+    )
+
+    assert prepared is not None
+    assert prepared.state == worker_module._AGENT_REPLY_SUPPRESSED
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_suprimida"]
+
+
+@pytest.mark.parametrize("transport", ("agent", "classified", "plain"))
+def test_handoff_ambiguates_inflight_and_blocks_every_pre_send_after_ia_release(
+    msg_engine_fx: Engine,
+    transport: str,
+) -> None:
+    """An in-flight row cannot begin HTTP once handoff made it ambiguous."""
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id=f"AGENT-HANDOFF-INFLIGHT-{transport}",
+        claim_id=f"agent-handoff-inflight-{transport}",
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory, outcome, "Resposta em transporte"
+    )
+    assert intent is not None
+    assert worker_module._transition_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        expected=worker_module._AGENT_REPLY_PENDING,
+        target=worker_module._AGENT_REPLY_IN_FLIGHT,
+    )
+
+    handoff_session = factory()
+    try:
+        worker_module._scope_agent_session(handoff_session, outcome)
+        marked = runtime_module._mark_conversation_for_handoff(
+            handoff_session,
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+        )
+        assert marked is not None
+        handoff_session.commit()
+    finally:
+        handoff_session.close()
+
+    release_session = factory()
+    try:
+        worker_module._scope_agent_session(release_session, outcome)
+        release_session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(estado="ia")
+        )
+        release_session.commit()
+    finally:
+        release_session.close()
+
+    calls: list[str] = []
+    if transport == "agent":
+        def send_agent_text(*_args, before_send):
+            before_send()
+            calls.append("agent")
+            return SimpleNamespace(status="aceito")
+
+        client = SimpleNamespace(send_agent_text=send_agent_text)
+    elif transport == "classified":
+        client = SimpleNamespace(
+            send_text_classificado=lambda *_args: calls.append("classified")
+            or SimpleNamespace(status="aceito")
+        )
+    else:
+        client = SimpleNamespace(send_text=lambda *_args: calls.append("plain") or True)
+
+    status = worker_module._send_agent_reply(
+        client,
+        outcome.instance,
+        outcome.telefone,
+        intent.response,
+        before_transport=lambda: not worker_module._suppress_agent_reply_after_handoff(
+            factory,
+            outcome,
+            intent,
+            expected=worker_module._AGENT_REPLY_IN_FLIGHT,
+        ),
+    )
+
+    assert status == "suprimido"
+    assert calls == []
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_ambigua"]
+
+
+def test_handoff_does_not_restore_pending_after_retryable_transport_result(
+    msg_engine_fx: Engine,
+) -> None:
+    """A retryable result after handoff remains ambiguous instead of retrying."""
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-HANDOFF-RETRYABLE",
+        claim_id="agent-handoff-retryable",
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory, outcome, "Resposta que ficou incerta"
+    )
+    assert intent is not None
+
+    def mark_handoff_then_release() -> None:
+        handoff_session = factory()
+        try:
+            worker_module._scope_agent_session(handoff_session, outcome)
+            runtime_module._mark_conversation_for_handoff(
+                handoff_session,
+                igreja_id=_IGREJA_A,
+                conversation_id=conversation_id,
+            )
+            handoff_session.commit()
+        finally:
+            handoff_session.close()
+        release_session = factory()
+        try:
+            worker_module._scope_agent_session(release_session, outcome)
+            release_session.execute(
+                update(Conversation)
+                .where(
+                    Conversation.id == conversation_id,
+                    Conversation.igreja_id == _IGREJA_A,
+                )
+                .values(estado="ia")
+            )
+            release_session.commit()
+        finally:
+            release_session.close()
+
+    class RetryableClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def send_text_classificado(self, *_args):
+            self.calls.append("transport")
+            mark_handoff_then_release()
+            return SimpleNamespace(status="falhou_retentavel")
+
+    client = RetryableClient()
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=client,
+    )
+
+    assert client.calls == ["transport"]
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_ambigua"]
+
+
+def test_handoff_does_not_restore_pending_after_ownership_loss(
+    msg_engine_fx: Engine,
+) -> None:
+    """A stale owner cannot turn an ambiguous handoff intent back to pending."""
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-HANDOFF-OWNERSHIP",
+        claim_id="agent-handoff-ownership",
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory, outcome, "Resposta sem transporte"
+    )
+    assert intent is not None
+    guard_calls = 0
+
+    def guard() -> None:
+        nonlocal guard_calls
+        guard_calls += 1
+        if guard_calls != 3:
+            return
+        handoff_session = factory()
+        try:
+            worker_module._scope_agent_session(handoff_session, outcome)
+            runtime_module._mark_conversation_for_handoff(
+                handoff_session,
+                igreja_id=_IGREJA_A,
+                conversation_id=conversation_id,
+            )
+            handoff_session.commit()
+        finally:
+            handoff_session.close()
+        release_session = factory()
+        try:
+            worker_module._scope_agent_session(release_session, outcome)
+            release_session.execute(
+                update(Conversation)
+                .where(
+                    Conversation.id == conversation_id,
+                    Conversation.igreja_id == _IGREJA_A,
+                )
+                .values(estado="ia")
+            )
+            release_session.commit()
+        finally:
+            release_session.close()
+        raise ClaimOwnershipLost("synthetic ownership loss after handoff")
+
+    evolution = _ClassifiedEvolution("aceito")
+    with pytest.raises(ClaimOwnershipLost):
+        worker_module._deliver_agent_reply_intent(
+            factory,
+            outcome,
+            intent,
+            guard,
+            evolution_client=evolution,
+        )
+
+    assert evolution.calls == []
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_ambigua"]
+
+
+def test_context_history_keeps_only_confirmed_outbound_from_same_past_turn(
+    msg_engine_fx: Engine,
+) -> None:
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    base_time = dt.datetime(2026, 9, 26, 12, tzinfo=dt.UTC)
+    session = factory()
+    try:
+        session.add(Igreja(id=_IGREJA_B, nome="Igreja B"))
+        session.flush()
+        other_conversation = Conversation(
+            igreja_id=_IGREJA_A,
+            telefone="5500000000001",
+            estado="ia",
+        )
+        foreign_conversation = Conversation(
+            igreja_id=_IGREJA_B,
+            telefone="5500000000002",
+            estado="ia",
+        )
+        session.add_all((other_conversation, foreign_conversation))
+        session.flush()
+
+        def message(
+            *,
+            igreja_id: uuid.UUID,
+            current_conversation_id: uuid.UUID,
+            direcao: str,
+            autor: str,
+            texto: str,
+            created_at: dt.datetime,
+            agent_reply_state: str | None = None,
+        ) -> Message:
+            return Message(
+                igreja_id=igreja_id,
+                conversation_id=current_conversation_id,
+                direcao=direcao,
+                autor=autor,
+                texto=texto,
+                criado_em=created_at,
+                agent_reply_state=agent_reply_state,
+            )
+
+        current = message(
+            igreja_id=_IGREJA_A,
+            current_conversation_id=conversation_id,
+            direcao="in",
+            autor="contato",
+            texto="turno atual",
+            created_at=base_time,
+        )
+        session.add_all(
+            (
+                message(
+                    igreja_id=_IGREJA_A,
+                    current_conversation_id=conversation_id,
+                    direcao="in",
+                    autor="contato",
+                    texto="inbound anterior",
+                    created_at=base_time - dt.timedelta(minutes=3),
+                ),
+                message(
+                    igreja_id=_IGREJA_A,
+                    current_conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    texto="outbound confirmado",
+                    created_at=base_time - dt.timedelta(minutes=2),
+                    agent_reply_state=worker_module._AGENT_REPLY_CONFIRMED,
+                ),
+                message(
+                    igreja_id=_IGREJA_A,
+                    current_conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    texto="outbound pendente",
+                    created_at=base_time - dt.timedelta(minutes=1),
+                    agent_reply_state=worker_module._AGENT_REPLY_PENDING,
+                ),
+                message(
+                    igreja_id=_IGREJA_A,
+                    current_conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    texto="outbound suprimido",
+                    created_at=base_time - dt.timedelta(seconds=30),
+                    agent_reply_state=worker_module._AGENT_REPLY_SUPPRESSED,
+                ),
+                message(
+                    igreja_id=_IGREJA_A,
+                    current_conversation_id=other_conversation.id,
+                    direcao="in",
+                    autor="contato",
+                    texto="outra conversa",
+                    created_at=base_time - dt.timedelta(minutes=1),
+                ),
+                message(
+                    igreja_id=_IGREJA_B,
+                    current_conversation_id=foreign_conversation.id,
+                    direcao="in",
+                    autor="contato",
+                    texto="outro tenant",
+                    created_at=base_time - dt.timedelta(minutes=1),
+                ),
+                message(
+                    igreja_id=_IGREJA_A,
+                    current_conversation_id=conversation_id,
+                    direcao="in",
+                    autor="contato",
+                    texto="futuro",
+                    created_at=base_time + dt.timedelta(minutes=1),
+                ),
+                current,
+            )
+        )
+        session.commit()
+
+        history = runtime_module._load_recent_conversation_history(
+            session,
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+            current_message_id=current.id,
+        )
+    finally:
+        session.close()
+
+    assert history == [
+        ("in", "contato", "inbound anterior"),
+        ("out", "ia", "outbound confirmado"),
+    ]
+    _system, prompt = runtime_module._build_reply_prompt("perfil", "turno atual", history)
+    assert "outbound confirmado" in prompt
+    for forbidden in (
+        "outbound pendente",
+        "outbound suprimido",
+        "outra conversa",
+        "outro tenant",
+        "futuro",
+    ):
+        assert forbidden not in prompt
+
+
 def test_agent_reply_confirmation_persist_failure_is_quarantined_without_second_send(
     msg_engine_fx: Engine, monkeypatch
 ) -> None:
@@ -805,7 +1359,7 @@ def test_agent_reply_loss_during_transport_never_retries_an_inflight_call(
     def guard() -> None:
         nonlocal guard_calls
         guard_calls += 1
-        if guard_calls == 7:
+        if guard_calls == 8:
             raise ClaimOwnershipLost("lease lost after provider transport")
 
     outcome = _agent_outcome(conversation_id)
