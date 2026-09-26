@@ -2573,6 +2573,9 @@ class AgentConfig(Base):
     nome: Mapped[str | None] = mapped_column(Text, nullable=True)
     tom: Mapped[str | None] = mapped_column(Text, nullable=True)
     comportamento: Mapped[str] = mapped_column(Text, nullable=False)
+    informacoes_publicas: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     publico_alvo: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text), nullable=True
     )

@@ -1,5 +1,23 @@
 # Wiki do projeto Igreja 12
 
+## S2: perfil público estruturado, candidato de 26/09/2026
+
+A aba Comportamento do Agente IA permite ao admin publicar endereço institucional,
+horários e até cinco células públicas por bairro. Salvar exige configuração já
+existente e não ativa o agente. GET/PUT `/agent/public-profile` isolam a igreja;
+o campo JSONB novo reaproveita RLS e políticas de `agent_configs`.
+
+As consultas naturais de culto e célula usam somente o cadastro estruturado
+validado. Sem dados, o agente informa a ausência. O bloco legado de comportamento
+não é importado nem usado como fonte; continua removido do prompt, inclusive
+com caracteres invisíveis Cf. O perfil estruturado também não entra no LLM
+nesta fatia. Consultas privadas, proximidade geográfica e identidade ficam para S3.
+
+**Merge S2 bloqueado até liberação explícita**, mesmo com CI/revisões verdes:
+a sessão PastorAI PROD operacional coordena schema e deploy. Este trabalho
+não aplica migration em ambiente compartilhado nem opera PROD/VPS/provedores.
+[Contrato, uso e limites](ops/s2-public-agent-profile-20260926/README.md).
+
 ## Jev tier A S1: candidato com ativação bloqueada, 26/09/2026
 
 A nova trilha classifica crise, pedido humano e provável opt-out antes da
@@ -20,9 +38,8 @@ não está aferido. Piloto permanece somente interno, sem divulgar o número.
 [Plano e gates](ops/mvp-fase2-agente-inteligente-plano.md),
 [avaliação e limites](ops/jev-tier-a-20260926/EVALUATION.md).
 
-S2 terá campos públicos estruturados, correção de caracteres invisíveis Cf
-no legado e perguntas naturais de horário. S3 terá identidade confirmada e
-ferramentas readonly por papel. Nenhuma dessas fatias foi antecipada na S1.
+S2 segue como candidato separado, descrito acima. S3 terá identidade confirmada
+e ferramentas readonly por papel. Nenhuma dessas fatias foi antecipada na S1.
 
 ## MVP fase 2, fatia 2: consultas públicas e handoff ampliado, 26/09/2026
 

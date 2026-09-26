@@ -304,7 +304,15 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
 - [x] Consultas públicas somente leitura: horário do culto, endereço da igreja
       e indicação de célula por bairro explicitamente publicado no perfil do
       agente. Respostas determinísticas, sem LLM nem alterações cadastrais.
-      Contrato e limites: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
+      Contrato inicial: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
+- [x] **S2 implementada em código, candidata no PR423:** painel/API de campos
+      públicos estruturados, migration tenant/RLS, perguntas naturais de culto
+      e remoção de Cf no legado. Testes locais e revisão técnica concluídos;
+      [registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md).
+      **Merge bloqueado** até liberação explícita coordenada com a sessão
+      PastorAI PROD operacional. Não aplicada em banco compartilhado nem
+      implantada por esta missão. Sarah GO no código `fe544d7`; delta documental
+      segue para conferência, sem liberar merge.
 - [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
       nem política pública para endereços residenciais; indicação por bairro
       não representa a célula mais próxima.

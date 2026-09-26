@@ -1,8 +1,9 @@
 """Deterministic public-profile replies for the agent runtime.
 
-This module deliberately parses only an explicit block in ``AgentConfig``.  It
-does not open a database session, import domain models, call a provider, or
-perform location lookups.
+This module validates the JSONB public profile without opening a database
+session, importing domain models, calling a provider, or locating anyone.
+Legacy blocks in ``AgentConfig.comportamento`` are stripped from LLM style only;
+they are never a source of public facts.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from dataclasses import dataclass
 
 
 _MARKER_CLOSERS = {"[": "]", "{": "}", "(": ")"}
-_MAX_PROFILE_CHARS = 4_000
 _MAX_VALUE_CHARS = 400
 _MAX_CELLS = 5
 _MAX_REPLY_CHARS = 1_600
@@ -21,9 +21,9 @@ _ADDRESS_WORD = re.compile(
     r"\b(?:rua|avenida|av\.?|travessa|alameda|estrada|rodovia|quadra|lote|cep)\b"
     r"|\br\.(?=\s)|\b\d{5}-?\d{3}\b"
 )
-# Este filtro aplica apenas o contrato de célula pública para telefone e
+# Este filtro aplica apenas o contrato do perfil público para telefone e
 # marcador de liderança. Não é um detector geral de dados pessoais.
-_CELL_FORBIDDEN_MARKER = re.compile(
+_PUBLIC_FORBIDDEN_MARKER = re.compile(
     r"\b(?:lider(?:a|es|as)?|anfitri(?:a|ao))\b"
     r"|(?<!\d)(?:\+?55[\s-]*)?(?:\(?\d{2}\)?[\s-]*)?"
     r"9?\d{4,5}[\s-]?\d{4}(?!\d)"
@@ -46,6 +46,13 @@ _CELL_BARE_BAIRRO_REQUEST = re.compile(
 _CELL_QUESTION_BAIRRO_REQUEST = re.compile(
     r"^(?:tem|existe|existem|ha)\s+(?:uma\s+)?celula(?:s)?\s+"
     r"(?:no|na|em|do|da)\s+(?:bairro\s+)?[a-z0-9].*\?\s*$"
+)
+_HOURS_CULTO_REQUEST = re.compile(
+    r"\b(?:"
+    r"horarios?\s+(?:do|de)?\s*culto"
+    r"|(?:a\s+)?que\s+horas?\s+(?:(?:e|eh|sera|comeca)\s+)?(?:o\s+)?culto"
+    r"|quando\s+(?:e|eh|sera|comeca)\s+(?:o\s+)?culto"
+    r")\b"
 )
 
 _HOURS_MISSING = (
@@ -92,8 +99,7 @@ def _recognize_public_info_marker(value: object) -> _PublicInfoMarker | None:
 
     A marker can use ``[``, ``{`` or ``(``, and accepts accent, case and
     ``_``/``-``/space spelling variants. Incomplete markers are still returned
-    so the style scrubber can discard their remainder fail-closed; the public
-    parser accepts only complete markers.
+    so the style scrubber can discard their remainder fail-closed.
     """
 
     if not isinstance(value, str):
@@ -105,17 +111,11 @@ def _recognize_public_info_marker(value: object) -> _PublicInfoMarker | None:
     expected_closer = _MARKER_CLOSERS[candidate[0]]
     complete = candidate.endswith(expected_closer)
     label = candidate[1:-1] if complete else candidate[1:]
-    label = label.strip()
-    closing = label.startswith("/")
+    normalized = _normalized(label)
+    closing = normalized.startswith("/")
     if closing:
-        label = label[1:].lstrip()
+        normalized = normalized[1:].lstrip()
 
-    normalized = unicodedata.normalize("NFKD", label.casefold())
-    normalized = "".join(
-        character
-        for character in normalized
-        if not unicodedata.combining(character)
-    )
     name = re.match(r"informacoes(?:[_\-\s]+)publicas\b", normalized)
     if name is None:
         return None
@@ -158,7 +158,11 @@ def _public_info_marker_spans(value: str):
 def _display_text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
-    cleaned = " ".join(value.split())
+    cleaned = "".join(
+        character
+        for character in " ".join(value.split())
+        if unicodedata.category(character) != "Cf"
+    )
     if not cleaned or len(cleaned) > _MAX_VALUE_CHARS:
         return None
     if any(ord(character) < 32 for character in cleaned):
@@ -174,6 +178,7 @@ def _normalized(value: object) -> str:
         character
         for character in decomposed
         if not unicodedata.combining(character)
+        and unicodedata.category(character) != "Cf"
     )
     return " ".join(without_accents.split())
 
@@ -207,17 +212,29 @@ def style_profile_without_public_info(comportamento: object) -> str:
     return "".join(parts).strip()
 
 
-def _parse_cell(value: str) -> _PublicCell | None:
-    if value.count("|") != 2:
+def _optional_public_text(value: object) -> tuple[bool, str | None]:
+    if value is None:
+        return True, None
+    text = _display_text(value)
+    if text is None or _PUBLIC_FORBIDDEN_MARKER.search(_normalized(text)):
+        return False, None
+    return True, text
+
+
+def _project_public_cell(value: object) -> _PublicCell | None:
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ) or not set(value).issubset({"bairro", "nome", "encontro"}):
         return None
-    bairro_raw, nome_raw, encontro_raw = value.split("|")
-    bairro = _display_text(bairro_raw)
-    nome = _display_text(nome_raw)
-    encontro = _display_text(encontro_raw) if encontro_raw.strip() else None
-    if bairro is None or nome is None:
+    if "bairro" not in value or "nome" not in value:
         return None
-    normalized_value = _normalized(value)
-    if _ADDRESS_WORD.search(normalized_value) or _CELL_FORBIDDEN_MARKER.search(
+    bairro = _display_text(value["bairro"])
+    nome = _display_text(value["nome"])
+    valid_encontro, encontro = _optional_public_text(value.get("encontro"))
+    if bairro is None or nome is None or not valid_encontro:
+        return None
+    normalized_value = _normalized(" ".join(part for part in (bairro, nome, encontro) if part))
+    if _ADDRESS_WORD.search(normalized_value) or _PUBLIC_FORBIDDEN_MARKER.search(
         normalized_value
     ):
         return None
@@ -234,58 +251,60 @@ def _parse_cell(value: str) -> _PublicCell | None:
     )
 
 
-def _parse_public_info(comportamento: object) -> _PublicInfo | None:
-    if not isinstance(comportamento, str) or len(comportamento) > _MAX_PROFILE_CHARS:
-        return None
-    lines = comportamento.splitlines()
-    markers = [
-        _recognize_public_info_marker(line)
-        for line in lines
-    ]
-    openings = [
-        index
-        for index, marker in enumerate(markers)
-        if marker is not None and marker.complete and not marker.closing
-    ]
-    closings = [
-        index
-        for index, marker in enumerate(markers)
-        if marker is not None and marker.complete and marker.closing
-    ]
-    if len(openings) != 1 or len(closings) != 1 or openings[0] >= closings[0]:
-        return None
+def project_public_info(value: object) -> _PublicInfo | None:
+    """Validate untrusted JSONB and return the only public-info projection.
 
-    fields: dict[str, str] = {}
+    ``None`` means malformed or unsafe data. An empty object is valid and
+    projects to empty facts, which lets callers distinguish it from a malformed
+    object without falling through to legacy free text.
+    """
+
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ) or not set(value).issubset({"endereco_igreja", "horarios_culto", "celulas"}):
+        return None
+    valid_address, endereco_igreja = _optional_public_text(
+        value.get("endereco_igreja")
+    )
+    valid_hours, horarios_culto = _optional_public_text(value.get("horarios_culto"))
+    cells_raw = value.get("celulas", [])
+    if not valid_address or not valid_hours or not isinstance(cells_raw, list):
+        return None
+    if len(cells_raw) > _MAX_CELLS:
+        return None
     cells: list[_PublicCell] = []
     bairro_keys: set[str] = set()
-    for line in lines[openings[0] + 1 : closings[0]]:
-        if not line.strip():
-            continue
-        key, separator, raw_value = line.partition("=")
-        if not separator:
-            return None
-        key = key.strip().casefold()
-        value = _display_text(raw_value)
-        if value is None:
-            return None
-        if key in {"endereco_igreja", "horarios_culto"}:
-            if key in fields:
-                return None
-            fields[key] = value
-            continue
-        if key != "celula":
-            return None
-        cell = _parse_cell(value)
-        if cell is None or cell.bairro_key in bairro_keys or len(cells) >= _MAX_CELLS:
+    for cell_raw in cells_raw:
+        cell = _project_public_cell(cell_raw)
+        if cell is None or cell.bairro_key in bairro_keys:
             return None
         bairro_keys.add(cell.bairro_key)
         cells.append(cell)
-
     return _PublicInfo(
-        endereco_igreja=fields.get("endereco_igreja"),
-        horarios_culto=fields.get("horarios_culto"),
+        endereco_igreja=endereco_igreja,
+        horarios_culto=horarios_culto,
         celulas=tuple(cells),
     )
+
+
+def canonical_public_info(value: object) -> dict[str, object] | None:
+    """Return canonical snake-case JSONB storage, or ``None`` when invalid."""
+
+    info = project_public_info(value)
+    if info is None:
+        return None
+    return {
+        "endereco_igreja": info.endereco_igreja,
+        "horarios_culto": info.horarios_culto,
+        "celulas": [
+            {
+                "bairro": cell.bairro,
+                "nome": cell.nome,
+                "encontro": cell.encontro,
+            }
+            for cell in info.celulas
+        ],
+    }
 
 
 def _request(value: object) -> tuple[str, str | None] | None:
@@ -299,11 +318,7 @@ def _request(value: object) -> tuple[str, str | None] | None:
     ):
         bairro = _CELL_BAIRRO.search(text)
         return "celula", bairro.group("bairro").strip() if bairro else None
-    if (
-        re.search(r"\bhorarios?\s+(?:do|de)?\s*culto\b", text)
-        or re.search(r"\bque\s+horas?\s+(?:e|eh|sera)?\s*(?:o\s+)?culto\b", text)
-        or re.search(r"\ba\s+que\s+horas?\s+comeca\s+(?:o\s+)?culto\b", text)
-    ):
+    if _HOURS_CULTO_REQUEST.search(text):
         return "horarios_culto", None
     if (
         re.search(r"\bendereco\s+(?:da|de)?\s*igreja\b", text)
@@ -319,19 +334,19 @@ def _public_reply(value: str) -> str:
 
 def resolve_public_info_reply(
     current_text: object,
-    comportamento: object,
+    public_info: object,
 ) -> str | None:
-    """Return a bounded answer from explicit public profile data, if requested.
+    """Return a bounded answer from explicit JSONB public profile data.
 
     ``None`` means that this message is not a supported deterministic lookup.
-    A supported request whose block is absent or invalid receives an honest
+    A supported request whose profile is absent or invalid receives an honest
     absence reply and cannot fall through to an inferred data source.
     """
 
     request = _request(current_text)
     if request is None:
         return None
-    info = _parse_public_info(comportamento)
+    info = project_public_info(public_info)
     kind, bairro = request
     if kind == "horarios_culto":
         answer = (

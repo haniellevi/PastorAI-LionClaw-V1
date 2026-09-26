@@ -932,6 +932,32 @@ def _load_tier_a_plan_state(
     return conversation, pessoa, None
 
 
+def _reload_public_info_config(
+    session: Session,
+    plan: AgentTurnPlan,
+) -> AgentConfig | None:
+    """Lock the current public profile after Tier A's external wait."""
+
+    config = session.execute(
+        select(AgentConfig)
+        .where(
+            AgentConfig.id == plan.config_id,
+            AgentConfig.igreja_id == plan.igreja_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if (
+        config is None
+        or config.id != plan.config_id
+        or config.igreja_id != plan.igreja_id
+        or not config.ativo
+        or config.comportamento != plan.config_comportamento
+    ):
+        return None
+    return config
+
+
 def _tier_a_plan_invalid_result(
     session: Session,
     *,
@@ -993,6 +1019,12 @@ def apply_agent_turn_plan(
             plan=plan,
             decision_payload={"erro": "llm_schema_invalido"},
         )
+    if plan.public_info_reply and bounded_response != plan.draft_response:
+        return persist_tier_a_handoff(
+            session,
+            plan=plan,
+            decision_payload={"erro": "public_reply_changed"},
+        )
     conversation, pessoa, reason = _load_tier_a_plan_state(session, plan)
     if reason is not None:
         return _tier_a_plan_invalid_result(
@@ -1005,11 +1037,24 @@ def apply_agent_turn_plan(
     if conversation is None or pessoa is None:
         return AgentTurnResult(handled=False, reason="tier_a_state_missing")
     if plan.public_info_reply:
-        if bounded_response != plan.draft_response:
+        config = _reload_public_info_config(session, plan)
+        if config is None:
+            return _tier_a_plan_invalid_result(
+                session,
+                conversation=conversation,
+                pessoa=pessoa,
+                igreja_id=plan.igreja_id,
+                reason="config_changed",
+            )
+        current_public_reply = resolve_public_info_reply(
+            plan.current_text,
+            config.informacoes_publicas,
+        )
+        if current_public_reply is None:
             return persist_tier_a_handoff(
                 session,
                 plan=plan,
-                decision_payload={"erro": "public_reply_changed"},
+                decision_payload={"erro": "public_reply_missing"},
             )
         if decision_payload is not None:
             log_agent_event(
@@ -1030,7 +1075,7 @@ def apply_agent_turn_plan(
         return AgentTurnResult(
             handled=True,
             route=ROUTE_ONBOARDING,
-            response=bounded_response,
+            response=current_public_reply,
         )
     _apply_intake(pessoa, plan.effects["intake_update"])
     if decision_payload is not None:
@@ -1862,7 +1907,10 @@ def process_inbound_message(
     # leitura: a âncora inbound define a pergunta e o retorno acontece antes
     # de qualquer intake, ferramenta, auditoria de efeitos ou provedor.
     if has_persisted_inbound_anchor and route == ROUTE_ONBOARDING:
-        public_reply = resolve_public_info_reply(current_text, config.comportamento)
+        public_reply = resolve_public_info_reply(
+            current_text,
+            getattr(config, "informacoes_publicas", None),
+        )
         if public_reply is not None:
             if defer_onboarding_plan:
                 if tier_a_snapshot is None:

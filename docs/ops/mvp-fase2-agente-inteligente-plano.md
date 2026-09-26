@@ -1,7 +1,7 @@
 # Fase 2: agente com decisões tipadas e privilégios
 
 Aprovado com ajustes por Claude + Opencoded, 26/09/2026; S1 autorizada após fechar PR421. Ativação externa continua fechada.
-Predecessor concluído: PR421 MERGED por ordem nominal; main `ae2aac2`. S1 iniciada em branch própria, sem ativação.
+S1 PR422 MERGED por ordem nominal, main `a5244ca`; ativação fechada. S2 candidata separada; merge depende de liberação explícita coordenada com schema/deploy.
 Substitui a proposta LLM+moderação. Piloto Filadélfia continua interno, sem divulgar o número.
 Base estudada: PR418/419/420 e candidato PR421 `d48b3d2`. Um PR por fatia; priorizar S1, S2 pode seguir em paralelo se houver capacidade.
 

@@ -24,12 +24,14 @@ const profile = {
 let requests = [];
 let nextRequestId = 1;
 let selectedModel = "gpt-5.6-luna";
+let publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
 
 function resetState() {
   requests = [];
   nextRequestId = 1;
   selectedModel = "gpt-5.6-luna";
+  publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
   whatsapp = { numero: null, status: "offline", ultimaSync: null };
 }
 
@@ -308,6 +310,26 @@ const server = createServer(async (request, response) => {
         acessos: ["agenda"],
         ativo: true,
       });
+      return;
+    }
+    if (method === "GET" && pathname === "/agent/public-profile") {
+      record.status = 200;
+      sendJson(response, 200, { configured: true, informacoesPublicas: publicProfile });
+      return;
+    }
+    if (method === "PUT" && pathname === "/agent/public-profile") {
+      if (!body || typeof body !== "object" || !Array.isArray(body.celulas) || body.celulas.length > 5) {
+        record.status = 422;
+        sendJson(response, 422, { detail: "Perfil público E2E inválido." });
+        return;
+      }
+      publicProfile = {
+        enderecoIgreja: body.enderecoIgreja ?? null,
+        horariosCulto: body.horariosCulto ?? null,
+        celulas: body.celulas,
+      };
+      record.status = 200;
+      sendJson(response, 200, { configured: true, informacoesPublicas: publicProfile });
       return;
     }
     if (method === "GET" && pathname === "/agent/crons") {

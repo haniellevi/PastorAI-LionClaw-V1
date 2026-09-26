@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   fetchCredentialStatus: vi.fn(),
   fetchCrons: vi.fn(),
   fetchLlmModels: vi.fn(),
+  fetchPublicAgentProfile: vi.fn(),
   saveCredential: vi.fn(),
   updateCron: vi.fn(),
   updateLlmModel: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("@/lib/agent-api", async () => {
     fetchCredentialStatus: mocks.fetchCredentialStatus,
     fetchCrons: mocks.fetchCrons,
     fetchLlmModels: mocks.fetchLlmModels,
+    fetchPublicAgentProfile: mocks.fetchPublicAgentProfile,
     saveCredential: mocks.saveCredential,
     updateCron: mocks.updateCron,
     updateLlmModel: mocks.updateLlmModel,
@@ -90,6 +92,10 @@ beforeEach(() => {
   mocks.fetchAgentConfig.mockResolvedValue({ configured: false, ativo: false });
   mocks.fetchCrons.mockResolvedValue([]);
   mocks.fetchConfigRequests.mockResolvedValue([]);
+  mocks.fetchPublicAgentProfile.mockResolvedValue({
+    configured: false,
+    informacoesPublicas: { enderecoIgreja: null, horariosCulto: null, celulas: [] },
+  });
   mocks.updateLlmModel.mockResolvedValue({
     modelo: "gpt-5.6-luna",
     validado: true,

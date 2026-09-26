@@ -22,11 +22,12 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.read_only_info import canonical_public_info
 from app.db.models import AgentConfig, AgentConfigRequest, Cron, LlmCredential
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
@@ -348,6 +349,152 @@ def get_agent_config(
         publicoAlvo=cfg.publico_alvo,
         acessos=cfg.acessos,
         ativo=cfg.ativo,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Informações públicas do agente — fatos estruturados por igreja
+# ---------------------------------------------------------------------------
+class PublicProfileCellPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    bairro: str
+    nome: str
+    encontro: str | None = None
+
+
+class PublicProfilePayload(BaseModel):
+    """Strict HTTP shape; shared domain validation remains in read_only_info."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    enderecoIgreja: str | None = None  # noqa: N815 - external HTTP contract
+    horariosCulto: str | None = None  # noqa: N815 - external HTTP contract
+    celulas: list[PublicProfileCellPayload] = Field(default_factory=list)
+
+
+class PublicProfileCellResponse(BaseModel):
+    bairro: str
+    nome: str
+    encontro: str | None
+
+
+class PublicProfileInfoResponse(BaseModel):
+    enderecoIgreja: str | None  # noqa: N815 - external HTTP contract
+    horariosCulto: str | None  # noqa: N815 - external HTTP contract
+    celulas: list[PublicProfileCellResponse]
+
+
+class PublicProfileResponse(BaseModel):
+    configured: bool
+    informacoesPublicas: PublicProfileInfoResponse  # noqa: N815 - external HTTP contract
+
+
+def _empty_public_profile_response() -> PublicProfileInfoResponse:
+    return PublicProfileInfoResponse(
+        enderecoIgreja=None,
+        horariosCulto=None,
+        celulas=[],
+    )
+
+
+def _public_profile_response(value: object) -> PublicProfileInfoResponse:
+    canonical = canonical_public_info(value)
+    if canonical is None:
+        return _empty_public_profile_response()
+    cells = canonical["celulas"]
+    return PublicProfileInfoResponse(
+        enderecoIgreja=canonical["endereco_igreja"],
+        horariosCulto=canonical["horarios_culto"],
+        celulas=[
+            PublicProfileCellResponse(
+                bairro=cell["bairro"],
+                nome=cell["nome"],
+                encontro=cell["encontro"],
+            )
+            for cell in cells
+        ],
+    )
+
+
+async def _read_public_profile_payload(request: Request) -> dict[str, object]:
+    """Parse request data without returning a rejected value in the 422 body."""
+
+    try:
+        raw = await request.json()
+        payload = PublicProfilePayload.model_validate(raw)
+    except (TypeError, ValueError, ValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "public_profile_invalid"},
+        ) from None
+    canonical = canonical_public_info(
+        {
+            "endereco_igreja": payload.enderecoIgreja,
+            "horarios_culto": payload.horariosCulto,
+            "celulas": [
+                {
+                    "bairro": cell.bairro,
+                    "nome": cell.nome,
+                    "encontro": cell.encontro,
+                }
+                for cell in payload.celulas
+            ],
+        }
+    )
+    if canonical is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "public_profile_invalid"},
+        )
+    return canonical
+
+
+@router.get("/public-profile", response_model=PublicProfileResponse)
+def get_public_profile(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> PublicProfileResponse:
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    config = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if config is None:
+        return PublicProfileResponse(
+            configured=False,
+            informacoesPublicas=_empty_public_profile_response(),
+        )
+    return PublicProfileResponse(
+        configured=True,
+        informacoesPublicas=_public_profile_response(
+            getattr(config, "informacoes_publicas", None)
+        ),
+    )
+
+
+@router.put("/public-profile", response_model=PublicProfileResponse)
+async def save_public_profile(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> PublicProfileResponse:
+    """Replace one tenant's public facts without touching agent activation."""
+
+    canonical = await _read_public_profile_payload(request)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    config = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if config is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "agent_config_missing"},
+        )
+    config.informacoes_publicas = canonical
+    db.commit()
+    return PublicProfileResponse(
+        configured=True,
+        informacoesPublicas=_public_profile_response(canonical),
     )
 
 

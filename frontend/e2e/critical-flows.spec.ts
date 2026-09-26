@@ -187,6 +187,61 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     });
   });
 
+  test("perfil público salva e reabre no desktop e no mobile por teclado", async ({
+    page,
+    request,
+  }) => {
+    await resetHarness(request);
+    const safety = await armBrowserSafety(page);
+    await loginThroughUi(page);
+    await page.goto("/gestao#agente", { waitUntil: "domcontentloaded" });
+
+    const endereco = page.getByLabel("Endereço institucional da igreja");
+    await expect(endereco).toBeEnabled();
+    await endereco.fill("Rua Exemplo, 100");
+    await endereco.press("Tab");
+    await expect(page.getByLabel("Horários dos cultos")).toBeFocused();
+    await page.getByLabel("Horários dos cultos").fill("Domingo, 19h");
+    await page.getByRole("button", { name: "Adicionar célula" }).click();
+    await page.getByLabel("Bairro da célula 1").fill("Centro");
+    await page.getByLabel("Nome da célula 1").fill("Esperança");
+    await page.getByLabel("Dia e horário do encontro 1 (opcional)").fill("terça, 19h");
+    await page.getByRole("button", { name: "Salvar informações públicas" }).click();
+    await expect(page.getByText("Informações públicas salvas.")).toBeVisible();
+
+    const requests = await harnessRequests(request);
+    const saves = requests.filter((entry) => entry.method === "PUT" && entry.path === "/agent/public-profile");
+    expect(saves).toHaveLength(1);
+    expect(saves[0]?.body).toEqual({
+      enderecoIgreja: "Rua Exemplo, 100",
+      horariosCulto: "Domingo, 19h",
+      celulas: [{ bairro: "Centro", nome: "Esperança", encontro: "terça, 19h" }],
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(page.getByLabel("Endereço institucional da igreja")).toHaveValue("Rua Exemplo, 100");
+    await expect(page.getByLabel("Nome da célula 1")).toHaveValue("Esperança");
+    await expect(page.getByRole("button", { name: "Salvar informações públicas" })).toBeVisible();
+    await page.getByLabel("Endereço institucional da igreja").focus();
+    await page.keyboard.press("Tab");
+    await expect(page.getByLabel("Horários dos cultos")).toBeFocused();
+    await page.getByLabel("Endereço institucional da igreja").fill("");
+    await page.getByLabel("Horários dos cultos").fill("");
+    await page.getByRole("button", { name: "Remover célula 1" }).click();
+    await page.getByRole("button", { name: "Salvar informações públicas" }).click();
+    await expect(page.getByText("Informações públicas salvas.")).toBeVisible();
+    const cleared = (await harnessRequests(request)).filter(
+      (entry) => entry.method === "PUT" && entry.path === "/agent/public-profile",
+    );
+    expect(cleared.at(-1)?.body).toEqual({
+      enderecoIgreja: null,
+      horariosCulto: null,
+      celulas: [],
+    });
+    expectCleanBrowser(safety);
+  });
+
   test("conexão WhatsApp gera QR somente no mock local", async ({
     page,
     request,

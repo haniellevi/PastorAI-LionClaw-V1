@@ -33,6 +33,22 @@ class _Session:
         return False
 
 
+class _PublicPlanSession:
+    """Small session seam for the post-wait public-profile revalidation."""
+
+    def __init__(self, config: object) -> None:
+        self.config = config
+        self.statements: list[object] = []
+        self.commits = 0
+
+    def execute(self, statement: object) -> SimpleNamespace:
+        self.statements.append(statement)
+        return SimpleNamespace(scalar_one_or_none=lambda: self.config)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
 class _Lease:
     def __init__(self, acquired: bool = True) -> None:
         self.acquired = acquired
@@ -120,6 +136,158 @@ def _preflight(*, within_limit: bool = True) -> runtime.TierATurnPreflight:
             }
         }
     )
+
+
+def _public_plan() -> runtime.AgentTurnPlan:
+    return replace(
+        _plan(),
+        current_text="Que horas começa o culto?",
+        draft_response="Horário de culto: Sábado, 18:00.",
+        public_info_reply=True,
+    )
+
+
+def _current_public_config(**changes: object) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "id": _plan().config_id,
+        "igreja_id": _IGREJA_ID,
+        "ativo": True,
+        "comportamento": _plan().config_comportamento,
+        "informacoes_publicas": {"horarios_culto": "Domingo, 19:00"},
+    }
+    values.update(changes)
+    return SimpleNamespace(**values)
+
+
+def _allow_public_plan(monkeypatch: pytest.MonkeyPatch) -> tuple[SimpleNamespace, SimpleNamespace]:
+    conversation = SimpleNamespace(id=_CONVERSA_ID)
+    pessoa = SimpleNamespace(id=_PESSOA_ID)
+    monkeypatch.setattr(
+        runtime,
+        "_load_tier_a_plan_state",
+        lambda *_args: (conversation, pessoa, None),
+    )
+    return conversation, pessoa
+
+
+def test_public_plan_reresolves_locked_profile_after_tier_a_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A public answer uses the profile locked after Tier A, never its draft."""
+
+    _allow_public_plan(monkeypatch)
+    session = _PublicPlanSession(_current_public_config())
+    audits: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        runtime,
+        "log_agent_event",
+        lambda _session, **kwargs: audits.append(kwargs),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "log_ai_usage",
+        lambda *_args, **_kwargs: pytest.fail(
+            "consulta pública não pode contabilizar uso de LLM"
+        ),
+    )
+    plan = _public_plan()
+
+    result = runtime.apply_agent_turn_plan(
+        session,
+        plan=plan,
+        response=plan.draft_response,
+        usage=object(),
+        decision_payload={"handoff": False},
+    )
+
+    assert result.response == "Horário de culto: Domingo, 19:00."
+    assert session.commits == 1
+    assert len(session.statements) == 1
+    statement = session.statements[0]
+    assert statement._for_update_arg is not None
+    assert statement.get_execution_options()["populate_existing"] is True
+    assert audits == [
+        {
+            "igreja_id": _IGREJA_ID,
+            "evento": "jev_tier_a_decision",
+            "payload": {"handoff": False},
+            "conversation_id": _CONVERSA_ID,
+        },
+        {
+            "igreja_id": _IGREJA_ID,
+            "evento": "agent_public_info_reply",
+            "payload": {},
+            "conversation_id": _CONVERSA_ID,
+        },
+    ]
+
+
+@pytest.mark.parametrize("public_info", ({}, []))
+def test_public_plan_reresolves_cleared_or_invalid_profile_after_tier_a_wait(
+    monkeypatch: pytest.MonkeyPatch,
+    public_info: object,
+) -> None:
+    """Clearing or corrupting JSONB after the wait cannot send an old fact."""
+
+    _allow_public_plan(monkeypatch)
+    session = _PublicPlanSession(_current_public_config(informacoes_publicas=public_info))
+    monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
+    plan = _public_plan()
+
+    result = runtime.apply_agent_turn_plan(
+        session,
+        plan=plan,
+        response=plan.draft_response,
+    )
+
+    assert result.response == (
+        "Não encontrei o horário de culto nas informações públicas configuradas "
+        "pela igreja."
+    )
+    assert session.commits == 1
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"id": uuid.uuid4()},
+        {"igreja_id": uuid.uuid4()},
+        {"ativo": False},
+        {"comportamento": "perfil alterado"},
+    ),
+)
+def test_public_plan_handoffs_when_locked_config_no_longer_matches_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    changes: dict[str, object],
+) -> None:
+    """The second lock preserves the existing config-changed fail-safe."""
+
+    conversation, pessoa = _allow_public_plan(monkeypatch)
+    session = _PublicPlanSession(_current_public_config(**changes))
+    invalid_reasons: list[str] = []
+    monkeypatch.setattr(
+        runtime,
+        "_tier_a_plan_invalid_result",
+        lambda *_args, **kwargs: invalid_reasons.append(kwargs["reason"])
+        or runtime.AgentTurnResult(handled=True, suppressed=True, reason=kwargs["reason"]),
+    )
+    monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "resolve_public_info_reply",
+        lambda *_args: pytest.fail("configuração alterada não pode resolver resposta"),
+    )
+    plan = _public_plan()
+
+    result = runtime.apply_agent_turn_plan(
+        session,
+        plan=plan,
+        response=plan.draft_response,
+    )
+
+    assert (conversation.id, pessoa.id) == (_CONVERSA_ID, _PESSOA_ID)
+    assert result.reason == "config_changed"
+    assert invalid_reasons == ["config_changed"]
 
 
 def _outcome() -> queue_worker.IngestionOutcome:
