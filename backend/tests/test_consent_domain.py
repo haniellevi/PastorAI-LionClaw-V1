@@ -56,6 +56,27 @@ def test_is_acceptance_keeps_clear_affirmatives(reply: str) -> None:
     assert consent.is_acceptance(reply)
 
 
+@pytest.mark.parametrize(
+    "reply",
+    ["eu aceito", "sim aceito", "ok, aceito", "CLARO QUE SIM!"],
+)
+def test_is_acceptance_allows_short_unambiguous_replies(reply: str) -> None:
+    assert consent.is_acceptance(reply)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "eu aceito, mas não agora",
+        "sim aceito, porém tenho dúvidas",
+        "ok, aceito, MAS não quero",
+        "claro que sim, NÃO",
+    ],
+)
+def test_is_acceptance_rejects_qualified_replies_even_with_known_phrase(reply: str) -> None:
+    assert not consent.is_acceptance(reply)
+
+
 # ---- opt-out (US-32 / RNF-06) ---------------------------------------------
 def test_optout_request_detection() -> None:
     assert consent.is_optout_request("quero SAIR da lista")

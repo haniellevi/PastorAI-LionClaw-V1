@@ -267,7 +267,14 @@ Essas instruções e os testes com provider simulado não garantem factualidade 
 toda resposta futura. A validação desta fatia é local/source-only, sem canário,
 deploy ou conversa real; o aceite de 20 conversas reais da fase 2 segue pendente.
 O aceite do termo exige frase afirmativa inequívoca; respostas com ressalva,
-como “sim, mas não quero”, não registram consentimento.
+como “sim, mas não quero”, não registram consentimento. Aceites curtos como
+“eu aceito” e “ok, aceito” continuam permitidos. A detecção normaliza acentos e
+caixa e encaminha também menções soltas dos termos de crise definidos; a
+heurística pode encaminhar menções incidentais e não diagnostica intenção.
+O handoff mantém a supressão de respostas anteriores mesmo após a liberação
+para IA; transporte possivelmente iniciado fica ambíguo para reconciliação.
+Delimitadores vindos do perfil, histórico ou mensagem são neutralizados na
+montagem do prompt, sem garantia geral contra prompt injection.
 
 A preparação D3 offline separa os schemas de entrada e saída e reúne as
 intenções em `AgentTurnEffects`, um canal `UntrackedValue` substituído a cada

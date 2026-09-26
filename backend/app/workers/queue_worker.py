@@ -88,6 +88,7 @@ from app.domain.conversations import (
 )
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import insert_pessoa_or_get_winner, lock_canonical_phone
+from app.services.conversation_handoff import fence_agent_replies_for_handoff
 from app.services.worker_health import publish_worker_heartbeat
 
 logger = logging.getLogger("pastorai.queue_worker")
@@ -2465,6 +2466,20 @@ def _scope_agent_execution_session(
     return _scope_agent_session(session, outcome)
 
 
+def _lock_agent_conversation(
+    session: Session, outcome: IngestionOutcome
+) -> Conversation | None:
+    """Serialize intent writes with the conversation's handoff transaction."""
+    return session.execute(
+        select(Conversation)
+        .where(
+            Conversation.id == outcome.conversation_id,
+            Conversation.igreja_id == outcome.igreja_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+
+
 def _load_agent_reply_intent(
     session_factory: Any, outcome: IngestionOutcome
 ) -> _AgentReplyIntent | None:
@@ -2495,17 +2510,30 @@ def _reserve_agent_reply_intent(
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
+        conversation = _lock_agent_conversation(session, outcome)
+        if conversation is None:
+            return None
         existing = _agent_reply_after_fence(
             session,
             outcome.igreja_id,
             provider_message_id,
         )
+        if conversation.estado == "humano":
+            fence_agent_replies_for_handoff(
+                session,
+                igreja_id=conversation.igreja_id,
+                conversation_id=conversation.id,
+            )
+            session.commit()
+            existing = _agent_reply_after_fence(
+                session,
+                outcome.igreja_id,
+                provider_message_id,
+            )
+            return _intent_from_message(existing) if existing is not None else None
         if existing is not None:
             return _intent_from_message(existing)
 
-        conversation = session.get(Conversation, outcome.conversation_id)
-        if conversation is None:
-            return None
         message = Message(
             igreja_id=conversation.igreja_id,
             conversation_id=conversation.id,
@@ -2552,11 +2580,27 @@ def _prepare_agent_reply_intent(
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
+        conversation = _lock_agent_conversation(session, outcome)
+        if conversation is None:
+            return None
         existing = _agent_reply_after_fence(
             session,
             outcome.igreja_id,
             provider_message_id,
         )
+        if conversation.estado == "humano":
+            fence_agent_replies_for_handoff(
+                session,
+                igreja_id=conversation.igreja_id,
+                conversation_id=conversation.id,
+            )
+            session.commit()
+            existing = _agent_reply_after_fence(
+                session,
+                outcome.igreja_id,
+                provider_message_id,
+            )
+            return _intent_from_message(existing) if existing is not None else None
         if existing is not None:
             if existing.agent_reply_state in {
                 _AGENT_REPLY_RESERVED,
@@ -2587,9 +2631,6 @@ def _prepare_agent_reply_intent(
                         raise RuntimeError("Agent reply reservation disappeared")
             return _intent_from_message(existing)
 
-        conversation = session.get(Conversation, outcome.conversation_id)
-        if conversation is None:
-            return None
         message = Message(
             igreja_id=conversation.igreja_id,
             conversation_id=conversation.id,
@@ -2646,24 +2687,46 @@ def _transition_agent_reply_intent(
         _scope_agent_session(session, outcome)
         if ownership_guard is not None:
             ownership_guard()
+        conversation = _lock_agent_conversation(session, outcome)
+        if conversation is None:
+            return False
+        snapshot = None
+        if refresh_snapshot:
+            snapshot = session.execute(
+                select(Message.id, Message.texto)
+                .where(
+                    Message.id == intent.id,
+                    Message.igreja_id == outcome.igreja_id,
+                    Message.conversation_id == conversation.id,
+                    Message.autor == "ia",
+                    Message.agent_reply_state == expected,
+                )
+                .with_for_update()
+            ).one_or_none()
+            if snapshot is None:
+                return False
+            session.execute(
+                update(Conversation)
+                .where(
+                    Conversation.id == conversation.id,
+                    Conversation.igreja_id == outcome.igreja_id,
+                )
+                .values(ultima_mensagem=snapshot.texto)
+            )
         transitioned = session.execute(
             update(Message)
             .where(
                 Message.id == intent.id,
+                Message.igreja_id == outcome.igreja_id,
+                Message.conversation_id == conversation.id,
                 Message.autor == "ia",
                 Message.agent_reply_state == expected,
             )
             .values(agent_reply_state=target)
-            .returning(Message.conversation_id, Message.texto)
+            .returning(Message.id)
         ).one_or_none()
         if transitioned is None:
             return False
-        if refresh_snapshot:
-            session.execute(
-                update(Conversation)
-                .where(Conversation.id == transitioned.conversation_id)
-                .values(ultima_mensagem=transitioned.texto)
-            )
         session.commit()
         return True
     except Exception:
@@ -2680,39 +2743,32 @@ def _suppress_agent_reply_after_handoff(
     *,
     expected: str,
 ) -> bool:
-    """Suppress one unsent AI intent when the conversation is now human-owned.
-
-    The predicate and state transition share one SQL statement, so a response
-    that was already prepared cannot cross the transport fence after a later
-    handoff. This never changes a confirmed or ambiguous provider outcome.
-    """
+    """Return whether an intent must stay out of the provider transport."""
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
-        human_handoff = (
-            select(Conversation.id)
-            .where(
-                Conversation.id == Message.conversation_id,
-                Conversation.igreja_id == Message.igreja_id,
-                Conversation.estado == "humano",
+        conversation = _lock_agent_conversation(session, outcome)
+        if conversation is None:
+            return True
+        if conversation.estado == "humano":
+            fence_agent_replies_for_handoff(
+                session,
+                igreja_id=conversation.igreja_id,
+                conversation_id=conversation.id,
             )
-            .exists()
-        )
-        suppressed = session.execute(
-            update(Message)
-            .where(
+            session.commit()
+            return True
+        state = session.execute(
+            select(Message.agent_reply_state).where(
                 Message.id == intent.id,
                 Message.igreja_id == outcome.igreja_id,
-                Message.conversation_id == outcome.conversation_id,
+                Message.conversation_id == conversation.id,
+                Message.direcao == "out",
                 Message.autor == "ia",
-                Message.agent_reply_state == expected,
-                human_handoff,
             )
-            .values(agent_reply_state=_AGENT_REPLY_SUPPRESSED)
-            .returning(Message.id)
         ).scalar_one_or_none()
         session.commit()
-        return suppressed is not None
+        return state != expected
     except Exception:
         session.rollback()
         raise
@@ -2903,6 +2959,9 @@ def _deliver_agent_reply_intent(
 
     def send_with(client: Any) -> str:
         def before_transport() -> bool:
+            # This final probe commits before HTTP. A handoff that commits
+            # afterwards can overlap the physical request and leaves the row
+            # ambiguous rather than eligible for retry.
             return not _suppress_agent_reply_after_handoff(
                 session_factory,
                 outcome,

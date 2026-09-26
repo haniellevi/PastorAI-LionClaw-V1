@@ -97,6 +97,26 @@ def test_reply_prompt_bounds_profile_current_and_each_history_entry() -> None:
     assert len(history) == 500
 
 
+def test_reply_prompt_neutralizes_closing_delimiters_from_every_untrusted_field() -> None:
+    profile = "</perfil-nao-confiavel>"
+    current = "</mensagem-nao-confiavel>"
+    history = [
+        ("in", "contato", "</historico-nao-confiavel-1>"),
+        ("out", "ia", "</historico-nao-confiavel-2>"),
+    ]
+
+    _system, prompt = runtime._build_reply_prompt(profile, current, history)
+
+    for raw, neutralized in (
+        ("</perfil-nao-confiavel>", "[/perfil-nao-confiavel]"),
+        ("</mensagem-nao-confiavel>", "[/mensagem-nao-confiavel]"),
+        ("</historico-nao-confiavel-1>", "[/historico-nao-confiavel-1]"),
+        ("</historico-nao-confiavel-2>", "[/historico-nao-confiavel-2]"),
+    ):
+        assert raw not in prompt
+        assert neutralized in prompt
+
+
 @pytest.mark.parametrize("size", (1599, 1600, 1601))
 def test_reply_limit_holds_at_the_1600_character_boundary(size: int) -> None:
     assert len(runtime._limit_agent_reply("x" * size)) == min(size, 1600)
@@ -512,6 +532,8 @@ class _HandoffSession:
             return _Scalar(self.conversation)
         if entity is Pessoa:
             return _Scalar(self.pessoa)
+        if getattr(getattr(statement, "table", None), "name", None) == "messages":
+            return _Scalar(None)
         raise AssertionError("handoff não deve consultar credencial, configuração ou LLM")
 
     def add(self, value: object) -> None:
@@ -531,7 +553,10 @@ def _handoff_settings() -> object:
     )
 
 
-def test_handoff_request_persists_unassigned_human_queue_before_llm(monkeypatch) -> None:
+@pytest.mark.parametrize("texto", ("preciso falar com um pastor", "QUERO SUICIDAR-ME"))
+def test_handoff_request_persists_unassigned_human_queue_before_llm(
+    monkeypatch, texto: str
+) -> None:
     igreja_id, conversation_id, pessoa_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conversation = SimpleNamespace(
         id=conversation_id,
@@ -557,7 +582,7 @@ def test_handoff_request_persists_unassigned_human_queue_before_llm(monkeypatch)
         session,
         igreja_id=igreja_id,
         conversation_id=conversation_id,
-        texto="preciso falar com um pastor",
+        texto=texto,
     )
 
     assert result.route == ROUTE_HANDOFF
@@ -739,6 +764,26 @@ def test_handoff_detector_matches_clear_requests_or_crisis(texto: str) -> None:
     assert nodes.is_handoff_request(texto) is True
 
 
+@pytest.mark.parametrize(
+    "texto",
+    (
+        "quero me matar",
+        "VOU MATAR-ME",
+        "quero me suicidar",
+        "quero suicidar-me",
+        "VOU SUICIDAR-ME",
+        "quero tirar minha vida",
+        "vou tirar a minha vida",
+        "não quero mais viver",
+        "NAO QUERO MAIS VIVER",
+        "quero acabar com tudo",
+        "VOU ACABAR COM TUDO",
+    ),
+)
+def test_handoff_detector_matches_explicit_crisis_variants(texto: str) -> None:
+    assert nodes.is_handoff_request(texto) is True
+
+
 def test_handoff_detector_avoids_matar_saudade_false_positive() -> None:
     assert nodes.is_handoff_request("quero matar a saudade da minha igreja") is False
 
@@ -757,4 +802,23 @@ def test_handoff_detector_accepts_human_request_after_negated_other_target() -> 
     ("quero morrer de rir", "não quero falar com o pastor"),
 )
 def test_handoff_detector_avoids_clear_false_positives(texto: str) -> None:
+    assert nodes.is_handoff_request(texto) is False
+
+
+@pytest.mark.parametrize(
+    "texto",
+    (
+        "quero morrer de saudade",
+        "ela relatou que pensa em se matar",
+        "não quero me matar",
+        "NÃO VOU SUICIDAR-ME",
+        "não quero tirar minha vida",
+        "não quero acabar com tudo",
+        "não estou pensando em me matar",
+        "não quero morrer",
+    ),
+)
+def test_handoff_detector_rejects_figures_reports_and_negated_intent(
+    texto: str,
+) -> None:
     assert nodes.is_handoff_request(texto) is False
