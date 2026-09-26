@@ -14,7 +14,9 @@ Transport to/from the Evolution API is base64; this module deals in raw bytes.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from collections.abc import Callable, Iterable
 from hashlib import sha256
 
 import httpx
@@ -67,10 +69,17 @@ _EXT_BY_MIME = {
     "audio/aac": "aac",
     "audio/wav": "wav",
 }
+_STORAGE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
+_TENANT_LIST_PAGE_SIZE = 100
+_TENANT_REMOVE_BATCH_SIZE = 100
 
 
 class StorageError(Exception):
     """Raised when a Supabase Storage call fails or is misconfigured."""
+
+
+class StoragePathError(StorageError):
+    """A cleanup target is outside the tenant-owned storage namespace."""
 
 
 class StoredMedia:
@@ -116,6 +125,39 @@ def _ext_for(mime: str | None, nome: str | None) -> str:
         if candidate and candidate.isalnum() and len(candidate) <= 8:
             return candidate
     return "bin"
+
+
+def _tenant_prefix(igreja_id: object) -> str:
+    try:
+        return f"{uuid.UUID(str(igreja_id))}/"
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise StoragePathError("Identificador de igreja inválido") from exc
+
+
+def tenant_owned_paths(igreja_id: object, paths: Iterable[object]) -> list[str]:
+    """Validate object keys before a privileged tenant cleanup.
+
+    The storage service-role key bypasses RLS. Cleanup therefore accepts only
+    canonical paths inside the tenant UUID prefix and rejects malformed paths
+    instead of broadening a delete request.
+    """
+    prefix = _tenant_prefix(igreja_id)
+
+    clean: list[str] = []
+    for path in paths:
+        if not isinstance(path, str) or not path.startswith(prefix):
+            raise StoragePathError("Caminho fora do namespace da igreja")
+        suffix = path.removeprefix(prefix)
+        components = suffix.split("/")
+        if (
+            not suffix
+            or any(part in {"", ".", ".."} for part in components)
+            or any(not _STORAGE_PATH_COMPONENT_RE.fullmatch(part) for part in components)
+        ):
+            raise StoragePathError("Caminho de armazenamento inválido")
+        if path not in clean:
+            clean.append(path)
+    return clean
 
 
 class SupabaseStorage:
@@ -261,6 +303,166 @@ class SupabaseStorage:
         except httpx.HTTPError as exc:
             logger.warning("Supabase Storage remove failed: %s", type(exc).__name__)
 
+    def _remove_tenant_owned(
+        self,
+        bucket: str,
+        igreja_id: object,
+        paths: Iterable[object],
+        *,
+        before_request: Callable[[], None] | None = None,
+    ) -> None:
+        """Delete known tenant-owned objects and make a missing object idempotent."""
+        clean = tenant_owned_paths(igreja_id, paths)
+        if not clean:
+            return
+        url, key = self._require()
+        endpoint = f"{url}/storage/v1/object/{bucket}"
+        try:
+            if before_request is not None:
+                before_request()
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.request(
+                    "DELETE",
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"prefixes": clean},
+                )
+                if resp.status_code != 404:
+                    resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Storage tenant cleanup failed: %s", type(exc).__name__)
+            raise StorageError("Falha ao remover objetos da igreja") from exc
+
+    def remove_tenant_media(self, igreja_id: object, paths: Iterable[object]) -> None:
+        """Strict cleanup of WhatsApp media owned by one tenant."""
+        self._remove_tenant_owned(MEDIA_BUCKET, igreja_id, paths)
+
+    def _list_tenant_namespace(
+        self,
+        bucket: str,
+        igreja_id: object,
+        *,
+        before_request: Callable[[], None] | None = None,
+    ) -> list[str]:
+        """Return every object below one exact tenant UUID prefix."""
+        root_prefix = _tenant_prefix(igreja_id)
+        url, key = self._require()
+        endpoint = f"{url}/storage/v1/object/list/{bucket}"
+        pending_prefixes = [root_prefix]
+        visited_prefixes: set[str] = set()
+        paths: list[str] = []
+
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                while pending_prefixes:
+                    prefix = pending_prefixes.pop()
+                    if prefix in visited_prefixes:
+                        continue
+                    visited_prefixes.add(prefix)
+                    offset = 0
+                    while True:
+                        if before_request is not None:
+                            before_request()
+                        response = client.post(
+                            endpoint,
+                            headers={
+                                "Authorization": f"Bearer {key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "prefix": prefix,
+                                "limit": _TENANT_LIST_PAGE_SIZE,
+                                "offset": offset,
+                                "sortBy": {"column": "name", "order": "asc"},
+                            },
+                        )
+                        response.raise_for_status()
+                        entries = response.json()
+                        if not isinstance(entries, list):
+                            raise StorageError("Listagem de armazenamento inválida")
+                        for entry in entries:
+                            if not isinstance(entry, dict):
+                                raise StorageError("Listagem de armazenamento inválida")
+                            name = entry.get("name")
+                            if not isinstance(name, str) or not name or "id" not in entry:
+                                raise StorageError("Listagem de armazenamento inválida")
+                            entry_id = entry["id"]
+                            if entry_id is None:
+                                if entry.get("metadata") is not None:
+                                    raise StorageError("Listagem de armazenamento inválida")
+                                is_directory = True
+                            elif isinstance(entry_id, str) and entry_id:
+                                is_directory = False
+                            else:
+                                raise StorageError("Listagem de armazenamento inválida")
+                            if name.startswith(prefix):
+                                relative_name = name.removeprefix(prefix)
+                            else:
+                                first_component, separator, _ = name.partition("/")
+                                if separator:
+                                    try:
+                                        uuid.UUID(first_component)
+                                    except ValueError:
+                                        pass
+                                    else:
+                                        raise StoragePathError(
+                                            "Listagem fora do namespace da igreja"
+                                        )
+                                relative_name = name
+                            if is_directory and relative_name.endswith("/"):
+                                relative_name = relative_name[:-1]
+                            if not relative_name or relative_name.endswith("/"):
+                                raise StorageError("Listagem de armazenamento inválida")
+                            candidate = f"{prefix}{relative_name}"
+                            clean_path = tenant_owned_paths(igreja_id, [candidate])[0]
+                            if is_directory:
+                                pending_prefixes.append(f"{clean_path}/")
+                            elif clean_path not in paths:
+                                paths.append(clean_path)
+                        if len(entries) < _TENANT_LIST_PAGE_SIZE:
+                            break
+                        offset += len(entries)
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Storage tenant list failed: %s", type(exc).__name__)
+            raise StorageError("Falha ao listar objetos da igreja") from exc
+        return paths
+
+    def _remove_tenant_namespace(
+        self,
+        bucket: str,
+        igreja_id: object,
+        *,
+        before_request: Callable[[], None] | None = None,
+    ) -> None:
+        paths = self._list_tenant_namespace(
+            bucket,
+            igreja_id,
+            before_request=before_request,
+        )
+        for index in range(0, len(paths), _TENANT_REMOVE_BATCH_SIZE):
+            self._remove_tenant_owned(
+                bucket,
+                igreja_id,
+                paths[index : index + _TENANT_REMOVE_BATCH_SIZE],
+                before_request=before_request,
+            )
+
+    def remove_tenant_media_namespace(
+        self,
+        igreja_id: object,
+        *,
+        before_request: Callable[[], None] | None = None,
+    ) -> None:
+        """Strictly delete every media object below one tenant UUID prefix."""
+        self._remove_tenant_namespace(
+            MEDIA_BUCKET,
+            igreja_id,
+            before_request=before_request,
+        )
+
 
     # ---- Logo da igreja (Missão 4) — bucket público church-logos ------------
     def upload_logo(self, path: str, data: bytes, content_type: str) -> None:
@@ -322,6 +524,23 @@ class SupabaseStorage:
                 resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Supabase Storage logo remove failed: %s", type(exc).__name__)
+
+    def remove_tenant_logos(self, igreja_id: object, paths: Iterable[object]) -> None:
+        """Strict cleanup of public logo objects owned by one tenant."""
+        self._remove_tenant_owned(LOGO_BUCKET, igreja_id, paths)
+
+    def remove_tenant_logos_namespace(
+        self,
+        igreja_id: object,
+        *,
+        before_request: Callable[[], None] | None = None,
+    ) -> None:
+        """Strictly delete every logo object below one tenant UUID prefix."""
+        self._remove_tenant_namespace(
+            LOGO_BUCKET,
+            igreja_id,
+            before_request=before_request,
+        )
 
 
 def logo_public_url(path: str | None) -> str | None:

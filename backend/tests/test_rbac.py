@@ -100,6 +100,22 @@ def test_authenticated_without_app_user_returns_clear_error(protected_app) -> No
     assert "não está vinculada" in resp.json()["detail"]
 
 
+def test_platform_account_detached_from_deleted_tenant_is_denied_before_tenant_scope(
+    protected_app,
+) -> None:
+    app_user = make_app_user()
+    app_user.igreja_id = None
+    app_user.igreja = None
+    client = _wire(
+        protected_app,
+        session=FakeSession(app_user=app_user, roles=["admin"]),
+        clerk=FakeClerk(),
+    )
+    resp = client.get("/me", headers={"Authorization": "Bearer good"})
+    assert resp.status_code == 403
+    assert "não está vinculada" in resp.json()["detail"]
+
+
 def test_require_role_blocks_user_without_role(protected_app) -> None:
     client = _wire(
         protected_app,

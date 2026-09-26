@@ -266,6 +266,15 @@ def login(
         logger.info("Login attempt by revoked app_user (masked)")
         raise _unauthorized() from None
 
+    # A preserved platform administrator is intentionally detached from its
+    # deleted tenant.  It can use the dedicated /admin/login route, never the
+    # tenant session route, which has no safe church context to return.
+    if app_user.igreja_id is None or app_user.igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sua conta não está vinculada a nenhuma igreja",
+        )
+
     igreja_status = app_user.igreja.status if app_user.igreja else None
     delinquent_owner = bool(
         igreja_status == "inadimplente"

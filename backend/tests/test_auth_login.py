@@ -95,6 +95,26 @@ def test_login_clerk_ok_but_no_app_user_is_generic(app) -> None:
     assert resp.json()["detail"] == "E-mail ou senha inválidos"
 
 
+def test_tenant_login_rejects_platform_admin_detached_from_church(app) -> None:
+    user = make_app_user(email="master@example.test")
+    user.igreja_id = None
+    user.igreja = None
+    client = _client(
+        app,
+        session=FakeSession(app_user=user),
+        clerk=FakeClerk(login_result=("token_xyz", "clerk_user_1")),
+    )
+
+    resp = client.post(
+        "/auth/login",
+        json={"email": "master@example.test", "password": "secret"},
+    )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Sua conta não está vinculada a nenhuma igreja"
+    assert "token" not in resp.json()
+
+
 def test_login_blocked_for_suspended_church(app) -> None:
     user = make_app_user(igreja_status="suspensa")
     client = _client(
