@@ -65,9 +65,10 @@ não prova banco compartilhado, provedor ou execução real.
 Entrou o módulo `backend/app/services/semantic_triage.py`. Ele faz perguntas
 tipadas ao Jev sobre uma mensagem inbound: risco pastoral, pedido de opt-out,
 aceite de termo pendente e intenção. O estado é `MODULO_ENTREGUE_NAO_INTEGRADO`,
-porque nenhum turno do agente chama o módulo. `runtime.py` continua congelado
-pelo gate D3, e ligar o módulo exige revisão desse gate e tirar a chamada de
-rede (cerca de 0,9 s) de dentro da transação do turno.
+porque nenhum turno do agente chama o módulo. Atualização de 26/09: a Fase 0
+removeu o gate D3. A ligação J1 segue o plano MVP: exige avaliação J0 com GO,
+DPA, termo LGPD atualizado e chamada após o envio, em transação própria,
+fora da transação do turno. A remoção do gate antigo não ativa o módulo.
 
 O Admin Master ganhou o botão **Jev**, que só lê o estado da configuração de
 deploy e tem um teste de conexão com mensagem sintética fixa. O teste é
