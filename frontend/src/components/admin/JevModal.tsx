@@ -24,7 +24,10 @@ import {
 
 export interface JevModalProps {
   token: string;
-  /** Igrejas da plataforma, para escolher as que ficam em modo sombra. */
+  /**
+   * Igrejas da plataforma, para escolher as que ficam em modo sombra.
+   * `undefined` enquanto a lista não carregou (ou falhou).
+   */
   igrejas?: { id: string; nome: string }[];
   onClose: () => void;
   onExpired: () => void;
@@ -135,9 +138,13 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
       setError("Timeout inválido.");
       return;
     }
-    // Igreja excluída da plataforma sai da lista ao salvar.
-    const conhecidas = igrejas ? new Set(igrejas.map((i) => i.id)) : null;
-    const ids = conhecidas ? selecionadas.filter((id) => conhecidas.has(id)) : selecionadas;
+    // Igreja excluída da plataforma volta do status sem nome e sai da lista
+    // ao salvar. A lista do console não filtra: sem ela carregada, filtrar por
+    // ela apagaria as igrejas salvas.
+    const excluidas = new Set(
+      (status?.igrejas ?? []).filter((i) => i.nome === null).map((i) => i.id),
+    );
+    const ids = selecionadas.filter((id) => !excluidas.has(id));
     setSaving(true);
     setError(null);
     setSalvo(false);
@@ -354,8 +361,12 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
               <legend style={{ fontSize: 12.5, fontWeight: 560, marginBottom: 6 }}>
                 Igrejas em modo sombra
               </legend>
-              {!igrejas || igrejas.length === 0 ? (
-                <div className="helper">Nenhuma igreja carregada.</div>
+              {!igrejas ? (
+                <div className="helper">
+                  Lista de igrejas indisponível: as já salvas continuam ao salvar.
+                </div>
+              ) : igrejas.length === 0 ? (
+                <div className="helper">Nenhuma igreja cadastrada.</div>
               ) : (
                 igrejas.map((i) => (
                   <label

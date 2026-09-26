@@ -4,7 +4,8 @@
  *  - carrega o status e mostra chave configurada, modelo e igrejas;
  *  - sem chave: "Testar conexão" fica desabilitado;
  *  - testar mostra o resultado sintético; erro vira banner role="alert";
- *  - o formulário salva a configuração e nunca mostra a chave de volta.
+ *  - o formulário salva a configuração e nunca mostra a chave de volta;
+ *  - sem a lista de igrejas do console, salvar mantém as igrejas salvas.
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
@@ -12,7 +13,7 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JevModal } from "./JevModal";
+import { JevModal, type JevModalProps } from "./JevModal";
 
 const { fetchJevStatus, saveJevConfig, testJev } = vi.hoisted(() => ({
   fetchJevStatus: vi.fn(),
@@ -64,10 +65,16 @@ const IGREJAS = [
   { id: "i3", nome: "Igreja Fortaleza" },
 ];
 
-function render() {
+function render(props: Partial<JevModalProps> = {}) {
   act(() => {
     root.render(
-      h(JevModal, { token: "tok", igrejas: IGREJAS, onClose: () => {}, onExpired: () => {} }),
+      h(JevModal, {
+        token: "tok",
+        igrejas: IGREJAS,
+        onClose: () => {},
+        onExpired: () => {},
+        ...props,
+      }),
     );
   });
 }
@@ -256,6 +263,24 @@ describe("JevModal", () => {
     expect(document.body.textContent).toContain("Configuração salva.");
     expect(document.body.textContent).toContain("Configurada no console");
     expect(document.body.innerHTML).not.toContain("tsk-segredo-digitado");
+  });
+
+  it("sem a lista do console carregada, salvar mantém as igrejas salvas", async () => {
+    fetchJevStatus.mockResolvedValue({ ...STATUS, dpaAssinadoEm: "2026-09-20" });
+    saveJevConfig.mockResolvedValue({ ...STATUS, dpaAssinadoEm: "2026-09-20" });
+    render({ igrejas: undefined });
+    await flush();
+
+    expect(document.body.textContent).toContain("Lista de igrejas indisponível");
+    setValue(input("jev-timeout"), "1.5");
+    submitConfig();
+    await flush();
+
+    expect(saveJevConfig).toHaveBeenCalledWith(
+      "tok",
+      // i1 continua; i2 volta do status sem nome (não existe mais) e sai.
+      expect.objectContaining({ timeoutSegundos: 1.5, igrejaIds: ["i1"] }),
+    );
   });
 
   it("recusa do backend vira alerta e mantém o formulário", async () => {

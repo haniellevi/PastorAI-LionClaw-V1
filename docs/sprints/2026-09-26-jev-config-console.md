@@ -53,6 +53,13 @@ Ambiente: nuvem, dados sintéticos. Nenhum acesso a DEV, PROD, VPS ou TypeSafe.
 - **Sem mudança:** sem `FORCE ROW LEVEL SECURITY`, como `platform_orchestrator`.
   O dono é o papel de serviço, que ignora a RLS de qualquer forma.
 
+## Revisão do Codex (26/09)
+
+- P2 corrigido: se o modal abrisse antes de a lista de igrejas do console
+  carregar, salvar apagaria as igrejas em modo sombra. Agora a lista do console
+  só serve para escolher; ao salvar, sai apenas a igreja que o backend devolve
+  sem nome, ou seja, que não existe mais.
+
 ## Pendente
 
 - Próximo portão, com a Sarah: sessão de reconciliação só leitura (backup,
@@ -68,7 +75,8 @@ Ambiente: nuvem, dados sintéticos. Nenhum acesso a DEV, PROD, VPS ou TypeSafe.
 - `./test-local.sh` terminou com exit 0.
   - Backend, depois das correções da Sarah: 5.038 testes, 5.014 aprovados e
     24 pulados (seleção sem RLS).
-  - Frontend: 870 testes aprovados, mais typecheck.
+  - Frontend, depois da correção do Codex: 871 testes aprovados, mais
+    typecheck.
   - `npm run lint` e `npm run build` passaram.
 - 22 casos novos em `test_platform_jev.py`:
   - acesso restrito ao master;
@@ -88,4 +96,4 @@ Ambiente: nuvem, dados sintéticos. Nenhum acesso a DEV, PROD, VPS ou TypeSafe.
   - uma tabela pré-existente com outro formato aborta a migration.
 
   Passaram em PostgreSQL 16 local; no CI rodam em PostgreSQL 17.
-- 3 casos novos em `admin-api.test.ts` e 5 em `JevModal.test.ts`.
+- 3 casos novos em `admin-api.test.ts` e 6 em `JevModal.test.ts`.
