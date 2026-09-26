@@ -225,6 +225,12 @@ em menos de 10 s e aparecem no inbox do painel.
 
 #### Passo a passo para ligar na Filadélfia (proprietário)
 
+**Decisão de 26/09: piloto apenas com testadores internos da equipe pastoral.**
+Não divulgar o número ao público. O baseline corrigido identificou 5 de 43
+casos de crise no corpus sintético; a regex não sustenta abertura pública.
+A restrição permanece até a nova detecção de risco/handoff passar pela
+avaliação e revisão definidas abaixo. Deploy ou merge não removem essa restrição.
+
 Ordem revisada em 26/09: o banco vem antes do código, porque o `main` mapeia
 colunas e tabelas que o backend antigo não usava.
 
@@ -294,10 +300,31 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       há sinal de crise (regex primeiro; Jev depois do DPA), tamanho máximo de
       resposta e proibição de inventar dados.
 - [x] Handoff: a conversa vai para `humano` e o líder vê o alerta no inbox.
-- [ ] Ferramentas só de leitura: "qual célula perto de mim", "horário do
-      culto".
+- [x] Consultas públicas somente leitura: horário do culto, endereço da igreja
+      e indicação de célula por bairro explicitamente publicado no perfil do
+      agente. Respostas determinísticas, sem LLM nem alterações cadastrais.
+      Contrato e limites: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
+- [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
+      nem política pública para endereços residenciais; indicação por bairro
+      não representa a célula mais próxima.
 - [x] Aceite do termo mais robusto: "sim, mas não quero…" não conta como
       aceite (bug B4).
+
+#### Próxima direção: agente com decisões tipadas e privilégios
+
+Decisão mais recente de Raniel em 26/09 substitui a proposta de LLM com
+moderação. Após fechar a fatia 2, preparar plano curto para aprovação dos
+conselheiros antes de implementar: Jev como classificador principal de
+intenção/risco/handoff, raciocínio LLM, identidade e privilégios do remetente
+validados no backend, ferramentas de leitura por papel e RLS. Regex fica
+como rede mínima de segurança; não ampliar listas de frases como estratégia.
+
+O plano deve definir perguntas Noul/Choice e dependências em código, erro ou
+timeout Jev levando a handoff, latência menor que 10s, flag por igreja
+`JEV_ENABLED_IGREJA_IDS`, dados enviados à TypeSafe, DPA e decisão de Raniel.
+Congelar dev/holdout antes de ajustar prompt; meta de crise no holdout:
+recall >=90%, falso alarme (FP / negativos) <10%. Sem chamada real a provedor,
+DEV ou PROD nesta missão. O piloto permanece interno até detecção avaliada.
 
 #### Trilha Jev (decisões tipadas da TypeSafe), 26/09
 

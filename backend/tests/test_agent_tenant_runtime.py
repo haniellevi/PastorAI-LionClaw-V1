@@ -1149,3 +1149,100 @@ def test_runtime_rejeita_pessoa_com_id_diferente_da_conversa(
         )
 
     assert len(session.statements) == 2
+
+
+@pytest.mark.parametrize("config_binding", ("foreign", "missing"))
+def test_runtime_fails_closed_when_config_adapter_has_no_matching_tenant(
+    monkeypatch,
+    config_binding: str,
+) -> None:
+    tenant_a, tenant_b, conversation_id, pessoa_id = (
+        uuid.uuid4(),
+        uuid.uuid4(),
+        uuid.uuid4(),
+        uuid.uuid4(),
+    )
+
+    class _ConfigMismatchSession(_RuntimeSession):
+        def __init__(self) -> None:
+            super().__init__(
+                [
+                    SimpleNamespace(
+                        id=conversation_id,
+                        igreja_id=tenant_a,
+                        pessoa_id=pessoa_id,
+                        estado="ia",
+                    ),
+                    SimpleNamespace(
+                        id=pessoa_id,
+                        igreja_id=tenant_a,
+                        optout=False,
+                        sem_interesse=False,
+                    ),
+                    SimpleNamespace(id=tenant_a, nome="Igreja A sintética"),
+                    SimpleNamespace(
+                        **(
+                            {"igreja_id": tenant_b}
+                            if config_binding == "foreign"
+                            else {}
+                        ),
+                        ativo=True,
+                        comportamento=(
+                            "[informacoes_publicas]\n"
+                            "celula = Centro | Celula do lider Joao "
+                            "(11 98765-4321) | Rua das Flores 100\n"
+                            "[/informacoes_publicas]"
+                        ),
+                    ),
+                ]
+            )
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    session = _ConfigMismatchSession()
+    provider_calls: list[str] = []
+    audit_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(runtime, "require_tenant_scope", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(runtime, "_active_credential", lambda *_args: object())
+    monkeypatch.setattr(
+        runtime,
+        "log_agent_event",
+        lambda _session, **kwargs: audit_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "resolve_public_info_reply",
+        lambda *_args: pytest.fail("configuração de outro tenant não pode ser lida"),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "run_turn",
+        lambda *_args, **_kwargs: pytest.fail("configuração de outro tenant não chama grafo"),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_reply_with_llm",
+        lambda *_args, **_kwargs: provider_calls.append("provider"),
+    )
+
+    result = runtime.process_inbound_message(
+        session,
+        igreja_id=tenant_a,
+        conversation_id=conversation_id,
+        texto="Qual é o horário do culto?",
+    )
+
+    assert result == runtime.AgentTurnResult(handled=False, reason="config_ausente")
+    assert session.commits == 1
+    assert provider_calls == []
+    for blocked in ("Celula do lider Joao", "11 98765-4321", "Rua das Flores 100"):
+        assert blocked not in str(result)
+        assert all(blocked not in repr(call) for call in audit_calls)
+    assert "agent_configs.igreja_id" in str(session.statements[3])

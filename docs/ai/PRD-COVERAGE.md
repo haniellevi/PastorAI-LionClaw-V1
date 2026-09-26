@@ -178,6 +178,10 @@ significa ativa em produção.
   e igreja; sem checkpointer nem consulta nova a conhecimento institucional;
 - handoff por regex de pedido/crise pausa a IA e deixa atendimento pendente no
   inbox; opt-out prevalece e o aceite B4 recusa frases com ressalva;
+- na fatia 2, consultas públicas determinísticas leem horário, endereço da
+  igreja e indicação por bairro somente de um bloco explícito no perfil;
+  exigem mensagem persistida e tenant confirmado, sem intake, writers ou LLM;
+  proximidade geográfica e consulta a células privadas continuam ausentes;
 - limite de 1600 caracteres e instruções para não inventar fatos estão no
   caminho da resposta; testes sintéticos não provam qualidade factual geral,
   deploy ou as 20 conversas reais exigidas para encerrar a fase 2;

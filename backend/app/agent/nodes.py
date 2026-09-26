@@ -46,7 +46,7 @@ _HUMAN_TARGET = r"(?:pessoa|alguem|(?:ser\s+)?humano|pastor(?:a)?|lider|atendent
 _HUMAN_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:quero|preciso|gostaria|poderia|posso)\s+"
-        r"(?:falar|conversar)\s+com\s+(?:(?:o|a|um|uma)\s+)?"
+        r"(?:de\s+)?(?:falar|conversar)\s+com\s+(?:(?:o|a|um|uma)\s+)?"
         rf"{_HUMAN_TARGET}\b",
     ),
     re.compile(
@@ -54,10 +54,18 @@ _HUMAN_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
         rf"{_HUMAN_TARGET}\b",
     ),
     re.compile(r"\btem\s+alguem\s+ai\b"),
+    re.compile(
+        rf"\b(?:chama|chame|chamem)\s+(?:(?:o|a|um|uma)\s+)?"
+        rf"{_HUMAN_TARGET}\b\s*[?.!]*\s*$"
+    ),
+    re.compile(
+        rf"\bquero\s+(?:(?:o|a|um|uma)\s+){_HUMAN_TARGET}\b\s*[?.!]*\s*$"
+    ),
     re.compile(r"\b(?:quero|preciso\s+de)\s+(?:atendimento\s+humano|ajuda\s+humana)\b"),
     re.compile(
-        r"\b(?:pode\s+)?me\s+(?:passar|transfere|transfira)\s+para\s+"
-        rf"(?:(?:o|a|um|uma)\s+)?{_HUMAN_TARGET}\b"
+        r"\b(?:(?:pode\s+)?me\s+(?:passar|passa|passe|transfere|transfira)|"
+        r"(?:pode\s+)?(?:passe|transfere|transfira))\s+para\s+"
+        rf"(?:(?:o|a|um|uma)\s+)?{_HUMAN_TARGET}\b\s*[?.!]*\s*$"
     ),
 )
 _CRISIS_INTENT = (
@@ -80,6 +88,7 @@ _CRISIS_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"(?:mais\s+)?(?:viver|(?:a\s+)?vida)\b"
     ),
     re.compile(r"\bcansei\s+de\s+viver\b"),
+    re.compile(r"\bme\s+sinto\s+sem\s+vontade\s+de\s+viver\b"),
 )
 _BARE_CRISIS_HANDOFF_PATTERN = re.compile(
     r"\b(?:suicid\w*|automutil\w*|me\s+(?:matar|suicidar|machucar|cortar)|"

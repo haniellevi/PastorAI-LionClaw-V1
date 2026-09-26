@@ -291,7 +291,7 @@ def test_worker_nao_envia_auto_resposta_para_sem_interesse(monkeypatch) -> None:
         tipo="contato",
     )
     cred = SimpleNamespace(validado=True, ativo=True, provedor="openai", api_key_encrypted="x")
-    config = SimpleNamespace(ativo=True, comportamento=None)
+    config = SimpleNamespace(igreja_id=gid, ativo=True, comportamento=None)
     session = _WorkerAgentSession(conv, pessoa, cred, config)
 
     # Neutraliza o seam de RLS (a sessão fake não é um Session real de verdade).
@@ -342,7 +342,7 @@ def test_worker_nao_persiste_resposta_suprimida_pelo_guard(monkeypatch) -> None:
         tipo="contato",
     )
     cred = SimpleNamespace(validado=True, ativo=True, provedor="openai", api_key_encrypted="x")
-    config = SimpleNamespace(ativo=True, comportamento=None)
+    config = SimpleNamespace(igreja_id=gid, ativo=True, comportamento=None)
     session = _WorkerAgentSession(conv, pessoa, cred, config)
     factory_calls = 0
 
@@ -440,7 +440,11 @@ def test_agent_config_inativo_pausa_mesmo_com_credencial_valida() -> None:
         tipo="contato",
     )
     cred = SimpleNamespace(validado=True, ativo=True)  # credencial válida
-    config = SimpleNamespace(ativo=False, comportamento="Seja gentil")  # master desligou
+    config = SimpleNamespace(
+        igreja_id=gid,
+        ativo=False,
+        comportamento="Seja gentil",
+    )  # master desligou
     session = _ConfigInactiveSession(conv, pessoa, cred, config)
 
     result = process_inbound_message(

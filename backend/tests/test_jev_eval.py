@@ -40,6 +40,7 @@ def _row(
     texto: str,
     *,
     risco: bool = False,
+    handoff: bool = False,
     optout: bool = False,
     aceite: bool | None = None,
     csim: bool = False,
@@ -54,6 +55,7 @@ def _row(
         "contexto": {"termo_pendente": aceite is not None, "ministerial": ministerial},
         "rotulo": {
             "risco": risco,
+            "handoff": handoff,
             "optout": optout,
             "aceite": aceite,
             "intencao": intencao,
@@ -142,6 +144,7 @@ def test_corpus_do_repo_e_valido_sintetico_e_cobre_as_classes() -> None:
         s: sum(1 for r in rows if r.rotulo[s] is True) for s in jev_eval.SIGNALS
     }
     assert positivos["risco"] >= 40
+    assert positivos["handoff"] >= 40
     assert positivos["optout"] >= 40
     assert positivos["aceite"] >= 15
     assert positivos["csim"] >= 10
@@ -203,6 +206,7 @@ def test_confusao_das_regras_por_sinal(tmp_path: Path, monkeypatch) -> None:
         "rules_predict",
         lambda row: {
             "risco": False,
+            "handoff": False,
             "optout": decide[row.texto],
             "aceite": None,
             "csim": False,
@@ -263,7 +267,7 @@ def _mini_corpus(tmp_path: Path) -> Path:
     return _write(
         tmp_path,
         [
-            _row("crise", "Não aguento mais, quero sumir pra sempre", risco=True),
+            _row("crise", "Não aguento mais, quero sumir pra sempre", risco=True, handoff=True),
             _row("luto", "Minha avó faleceu, orem por nós", intencao="pedido_oracao"),
             _row("sai", "Me tira da lista", optout=True),
             _row("ressalva", "sim, mas não autorizo", aceite=False),
@@ -286,6 +290,24 @@ def _mini_jev() -> _FakeJev:
     )
 
 
+def test_handoff_e_proxy_local_sem_score_do_provedor(tmp_path: Path) -> None:
+    rows = jev_eval.load_corpus(
+        _write(
+            tmp_path,
+            [
+                _row("humano", "GOSTARIA DE FALAR COM ALGUÉM", handoff=True),
+                _row("negado", "não quero um humano"),
+            ],
+        )
+    )
+    assert jev_eval.SIGNALS == ("risco", "handoff", "optout", "aceite", "csim", "relatorio")
+    assert jev_eval.rules_predict(rows[0])["risco"] is True
+    assert jev_eval.rules_predict(rows[0])["handoff"] is True
+    assert jev_eval.rules_predict(rows[1])["handoff"] is False
+    metrics = jev_eval.score_rules(rows)
+    assert (metrics["handoff"].tp, metrics["handoff"].tn) == (1, 1)
+
+
 def test_metricas_exatas_com_api_simulada(tmp_path: Path, monkeypatch) -> None:
     fake = _mini_jev()
     out = tmp_path / "relatorio.json"
@@ -300,6 +322,11 @@ def test_metricas_exatas_com_api_simulada(tmp_path: Path, monkeypatch) -> None:
     assert len(fake.calls) == 5
     report = json.loads(out.read_text(encoding="utf-8"))
     pt = report["jev"]["pt"]
+    assert "handoff" in report["regras"]
+    assert report["sinais_nao_mensurados_jev"] == ["handoff"]
+    assert "handoff" not in pt["sozinho"]
+    assert "handoff" not in pt["politica"]
+    assert "Handoff no Jev: N/A" in jev_eval.render_markdown(report)
     assert pt["respondidas"] == 5 and pt["erros"] == {}
     assert pt["modelos"] == ["jev-1.13.0"]
     assert pt["tokens_in"] == 620

@@ -2,7 +2,7 @@
 """Avaliação offline (J0) da triagem Jev contra as regras atuais do agente.
 
 Mede, num corpus sintético pt-BR rotulado, o que as regras de hoje decidem
-(opt-out, aceite do termo, CSIM, relatório) e, com ``--jev``, o que o Jev
+(handoff, opt-out, aceite do termo, CSIM, relatório) e, com ``--jev``, o que o Jev
 (TypeSafe) decidiria com as mesmas perguntas de ``app.services.semantic_triage``.
 Não toca banco, runtime nem WhatsApp.
 
@@ -44,6 +44,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 import httpx
 
+from app.agent.nodes import is_handoff_request
 from app.domain import consent as consent_rules
 from app.domain.classification import classify_contact
 from app.domain.report import looks_like_report
@@ -61,7 +62,8 @@ DEFAULT_CORPUS = Path(__file__).resolve().parent / "data" / "jev_corpus_v1.jsonl
 JEV_USD_PER_MILLION_INPUT = 0.042
 THRESHOLDS: tuple[float, ...] = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
 
-SIGNALS: tuple[str, ...] = ("risco", "optout", "aceite", "csim", "relatorio")
+SIGNALS: tuple[str, ...] = ("risco", "handoff", "optout", "aceite", "csim", "relatorio")
+JEV_SIGNALS: tuple[str, ...] = tuple(signal for signal in SIGNALS if signal != "handoff")
 # Como a política de produção combinaria cada sinal com a regra existente:
 # risco e opt-out somam (regra OU Jev); aceite, CSIM e relatório só passam se
 # a regra E o Jev concordarem (o Jev veta, nunca concede sozinho).
@@ -263,7 +265,7 @@ def _validate_row(row: Row) -> None:
     missing = (set(SIGNALS) | {"intencao"}) - set(row.rotulo)
     if missing:
         raise CorpusError(f"{row.id}: rótulos ausentes {sorted(missing)}")
-    for signal in ("risco", "optout", "csim", "relatorio"):
+    for signal in ("risco", "handoff", "optout", "csim", "relatorio"):
         if not isinstance(row.rotulo[signal], bool):
             raise CorpusError(f"{row.id}: {signal} precisa ser booleano")
     aceite = row.rotulo["aceite"]
@@ -284,9 +286,11 @@ def non_synthetic_ids(rows: list[Row]) -> list[str]:
 # ---------------------------------------------------------------------------
 def rules_predict(row: Row) -> dict[str, bool | None]:
     """O que as regras de produção decidem hoje para a frase."""
+    handoff = is_handoff_request(row.texto)
     return {
-        # Não existe detecção de crise nas regras (bug B6).
-        "risco": False,
+        # Proxy de risco, inclui pedido humano e não é classificação clínica.
+        "risco": handoff,
+        "handoff": handoff,
         "optout": consent_rules.is_optout_request(row.texto),
         "aceite": consent_rules.is_acceptance(row.texto) if row.termo_pendente else None,
         "csim": classify_contact(row.texto).sem_interesse is True,
@@ -433,14 +437,14 @@ def score_jev(
 ) -> dict[str, dict[str, Confusion]]:
     """Confusão por sinal e limiar; ``policy`` combina com a regra existente."""
     result = {
-        signal: {f"{t:.2f}": Confusion() for t in THRESHOLDS} for signal in SIGNALS
+        signal: {f"{t:.2f}": Confusion() for t in THRESHOLDS} for signal in JEV_SIGNALS
     }
     for row in rows:
         answer = answers.get(row.id)
         if answer is None:
             continue
         rules = rules_predict(row)
-        for signal in SIGNALS:
+        for signal in JEV_SIGNALS:
             expected = row.rotulo[signal]
             score = answer.scores[signal]
             if expected is None or score is None:
@@ -583,6 +587,7 @@ def build_report(
         "por_dificuldade": dict(Counter(row.dificuldade for row in rows)),
         "modo": "regras+jev" if jev_run else "regras",
         "regras": {signal: c.as_dict() for signal, c in rules.items()},
+        "sinais_nao_mensurados_jev": ["handoff"],
         "jev": {},
         "go": None,
         "veredito": None,
@@ -677,6 +682,12 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"- {signal}: FP {', '.join(c['fp_ids']) or '-'}; "
                 f"FN {', '.join(c['fn_ids']) or '-'}"
             )
+    out += [
+        "- Risco nas regras usa `is_handoff_request` como proxy de encaminhamento; "
+        "inclui pedidos humanos e não é classificação clínica.",
+        "- Handoff no Jev: N/A (sem probabilidade dedicada; fora das métricas "
+        "e dos critérios de GO do provedor).",
+    ]
     for arm, data in report["jev"].items():
         lat = data["latencia"]
         out += [
