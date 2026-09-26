@@ -50,12 +50,24 @@ from sqlalchemy.orm import sessionmaker
 
 import app.db.session  # noqa: F401 - registra o listener after_begin (paridade prod)
 from app.agent import runtime as runtime_module
-from app.db.models import Base, Conversation, Igreja, Message, WhatsappConnection
+from app.db.models import (
+    Base,
+    AgentConfig,
+    ConsentRecord,
+    Conversation,
+    Igreja,
+    Message,
+    LlmCredential,
+    Pessoa,
+    WhatsappConnection,
+)
 from app.deps import CurrentUser
+from app.domain import consent as consent_rules
 from app.domain.conversations import ParsedMessage
 from app.domain.phone import normalize_phone
 from app.routers._common import PaginationParams
 from app.routers.conversations import list_messages
+from app.services import semantic_triage
 from app.workers.queue_worker import (
     IngestionResult,
     QueueWorker,
@@ -155,9 +167,26 @@ def _seed_igreja_with_connection(
 def _seed_agent_conversation(factory: sessionmaker, *, igreja_id: uuid.UUID) -> uuid.UUID:
     session = factory()
     try:
+        telefone = "5511988887777"
+        pessoa = session.execute(
+            select(Pessoa).where(
+                Pessoa.igreja_id == igreja_id,
+                Pessoa.telefone == telefone,
+                Pessoa.arquivada_em.is_(None),
+            )
+        ).scalar_one_or_none()
+        if pessoa is None:
+            pessoa = Pessoa(
+                igreja_id=igreja_id,
+                nome="Contato sintético",
+                telefone=telefone,
+            )
+            session.add(pessoa)
+            session.flush()
         conversation = Conversation(
             igreja_id=igreja_id,
-            telefone="5511988887777",
+            pessoa_id=pessoa.id,
+            telefone=telefone,
             estado="ia",
             numero_oficial=True,
             nao_lidas=0,
@@ -174,17 +203,22 @@ def _agent_outcome(
     *,
     provider_message_id: str = "AGENT-DELIVERY-ONCE",
     claim_id: str = "stable-claim-1",
+    inbound_message_id: uuid.UUID | None = None,
+    igreja_id: uuid.UUID = _IGREJA_A,
+    instance: str = "igreja-1",
+    telefone: str = "5511988887777",
 ) -> worker_module.IngestionOutcome:
     return worker_module.IngestionOutcome(
         result=IngestionResult.REGISTERED,
         conversation_id=conversation_id,
-        instance="igreja-1",
-        telefone="5511988887777",
+        instance=instance,
+        telefone=telefone,
         texto="Oi",
         inbound=True,
-        igreja_id=_IGREJA_A,
+        igreja_id=igreja_id,
         provider_message_id=provider_message_id,
         claim_id=claim_id,
+        inbound_message_id=inbound_message_id,
     )
 
 
@@ -933,6 +967,854 @@ def test_handoff_suppression_is_not_revived_by_prepare_after_ia_release(
     assert prepared is not None
     assert prepared.state == worker_module._AGENT_REPLY_SUPPRESSED
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia_suprimida"]
+
+
+def _seed_tier_a_handoff_anchor(
+    factory: sessionmaker,
+    *,
+    igreja_id: uuid.UUID,
+    provider_message_id: str,
+    texto: str = "mensagem sintética",
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    session = factory()
+    try:
+        pessoa = Pessoa(
+            igreja_id=igreja_id,
+            nome="Contato sintético",
+            telefone="5500000000000",
+        )
+        session.add(pessoa)
+        session.flush()
+        conversation = Conversation(
+            igreja_id=igreja_id,
+            pessoa_id=pessoa.id,
+            telefone="5500000000000",
+            estado="ia",
+            numero_oficial=True,
+        )
+        session.add(conversation)
+        session.flush()
+        inbound = Message(
+            igreja_id=igreja_id,
+            conversation_id=conversation.id,
+            direcao="in",
+            autor="contato",
+            texto=texto,
+            tipo="texto",
+            provider_message_id=provider_message_id,
+        )
+        session.add(inbound)
+        session.commit()
+        return conversation.id, pessoa.id, inbound.id
+    finally:
+        session.close()
+
+
+def _seed_inbound_anchor(
+    factory: sessionmaker,
+    *,
+    igreja_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    provider_message_id: str,
+    texto: str,
+) -> uuid.UUID:
+    session = factory()
+    try:
+        message = Message(
+            igreja_id=igreja_id,
+            conversation_id=conversation_id,
+            direcao="in",
+            autor="contato",
+            texto=texto,
+            tipo="texto",
+            provider_message_id=provider_message_id,
+        )
+        session.add(message)
+        session.commit()
+        return message.id
+    finally:
+        session.close()
+
+
+def test_tier_a_handoff_tombstone_survives_ia_release_without_retriage(
+    msg_engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A committed Tier A handoff binds its inbound reply fence before the ACK."""
+
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_B, instance="igreja-b")
+    conversation_id, pessoa_id, inbound_message_id = _seed_tier_a_handoff_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        provider_message_id="TIER-A-HANDOFF-INBOUND",
+    )
+    foreign_conversation_id, _foreign_pessoa_id, _foreign_inbound_id = (
+        _seed_tier_a_handoff_anchor(
+            factory,
+            igreja_id=_IGREJA_B,
+            provider_message_id="TIER-A-HANDOFF-INBOUND-B",
+        )
+    )
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="TIER-A-HANDOFF-INBOUND",
+        claim_id="tier-a-handoff-claim",
+        inbound_message_id=inbound_message_id,
+    )
+    reply_key = worker_module._agent_reply_idempotency_key(outcome)
+    assert reply_key is not None
+    plan = runtime_module.TierATurnPreflight(
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        pessoa_id=pessoa_id,
+        inbound_message_id=inbound_message_id,
+        provider_message_id="TIER-A-HANDOFF-INBOUND",
+        current_text="mensagem sintética",
+        tier_a_input_within_limit=True,
+        config_id=uuid.uuid4(),
+        config_comportamento="perfil sintético",
+        credential_id=uuid.uuid4(),
+        credential_provedor="synthetic",
+        credential_model="synthetic",
+        credential_key_encrypted="synthetic",
+        accepted_consent_version="synthetic-v1",
+        term_version="synthetic-v1",
+    )
+
+    disposition = worker_module._persist_tier_a_handoff(
+        factory,
+        outcome,
+        uses_dedicated_agent_session=False,
+        plan=plan,
+        decision_payload={
+            "risco_crise": True,
+            "pede_humano": False,
+            "pede_optout": False,
+            "handoff": True,
+            "erro": None,
+            "latencia_ms": 1,
+        },
+        ownership_guard=None,
+    )
+    assert disposition is worker_module.AgentRunDisposition.COMPLETED
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        session.add(
+            Message(
+                igreja_id=_IGREJA_B,
+                conversation_id=foreign_conversation_id,
+                direcao="out",
+                autor="ia",
+                agent_reply_state=worker_module._AGENT_REPLY_PENDING,
+                texto="resposta estrangeira sintética",
+                tipo="texto",
+                provider_message_id=reply_key,
+            )
+        )
+        session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(estado="ia")
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    retriage: list[str] = []
+    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_A))
+    monkeypatch.setattr(worker_module, "_whatsapp_reply_enabled", lambda _id: True)
+    monkeypatch.setattr(
+        worker_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_trusted_inbound_identity_enabled=False),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "process_inbound_message",
+        lambda *_args, **_kwargs: retriage.append("runtime"),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "_run_tier_a_batch",
+        lambda *_args, **_kwargs: retriage.append("jev"),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "reply_tier_a_plan_with_llm",
+        lambda *_args, **_kwargs: retriage.append("llm"),
+    )
+    evolution = _ClassifiedEvolution("aceito")
+
+    assert (
+        run_agent_for_message(factory, outcome, evolution_client=evolution)
+        is worker_module.AgentRunDisposition.COMPLETED
+    )
+    assert retriage == []
+    assert evolution.calls == []
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_suprimida"]
+    assert _agent_reply_states(factory, _IGREJA_B) == ["ia_pendente"]
+
+
+def test_tier_a_optout_confirmation_recovers_once_without_retriaging_source(
+    msg_engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A's typed marker recovers C once and blocks a later changed classifier."""
+
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    conversation_id, pessoa_id, inbound_id = _seed_tier_a_handoff_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        provider_message_id="TIER-A-OPTOUT-A",
+        texto="pedido sintético",
+    )
+    session = factory()
+    try:
+        config = AgentConfig(
+            igreja_id=_IGREJA_A,
+            comportamento="perfil sintético",
+            ativo=True,
+        )
+        credential = LlmCredential(
+            igreja_id=_IGREJA_A,
+            provedor="synthetic",
+            modelo="synthetic",
+            api_key_encrypted="synthetic",
+            validado=True,
+            ativo=True,
+        )
+        session.add_all(
+            (
+                config,
+                credential,
+                ConsentRecord(
+                    igreja_id=_IGREJA_A,
+                    pessoa_id=pessoa_id,
+                    termo_versao="s1-synthetic",
+                    aceite_em=dt.datetime.now(dt.UTC),
+                ),
+            )
+        )
+        session.commit()
+        plan = runtime_module.TierATurnPreflight(
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+            pessoa_id=pessoa_id,
+            inbound_message_id=inbound_id,
+            provider_message_id="TIER-A-OPTOUT-A",
+            current_text="pedido sintético",
+            tier_a_input_within_limit=True,
+            config_id=config.id,
+            config_comportamento="perfil sintético",
+            credential_id=credential.id,
+            credential_provedor="synthetic",
+            credential_model="synthetic",
+            credential_key_encrypted="synthetic",
+            accepted_consent_version="s1-synthetic",
+            term_version="s1-synthetic",
+        )
+    finally:
+        session.close()
+
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="TIER-A-OPTOUT-A",
+        claim_id="tier-a-optout-a",
+        inbound_message_id=inbound_id,
+    )
+    reply_key = worker_module._agent_reply_idempotency_key(outcome)
+    source_key = worker_module._tier_a_optout_source_idempotency_key(outcome)
+    confirmation_key = consent_rules.tier_a_optout_confirmation_key(
+        _IGREJA_A,
+        conversation_id,
+    )
+    assert reply_key is not None
+    assert source_key is not None
+    decision = semantic_triage.TierADecision(
+        risco_crise=False,
+        pede_humano=False,
+        pede_optout=True,
+        handoff=False,
+        erro=None,
+        latencia_ms=1,
+    )
+    jev_calls: list[str] = []
+    monkeypatch.setattr(worker_module, "_whatsapp_reply_enabled", lambda _id: True)
+    monkeypatch.setattr(
+        worker_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            agent_trusted_inbound_identity_enabled=False,
+            agent_term_version="s1-synthetic",
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_term_version="s1-synthetic"),
+    )
+    monkeypatch.setattr(semantic_triage, "tier_a_enabled_from_environment", lambda _id: True)
+    monkeypatch.setattr(semantic_triage, "tier_a_egress_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(worker_module, "_tier_a_effective_settings", lambda *_a: object())
+    monkeypatch.setattr(
+        runtime_module,
+        "process_inbound_message",
+        lambda *_a, **kwargs: runtime_module.AgentTurnResult(
+            handled=True,
+            preflight=plan,
+        )
+        if kwargs.get("tier_a_preflight")
+        else (_ for _ in ()).throw(
+            AssertionError("opt-out provável não pode alcançar o grafo")
+        ),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "_run_tier_a_batch",
+        lambda *_a: jev_calls.append("jev") or decision,
+    )
+    original_resume = worker_module._resume_tier_a_optout_confirmation
+    monkeypatch.setattr(
+        worker_module,
+        "_resume_tier_a_optout_confirmation",
+        lambda *_a, **_k: worker_module.AgentRunDisposition.COMPLETED,
+    )
+
+    assert (
+        run_agent_for_message(factory, outcome, evolution_client=_ClassifiedEvolution())
+        is worker_module.AgentRunDisposition.COMPLETED
+    )
+    assert jev_calls == ["jev"]
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        states = dict(
+            session.execute(
+                select(Message.provider_message_id, Message.agent_reply_state).where(
+                    Message.igreja_id == _IGREJA_A,
+                    Message.conversation_id == conversation_id,
+                    Message.provider_message_id.in_((reply_key, source_key, confirmation_key)),
+                )
+            ).all()
+        )
+        assert states == {
+            reply_key: worker_module._AGENT_REPLY_NO_RESPONSE,
+            source_key: worker_module._AGENT_REPLY_NO_RESPONSE,
+            confirmation_key: worker_module._AGENT_REPLY_PENDING,
+        }
+    finally:
+        session.close()
+
+    monkeypatch.setattr(worker_module, "_resume_tier_a_optout_confirmation", original_resume)
+    monkeypatch.setattr(
+        worker_module,
+        "_run_tier_a_batch",
+        lambda *_a: (_ for _ in ()).throw(
+            AssertionError("retry de A não pode reclassificar")),
+    )
+    evolution = _ClassifiedEvolution("aceito")
+    assert (
+        run_agent_for_message(factory, outcome, evolution_client=evolution)
+        is worker_module.AgentRunDisposition.COMPLETED
+    )
+    assert len(evolution.calls) == 1
+    assert evolution.calls[0][2] == "Deseja parar de receber mensagens? Responda SAIR"
+
+    assert (
+        run_agent_for_message(factory, outcome, evolution_client=evolution)
+        is worker_module.AgentRunDisposition.COMPLETED
+    )
+    assert len(evolution.calls) == 1
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        states = dict(
+            session.execute(
+                select(Message.provider_message_id, Message.agent_reply_state).where(
+                    Message.igreja_id == _IGREJA_A,
+                    Message.conversation_id == conversation_id,
+                    Message.provider_message_id.in_((reply_key, source_key, confirmation_key)),
+                )
+            ).all()
+        )
+        assert states == {
+            reply_key: worker_module._AGENT_REPLY_NO_RESPONSE,
+            source_key: worker_module._AGENT_REPLY_NO_RESPONSE,
+            confirmation_key: worker_module._AGENT_REPLY_CONFIRMED,
+        }
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(
+    ("confirmation_state", "expected_confirmation_state"),
+    (
+        (worker_module._AGENT_REPLY_PENDING, worker_module._AGENT_REPLY_SUPPRESSED),
+        (worker_module._AGENT_REPLY_IN_FLIGHT, worker_module._AGENT_REPLY_AMBIGUOUS),
+    ),
+    ids=("pending", "inflight"),
+)
+def test_sair_fences_tier_a_confirmation_before_source_retry(
+    msg_engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    confirmation_state: str,
+    expected_confirmation_state: str,
+) -> None:
+    """An explicit later SAIR fences C before A can retry its transport."""
+
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    conversation_id, _pessoa_id, inbound_a_id = _seed_tier_a_handoff_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        provider_message_id="TIER-A-CONFIRM-A",
+        texto="pedido sintético",
+    )
+    inbound_b_id = _seed_inbound_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        provider_message_id="TIER-A-SAIR-B",
+        texto="SAIR",
+    )
+    outcome_a = _agent_outcome(
+        conversation_id,
+        provider_message_id="TIER-A-CONFIRM-A",
+        claim_id="tier-a-confirm-a",
+        inbound_message_id=inbound_a_id,
+    )
+    outcome_b = _agent_outcome(
+        conversation_id,
+        provider_message_id="TIER-A-SAIR-B",
+        claim_id="tier-a-sair-b",
+        inbound_message_id=inbound_b_id,
+    )
+    reply_key_a = worker_module._agent_reply_idempotency_key(outcome_a)
+    source_key_a = worker_module._tier_a_optout_source_idempotency_key(outcome_a)
+    confirmation_key = consent_rules.tier_a_optout_confirmation_key(
+        _IGREJA_A,
+        conversation_id,
+    )
+    reply_key_b = worker_module._agent_reply_idempotency_key(outcome_b)
+    assert reply_key_a is not None
+    assert source_key_a is not None
+    assert reply_key_b is not None
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome_a)
+        session.add_all(
+            (
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=worker_module._AGENT_REPLY_NO_RESPONSE,
+                    texto=None,
+                    tipo="texto",
+                    provider_message_id=reply_key_a,
+                ),
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=worker_module._AGENT_REPLY_NO_RESPONSE,
+                    texto=None,
+                    tipo="texto",
+                    provider_message_id=source_key_a,
+                ),
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=confirmation_state,
+                    texto="Deseja parar de receber mensagens? Responda SAIR",
+                    tipo="texto",
+                    provider_message_id=confirmation_key,
+                ),
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            agent_trusted_inbound_identity_enabled=False,
+            agent_term_version="s1-synthetic",
+        ),
+    )
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome_b)
+        result = runtime_module.process_inbound_message(
+            session,
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+            texto="texto forjado",
+            inbound_message_id=inbound_b_id,
+            provider_message_id="TIER-A-SAIR-B",
+            tier_a_preflight=True,
+            tier_a_reply_provider_message_id=reply_key_b,
+        )
+        assert result.suppressed is True
+        assert result.reason == "optout_aplicado"
+    finally:
+        session.close()
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome_b)
+        session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(estado="ia")
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(semantic_triage, "tier_a_enabled_from_environment", lambda _id: True)
+    monkeypatch.setattr(
+        runtime_module,
+        "process_inbound_message",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("A marcada não pode reclassificar após SAIR de B")
+        ),
+    )
+    evolution = _ClassifiedEvolution("aceito")
+    assert (
+        worker_module._run_active_tier_a_turn(
+            factory,
+            factory,
+            outcome_a,
+            igreja_id=_IGREJA_A,
+            turn_identity=None,
+            uses_dedicated_agent_session=False,
+            ownership_guard=None,
+            evolution_client=evolution,
+        )
+        is worker_module.AgentRunDisposition.COMPLETED
+    )
+    assert evolution.calls == []
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome_a)
+        states = dict(
+            session.execute(
+                select(Message.provider_message_id, Message.agent_reply_state).where(
+                    Message.igreja_id == _IGREJA_A,
+                    Message.conversation_id == conversation_id,
+                    Message.provider_message_id.in_((reply_key_a, source_key_a, confirmation_key, reply_key_b)),
+                )
+            ).all()
+        )
+        assert states == {
+            reply_key_a: worker_module._AGENT_REPLY_NO_RESPONSE,
+            source_key_a: worker_module._AGENT_REPLY_NO_RESPONSE,
+            confirmation_key: expected_confirmation_state,
+            reply_key_b: worker_module._AGENT_REPLY_SUPPRESSED,
+        }
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(
+    "revocation",
+    ("optout_ui", "config_inactive", "term_changed", "reoptin"),
+)
+def test_tier_a_confirmation_recovery_rechecks_current_delivery_gates(
+    msg_engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    revocation: str,
+) -> None:
+    """C stays terminal when a current short-session gate no longer permits it."""
+
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    conversation_id, pessoa_id, inbound_id = _seed_tier_a_handoff_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        provider_message_id=f"TIER-A-C-GATE-{revocation}",
+    )
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id=f"TIER-A-C-GATE-{revocation}",
+        claim_id=f"tier-a-c-gate-{revocation}",
+        inbound_message_id=inbound_id,
+    )
+    confirmation_key = consent_rules.tier_a_optout_confirmation_key(
+        _IGREJA_A,
+        conversation_id,
+    )
+    source_key = f"agent-reply:tier-a-optout-source:test:{revocation}"
+    current_term = "s1-new" if revocation == "term_changed" else "s1-synthetic"
+    consent_records = (
+        (
+            ConsentRecord(
+                igreja_id=_IGREJA_A,
+                pessoa_id=pessoa_id,
+                termo_versao="s1-synthetic",
+                aceite_em=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1),
+            ),
+            ConsentRecord(
+                igreja_id=_IGREJA_A,
+                pessoa_id=pessoa_id,
+                termo_versao="reoptin:s1-synthetic",
+                aceite_em=dt.datetime.now(dt.UTC),
+            ),
+        )
+        if revocation == "reoptin"
+        else (
+            ConsentRecord(
+                igreja_id=_IGREJA_A,
+                pessoa_id=pessoa_id,
+                termo_versao="s1-synthetic",
+                aceite_em=dt.datetime.now(dt.UTC),
+            ),
+        )
+    )
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        session.add_all(
+            (
+                AgentConfig(
+                    igreja_id=_IGREJA_A,
+                    comportamento="perfil sintético",
+                    ativo=revocation != "config_inactive",
+                ),
+                *consent_records,
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=worker_module._AGENT_REPLY_NO_RESPONSE,
+                    texto=None,
+                    tipo="texto",
+                    provider_message_id=source_key,
+                ),
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=worker_module._AGENT_REPLY_PENDING,
+                    texto="Deseja parar de receber mensagens? Responda SAIR",
+                    tipo="texto",
+                    provider_message_id=confirmation_key,
+                ),
+            )
+        )
+        if revocation == "optout_ui":
+            session.execute(
+                update(Pessoa)
+                .where(Pessoa.id == pessoa_id, Pessoa.igreja_id == _IGREJA_A)
+                .values(optout=True)
+            )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        worker_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_term_version=current_term),
+    )
+    evolution = _ClassifiedEvolution("aceito")
+    assert (
+        worker_module._resume_tier_a_optout_confirmation(
+            factory,
+            outcome,
+            confirmation_key=confirmation_key,
+            ownership_guard=None,
+            evolution_client=evolution,
+        )
+        is worker_module.AgentRunDisposition.COMPLETED
+    )
+    assert evolution.calls == []
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        states = dict(
+            session.execute(
+                select(Message.provider_message_id, Message.agent_reply_state).where(
+                    Message.igreja_id == _IGREJA_A,
+                    Message.conversation_id == conversation_id,
+                    Message.provider_message_id.in_((source_key, confirmation_key)),
+                )
+            ).all()
+        )
+        assert states == {
+            source_key: worker_module._AGENT_REPLY_NO_RESPONSE,
+            confirmation_key: worker_module._AGENT_REPLY_SUPPRESSED,
+        }
+    finally:
+        session.close()
+
+
+def test_sair_is_atomic_without_agent_config_and_survives_ia_state(
+    msg_engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two explicit SAIR turns produce one withdrawal even without Tier A gates."""
+
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    conversation_id, pessoa_id, first_inbound_id = _seed_tier_a_handoff_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        provider_message_id="SAIR-CONCORRENTE-1",
+        texto="SAIR",
+    )
+    second_inbound_id = _seed_inbound_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        provider_message_id="SAIR-CONCORRENTE-2",
+        texto="SAÍR!",
+    )
+    outcomes = (
+        _agent_outcome(
+            conversation_id,
+            provider_message_id="SAIR-CONCORRENTE-1",
+            claim_id="sair-concorrente-1",
+            inbound_message_id=first_inbound_id,
+        ),
+        _agent_outcome(
+            conversation_id,
+            provider_message_id="SAIR-CONCORRENTE-2",
+            claim_id="sair-concorrente-2",
+            inbound_message_id=second_inbound_id,
+        ),
+    )
+    monkeypatch.delenv("JEV_ENABLED_IGREJA_IDS", raising=False)
+    monkeypatch.setattr(
+        runtime_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            agent_trusted_inbound_identity_enabled=False,
+            agent_term_version="s1-synthetic",
+        ),
+    )
+    start = threading.Barrier(2)
+    results: list[object] = []
+    errors: list[BaseException] = []
+
+    def persist_sair(outcome: worker_module.IngestionOutcome) -> None:
+        session = factory()
+        try:
+            worker_module._scope_agent_session(session, outcome)
+            start.wait(timeout=10)
+            results.append(
+                runtime_module.process_inbound_message(
+                    session,
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    texto="texto forjado não define SAIR",
+                    inbound_message_id=outcome.inbound_message_id,
+                    provider_message_id=outcome.provider_message_id,
+                )
+            )
+        except BaseException as exc:  # noqa: BLE001 - surface thread failure
+            errors.append(exc)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=persist_sair, args=(outcome,)) for outcome in outcomes]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    assert not errors
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert all(getattr(result, "suppressed", False) for result in results)
+
+    resume_inbound_id = _seed_inbound_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        provider_message_id="SAIR-APOS-RETORNO-IA",
+        texto="mensagem sintética",
+    )
+    resume_outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="SAIR-APOS-RETORNO-IA",
+        claim_id="sair-apos-retorno-ia",
+        inbound_message_id=resume_inbound_id,
+    )
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, resume_outcome)
+        session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(estado="ia")
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, resume_outcome)
+        resumed = runtime_module.process_inbound_message(
+            session,
+            igreja_id=_IGREJA_A,
+            conversation_id=conversation_id,
+            texto="texto forjado sem saída",
+            inbound_message_id=resume_inbound_id,
+            provider_message_id="SAIR-APOS-RETORNO-IA",
+        )
+        assert resumed.suppressed is True
+        assert resumed.reason == "optout"
+    finally:
+        session.close()
+
+    session = factory()
+    try:
+        pessoa = session.execute(
+            select(Pessoa).where(Pessoa.id == pessoa_id, Pessoa.igreja_id == _IGREJA_A)
+        ).scalar_one()
+        withdrawals = session.execute(
+            select(func.count())
+            .select_from(ConsentRecord)
+            .where(
+                ConsentRecord.igreja_id == _IGREJA_A,
+                ConsentRecord.pessoa_id == pessoa_id,
+                ConsentRecord.termo_versao == "optout:s1-synthetic",
+            )
+        ).scalar_one()
+        assert pessoa.optout is True
+        assert withdrawals == 1
+    finally:
+        session.close()
 
 
 @pytest.mark.parametrize("transport", ("agent", "classified", "plain"))

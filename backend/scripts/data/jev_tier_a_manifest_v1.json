@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "corpus_version": "jev-tier-a-s1-v1",
+  "status": "frozen",
+  "created_utc": "2026-09-26T16:52:04Z",
+  "base_repository_sha": "ae2aac28730d315fe4f2474c03519c4deb5d07c0",
+  "synthetic": true,
+  "signals": [
+    "risco_crise",
+    "pede_humano",
+    "pede_optout"
+  ],
+  "gold_handoff": "risco_crise OR pede_humano",
+  "normalization": "casefold + NFKD + strip combining marks + punctuation/underscore to space + collapse whitespace",
+  "duplicates": {
+    "exact": 0,
+    "normalized": 0,
+    "cross_split_families": 0
+  },
+  "metrics_status": "not_measured",
+  "files": {
+    "dev": {
+      "path": "backend/scripts/data/jev_tier_a_dev_v1.jsonl",
+      "sha256": "27b097596a319d67e5f6738737f423b9d54beb16dcafe24db1a5a31d387e2edd",
+      "rows": 120,
+      "families": {
+        "dev_combo_crise_humano": 5,
+        "dev_combo_crise_optout": 5,
+        "dev_combo_humano_optout": 5,
+        "dev_crise_autolesao": 5,
+        "dev_crise_ideacao_recorrente": 5,
+        "dev_crise_intencao_direta": 5,
+        "dev_crise_perigo_imediato": 5,
+        "dev_crise_terceiro": 5,
+        "dev_humano_atendente": 5,
+        "dev_humano_imperativo": 5,
+        "dev_humano_indireto": 5,
+        "dev_humano_lideranca": 5,
+        "dev_humano_pastor": 5,
+        "dev_neg_crise_negada": 5,
+        "dev_neg_ficcao": 5,
+        "dev_neg_figura": 5,
+        "dev_neg_humano_negado": 5,
+        "dev_neg_luto": 5,
+        "dev_neg_optout_contexto": 5,
+        "dev_optout_canal": 5,
+        "dev_optout_consentimento": 5,
+        "dev_optout_futuro": 5,
+        "dev_optout_lista": 5,
+        "dev_optout_parar_mensagens": 5
+      },
+      "labels": {
+        "risco_crise": {
+          "true": 35,
+          "false": 85
+        },
+        "pede_humano": {
+          "true": 35,
+          "false": 85
+        },
+        "pede_optout": {
+          "true": 35,
+          "false": 85
+        }
+      },
+      "label_combinations": {
+        "000": 30,
+        "001": 25,
+        "010": 25,
+        "011": 5,
+        "100": 25,
+        "101": 5,
+        "110": 5
+      },
+      "gold_handoff": {
+        "true": 65,
+        "false": 55
+      }
+    },
+    "holdout": {
+      "path": "backend/scripts/data/jev_tier_a_holdout_v1.jsonl",
+      "sha256": "05fecd57a7c64aa2a12e45df8323e07411af02fa96c8b9a6d69853a7e18cdb42",
+      "rows": 120,
+      "families": {
+        "holdout_combo_crise_humano": 5,
+        "holdout_combo_crise_optout": 5,
+        "holdout_combo_humano_optout": 5,
+        "holdout_crise_desistir_viver": 5,
+        "holdout_crise_despedida_final": 5,
+        "holdout_crise_ferimento_presente": 5,
+        "holdout_crise_socorro_medico": 5,
+        "holdout_crise_violencia_proxima": 5,
+        "holdout_humano_acompanhante": 5,
+        "holdout_humano_escalacao": 5,
+        "holdout_humano_escuta_pastoral": 5,
+        "holdout_humano_ligacao": 5,
+        "holdout_humano_resposta_pessoal": 5,
+        "holdout_neg_estado_ficticio": 5,
+        "holdout_neg_expressao_falada": 5,
+        "holdout_neg_humano_contexto": 5,
+        "holdout_neg_optout_armadilha": 5,
+        "holdout_neg_sem_intencao": 5,
+        "holdout_neg_tristeza_luto": 5,
+        "holdout_optout_boletim": 5,
+        "holdout_optout_disparo": 5,
+        "holdout_optout_periodo": 5,
+        "holdout_optout_recontato": 5,
+        "holdout_optout_retirada": 5
+      },
+      "labels": {
+        "risco_crise": {
+          "true": 35,
+          "false": 85
+        },
+        "pede_humano": {
+          "true": 35,
+          "false": 85
+        },
+        "pede_optout": {
+          "true": 35,
+          "false": 85
+        }
+      },
+      "label_combinations": {
+        "000": 30,
+        "001": 25,
+        "010": 25,
+        "011": 5,
+        "100": 25,
+        "101": 5,
+        "110": 5
+      },
+      "gold_handoff": {
+        "true": 65,
+        "false": 55
+      }
+    }
+  },
+  "contract_readme": {
+    "path": "backend/scripts/data/jev_tier_a_README.md",
+    "sha256": "3c2f6dfe3acd316053c08662537f1e468be60b12145e8b76f8732e3c3f9491d2"
+  }
+}
