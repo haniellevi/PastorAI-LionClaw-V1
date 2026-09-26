@@ -47,6 +47,7 @@ from app.agent.private_runtime_projection import (
     PrivateRuntimeProjectionError,
     load_private_runtime_projection,
 )
+from app.agent.read_only_info import resolve_public_info_reply
 from app.agent.tools import TOOL_ACTOR_ROLE_CONTEXT, TOOL_ARG_SCHEMA, TOOLS, ToolError
 from app.agent.turn_identity import (
     AgentTurnContractErrorCode,
@@ -817,6 +818,7 @@ def process_inbound_message(
 
     igreja_id = tenant_uuid
     current_text = texto
+    has_persisted_inbound_anchor = False
     if inbound_message_id is not None:
         if not isinstance(inbound_message_id, uuid.UUID):
             return AgentTurnResult(handled=False, reason="inbound_message_not_found")
@@ -830,6 +832,7 @@ def process_inbound_message(
         if anchor is None:
             return AgentTurnResult(handled=False, reason="inbound_message_not_found")
         _current_created_at, current_text = anchor
+        has_persisted_inbound_anchor = True
 
     # O direito de sair das comunicações independe de LLM, AgentConfig, handoff
     # ou credencial. Persistimos antes de qualquer gate do agente e não enviamos
@@ -951,11 +954,13 @@ def process_inbound_message(
     # Fail closed por igreja: credencial BYO não equivale a autorização para o
     # agente responder. A configuração do master precisa existir e estar ativa.
     # Assim uma igreja legada ou aprovada sem template nunca liga por acidente.
-    if config is None or not config.ativo:
-        reason = "config_ausente" if config is None else "config_inativo"
+    config_igreja_id = getattr(config, "igreja_id", None)
+    config_matches_tenant = config is not None and config_igreja_id == igreja_id
+    if not config_matches_tenant or not config.ativo:
+        reason = "config_ausente" if not config_matches_tenant else "config_inativo"
         event = (
             "agent_skipped_config_missing"
-            if config is None
+            if not config_matches_tenant
             else "agent_skipped_config_inativo"
         )
         log_agent_event(
@@ -984,6 +989,20 @@ def process_inbound_message(
     final = run_turn(state, context=context)
     route = final.get("route")
     effects: AgentTurnEffects = final["turn_effects"]
+
+    # Consultas públicas explicitamente configuradas são estritamente de
+    # leitura: a âncora inbound define a pergunta e o retorno acontece antes
+    # de qualquer intake, ferramenta, auditoria de efeitos ou provedor.
+    if has_persisted_inbound_anchor and route == ROUTE_ONBOARDING:
+        public_reply = resolve_public_info_reply(current_text, config.comportamento)
+        if public_reply is not None:
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=route,
+                response=public_reply,
+                suppressed=False,
+            )
 
     # Apply person backfill from intake (origem / primeiro_contato).
     _apply_intake(pessoa, effects["intake_update"])

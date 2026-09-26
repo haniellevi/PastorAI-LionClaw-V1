@@ -1,5 +1,19 @@
 # Wiki do projeto Igreja 12
 
+## MVP fase 2, fatia 2: consultas públicas e handoff ampliado, 26/09/2026
+
+O handoff cobre também pedidos como “gostaria de falar com o pastor”, “chama
+alguém”, “quero um humano” e “me sinto sem vontade de viver”, com negação e
+normalização exercitadas em testes. O avaliador J0 agora usa a regra real e
+mede handoff local; o provedor não tem sinal dedicado, identificado como N/A.
+
+Consultas públicas retornam horário, endereço da igreja e indicação de célula
+por bairro a partir de um bloco explícito no perfil da própria igreja, sem
+LLM ou mudanças cadastrais. Não consultam células privadas nem calculam
+proximidade. Ausência ou ambiguidade não vira informação inventada.
+[Configuração e limites](sprints/2026-09-26-mvp-fase2-fatia2.md).
+Esta entrega de código não comprova deploy ou teste com uma igreja real.
+
 ## Jev: erro do console, custo em US$ e avaliação offline J0, 26/09/2026
 
 O aviso "Não foi possível carregar o status do Jev" no Console da Plataforma

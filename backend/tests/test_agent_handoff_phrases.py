@@ -26,6 +26,8 @@ from app.agent.nodes import is_handoff_request
         "penso em automutilacao",
         "vou dar um fim na minha vida",
         "não quero mais viver",
+        "me sinto sem vontade de viver",
+        "ME SINTO SEM VONTADE DE VIVER",
     ),
 )
 def test_explicit_crisis_phrases_trigger_handoff(texto: str) -> None:
@@ -61,6 +63,11 @@ def test_standalone_crisis_terms_trigger_handoff(texto: str) -> None:
         "preciso de ajuda humana",
         "quero falar com um ser humano",
         "pode me passar para o pastor",
+        "gostaria de falar com o pastor",
+        "GOSTARIA DE FALAR COM ALGUÉM",
+        "chama alguem",
+        "CHAMEM UM PASTOR",
+        "quero um humano",
     ),
 )
 def test_explicit_human_requests_trigger_handoff(texto: str) -> None:
@@ -89,6 +96,12 @@ def test_explicit_human_requests_trigger_handoff(texto: str) -> None:
         "quero matar a saudade",
         "ela relatou que pensa em se matar",
         "não quero falar com o pastor",
+        "nao gostaria de falar com o pastor",
+        "não gostaria de falar com pastor",
+        "nao chama alguem",
+        "não chama alguém",
+        "nao quero um humano",
+        "nao me sinto sem vontade de viver",
     ),
 )
 def test_non_intent_and_negation_do_not_trigger_handoff(texto: str) -> None:
