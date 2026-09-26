@@ -95,7 +95,10 @@ volta, nem em parte. O banco recusa igreja listada sem data de DPA. Campo vazio
 cai no ambiente, e a mudança vale na hora, sem reiniciar. Cada gravação fica em
 `jev_configurar` na auditoria, sem a chave. `ALLOW_REAL_SENDS` e a URL da API
 continuam só no ambiente: editável pelo console, a URL poderia desviar a chave
-para outro servidor.
+para outro servidor. Sem a tabela, antes da migration `20260926_120446`, o
+console mostra só o ambiente e salvar responde 409. O runtime do J1 deve ler
+essa configuração numa sessão de plataforma: a sessão com escopo de tenant
+roda como `authenticated`, que não lê a tabela.
 
 ### Evidência de calibração (sanitizada)
 

@@ -8,8 +8,9 @@ A chave vai cifrada com a mesma cifra das chaves OpenAI das igrejas e nunca
 volta à tela. A lista de igrejas só aceita igreja com data de DPA, e o banco
 também recusa. Campo vazio usa o ambiente, e a mudança vale na hora.
 `ALLOW_REAL_SENDS` e a URL da API ficam só no servidor. A tabela nova
-`platform_jev_settings` (migration `20260926_120446`) precisa estar no PROD
-antes do deploy do código.
+`platform_jev_settings` (migration `20260926_120446`) entra no PROD por decisão
+separada, depois da sessão de reconciliação com a Sarah. Sem ela o deploy
+funciona: o console mostra só o ambiente, e salvar pede a migration.
 
 ## Jev: erro do console, custo em US$ e avaliação offline J0, 26/09/2026
 
