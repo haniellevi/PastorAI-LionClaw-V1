@@ -12,11 +12,12 @@ exibido em US$ em vez de R$.
 Entrou `backend/scripts/jev_eval.py`, que mede as regras atuais num corpus
 sintético pt-BR com armadilhas (`backend/scripts/data/jev_corpus_v1.jsonl`,
 207 frases) e, com `TYPESAFE_API_KEY` e `--jev`, o Jev com as mesmas perguntas
-do módulo sombra, em instruções PT e EN, com teto de custo. Sem chave, o
-baseline já mostra os erros das regras: nenhuma crise detectada, 24% dos
-pedidos de opt-out, 8 de 14 respostas negativas contadas como aceite do termo
-e todas as armadilhas de CSIM silenciando o contato. O Jev continua fora do
-turno do agente.
+do módulo sombra, em instruções PT e EN, com teto de custo. O baseline
+histórico do PR #418, anterior ao #419 e baseado em `92eed57`, registrou
+nenhuma crise detectada, 24% dos pedidos de opt-out, 8 de 14 respostas
+negativas contadas como aceite e todas as armadilhas de CSIM silenciando o
+contato. Esses números não representam as regras após o #419, que altera
+crise e aceite. O Jev continua fora do turno do agente.
 
 ## Exclusão de tenant e reset administrativo, candidata local, 25/09/2026
 
