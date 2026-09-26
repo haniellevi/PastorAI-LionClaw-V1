@@ -21,6 +21,7 @@ import {
   type CreateIgrejaInput,
 } from "@/lib/admin-api";
 import { useAdminAuth } from "@/lib/admin-auth-context";
+import { formatAiCostUsd } from "@/lib/ai-cost";
 
 import { AuditModal } from "./AuditModal";
 import { ChurchPage } from "./ChurchPage";
@@ -251,7 +252,11 @@ export function AdminConsole() {
             hint="suspensas + inadimplentes"
           />
           <MetricCard label="MRR" value={brl(metrics.mrr)} hint="igrejas ativas" />
-          <MetricCard label="Custo de IA" value={brl(metrics.custoIaTotal)} hint="acumulado" />
+          <MetricCard
+            label="Custo de IA"
+            value={formatAiCostUsd(metrics.custoIaTotal)}
+            hint="acumulado"
+          />
         </div>
       ) : null}
 

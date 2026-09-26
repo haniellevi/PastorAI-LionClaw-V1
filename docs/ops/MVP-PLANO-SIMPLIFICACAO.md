@@ -225,15 +225,31 @@ em menos de 10 s e aparecem no inbox do painel.
 
 #### Passo a passo para ligar na Filadélfia (proprietário)
 
-1. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
-   (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`).
-2. **Banco de PROD:** o worker usa as colunas de reserva de resposta da
-   migration `20260826_030508_*agent_reply*`. Confira se ela já foi aplicada:
-   `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py status`. Se
-   estiver pendente, faça backup e aplique com `migrate.py apply`.
-3. **Painel da Filadélfia → Agente:** credencial OpenAI validada e ativa,
+Ordem revisada em 26/09: o banco vem antes do código, porque o `main` mapeia
+colunas e tabelas que o backend antigo não usava.
+
+1. **Backup** do banco de PROD.
+2. **Banco de PROD antes do deploy** (toda migration em PROD passa pela
+   revisão da Sarah). O `main` depende de
+   `20260822_225752_celula_membro_evento_audit_table` (transferir ou remover
+   membro de célula), `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
+   (reserva de resposta do worker) e
+   `20260925_183811_preserve_platform_admins_on_tenant_deletion` (exclusão de
+   tenant; muda a RLS de `app_users`). Confira cada uma por SQL: a tabela ou
+   a coluna existe? O preflight de 28/08 viu `public.schema_migrations`
+   ausente, e o `migrate.py` recusa rodar sem ele. **Não crie o ledger vazio:**
+   o `status` passaria a listar como pendentes migrations que já estão em
+   PROD. Registre nele só as já aplicadas e depois aplique as que faltam com
+   `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py apply <arquivo> --yes`.
+3. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
+   (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`),
+   ainda com `ALLOW_REAL_SENDS=false`: a prova pós-restart do runbook aborta
+   se os envios estiverem abertos. Confira que
+   `https://api.igreja12.com.br/admin/jev` sem login responde 401, não 404
+   (404 = backend antigo, bug B13).
+4. **Painel da Filadélfia → Agente:** credencial OpenAI validada e ativa,
    agente **ativo**, comportamento com o tom da igreja.
-4. **`.env` de PROD:**
+5. **`.env` de PROD** (passo separado, depois do deploy verificado):
    - `WHATSAPP_PILOTO_IGREJA_IDS=<igreja_id da Filadélfia>` (copie do Admin
      Master);
    - `ALLOW_REAL_SENDS=true`. Isso também libera envios feitos por pessoas
@@ -243,10 +259,10 @@ em menos de 10 s e aparecem no inbox do painel.
    - `WHATSAPP_SLA_ENABLED=false` por enquanto.
 
    Reinicie os serviços.
-5. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
+6. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
    número da Filadélfia. Esperado: o termo LGPD. Responda "sim". Esperado:
    a saudação. As duas conversas aparecem no inbox.
-6. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
+7. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
    ou `ALLOW_REAL_SENDS=false` e reiniciar.
 
 Nesta fase o agente ainda responde com textos fixos, e o LLM só reescreve a
@@ -271,6 +287,33 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       culto".
 - [x] Aceite do termo mais robusto: "sim, mas não quero…" não conta como
       aceite (bug B4).
+
+#### Trilha Jev (decisões tipadas da TypeSafe), 26/09
+
+O Jev não gera texto: devolve probabilidades para perguntas como "é crise?".
+Custa cerca de US$ 0,00003 por mensagem e acrescenta cerca de 1 s por
+chamada, então **custo não é a alavanca; o ganho é acertar** onde a regex erra
+(B4, B5, B6, B15). O custo de IA acumulado da plataforma é US$ 0,03.
+
+- [x] **J0, avaliação offline:** `backend/scripts/jev_eval.py` com corpus
+      sintético pt-BR rotulado (`backend/scripts/data/jev_corpus_v1.jsonl`).
+      Sem chave, mede só as regras atuais e serve de critério para corrigir
+      B4, B5, B6 e B15. Com chave (`--jev`, teto de US$ 0,05), mede o Jev em
+      instruções PT e EN. GO: crise com recall ≥ 95% e ≤ 5% de falso alarme,
+      zero falso opt-out no limiar, veto de todo "sim, mas não…", CSIM sem os
+      falsos positivos de substring. O corpus ainda precisa de frases
+      escritas pelo pastor antes de uma decisão final.
+- [ ] **J1, sombra na Filadélfia:** só com J0 = GO, chave, DPA com a TypeSafe,
+      termo LGPD que cite IA e processador estrangeiro e backend atualizado.
+      Chamada depois do envio da resposta, em transação própria (nunca na
+      transação do turno), cliente HTTP persistente, versão do modelo fixada e
+      custo em `ai_usage_logs`. Termina por volume (≥ 300 turnos), não por
+      tempo.
+- [ ] **J2, sinais ativos:** um por vez, cada um com flag: crise → handoff
+      e alerta; CSIM só com confirmação do Jev (sem Jev, não marca); veto de
+      aceite (o Jev nunca concede); opt-out aditivo (probabilidade alta
+      aplica). Chamada antes do turno com prazo total de 1,5 s e as regras
+      como piso.
 
 **Pronto quando:** 20 conversas de teste reais (visitante, pedido de oração,
 dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
@@ -320,7 +363,7 @@ UV e Capacitação, e Enviar editável.
 | B1 | Bot não responde: worker só liga a sessão D2A e o runtime devolve `handled=False` | `queue_worker.py:2706`, `runtime.py:601` | 1 |
 | B2 | LLM ignora a mensagem da pessoa; respostas são texto fixo | `runtime.py:456`, `nodes.py` | 2 |
 | B3 | Status da instância não é verificado antes do envio; 5xx vira `ia_ambigua` e nunca é reenviado | `queue_worker.py`, `evolution.py` | 1 |
-| B4 | `is_acceptance` aceita "sim, mas não quero…" (só olha a 1ª palavra) | `domain/consent.py:88` | 2 |
+| B4 | `is_acceptance` aceita "sim, mas não quero…" (só olha a 1ª palavra) e recusa "claro" e "pode ser", reenviando o termo em loop | `domain/consent.py:88` | 2 |
 | B5 | `classify_contact` marca "sem interesse" por substring ("empresa") | `domain/classification.py` | 2 |
 | B6 | Nenhuma detecção de crise ou risco; vai para a saudação genérica | `agent/nodes.py` | 2 |
 | B7 | Primeira mensagem sempre recebe o termo (o trigger não grava `consent_records`) | `migrations/0004_triggers.sql` | 2 |
@@ -329,5 +372,8 @@ UV e Capacitação, e Enviar editável.
 | B10 | 44 migrations pendentes no DEV e 8 fora de ordem | Supabase DEV | 0 |
 | B11 | Testes locais falham por ambiente (umask, Python 3.12, Node 26) | máquina local | 0 |
 | B12 | `V1-FINALIZATION-MAP.md` desatualizado (cita PR #257 como aberto) | docs | 0 |
+| B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |
+| B14 | Custo de IA (em US$) exibido como R$ no console. Corrigido em 26/09 | `AdminConsole.tsx`, `ChurchPage.tsx` | 0 |
+| B15 | `is_optout_request` perde "me tira da lista", "pare" e "stop"; `looks_like_report` responde "Relatório recebido!" a "vou mandar o relatório amanhã" e troca números no formato em linhas | `domain/consent.py`, `domain/report.py` | 2 |
 | L1 | UV e Capacitação são placeholders; Enviar é só leitura | frontend | 5 |
 | L2 | Apenas OpenAI como provedor do agente | `AgenteScreen.tsx` | 5 |

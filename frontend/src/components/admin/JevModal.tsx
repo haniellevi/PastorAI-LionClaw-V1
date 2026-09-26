@@ -190,7 +190,7 @@ export function JevModal({ token, onClose, onExpired }: JevModalProps) {
 
       {teste ? (
         <div
-          className="error-banner"
+          className="info-banner"
           role="status"
           style={{
             background: "var(--accent-soft)",

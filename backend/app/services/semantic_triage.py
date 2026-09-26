@@ -21,12 +21,11 @@ Contrato do modo sombra:
   * qualquer falha (rede, timeout, resposta inesperada) vira `None` — o turno
     do agente nunca depende deste módulo.
 
-Ainda não está ligado ao turno: `app/config.py`, `app/agent/runtime.py` e
-`app/workers/queue_worker.py` estão congelados pelo gate offline D3
-(`tests/test_d2b2b2_decision_packet_docs.py`). Por isso a configuração vive
-aqui, e a integração é uma única chamada a `log_shadow_triage` no runtime,
-logo após os eventos do turno serem auditados e antes do retorno de handoff —
-a ser feita somente quando esse gate for revisado.
+Ainda não está ligado ao turno. O gate D3 (testes de hash) foi removido na
+Fase 0 do plano MVP; a ligação segue a trilha Jev de
+`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`: avaliação offline primeiro
+(`scripts/jev_eval.py`), depois sombra chamada fora da transação do turno,
+só com DPA e termo LGPD atualizados.
 """
 
 from __future__ import annotations

@@ -114,34 +114,21 @@ console exigiria uma tabela global, que o contrato de migration v1 recusa
   mensagens reais, que depende do DPA. Os limites de decisão continuam por
   definir.
 
-## Integração pendente (gate D3)
+## Integração pendente
 
-`app/config.py`, `app/agent/runtime.py` e `app/workers/queue_worker.py` estão
-congelados por hash em `backend/tests/test_d2b2b2_decision_packet_docs.py`.
-Por isso a configuração fica em `TriageSettings`, dentro do próprio módulo,
-e o runtime ainda não chama o módulo.
+Atualizado em 2026-09-26. O gate D3 (testes de hash sobre `config.py`,
+`runtime.py` e `queue_worker.py`) foi removido na Fase 0 do plano MVP
+(commit `adb6b6e`), então a integração não depende mais dele. Ela segue a
+trilha Jev de `docs/ops/MVP-PLANO-SIMPLIFICACAO.md`:
 
-A integração é uma única chamada em `process_inbound_message`, depois que os
-eventos do turno são auditados e antes do retorno de handoff:
-
-```python
-semantic_triage.log_shadow_triage(
-    session, igreja_id=igreja_id, conversation_id=conv_uuid,
-    context=context, texto=texto, route=route,
-)
-```
-
-Essa chamada só entra quando o gate D3 for revisado e os pins atualizados por
-decisão explícita. **Resolver antes de ligar:** hoje seria uma chamada HTTP
-síncrona de cerca de 0,9 s, com timeout de até 2 s, dentro da transação
-Postgres do turno. O desenho da integração deve avaliar fazer a chamada fora
-da transação ou por fila.
-
-## Próximos passos
-
-1. Resolver DPA/base legal e obter revisão.
-2. Revisar o gate D3 e ligar a chamada no runtime.
-3. Rodar em sombra para uma igreja piloto e comparar `routeRegras` com as
-   respostas do Jev. Escolher os limites com base nesses dados.
-4. Só então promover sinais específicos, começando por `risco_pastoral` →
-   handoff, e cada um com seu próprio gate.
+1. **J0, avaliação offline** (`backend/scripts/jev_eval.py`): corpus
+   sintético pt-BR rotulado, comparação com as regras atuais, latência e
+   custo. Os critérios de GO saem no próprio relatório.
+2. **J1, sombra na igreja piloto**: só com J0 = GO, DPA, termo LGPD que cite
+   IA e processador estrangeiro e backend de produção atualizado. A chamada
+   acontece depois do envio da resposta, em transação própria, nunca dentro
+   da transação do turno. Versão do modelo fixada e custo em
+   `ai_usage_logs`.
+3. **J2, sinais ativos na Fase 2**: um por vez, cada um com flag própria e
+   comportamento definido para quando o Jev estiver indisponível (por
+   exemplo, sem Jev não se marca CSIM, porque isso silencia o contato).
