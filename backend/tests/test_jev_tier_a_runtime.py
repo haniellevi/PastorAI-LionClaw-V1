@@ -70,6 +70,17 @@ def _no_existing_tier_a_reply_intent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(queue_worker, "_reserve_agent_reply_intent", reserve)
 
 
+def _enable_tier_a(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt one focused wiring test into the synthetic release deliberately."""
+
+    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    monkeypatch.setattr(
+        semantic_triage,
+        "TIER_A_APPROVED_RELEASE_ID",
+        "synthetic-release",
+    )
+
+
 def _plan(*, within_limit: bool = True) -> runtime.AgentTurnPlan:
     return runtime.AgentTurnPlan(
         igreja_id=_IGREJA_ID,
@@ -132,9 +143,37 @@ def _active_settings() -> semantic_triage.TriageSettings:
     )
 
 
+def test_tier_a_flag_without_approved_release_keeps_legacy_path(monkeypatch) -> None:
+    """A populated allowlist alone must not convert legacy turns to handoffs."""
+
+    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    monkeypatch.setattr(semantic_triage, "TIER_A_APPROVED_RELEASE_ID", None)
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("Tier A inerte não pode preparar o turno")
+        ),
+    )
+
+    assert (
+        queue_worker._run_active_tier_a_turn(
+            lambda: _Session(),
+            lambda: _Session(),
+            _outcome(),
+            igreja_id=_IGREJA_ID,
+            turn_identity=None,
+            uses_dedicated_agent_session=False,
+            ownership_guard=None,
+            evolution_client=object(),
+        )
+        is None
+    )
+
+
 def test_active_tier_a_rejects_long_input_before_platform_or_provider(monkeypatch) -> None:
     handoffs: list[dict[str, object]] = []
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,
@@ -203,7 +242,7 @@ def test_active_tier_a_runs_jev_and_typed_llm_without_open_session_or_lease(
         erro=None,
         latencia_ms=1,
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,
@@ -265,6 +304,240 @@ def test_active_tier_a_runs_jev_and_typed_llm_without_open_session_or_lease(
     assert observed == ["jev", "llm", "durable", "apply"]
 
 
+@pytest.mark.parametrize(
+    ("semantic_handoff", "expected_outcome", "expected_error"),
+    (
+        (True, "handoff", None),
+        (False, "falha", "llm_falha"),
+    ),
+    ids=("semantic_handoff", "adapter_failure"),
+)
+def test_typed_llm_handoff_records_effective_outcome_without_rewriting_jev(
+    monkeypatch,
+    semantic_handoff: bool,
+    expected_outcome: str,
+    expected_error: str | None,
+) -> None:
+    """The handoff audit keeps Jev's signals and records the LLM's own result."""
+
+    captured: list[dict[str, object]] = []
+    usage = SimpleNamespace(
+        modelo="gpt-5.6-luna",
+        tokens_in=7,
+        tokens_out=3,
+        custo=0.01,
+    )
+    decision = semantic_triage.TierADecision(
+        risco_crise=False,
+        pede_humano=False,
+        pede_optout=False,
+        handoff=False,
+        erro=None,
+        latencia_ms=1,
+    )
+    _enable_tier_a(monkeypatch)
+    monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda *_a, **kwargs: (
+            SimpleNamespace(reason=None, preflight=_preflight())
+            if kwargs.get("tier_a_preflight")
+            else SimpleNamespace(reason=None, plan=_plan())
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_tier_a_effective_settings",
+        lambda *_a: SimpleNamespace(settings=_active_settings()),
+    )
+    monkeypatch.setattr(semantic_triage, "tier_a_egress_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(queue_worker, "_tier_a_egress_still_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(queue_worker, "_run_tier_a_batch", lambda *_a: decision)
+    monkeypatch.setattr(
+        runtime,
+        "reply_tier_a_plan_with_llm",
+        lambda *_a, **_k: (
+            SimpleNamespace(handoff=True, resposta=None, usage=usage)
+            if semantic_handoff
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_persist_tier_a_handoff",
+        lambda *_a, **kwargs: captured.append(kwargs)
+        or queue_worker.AgentRunDisposition.COMPLETED,
+    )
+
+    result = queue_worker._run_active_tier_a_turn(
+        lambda: _Session(),
+        lambda: _Session(),
+        _outcome(),
+        igreja_id=_IGREJA_ID,
+        turn_identity=None,
+        uses_dedicated_agent_session=False,
+        ownership_guard=None,
+        evolution_client=object(),
+    )
+
+    assert result is queue_worker.AgentRunDisposition.COMPLETED
+    assert len(captured) == 1
+    payload = captured[0]["decision_payload"]
+    assert payload["handoff"] is False
+    assert payload["erro"] is None
+    assert payload["llm_outcome"] == expected_outcome
+    assert payload["llm_erro"] == expected_error
+    assert payload["llm_handoff"] is (True if semantic_handoff else None)
+    assert captured[0]["usage"] is (usage if semantic_handoff else None)
+
+
+def test_typed_llm_success_records_effective_outcome(monkeypatch) -> None:
+    """A normal typed response remains auditable as an LLM response."""
+
+    captured: list[dict[str, object]] = []
+    decision = semantic_triage.TierADecision(
+        risco_crise=False,
+        pede_humano=False,
+        pede_optout=False,
+        handoff=False,
+        erro=None,
+        latencia_ms=1,
+    )
+    _enable_tier_a(monkeypatch)
+    monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda *_a, **kwargs: (
+            SimpleNamespace(reason=None, preflight=_preflight())
+            if kwargs.get("tier_a_preflight")
+            else SimpleNamespace(reason=None, plan=_plan())
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_tier_a_effective_settings",
+        lambda *_a: SimpleNamespace(settings=_active_settings()),
+    )
+    monkeypatch.setattr(semantic_triage, "tier_a_egress_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(queue_worker, "_tier_a_egress_still_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(queue_worker, "_run_tier_a_batch", lambda *_a: decision)
+    monkeypatch.setattr(
+        runtime,
+        "reply_tier_a_plan_with_llm",
+        lambda *_a, **_k: SimpleNamespace(
+            handoff=False,
+            resposta="resposta sintética",
+            usage=None,
+        ),
+    )
+    def complete(*_args: object, **kwargs: object) -> queue_worker.AgentRunDisposition:
+        kwargs["apply"](object())
+        return queue_worker.AgentRunDisposition.COMPLETED
+
+    monkeypatch.setattr(queue_worker, "_complete_tier_a_reply_intent", complete)
+    monkeypatch.setattr(
+        runtime,
+        "apply_agent_turn_plan",
+        lambda _session, **kwargs: captured.append(kwargs)
+        or SimpleNamespace(handled=True, suppressed=False, response="resposta sintética"),
+    )
+
+    result = queue_worker._run_active_tier_a_turn(
+        lambda: _Session(),
+        lambda: _Session(),
+        _outcome(),
+        igreja_id=_IGREJA_ID,
+        turn_identity=None,
+        uses_dedicated_agent_session=False,
+        ownership_guard=None,
+        evolution_client=object(),
+    )
+
+    assert result is queue_worker.AgentRunDisposition.COMPLETED
+    assert len(captured) == 1
+    decision_payload = captured[0]["decision_payload"]
+    assert decision_payload["llm_outcome"] == "resposta"
+    assert decision_payload["llm_erro"] is None
+    assert decision_payload["llm_handoff"] is False
+
+
+def test_typed_llm_budget_exhaustion_is_audited_without_a_call(monkeypatch) -> None:
+    """A spent wall budget is distinct from a failed LLM invocation."""
+
+    captured: list[dict[str, object]] = []
+    decision = semantic_triage.TierADecision(
+        risco_crise=False,
+        pede_humano=False,
+        pede_optout=False,
+        handoff=False,
+        erro=None,
+        latencia_ms=1,
+    )
+
+    class ExpiredBeforeLlm:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def external_timeout(self, _cap: float) -> float | None:
+            self.calls += 1
+            return 1.0 if self.calls == 1 else None
+
+    _enable_tier_a(monkeypatch)
+    monkeypatch.setattr(queue_worker, "TurnBudget", ExpiredBeforeLlm)
+    monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda *_a, **kwargs: (
+            SimpleNamespace(reason=None, preflight=_preflight())
+            if kwargs.get("tier_a_preflight")
+            else SimpleNamespace(reason=None, plan=_plan())
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_tier_a_effective_settings",
+        lambda *_a: SimpleNamespace(settings=_active_settings()),
+    )
+    monkeypatch.setattr(semantic_triage, "tier_a_egress_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(queue_worker, "_tier_a_egress_still_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(queue_worker, "_run_tier_a_batch", lambda *_a: decision)
+    monkeypatch.setattr(
+        runtime,
+        "reply_tier_a_plan_with_llm",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("orçamento esgotado não pode chamar LLM")
+        ),
+    )
+    monkeypatch.setattr(
+        queue_worker,
+        "_persist_tier_a_handoff",
+        lambda *_a, **kwargs: captured.append(kwargs)
+        or queue_worker.AgentRunDisposition.COMPLETED,
+    )
+
+    result = queue_worker._run_active_tier_a_turn(
+        lambda: _Session(),
+        lambda: _Session(),
+        _outcome(),
+        igreja_id=_IGREJA_ID,
+        turn_identity=None,
+        uses_dedicated_agent_session=False,
+        ownership_guard=None,
+        evolution_client=object(),
+    )
+
+    assert result is queue_worker.AgentRunDisposition.COMPLETED
+    payload = captured[0]["decision_payload"]
+    assert payload["handoff"] is False
+    assert payload["erro"] is None
+    assert payload["llm_outcome"] == "nao_chamado"
+    assert payload["llm_erro"] == "orcamento_esgotado"
+    assert payload["llm_handoff"] is None
+
+
 def test_tier_a_gate_revoked_after_jev_handoffs_before_llm(monkeypatch) -> None:
     """A platform revocation after Jev blocks the old turn before LLM work."""
 
@@ -277,7 +550,7 @@ def test_tier_a_gate_revoked_after_jev_handoffs_before_llm(monkeypatch) -> None:
         erro=None,
         latencia_ms=1,
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,
@@ -327,10 +600,21 @@ def test_tier_a_gate_revoked_after_jev_handoffs_before_llm(monkeypatch) -> None:
     assert observed == ["jev", "gate_fechado"]
 
 
-def test_tier_a_gate_revoked_after_llm_never_applies_stale_reply(monkeypatch) -> None:
-    """A second platform read fences a response produced before revocation."""
+@pytest.mark.parametrize("semantic_handoff", (True, False))
+def test_tier_a_gate_revoked_after_llm_keeps_typed_usage_and_outcome(
+    monkeypatch,
+    semantic_handoff: bool,
+) -> None:
+    """A revocation fences effects without discarding the completed LLM result."""
 
     observed: list[str] = []
+    captured: list[dict[str, object]] = []
+    usage = SimpleNamespace(
+        modelo="gpt-5.6-luna",
+        tokens_in=7,
+        tokens_out=3,
+        custo=0.01,
+    )
     decision = semantic_triage.TierADecision(
         risco_crise=False,
         pede_humano=False,
@@ -340,7 +624,7 @@ def test_tier_a_gate_revoked_after_llm_never_applies_stale_reply(monkeypatch) ->
         latencia_ms=1,
     )
     allowed = iter((True, True, False))
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,
@@ -367,7 +651,11 @@ def test_tier_a_gate_revoked_after_llm_never_applies_stale_reply(monkeypatch) ->
         runtime,
         "reply_tier_a_plan_with_llm",
         lambda *_a, **_k: observed.append("llm")
-        or SimpleNamespace(handoff=False, resposta="resposta sintética", usage=None),
+        or SimpleNamespace(
+            handoff=semantic_handoff,
+            resposta=None if semantic_handoff else "resposta sintética",
+            usage=usage,
+        ),
     )
     monkeypatch.setattr(
         queue_worker,
@@ -379,7 +667,7 @@ def test_tier_a_gate_revoked_after_llm_never_applies_stale_reply(monkeypatch) ->
     monkeypatch.setattr(
         queue_worker,
         "_persist_tier_a_handoff",
-        lambda *_a, **kwargs: observed.append(kwargs["decision_payload"]["erro"])
+        lambda *_a, **kwargs: captured.append(kwargs)
         or queue_worker.AgentRunDisposition.COMPLETED,
     )
 
@@ -395,7 +683,16 @@ def test_tier_a_gate_revoked_after_llm_never_applies_stale_reply(monkeypatch) ->
     )
 
     assert result is queue_worker.AgentRunDisposition.COMPLETED
-    assert observed == ["llm", "gate_fechado"]
+    assert observed == ["llm"]
+    assert len(captured) == 1
+    payload = captured[0]["decision_payload"]
+    assert payload["handoff"] is False
+    assert payload["erro"] is None
+    assert payload["llm_outcome"] == ("handoff" if semantic_handoff else "resposta")
+    assert payload["llm_erro"] is None
+    assert payload["llm_handoff"] is semantic_handoff
+    assert payload["effect_erro"] == "gate_fechado"
+    assert captured[0]["usage"] is usage
 
 
 def test_typed_llm_receives_bounded_context_and_only_handoff_envelope(monkeypatch) -> None:
@@ -432,7 +729,7 @@ def test_typed_llm_receives_bounded_context_and_only_handoff_envelope(monkeypatc
 
 def test_active_non_onboarding_turn_handoffs_before_legacy_effects(monkeypatch) -> None:
     handoffs: list[dict[str, object]] = []
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,
@@ -484,7 +781,7 @@ def test_active_non_onboarding_turn_handoffs_before_legacy_effects(monkeypatch) 
 
 def test_listed_bad_transport_config_handoffs_instead_of_legacy(monkeypatch) -> None:
     handoffs: list[dict[str, object]] = []
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,
@@ -544,7 +841,7 @@ def test_tier_a_terminal_tombstone_skips_retriage_and_transport(monkeypatch) -> 
     """A retry sees the inbound's terminal fence before Jev, LLM or delivery."""
 
     calls: list[str] = []
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(
         queue_worker,
         "_load_agent_reply_intent",
@@ -605,7 +902,7 @@ def test_optout_confirmation_source_marker_recovers_without_retriaging(monkeypat
         response="Confirmação sintética",
         provider_message_id=confirmation_key,
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
 
     def load_intent(*_args, **kwargs):
         key = kwargs["intent_provider_message_id"]
@@ -650,7 +947,7 @@ def test_pending_tier_a_reply_retries_transport_without_retriage(monkeypatch) ->
 
     observed: list[object] = []
     outcome = _outcome()
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_AgentExecutionLease", lambda *_args: _Lease())
     monkeypatch.setattr(
         queue_worker,
@@ -700,7 +997,7 @@ def test_reserved_tier_a_reply_keeps_legacy_recovery_path(monkeypatch) -> None:
         response="",
         provider_message_id="agent-reply:synthetic",
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(queue_worker, "_load_agent_reply_intent", lambda *_a, **_k: reserved)
     monkeypatch.setattr(
@@ -763,7 +1060,7 @@ def test_executing_tier_a_reply_is_quarantined_without_retriage(monkeypatch) -> 
         response="",
         provider_message_id="agent-reply:synthetic",
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_AgentExecutionLease", lambda *_args: _Lease())
     monkeypatch.setattr(queue_worker, "_load_agent_reply_intent", lambda *_a, **_k: executing)
     monkeypatch.setattr(
@@ -803,7 +1100,7 @@ def test_live_execution_lease_keeps_tier_a_intent_in_flight(monkeypatch) -> None
         response="",
         provider_message_id="agent-reply:synthetic",
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_load_agent_reply_intent", lambda *_a, **_k: executing)
     monkeypatch.setattr(queue_worker, "_AgentExecutionLease", lambda *_args: _Lease(False))
     monkeypatch.setattr(
@@ -861,7 +1158,7 @@ def test_pending_confirmation_from_another_turn_cannot_bypass_current_triage(
         erro=None,
         latencia_ms=1,
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
 
     def load_intent(*_args, **kwargs):
@@ -949,7 +1246,7 @@ def test_probable_optout_precedes_a_public_info_reply(monkeypatch) -> None:
         erro=None,
         latencia_ms=1,
     )
-    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
     monkeypatch.setattr(
         runtime,

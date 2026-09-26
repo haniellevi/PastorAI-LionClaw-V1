@@ -1197,6 +1197,7 @@ def persist_tier_a_handoff(
     plan: TierATurnPreflight,
     decision_payload: dict[str, Any],
     reply_provider_message_id: str | None = None,
+    usage: object | None = None,
     ownership_guard: Callable[[], None] | None = None,
 ) -> AgentTurnResult:
     """Persist a fail-safe Tier A handoff with only typed diagnostic fields."""
@@ -1282,6 +1283,13 @@ def persist_tier_a_handoff(
         ownership_guard=ownership_guard,
     ) is None:
         return AgentTurnResult(handled=False, reason="conversation_not_found")
+    if usage is not None:
+        log_ai_usage(
+            session,
+            igreja_id=plan.igreja_id,
+            usage=usage,
+            ferramenta=ROUTE_ONBOARDING,
+        )
     log_agent_event(
         session,
         igreja_id=plan.igreja_id,

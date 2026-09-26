@@ -51,6 +51,7 @@ from sqlalchemy.orm import sessionmaker
 import app.db.session  # noqa: F401 - registra o listener after_begin (paridade prod)
 from app.agent import runtime as runtime_module
 from app.db.models import (
+    AiUsageLog,
     Base,
     AgentConfig,
     ConsentRecord,
@@ -68,6 +69,7 @@ from app.domain.phone import normalize_phone
 from app.routers._common import PaginationParams
 from app.routers.conversations import list_messages
 from app.services import semantic_triage
+from app.services.llm import LLMUsage
 from app.workers.queue_worker import (
     IngestionResult,
     QueueWorker,
@@ -1160,6 +1162,100 @@ def test_tier_a_handoff_tombstone_survives_ia_release_without_retriage(
     assert evolution.calls == []
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia_suprimida"]
     assert _agent_reply_states(factory, _IGREJA_B) == ["ia_pendente"]
+
+
+def test_tier_a_semantic_handoff_usage_is_logged_once_with_source_fence(
+    msg_engine_fx: Engine,
+) -> None:
+    """A retry cannot duplicate billing usage after the handoff source is fenced."""
+
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    conversation_id, pessoa_id, inbound_message_id = _seed_tier_a_handoff_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        provider_message_id="TIER-A-LLM-HANDOFF-USAGE",
+    )
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="TIER-A-LLM-HANDOFF-USAGE",
+        claim_id="tier-a-llm-handoff-usage",
+        inbound_message_id=inbound_message_id,
+    )
+    plan = runtime_module.TierATurnPreflight(
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        pessoa_id=pessoa_id,
+        inbound_message_id=inbound_message_id,
+        provider_message_id="TIER-A-LLM-HANDOFF-USAGE",
+        current_text="mensagem sintética",
+        tier_a_input_within_limit=True,
+        config_id=uuid.uuid4(),
+        config_comportamento="perfil sintético",
+        credential_id=uuid.uuid4(),
+        credential_provedor="synthetic",
+        credential_model="synthetic",
+        credential_key_encrypted="synthetic",
+        accepted_consent_version="synthetic-v1",
+        term_version="synthetic-v1",
+    )
+    usage = LLMUsage(
+        modelo="gpt-5.6-luna",
+        tokens_in=7,
+        tokens_out=3,
+        custo=0.01,
+    )
+    decision_payload = {
+        "risco_crise": False,
+        "pede_humano": False,
+        "pede_optout": False,
+        "handoff": False,
+        "erro": None,
+        "latencia_ms": 1,
+        "llm_outcome": "handoff",
+        "llm_erro": None,
+        "llm_handoff": True,
+    }
+
+    for _ in range(2):
+        assert (
+            worker_module._persist_tier_a_handoff(
+                factory,
+                outcome,
+                uses_dedicated_agent_session=False,
+                plan=plan,
+                decision_payload=decision_payload,
+                usage=usage,
+                ownership_guard=None,
+            )
+            is worker_module.AgentRunDisposition.COMPLETED
+        )
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        logs = list(
+            session.execute(
+                select(AiUsageLog).where(AiUsageLog.igreja_id == _IGREJA_A)
+            ).scalars()
+        )
+        assert len(logs) == 1
+        assert (logs[0].modelo, logs[0].tokens_in, logs[0].tokens_out) == (
+            "gpt-5.6-luna",
+            7,
+            3,
+        )
+        source = session.execute(
+            select(Message.agent_reply_state).where(
+                Message.igreja_id == _IGREJA_A,
+                Message.conversation_id == conversation_id,
+                Message.provider_message_id
+                == worker_module._agent_reply_idempotency_key(outcome),
+            )
+        ).scalar_one()
+        assert source == worker_module._AGENT_REPLY_SUPPRESSED
+    finally:
+        session.close()
 
 
 def test_tier_a_optout_confirmation_recovers_once_without_retriaging_source(

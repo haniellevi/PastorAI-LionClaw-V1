@@ -75,6 +75,12 @@ def test_tier_a_request_has_exactly_three_public_noul_ids() -> None:
     assert "aceita_termo" not in request["questions"]
 
 
+def test_tier_a_request_uses_neutral_channel_metadata() -> None:
+    request = _required("build_tier_a_request")("mensagem sintética", model="m")
+
+    assert request["state"]["canal"] == "whatsapp_atendimento"
+
+
 def test_tier_a_turns_three_negative_nouls_into_continue() -> None:
     parse = _required("parse_tier_a_response")
 
@@ -210,6 +216,17 @@ def test_active_allowlist_is_strict_and_independent_from_shadow() -> None:
     assert enabled_for(shadow_only, _IGREJA_ID) is False
     assert enabled_for(invalid, _IGREJA_ID) is False
     assert enabled_for(_settings(), _OUTRA_IGREJA_ID) is False
+
+
+def test_tier_a_environment_flag_requires_approved_release(monkeypatch) -> None:
+    enabled_from_environment = _required("tier_a_enabled_from_environment")
+    monkeypatch.setenv("JEV_ENABLED_IGREJA_IDS", str(_IGREJA_ID))
+    monkeypatch.setattr(jev_triage, "TIER_A_APPROVED_RELEASE_ID", None)
+
+    assert enabled_from_environment(_IGREJA_ID) is False
+
+    monkeypatch.setattr(jev_triage, "TIER_A_APPROVED_RELEASE_ID", "synthetic-release")
+    assert enabled_from_environment(_IGREJA_ID) is True
 
 
 def test_tier_a_optout_confirmation_key_is_per_tenant_and_conversation() -> None:

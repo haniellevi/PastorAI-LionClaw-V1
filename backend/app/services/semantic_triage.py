@@ -359,7 +359,11 @@ def tier_a_enabled_from_environment(igreja_id: uuid.UUID) -> bool:
     """
 
     allowed = _parse_active_allowlist(os.environ.get("JEV_ENABLED_IGREJA_IDS", ""))
-    return allowed is not None and igreja_id in allowed
+    return (
+        TIER_A_APPROVED_RELEASE_ID is not None
+        and allowed is not None
+        and igreja_id in allowed
+    )
 
 
 def tier_a_optout_confirmation_key(
@@ -402,7 +406,7 @@ def build_tier_a_request(texto: str, *, model: str) -> dict[str, Any]:
     return {
         "state": {
             "mensagem": redact_for_egress(texto),
-            "canal": "WhatsApp oficial de uma igreja evangélica",
+            "canal": "whatsapp_atendimento",
         },
         "model": model,
         "questions": {
@@ -608,7 +612,7 @@ def build_request(
     """
     state = {
         "mensagem": redact_for_egress(texto),
-        "canal": "WhatsApp oficial de uma igreja evangélica",
+        "canal": "whatsapp_atendimento",
         "remetente_e_lider_ou_pastor": remetente_ministerial,
     }
     questions: dict[str, Any] = {

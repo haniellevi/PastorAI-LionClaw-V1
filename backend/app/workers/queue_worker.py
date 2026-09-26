@@ -3285,11 +3285,31 @@ def _typed_llm_reply(value: object) -> tuple[bool, str | None, object | None] | 
     if type(handoff) is not bool:
         return None
     if handoff:
-        return True, None, None
+        return True, None, getattr(value, "usage", None)
     resposta = getattr(value, "resposta", None)
     if not isinstance(resposta, str) or not resposta.strip():
         return None
     return False, resposta.strip()[:1600], getattr(value, "usage", None)
+
+
+def _tier_a_payload_with_llm_outcome(
+    decision_payload: dict[str, Any],
+    *,
+    outcome: str,
+    erro: str | None,
+    handoff: bool | None,
+) -> dict[str, Any]:
+    """Add the fixed LLM result without rewriting Jev's typed signals."""
+
+    payload = dict(decision_payload)
+    payload.update(
+        {
+            "llm_outcome": outcome,
+            "llm_erro": erro,
+            "llm_handoff": handoff,
+        }
+    )
+    return payload
 
 
 def _complete_tier_a_reply_intent(
@@ -3401,6 +3421,7 @@ def _persist_tier_a_handoff(
     uses_dedicated_agent_session: bool,
     plan: Any,
     decision_payload: dict[str, Any],
+    usage: object | None = None,
     ownership_guard: ClaimGuard | None,
 ) -> AgentRunDisposition:
     """Persist a decision after external planning in a new short tenant session."""
@@ -3419,6 +3440,7 @@ def _persist_tier_a_handoff(
             plan=plan,
             decision_payload=decision_payload,
             reply_provider_message_id=_agent_reply_idempotency_key(outcome),
+            usage=usage,
             ownership_guard=ownership_guard,
         )
     finally:
@@ -3856,7 +3878,12 @@ def _run_active_tier_a_turn(
             outcome,
             uses_dedicated_agent_session=uses_dedicated_agent_session,
             plan=plan,
-            decision_payload=decision_payload,
+            decision_payload=_tier_a_payload_with_llm_outcome(
+                decision_payload,
+                outcome="nao_chamado",
+                erro="orcamento_esgotado",
+                handoff=None,
+            ),
             ownership_guard=ownership_guard,
         )
     if ownership_guard is not None:
@@ -3864,6 +3891,22 @@ def _run_active_tier_a_turn(
     typed = _typed_llm_reply(
         reply_tier_a_plan_with_llm(plan, timeout_seconds=llm_timeout)
     )
+    if typed is None:
+        llm_payload = _tier_a_payload_with_llm_outcome(
+            decision_payload,
+            outcome="falha",
+            erro="llm_falha",
+            handoff=None,
+        )
+        llm_usage = None
+    else:
+        llm_handoff, response, llm_usage = typed
+        llm_payload = _tier_a_payload_with_llm_outcome(
+            decision_payload,
+            outcome="handoff" if llm_handoff else "resposta",
+            erro=None,
+            handoff=llm_handoff,
+        )
     if ownership_guard is not None:
         ownership_guard()
     if current_reply_was_fenced():
@@ -3875,14 +3918,15 @@ def _run_active_tier_a_turn(
     ):
         if current_reply_was_fenced():
             return AgentRunDisposition.COMPLETED
+        gate_closed_payload = dict(llm_payload)
+        gate_closed_payload["effect_erro"] = "gate_fechado"
         return _persist_tier_a_handoff(
             runtime_session_factory,
             outcome,
             uses_dedicated_agent_session=uses_dedicated_agent_session,
             plan=plan,
-            decision_payload=_tier_a_failure(
-                TierAError.GATE_FECHADO
-            ).to_log_payload(),
+            decision_payload=gate_closed_payload,
+            usage=llm_usage,
             ownership_guard=ownership_guard,
         )
     if typed is None or typed[0]:
@@ -3893,10 +3937,10 @@ def _run_active_tier_a_turn(
             outcome,
             uses_dedicated_agent_session=uses_dedicated_agent_session,
             plan=plan,
-            decision_payload=decision_payload,
+            decision_payload=llm_payload,
+            usage=llm_usage,
             ownership_guard=ownership_guard,
         )
-    _handoff, response, usage = typed
     return _complete_tier_a_reply_intent(
         session_factory,
         outcome,
@@ -3907,8 +3951,8 @@ def _run_active_tier_a_turn(
             session,
             plan=plan,
             response=response,
-            usage=usage,
-            decision_payload=decision_payload,
+            usage=llm_usage,
+            decision_payload=llm_payload,
         ),
         ownership_guard=ownership_guard,
         evolution_client=evolution_client,

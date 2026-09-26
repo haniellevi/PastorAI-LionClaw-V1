@@ -6,6 +6,11 @@ alarme, latência, taxa de erro ou veredito operacional medido. O comando
 `python backend/scripts/jev_tier_a_eval.py --split dev` confirmou apenas o
 contrato congelado e retornou `NÃO AFERIDO`.
 
+No registro LGPD, o campo de canal enviado ao TypeSafe, tanto no Tier A quanto
+no modo sombra, passa a ser o rótulo neutro `whatsapp_atendimento`. A mensagem
+ainda pode conter dado sensível depois da redação parcial; esse rótulo não
+substitui DPA nem os gates de egressão.
+
 O manifesto `jev_tier_a_manifest_v1.json` tem SHA-256
 `e43e670492bd4b2a349fabe34d14c6f7f54a95c0428d156b0c85b830d292fa2b`.
 O dev tem 120 frases e 24 famílias (SHA-256
