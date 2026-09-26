@@ -9,6 +9,7 @@ import {
   fetchIgrejaConsentGovernance,
   fetchJevStatus,
   initializeIgrejaConsentGovernance,
+  saveJevConfig,
   testJev,
   updateIgrejaConsentGovernancePurpose,
 } from "./admin-api";
@@ -172,6 +173,60 @@ describe("triagem Jev", () => {
       status: 404,
       message: DESATUALIZADO,
     });
+  });
+
+  it("salva a configuração com PUT e corpo JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ configurado: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const input = {
+      apiKey: "tsk-nova",
+      modelo: "jev-1.13",
+      timeoutSegundos: 1.5,
+      dpaAssinadoEm: "2026-09-20",
+      igrejaIds: ["i1"],
+    };
+
+    await expect(saveJevConfig("token", input)).resolves.toMatchObject({ configurado: true });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/admin\/jev\/config$/);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual(input);
+  });
+
+  it("mostra a regra do backend quando a configuração é recusada", async () => {
+    mockResponse(422, {
+      detail: "Informe a data do DPA com a TypeSafe antes de listar igrejas.",
+    });
+
+    await expect(
+      saveJevConfig("token", {
+        modelo: null,
+        timeoutSegundos: null,
+        dpaAssinadoEm: null,
+        igrejaIds: ["i1"],
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      message: "Informe a data do DPA com a TypeSafe antes de listar igrejas.",
+    });
+  });
+
+  it("aponta backend desatualizado ao salvar num backend sem a rota", async () => {
+    mockResponse(404, { detail: "Not Found" });
+
+    await expect(
+      saveJevConfig("token", {
+        modelo: null,
+        timeoutSegundos: null,
+        dpaAssinadoEm: null,
+        igrejaIds: [],
+      }),
+    ).rejects.toMatchObject({ status: 404, message: DESATUALIZADO });
   });
 
   it("preserva o detalhe do backend nas recusas do teste", async () => {

@@ -84,13 +84,21 @@ chave está configurada (sem devolvê-la, nem parcialmente), o modelo, o timeout
 e as igrejas da lista, com seus nomes, além do estado de `ALLOW_REAL_SENDS`.
 O teste de conexão envia só uma mensagem sintética fixa, respeita o guard,
 tem limite de 10 por janela por operador e grava `jev_testar` em
-`platform_audit_logs`, sem o e-mail do operador. As configurações ficam em
-cache no processo, então uma mudança no `.env` só vale depois de reiniciar o
-backend.
+`platform_audit_logs`, sem o e-mail do operador.
 
-A chave e a lista continuam no ambiente de deploy. Gravar esse segredo pelo
-console exigiria uma tabela global, que o contrato de migration v1 recusa
-(`GLOBAL` falha fechado), e a aplicação de migrations está bloqueada.
+Atualizado em 2026-09-26: com o processo simples de migration, o master passou
+a configurar pelo console (`PUT /admin/jev/config`) a chave, o modelo, o
+timeout, a data do DPA e as igrejas. A tabela `platform_jev_settings` tem
+linha única e fica fechada para `anon` e `authenticated`, como
+`platform_orchestrator`. A chave é cifrada com `services/crypto.py` e nunca
+volta, nem em parte. O banco recusa igreja listada sem data de DPA. Campo vazio
+cai no ambiente, e a mudança vale na hora, sem reiniciar. Cada gravação fica em
+`jev_configurar` na auditoria, sem a chave. `ALLOW_REAL_SENDS` e a URL da API
+continuam só no ambiente: editável pelo console, a URL poderia desviar a chave
+para outro servidor. Sem a tabela, antes da migration `20260926_120446`, o
+console mostra só o ambiente e salvar responde 409. O runtime do J1 deve ler
+essa configuração numa sessão de plataforma: a sessão com escopo de tenant
+roda como `authenticated`, que não lê a tabela.
 
 ### Evidência de calibração (sanitizada)
 

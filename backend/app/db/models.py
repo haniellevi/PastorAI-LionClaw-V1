@@ -2815,6 +2815,40 @@ class PlatformOrchestrator(Base):
     )
 
 
+class PlatformJevSettings(Base):
+    """Configuração da triagem Jev editada no Console da Plataforma.
+
+    Linha única (``id=1``), plano de plataforma sem igreja_id: só service role
+    (migration 20260926_120446). A chave fica cifrada (``services/crypto.py``) e
+    nunca é devolvida; campo nulo cai no valor do ambiente. ``igreja_ids`` não
+    tem FK: id de igreja excluída aparece como "não encontrada" no console.
+    """
+
+    __tablename__ = "platform_jev_settings"
+
+    id: Mapped[int] = mapped_column(
+        SmallInteger, primary_key=True, server_default=text("1")
+    )
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    api_key_updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    modelo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timeout_seconds: Mapped[float | None] = mapped_column(
+        Numeric(4, 1), nullable=True
+    )
+    igreja_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'")
+    )
+    dpa_assinado_em: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+
 class E4bConsentOperation(Base):
     """Registro confirmado e imutável da operação E4b, ainda sem caller."""
 
