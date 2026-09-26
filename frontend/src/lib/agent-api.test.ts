@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  fetchPublicAgentProfile,
   fetchLlmModels,
   saveCredential,
+  savePublicAgentProfile,
   updateLlmModel,
 } from "./agent-api";
 import { ApiError } from "./dashboard-api";
@@ -111,5 +113,47 @@ describe("persistência da escolha por tenant", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(422);
     expect((error as ApiError).message).toContain("não possui acesso");
+  });
+});
+
+describe("perfil público da igreja", () => {
+  it("lê o envelope estruturado da própria sessão", async () => {
+    const profile = {
+      configured: false,
+      informacoesPublicas: { enderecoIgreja: null, horariosCulto: null, celulas: [] },
+    };
+    fetchMock.mockResolvedValue(jsonResponse(profile));
+
+    expect(await fetchPublicAgentProfile("tok")).toEqual(profile);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/agent/public-profile");
+    expect(init.method ?? "GET").toBe("GET");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("substitui só os fatos públicos em camelCase e preserva erro 409", async () => {
+    const facts = {
+      enderecoIgreja: "Rua Exemplo, 100",
+      horariosCulto: "Domingo, 19h",
+      celulas: [{ bairro: "Centro", nome: "Esperança", encontro: null }],
+    };
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ configured: true, informacoesPublicas: facts }),
+    );
+    expect(await savePublicAgentProfile("tok", facts)).toEqual({
+      configured: true,
+      informacoesPublicas: facts,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/agent/public-profile");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual(facts);
+    expect(init.body).not.toContain("comportamento");
+    expect(init.body).not.toContain("ativo");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "Configuração ausente" }, 409));
+    const error = await savePublicAgentProfile("tok", facts).catch((reason) => reason);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(409);
   });
 });

@@ -1003,7 +1003,10 @@ def process_inbound_message(
     # leitura: a âncora inbound define a pergunta e o retorno acontece antes
     # de qualquer intake, ferramenta, auditoria de efeitos ou provedor.
     if has_persisted_inbound_anchor and route == ROUTE_ONBOARDING:
-        public_reply = resolve_public_info_reply(current_text, config.comportamento)
+        public_reply = resolve_public_info_reply(
+            current_text,
+            getattr(config, "informacoes_publicas", None),
+        )
         if public_reply is not None:
             log_agent_event(
                 session,

@@ -114,6 +114,41 @@ export interface AgentConfigStatus {
   ativo: boolean;
 }
 
+export interface PublicAgentProfileFacts {
+  enderecoIgreja: string | null;
+  horariosCulto: string | null;
+  celulas: { bairro: string; nome: string; encontro: string | null }[];
+}
+
+export interface PublicAgentProfile {
+  configured: boolean;
+  informacoesPublicas: PublicAgentProfileFacts;
+}
+
+export async function fetchPublicAgentProfile(token: string): Promise<PublicAgentProfile> {
+  const res = await authedFetch(token, "/agent/public-profile");
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar as informações públicas.");
+  }
+  return (await res.json()) as PublicAgentProfile;
+}
+
+export async function savePublicAgentProfile(
+  token: string,
+  facts: PublicAgentProfileFacts,
+): Promise<PublicAgentProfile> {
+  const res = await authedFetch(token, "/agent/public-profile", {
+    method: "PUT",
+    body: JSON.stringify(facts),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível salvar as informações públicas.");
+  }
+  return (await res.json()) as PublicAgentProfile;
+}
+
 /** Lê o status da credencial (pra tela indicar "chave configurada" ao abrir). */
 export async function fetchCredentialStatus(token: string): Promise<CredentialStatus> {
   const res = await authedFetch(token, "/agent/credential");
