@@ -178,15 +178,10 @@ significa ativa em produção.
   e igreja; sem checkpointer nem consulta nova a conhecimento institucional;
 - handoff por regex de pedido/crise pausa a IA e deixa atendimento pendente no
   inbox; opt-out prevalece e o aceite B4 recusa frases com ressalva;
-- na S2 da fase 2, o admin publica horário, endereço institucional e células
-  públicas por bairro em campos estruturados de `AgentConfig.informacoes_publicas`;
-  API GET/PUT exige admin e tenant, sem ativar agente ou importar texto legado;
-  consultas determinísticas usam somente a projeção validada desses campos,
-  exigem mensagem persistida e tenant confirmado; o bloco legado é retirado
-  do prompt, inclusive com Cf, e não fornece mais fatos públicos;
-  proximidade geográfica, células privadas e ferramentas por papel ficam fora;
-  candidato depende de migration e liberação explícita de merge coordenada
-  com a operação PROD; implementação/teste local não comprovam aplicação;
+- na fatia 2, consultas públicas determinísticas leem horário, endereço da
+  igreja e indicação por bairro somente de um bloco explícito no perfil;
+  exigem mensagem persistida e tenant confirmado, sem intake, writers ou LLM;
+  proximidade geográfica e consulta a células privadas continuam ausentes;
 - limite de 1600 caracteres e instruções para não inventar fatos estão no
   caminho da resposta; testes sintéticos não provam qualidade factual geral,
   deploy ou as 20 conversas reais exigidas para encerrar a fase 2;

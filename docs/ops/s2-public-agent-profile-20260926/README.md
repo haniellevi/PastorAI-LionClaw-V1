@@ -1,5 +1,7 @@
 # S2: informações públicas estruturadas da igreja
 
+Registro canônico da fatia: [sprint S2](../../sprints/2026-09-26-mvp-s2-perfil-publico.md).
+
 Candidato sobre main `a5244cad1f0a888b650258bc910f58952c5f2a72`, 26/09/2026.
 Merge bloqueado até liberação explícita para coordenar migration e deploy com
 PastorAI PROD operacional. A nota PASSO A PASSO RANIEL está suspensa; este
@@ -17,8 +19,10 @@ O administrador continua responsável por publicar somente informação aprovada
 
 Salvar não ativa o agente. Configuração ausente deve ser criada pelo fluxo
 existente: este formulário não a cria. Falha ao salvar preserva o rascunho.
-Campos vazios removem a informação publicada; não há importação automática do
-bloco antigo em comportamento. Publicar dados é uma ação explícita do admin.
+Campos vazios removem a informação publicada. **Sem backfill do bloco legado:**
+o reset previsto do piloto torna o conteúdo antigo irrelevante; os campos
+estruturados precisam ser publicados novamente pelo admin. Esta missão não
+executou reset nem verificou se ele já ocorreu em produção.
 
 ## Contrato e isolamento
 
@@ -38,6 +42,15 @@ A busca por bairro não calcula qual célula é geograficamente mais próxima.
 Nenhum cadastro privado é consultado; o perfil estruturado não entra no LLM.
 O bloco legado é removido do estilo enviado ao LLM, incluindo variantes Cf,
 mas deixa de fornecer fatos. Consentimento, opt-out, handoff e gates continuam.
+
+## Aplicação futura: espera de lock limitada
+
+A sessão operacional deverá definir `lock_timeout` curto, com referência de
+2 segundos na sessão aplicadora, antes de aplicar a migration. O default
+constante não exige rewrite, mas ALTER TABLE ainda precisa de lock exclusivo.
+Em timeout, abortar e reagendar com a sessão responsável, sem espera ilimitada
+ou retry automático. É requisito operacional para aplicação futura; este
+registro não altera o SQL aprovado nem autoriza ou executa banco compartilhado.
 
 ## Verificação e rollback
 
