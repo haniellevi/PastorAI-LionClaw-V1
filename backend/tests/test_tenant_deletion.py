@@ -20,36 +20,60 @@ from app.services.tenant_deletion import (
     TenantDeletionResult,
     run_pending_cleanup,
 )
-from app.services.storage import StoragePathError, tenant_owned_paths
+from app.services.storage import StorageError, StoragePathError, tenant_owned_paths
 
 
 class _Result:
-    def __init__(self, scalar=None) -> None:
+    def __init__(self, scalar=None, values=()) -> None:
         self._scalar = scalar
+        self._values = list(values)
 
     def scalar_one_or_none(self):
         return self._scalar
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return list(self._values)
 
 
 class _CleanupSession:
     def __init__(self) -> None:
         self.existing_clerk_user = None
         self.existing_media_igreja_id = None
+        self.existing_igreja_id = None
         self.added: list[object] = []
         self.commits = 0
         self.rollbacks = 0
         self.statements: list[object] = []
+        self.events: list[object] = []
 
     def execute(self, statement):
         self.statements.append(statement)
-        if "app_users.clerk_user_id" in str(statement):
+        rendered = str(statement)
+        if "platform_audit_log" in rendered:
+            task_id = str(statement.compile().params.get("param_1", ""))
+            task_events = [
+                event
+                for event in self.events
+                if getattr(event, "detalhe", {}).get("task_id") == task_id
+            ]
+            if "FOR UPDATE" in rendered:
+                return _Result(task_events[0] if task_events else None)
+            return _Result(values=task_events)
+        if "app_users.clerk_user_id" in rendered:
             return _Result(self.existing_clerk_user)
-        if "messages.media_path" in str(statement):
+        if "messages.media_path" in rendered:
             return _Result(self.existing_media_igreja_id)
+        if "igrejas.id" in rendered:
+            return _Result(self.existing_igreja_id)
         return _Result()
 
     def add(self, item) -> None:
         self.added.append(item)
+        if getattr(item, "acao", None):
+            self.events.append(item)
 
     def commit(self) -> None:
         self.commits += 1
@@ -78,10 +102,26 @@ def _task() -> CleanupTask:
     )
 
 
+def _queue_tasks(session: _CleanupSession, *tasks: CleanupTask) -> None:
+    for task in tasks:
+        session.events.append(
+            SimpleNamespace(
+                acao="tenant_deletion.cleanup_pending",
+                alvo_id=task.igreja_id,
+                detalhe={
+                    "task_id": str(task.task_id),
+                    "kind": task.kind,
+                    "payload": task.payload,
+                },
+            )
+        )
+
+
 def test_retry_rechecks_a_surviving_clerk_binding_before_deleting() -> None:
     session = _CleanupSession()
     clerk = _FailingClerk()
     task = _task()
+    _queue_tasks(session, task)
     actor = TenantDeletionActor(None, "master@example.test")
 
     first = run_pending_cleanup(
@@ -97,9 +137,8 @@ def test_retry_rechecks_a_surviving_clerk_binding_before_deleting() -> None:
     assert clerk.calls == ["clerk-deleted-tenant"]
     assert session.added[-1].acao == "tenant_deletion.cleanup_retry"
 
-    # A retry must never delete an identifier that was rebound after the local
-    # tenant transaction completed. The table lock and query happen before the
-    # second provider call.
+    # A retry must never delete an identifier rebound after the local tenant
+    # transaction completed. The short claim transaction revalidates it.
     session.existing_clerk_user = uuid.uuid4()
     clerk.fails = False
     second = run_pending_cleanup(
@@ -114,12 +153,13 @@ def test_retry_rechecks_a_surviving_clerk_binding_before_deleting() -> None:
     assert second[0].status == "rejected"
     assert clerk.calls == ["clerk-deleted-tenant"]
     assert session.added[-1].acao == "tenant_deletion.cleanup_rejected"
-    assert any("LOCK TABLE public.app_users" in str(s) for s in session.statements)
+    assert not any("LOCK TABLE" in str(statement) for statement in session.statements)
 
 
 def test_cleanup_audit_records_the_confirmed_execution_host() -> None:
     session = _CleanupSession()
     task = _task()
+    _queue_tasks(session, task)
 
     class WorkingClerk:
         def delete_user(self, _clerk_user_id: str) -> None:
@@ -152,6 +192,7 @@ def test_cleanup_calls_transaction_setup_before_every_task() -> None:
         kind="clerk_user",
         payload={"clerk_user_id": "clerk-deleted-tenant-second"},
     )
+    _queue_tasks(session, first, second)
     setup_calls: list[uuid.UUID] = []
 
     class WorkingClerk:
@@ -170,7 +211,7 @@ def test_cleanup_calls_transaction_setup_before_every_task() -> None:
     )
 
     assert [outcome.status for outcome in outcomes] == ["done", "done"]
-    assert len(setup_calls) == 2
+    assert len(setup_calls) == 6
 
 
 def test_delete_route_commits_local_manifest_before_cleanup(monkeypatch) -> None:
@@ -276,13 +317,14 @@ def test_storage_retry_rejects_any_rebound_path_even_with_the_old_tenant_id() ->
     )
     path = f"{task.igreja_id}/provider/deadbeef.jpg"
     task = CleanupTask(task.task_id, task.igreja_id, task.kind, {"paths": [path]})
+    _queue_tasks(session, task)
     session.existing_media_igreja_id = task.igreja_id
 
     class _Storage:
         calls: list[list[str]] = []
 
-        def remove_tenant_media(self, _igreja_id, paths) -> None:
-            self.calls.append(list(paths))
+        def remove_tenant_media_namespace(self, _igreja_id, **_kwargs) -> None:
+            self.calls.append([])
 
     storage = _Storage()
     outcomes = run_pending_cleanup(
@@ -297,6 +339,68 @@ def test_storage_retry_rejects_any_rebound_path_even_with_the_old_tenant_id() ->
 
     assert outcomes[0].status == "rejected"
     assert storage.calls == []
+
+
+def test_storage_cleanup_rejects_a_restored_tenant_before_namespace_delete() -> None:
+    session = _CleanupSession()
+    task = CleanupTask(
+        task_id=uuid.uuid4(),
+        igreja_id=uuid.uuid4(),
+        kind="storage_media",
+        payload={"paths": []},
+    )
+    _queue_tasks(session, task)
+    session.existing_igreja_id = task.igreja_id
+
+    class _Storage:
+        def remove_tenant_media_namespace(self, *_args, **_kwargs) -> None:
+            pytest.fail("a restored tenant namespace cannot be removed")
+
+    outcomes = run_pending_cleanup(
+        session,
+        TenantDeletionActor(None, "master@example.test"),
+        (task,),
+        clerk=object(),
+        evolution=object(),
+        asaas=object(),
+        storage=_Storage(),
+    )
+
+    assert [outcome.status for outcome in outcomes] == ["rejected"]
+
+
+@pytest.mark.parametrize("stage", ("page", "delete"))
+def test_storage_namespace_failure_keeps_the_cleanup_pending(stage: str) -> None:
+    session = _CleanupSession()
+    task = CleanupTask(
+        task_id=uuid.uuid4(),
+        igreja_id=uuid.uuid4(),
+        kind="storage_media",
+        payload={"paths": []},
+    )
+    _queue_tasks(session, task)
+    renewals = 0
+
+    class _Storage:
+        def remove_tenant_media_namespace(self, _igreja_id, *, before_request) -> None:
+            nonlocal renewals
+            before_request()
+            renewals += 1
+            raise StorageError(f"synthetic {stage} failure")
+
+    outcomes = run_pending_cleanup(
+        session,
+        TenantDeletionActor(None, "master@example.test"),
+        (task,),
+        clerk=object(),
+        evolution=object(),
+        asaas=object(),
+        storage=_Storage(),
+    )
+
+    assert [outcome.status for outcome in outcomes] == ["pending"]
+    assert renewals == 1
+    assert session.added[-1].acao == "tenant_deletion.cleanup_retry"
 
 
 def _asaas_settings() -> SimpleNamespace:
@@ -444,6 +548,7 @@ def test_invalid_durable_external_ids_are_rejected_without_provider_calls() -> N
             },
         ),
     )
+    _queue_tasks(session, *tasks)
 
     outcomes = run_pending_cleanup(
         session,

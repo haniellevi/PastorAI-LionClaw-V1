@@ -176,7 +176,13 @@ def test_drain_dry_run_reports_pending_work_as_incomplete(monkeypatch) -> None:
     assert session.commits == 0
 
 
-def test_drain_execute_runs_committed_pending_tasks_and_rechecks_outcome(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("final_pending", "final_rejected", "expected_status"),
+    [(0, 0, 0), (1, 0, 4), (0, 1, 5), (1, 1, 4)],
+)
+def test_drain_execute_runs_committed_pending_tasks_and_rechecks_outcome(
+    monkeypatch, final_pending: int, final_rejected: int, expected_status: int
+) -> None:
     monkeypatch.setenv(
         "RESET_DATABASE_URL", "postgresql://operator:synthetic@localhost/reset_db"
     )
@@ -189,7 +195,10 @@ def test_drain_execute_runs_committed_pending_tasks_and_rechecks_outcome(monkeyp
     states = [
         SimpleNamespace(pending_tasks=(task,), rejected_tasks=()),
         SimpleNamespace(pending_tasks=(task,), rejected_tasks=()),
-        SimpleNamespace(pending_tasks=(), rejected_tasks=()),
+        SimpleNamespace(
+            pending_tasks=(task,) * final_pending,
+            rejected_tasks=(object(),) * final_rejected,
+        ),
     ]
     load_calls = 0
     cleanup_calls: list[object] = []
@@ -218,17 +227,31 @@ def test_drain_execute_runs_committed_pending_tasks_and_rechecks_outcome(monkeyp
         cleanup_clients_factory=lambda: (object(), object(), object(), object()),
     )
 
-    assert status == 0
+    assert status == expected_status
     assert load_calls >= 2
     assert cleanup_calls and cleanup_calls[0][1] == (task,)
     assert getattr(cleanup_calls[0][0], "execution_host", None) == "localhost"
 
 
-def test_drain_never_reports_success_when_a_task_is_rejected(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("pending", "rejected", "expected_status"),
+    [
+        (0, 0, 0),
+        (1, 0, 4),
+        (0, 1, 5),
+        (1, 1, 4),
+    ],
+)
+def test_drain_exit_status_distinguishes_pending_and_terminal_rejection(
+    monkeypatch, pending: int, rejected: int, expected_status: int
+) -> None:
     monkeypatch.setenv(
         "RESET_DATABASE_URL", "postgresql://operator:synthetic@localhost/reset_db"
     )
-    state = SimpleNamespace(pending_tasks=(), rejected_tasks=(object(),))
+    state = SimpleNamespace(
+        pending_tasks=(object(),) * pending,
+        rejected_tasks=(object(),) * rejected,
+    )
     monkeypatch.setattr(
         reset_tudo,
         "load_cleanup_drain_state",
@@ -244,8 +267,9 @@ def test_drain_never_reports_success_when_a_task_is_rejected(monkeypatch) -> Non
         session_factory_factory=lambda **_kwargs: lambda: _Session(),
     )
 
-    assert status == 4
-    assert "rejeitadas=1" in "\n".join(output)
+    assert status == expected_status
+    assert f"pendentes={pending}" in "\n".join(output)
+    assert f"rejeitadas={rejected}" in "\n".join(output)
 
 
 def test_drain_reapplies_public_search_path_before_each_committed_task(monkeypatch) -> None:
@@ -356,7 +380,7 @@ def _run(
         reset_calls.append((session_arg, actor))
         if reset_error is not None:
             raise reset_error
-        return reset_result or TenantResetResult(2, 4)
+        return reset_result or TenantResetResult(2, 0)
 
     monkeypatch.setattr(reset_tudo, "reset_all_tenants", reset)
 
@@ -598,6 +622,24 @@ def test_execute_runs_only_after_exact_interactive_host_confirmation(monkeypatch
         "SET LOCAL search_path TO public",
         "SET LOCAL search_path TO public",
     ]
+
+
+def test_execute_commits_reset_but_reports_pending_external_cleanup(
+    monkeypatch, tmp_path
+) -> None:
+    backup = tmp_path / "prior.pg_dump"
+    backup.write_bytes(b"PGDMP\x01\x0e\x00synthetic")
+    status, output, session, _, _, reset_calls = _run(
+        monkeypatch,
+        ["--execute", "--backup-path", str(backup), "--backup-confirmed"],
+        input_fn=lambda _prompt: "localhost",
+        reset_result=TenantResetResult(2, 4),
+    )
+
+    assert status == 4
+    assert session.commits == 1
+    assert len(reset_calls) == 1
+    assert "limpezas_externas_pendentes=4" in "\n".join(output)
 
 
 def test_execute_aborts_on_eof_without_dml(monkeypatch, tmp_path) -> None:

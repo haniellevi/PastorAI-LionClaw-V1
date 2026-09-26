@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
 
 import pytest
@@ -522,22 +523,308 @@ def test_delete_one_tenant_preserves_other_tenant_and_detached_admin_token(
         ).scalar_one() == 1
 
 
-def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
+@pytest.mark.parametrize("task_kind", ("clerk_user", "storage_media"))
+def test_cleanup_claim_commits_before_http_without_blocking_another_tenant(
+    tenant_deletion_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    task_kind: str,
+) -> None:
+    first = _seed_graph(tenant_deletion_engine, suffix="claim-first")
+    second = _seed_graph(tenant_deletion_engine, suffix="claim-second")
+    actor = TenantDeletionActor(first["master"], "master@test")
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        local = delete_tenant_locally(session, first["igreja"], actor)
+        session.commit()
+    finally:
+        session.close()
+    task = next(task for task in local.pending_tasks if task.kind == task_kind)
+
+    entered_http = threading.Event()
+    release_http = threading.Event()
+    worker_errors: list[BaseException] = []
+    outcomes: list[object] = []
+    worker_sessions: list[Session] = []
+
+    class BlockingClerk:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def delete_user(self, _clerk_user_id: str) -> None:
+            self.calls += 1
+            assert not worker_sessions[0].in_transaction()
+            entered_http.set()
+            assert release_http.wait(timeout=5)
+
+    class BlockingStorage:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def remove_tenant_media_namespace(self, _igreja_id, *, before_request) -> None:
+            before_request()
+            self.calls += 1
+            assert not worker_sessions[0].in_transaction()
+            entered_http.set()
+            assert release_http.wait(timeout=5)
+
+    clerk = BlockingClerk()
+    storage = BlockingStorage()
+    monkeypatch.setattr(
+        tenant_deletion_service,
+        "_lock_cleanup_table",
+        lambda *_args: pytest.fail("cleanup cannot hold a table lock during HTTP"),
+        raising=False,
+    )
+
+    def run_first_worker() -> None:
+        worker_session = Session(tenant_deletion_engine, future=True)
+        worker_sessions.append(worker_session)
+        try:
+            outcomes.extend(
+                run_pending_cleanup(
+                    worker_session,
+                    actor,
+                    (task,),
+                    clerk=clerk,
+                    evolution=object(),
+                    asaas=object(),
+                    storage=storage,
+                )
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            worker_errors.append(exc)
+        finally:
+            worker_session.close()
+
+    worker = threading.Thread(target=run_first_worker)
+    worker.start()
+    try:
+        assert entered_http.wait(timeout=5)
+        with tenant_deletion_engine.begin() as connection:
+            connection.execute(text("set local lock_timeout = '250ms'"))
+            if task_kind == "clerk_user":
+                connection.execute(
+                    text(
+                        "insert into app_users (id, igreja_id, clerk_user_id) "
+                        "values (:id, :igreja_id, :clerk_user_id)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "igreja_id": second["igreja"],
+                        "clerk_user_id": "clerk-second-while-http",
+                    },
+                )
+            else:
+                connection.execute(
+                    text(
+                        "insert into messages (id, igreja_id, media_path, enviado_por) "
+                        "values (:id, :igreja_id, :media_path, :enviado_por)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "igreja_id": second["igreja"],
+                        "media_path": f"{second['igreja']}/provider/while-http.jpg",
+                        "enviado_por": second["master"],
+                    },
+                )
+
+        class DuplicateWorkerClerk:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def delete_user(self, _clerk_user_id: str) -> None:
+                self.calls += 1
+
+        class DuplicateWorkerStorage:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def remove_tenant_media_namespace(
+                self, _igreja_id, *, before_request
+            ) -> None:
+                self.calls += 1
+
+        duplicate = DuplicateWorkerClerk()
+        duplicate_storage = DuplicateWorkerStorage()
+        second_session = Session(tenant_deletion_engine, future=True)
+        try:
+            second_outcomes = run_pending_cleanup(
+                second_session,
+                actor,
+                (task,),
+                clerk=duplicate,
+                evolution=object(),
+                asaas=object(),
+                storage=duplicate_storage,
+            )
+        finally:
+            second_session.close()
+        assert second_outcomes == ()
+        assert duplicate.calls == 0
+        assert duplicate_storage.calls == 0
+    finally:
+        release_http.set()
+        worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert worker_errors == []
+    assert clerk.calls == (1 if task_kind == "clerk_user" else 0)
+    assert storage.calls == (1 if task_kind == "storage_media" else 0)
+    assert [outcome.status for outcome in outcomes] == ["done"]
+    with tenant_deletion_engine.connect() as connection:
+        actions = connection.execute(
+            text(
+                "select acao from platform_audit_log "
+                "where alvo_id = :igreja_id order by created_at, id"
+            ),
+            {"igreja_id": first["igreja"]},
+        ).scalars().all()
+    assert "tenant_deletion.cleanup_claimed" in actions
+    assert "tenant_deletion.cleanup_done" in actions
+
+
+def test_cleanup_reclaims_an_expired_lease_and_fences_the_late_owner(
     tenant_deletion_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ids = _seed_graph(tenant_deletion_engine, suffix="cleanup")
+    ids = _seed_graph(tenant_deletion_engine, suffix="expired-lease")
+    actor = TenantDeletionActor(ids["master"], "master@test")
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        local = delete_tenant_locally(session, ids["igreja"], actor)
+        session.commit()
+    finally:
+        session.close()
+    task = next(task for task in local.pending_tasks if task.kind == "clerk_user")
 
-    # The production helper deliberately qualifies public. This isolated schema
-    # replaces only that lock; all tenant queries and audit persistence remain real.
-    def lock_test_schema(session: Session, table: str) -> None:
-        assert table in {"app_users", "messages"}
-        session.execute(
-            text(f"LOCK TABLE {_SCHEMA}.{table} IN SHARE ROW EXCLUSIVE MODE")
-        )
+    entered_http = threading.Event()
+    release_http = threading.Event()
+    first_outcomes: list[object] = []
+
+    class BlockingClerk:
+        calls = 0
+
+        def delete_user(self, _clerk_user_id: str) -> None:
+            self.calls += 1
+            entered_http.set()
+            assert release_http.wait(timeout=5)
+
+    class WorkingClerk:
+        calls = 0
+
+        def delete_user(self, _clerk_user_id: str) -> None:
+            self.calls += 1
 
     monkeypatch.setattr(
-        tenant_deletion_service, "_lock_cleanup_table", lock_test_schema
+        tenant_deletion_service,
+        "_lock_cleanup_table",
+        lambda *_args: pytest.fail("cleanup cannot hold a table lock during HTTP"),
+        raising=False,
     )
+    first_clerk = BlockingClerk()
+
+    def run_first_worker() -> None:
+        worker_session = Session(tenant_deletion_engine, future=True)
+        try:
+            first_outcomes.extend(
+                run_pending_cleanup(
+                    worker_session,
+                    actor,
+                    (task,),
+                    clerk=first_clerk,
+                    evolution=object(),
+                    asaas=object(),
+                    storage=object(),
+                )
+            )
+        finally:
+            worker_session.close()
+
+    first_worker = threading.Thread(target=run_first_worker)
+    first_worker.start()
+    try:
+        assert entered_http.wait(timeout=5)
+        with tenant_deletion_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "update platform_audit_log "
+                    "set detalhe = jsonb_set("
+                    "detalhe, '{lease_expires_at}', "
+                    "'\"2000-01-01T00:00:00+00:00\"'::jsonb) "
+                    "where acao in ("
+                    "'tenant_deletion.cleanup_claimed', "
+                    "'tenant_deletion.cleanup_lease_renewed') "
+                    "and detalhe ->> 'task_id' = :task_id"
+                ),
+                {"task_id": str(task.task_id)},
+            )
+
+        second_clerk = WorkingClerk()
+        second_session = Session(tenant_deletion_engine, future=True)
+        try:
+            second_outcomes = run_pending_cleanup(
+                second_session,
+                actor,
+                (task,),
+                clerk=second_clerk,
+                evolution=object(),
+                asaas=object(),
+                storage=object(),
+            )
+        finally:
+            second_session.close()
+        assert [outcome.status for outcome in second_outcomes] == ["done"]
+        assert second_clerk.calls == 1
+    finally:
+        release_http.set()
+        first_worker.join(timeout=5)
+
+    assert not first_worker.is_alive()
+    assert first_clerk.calls == 1
+    assert [outcome.status for outcome in first_outcomes] == ["fenced"]
+    with tenant_deletion_engine.connect() as connection:
+        actions = connection.execute(
+            text(
+                "select acao from platform_audit_log "
+                "where alvo_id = :igreja_id order by created_at, id"
+            ),
+            {"igreja_id": ids["igreja"]},
+        ).scalars().all()
+    assert actions.count("tenant_deletion.cleanup_claimed") == 2
+    assert actions.count("tenant_deletion.cleanup_done") == 1
+    assert "tenant_deletion.cleanup_fenced" in actions
+
+
+def test_delete_manifest_covers_storage_namespaces_without_database_pointers(
+    tenant_deletion_engine: Engine,
+) -> None:
+    ids = _seed_graph(tenant_deletion_engine, suffix="orphan-namespaces")
+    with tenant_deletion_engine.begin() as connection:
+        connection.execute(
+            text("delete from messages where igreja_id = :igreja_id"),
+            {"igreja_id": ids["igreja"]},
+        )
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        result = delete_tenant_locally(
+            session,
+            ids["igreja"],
+            TenantDeletionActor(ids["master"], "master@test"),
+        )
+        session.rollback()
+    finally:
+        session.close()
+
+    assert {task.kind for task in result.pending_tasks} >= {
+        "storage_media",
+        "storage_logo",
+    }
+
+
+def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
+    tenant_deletion_engine: Engine,
+) -> None:
+    ids = _seed_graph(tenant_deletion_engine, suffix="cleanup")
 
     class FailingThenWorkingClerk:
         def __init__(self) -> None:
@@ -552,9 +839,15 @@ def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
     class RecordingStorage:
         def __init__(self) -> None:
             self.media_calls: list[list[object]] = []
+            self.logo_calls: list[list[object]] = []
 
-        def remove_tenant_media(self, _igreja_id, paths) -> None:
-            self.media_calls.append(list(paths))
+        def remove_tenant_media_namespace(self, _igreja_id, *, before_request) -> None:
+            before_request()
+            self.media_calls.append([])
+
+        def remove_tenant_logos_namespace(self, _igreja_id, *, before_request) -> None:
+            before_request()
+            self.logo_calls.append([])
 
     actor = TenantDeletionActor(ids["master"], "master@test")
     clerk = FailingThenWorkingClerk()
@@ -592,9 +885,10 @@ def test_absent_tenant_reconstructs_durable_cleanup_until_terminal(
     finally:
         session.close()
 
-    assert [outcome.status for outcome in first_outcomes] == ["pending", "done"]
+    assert [outcome.status for outcome in first_outcomes] == ["pending", "done", "done"]
     assert clerk.calls == ["clerk-member-cleanup"]
     assert len(storage.media_calls) == 1
+    assert len(storage.logo_calls) == 1
     with tenant_deletion_engine.connect() as connection:
         assert connection.execute(
             text(
@@ -782,6 +1076,40 @@ def test_reset_all_tenants_preserves_platform_and_schema_relations(
                 text("select pessoa_id from app_users where id = :id"),
                 {"id": ids["master"]},
             ).scalar_one() is None
+
+
+def test_reset_all_tenants_counts_existing_pending_cleanup_on_second_run(
+    tenant_deletion_engine: Engine,
+) -> None:
+    _seed_graph(
+        tenant_deletion_engine,
+        suffix="reset-pending-replay",
+        include_consent_event=False,
+    )
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        first = reset_all_tenants(session, TenantDeletionActor(None, "reset_tudo"))
+        session.commit()
+    finally:
+        session.close()
+
+    assert first.igrejas_deleted == 1
+    assert first.pending_tasks > 0
+    audit_events_after_first = _count(tenant_deletion_engine, "platform_audit_log")
+
+    session = Session(tenant_deletion_engine, future=True)
+    try:
+        second = reset_all_tenants(session, TenantDeletionActor(None, "reset_tudo"))
+        state = load_cleanup_drain_state(session)
+        session.commit()
+    finally:
+        session.close()
+
+    assert second.igrejas_deleted == 0
+    assert second.pending_tasks == first.pending_tasks
+    assert len(state.pending_tasks) == first.pending_tasks
+    assert _count(tenant_deletion_engine, "platform_audit_log") == audit_events_after_first
 
 
 @pytest.mark.parametrize("create_empty_table", (False, True))

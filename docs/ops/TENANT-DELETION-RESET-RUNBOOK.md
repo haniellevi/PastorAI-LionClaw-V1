@@ -20,6 +20,15 @@ contagens filtradas por RLS não provam que todos os tenants foram vistos.
 4. Se uma tarefa falhar, o audit conserva o manifesto. Repetir o mesmo DELETE
    para a igreja ausente retoma somente tarefas pendentes.
 
+Para Storage, o alvo da limpeza é o namespace inteiro `UUID/` da igreja em
+mídia e logos, inclusive objetos órfãos sem `Message`, páginas e subdiretórios.
+Cada caminho enumerado deve permanecer no prefixo validado dessa igreja.
+O claim de cada tarefa usa sua linha durável do audit, sem nova migration: a
+reserva é confirmada em transação curta antes do HTTP, sem lock global durante
+o provedor. O resultado é persistido depois com token de fence. Lease expirado
+permite retomada, mas não impede reassociação feita por writer não cooperante
+nem garante exatamente uma chamada remota se houver crash.
+
 Uma igreja com relação E4B existente e não vazia é bloqueada antes de qualquer
 DML. Relação com `igreja_id` é filtrada pela igreja solicitada; uma tabela
 `e4b_*` desconhecida sem essa coluna e com linhas bloqueia a operação. A
@@ -86,6 +95,10 @@ O reset preserva schema, `schema_migrations`, `planos`, `platform_admins` e
 auditoria de plataforma. Masters sobreviventes ficam sem tenant e só acessam o
 console de plataforma. Ele grava tarefas externas pendentes, mas não chama
 Clerk, Evolution, Asaas ou Storage dentro da transação.
+O `pending_tasks` do reset inclui manifestos novos e pendências antigas do
+audit. Após o commit local, retorna código `4` se houver alguma pendência, ou
+`0` se não houver. Código `4` não desfaz a exclusão local; consulte o audit
+antes de qualquer retomada.
 
 ## Drain externo posterior ao commit
 
@@ -95,9 +108,10 @@ Depois de um reset confirmado, consulte o audit sem chamar provedor:
 python backend/scripts/reset_tudo.py drain-external
 ```
 
-Se houver tarefas pendentes ou rejeitadas, a CLI informa as contagens e sai com
-código `4`. Esse resultado não é conclusão e não deve ser convertido em sucesso
-por automação. Para tentar somente os manifestos pendentes, depois de rever os
+Com pendências, a CLI informa as contagens e sai com código `4`, inclusive se
+também houver rejeições. Sem pendências, sai com `5` quando houver rejeições
+terminais e com `0` quando não houver nenhuma. Para tentar somente os manifestos
+pendentes, depois de rever os
 gates próprios de Clerk, Evolution, Asaas e Storage, use:
 
 ```bash
@@ -107,8 +121,9 @@ python backend/scripts/reset_tudo.py drain-external --execute
 O drain pede o host exibido, recarrega o audit depois da confirmação e só então
 chama os provedores. Cada tarefa fixa `search_path` em `public` antes de suas
 consultas e grava o host confirmado no evento de resultado. Repita o dry-run
-até não haver pendências nem rejeições; a repetição não recria manifesto nem
-refaz tarefa terminal.
+até `pendentes=0`; a repetição não recria manifesto nem refaz tarefa terminal.
+Rejeições são exceções terminais visíveis e exigem tratamento separado, não
+retentativa indefinida. Código `5` sinaliza essa situação ao operador.
 
 ## Falha, retomada e rollback
 

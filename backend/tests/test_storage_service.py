@@ -7,9 +7,13 @@ the graceful degradation (signing failure yields an empty map, not an error).
 
 from __future__ import annotations
 
+import json
+import uuid
+
 import httpx
 import pytest
 
+from app.services import storage as storage_service
 from app.config import Settings
 from app.services.storage import (
     MAX_MEDIA_BYTES,
@@ -231,3 +235,156 @@ def test_remove_degrades_on_error(monkeypatch) -> None:
 def test_remove_degrades_without_config() -> None:
     # Sem config, é no-op silencioso (não levanta).
     SupabaseStorage(_settings(supabase_url="")).remove(["i/c/a.jpg"])
+
+
+def test_tenant_media_namespace_cleanup_lists_all_pages_and_subdirectories(
+    monkeypatch,
+) -> None:
+    igreja_id = uuid.uuid4()
+    prefix = f"{igreja_id}/"
+    list_calls: list[tuple[str, int]] = []
+    deleted: list[str] = []
+
+    monkeypatch.setattr(storage_service, "_TENANT_LIST_PAGE_SIZE", 2, raising=False)
+
+    pages = {
+        (prefix, 0): [
+            {"name": "conversation", "id": None},
+            {"name": "orphan.bin", "id": "orphan"},
+        ],
+        (prefix, 2): [{"name": "later.bin", "id": "later"}],
+        (f"{prefix}conversation/", 0): [
+            {"name": "deep", "id": None},
+            {"name": "message.jpg", "id": "message"},
+        ],
+        (f"{prefix}conversation/", 2): [],
+        (f"{prefix}conversation/deep/", 0): [
+            {"name": "archive.pdf", "id": "archive"},
+        ],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/storage/v1/object/list/whatsapp-media"):
+            body = json.loads(request.content)
+            key = (body["prefix"], body["offset"])
+            list_calls.append(key)
+            assert body["limit"] == 2
+            return httpx.Response(200, json=pages[key])
+        assert request.method == "DELETE"
+        assert request.url.path.endswith("/storage/v1/object/whatsapp-media")
+        deleted.extend(json.loads(request.content)["prefixes"])
+        return httpx.Response(200, json=[])
+
+    _use_transport(monkeypatch, handler)
+
+    SupabaseStorage(_settings()).remove_tenant_media_namespace(igreja_id)
+
+    assert set(deleted) == {
+        f"{prefix}orphan.bin",
+        f"{prefix}later.bin",
+        f"{prefix}conversation/message.jpg",
+        f"{prefix}conversation/deep/archive.pdf",
+    }
+    assert set(list_calls) == set(pages)
+
+
+def test_tenant_logo_namespace_cleanup_removes_orphan_under_exact_uuid_prefix(
+    monkeypatch,
+) -> None:
+    igreja_id = uuid.uuid4()
+    prefix = f"{igreja_id}/"
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/storage/v1/object/list/church-logos"):
+            body = json.loads(request.content)
+            assert body["prefix"] == prefix
+            return httpx.Response(200, json=[{"name": "orphan-logo.png", "id": "logo"}])
+        assert request.method == "DELETE"
+        assert request.url.path.endswith("/storage/v1/object/church-logos")
+        deleted.extend(json.loads(request.content)["prefixes"])
+        return httpx.Response(200, json=[])
+
+    _use_transport(monkeypatch, handler)
+
+    SupabaseStorage(_settings()).remove_tenant_logos_namespace(igreja_id)
+
+    assert deleted == [f"{prefix}orphan-logo.png"]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    (
+        {"name": "ambiguous"},
+        {"name": "file.bin", "id": None, "metadata": {"size": 1}},
+    ),
+)
+def test_tenant_namespace_cleanup_rejects_ambiguous_list_entries(
+    monkeypatch, entry: dict[str, object]
+) -> None:
+    igreja_id = uuid.uuid4()
+    returned_entry = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal returned_entry
+        if request.url.path.endswith("/storage/v1/object/list/whatsapp-media"):
+            if returned_entry:
+                return httpx.Response(200, json=[])
+            returned_entry = True
+            return httpx.Response(200, json=[entry])
+        pytest.fail("an ambiguous list entry cannot be deleted")
+
+    _use_transport(monkeypatch, handler)
+
+    with pytest.raises(StorageError):
+        SupabaseStorage(_settings()).remove_tenant_media_namespace(igreja_id)
+
+
+def test_tenant_namespace_cleanup_rejects_another_tenants_full_key(monkeypatch) -> None:
+    igreja_id = uuid.uuid4()
+    other_igreja_id = uuid.uuid4()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/storage/v1/object/list/whatsapp-media"):
+            return httpx.Response(
+                200,
+                json=[{"name": f"{other_igreja_id}/foreign.bin", "id": "foreign"}],
+            )
+        pytest.fail("a foreign full key cannot be deleted")
+
+    _use_transport(monkeypatch, handler)
+
+    with pytest.raises(StorageError):
+        SupabaseStorage(_settings()).remove_tenant_media_namespace(igreja_id)
+
+
+def test_tenant_namespace_cleanup_renews_before_each_page_and_remove_batch(
+    monkeypatch,
+) -> None:
+    igreja_id = uuid.uuid4()
+    prefix = f"{igreja_id}/"
+    renewals = 0
+
+    monkeypatch.setattr(storage_service, "_TENANT_LIST_PAGE_SIZE", 1)
+    monkeypatch.setattr(storage_service, "_TENANT_REMOVE_BATCH_SIZE", 1)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/storage/v1/object/list/whatsapp-media"):
+            body = json.loads(request.content)
+            if body["offset"] == 0:
+                return httpx.Response(200, json=[{"name": "one.bin", "id": "one"}])
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[])
+
+    def renew() -> None:
+        nonlocal renewals
+        renewals += 1
+
+    _use_transport(monkeypatch, handler)
+
+    SupabaseStorage(_settings()).remove_tenant_media_namespace(
+        igreja_id,
+        before_request=renew,
+    )
+
+    assert renewals == 3

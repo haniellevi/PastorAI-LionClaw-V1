@@ -6,6 +6,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
@@ -44,6 +45,9 @@ _PENDING = "tenant_deletion.cleanup_pending"
 _DONE = "tenant_deletion.cleanup_done"
 _RETRY = "tenant_deletion.cleanup_retry"
 _REJECTED = "tenant_deletion.cleanup_rejected"
+_CLAIMED = "tenant_deletion.cleanup_claimed"
+_LEASE_RENEWED = "tenant_deletion.cleanup_lease_renewed"
+_FENCED = "tenant_deletion.cleanup_fenced"
 _LOCAL_DELETED = "tenant_deletion.local_deleted"
 _LEGACY_DELETED = "excluir"
 _TASK_KINDS = {
@@ -56,7 +60,7 @@ _TASK_KINDS = {
 _PRE_DETACH_DELETE_MODELS = (ConsentRecord, Message, Conversation, UserRole)
 _E4B_SCHEMA = "public"
 _CONSENT_LEDGER_TABLE = "consentimento_finalidade_evento"
-_MEDIA_BATCH_SIZE = 100
+_CLEANUP_LEASE_DURATION = timedelta(minutes=5)
 
 
 class TenantDeletionError(RuntimeError):
@@ -93,6 +97,10 @@ class CleanupDeferred(TenantDeletionError):
     """A provider gate produced no remote effect; leave the task pending."""
 
 
+class CleanupClaimLost(TenantDeletionError):
+    """A worker no longer owns the durable lease before a provider call."""
+
+
 @dataclass(frozen=True)
 class TenantDeletionActor:
     app_user_id: uuid.UUID | None
@@ -106,6 +114,13 @@ class CleanupTask:
     igreja_id: uuid.UUID
     kind: str
     payload: dict[str, object]
+
+
+@dataclass(frozen=True)
+class CleanupLease:
+    task_id: uuid.UUID
+    token: uuid.UUID
+    expires_at: datetime
 
 
 @dataclass(frozen=True)
@@ -258,6 +273,81 @@ def _task_detail(task: CleanupTask) -> dict[str, object]:
         "kind": task.kind,
         "payload": task.payload,
     }
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _lease_detail(task: CleanupTask, lease: CleanupLease) -> dict[str, object]:
+    detail = _task_detail(task)
+    detail["lease_token"] = str(lease.token)
+    detail["lease_expires_at"] = lease.expires_at.isoformat()
+    return detail
+
+
+def _lease_from_event(event: PlatformAuditLog) -> CleanupLease:
+    detail = event.detalhe
+    if not isinstance(detail, dict):
+        raise CleanupRejected("Reserva de limpeza inválida")
+    raw_task_id = detail.get("task_id")
+    raw_token = detail.get("lease_token")
+    raw_expiration = detail.get("lease_expires_at")
+    if not all(isinstance(value, str) and value for value in (raw_task_id, raw_token, raw_expiration)):
+        raise CleanupRejected("Reserva de limpeza inválida")
+    try:
+        task_id = uuid.UUID(raw_task_id)
+        token = uuid.UUID(raw_token)
+        expires_at = datetime.fromisoformat(raw_expiration)
+    except (TypeError, ValueError) as exc:
+        raise CleanupRejected("Reserva de limpeza inválida") from exc
+    if expires_at.tzinfo is None:
+        raise CleanupRejected("Reserva de limpeza inválida")
+    return CleanupLease(task_id, token, expires_at.astimezone(timezone.utc))
+
+
+def _task_audit_events(session: Session, task: CleanupTask) -> list[PlatformAuditLog]:
+    return list(
+        session.execute(
+            select(PlatformAuditLog)
+            .where(
+                PlatformAuditLog.alvo_tipo == "igreja",
+                PlatformAuditLog.alvo_id == task.igreja_id,
+                PlatformAuditLog.detalhe["task_id"].as_string() == str(task.task_id),
+            )
+            .order_by(PlatformAuditLog.created_at, PlatformAuditLog.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _lock_cleanup_manifest(session: Session, task: CleanupTask) -> bool:
+    manifest_id = session.execute(
+        select(PlatformAuditLog.id)
+        .where(
+            PlatformAuditLog.alvo_tipo == "igreja",
+            PlatformAuditLog.alvo_id == task.igreja_id,
+            PlatformAuditLog.acao == _PENDING,
+            PlatformAuditLog.detalhe["task_id"].as_string() == str(task.task_id),
+        )
+        .with_for_update(skip_locked=True)
+    ).scalar_one_or_none()
+    return manifest_id is not None
+
+
+def _task_is_terminal(events: list[PlatformAuditLog]) -> bool:
+    return any(event.acao in {_DONE, _REJECTED} for event in events)
+
+
+def _active_cleanup_lease(events: list[PlatformAuditLog]) -> CleanupLease | None:
+    lease: CleanupLease | None = None
+    for event in events:
+        if event.acao in {_CLAIMED, _LEASE_RENEWED}:
+            lease = _lease_from_event(event)
+        elif event.acao == _RETRY:
+            lease = None
+    return lease
 
 
 def _new_task(
@@ -495,31 +585,30 @@ def _build_cleanup_tasks(
     valid_media, invalid_media = _split_tenant_paths(igreja.id, media_paths)
     if invalid_media:
         _rejected_target(session, actor, igreja, "storage_media", "outside_tenant_prefix")
-    for index in range(0, len(valid_media), _MEDIA_BATCH_SIZE):
-        tasks.append(
-            _new_task(
-                session,
-                actor,
-                igreja,
-                "storage_media",
-                {"paths": valid_media[index : index + _MEDIA_BATCH_SIZE]},
-            )
+    tasks.append(
+        _new_task(
+            session,
+            actor,
+            igreja,
+            "storage_media",
+            {"paths": valid_media},
         )
+    )
 
+    valid_logo: list[str] = []
     if igreja.logo_path:
         valid_logo, invalid_logo = _split_tenant_paths(igreja.id, [igreja.logo_path])
         if invalid_logo:
             _rejected_target(session, actor, igreja, "storage_logo", "outside_tenant_prefix")
-        elif valid_logo:
-            tasks.append(
-                _new_task(
-                    session,
-                    actor,
-                    igreja,
-                    "storage_logo",
-                    {"paths": valid_logo},
-                )
-            )
+    tasks.append(
+        _new_task(
+            session,
+            actor,
+            igreja,
+            "storage_logo",
+            {"paths": valid_logo},
+        )
+    )
     return tuple(tasks)
 
 
@@ -660,43 +749,26 @@ def _require_str(payload: dict[str, object], name: str) -> str:
     return value
 
 
-def _require_paths(payload: dict[str, object]) -> list[object]:
-    paths = payload.get("paths")
-    if not isinstance(paths, list) or not paths:
-        raise CleanupRejected("Manifesto de limpeza inválido")
-    return paths
-
-
-def _lock_cleanup_table(session: Session, table: str) -> None:
-    # Static table names only. This lock serializes a target check with a new
-    # tenant binding until the provider effect and its audit outcome commit.
-    session.execute(text(f"LOCK TABLE public.{table} IN SHARE ROW EXCLUSIVE MODE"))
-
-
-def _execute_cleanup_task(
-    session: Session,
-    task: CleanupTask,
-    *,
-    clerk: ClerkClient,
-    evolution: EvolutionClient,
-    asaas: AsaasClient,
-    storage: SupabaseStorage,
-) -> None:
+def _assert_cleanup_ownership(session: Session, task: CleanupTask) -> None:
+    """Check surviving bindings in a short transaction before provider work."""
+    if task.kind in {"storage_media", "storage_logo"}:
+        restored_tenant = session.execute(
+            select(Igreja.id).where(Igreja.id == task.igreja_id).limit(1)
+        ).scalar_one_or_none()
+        if restored_tenant is not None:
+            raise CleanupRejected("Namespace de armazenamento já pertence a uma igreja")
     if task.kind == "clerk_user":
         clerk_user_id = _require_str(task.payload, "clerk_user_id")
         if not is_valid_clerk_user_id(clerk_user_id):
             raise CleanupRejected("Identidade Clerk inválida")
-        _lock_cleanup_table(session, "app_users")
         existing_user = session.execute(
             select(AppUser.id).where(AppUser.clerk_user_id == clerk_user_id).limit(1)
         ).scalar_one_or_none()
         if existing_user is not None:
             raise CleanupRejected("Identidade Clerk já pertence a uma conta sobrevivente")
-        clerk.delete_user(clerk_user_id)
         return
     if task.kind == "evolution_instance":
         instance = _require_str(task.payload, "instance")
-        _lock_cleanup_table(session, "whatsapp_connections")
         existing_connection = session.execute(
             select(WhatsappConnection.igreja_id)
             .where(WhatsappConnection.instance == instance)
@@ -704,14 +776,11 @@ def _execute_cleanup_task(
         ).scalar_one_or_none()
         if existing_connection is not None:
             raise CleanupRejected("Instância Evolution já pertence a uma igreja sobrevivente")
-        if not evolution.delete_instance(instance):
-            raise CleanupDeferred("gate_closed")
         return
     if task.kind == "asaas_subscription":
         subscription_id = _require_str(task.payload, "subscription_id")
         if not is_valid_subscription_id(subscription_id):
             raise CleanupRejected("Assinatura Asaas inválida")
-        _lock_cleanup_table(session, "subscriptions")
         existing_subscription = session.execute(
             select(Subscription.igreja_id)
             .where(Subscription.asaas_subscription_id == subscription_id)
@@ -719,6 +788,210 @@ def _execute_cleanup_task(
         ).scalar_one_or_none()
         if existing_subscription is not None:
             raise CleanupRejected("Assinatura Asaas já pertence a uma igreja sobrevivente")
+        return
+    if task.kind == "storage_media":
+        prefix = f"{task.igreja_id}/%"
+        existing_media = session.execute(
+            select(Message.igreja_id).where(Message.media_path.like(prefix)).limit(1)
+        ).scalar_one_or_none()
+        if existing_media is not None:
+            raise CleanupRejected("Mídia já pertence a uma igreja sobrevivente")
+        return
+    if task.kind == "storage_logo":
+        prefix = f"{task.igreja_id}/%"
+        existing_logo = session.execute(
+            select(Igreja.id).where(Igreja.logo_path.like(prefix)).limit(1)
+        ).scalar_one_or_none()
+        if existing_logo is not None:
+            raise CleanupRejected("Logo já pertence a uma igreja sobrevivente")
+        return
+    raise CleanupRejected("Tipo de limpeza desconhecido")
+
+
+def _cleanup_event_detail(
+    task: CleanupTask,
+    *,
+    lease: CleanupLease | None = None,
+    reason: str | None = None,
+) -> dict[str, object]:
+    detail = _lease_detail(task, lease) if lease is not None else _task_detail(task)
+    if reason:
+        detail["reason"] = reason
+    return detail
+
+
+def _claim_cleanup_task(
+    session: Session,
+    actor: TenantDeletionActor,
+    task: CleanupTask,
+) -> tuple[CleanupLease | None, CleanupOutcome | None]:
+    """Claim one task durably, then commit before any provider interaction."""
+    try:
+        if not _lock_cleanup_manifest(session, task):
+            session.rollback()
+            return None, None
+        events = _task_audit_events(session, task)
+        if _task_is_terminal(events):
+            session.rollback()
+            return None, None
+        active_lease = _active_cleanup_lease(events)
+        if active_lease is not None and active_lease.expires_at > _utcnow():
+            session.rollback()
+            return None, None
+        try:
+            _assert_cleanup_ownership(session, task)
+        except CleanupRejected as exc:
+            _audit(
+                session,
+                actor,
+                _REJECTED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, reason=type(exc).__name__),
+            )
+            session.commit()
+            return None, CleanupOutcome(task.task_id, "rejected")
+        lease = CleanupLease(
+            task.task_id,
+            uuid.uuid4(),
+            _utcnow() + _CLEANUP_LEASE_DURATION,
+        )
+        _audit(
+            session,
+            actor,
+            _CLAIMED,
+            task.igreja_id,
+            None,
+            _cleanup_event_detail(task, lease=lease),
+        )
+        session.commit()
+        return lease, None
+    except CleanupRejected as exc:
+        try:
+            _audit(
+                session,
+                actor,
+                _REJECTED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, reason=type(exc).__name__),
+            )
+            session.commit()
+            return None, CleanupOutcome(task.task_id, "rejected")
+        except Exception:
+            session.rollback()
+            logger.exception("Could not reject invalid tenant cleanup claim")
+            return None, None
+    except Exception:
+        session.rollback()
+        logger.exception("Could not claim tenant cleanup task")
+        return None, None
+
+
+def _renew_cleanup_lease(
+    session: Session,
+    actor: TenantDeletionActor,
+    task: CleanupTask,
+    lease: CleanupLease,
+) -> tuple[CleanupLease | None, str | None]:
+    """Renew a claim in a short transaction before an external request."""
+    try:
+        if not _lock_cleanup_manifest(session, task):
+            session.rollback()
+            return None, None
+        events = _task_audit_events(session, task)
+        if _task_is_terminal(events):
+            session.rollback()
+            return None, None
+        active_lease = _active_cleanup_lease(events)
+        if active_lease is None or active_lease.token != lease.token:
+            _audit(
+                session,
+                actor,
+                _FENCED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, lease=lease, reason="lease_reclaimed"),
+            )
+            session.commit()
+            return None, "fenced"
+        try:
+            _assert_cleanup_ownership(session, task)
+        except CleanupRejected as exc:
+            _audit(
+                session,
+                actor,
+                _REJECTED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, lease=lease, reason=type(exc).__name__),
+            )
+            session.commit()
+            return None, "rejected"
+        renewed = CleanupLease(
+            task.task_id,
+            lease.token,
+            _utcnow() + _CLEANUP_LEASE_DURATION,
+        )
+        _audit(
+            session,
+            actor,
+            _LEASE_RENEWED,
+            task.igreja_id,
+            None,
+            _cleanup_event_detail(task, lease=renewed),
+        )
+        session.commit()
+        return renewed, None
+    except CleanupRejected as exc:
+        try:
+            _audit(
+                session,
+                actor,
+                _REJECTED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, lease=lease, reason=type(exc).__name__),
+            )
+            session.commit()
+            return None, "rejected"
+        except Exception:
+            session.rollback()
+            logger.exception("Could not reject invalid tenant cleanup lease")
+            return None, None
+    except Exception:
+        session.rollback()
+        logger.exception("Could not renew tenant cleanup lease")
+        return None, None
+
+
+def _execute_cleanup_task(
+    task: CleanupTask,
+    *,
+    clerk: ClerkClient,
+    evolution: EvolutionClient,
+    asaas: AsaasClient,
+    storage: SupabaseStorage,
+    before_external_request: Callable[[], None],
+) -> None:
+    if task.kind == "clerk_user":
+        clerk_user_id = _require_str(task.payload, "clerk_user_id")
+        if not is_valid_clerk_user_id(clerk_user_id):
+            raise CleanupRejected("Identidade Clerk inválida")
+        before_external_request()
+        clerk.delete_user(clerk_user_id)
+        return
+    if task.kind == "evolution_instance":
+        instance = _require_str(task.payload, "instance")
+        before_external_request()
+        if not evolution.delete_instance(instance):
+            raise CleanupDeferred("gate_closed")
+        return
+    if task.kind == "asaas_subscription":
+        subscription_id = _require_str(task.payload, "subscription_id")
+        if not is_valid_subscription_id(subscription_id):
+            raise CleanupRejected("Assinatura Asaas inválida")
+        before_external_request()
         if not asaas.cancel_subscription(
             subscription_id,
             expected_external_reference=_require_str(task.payload, "external_reference"),
@@ -726,51 +999,99 @@ def _execute_cleanup_task(
             raise CleanupDeferred("gate_closed")
         return
     if task.kind == "storage_media":
-        paths = tenant_owned_paths(task.igreja_id, _require_paths(task.payload))
-        _lock_cleanup_table(session, "messages")
-        reused_path = session.execute(
-            select(Message.igreja_id)
-            .where(Message.media_path.in_(paths))
-            .limit(1)
-        ).scalar_one_or_none()
-        # The old tenant no longer exists once this task is eligible.  A row
-        # with this path therefore always belongs to a surviving binding,
-        # including a restored tenant with the same UUID.
-        if reused_path is not None:
-            raise CleanupRejected("Mídia já pertence a uma igreja sobrevivente")
-        storage.remove_tenant_media(task.igreja_id, paths)
+        storage.remove_tenant_media_namespace(
+            task.igreja_id,
+            before_request=before_external_request,
+        )
         return
     if task.kind == "storage_logo":
-        paths = tenant_owned_paths(task.igreja_id, _require_paths(task.payload))
-        _lock_cleanup_table(session, "igrejas")
-        reused_path = session.execute(
-            select(Igreja.id).where(Igreja.logo_path.in_(paths)).limit(1)
-        ).scalar_one_or_none()
-        if reused_path is not None:
-            raise CleanupRejected("Logo já pertence a uma igreja sobrevivente")
-        storage.remove_tenant_logos(task.igreja_id, paths)
+        storage.remove_tenant_logos_namespace(
+            task.igreja_id,
+            before_request=before_external_request,
+        )
         return
     raise CleanupRejected("Tipo de limpeza desconhecido")
 
 
-def _persist_cleanup_event(
+def _finalize_cleanup_task(
     session: Session,
     actor: TenantDeletionActor,
     task: CleanupTask,
+    lease: CleanupLease,
     action: str,
+    status_name: str,
     reason: str | None = None,
-) -> bool:
-    detail: dict[str, object] = _task_detail(task)
-    if reason:
-        detail["reason"] = reason
-    _audit(session, actor, action, task.igreja_id, None, detail)
+    before_task: Callable[[Session], None] | None = None,
+) -> CleanupOutcome | None:
     try:
+        if before_task is not None:
+            before_task(session)
+        if not _lock_cleanup_manifest(session, task):
+            session.rollback()
+            return None
+        events = _task_audit_events(session, task)
+        active_lease = _active_cleanup_lease(events)
+        if (
+            active_lease is None
+            or active_lease.token != lease.token
+            or active_lease.expires_at <= _utcnow()
+        ):
+            _audit(
+                session,
+                actor,
+                _FENCED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, lease=lease, reason="lease_expired_or_reclaimed"),
+            )
+            session.commit()
+            return CleanupOutcome(task.task_id, "fenced")
+        if _task_is_terminal(events):
+            session.rollback()
+            return None
+        try:
+            _assert_cleanup_ownership(session, task)
+        except CleanupRejected as exc:
+            _audit(
+                session,
+                actor,
+                _REJECTED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, lease=lease, reason=type(exc).__name__),
+            )
+            session.commit()
+            return CleanupOutcome(task.task_id, "rejected")
+        _audit(
+            session,
+            actor,
+            action,
+            task.igreja_id,
+            None,
+            _cleanup_event_detail(task, lease=lease, reason=reason),
+        )
         session.commit()
+        return CleanupOutcome(task.task_id, status_name)
+    except CleanupRejected as exc:
+        try:
+            _audit(
+                session,
+                actor,
+                _REJECTED,
+                task.igreja_id,
+                None,
+                _cleanup_event_detail(task, lease=lease, reason=type(exc).__name__),
+            )
+            session.commit()
+            return CleanupOutcome(task.task_id, "rejected")
+        except Exception:
+            session.rollback()
+            logger.exception("Could not reject invalid tenant cleanup result")
+            return None
     except Exception:
         session.rollback()
         logger.exception("Could not persist tenant cleanup outcome")
-        return False
-    return True
+        return None
 
 
 def run_pending_cleanup(
@@ -787,17 +1108,37 @@ def run_pending_cleanup(
     """Execute only durable pending tasks after the local transaction committed."""
     outcomes: list[CleanupOutcome] = []
     for task in tasks:
-        try:
+        if before_task is not None:
+            before_task(session)
+        lease, claim_outcome = _claim_cleanup_task(session, actor, task)
+        if claim_outcome is not None:
+            outcomes.append(claim_outcome)
+            continue
+        if lease is None:
+            continue
+
+        def renew_lease() -> None:
+            nonlocal lease
             if before_task is not None:
                 before_task(session)
+            renewed, status_name = _renew_cleanup_lease(session, actor, task, lease)
+            if renewed is None:
+                raise CleanupClaimLost(status_name)
+            lease = renewed
+
+        try:
             _execute_cleanup_task(
-                session,
                 task,
                 clerk=clerk,
                 evolution=evolution,
                 asaas=asaas,
                 storage=storage,
+                before_external_request=renew_lease,
             )
+        except CleanupClaimLost as exc:
+            if exc.args and isinstance(exc.args[0], str):
+                outcomes.append(CleanupOutcome(task.task_id, exc.args[0]))
+            continue
         except (CleanupRejected, StoragePathError, AsaasOwnershipError) as exc:
             action, status_name = _REJECTED, "rejected"
             reason = type(exc).__name__
@@ -809,8 +1150,18 @@ def run_pending_cleanup(
             reason = type(exc).__name__
         else:
             action, status_name, reason = _DONE, "done", None
-        if _persist_cleanup_event(session, actor, task, action, reason):
-            outcomes.append(CleanupOutcome(task.task_id, status_name))
+        outcome = _finalize_cleanup_task(
+            session,
+            actor,
+            task,
+            lease,
+            action,
+            status_name,
+            reason,
+            before_task,
+        )
+        if outcome is not None:
+            outcomes.append(outcome)
     return tuple(outcomes)
 
 
@@ -840,13 +1191,12 @@ def reset_all_tenants(session: Session, actor: TenantDeletionActor) -> TenantRes
     igreja_ids = list(
         session.execute(select(Igreja.id).order_by(Igreja.id)).scalars().all()
     )
-    pending_tasks = 0
     for igreja_id in igreja_ids:
-        result = delete_tenant_locally(session, igreja_id, actor)
-        pending_tasks += len(result.pending_tasks)
+        delete_tenant_locally(session, igreja_id, actor)
     session.flush()
     return TenantResetResult(
-        igrejas_deleted=len(igreja_ids), pending_tasks=pending_tasks
+        igrejas_deleted=len(igreja_ids),
+        pending_tasks=len(load_cleanup_drain_state(session).pending_tasks),
     )
 
 

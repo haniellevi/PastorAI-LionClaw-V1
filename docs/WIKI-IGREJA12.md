@@ -7,6 +7,10 @@ Antes de apagar a igreja, registra no audit tarefas para Clerk, Evolution,
 Asaas, logo e mídia, preservando somente o `AppUser` que está na allowlist de
 plataforma. Essa conta fica sem tenant e recebe 403 nos caminhos de tenant;
 o console master continua pelo login administrativo dedicado.
+Em Storage, a limpeza cobre o namespace inteiro `UUID/` da igreja em mídia e
+logos, inclusive objetos sem ponteiro local. Cada tarefa reserva sua linha no
+audit antes do HTTP; o lease permite retomada sem manter transação SQL aberta
+durante o provedor e não garante exatamente uma chamada após crash.
 
 `reset_tudo.py` é dry-run por padrão e recebe a URL PostgreSQL somente por
 `RESET_DATABASE_URL` ou prompt protegido, nunca por argv. Exige role com
@@ -28,9 +32,11 @@ Contrato e operação futura estão em
 `docs/decisions/2026-09-25-tenant-deletion.md` e
 `docs/ops/TENANT-DELETION-RESET-RUNBOOK.md`. Após o commit local, o subcomando
 `drain-external` recompõe os manifestos do audit, mantém dry-run por padrão e
-retorna código `4` enquanto houver pendências ou rejeições. Ele reaplica
-`search_path=public` antes de cada tarefa e audita o host confirmado. O próximo
-gate humano único desta fatia é Raniel autorizar o merge por número da PR B.
+retorna `4` com pendências, `5` só com rejeições terminais ou `0` sem ambas.
+Esgotamento significa `pendentes=0`; rejeições exigem tratamento separado. O
+drain reaplica `search_path=public` antes de cada tarefa e audita o host
+confirmado. O próximo gate humano único desta fatia é Raniel autorizar o merge
+por número da PR B.
 No candidato local R6 baseado em `8284b7a112ff2debbc556a67cd2d6666920f4fa1`,
 `./test-local.sh` passou com 4.982 testes backend, 854 frontend e typecheck; RLS
 em PostgreSQL 17 sintético passou com 308 testes, sem falha, erro ou skip. Isso

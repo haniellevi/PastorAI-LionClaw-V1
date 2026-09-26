@@ -250,7 +250,11 @@ def _print_drain_state(host: str, state, output: Callable[[str], None]) -> None:
 
 
 def _drain_exit_code(state) -> int:
-    return 4 if state.pending_tasks or state.rejected_tasks else 0
+    if state.pending_tasks:
+        return 4
+    if state.rejected_tasks:
+        return 5
+    return 0
 
 
 def _confirm_host(
@@ -454,7 +458,7 @@ def main(
             f"igrejas_excluidas={result.igrejas_deleted} "
             f"limpezas_externas_pendentes={result.pending_tasks}"
         )
-        return 0
+        return 4 if result.pending_tasks > 0 else 0
     finally:
         if session is not None:
             session.close()

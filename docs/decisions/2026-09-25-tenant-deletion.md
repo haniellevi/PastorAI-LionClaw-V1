@@ -11,11 +11,18 @@ falha recuperável ou rejeição definitiva do alvo.
 O manifesto fica no plano de plataforma e não possui FK para a igreja. Repetir
 `DELETE /admin/igrejas/{id}` após a igreja já estar ausente recompõe apenas as
 tarefas pendentes e tenta novamente. Antes de cada efeito externo, a tarefa
-trava a relação local do recurso e confirma que nenhum vínculo sobrevivente
-passou a usar o mesmo Clerk ID, instance, assinatura ou caminho de Storage.
+reserva sua linha no audit e confirma que nenhum vínculo sobrevivente passou
+a usar o mesmo Clerk ID, instance, assinatura ou caminho de Storage.
 O subcomando `drain-external` recupera esses manifestos depois do commit local;
-ele não cria efeito em dry-run e permanece não terminal enquanto houver tarefa
-pendente ou rejeitada.
+ele não cria efeito em dry-run. O esgotamento das tarefas retentáveis exige
+`pendentes=0`; rejeições terminais continuam visíveis e exigem tratamento
+separado.
+
+O claim durável é feito por linha de tarefa do audit existente, sem nova
+migration. Sua transação curta confirma a reserva antes do HTTP, sem manter
+lock global durante a chamada; o resultado posterior persiste com token de
+fence. O lease permite retomada, mas não impede reassociação por writer não
+cooperante nem garante exatamente uma chamada remota após crash.
 
 ## Dados locais e preservação do master
 
@@ -43,9 +50,12 @@ retenções E4B nesta fatia.
 
 ## Recursos externos
 
-Só entram no manifesto recursos ligados à igreja no banco local: Clerk de
-contas não protegidas, instance de `whatsapp_connections`, assinatura Asaas
-com `externalReference` PastorAI, logo e mídia sob o prefixo UUID da igreja.
+Clerk de contas não protegidas, instance de `whatsapp_connections` e assinatura
+Asaas com `externalReference` PastorAI entram no manifesto a partir de vínculos
+locais da igreja. Para Storage, o manifesto abrange o prefixo inteiro `UUID/`
+em mídia e logos pela identidade da igreja, inclusive órfãos sem `Message` ou
+outro ponteiro local, páginas e subdiretórios. Cada caminho enumerado é validado
+contra o prefixo do tenant antes de qualquer remoção.
 IDs de recurso e caminhos são validados antes de formar uma URL privilegiada.
 Asaas confirma propriedade e o mesmo ID remoto antes do cancelamento; Evolution
 só conclui com a resposta de sucesso documentada; objetos ausentes são
@@ -85,13 +95,16 @@ cabeçalho de dump PostgreSQL em texto, sem registrar conteúdo. O reset adquire
 `LOCK TABLE igrejas IN SHARE ROW EXCLUSIVE MODE`, bloqueia criação concorrente,
 apaga todas as igrejas em uma transação e deixa as limpezas externas pendentes
 no audit, com o host confirmado. `planos`, `schema_migrations`, masters e
-auditoria de plataforma não são apagados.
+auditoria de plataforma não são apagados. O `pending_tasks` do resultado soma
+manifestos novos e pendências antigas do audit. Depois do commit, o reset
+retorna `4` se houver alguma pendência externa e `0` se não houver.
 
 Depois desse commit, `drain-external` reabre o audit sob a mesma credencial,
 mostra `pendentes` e `rejeitadas` em dry-run e exige `--execute` mais a mesma
 confirmação de host para chamar provedores. Cada resultado também registra o
-host no audit. Ele retorna código `4` enquanto existir pendência ou rejeição,
-portanto uma repetição idempotente nunca comunica conclusão falsa.
+host no audit. Retorna `4` quando há pendência, inclusive se também houver
+rejeição; sem pendência, retorna `5` para rejeições terminais ou `0` sem
+exceções. A rejeição não deve ser repetida indefinidamente.
 
 ## Limites e próximo gate
 
