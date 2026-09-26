@@ -66,6 +66,19 @@ describe("conversation-format — IA pausada por sem interesse (CONV-AI-1)", () 
     expect(conversationPill(c).label).toBe("Em atendimento");
   });
 
+  it("handoff sem responsável entra na fila visual sem mudar o estado do backend", () => {
+    const c = conv({ estado: "humano", assumidoPor: null, esperaDesde: "2026-09-26T12:00:00Z" });
+    expect(c.estado).toBe("humano");
+    expect(effectiveEstado(c)).toBe("aguardando");
+    expect(conversationPill(c)).toEqual(estadoPill("aguardando"));
+  });
+
+  it("conversa assumida permanece em atendimento mesmo com espera antiga", () => {
+    const c = conv({ estado: "humano", assumidoPor: "u1", esperaDesde: "2026-09-26T12:00:00Z" });
+    expect(effectiveEstado(c)).toBe("humano");
+    expect(conversationPill(c)).toEqual(estadoPill("humano"));
+  });
+
   it("fluxo normal 'aguardando' (sem interesse=false) permanece inalterado", () => {
     const c = conv({ semInteresse: false, estado: "aguardando" });
     expect(iaPausadaSemInteresse(c)).toBe(false);

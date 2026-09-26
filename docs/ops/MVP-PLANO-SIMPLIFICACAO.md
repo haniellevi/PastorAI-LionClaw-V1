@@ -254,17 +254,22 @@ saudação. Responder de verdade à mensagem da pessoa é a Fase 2.
 
 ### Fase 2 — O agente fica útil (1 a 2 semanas)
 
-- [ ] **O LLM responde à mensagem de verdade.** O prompt passa a levar a
+Fatia 1 implementada em código, com testes sintéticos e sem implantação:
+[registro de 26/09](../sprints/2026-09-26-mvp-fase2-fatia1.md). Os itens
+marcados abaixo descrevem o código; o aceite de 20 conversas reais continua
+pendente. Não há garantia geral de factualidade por teste de prompt.
+
+- [x] **O LLM responde à mensagem de verdade.** O prompt passa a levar a
       mensagem da pessoa, o perfil da igreja (horários de culto, endereço,
       células, tom, via `AgentConfig.comportamento`, editável no painel) e as
       últimas 10 mensagens da conversa (já persistidas; sem checkpointer).
-- [ ] Guardrails simples: opt-out, handoff para humano quando a pessoa pede ou
+- [x] Guardrails simples: opt-out, handoff para humano quando a pessoa pede ou
       há sinal de crise (regex primeiro; Jev depois do DPA), tamanho máximo de
       resposta e proibição de inventar dados.
-- [ ] Handoff: a conversa vai para `humano` e o líder vê o alerta no inbox.
+- [x] Handoff: a conversa vai para `humano` e o líder vê o alerta no inbox.
 - [ ] Ferramentas só de leitura: "qual célula perto de mim", "horário do
       culto".
-- [ ] Aceite do termo mais robusto: "sim, mas não quero…" não conta como
+- [x] Aceite do termo mais robusto: "sim, mas não quero…" não conta como
       aceite (bug B4).
 
 **Pronto quando:** 20 conversas de teste reais (visitante, pedido de oração,

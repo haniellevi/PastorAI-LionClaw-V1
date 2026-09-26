@@ -2673,6 +2673,57 @@ def _transition_agent_reply_intent(
         session.close()
 
 
+def _suppress_agent_reply_after_handoff(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+    *,
+    expected: str,
+) -> bool:
+    """Suppress one unsent AI intent when the conversation is now human-owned.
+
+    The predicate and state transition share one SQL statement, so a response
+    that was already prepared cannot cross the transport fence after a later
+    handoff. This never changes a confirmed or ambiguous provider outcome.
+    """
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        human_handoff = (
+            select(Conversation.id)
+            .where(
+                Conversation.id == Message.conversation_id,
+                Conversation.igreja_id == Message.igreja_id,
+                Conversation.estado == "humano",
+            )
+            .exists()
+        )
+        suppressed = session.execute(
+            update(Message)
+            .where(
+                Message.id == intent.id,
+                Message.igreja_id == outcome.igreja_id,
+                Message.conversation_id == outcome.conversation_id,
+                Message.autor == "ia",
+                Message.agent_reply_state == expected,
+                human_handoff,
+            )
+            .values(agent_reply_state=_AGENT_REPLY_SUPPRESSED)
+            .returning(Message.id)
+        ).scalar_one_or_none()
+        session.commit()
+        return suppressed is not None
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+class _AgentReplySuppressedByHandoff(Exception):
+    """Internal signal that the provider call must not start."""
+
+
 def _quarantine_agent_reply(
     session_factory: Any, outcome: IngestionOutcome, intent: _AgentReplyIntent
 ) -> None:
@@ -2730,9 +2781,20 @@ def _release_agent_execution_reservation(
 
 def _send_agent_reply(
     client: Any, instance: str | None, telefone: str | None, response: str,
-    *, ownership_guard: ClaimGuard | None = None,
+    *,
+    ownership_guard: ClaimGuard | None = None,
+    before_transport: Callable[[], bool] | None = None,
 ) -> str:
     """Use the agent connectivity/retry policy without exposing provider data."""
+
+    def handoff_allows_transport() -> bool:
+        return before_transport is None or before_transport()
+
+    def before_send() -> None:
+        if not handoff_allows_transport():
+            raise _AgentReplySuppressedByHandoff
+        if ownership_guard is not None:
+            ownership_guard()
 
     agent_send = getattr(client, "send_agent_text", None)
     classified = getattr(client, "send_text_classificado", None)
@@ -2741,14 +2803,18 @@ def _send_agent_reply(
     try:
         if callable(agent_send):
             result = agent_send(
-                instance, telefone, response, before_send=ownership_guard
+                instance, telefone, response, before_send=before_send
             )
             status = getattr(result, "status", None)
             return status if isinstance(status, str) else "desconhecido"
         if callable(classified):
+            before_send()
             status = getattr(classified(instance, telefone, response), "status", None)
             return status if isinstance(status, str) else "desconhecido"
+        before_send()
         sent = client.send_text(instance, telefone, response)
+    except _AgentReplySuppressedByHandoff:
+        return "suprimido"
     except ClaimOwnershipLost:
         raise
     except Exception:  # noqa: BLE001 - an unclassified call may have reached Evolution
@@ -2794,6 +2860,17 @@ def _deliver_agent_reply_intent(
         logger.warning("Agent reply intent is not eligible for automatic transport")
         return
 
+    # A later inbound handoff belongs to the same conversation, while this
+    # durable intent belongs only to an earlier inbound message. Suppress it
+    # atomically before it can claim ``ia_em_transporte``.
+    if _suppress_agent_reply_after_handoff(
+        session_factory,
+        outcome,
+        intent,
+        expected=_AGENT_REPLY_PENDING,
+    ):
+        return
+
     # Claim the durable intent before the call.  The conditional state move is
     # the cross-process transport fence; a competing worker can only observe
     # ``ia_em_transporte`` and therefore cannot start a second Evolution call.
@@ -2805,12 +2882,38 @@ def _deliver_agent_reply_intent(
         target=_AGENT_REPLY_IN_FLIGHT,
         ownership_guard=ownership_guard,
     ):
+        _suppress_agent_reply_after_handoff(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_PENDING,
+        )
+        return
+
+    # The state may have changed after the pending CAS. This second durable
+    # check remains outside HTTP and turns an unsent in-flight intent into a
+    # terminal suppression.
+    if _suppress_agent_reply_after_handoff(
+        session_factory,
+        outcome,
+        intent,
+        expected=_AGENT_REPLY_IN_FLIGHT,
+    ):
         return
 
     def send_with(client: Any) -> str:
+        def before_transport() -> bool:
+            return not _suppress_agent_reply_after_handoff(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+            )
+
         return _send_agent_reply(
             client, outcome.instance, outcome.telefone, intent.response,
             ownership_guard=ownership_guard,
+            before_transport=before_transport,
         )
 
     try:
@@ -3027,12 +3130,15 @@ def run_agent_for_message(
                 dedicated=uses_dedicated_agent_session,
             )
             if turn_identity is None:
-                result = process_inbound_message(
-                    session,
-                    igreja_id=igreja_id,
-                    conversation_id=outcome.conversation_id,
-                    texto=outcome.texto,
-                )
+                runtime_kwargs: dict[str, Any] = {
+                    "igreja_id": igreja_id,
+                    "conversation_id": outcome.conversation_id,
+                    "texto": outcome.texto,
+                }
+                if outcome.inbound_message_id is not None:
+                    runtime_kwargs["inbound_message_id"] = outcome.inbound_message_id
+                    runtime_kwargs["provider_message_id"] = outcome.provider_message_id
+                result = process_inbound_message(session, **runtime_kwargs)
             else:
                 result = process_inbound_message(
                     session,
@@ -3120,12 +3226,15 @@ def run_agent_for_message(
                         dedicated=uses_dedicated_agent_session,
                     )
                     if turn_identity is None:
-                        result = process_inbound_message(
-                            session,
-                            igreja_id=igreja_id,
-                            conversation_id=outcome.conversation_id,
-                            texto=outcome.texto,
-                        )
+                        runtime_kwargs = {
+                            "igreja_id": igreja_id,
+                            "conversation_id": outcome.conversation_id,
+                            "texto": outcome.texto,
+                        }
+                        if outcome.inbound_message_id is not None:
+                            runtime_kwargs["inbound_message_id"] = outcome.inbound_message_id
+                            runtime_kwargs["provider_message_id"] = outcome.provider_message_id
+                        result = process_inbound_message(session, **runtime_kwargs)
                     else:
                         result = process_inbound_message(
                             session,

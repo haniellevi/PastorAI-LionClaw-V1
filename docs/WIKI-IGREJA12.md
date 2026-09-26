@@ -253,11 +253,21 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
 
 ### Conversa e inteligência
 
-O grafo atual é stateless. Ele não carrega histórico, não mantém campos já
-respondidos e não consulta uma base oficial da igreja. O LLM é usado apenas
-para refinar parte de uma resposta determinística. Esse desenho é um fator
-tecnicamente compatível com a repetição vista no canário, mas a execução não
-prova que ele seja a causa única.
+O grafo continua stateless, sem checkpointer. Na fatia 1 da fase 2 do MVP,
+o runtime fornece ao LLM a mensagem atual, o perfil em
+`AgentConfig.comportamento` e até dez mensagens anteriores da mesma igreja e
+conversa. O perfil pode conter horários e endereço cadastrados pela plataforma;
+não há consulta nova a conhecimento institucional ou ferramentas de leitura.
+Rotas de consentimento, opt-out e efeitos de domínio permanecem determinísticas.
+
+Pedidos de atendimento humano e sinais de crise reconhecidos por regex pausam
+a IA e deixam a conversa no inbox para um responsável assumir. Respostas têm
+limite de 1600 caracteres; instruções no prompt proíbem inventar fatos ou ações.
+Essas instruções e os testes com provider simulado não garantem factualidade de
+toda resposta futura. A validação desta fatia é local/source-only, sem canário,
+deploy ou conversa real; o aceite de 20 conversas reais da fase 2 segue pendente.
+O aceite do termo exige frase afirmativa inequívoca; respostas com ressalva,
+como “sim, mas não quero”, não registram consentimento.
 
 A preparação D3 offline separa os schemas de entrada e saída e reúne as
 intenções em `AgentTurnEffects`, um canal `UntrackedValue` substituído a cada

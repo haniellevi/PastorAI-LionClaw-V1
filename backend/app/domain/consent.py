@@ -86,13 +86,8 @@ def is_acceptance(text: str | None) -> bool:
     """Detect an affirmative acceptance of the presented term."""
     if not text:
         return False
-    normalized = text.strip().lower()
-    if normalized in _ACCEPT_TOKENS:
-        return True
-    # Allow short phrases that clearly start with an affirmative token, ignoring
-    # surrounding punctuation (e.g. "sim, concordo" -> first token "sim").
-    tokens = [t.strip(".,!;:()\"'") for t in normalized.split()]
-    return bool(tokens) and tokens[0] in _ACCEPT_TOKENS
+    normalized = " ".join(re.findall(r"\w+", text.casefold()))
+    return normalized in _ACCEPT_TOKENS or normalized == "sim concordo"
 
 
 def is_optout_request(text: str | None) -> bool:

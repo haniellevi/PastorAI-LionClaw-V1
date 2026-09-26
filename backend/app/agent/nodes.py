@@ -15,6 +15,7 @@ behaviour deterministic and unit-testable without a database or an LLM.
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, TypedDict
 
 from langgraph.channels import UntrackedValue
@@ -39,6 +40,47 @@ ROUTE_INTAKE = "intake"
 
 # Conversation states (mirrors domain.conversations.VALID_ESTADOS).
 ESTADO_HUMANO = "humano"
+
+_HUMAN_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:quero|preciso|gostaria|poderia|posso)\s+"
+        r"(?:falar|conversar)\s+com\s+(?:(?:o|a|um|uma)\s+)?"
+        r"(?:pessoa|humano|pastor(?:a)?|líder|lider|atendente)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:quero|preciso|gostaria)\s+de\s+(?:uma?\s+)?"
+        r"(?:pessoa|humano|pastor(?:a)?|líder|lider|atendente)\b",
+        re.IGNORECASE,
+    ),
+)
+_CRISIS_HANDOFF_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:estou\s+pensando\s+em|quero|vou|tenho\s+vontade\s+de)\s+"
+        r"me\s+(?:matar|suicidar(?:-me)?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bn[aã]o\s+(?:quero|consigo)\s+(?:mais\s+)?viver\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:quero|vou|penso\s+em|tenho\s+vontade\s+de)\s+morrer\b"
+        r"(?!\s+de\s+rir\b)",
+        re.IGNORECASE,
+    ),
+)
+_NEGATED_HUMAN_HANDOFF_PREFIX = re.compile(r"\bn[aã]o\s+$", re.IGNORECASE)
+
+
+def is_handoff_request(texto: str | None) -> bool:
+    """Recognize explicit human-help or self-harm requests without model input."""
+    if not isinstance(texto, str):
+        return False
+    if any(pattern.search(texto) is not None for pattern in _CRISIS_HANDOFF_PATTERNS):
+        return True
+    return any(
+        _NEGATED_HUMAN_HANDOFF_PREFIX.search(texto[: match.start()]) is None
+        for pattern in _HUMAN_HANDOFF_PATTERNS
+        for match in pattern.finditer(texto)
+    )
 
 # Onboarding fields collected beyond the baseline (name+telefone). Collecting
 # any of these requires an accepted, current consent term (delta-040).
@@ -160,6 +202,9 @@ def route_intent(
     texto = state.get("texto") or ""
     if consent_rules.is_optout_request(texto):
         return ROUTE_OPTOUT
+
+    if is_handoff_request(texto):
+        return ROUTE_HANDOFF
 
     needs_term = consent_rules.needs_reaccept(
         context.legacy_term.accepted_version,
