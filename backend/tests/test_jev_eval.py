@@ -310,8 +310,9 @@ def test_metricas_exatas_com_api_simulada(tmp_path: Path, monkeypatch) -> None:
     # A regex não pega "Me tira da lista"; a política (regra OU Jev) pega.
     assert report["regras"]["optout"]["fn_ids"] == ["sai"]
     assert pt["politica"]["optout"]["0.50"]["fn"] == 0
-    # A regra aceita "sim, mas não autorizo"; o veto do Jev barra.
-    assert report["regras"]["aceite"]["fp_ids"] == ["ressalva"]
+    # B4: a regra já veta a ressalva; a política com Jev preserva o veto.
+    assert report["regras"]["aceite"]["fp_ids"] == []
+    assert report["regras"]["aceite"]["tp"] == 1
     aceite = pt["politica"]["aceite"]["0.50"]
     assert (aceite["tp"], aceite["fp"]) == (1, 0)
     assert pt["intencao"] == {"avaliadas": 1, "acuracia": 1.0, "trocas": {}}
