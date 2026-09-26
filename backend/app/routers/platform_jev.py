@@ -65,8 +65,9 @@ class JevStatusOut(BaseModel):
 
 
 class JevConfigIn(BaseModel):
-    # Omitida ou vazia mantém a chave salva. Nunca é devolvida.
-    apiKey: str | None = Field(default=None, max_length=512)  # noqa: N815
+    # Omitida ou vazia mantém a chave salva. Nunca é devolvida. Sem
+    # max_length aqui: o 422 do Pydantic ecoaria o valor colado.
+    apiKey: str | None = None  # noqa: N815
     removerChave: bool = False  # noqa: N815
     # Nulo usa o valor do ambiente.
     modelo: str | None = Field(default=None, max_length=64)
@@ -142,7 +143,7 @@ def put_jev_config(
 ) -> JevStatusOut:
     """Salva a configuração do console; a chave vai cifrada e não volta."""
     chave = (payload.apiKey or "").strip()
-    if chave and (len(chave) < 8 or any(c.isspace() for c in chave)):
+    if chave and (not 8 <= len(chave) <= 512 or any(c.isspace() for c in chave)):
         raise _invalido("Chave inválida: cole a chave da TypeSafe, sem espaços.")
     if chave and payload.removerChave:
         raise _invalido("Escolha entre salvar uma chave nova e remover a salva.")
@@ -171,6 +172,14 @@ def put_jev_config(
         if faltando:
             raise _invalido(f"{len(faltando)} igreja(s) não encontrada(s).")
 
+    if not jev_triage.console_table_exists(db):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Banco sem a tabela do Jev: aplique a migration "
+                "20260926_120446_platform_jev_settings antes de salvar."
+            ),
+        )
     row = jev_triage.load_console_settings(db)
     if row is None:
         row = PlatformJevSettings(id=1, igreja_ids=[])

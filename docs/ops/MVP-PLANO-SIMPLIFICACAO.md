@@ -229,20 +229,29 @@ Ordem revisada em 26/09: o banco vem antes do código, porque o `main` mapeia
 colunas e tabelas que o backend antigo não usava.
 
 1. **Backup** do banco de PROD.
-2. **Banco de PROD antes do deploy** (toda migration em PROD passa pela
-   revisão da Sarah). O `main` depende de
-   `20260822_225752_celula_membro_evento_audit_table` (transferir ou remover
-   membro de célula), `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
-   (reserva de resposta do worker) e
-   `20260925_183811_preserve_platform_admins_on_tenant_deletion` (exclusão de
-   tenant; muda a RLS de `app_users`) e
-   `20260926_120446_platform_jev_settings` (configuração do Jev pelo console;
-   tabela nova fechada, só o backend lê). Confira cada uma por SQL: a tabela ou
-   a coluna existe? O preflight de 28/08 viu `public.schema_migrations`
-   ausente, e o `migrate.py` recusa rodar sem ele. **Não crie o ledger vazio:**
-   o `status` passaria a listar como pendentes migrations que já estão em
-   PROD. Registre nele só as já aplicadas e depois aplique as que faltam com
-   `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py apply <arquivo> --yes`.
+2. **Banco de PROD antes do deploy**, em duas sessões, cada uma com revisão
+   da Sarah (veredito de 26/09):
+   - **Sessão de reconciliação, só leitura.** Backup, inspeção por SQL e
+     reconciliação do ledger; não aplica nada novo. Confira cada migration
+     abaixo: a tabela ou a coluna existe? O preflight de 28/08 viu
+     `public.schema_migrations` ausente, e o `migrate.py` recusa rodar sem
+     ele. **Não crie o ledger vazio:** o `status` passaria a listar como
+     pendentes migrations que já estão em PROD. Registre nele só as já
+     aplicadas.
+   - **Sessão de aplicação.** Aplique as que faltam, uma a uma, com
+     `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py apply <arquivo> --yes`.
+     O `main` depende de:
+     - `20260822_225752_celula_membro_evento_audit_table` (transferir ou
+       remover membro de célula);
+     - `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
+       (reserva de resposta do worker);
+     - `20260925_183811_preserve_platform_admins_on_tenant_deletion`
+       (exclusão de tenant; muda a RLS de `app_users`).
+
+     `20260926_120446_platform_jev_settings` (configuração do Jev pelo
+     console; tabela nova fechada, só o backend lê) é decisão separada. Sem
+     ela o deploy funciona: o console mostra só o ambiente, e salvar responde
+     409 pedindo a migration.
 3. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
    (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`),
    ainda com `ALLOW_REAL_SENDS=false`: a prova pós-restart do runbook aborta
@@ -309,8 +318,11 @@ chamada, então **custo não é a alavanca; o ganho é acertar** onde a regex er
       termo LGPD que cite IA e processador estrangeiro e backend atualizado.
       Chamada depois do envio da resposta, em transação própria (nunca na
       transação do turno), cliente HTTP persistente, versão do modelo fixada e
-      custo em `ai_usage_logs`. Termina por volume (≥ 300 turnos), não por
-      tempo.
+      custo em `ai_usage_logs`. A configuração do console vem de
+      `effective_settings` numa sessão de plataforma, passada como
+      `settings=`: a sessão com escopo de tenant roda como `authenticated`,
+      que não lê `platform_jev_settings` (achado da Sarah, 26/09). Termina por
+      volume (≥ 300 turnos), não por tempo.
 - [ ] **J2, sinais ativos:** um por vez, cada um com flag: crise → handoff
       e alerta; CSIM só com confirmação do Jev (sem Jev, não marca); veto de
       aceite (o Jev nunca concede); opt-out aditivo (probabilidade alta

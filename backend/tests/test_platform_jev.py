@@ -8,6 +8,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.sql.elements import TextClause
 
 from app.db.models import PlatformAuditLog, PlatformJevSettings
 from app.config import get_settings
@@ -47,13 +48,25 @@ def _use_settings(monkeypatch, **values: object) -> None:
 class JevDB(PlatformDB):
     """PlatformDB com a linha única de configuração do Jev salva pelo console."""
 
-    def __init__(self, *, jev_settings: PlatformJevSettings | None = None, **kw) -> None:
+    def __init__(
+        self,
+        *,
+        jev_settings: PlatformJevSettings | None = None,
+        tabela_existe: bool = True,
+        **kw,
+    ) -> None:
         super().__init__(**kw)
         self.jev_settings = jev_settings
+        # False simula o banco antes da migration 20260926_120446.
+        self.tabela_existe = tabela_existe
 
     def execute(self, statement, params=None) -> _Result:
+        if isinstance(statement, TextClause) and "to_regclass" in statement.text:
+            return SimpleNamespace(scalar=lambda: self.tabela_existe)
         descs = list(getattr(statement, "column_descriptions", []) or [])
         if descs and descs[0].get("entity") is PlatformJevSettings:
+            if not self.tabela_existe:
+                raise AssertionError("platform_jev_settings não existe")
             self.statements.append(statement)
             return _Result(scalar=self.jev_settings)
         return super().execute(statement, params)
@@ -331,6 +344,7 @@ def test_salvar_sem_chave_nova_mantem_a_salva(app, monkeypatch, cifra) -> None:
         ({"timeoutSegundos": 0.04}, "timeout"),
         ({"apiKey": "curta"}, "Chave inválida"),
         ({"apiKey": "tem espaco no meio"}, "Chave inválida"),
+        ({"apiKey": "x" * 513}, "Chave inválida"),
         ({"apiKey": _CHAVE_CONSOLE, "removerChave": True}, "Escolha"),
     ],
 )
@@ -345,6 +359,9 @@ def test_config_recusa_valores_invalidos(
 
     assert resp.status_code == 422
     assert trecho in resp.json()["detail"]
+    # A resposta de erro nunca ecoa a chave colada.
+    if payload.get("apiKey"):
+        assert payload["apiKey"] not in resp.text
     assert db.jev_settings is None
     assert not db.committed
 
@@ -380,6 +397,31 @@ def test_config_sem_chave_de_cifra_responde_409(app, monkeypatch) -> None:
         crypto._get_fernet.cache_clear()  # noqa: SLF001
     assert resp.status_code == 409
     assert "SECRETS_ENCRYPTION_KEY" in resp.json()["detail"]
+    assert not db.committed
+
+
+def test_status_sem_a_tabela_do_console_usa_o_ambiente(app, monkeypatch) -> None:
+    # Deploy do código antes da migration 20260926_120446.
+    _use_settings(monkeypatch, typesafe_api_key=_SECRET)
+    client = _wire(app, db=_admin_db(tabela_existe=False), clerk=FakeClerk())
+
+    resp = client.get("/admin/jev", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["configurado"] is True
+    assert resp.json()["chaveOrigem"] == "ambiente"
+
+
+def test_salvar_sem_a_tabela_do_console_responde_409(app, monkeypatch, cifra) -> None:
+    _use_settings(monkeypatch)
+    db = _admin_db(tabela_existe=False)
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.put("/admin/jev/config", headers=_AUTH, json={"apiKey": _CHAVE_CONSOLE})
+
+    assert resp.status_code == 409
+    assert "20260926_120446" in resp.json()["detail"]
+    assert db.jev_settings is None
     assert not db.committed
 
 

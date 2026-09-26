@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.agent.masking import log_agent_event, mask_text
@@ -122,7 +122,19 @@ class EffectiveTriageSettings:
     dpa_assinado_em: dt.date | None
 
 
+def console_table_exists(session: Session) -> bool:
+    # Antes da migration `20260926_120446` a tabela não existe e vale só o
+    # ambiente: o deploy do código não depende dessa migration.
+    return bool(
+        session.execute(
+            text("select to_regclass('public.platform_jev_settings') is not null")
+        ).scalar()
+    )
+
+
 def load_console_settings(session: Session) -> PlatformJevSettings | None:
+    if not console_table_exists(session):
+        return None
     return session.execute(
         select(PlatformJevSettings).where(PlatformJevSettings.id == 1)
     ).scalar_one_or_none()
@@ -409,7 +421,10 @@ def log_shadow_triage(
     reais, o que as regras decidiram e o que o Jev teria decidido. O evento
     participa da transação do chamador (quem faz commit é o runtime).
     """
-    settings = settings or effective_settings(session).settings
+    # Sessão com escopo de tenant roda como `authenticated`, que não lê
+    # `platform_jev_settings`: quem ligar o runtime (J1) resolve
+    # `effective_settings` numa sessão de plataforma e passa `settings=`.
+    settings = settings or get_triage_settings()
     if not shadow_enabled_for(settings, igreja_id):
         return
     termo_pendente = consent_rules.needs_reaccept(

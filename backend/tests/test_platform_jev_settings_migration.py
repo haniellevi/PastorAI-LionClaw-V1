@@ -5,7 +5,7 @@ import uuid
 
 import psycopg2
 import pytest
-from psycopg2.errors import CheckViolation, InsufficientPrivilege
+from psycopg2.errors import CheckViolation, InsufficientPrivilege, RaiseException
 from sqlalchemy import create_engine
 
 from tests.conftest_rls import rls_database_url  # noqa: F401
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.rls_integration
 
 
 @pytest.fixture
-def migrated_db(rls_database_url):
+def scratch_schema(rls_database_url):
     engine = create_engine(rls_database_url)
     schema = "jev_settings_test_" + uuid.uuid4().hex
     connection = engine.raw_connection()
@@ -40,15 +40,20 @@ def migrated_db(rls_database_url):
             alter default privileges in schema {schema}
               grant select, insert, update, delete on tables to authenticated, anon;
         """)
-        sql = MIGRATION.read_text().replace("public.", schema + ".")
-        cursor.execute(sql)
-        cursor.execute(sql)
-        yield cursor, schema
+        yield cursor, schema, MIGRATION.read_text().replace("public.", schema + ".")
     finally:
         connection.rollback()
         cursor.close()
         connection.close()
         engine.dispose()
+
+
+@pytest.fixture
+def migrated_db(scratch_schema):
+    cursor, schema, sql = scratch_schema
+    cursor.execute(sql)
+    cursor.execute(sql)
+    return cursor, schema
 
 
 def _violates(cursor, statement: str, params=()) -> type[Exception] | None:
@@ -74,6 +79,8 @@ def test_tabela_fica_fechada_para_anon_e_authenticated(migrated_db):
         (tabela,),
     )
     assert cursor.fetchall() == [("service_role_bypass_only", False, "*")]
+    cursor.execute("select has_table_privilege(current_user, %s, 'SELECT')", (tabela,))
+    assert cursor.fetchone() == (True,)
     for role in ("anon", "authenticated"):
         for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
             cursor.execute(
@@ -124,3 +131,11 @@ def test_linha_unica_e_travas_de_valor(migrated_db):
     )
     cursor.execute("select id, modelo, cardinality(igreja_ids) from platform_jev_settings")
     assert cursor.fetchall() == [(1, "jev-1.13", 1)]
+
+
+def test_tabela_preexistente_com_outro_formato_aborta(scratch_schema):
+    # `create table if not exists` pularia a tabela; a pós-condição não deixa.
+    cursor, schema, sql = scratch_schema
+    cursor.execute(f"create table {schema}.platform_jev_settings (id smallint primary key)")
+    with pytest.raises(RaiseException, match="CHECK ausente"):
+        cursor.execute(sql)
