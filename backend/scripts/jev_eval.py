@@ -11,14 +11,17 @@ Uso, a partir de ``backend/``::
     python scripts/jev_eval.py                        # só regras, sem rede
     python scripts/jev_eval.py --jev --arm pt --arm en --out relatorio.json
 
-``--jev`` exige ``TYPESAFE_API_KEY``. Antes de qualquer chamada, todas as frases
-precisam sair intactas de ``redact_for_egress`` (sem telefone, CPF, e-mail ou
-7+ dígitos): o corpus é sintético por construção. Por isso este CLI manual não
-depende de ``ALLOW_REAL_SENDS``, que protege os processos do produto. O gasto
-tem teto (``--max-cost-usd``). O relatório traz só ids, nunca o texto.
+``--jev`` exige ``TYPESAFE_API_KEY`` e só envia o corpus versionado
+``scripts/data/jev_corpus_v1.jsonl``, revisado no git como dado sintético. Outro
+arquivo é recusado: a redação de egresso não detecta nome, endereço ou relato
+pastoral, então não prova que um texto é inventado. Texto de pessoa real só sai
+pelo modo sombra, com ``ALLOW_REAL_SENDS``, a lista de igrejas e o DPA. Como
+defesa extra, a execução para se a redação alterar alguma frase. O gasto tem teto
+(``--max-cost-usd``). O relatório traz só ids, nunca o texto, e o veredito só é
+GO ou NO-GO quando todas as frases foram respondidas; senão, fica INCONCLUSIVO.
 
-Saída: 0 ok; 2 uso inválido (sem chave, corpus inválido ou não sintético);
-3 interrompido pelo teto de custo (relatório parcial).
+Saída: 0 ok; 2 uso inválido (sem chave, outro corpus, corpus inválido ou não
+sintético); 3 interrompido pelo teto de custo (relatório parcial).
 """
 
 from __future__ import annotations
@@ -582,6 +585,7 @@ def build_report(
         "regras": {signal: c.as_dict() for signal, c in rules.items()},
         "jev": {},
         "go": None,
+        "veredito": None,
     }
     if jev_run is None:
         return report
@@ -593,10 +597,12 @@ def build_report(
         "interrompido_por_custo": jev_run.interrompido_por_custo,
     }
     go_por_braco: dict[str, list[dict[str, Any]]] = {}
+    vereditos: dict[str, str] = {}
     for arm_run in jev_run.arms:
         jev = score_jev(rows, arm_run.answers, policy=False)
         policy = score_jev(rows, arm_run.answers, policy=True)
         answers = arm_run.answers
+        completo = len(answers) == len(rows)
         report["jev"][arm_run.arm] = {
             "respondidas": len(answers),
             "erros": dict(arm_run.erros),
@@ -607,10 +613,22 @@ def build_report(
             "sozinho": _dump(jev),
             "politica": _dump(policy),
             "intencao": score_intent(rows, answers),
+            "completo": completo,
         }
-        go_por_braco[arm_run.arm] = go_checks(rules, jev, policy)
+        checks = go_checks(rules, jev, policy)
+        go_por_braco[arm_run.arm] = checks
+        vereditos[arm_run.arm] = _verdict(checks, completo=completo)
     report["go"] = go_por_braco
+    report["veredito"] = vereditos
     return report
+
+
+def _verdict(checks: list[dict[str, Any]], *, completo: bool) -> str:
+    # Com frases sem resposta (erro da API ou teto de custo), as métricas
+    # descrevem um subconjunto enviesado e não podem decidir o J0.
+    if not completo:
+        return "INCONCLUSIVO"
+    return "GO" if all(c["ok"] for c in checks) else "NO-GO"
 
 
 def _cost_per_thousand(jev_run: JevRun) -> float | None:
@@ -688,8 +706,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         out.append("Sem Jev nesta execução: rode com `--jev` para decidir.")
     else:
         for arm, checks in report["go"].items():
-            veredito = "GO" if all(c["ok"] for c in checks) else "NO-GO"
-            out.append(f"**{arm.upper()}: {veredito}**")
+            veredito = report["veredito"][arm]
+            if veredito == "INCONCLUSIVO":
+                out.append(
+                    f"**{arm.upper()}: INCONCLUSIVO** ({report['jev'][arm]['respondidas']} "
+                    f"de {report['frases']} frases respondidas; rode de novo)"
+                )
+            else:
+                out.append(f"**{arm.upper()}: {veredito}**")
             for c in checks:
                 detalhe = (
                     f"limiar {c['limiar']}, recall {_pct(c['recall'])}, "
@@ -743,6 +767,13 @@ def main(
 
     jev_run: JevRun | None = None
     if args.jev:
+        if args.corpus.resolve() != DEFAULT_CORPUS.resolve():
+            print(
+                f"--jev só envia o corpus sintético versionado ({DEFAULT_CORPUS.name}); "
+                "inclua outras frases nele, por PR, antes de enviar.",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
         settings = settings or TriageSettings()
         if not settings.typesafe_api_key.strip():
             print("--jev exige TYPESAFE_API_KEY no ambiente.", file=sys.stderr)

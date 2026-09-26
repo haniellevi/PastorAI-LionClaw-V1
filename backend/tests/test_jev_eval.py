@@ -125,6 +125,12 @@ def _no_calls() -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
+def _versionado(monkeypatch, path: Path) -> Path:
+    """Faz o corpus de teste passar pela trava de corpus versionado do --jev."""
+    monkeypatch.setattr(jev_eval, "DEFAULT_CORPUS", path)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Corpus
 # ---------------------------------------------------------------------------
@@ -225,8 +231,25 @@ def test_jev_sem_chave_sai_com_2_sem_chamar(capsys) -> None:
     assert "TYPESAFE_API_KEY" in capsys.readouterr().err
 
 
-def test_jev_recusa_frase_que_parece_dado_real(tmp_path: Path, capsys) -> None:
-    path = _write(tmp_path, [_row("real", "Me liga no (11) 99999-8888")])
+def test_jev_so_envia_o_corpus_versionado(tmp_path: Path, capsys) -> None:
+    # Nome, endereço e relato passam intactos pela redação de egresso: só o
+    # corpus revisado no git pode sair, nunca um arquivo qualquer.
+    path = _write(
+        tmp_path, [_row("real", "Sou a Maria, moro na rua das Flores e estou doente")]
+    )
+
+    rc = jev_eval.main(
+        ["--jev", "--corpus", str(path)], transport=_no_calls(), settings=_settings()
+    )
+
+    assert rc == jev_eval.EXIT_USAGE
+    assert "corpus sintético versionado" in capsys.readouterr().err
+
+
+def test_jev_recusa_frase_que_parece_dado_real(tmp_path: Path, monkeypatch, capsys) -> None:
+    path = _versionado(
+        monkeypatch, _write(tmp_path, [_row("real", "Me liga no (11) 99999-8888")])
+    )
 
     rc = jev_eval.main(
         ["--jev", "--corpus", str(path)], transport=_no_calls(), settings=_settings()
@@ -263,12 +286,12 @@ def _mini_jev() -> _FakeJev:
     )
 
 
-def test_metricas_exatas_com_api_simulada(tmp_path: Path) -> None:
+def test_metricas_exatas_com_api_simulada(tmp_path: Path, monkeypatch) -> None:
     fake = _mini_jev()
     out = tmp_path / "relatorio.json"
 
     rc = jev_eval.main(
-        ["--jev", "--corpus", str(_mini_corpus(tmp_path)), "--out", str(out)],
+        ["--jev", "--corpus", str(_versionado(monkeypatch, _mini_corpus(tmp_path))), "--out", str(out)],
         transport=fake.transport(),
         settings=_settings(),
     )
@@ -293,17 +316,19 @@ def test_metricas_exatas_com_api_simulada(tmp_path: Path) -> None:
     assert (aceite["tp"], aceite["fp"]) == (1, 0)
     assert pt["intencao"] == {"avaliadas": 1, "acuracia": 1.0, "trocas": {}}
 
+    assert pt["completo"] is True
+    assert report["veredito"] == {"pt": "GO"}
     go = {c["criterio"].split(":")[0]: c for c in report["go"]["pt"]}
     assert go["crise"]["ok"] and go["crise"]["limiar"] == 0.95
     assert go["opt-out"]["ok"] and go["opt-out"]["limiar"] == 0.5
     assert go["aceite"]["ok"] and go["aceite"]["limiar"] == 0.5
 
 
-def test_relatorio_nunca_traz_o_texto_das_frases(tmp_path: Path, capsys) -> None:
+def test_relatorio_nunca_traz_o_texto_das_frases(tmp_path: Path, monkeypatch, capsys) -> None:
     out = tmp_path / "relatorio.json"
 
     jev_eval.main(
-        ["--jev", "--corpus", str(_mini_corpus(tmp_path)), "--out", str(out)],
+        ["--jev", "--corpus", str(_versionado(monkeypatch, _mini_corpus(tmp_path))), "--out", str(out)],
         transport=_mini_jev().transport(),
         settings=_settings(),
     )
@@ -313,7 +338,7 @@ def test_relatorio_nunca_traz_o_texto_das_frases(tmp_path: Path, capsys) -> None
         assert texto not in dumped
 
 
-def test_teto_de_custo_interrompe_com_relatorio_parcial(tmp_path: Path) -> None:
+def test_teto_de_custo_interrompe_com_relatorio_parcial(tmp_path: Path, monkeypatch) -> None:
     caro = _FakeJev(
         {
             texto: {**resposta, "usage": {"input_tokens": 2_000_000, "output_tokens": 5}}
@@ -323,31 +348,61 @@ def test_teto_de_custo_interrompe_com_relatorio_parcial(tmp_path: Path) -> None:
     out = tmp_path / "relatorio.json"
 
     rc = jev_eval.main(
-        ["--jev", "--corpus", str(_mini_corpus(tmp_path)), "--out", str(out)],
+        ["--jev", "--corpus", str(_versionado(monkeypatch, _mini_corpus(tmp_path))), "--out", str(out)],
         transport=caro.transport(),
         settings=_settings(),
     )
 
     assert rc == jev_eval.EXIT_COST
     assert len(caro.calls) == 1
-    assert json.loads(out.read_text(encoding="utf-8"))["custo"]["interrompido_por_custo"]
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["custo"]["interrompido_por_custo"]
+    assert report["veredito"] == {"pt": "INCONCLUSIVO"}
 
 
-def test_falha_da_api_conta_erro_sem_derrubar(tmp_path: Path) -> None:
+def test_falha_da_api_conta_erro_sem_derrubar(tmp_path: Path, monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503)
 
     out = tmp_path / "relatorio.json"
     rc = jev_eval.main(
-        ["--jev", "--corpus", str(_mini_corpus(tmp_path)), "--out", str(out)],
+        ["--jev", "--corpus", str(_versionado(monkeypatch, _mini_corpus(tmp_path))), "--out", str(out)],
         transport=httpx.MockTransport(handler),
         settings=_settings(),
     )
 
     assert rc == jev_eval.EXIT_OK
-    pt = json.loads(out.read_text(encoding="utf-8"))["jev"]["pt"]
+    report = json.loads(out.read_text(encoding="utf-8"))
+    pt = report["jev"]["pt"]
     assert pt["respondidas"] == 0
     assert pt["erros"] == {"HTTPStatusError": 5}
+    assert report["veredito"] == {"pt": "INCONCLUSIVO"}
+
+
+def test_falha_parcial_nao_decide_o_go(tmp_path: Path, monkeypatch, capsys) -> None:
+    by_text = _mini_jev().by_text
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        mensagem = json.loads(request.content)["state"]["mensagem"]
+        if mensagem == "Minha avó faleceu, orem por nós":
+            return httpx.Response(503)
+        return httpx.Response(200, json=by_text[mensagem])
+
+    out = tmp_path / "relatorio.json"
+    rc = jev_eval.main(
+        ["--jev", "--corpus", str(_versionado(monkeypatch, _mini_corpus(tmp_path))), "--out", str(out)],
+        transport=httpx.MockTransport(handler),
+        settings=_settings(),
+    )
+
+    assert rc == jev_eval.EXIT_OK
+    report = json.loads(out.read_text(encoding="utf-8"))
+    # As 4 respostas que chegaram atendem a todos os critérios, mas um
+    # subconjunto não decide o J0.
+    assert all(c["ok"] for c in report["go"]["pt"])
+    assert report["jev"]["pt"]["completo"] is False
+    assert report["veredito"] == {"pt": "INCONCLUSIVO"}
+    assert "PT: INCONCLUSIVO" in capsys.readouterr().out
 
 
 def test_braco_en_troca_so_as_perguntas(tmp_path: Path) -> None:
@@ -366,7 +421,7 @@ def test_braco_en_troca_so_as_perguntas(tmp_path: Path) -> None:
         assert en["questions"][qid]["instructions"] != pt["questions"][qid]["instructions"]
 
 
-def test_dois_bracos_usam_as_mesmas_frases(tmp_path: Path) -> None:
+def test_dois_bracos_usam_as_mesmas_frases(tmp_path: Path, monkeypatch) -> None:
     fake = _mini_jev()
     out = tmp_path / "relatorio.json"
 
@@ -378,7 +433,7 @@ def test_dois_bracos_usam_as_mesmas_frases(tmp_path: Path) -> None:
             "--arm",
             "en",
             "--corpus",
-            str(_mini_corpus(tmp_path)),
+            str(_versionado(monkeypatch, _mini_corpus(tmp_path))),
             "--out",
             str(out),
         ],

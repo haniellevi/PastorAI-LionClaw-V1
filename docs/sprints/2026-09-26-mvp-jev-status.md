@@ -43,8 +43,11 @@ o tráfego real.
 - **Custo não é a alavanca.** O Jev custa cerca de US$ 0,00003 por mensagem e
   acrescenta cerca de 1 s por chamada; o custo de IA acumulado da plataforma é
   US$ 0,03. O valor está em acertar as decisões acima.
-- **O J0 não usa `ALLOW_REAL_SENDS`.** É um CLI manual que recusa rodar se a
-  redação de egresso alterar alguma frase, ou seja, só envia texto sintético.
+- **O J0 não usa `ALLOW_REAL_SENDS`.** O `--jev` só envia o corpus
+  versionado, revisado no git como sintético, e recusa qualquer outro arquivo,
+  porque a redação de egresso não detecta nome, endereço ou relato. O veredito
+  fica INCONCLUSIVO se alguma frase ficar sem resposta (achados P1 e P2 da
+  revisão do Codex).
 - **Política por sinal.** Crise e opt-out somam à regra (regra OU Jev);
   aceite, CSIM e relatório só passam com regra E Jev de acordo, e o Jev nunca
   concede consentimento sozinho.
@@ -67,10 +70,11 @@ o tráfego real.
   aprovados e 24 pulados (seleção sem RLS). Frontend: 862 testes aprovados em
   98 arquivos, mais typecheck.
 - Também passaram `npm run lint` e `npm run build`.
-- 16 casos novos em `backend/tests/test_jev_eval.py`, com a API simulada por
+- 18 casos novos em `backend/tests/test_jev_eval.py`, com a API simulada por
   `httpx.MockTransport`: corpus válido e sintético, baseline sem rede, `--jev`
-  sem chave, métricas exatas, teto de custo, falha da API e braço EN. Mais 5
-  casos em `admin-api.test.ts` e 3 em `ai-cost.test.ts`.
+  sem chave ou com outro corpus, métricas exatas, teto de custo, falha total e
+  parcial da API e braço EN. Mais 5 casos em `admin-api.test.ts` e 3 em
+  `ai-cost.test.ts`.
 - Com o venv dentro de `backend/.venv-runtime`, o teste de privacidade
   `test_source_contact_privacy` varre os pacotes instalados e falha: ele exclui
   `.venv`, mas não `.venv-runtime`. Rodado com o venv fora do repositório.
