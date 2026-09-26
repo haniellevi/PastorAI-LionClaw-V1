@@ -116,10 +116,13 @@ def _recognize_public_info_marker(value: object) -> _PublicInfoMarker | None:
         for character in normalized
         if not unicodedata.combining(character)
     )
-    words = [word for word in re.split(r"[_\-\s]+", normalized) if word]
-    if words[:2] != ["informacoes", "publicas"]:
+    name = re.match(r"informacoes(?:[_\-\s]+)publicas\b", normalized)
+    if name is None:
         return None
-    return _PublicInfoMarker(closing=closing, complete=complete and len(words) == 2)
+    return _PublicInfoMarker(
+        closing=closing,
+        complete=complete and not normalized[name.end() :].strip(),
+    )
 
 
 def _public_info_marker_spans(value: str):

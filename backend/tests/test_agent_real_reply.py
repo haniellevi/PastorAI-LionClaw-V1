@@ -202,6 +202,46 @@ def test_reply_prompt_removes_accented_inline_public_info_block(marker: str) -> 
     assert profile_text == "AB"
 
 
+@pytest.mark.parametrize(
+    "profile",
+    (
+        "A[informacoes_publicas}NOME-PRIVADO TELEFONE-PRIVADO RUA-PRIVADA"
+        "[/informacoes_publicas]B",
+        "A{informacoes_publicas]NOME-PRIVADO TELEFONE-PRIVADO RUA-PRIVADA"
+        "{/informacoes_publicas}B",
+        "A(informacoes_publicas]NOME-PRIVADO TELEFONE-PRIVADO RUA-PRIVADA"
+        "(/informacoes_publicas)B",
+    ),
+)
+def test_reply_prompt_fails_closed_on_mixed_public_marker_delimiters(
+    profile: str,
+) -> None:
+    _system, prompt = runtime._build_reply_prompt(profile, "pergunta", [])
+
+    profile_text = prompt.split("<perfil_igreja>\n", 1)[1].split(
+        "\n</perfil_igreja>", 1
+    )[0]
+    for blocked in ("NOME-PRIVADO", "TELEFONE-PRIVADO", "RUA-PRIVADA"):
+        assert blocked not in prompt
+    assert profile_text == "A"
+
+
+@pytest.mark.parametrize("suffix", ("!", ":", "=", ",", "/"))
+def test_reply_prompt_fails_closed_on_public_marker_residue(suffix: str) -> None:
+    profile = (
+        f"A[informacoes_publicas{suffix}NOME-PRIVADO TELEFONE-PRIVADO "
+        "RUA-PRIVADA[/informacoes_publicas]B"
+    )
+    _system, prompt = runtime._build_reply_prompt(profile, "pergunta", [])
+
+    profile_text = prompt.split("<perfil_igreja>\n", 1)[1].split(
+        "\n</perfil_igreja>", 1
+    )[0]
+    for blocked in ("NOME-PRIVADO", "TELEFONE-PRIVADO", "RUA-PRIVADA"):
+        assert blocked not in prompt
+    assert profile_text == "A"
+
+
 @pytest.mark.parametrize("size", (1599, 1600, 1601))
 def test_reply_limit_holds_at_the_1600_character_boundary(size: int) -> None:
     assert len(runtime._limit_agent_reply("x" * size)) == min(size, 1600)
