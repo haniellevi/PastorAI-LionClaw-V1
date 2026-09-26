@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterable
+from hashlib import sha256
+from uuid import UUID
 
 # Fields the agent can collect WITHOUT an accepted term (LGPD minimisation).
 BASELINE_FIELDS: frozenset[str] = frozenset({"nome", "telefone"})
@@ -63,6 +65,8 @@ _OPTOUT_PATTERNS: tuple[str, ...] = (
     r"\bn[ãa]o me envie mais\s*[.!?]?\s*$",
 )
 _OPTOUT_REGEX = re.compile("|".join(_OPTOUT_PATTERNS), re.IGNORECASE)
+_TIER_A_OPTOUT_CONFIRMATION_VERSION = "v1"
+_TIER_A_OPTOUT_CONFIRMATION_PREFIX = "jev-tier-a-optout-confirmation:"
 
 
 def requires_term(fields: Iterable[str]) -> bool:
@@ -106,7 +110,32 @@ def is_optout_request(text: str | None) -> bool:
     """Detect an opt-out request in an inbound message (US-32)."""
     if not text:
         return False
-    return bool(_OPTOUT_REGEX.search(text))
+    return is_contextual_sair_token(text) or bool(_OPTOUT_REGEX.search(text))
+
+
+def is_contextual_sair_token(text: str | None) -> bool:
+    """Recognize the isolated explicit global opt-out command ``SAIR``."""
+
+    if not isinstance(text, str):
+        return False
+    normalized = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", text.casefold())
+        if not unicodedata.combining(char)
+    )
+    return re.fullmatch(r"\s*sair[\s.!?]*", normalized) is not None
+
+
+def tier_a_optout_confirmation_key(igreja_id: UUID, conversation_id: UUID) -> str:
+    """Return the private durable key for one inferred opt-out confirmation."""
+
+    if type(igreja_id) is not UUID or type(conversation_id) is not UUID:
+        raise ValueError("identidade inválida para confirmação Tier A")
+    seed = f"{igreja_id}:{conversation_id}:{_TIER_A_OPTOUT_CONFIRMATION_VERSION}"
+    return (
+        f"{_TIER_A_OPTOUT_CONFIRMATION_PREFIX}"
+        f"{_TIER_A_OPTOUT_CONFIRMATION_VERSION}:{sha256(seed.encode()).hexdigest()}"
+    )
 
 
 def term_text(current_version: str, igreja_nome: str | None = None) -> str:

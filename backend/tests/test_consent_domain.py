@@ -101,6 +101,13 @@ def test_generic_verbs_without_communication_context_are_not_optout() -> None:
     assert not consent.is_optout_request("não desejo receber uma ligação")
 
 
+def test_terminal_sair_token_is_an_explicit_optout_without_broadening_phrases() -> None:
+    assert consent.is_optout_request(" SAÍR! ")
+    assert consent.is_optout_request("sair...")
+    assert not consent.is_optout_request("quero sair da célula")
+    assert not consent.is_optout_request("sair das mensagens")
+
+
 # ---- report parsing (US-24 / delta-041) -----------------------------------
 def test_looks_like_report() -> None:
     assert looks_like_report("relatório: 10 presentes, 2 visitantes")

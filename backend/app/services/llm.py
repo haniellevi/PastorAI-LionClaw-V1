@@ -11,7 +11,10 @@ lower price profile; it never increases a tenant's cost silently.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import math
 from dataclasses import dataclass
 from typing import Final
 
@@ -145,6 +148,15 @@ class LLMResult:
 
 
 @dataclass(frozen=True)
+class TypedLLMResult:
+    """Strict handoff decision and optional bounded reply from one call."""
+
+    handoff: bool
+    resposta: str | None
+    usage: LLMUsage
+
+
+@dataclass(frozen=True)
 class AudioTranscriptionResult:
     """One transcription: the recognized text plus duration/cost."""
 
@@ -251,6 +263,76 @@ class LLMClient:
         self._api_key = api_key
         self.model = _require_supported_model(model)
 
+    def complete_typed(
+        self, system_prompt: str, user_prompt: str, *, timeout_seconds: float
+    ) -> TypedLLMResult:
+        """One cancellable structured call, without retries or model fallback."""
+        try:
+            allowed = external_sends_allowed()
+        except Exception:
+            raise LLMError("Gate de envios LLM indisponível") from None
+        if not allowed:
+            log_suppressed("LLM", "complete_typed")
+            raise LLMError("Envios externos desativados")
+        if type(timeout_seconds) not in (int, float) or timeout_seconds <= 0:
+            raise LLMError("Prazo LLM inválido")
+        try:
+            budget = float(timeout_seconds)
+        except OverflowError:
+            raise LLMError("Prazo LLM inválido") from None
+        if not math.isfinite(budget):
+            raise LLMError("Prazo LLM inválido")
+        if not self._api_key or not self._api_key.strip():
+            raise LLMError("Credencial LLM ausente")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise LLMError("Chamada LLM síncrona em loop ativo")
+
+        deadline = min(4.0, budget)
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "typed_handoff_reply",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "handoff": {"type": "boolean"},
+                        "resposta": {"type": "string"},
+                    },
+                    "required": ["handoff", "resposta"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+        async def request():
+            from openai import AsyncOpenAI  # noqa: PLC0415 - lazy import by design
+
+            async with asyncio.timeout(deadline):
+                async with AsyncOpenAI(
+                    api_key=self._api_key, timeout=deadline, max_retries=0
+                ) as client:
+                    return await client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        response_format=response_format,
+                    )
+
+        try:
+            response = asyncio.run(request())
+        except TimeoutError:
+            raise LLMError("LLM excedeu o tempo limite") from None
+        except Exception:
+            raise LLMError("Falha na chamada LLM") from None
+        return _parse_typed_response(response, self.model)
+
     def _complete_openai_model(
         self, model: str, system_prompt: str, user_prompt: str
     ) -> LLMResult:
@@ -326,6 +408,78 @@ class LLMClient:
                 )
 
         raise LLMProviderError("Nenhum modelo LLM disponível")  # pragma: no cover
+
+
+def _typed_unique_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _typed_reject_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON number")
+
+
+def _parse_typed_response(response: object, model: str) -> TypedLLMResult:
+    """Reject malformed provider output without exposing raw content in errors."""
+    try:
+        choices = getattr(response, "choices", None)
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise ValueError("choices")
+        choice = choices[0]
+        if getattr(choice, "finish_reason", None) != "stop":
+            raise ValueError("finish reason")
+        message = getattr(choice, "message", None)
+        if (
+            message is None
+            or getattr(message, "refusal", None)
+            or getattr(message, "tool_calls", None)
+            or getattr(message, "function_call", None)
+        ):
+            raise ValueError("message")
+        content = getattr(message, "content", None)
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 32_768:
+            raise ValueError("content")
+        data = json.loads(
+            content,
+            object_pairs_hook=_typed_unique_pairs,
+            parse_constant=_typed_reject_constant,
+        )
+        if not isinstance(data, dict) or set(data) != {"handoff", "resposta"}:
+            raise ValueError("schema")
+        if type(data["handoff"]) is not bool or type(data["resposta"]) is not str:
+            raise ValueError("types")
+        reply = data["resposta"].strip()
+        if not data["handoff"] and (not reply or len(reply) > 1600):
+            raise ValueError("reply")
+        usage = getattr(response, "usage", None)
+        tokens_in = getattr(usage, "prompt_tokens", None)
+        tokens_out = getattr(usage, "completion_tokens", None)
+        if (
+            type(tokens_in) is not int
+            or type(tokens_out) is not int
+            or tokens_in < 0
+            or tokens_out < 0
+        ):
+            raise ValueError("usage")
+        cost = estimate_cost(model, tokens_in, tokens_out)
+        if not math.isfinite(cost):
+            raise ValueError("cost")
+    except (AttributeError, TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
+        raise LLMError("Resposta LLM inválida") from None
+    return TypedLLMResult(
+        handoff=data["handoff"],
+        resposta=None if data["handoff"] else reply,
+        usage=LLMUsage(
+            modelo=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            custo=cost,
+        ),
+    )
 
 
 def transcribe_audio(
