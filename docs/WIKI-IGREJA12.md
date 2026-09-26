@@ -23,11 +23,12 @@ exibido em US$ em vez de R$.
 Entrou `backend/scripts/jev_eval.py`, que mede as regras atuais num corpus
 sintético pt-BR com armadilhas (`backend/scripts/data/jev_corpus_v1.jsonl`,
 207 frases) e, com `TYPESAFE_API_KEY` e `--jev`, o Jev com as mesmas perguntas
-do módulo sombra, em instruções PT e EN, com teto de custo. Sem chave, o
-baseline já mostra os erros das regras: nenhuma crise detectada, 24% dos
-pedidos de opt-out, 8 de 14 respostas negativas contadas como aceite do termo
-e todas as armadilhas de CSIM silenciando o contato. O Jev continua fora do
-turno do agente.
+do módulo sombra, em instruções PT e EN, com teto de custo. O baseline
+histórico do PR #418, anterior ao #419 e baseado em `92eed57`, registrou
+nenhuma crise detectada, 24% dos pedidos de opt-out, 8 de 14 respostas
+negativas contadas como aceite e todas as armadilhas de CSIM silenciando o
+contato. Esses números não representam as regras após o #419, que altera
+crise e aceite. O Jev continua fora do turno do agente.
 
 ## Exclusão de tenant e reset administrativo, candidata local, 25/09/2026
 
@@ -76,9 +77,10 @@ não prova banco compartilhado, provedor ou execução real.
 Entrou o módulo `backend/app/services/semantic_triage.py`. Ele faz perguntas
 tipadas ao Jev sobre uma mensagem inbound: risco pastoral, pedido de opt-out,
 aceite de termo pendente e intenção. O estado é `MODULO_ENTREGUE_NAO_INTEGRADO`,
-porque nenhum turno do agente chama o módulo. `runtime.py` continua congelado
-pelo gate D3, e ligar o módulo exige revisão desse gate e tirar a chamada de
-rede (cerca de 0,9 s) de dentro da transação do turno.
+porque nenhum turno do agente chama o módulo. Atualização de 26/09: a Fase 0
+removeu o gate D3. A ligação J1 segue o plano MVP: exige avaliação J0 com GO,
+DPA, termo LGPD atualizado e chamada após o envio, em transação própria,
+fora da transação do turno. A remoção do gate antigo não ativa o módulo.
 
 O Admin Master ganhou o botão **Jev**, que só lê o estado da configuração de
 deploy e tem um teste de conexão com mensagem sintética fixa. O teste é
@@ -282,11 +284,28 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
 
 ### Conversa e inteligência
 
-O grafo atual é stateless. Ele não carrega histórico, não mantém campos já
-respondidos e não consulta uma base oficial da igreja. O LLM é usado apenas
-para refinar parte de uma resposta determinística. Esse desenho é um fator
-tecnicamente compatível com a repetição vista no canário, mas a execução não
-prova que ele seja a causa única.
+O grafo continua stateless, sem checkpointer. Na fatia 1 da fase 2 do MVP,
+o runtime fornece ao LLM a mensagem atual, o perfil em
+`AgentConfig.comportamento` e até dez mensagens anteriores da mesma igreja e
+conversa. O perfil pode conter horários e endereço cadastrados pela plataforma;
+não há consulta nova a conhecimento institucional ou ferramentas de leitura.
+Rotas de consentimento, opt-out e efeitos de domínio permanecem determinísticas.
+
+Pedidos de atendimento humano e sinais de crise reconhecidos por regex pausam
+a IA e deixam a conversa no inbox para um responsável assumir. Respostas têm
+limite de 1600 caracteres; instruções no prompt proíbem inventar fatos ou ações.
+Essas instruções e os testes com provider simulado não garantem factualidade de
+toda resposta futura. A validação desta fatia é local/source-only, sem canário,
+deploy ou conversa real; o aceite de 20 conversas reais da fase 2 segue pendente.
+O aceite do termo exige frase afirmativa inequívoca; respostas com ressalva,
+como “sim, mas não quero”, não registram consentimento. Aceites curtos como
+“eu aceito” e “ok, aceito” continuam permitidos. A detecção normaliza acentos e
+caixa e encaminha também menções soltas dos termos de crise definidos; a
+heurística pode encaminhar menções incidentais e não diagnostica intenção.
+O handoff mantém a supressão de respostas anteriores mesmo após a liberação
+para IA; transporte possivelmente iniciado fica ambíguo para reconciliação.
+Delimitadores vindos do perfil, histórico ou mensagem são neutralizados na
+montagem do prompt, sem garantia geral contra prompt injection.
 
 A preparação D3 offline separa os schemas de entrada e saída e reúne as
 intenções em `AgentTurnEffects`, um canal `UntrackedValue` substituído a cada

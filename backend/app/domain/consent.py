@@ -15,13 +15,14 @@ Pure, I/O-free helpers used by the `consent` sub-agent and the orchestrator:
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 
 # Fields the agent can collect WITHOUT an accepted term (LGPD minimisation).
 BASELINE_FIELDS: frozenset[str] = frozenset({"nome", "telefone"})
 
-# Affirmative replies accepted as a term acceptance.
-_ACCEPT_TOKENS: frozenset[str] = frozenset(
+# Complete affirmative replies accepted as a term acceptance.
+_ACCEPT_PHRASES: frozenset[str] = frozenset(
     {
         "aceito",
         "aceitar",
@@ -31,6 +32,11 @@ _ACCEPT_TOKENS: frozenset[str] = frozenset(
         "ok",
         "de acordo",
         "pode sim",
+        "sim concordo",
+        "eu aceito",
+        "sim aceito",
+        "ok aceito",
+        "claro que sim",
     }
 )
 
@@ -86,13 +92,14 @@ def is_acceptance(text: str | None) -> bool:
     """Detect an affirmative acceptance of the presented term."""
     if not text:
         return False
-    normalized = text.strip().lower()
-    if normalized in _ACCEPT_TOKENS:
-        return True
-    # Allow short phrases that clearly start with an affirmative token, ignoring
-    # surrounding punctuation (e.g. "sim, concordo" -> first token "sim").
-    tokens = [t.strip(".,!;:()\"'") for t in normalized.split()]
-    return bool(tokens) and tokens[0] in _ACCEPT_TOKENS
+    unaccented = "".join(
+        char for char in unicodedata.normalize("NFKD", text.casefold())
+        if not unicodedata.combining(char)
+    )
+    words = re.findall(r"\w+", unaccented)
+    if {"mas", "porem", "nao"}.intersection(words):
+        return False
+    return " ".join(words) in _ACCEPT_PHRASES
 
 
 def is_optout_request(text: str | None) -> bool:

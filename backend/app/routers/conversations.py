@@ -55,6 +55,7 @@ from app.services.evolution import (
     EvolutionError,
     get_evolution_client,
 )
+from app.services.conversation_handoff import fence_agent_replies_for_handoff
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
 from app.services.storage import (
     MAX_MEDIA_BYTES,
@@ -349,10 +350,16 @@ def handoff(
         conv.assumido_em = dt.datetime.now(dt.timezone.utc)
         # Leaving the waiting queue once a human takes over.
         conv.espera_desde = None
+        fence_agent_replies_for_handoff(
+            db,
+            igreja_id=conv.igreja_id,
+            conversation_id=conv.id,
+        )
     else:  # release back to IA
         conv.estado = target.estado
         conv.assumido_por = None
         conv.assumido_em = None
+        conv.espera_desde = None
 
     db.flush()
     db.refresh(conv)
@@ -438,6 +445,11 @@ def transfer_conversation(
     conv.assumido_por = target_id
     conv.assumido_em = dt.datetime.now(dt.timezone.utc)
     conv.espera_desde = None
+    fence_agent_replies_for_handoff(
+        db,
+        igreja_id=conv.igreja_id,
+        conversation_id=conv.id,
+    )
     db.flush()
     db.commit()
 

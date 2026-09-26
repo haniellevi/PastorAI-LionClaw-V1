@@ -672,6 +672,7 @@ class TransferSession:
 def _held_conv(estado="humano", holder=_SELF_ID):
     return SimpleNamespace(
         id="00000000-0000-0000-0000-0000000000aa",
+        igreja_id=uuid.UUID(_IGREJA_ID),
         estado=estado,
         assumido_por=holder,
         assumido_em=None,
