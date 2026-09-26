@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.read_only_info import style_profile_without_public_info
 from app.config import get_settings
 from app.db.models import AgentConfig, LlmCredential, RolePermission
 from app.domain.assistant import allowed_screens_for_roles, suggest_screens
@@ -95,7 +96,7 @@ def _phrase_with_llm(
             "Você é o assistente do PAINEL WEB de uma igreja (não é o atendimento "
             "do WhatsApp). Responda em português brasileiro, de forma objetiva e "
             "cordial, orientando o usuário a usar o painel. "
-            + (comportamento or "")
+            + style_profile_without_public_info(comportamento)
             + (
                 " Quando útil, mencione estas telas permitidas ao usuário: "
                 + ", ".join(telas)

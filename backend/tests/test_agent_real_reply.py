@@ -117,48 +117,89 @@ def test_reply_prompt_neutralizes_closing_delimiters_from_every_untrusted_field(
         assert neutralized in prompt
 
 
-@pytest.mark.parametrize(
-    ("profile", "expected_style"),
-    (
-        (
-            "Estilo externo.\n[INFORMACOES_PUBLICAS]\nDADO-BLOQUEADO\n"
-            "[/INFORMACOES_PUBLICAS]\nTom breve.",
-            ("Estilo externo.", "Tom breve."),
-        ),
-        (
-            "Estilo externo [informacoes_publicas] DADO-BLOQUEADO "
-            "[/informacoes_publicas] Tom breve.",
-            ("Estilo externo", "Tom breve."),
-        ),
-        (
-            "Estilo externo.\n[informacoes_publicas]\nDADO-BLOQUEADO",
-            ("Estilo externo.",),
-        ),
-        (
-            "Estilo externo.\n[informacoes_publicas]\nDADO-BLOQUEADO\n"
-            "[informacoes_publicas]\nDADO-BLOQUEADO-2\n"
-            "[/informacoes_publicas]\n[/informacoes_publicas]\nTom breve.",
-            ("Estilo externo.", "Tom breve."),
-        ),
-        (
-            "Estilo externo.\n[informacoes_publicas DADO-BLOQUEADO\nTom breve.",
-            ("Estilo externo.",),
-        ),
-    ),
+_PUBLIC_INFO_MARKERS = (
+    ("[informacoes_publicas]", "[/informacoes_publicas]"),
+    ("[informações_publicas]", "[/informações_publicas]"),
+    ("[informacões_publicas]", "[/informacões_publicas]"),
+    ("[informacoes publicas]", "[/informacoes publicas]"),
+    ("[informacoes-publicas]", "[/informacoes-publicas]"),
+    ("{informacoes_publicas}", "{/informacoes_publicas}"),
+    ("(informacoes_publicas)", "(/informacoes_publicas)"),
 )
+
+
+def _public_info_profile_form(
+    opening: str,
+    closing: str,
+    form: str,
+) -> tuple[str, tuple[str, ...]]:
+    blocked = "NOME-BLOQUEADO TELEFONE-BLOQUEADO RUA-BLOQUEADA"
+    if form == "case":
+        return (
+            f"Estilo externo.\n{opening.upper()}\n{blocked}\n"
+            f"{closing.upper()}\nTom breve.",
+            ("Estilo externo.", "Tom breve."),
+        )
+    if form == "inline":
+        return (
+            f"Estilo externo {opening} {blocked} {closing} Tom breve.",
+            ("Estilo externo", "Tom breve."),
+        )
+    if form == "unclosed":
+        return f"Estilo externo.\n{opening}\n{blocked}", ("Estilo externo.",)
+    if form == "duplicate":
+        return (
+            f"Estilo externo.\n{opening}\n{blocked}\n{opening}\n"
+            f"{blocked}-2\n{closing}\n{closing}\nTom breve.",
+            ("Estilo externo.", "Tom breve."),
+        )
+    if form == "malformed":
+        return (
+            f"Estilo externo.\n{opening[:-1]} {blocked}\nTom breve.",
+            ("Estilo externo.",),
+        )
+    raise AssertionError(f"forma não coberta: {form}")
+
+
+@pytest.mark.parametrize(("opening", "closing"), _PUBLIC_INFO_MARKERS)
+@pytest.mark.parametrize("form", ("case", "inline", "unclosed", "duplicate", "malformed"))
 def test_reply_prompt_removes_public_info_blocks_before_provider(
-    profile: str,
-    expected_style: tuple[str, ...],
+    opening: str,
+    closing: str,
+    form: str,
 ) -> None:
+    profile, expected_style = _public_info_profile_form(opening, closing, form)
     _system, prompt = runtime._build_reply_prompt(profile, "pergunta", [])
 
     profile_text = prompt.split("<perfil_igreja>\n", 1)[1].split(
         "\n</perfil_igreja>", 1
     )[0]
-    assert "DADO-BLOQUEADO" not in prompt
-    assert "informacoes_publicas" not in prompt.casefold()
+    for blocked in ("NOME-BLOQUEADO", "TELEFONE-BLOQUEADO", "RUA-BLOQUEADA"):
+        assert blocked not in prompt
     for style in expected_style:
         assert style in profile_text
+
+
+@pytest.mark.parametrize(
+    "marker",
+    (
+        "informações_publicas",
+        "informac\u0327o\u0303es_pu\u0301blicas",
+    ),
+)
+def test_reply_prompt_removes_accented_inline_public_info_block(marker: str) -> None:
+    _system, prompt = runtime._build_reply_prompt(
+        f"A[{marker}]SEGREDO[/{marker}]B",
+        "pergunta",
+        [],
+    )
+
+    profile_text = prompt.split("<perfil_igreja>\n", 1)[1].split(
+        "\n</perfil_igreja>", 1
+    )[0]
+    assert "SEGREDO" not in prompt
+    assert "informações" not in prompt.casefold()
+    assert profile_text == "AB"
 
 
 @pytest.mark.parametrize("size", (1599, 1600, 1601))

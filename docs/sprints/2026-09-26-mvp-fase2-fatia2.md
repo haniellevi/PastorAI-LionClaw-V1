@@ -57,8 +57,10 @@ Encontro de célula aceita dia da semana e horário opcional, por exemplo
 
 O perfil completo deve ter até 4.000 caracteres, cada valor até 400 e a
 resposta até 1.600. Se o perfil exceder o limite, a consulta não usa o bloco.
-O bloco público inteiro é excluído do perfil enviado ao LLM, inclusive quando
-inválido; o texto de estilo fora dele permanece no caminho das respostas gerais.
+O bloco público inteiro é excluído do perfil enviado ao LLM no WhatsApp e no
+painel, inclusive quando inválido; somente o texto externo permanece. Parser e
+filtro usam o mesmo reconhecedor NFKD/casefold, aceitando acentos, colchetes,
+chaves, parênteses e os separadores sublinhado, hífen ou espaço.
 Delimitadores malformados também devem falhar fechados. A resposta pública
 registra evento de auditoria sem copiar pergunta ou dados do perfil.
 

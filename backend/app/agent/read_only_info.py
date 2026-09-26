@@ -12,13 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 
 
-_PUBLIC_BLOCK_OPEN = "[informacoes_publicas]"
-_PUBLIC_BLOCK_CLOSE = "[/informacoes_publicas]"
-_PUBLIC_MARKER = re.compile(
-    r"\[\s*(?P<closing>/)?\s*informacoes_publicas\b[^\]\r\n]*"
-    r"(?:\]|(?=\r?\n)|$)",
-    re.IGNORECASE,
-)
+_MARKER_CLOSERS = {"[": "]", "{": "}", "(": ")"}
 _MAX_PROFILE_CHARS = 4_000
 _MAX_VALUE_CHARS = 400
 _MAX_CELLS = 5
@@ -87,6 +81,77 @@ class _PublicInfo:
     celulas: tuple[_PublicCell, ...]
 
 
+@dataclass(frozen=True)
+class _PublicInfoMarker:
+    closing: bool
+    complete: bool
+
+
+def _recognize_public_info_marker(value: object) -> _PublicInfoMarker | None:
+    """Classify one public-info marker using one normalized grammar.
+
+    A marker can use ``[``, ``{`` or ``(``, and accepts accent, case and
+    ``_``/``-``/space spelling variants. Incomplete markers are still returned
+    so the style scrubber can discard their remainder fail-closed; the public
+    parser accepts only complete markers.
+    """
+
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not candidate or candidate[0] not in _MARKER_CLOSERS:
+        return None
+
+    expected_closer = _MARKER_CLOSERS[candidate[0]]
+    complete = candidate.endswith(expected_closer)
+    label = candidate[1:-1] if complete else candidate[1:]
+    label = label.strip()
+    closing = label.startswith("/")
+    if closing:
+        label = label[1:].lstrip()
+
+    normalized = unicodedata.normalize("NFKD", label.casefold())
+    normalized = "".join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+    )
+    words = [word for word in re.split(r"[_\-\s]+", normalized) if word]
+    if words[:2] != ["informacoes", "publicas"]:
+        return None
+    return _PublicInfoMarker(closing=closing, complete=complete and len(words) == 2)
+
+
+def _public_info_marker_spans(value: str):
+    """Yield marker candidates found in style text through the shared grammar."""
+
+    index = 0
+    while index < len(value):
+        opening_index = next(
+            (
+                position
+                for position in range(index, len(value))
+                if value[position] in _MARKER_CLOSERS
+            ),
+            None,
+        )
+        if opening_index is None:
+            return
+        expected_closer = _MARKER_CLOSERS[value[opening_index]]
+        closing_index = value.find(expected_closer, opening_index + 1)
+        line_end = value.find("\n", opening_index + 1)
+        if closing_index < 0 or (line_end >= 0 and line_end < closing_index):
+            end = line_end if line_end >= 0 else len(value)
+        else:
+            end = closing_index + 1
+        marker = _recognize_public_info_marker(value[opening_index:end])
+        if marker is None:
+            index = opening_index + 1
+            continue
+        yield opening_index, end, marker
+        index = max(end, opening_index + 1)
+
+
 def _display_text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
@@ -122,17 +187,16 @@ def style_profile_without_public_info(comportamento: object) -> str:
     parts: list[str] = []
     cursor = 0
     depth = 0
-    for marker in _PUBLIC_MARKER.finditer(comportamento):
-        closing = marker.group("closing") is not None
+    for start, end, marker in _public_info_marker_spans(comportamento):
         if depth == 0:
-            parts.append(comportamento[cursor : marker.start()])
-        if closing:
+            parts.append(comportamento[cursor:start])
+        if marker.closing and marker.complete:
             if depth == 0:
                 depth = 1
             else:
                 depth -= 1
                 if depth == 0:
-                    cursor = marker.end()
+                    cursor = end
         else:
             depth += 1
     if depth == 0:
@@ -171,15 +235,19 @@ def _parse_public_info(comportamento: object) -> _PublicInfo | None:
     if not isinstance(comportamento, str) or len(comportamento) > _MAX_PROFILE_CHARS:
         return None
     lines = comportamento.splitlines()
+    markers = [
+        _recognize_public_info_marker(line)
+        for line in lines
+    ]
     openings = [
         index
-        for index, line in enumerate(lines)
-        if line.strip().casefold() == _PUBLIC_BLOCK_OPEN
+        for index, marker in enumerate(markers)
+        if marker is not None and marker.complete and not marker.closing
     ]
     closings = [
         index
-        for index, line in enumerate(lines)
-        if line.strip().casefold() == _PUBLIC_BLOCK_CLOSE
+        for index, marker in enumerate(markers)
+        if marker is not None and marker.complete and marker.closing
     ]
     if len(openings) != 1 or len(closings) != 1 or openings[0] >= closings[0]:
         return None

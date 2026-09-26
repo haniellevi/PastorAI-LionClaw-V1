@@ -11,6 +11,29 @@ def _profile(*lines: str) -> str:
     return "\n".join(("[informacoes_publicas]", *lines, "[/informacoes_publicas]"))
 
 
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    (
+        ("[informacoes_publicas]", "[/informacoes_publicas]"),
+        ("[informações_publicas]", "[/informações_publicas]"),
+        ("[informacões_publicas]", "[/informacões_publicas]"),
+        ("[informacoes publicas]", "[/informacoes publicas]"),
+        ("[informacoes-publicas]", "[/informacoes-publicas]"),
+        ("{informacoes_publicas}", "{/informacoes_publicas}"),
+        ("(informacoes_publicas)", "(/informacoes_publicas)"),
+    ),
+)
+def test_resolver_uses_the_same_public_marker_grammar(
+    opening: str,
+    closing: str,
+) -> None:
+    profile = "\n".join((opening, "horarios_culto = Domingo, 19:00", closing))
+
+    assert resolve_public_info_reply("Qual é o horário do culto?", profile) == (
+        "Horário de culto: Domingo, 19:00."
+    )
+
+
 def test_resolver_answers_only_explicit_public_profile_fields() -> None:
     profile = _profile(
         "endereco_igreja = Rua sintética, 100",
