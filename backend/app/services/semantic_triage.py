@@ -9,9 +9,10 @@ Contrato do modo sombra:
   * nenhuma resposta do Jev altera rota, resposta, consentimento, opt-out,
     etapa G12 ou tool; o runtime só grava um evento auditável com as
     probabilidades, sem o texto da mensagem;
-  * desligado por padrão: só roda para igrejas listadas explicitamente em
-    `JEV_SHADOW_TRIAGE_IGREJA_IDS`, com `TYPESAFE_API_KEY` configurada e com o
-    guard global de efeitos externos aberto (`ALLOW_REAL_SENDS`);
+  * desligado por padrão: só roda para igrejas listadas explicitamente (no
+    Console da Plataforma ou em `JEV_SHADOW_TRIAGE_IGREJA_IDS`), com chave
+    configurada (console ou `TYPESAFE_API_KEY`) e com o guard global de efeitos
+    externos aberto (`ALLOW_REAL_SENDS`, só no ambiente);
   * o corpo da mensagem sai como a pessoa escreveu, redigindo apenas CPF,
     e-mail, telefones (inclusive formatados) e sequências de 7+ dígitos
     (`redact_for_egress`). Nome, endereço e conteúdo pastoral sensível (fé,
@@ -30,6 +31,7 @@ só com DPA e termo LGPD atualizados.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 import time
@@ -41,10 +43,17 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent.masking import log_agent_event, mask_text
+from app.db.models import PlatformJevSettings
 from app.domain import consent as consent_rules
+from app.services.crypto import (
+    SecretDecryptionError,
+    SecretsConfigError,
+    decrypt_secret,
+)
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 if TYPE_CHECKING:
@@ -70,7 +79,7 @@ def redact_for_egress(texto: str) -> str:
 
 
 class TriageSettings(BaseSettings):
-    """Configuração própria (ver nota sobre o congelamento de `app/config.py`)."""
+    """Configuração do ambiente; o console pode sobrepor (`effective_settings`)."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -98,6 +107,66 @@ class TriageSettings(BaseSettings):
 @lru_cache
 def get_triage_settings() -> TriageSettings:
     return TriageSettings()
+
+
+@dataclass(frozen=True)
+class EffectiveTriageSettings:
+    """Ambiente sobreposto pelo que o Console da Plataforma salvou."""
+
+    settings: TriageSettings
+    # "console", "ambiente" ou None (sem chave utilizável).
+    chave_origem: str | None
+    # Chave salva que não decifra (SECRETS_ENCRYPTION_KEY trocada ou ausente).
+    chave_ilegivel: bool
+    chave_atualizada_em: dt.datetime | None
+    dpa_assinado_em: dt.date | None
+
+
+def load_console_settings(session: Session) -> PlatformJevSettings | None:
+    return session.execute(
+        select(PlatformJevSettings).where(PlatformJevSettings.id == 1)
+    ).scalar_one_or_none()
+
+
+def effective_settings(
+    session: Session, base: TriageSettings | None = None
+) -> EffectiveTriageSettings:
+    """Configuração em vigor: o que o console salvou vale sobre o ambiente.
+
+    Campo nulo no console cai no ambiente. A lista de igrejas, depois de salva
+    pelo console, é do console (vazia = nenhuma). A URL da API é só do
+    ambiente: editável pelo console, desviaria a chave para outro servidor.
+    """
+    base = base or get_triage_settings()
+    row = load_console_settings(session)
+    origem = "ambiente" if is_configured(base) else None
+    if row is None:
+        return EffectiveTriageSettings(base, origem, False, None, None)
+    updates: dict[str, Any] = {
+        "jev_shadow_triage_igreja_ids": ",".join(str(i) for i in row.igreja_ids or []),
+    }
+    ilegivel = False
+    if row.api_key_encrypted:
+        try:
+            updates["typesafe_api_key"] = decrypt_secret(row.api_key_encrypted)
+            origem = "console"
+        except (SecretDecryptionError, SecretsConfigError):
+            # Não cai em silêncio na chave do ambiente: o master salvou outra.
+            logger.warning("Chave do Jev salva no console não pôde ser decifrada")
+            updates["typesafe_api_key"] = ""
+            origem = None
+            ilegivel = True
+    if row.modelo:
+        updates["typesafe_model"] = row.modelo
+    if row.timeout_seconds is not None:
+        updates["typesafe_timeout_seconds"] = float(row.timeout_seconds)
+    return EffectiveTriageSettings(
+        settings=base.model_copy(update=updates),
+        chave_origem=origem,
+        chave_ilegivel=ilegivel,
+        chave_atualizada_em=row.api_key_updated_at,
+        dpa_assinado_em=row.dpa_assinado_em,
+    )
 
 
 # Intenções candidatas. `outro` garante uma saída quando nada se aplica.
@@ -340,7 +409,7 @@ def log_shadow_triage(
     reais, o que as regras decidiram e o que o Jev teria decidido. O evento
     participa da transação do chamador (quem faz commit é o runtime).
     """
-    settings = settings or get_triage_settings()
+    settings = settings or effective_settings(session).settings
     if not shadow_enabled_for(settings, igreja_id):
         return
     termo_pendente = consent_rules.needs_reaccept(
