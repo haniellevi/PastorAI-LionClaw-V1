@@ -34,6 +34,7 @@ The worker is a standalone process: `python -m app.workers.queue_worker`.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import logging
@@ -42,7 +43,7 @@ import signal
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from functools import partial
 from hashlib import sha256
@@ -61,7 +62,14 @@ from app.agent.turn_identity import (
     build_agent_turn_identity,
 )
 from app.config import get_settings
-from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
+from app.db.models import (
+    AgentConfig,
+    ConsentRecord,
+    Conversation,
+    Message,
+    Pessoa,
+    WhatsappConnection,
+)
 from app.db.rls_observability import require_tenant_scope
 from app.db.session import get_session_factory
 from app.db.tenant_session import (
@@ -86,6 +94,7 @@ from app.domain.conversations import (
     media_snippet,
     parse_message_event,
 )
+from app.domain.consent import needs_reaccept
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import insert_pessoa_or_get_winner, lock_canonical_phone
 from app.services.conversation_handoff import fence_agent_replies_for_handoff
@@ -970,6 +979,7 @@ class _FailureMetadata:
 # ``ia_executando`` is deliberately quarantined after a crash because the
 # process may have crossed a non-transactional tool boundary already.
 _AGENT_REPLY_PROVIDER_PREFIX = "agent-reply:"
+_TIER_A_OPTOUT_SOURCE_PREFIX = "agent-reply:tier-a-optout-source:"
 
 
 @dataclass(frozen=True)
@@ -2369,6 +2379,17 @@ def _agent_reply_idempotency_key(outcome: IngestionOutcome) -> str | None:
     return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}"
 
 
+def _tier_a_optout_source_idempotency_key(
+    outcome: IngestionOutcome,
+) -> str | None:
+    """Return the opaque marker that binds one inbound A to confirmation C."""
+
+    reply_key = _agent_reply_idempotency_key(outcome)
+    if reply_key is None:
+        return None
+    return f"{_TIER_A_OPTOUT_SOURCE_PREFIX}{sha256(reply_key.encode()).hexdigest()}"
+
+
 def _agent_execution_lock_key(outcome: IngestionOutcome, provider_message_id: str) -> int:
     """Use a distinct PostgreSQL advisory-lock namespace for agent execution."""
 
@@ -2481,9 +2502,12 @@ def _lock_agent_conversation(
 
 
 def _load_agent_reply_intent(
-    session_factory: Any, outcome: IngestionOutcome
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    intent_provider_message_id: str | None = None,
 ) -> _AgentReplyIntent | None:
-    provider_message_id = _agent_reply_idempotency_key(outcome)
+    provider_message_id = intent_provider_message_id or _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
         return None
     session: Session = session_factory()
@@ -2500,11 +2524,14 @@ def _load_agent_reply_intent(
 
 
 def _reserve_agent_reply_intent(
-    session_factory: Any, outcome: IngestionOutcome
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    intent_provider_message_id: str | None = None,
 ) -> _AgentReplyIntent | None:
     """Persist a single-flight reservation before mutable agent work starts."""
 
-    provider_message_id = _agent_reply_idempotency_key(outcome)
+    provider_message_id = intent_provider_message_id or _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
         return None
     session: Session = session_factory()
@@ -2565,7 +2592,11 @@ def _reserve_agent_reply_intent(
 
 
 def _prepare_agent_reply_intent(
-    session_factory: Any, outcome: IngestionOutcome, response: str
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    response: str,
+    *,
+    intent_provider_message_id: str | None = None,
 ) -> _AgentReplyIntent | None:
     """Persist a reply intent before the provider call.
 
@@ -2574,7 +2605,7 @@ def _prepare_agent_reply_intent(
     race always returns the first intent and never grants two transports.
     """
 
-    provider_message_id = _agent_reply_idempotency_key(outcome)
+    provider_message_id = intent_provider_message_id or _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
         return None
     session: Session = session_factory()
@@ -2742,15 +2773,31 @@ def _suppress_agent_reply_after_handoff(
     intent: _AgentReplyIntent,
     *,
     expected: str,
+    tier_a_optout_confirmation: bool = False,
 ) -> bool:
-    """Return whether an intent must stay out of the provider transport."""
+    """Return whether an intent must stay out of the provider transport.
+
+    Tier A's inferred opt-out confirmation is a deferred reply.  Its source
+    marker remains terminal, but the confirmation itself must be checked again
+    against the current human, opt-out, configuration and consent state before
+    every durable transport transition.
+    """
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
         conversation = _lock_agent_conversation(session, outcome)
         if conversation is None:
             return True
-        if conversation.estado == "humano":
+        pessoa = session.execute(
+            select(Pessoa)
+            .where(
+                Pessoa.id == conversation.pessoa_id,
+                Pessoa.igreja_id == outcome.igreja_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if conversation.estado == "humano" or pessoa is None or pessoa.optout:
             fence_agent_replies_for_handoff(
                 session,
                 igreja_id=conversation.igreja_id,
@@ -2758,6 +2805,43 @@ def _suppress_agent_reply_after_handoff(
             )
             session.commit()
             return True
+        if tier_a_optout_confirmation:
+            current_term = getattr(get_settings(), "agent_term_version", None)
+            active_config = session.execute(
+                select(AgentConfig.id).where(
+                    AgentConfig.igreja_id == outcome.igreja_id,
+                    AgentConfig.ativo.is_(True),
+                )
+            ).scalar_one_or_none()
+            latest_term = session.execute(
+                select(ConsentRecord.termo_versao)
+                .where(
+                    ConsentRecord.igreja_id == outcome.igreja_id,
+                    ConsentRecord.pessoa_id == pessoa.id,
+                )
+                .order_by(ConsentRecord.aceite_em.desc().nullslast())
+                .limit(1)
+            ).scalar_one_or_none()
+            accepted_current_term = (
+                isinstance(current_term, str)
+                and bool(current_term)
+                and not needs_reaccept(latest_term, current_term)
+            )
+            if active_config is None or not accepted_current_term:
+                session.execute(
+                    update(Message)
+                    .where(
+                        Message.id == intent.id,
+                        Message.igreja_id == outcome.igreja_id,
+                        Message.conversation_id == conversation.id,
+                        Message.direcao == "out",
+                        Message.autor == "ia",
+                        Message.agent_reply_state == expected,
+                    )
+                    .values(agent_reply_state=_AGENT_REPLY_SUPPRESSED)
+                )
+                session.commit()
+                return True
         state = session.execute(
             select(Message.agent_reply_state).where(
                 Message.id == intent.id,
@@ -2885,6 +2969,7 @@ def _deliver_agent_reply_intent(
     ownership_guard: ClaimGuard | None,
     *,
     evolution_client: Any | None,
+    tier_a_optout_confirmation: bool = False,
 ) -> None:
     """Run at most one Evolution transport per attempt of a durable reply intent.
 
@@ -2924,6 +3009,7 @@ def _deliver_agent_reply_intent(
         outcome,
         intent,
         expected=_AGENT_REPLY_PENDING,
+        tier_a_optout_confirmation=tier_a_optout_confirmation,
     ):
         return
 
@@ -2943,6 +3029,7 @@ def _deliver_agent_reply_intent(
             outcome,
             intent,
             expected=_AGENT_REPLY_PENDING,
+            tier_a_optout_confirmation=tier_a_optout_confirmation,
         )
         return
 
@@ -2954,6 +3041,7 @@ def _deliver_agent_reply_intent(
         outcome,
         intent,
         expected=_AGENT_REPLY_IN_FLIGHT,
+        tier_a_optout_confirmation=tier_a_optout_confirmation,
     ):
         return
 
@@ -2967,6 +3055,7 @@ def _deliver_agent_reply_intent(
                 outcome,
                 intent,
                 expected=_AGENT_REPLY_IN_FLIGHT,
+                tier_a_optout_confirmation=tier_a_optout_confirmation,
             )
 
         return _send_agent_reply(
@@ -3111,6 +3200,765 @@ def _whatsapp_reply_enabled(igreja_id: object) -> bool:
     return get_settings().whatsapp_piloto(igreja_id)
 
 
+@dataclass(frozen=True)
+class TurnBudget:
+    """Wall-clock budget for external Tier A planning, never Evolution send."""
+
+    total_seconds: float = 9.0
+    reserve_seconds: float = 1.0
+    started_at: float = field(default_factory=time.monotonic)
+
+    def external_timeout(self, cap_seconds: float) -> float | None:
+        available = self.total_seconds - (time.monotonic() - self.started_at)
+        timeout = min(float(cap_seconds), available - self.reserve_seconds)
+        return timeout if timeout > 0 else None
+
+
+def _tier_a_effective_settings(
+    session_factory: Any,
+    base: Any,
+) -> Any | None:
+    """Load only platform Jev settings in a fresh, unscoped short session."""
+
+    from app.services.semantic_triage import (  # noqa: PLC0415
+        effective_settings,
+    )
+
+    session: Session = session_factory()
+    try:
+        mark_cross_tenant(session, source="worker_jev_effective_settings")
+        return effective_settings(session, base)
+    finally:
+        session.close()
+
+
+def _tier_a_egress_still_allowed(
+    session_factory: Any,
+    *,
+    igreja_id: uuid.UUID,
+    approved_release_id: str | None,
+) -> bool:
+    """Re-read platform Tier A gates outside tenant work before a later effect."""
+
+    from app.services.semantic_triage import (  # noqa: PLC0415
+        get_triage_settings,
+        tier_a_egress_allowed,
+    )
+
+    try:
+        effective = _tier_a_effective_settings(session_factory, get_triage_settings())
+    except Exception:  # noqa: BLE001 - a revoked or unreadable gate is closed
+        return False
+    return effective is not None and tier_a_egress_allowed(
+        effective,
+        igreja_id,
+        approved_release_id=approved_release_id,
+    )
+
+
+def _run_tier_a_batch(
+    effective: Any,
+    igreja_id: uuid.UUID,
+    texto: str,
+    timeout_seconds: float,
+    approved_release_id: str | None,
+) -> Any:
+    """Bridge the cancelable async adapter from the synchronous worker edge."""
+
+    from app.services.semantic_triage import run_tier_a  # noqa: PLC0415
+
+    return asyncio.run(
+        run_tier_a(
+            effective,
+            igreja_id,
+            texto,
+            approved_release_id=approved_release_id,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+
+
+def _typed_llm_reply(value: object) -> tuple[bool, str | None, object | None] | None:
+    """Accept only the small envelope emitted by the typed LLM adapter."""
+
+    handoff = getattr(value, "handoff", None)
+    if type(handoff) is not bool:
+        return None
+    if handoff:
+        return True, None, getattr(value, "usage", None)
+    resposta = getattr(value, "resposta", None)
+    if not isinstance(resposta, str) or not resposta.strip():
+        return None
+    return False, resposta.strip()[:1600], getattr(value, "usage", None)
+
+
+def _tier_a_payload_with_llm_outcome(
+    decision_payload: dict[str, Any],
+    *,
+    outcome: str,
+    erro: str | None,
+    handoff: bool | None,
+) -> dict[str, Any]:
+    """Add the fixed LLM result without rewriting Jev's typed signals."""
+
+    payload = dict(decision_payload)
+    payload.update(
+        {
+            "llm_outcome": outcome,
+            "llm_erro": erro,
+            "llm_handoff": handoff,
+        }
+    )
+    return payload
+
+
+def _complete_tier_a_reply_intent(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    provider_message_id: str,
+    runtime_session_factory: Any,
+    uses_dedicated_agent_session: bool,
+    apply: Callable[[Session], Any],
+    ownership_guard: ClaimGuard | None,
+    evolution_client: Any | None,
+) -> AgentRunDisposition:
+    """Apply a preplanned reply only after the existing durable fence exists."""
+
+    intent = _reserve_agent_reply_intent(
+        session_factory,
+        outcome,
+        intent_provider_message_id=provider_message_id,
+    )
+    if intent is None:
+        return AgentRunDisposition.COMPLETED
+    execution_lease = _AgentExecutionLease(session_factory, outcome, provider_message_id)
+    if not execution_lease.acquire():
+        return AgentRunDisposition.IN_FLIGHT
+    try:
+        intent = _load_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent_provider_message_id=provider_message_id,
+        )
+        if intent is None:
+            return AgentRunDisposition.COMPLETED
+        if intent.state == _AGENT_REPLY_EXECUTING:
+            _quarantine_agent_execution(session_factory, outcome, intent)
+            return AgentRunDisposition.COMPLETED
+        if intent.state == _AGENT_REPLY_RESERVED:
+            if not _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_RESERVED,
+                target=_AGENT_REPLY_EXECUTING,
+                ownership_guard=ownership_guard,
+            ):
+                intent = _load_agent_reply_intent(
+                    session_factory,
+                    outcome,
+                    intent_provider_message_id=provider_message_id,
+                )
+            else:
+                try:
+                    if ownership_guard is not None:
+                        ownership_guard()
+                except ClaimOwnershipLost:
+                    _release_agent_execution_reservation(
+                        session_factory,
+                        outcome,
+                        intent,
+                    )
+                    raise
+                session: Session = runtime_session_factory()
+                try:
+                    _scope_agent_execution_session(
+                        session,
+                        outcome,
+                        dedicated=uses_dedicated_agent_session,
+                    )
+                    result = apply(session)
+                except BaseException:
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+                finally:
+                    session.close()
+                if ownership_guard is not None:
+                    ownership_guard()
+                if not result.handled or result.suppressed or not result.response:
+                    _transition_agent_reply_intent(
+                        session_factory,
+                        outcome,
+                        intent,
+                        expected=_AGENT_REPLY_EXECUTING,
+                        target=_AGENT_REPLY_NO_RESPONSE,
+                    )
+                    return AgentRunDisposition.COMPLETED
+                intent = _prepare_agent_reply_intent(
+                    session_factory,
+                    outcome,
+                    result.response,
+                    intent_provider_message_id=provider_message_id,
+                )
+        if intent is not None:
+            _deliver_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                ownership_guard,
+                evolution_client=evolution_client,
+            )
+    finally:
+        execution_lease.close()
+    return AgentRunDisposition.COMPLETED
+
+
+def _persist_tier_a_handoff(
+    runtime_session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    uses_dedicated_agent_session: bool,
+    plan: Any,
+    decision_payload: dict[str, Any],
+    usage: object | None = None,
+    ownership_guard: ClaimGuard | None,
+) -> AgentRunDisposition:
+    """Persist a decision after external planning in a new short tenant session."""
+
+    from app.agent.runtime import persist_tier_a_handoff  # noqa: PLC0415
+
+    session: Session = runtime_session_factory()
+    try:
+        _scope_agent_execution_session(
+            session,
+            outcome,
+            dedicated=uses_dedicated_agent_session,
+        )
+        persist_tier_a_handoff(
+            session,
+            plan=plan,
+            decision_payload=decision_payload,
+            reply_provider_message_id=_agent_reply_idempotency_key(outcome),
+            usage=usage,
+            ownership_guard=ownership_guard,
+        )
+    finally:
+        session.close()
+    return AgentRunDisposition.COMPLETED
+
+
+def _tier_a_reply_is_reserved(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    provider_message_id: str | None,
+) -> bool:
+    """Check the pre-HTTP fence again after an external wait."""
+
+    if not provider_message_id:
+        return False
+    intent = _load_agent_reply_intent(
+        session_factory,
+        outcome,
+        intent_provider_message_id=provider_message_id,
+    )
+    return (
+        intent is not None
+        and intent.state == _AGENT_REPLY_RESERVED
+    )
+
+
+def _resume_tier_a_optout_confirmation(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    confirmation_key: str,
+    ownership_guard: ClaimGuard | None,
+    evolution_client: Any | None,
+) -> AgentRunDisposition:
+    """Recover C only after the typed source marker for this inbound A exists."""
+
+    intent = _load_agent_reply_intent(
+        session_factory,
+        outcome,
+        intent_provider_message_id=confirmation_key,
+    )
+    if intent is None or intent.provider_message_id != confirmation_key:
+        return AgentRunDisposition.COMPLETED
+    if intent.state not in {_AGENT_REPLY_PENDING, _AGENT_REPLY_EXECUTING}:
+        return AgentRunDisposition.COMPLETED
+    execution_lease = _AgentExecutionLease(session_factory, outcome, confirmation_key)
+    if not execution_lease.acquire():
+        return AgentRunDisposition.IN_FLIGHT
+    try:
+        intent = _load_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent_provider_message_id=confirmation_key,
+        )
+        if intent is None or intent.provider_message_id != confirmation_key:
+            return AgentRunDisposition.COMPLETED
+        if intent.state == _AGENT_REPLY_PENDING:
+            _deliver_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                ownership_guard,
+                evolution_client=evolution_client,
+                tier_a_optout_confirmation=True,
+            )
+        elif intent.state == _AGENT_REPLY_EXECUTING:
+            _quarantine_agent_execution(session_factory, outcome, intent)
+        return AgentRunDisposition.COMPLETED
+    finally:
+        execution_lease.close()
+
+
+def _run_active_tier_a_turn(
+    session_factory: Any,
+    runtime_session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    igreja_id: uuid.UUID,
+    turn_identity: AgentTurnIdentity | None,
+    uses_dedicated_agent_session: bool,
+    ownership_guard: ClaimGuard | None,
+    evolution_client: Any | None,
+) -> AgentRunDisposition | None:
+    """Plan onboarding outside the legacy lease when Tier A is explicitly active."""
+
+    from app.agent.runtime import (  # noqa: PLC0415
+        apply_agent_turn_plan,
+        apply_tier_a_optout_confirmation,
+        process_inbound_message,
+        reply_tier_a_plan_with_llm,
+    )
+    from app.domain.consent import tier_a_optout_confirmation_key  # noqa: PLC0415
+    from app.services.semantic_triage import (  # noqa: PLC0415
+        TIER_A_APPROVED_RELEASE_ID,
+        TierAError,
+        _tier_a_failure,
+        get_triage_settings,
+        tier_a_enabled_from_environment,
+        tier_a_egress_allowed,
+    )
+
+    if not tier_a_enabled_from_environment(igreja_id):
+        return None
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    source_marker_key = _tier_a_optout_source_idempotency_key(outcome)
+    if source_marker_key is not None:
+        source_marker = _load_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent_provider_message_id=source_marker_key,
+        )
+        if (
+            source_marker is not None
+            and source_marker.provider_message_id == source_marker_key
+        ):
+            if source_marker.state != _AGENT_REPLY_NO_RESPONSE:
+                return AgentRunDisposition.COMPLETED
+            return _resume_tier_a_optout_confirmation(
+                session_factory,
+                outcome,
+                confirmation_key=tier_a_optout_confirmation_key(
+                    igreja_id,
+                    outcome.conversation_id,
+                ),
+                ownership_guard=ownership_guard,
+                evolution_client=evolution_client,
+            )
+    if provider_message_id is not None:
+        existing_intent = _load_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent_provider_message_id=provider_message_id,
+        )
+        if existing_intent is None:
+            if ownership_guard is not None:
+                ownership_guard()
+            existing_intent = _reserve_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent_provider_message_id=provider_message_id,
+            )
+            if existing_intent is None:
+                return AgentRunDisposition.COMPLETED
+        if existing_intent is not None:
+            if existing_intent.state in {
+                _AGENT_REPLY_PENDING,
+                _AGENT_REPLY_EXECUTING,
+            }:
+                execution_lease = _AgentExecutionLease(
+                    session_factory,
+                    outcome,
+                    provider_message_id,
+                )
+                if not execution_lease.acquire():
+                    return AgentRunDisposition.IN_FLIGHT
+                try:
+                    existing_intent = _load_agent_reply_intent(
+                        session_factory,
+                        outcome,
+                        intent_provider_message_id=provider_message_id,
+                    )
+                    if existing_intent is None:
+                        return AgentRunDisposition.COMPLETED
+                    if existing_intent.state == _AGENT_REPLY_PENDING:
+                        _deliver_agent_reply_intent(
+                            session_factory,
+                            outcome,
+                            existing_intent,
+                            ownership_guard,
+                            evolution_client=evolution_client,
+                        )
+                    elif existing_intent.state == _AGENT_REPLY_EXECUTING:
+                        _quarantine_agent_execution(
+                            session_factory,
+                            outcome,
+                            existing_intent,
+                        )
+                    return AgentRunDisposition.COMPLETED
+                finally:
+                    execution_lease.close()
+            if existing_intent.state != _AGENT_REPLY_RESERVED:
+                return AgentRunDisposition.COMPLETED
+
+    def current_reply_was_fenced() -> bool:
+        return (
+            provider_message_id is not None
+            and not _tier_a_reply_is_reserved(
+                session_factory,
+                outcome,
+                provider_message_id,
+            )
+        )
+
+    budget = TurnBudget()
+    session: Session = runtime_session_factory()
+    try:
+        _scope_agent_execution_session(
+            session,
+            outcome,
+            dedicated=uses_dedicated_agent_session,
+        )
+        runtime_kwargs: dict[str, Any] = {
+            "igreja_id": igreja_id,
+            "conversation_id": outcome.conversation_id,
+            "texto": outcome.texto,
+            "tier_a_preflight": True,
+            "tier_a_reply_provider_message_id": provider_message_id,
+            "tier_a_ownership_guard": ownership_guard,
+        }
+        if turn_identity is not None:
+            runtime_kwargs.update(
+                turn_identity=turn_identity,
+                inbound_message_id=outcome.inbound_message_id,
+                provider_message_id=outcome.provider_message_id,
+            )
+        elif outcome.inbound_message_id is not None:
+            runtime_kwargs.update(
+                inbound_message_id=outcome.inbound_message_id,
+                provider_message_id=outcome.provider_message_id,
+            )
+        prepared = process_inbound_message(session, **runtime_kwargs)
+    finally:
+        session.close()
+    if current_reply_was_fenced():
+        return AgentRunDisposition.COMPLETED
+    if prepared.reason == "tier_a_legacy_route":
+        return None
+    preflight = prepared.preflight
+    if preflight is None:
+        return AgentRunDisposition.COMPLETED
+
+    if not preflight.tier_a_input_within_limit:
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=preflight,
+            decision_payload=_tier_a_failure(
+                TierAError.LIMITE_ENTRADA
+            ).to_log_payload(),
+            ownership_guard=ownership_guard,
+        )
+
+    try:
+        effective = _tier_a_effective_settings(
+            session_factory,
+            get_triage_settings(),
+        )
+    except Exception:  # noqa: BLE001 - listed church fails safe on bad config
+        effective = None
+    if current_reply_was_fenced():
+        return AgentRunDisposition.COMPLETED
+    timeout = budget.external_timeout(1.2)
+    if (
+        effective is None
+        or timeout is None
+        or not tier_a_egress_allowed(
+            effective,
+            igreja_id,
+            approved_release_id=TIER_A_APPROVED_RELEASE_ID,
+        )
+    ):
+        decision = _tier_a_failure(TierAError.GATE_FECHADO)
+    else:
+        if ownership_guard is not None:
+            ownership_guard()
+        decision = _run_tier_a_batch(
+            effective,
+            igreja_id,
+            preflight.current_text,
+            timeout,
+            TIER_A_APPROVED_RELEASE_ID,
+        )
+        if ownership_guard is not None:
+            ownership_guard()
+    if current_reply_was_fenced():
+        return AgentRunDisposition.COMPLETED
+    decision_payload = decision.to_log_payload()
+    if decision.handoff:
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=preflight,
+            decision_payload=decision_payload,
+            ownership_guard=ownership_guard,
+        )
+
+    if not _tier_a_egress_still_allowed(
+        session_factory,
+        igreja_id=igreja_id,
+        approved_release_id=TIER_A_APPROVED_RELEASE_ID,
+    ):
+        if current_reply_was_fenced():
+            return AgentRunDisposition.COMPLETED
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=preflight,
+            decision_payload=_tier_a_failure(
+                TierAError.GATE_FECHADO
+            ).to_log_payload(),
+            ownership_guard=ownership_guard,
+        )
+
+    if current_reply_was_fenced():
+        return AgentRunDisposition.COMPLETED
+
+    if decision.pede_optout:
+        if provider_message_id is None or source_marker_key is None:
+            return AgentRunDisposition.COMPLETED
+        confirmation_key = tier_a_optout_confirmation_key(
+            preflight.igreja_id,
+            preflight.conversation_id,
+        )
+        session = runtime_session_factory()
+        try:
+            _scope_agent_execution_session(
+                session,
+                outcome,
+                dedicated=uses_dedicated_agent_session,
+            )
+            staged = apply_tier_a_optout_confirmation(
+                session,
+                plan=preflight,
+                decision_payload=decision_payload,
+                source_reply_provider_message_id=provider_message_id,
+                source_marker_provider_message_id=source_marker_key,
+                confirmation_provider_message_id=confirmation_key,
+                ownership_guard=ownership_guard,
+            )
+        finally:
+            session.close()
+        if not staged.handled or staged.suppressed:
+            return AgentRunDisposition.COMPLETED
+        return _resume_tier_a_optout_confirmation(
+            session_factory,
+            outcome,
+            confirmation_key=confirmation_key,
+            ownership_guard=ownership_guard,
+            evolution_client=evolution_client,
+        )
+
+    session = runtime_session_factory()
+    try:
+        _scope_agent_execution_session(
+            session,
+            outcome,
+            dedicated=uses_dedicated_agent_session,
+        )
+        runtime_kwargs = {
+            "igreja_id": igreja_id,
+            "conversation_id": outcome.conversation_id,
+            "texto": outcome.texto,
+            "defer_onboarding_plan": True,
+            "tier_a_reply_provider_message_id": provider_message_id,
+            "tier_a_ownership_guard": ownership_guard,
+        }
+        if turn_identity is not None:
+            runtime_kwargs.update(
+                turn_identity=turn_identity,
+                inbound_message_id=outcome.inbound_message_id,
+                provider_message_id=outcome.provider_message_id,
+            )
+        elif outcome.inbound_message_id is not None:
+            runtime_kwargs.update(
+                inbound_message_id=outcome.inbound_message_id,
+                provider_message_id=outcome.provider_message_id,
+            )
+        prepared = process_inbound_message(session, **runtime_kwargs)
+    finally:
+        session.close()
+    if current_reply_was_fenced():
+        return AgentRunDisposition.COMPLETED
+    if prepared.reason == "tier_a_legacy_route":
+        return None
+    plan = prepared.plan
+    if plan is None:
+        if current_reply_was_fenced():
+            return AgentRunDisposition.COMPLETED
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=preflight,
+            decision_payload=decision_payload,
+            ownership_guard=ownership_guard,
+        )
+
+    if not _tier_a_egress_still_allowed(
+        session_factory,
+        igreja_id=igreja_id,
+        approved_release_id=TIER_A_APPROVED_RELEASE_ID,
+    ):
+        if current_reply_was_fenced():
+            return AgentRunDisposition.COMPLETED
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=plan,
+            decision_payload=_tier_a_failure(
+                TierAError.GATE_FECHADO
+            ).to_log_payload(),
+            ownership_guard=ownership_guard,
+        )
+
+    if provider_message_id is None:
+        return None
+    if plan.public_info_reply:
+        return _complete_tier_a_reply_intent(
+            session_factory,
+            outcome,
+            provider_message_id=provider_message_id,
+            runtime_session_factory=runtime_session_factory,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            apply=lambda session: apply_agent_turn_plan(
+                session,
+                plan=plan,
+                response=plan.draft_response,
+                decision_payload=decision_payload,
+            ),
+            ownership_guard=ownership_guard,
+            evolution_client=evolution_client,
+        )
+
+    llm_timeout = budget.external_timeout(4.0)
+    if llm_timeout is None:
+        if current_reply_was_fenced():
+            return AgentRunDisposition.COMPLETED
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=plan,
+            decision_payload=_tier_a_payload_with_llm_outcome(
+                decision_payload,
+                outcome="nao_chamado",
+                erro="orcamento_esgotado",
+                handoff=None,
+            ),
+            ownership_guard=ownership_guard,
+        )
+    if ownership_guard is not None:
+        ownership_guard()
+    typed = _typed_llm_reply(
+        reply_tier_a_plan_with_llm(plan, timeout_seconds=llm_timeout)
+    )
+    if typed is None:
+        llm_payload = _tier_a_payload_with_llm_outcome(
+            decision_payload,
+            outcome="falha",
+            erro="llm_falha",
+            handoff=None,
+        )
+        llm_usage = None
+    else:
+        llm_handoff, response, llm_usage = typed
+        llm_payload = _tier_a_payload_with_llm_outcome(
+            decision_payload,
+            outcome="handoff" if llm_handoff else "resposta",
+            erro=None,
+            handoff=llm_handoff,
+        )
+    if ownership_guard is not None:
+        ownership_guard()
+    if current_reply_was_fenced():
+        return AgentRunDisposition.COMPLETED
+    if not _tier_a_egress_still_allowed(
+        session_factory,
+        igreja_id=igreja_id,
+        approved_release_id=TIER_A_APPROVED_RELEASE_ID,
+    ):
+        if current_reply_was_fenced():
+            return AgentRunDisposition.COMPLETED
+        gate_closed_payload = dict(llm_payload)
+        gate_closed_payload["effect_erro"] = "gate_fechado"
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=plan,
+            decision_payload=gate_closed_payload,
+            usage=llm_usage,
+            ownership_guard=ownership_guard,
+        )
+    if typed is None or typed[0]:
+        if current_reply_was_fenced():
+            return AgentRunDisposition.COMPLETED
+        return _persist_tier_a_handoff(
+            runtime_session_factory,
+            outcome,
+            uses_dedicated_agent_session=uses_dedicated_agent_session,
+            plan=plan,
+            decision_payload=llm_payload,
+            usage=llm_usage,
+            ownership_guard=ownership_guard,
+        )
+    return _complete_tier_a_reply_intent(
+        session_factory,
+        outcome,
+        provider_message_id=provider_message_id,
+        runtime_session_factory=runtime_session_factory,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        apply=lambda session: apply_agent_turn_plan(
+            session,
+            plan=plan,
+            response=response,
+            usage=llm_usage,
+            decision_payload=llm_payload,
+        ),
+        ownership_guard=ownership_guard,
+        evolution_client=evolution_client,
+    )
+
+
 def run_agent_for_message(
     session_factory: Any,
     outcome: IngestionOutcome,
@@ -3168,6 +4016,19 @@ def run_agent_for_message(
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
     igreja_id = _require_agent_igreja_id(outcome)
+
+    tier_a_result = _run_active_tier_a_turn(
+        session_factory,
+        runtime_session_factory,
+        outcome,
+        igreja_id=igreja_id,
+        turn_identity=turn_identity,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard,
+        evolution_client=evolution_client,
+    )
+    if tier_a_result is not None:
+        return tier_a_result
 
     provider_message_id = _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:

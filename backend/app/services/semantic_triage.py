@@ -31,14 +31,19 @@ só com DPA e termo LGPD atualizados.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import json
 import logging
+import math
+import os
 import re
 import time
 import uuid
 from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 from pydantic import Field, field_validator
@@ -90,6 +95,8 @@ class TriageSettings(BaseSettings):
 
     # Lista de igreja_id separados por vírgula. Vazio = desligado.
     jev_shadow_triage_igreja_ids: str = Field(default="")
+    # Lista ativa do Tier A. Ela nunca herda a lista de modo sombra.
+    jev_enabled_igreja_ids: str = Field(default="")
     typesafe_api_key: str = Field(default="")
     typesafe_api_url: str = Field(default="https://api.typesafe.ai/v1/systemone")
     typesafe_model: str = Field(default="jev-latest")
@@ -263,6 +270,335 @@ def shadow_enabled_for(settings: TriageSettings, igreja_id: uuid.UUID) -> bool:
     return igreja_id in allowed
 
 
+# Tier A ----------------------------------------------------------------------
+# Estas bandas são iniciais e não calibradas. Aferição em holdout e aprovação
+# nominal continuam fora desta mudança; não devem ser ajustadas por casos reais.
+TIER_A_NEGATIVE_MAX = 0.10
+TIER_A_POSITIVE_MIN = 0.90
+TIER_A_HTTP_MAX_SECONDS = 1.2
+# Nenhuma versão tem aprovação de release nesta mudança. Uma alteração futura
+# revisada deve vincular métricas reais, versão de perguntas/modelo/limiares e
+# decisão nominal antes de preencher este identificador.
+TIER_A_APPROVED_RELEASE_ID: Final[str | None] = None
+_TIER_A_QUESTION_IDS = ("risco_crise", "pede_humano", "pede_optout")
+
+
+class TierAError(str, Enum):
+    """Motivos enumerados, sem texto pastoral ou detalhes do provedor."""
+
+    GATE_FECHADO = "gate_fechado"
+    HTTP = "http"
+    INCONCLUSIVO = "inconclusivo"
+    LIMITE_ENTRADA = "limite_entrada"
+    SCHEMA_INVALIDO = "schema_invalido"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class TierADecision:
+    """Resultado finito do batch Noul, pronto para a política do worker."""
+
+    risco_crise: bool
+    pede_humano: bool
+    pede_optout: bool
+    handoff: bool
+    erro: TierAError | None
+    latencia_ms: int
+
+    def to_log_payload(self) -> dict[str, Any]:
+        return {
+            "risco_crise": self.risco_crise,
+            "pede_humano": self.pede_humano,
+            "pede_optout": self.pede_optout,
+            "handoff": self.handoff,
+            "erro": None if self.erro is None else self.erro.value,
+            "latencia_ms": self.latencia_ms,
+        }
+
+
+def _tier_a_failure(error: TierAError, *, latencia_ms: int = 0) -> TierADecision:
+    return TierADecision(
+        risco_crise=False,
+        pede_humano=False,
+        pede_optout=False,
+        handoff=True,
+        erro=error,
+        latencia_ms=max(0, int(latencia_ms)),
+    )
+
+
+def _parse_active_allowlist(raw: object) -> frozenset[uuid.UUID] | None:
+    """Parse the active list atomically: one malformed item disables all."""
+
+    if not isinstance(raw, str):
+        return None
+    if not raw.strip():
+        return frozenset()
+    values = raw.split(",")
+    if any(not value.strip() for value in values):
+        return None
+    try:
+        allowed = frozenset(uuid.UUID(value.strip()) for value in values)
+    except ValueError:
+        return None
+    return allowed if len(allowed) == len(values) else None
+
+
+def tier_a_listed_for(settings: TriageSettings, igreja_id: uuid.UUID) -> bool:
+    """Return only the explicit active-flag decision, never the shadow flag."""
+
+    allowed = _parse_active_allowlist(settings.jev_enabled_igreja_ids)
+    return allowed is not None and igreja_id in allowed
+
+
+def tier_a_enabled_from_environment(igreja_id: uuid.UUID) -> bool:
+    """Read only the activation list before parsing optional transport config.
+
+    This leaves legacy turns untouched when the active list is absent, even if
+    an unrelated TypeSafe URL or timeout setting is malformed.
+    """
+
+    allowed = _parse_active_allowlist(os.environ.get("JEV_ENABLED_IGREJA_IDS", ""))
+    return (
+        TIER_A_APPROVED_RELEASE_ID is not None
+        and allowed is not None
+        and igreja_id in allowed
+    )
+
+
+def tier_a_optout_confirmation_key(
+    igreja_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+) -> str:
+    """Expose the Tier A key alongside its active-decision contract."""
+
+    return consent_rules.tier_a_optout_confirmation_key(igreja_id, conversation_id)
+
+
+def tier_a_egress_allowed(
+    effective: EffectiveTriageSettings,
+    igreja_id: uuid.UUID,
+    *,
+    approved_release_id: str | None = None,
+) -> bool:
+    """Gate the active provider call; release approval is absent by default.
+
+    A future reviewed release may add an immutable code identifier and pass a
+    matching configuration approval only after holdout evidence and the
+    owner's nominal decision. This function never infers approval from a flag,
+    DPA date or configured key.
+    """
+
+    return bool(
+        TIER_A_APPROVED_RELEASE_ID is not None
+        and approved_release_id == TIER_A_APPROVED_RELEASE_ID
+        and tier_a_listed_for(effective.settings, igreja_id)
+        and is_configured(effective.settings)
+        and not effective.chave_ilegivel
+        and effective.dpa_assinado_em is not None
+        and external_sends_allowed()
+    )
+
+
+def build_tier_a_request(texto: str, *, model: str) -> dict[str, Any]:
+    """Build the sole Tier A batch with its fixed, public evaluator ids."""
+
+    return {
+        "state": {
+            "mensagem": redact_for_egress(texto),
+            "canal": "whatsapp_atendimento",
+        },
+        "model": model,
+        "questions": {
+            "risco_crise": {
+                "type": "noul",
+                "instructions": (
+                    "A `mensagem` tem sinal de crise, autoagressão, violência "
+                    "ou risco imediato que exige atenção humana?"
+                ),
+                "criteria": {
+                    "true": "Há risco atual ou iminente à integridade ou à vida.",
+                    "false": "Não há sinal de crise ou risco imediato.",
+                },
+            },
+            "pede_humano": {
+                "type": "noul",
+                "instructions": (
+                    "A `mensagem` pede claramente atendimento de uma pessoa, "
+                    "pastor ou liderança?"
+                ),
+                "criteria": {
+                    "true": "Há pedido de atendimento humano.",
+                    "false": "Não há pedido de atendimento humano.",
+                },
+            },
+            "pede_optout": {
+                "type": "noul",
+                "instructions": (
+                    "A `mensagem` provavelmente pede interrupção das mensagens "
+                    "da igreja neste canal?"
+                ),
+                "criteria": {
+                    "true": "Há pedido para parar comunicações neste canal.",
+                    "false": "Não há pedido para parar comunicações neste canal.",
+                },
+            },
+        },
+    }
+
+
+def _noul_signal(value: object) -> bool | None:
+    """Classify one strict Noul number; ``None`` is the uncalibrated middle."""
+
+    if type(value) not in (int, float):
+        raise ValueError("noul não numérico")
+    try:
+        probability = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("noul fora do intervalo") from exc
+    if not math.isfinite(probability) or not 0 <= probability <= 1:
+        raise ValueError("noul fora do intervalo")
+    if probability >= TIER_A_POSITIVE_MIN:
+        return True
+    if probability <= TIER_A_NEGATIVE_MAX:
+        return False
+    return None
+
+
+def parse_tier_a_response(
+    body: object,
+    *,
+    latencia_ms: int,
+) -> TierADecision:
+    """Parse a response exactly; malformed data is always a safe handoff."""
+
+    try:
+        if not isinstance(body, dict) or not set(body) <= {"answers", "model", "usage"}:
+            raise ValueError("corpo inválido")
+        answers = body.get("answers")
+        if not isinstance(answers, dict) or set(answers) != set(_TIER_A_QUESTION_IDS):
+            raise ValueError("answers inválidas")
+        signals: dict[str, bool | None] = {}
+        for question_id in _TIER_A_QUESTION_IDS:
+            answer = answers[question_id]
+            if not isinstance(answer, dict) or set(answer) != {"type", "noul"}:
+                raise ValueError("answer inválida")
+            if answer["type"] != "noul":
+                raise ValueError("tipo inválido")
+            signals[question_id] = _noul_signal(answer["noul"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return _tier_a_failure(TierAError.SCHEMA_INVALIDO, latencia_ms=latencia_ms)
+
+    risco_crise = signals["risco_crise"] is True
+    pede_humano = signals["pede_humano"] is True
+    pede_optout = signals["pede_optout"] is True
+    if any(signal is None for signal in signals.values()):
+        return TierADecision(
+            risco_crise=risco_crise,
+            pede_humano=pede_humano,
+            pede_optout=pede_optout,
+            handoff=True,
+            erro=TierAError.INCONCLUSIVO,
+            latencia_ms=max(0, int(latencia_ms)),
+        )
+    return TierADecision(
+        risco_crise=risco_crise,
+        pede_humano=pede_humano,
+        pede_optout=pede_optout,
+        handoff=risco_crise or pede_humano,
+        erro=None,
+        latencia_ms=max(0, int(latencia_ms)),
+    )
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("chave JSON duplicada")
+        result[key] = value
+    return result
+
+
+def parse_tier_a_json(raw: bytes | str, *, latencia_ms: int) -> TierADecision:
+    """Decode provider JSON without silently accepting duplicate object keys."""
+
+    try:
+        body = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+    except (TypeError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return _tier_a_failure(TierAError.SCHEMA_INVALIDO, latencia_ms=latencia_ms)
+    return parse_tier_a_response(body, latencia_ms=latencia_ms)
+
+
+async def run_tier_a(
+    effective: EffectiveTriageSettings,
+    igreja_id: uuid.UUID,
+    texto: str,
+    *,
+    approved_release_id: str | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+    timeout_seconds: float | None = None,
+) -> TierADecision:
+    """Run one cancelable, no-retry Tier A batch outside a database session."""
+
+    if not isinstance(texto, str) or not texto.strip():
+        return _tier_a_failure(TierAError.SCHEMA_INVALIDO)
+    if not tier_a_egress_allowed(
+        effective,
+        igreja_id,
+        approved_release_id=approved_release_id,
+    ):
+        log_suppressed("JEV", "tier_a")
+        return _tier_a_failure(TierAError.GATE_FECHADO)
+    settings = effective.settings
+    try:
+        budget = min(
+            float(settings.typesafe_timeout_seconds),
+            TIER_A_HTTP_MAX_SECONDS,
+            TIER_A_HTTP_MAX_SECONDS
+            if timeout_seconds is None
+            else float(timeout_seconds),
+        )
+    except (TypeError, ValueError, OverflowError):
+        return _tier_a_failure(TierAError.SCHEMA_INVALIDO)
+    if not math.isfinite(budget) or budget <= 0:
+        return _tier_a_failure(TierAError.SCHEMA_INVALIDO)
+    payload = build_tier_a_request(texto, model=settings.typesafe_model)
+    started = time.monotonic()
+    try:
+        async with asyncio.timeout(budget):
+            async with httpx.AsyncClient(
+                timeout=budget,
+                transport=transport,
+            ) as client:
+                response = await client.post(
+                    settings.typesafe_api_url,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {settings.typesafe_api_key}"},
+                )
+                response.raise_for_status()
+                body = await response.aread()
+    except TimeoutError:
+        return _tier_a_failure(
+            TierAError.TIMEOUT,
+            latencia_ms=int((time.monotonic() - started) * 1000),
+        )
+    except httpx.TimeoutException:
+        return _tier_a_failure(
+            TierAError.TIMEOUT,
+            latencia_ms=int((time.monotonic() - started) * 1000),
+        )
+    except httpx.HTTPError:
+        return _tier_a_failure(
+            TierAError.HTTP,
+            latencia_ms=int((time.monotonic() - started) * 1000),
+        )
+    return parse_tier_a_json(
+        body,
+        latencia_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
 def build_request(
     texto: str,
     *,
@@ -276,7 +612,7 @@ def build_request(
     """
     state = {
         "mensagem": redact_for_egress(texto),
-        "canal": "WhatsApp oficial de uma igreja evangélica",
+        "canal": "whatsapp_atendimento",
         "remetente_e_lider_ou_pastor": remetente_ministerial,
     }
     questions: dict[str, Any] = {

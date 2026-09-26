@@ -101,6 +101,7 @@ def test_request_mascara_dados_sensiveis_da_mensagem() -> None:
         "canal",
         "remetente_e_lider_ou_pastor",
     }
+    assert body["state"]["canal"] == "whatsapp_atendimento"
 
 
 # Números sintéticos (só zeros), montados em tempo de execução para não

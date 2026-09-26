@@ -1,5 +1,29 @@
 # Wiki do projeto Igreja 12
 
+## Jev tier A S1: candidato com ativação bloqueada, 26/09/2026
+
+A nova trilha classifica crise, pedido humano e provável opt-out antes da
+resposta. Erro, timeout ou incerteza fazem handoff; sinal positivo do LLM também
+suprime a resposta. Opt-out inferido solicita uma confirmação SAIR, deduplicada
+por conversa. O comando isolado SAIR é explícito e persiste a saída antes dos
+gates; frases como “sair da célula” não são esse comando.
+
+`JEV_ENABLED_IGREJA_IDS` nasce vazia, separada da lista sombra. Flag e DPA não
+bastam: não existe release aprovada nesta entrega. Ativação requer avaliação
+holdout e decisão nominal de Raniel. O corpus dev/holdout foi congelado antes
+das perguntas; as métricas reais continuam **NÃO AFERIDAS**. Predições locais
+autodeclaradas e testes com mocks não autorizam ativação.
+
+Novo HTTP Jev/LLM ocorre fora de sessão/transação e lease de execução; o envio
+Evolution preserva seu protocolo legado. O alvo ponta a ponta de menos de 10s
+não está aferido. Piloto permanece somente interno, sem divulgar o número.
+[Plano e gates](ops/mvp-fase2-agente-inteligente-plano.md),
+[avaliação e limites](ops/jev-tier-a-20260926/EVALUATION.md).
+
+S2 terá campos públicos estruturados, correção de caracteres invisíveis Cf
+no legado e perguntas naturais de horário. S3 terá identidade confirmada e
+ferramentas readonly por papel. Nenhuma dessas fatias foi antecipada na S1.
+
 ## MVP fase 2, fatia 2: consultas públicas e handoff ampliado, 26/09/2026
 
 O handoff cobre também pedidos como “gostaria de falar com o pastor”, “chama
@@ -43,7 +67,7 @@ histórico do PR #418, anterior ao #419 e baseado em `92eed57`, registrou
 nenhuma crise detectada, 24% dos pedidos de opt-out, 8 de 14 respostas
 negativas contadas como aceite e todas as armadilhas de CSIM silenciando o
 contato. Esses números não representam as regras após o #419, que altera
-crise e aceite. O Jev continua fora do turno do agente.
+crise e aceite. Naquele snapshot histórico, o Jev continuava fora do turno; a trilha S1 acima é posterior e permanece sem ativação.
 
 ## Exclusão de tenant e reset administrativo, candidata local, 25/09/2026
 

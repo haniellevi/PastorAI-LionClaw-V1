@@ -293,9 +293,10 @@ marcados abaixo descrevem o código; o aceite de 20 conversas reais continua
 pendente. Não há garantia geral de factualidade por teste de prompt.
 
 - [x] **O LLM responde à mensagem de verdade.** O prompt passa a levar a
-      mensagem da pessoa, o perfil da igreja (horários de culto, endereço,
-      células, tom, via `AgentConfig.comportamento`, editável no painel) e as
-      últimas 10 mensagens da conversa (já persistidas; sem checkpointer).
+      mensagem da pessoa, o estilo da igreja em `AgentConfig.comportamento`
+      e as últimas 10 mensagens persistidas da conversa. Desde PR421, o bloco
+      de informações públicas é removido do prompt; as consultas reconhecidas
+      respondem pelo cadastro validado, sem LLM ou checkpointer.
 - [x] Guardrails simples: opt-out, handoff para humano quando a pessoa pede ou
       há sinal de crise (regex primeiro; Jev depois do DPA), tamanho máximo de
       resposta e proibição de inventar dados.
@@ -310,23 +311,34 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
 - [x] Aceite do termo mais robusto: "sim, mas não quero…" não conta como
       aceite (bug B4).
 
-#### Próxima direção: agente com decisões tipadas e privilégios
+#### Decisão aprovada: agente com decisões tipadas e privilégios
 
-Decisão mais recente de Raniel em 26/09 substitui a proposta de LLM com
-moderação. Após fechar a fatia 2, preparar plano curto para aprovação dos
-conselheiros antes de implementar: Jev como classificador principal de
-intenção/risco/handoff, raciocínio LLM, identidade e privilégios do remetente
-validados no backend, ferramentas de leitura por papel e RLS. Regex fica
-como rede mínima de segurança; não ampliar listas de frases como estratégia.
+Plano aprovado pelos conselheiros, com ajustes de 26/09:
+[contrato S1/S2/S3](mvp-fase2-agente-inteligente-plano.md). Substitui a proposta
+LLM + moderação e a sequência histórica J1/J2 abaixo para o caminho ativo.
+Uma PR por fatia:
 
-O plano deve definir perguntas Noul/Choice e dependências em código, erro ou
-timeout Jev levando a handoff, latência menor que 10s, flag por igreja
-`JEV_ENABLED_IGREJA_IDS`, dados enviados à TypeSafe, DPA e decisão de Raniel.
-Congelar dev/holdout antes de ajustar prompt; meta de crise no holdout:
-recall >=90%, falso alarme (FP / negativos) <10%. Sem chamada real a provedor,
-DEV ou PROD nesta missão. O piloto permanece interno até detecção avaliada.
+- S1: três sinais Jev tier A (crise, humano, provável opt-out), fail-safe,
+  `JEV_ENABLED_IGREJA_IDS` vazia e distinta da sombra; resposta LLM preservada.
+  Opt-out inferido solicita uma única confirmação SAIR, sem aplicar saída.
+  Somente palavra explícita/regex persiste opt-out diretamente.
+- S2: campos públicos estruturados no painel/API, com migration e RLS,
+  substituem bloco livre de comportamento; descartar caracteres `Cf` no legado.
+  Perguntas `que horas comeca o culto?`, `que horas e o culto`, `horario do culto`
+  e `quando e o culto`, com/sem acento e pontuação, consultam cadastro público
+  ou retornam ausência, sem cair no LLM sem horário.
+- S3: identidade/papel com confirmação Clerk e ferramentas readonly por papel;
+  perguntas dependentes Jev B/C/D somente depois das respectivas decisoras.
 
-#### Trilha Jev (decisões tipadas da TypeSafe), 26/09
+Dev/holdout sintéticos ficam congelados antes de ajustar perguntas e limiares.
+Ativação exige holdout aferido (crise recall >=90%, FPR<10%, humano recall>=85%,
+com Wilson95%), DPA e decisão nominal de Raniel, além dos gates técnicos.
+Mock verde não aferiu qualidade do Jev. Medir handoff total no holdout; no
+piloto, mais de 30% das conversas avaliadas na janela diária exige pausa e
+revisão. Corpus enriquecido não estima prevalência real. Sem provider real,
+DEV ou PROD nesta preparação; piloto continua interno, sem divulgação pública.
+
+#### Trilha Jev histórica (J0/sombra), 26/09
 
 O Jev não gera texto: devolve probabilidades para perguntas como "é crise?".
 Custa cerca de US$ 0,00003 por mensagem e acrescenta cerca de 1 s por
@@ -355,7 +367,7 @@ chamada, então **custo não é a alavanca; o ganho é acertar** onde a regex er
       `settings=`: a sessão com escopo de tenant roda como `authenticated`,
       que não lê `platform_jev_settings` (achado da Sarah, 26/09). Termina por
       volume (≥ 300 turnos), não por tempo.
-- [ ] **J2, sinais ativos:** um por vez, cada um com flag: crise → handoff
+- [ ] **J2, proposta histórica substituída pelo plano S1 acima:** um por vez, cada um com flag: crise → handoff
       e alerta; CSIM só com confirmação do Jev (sem Jev, não marca); veto de
       aceite (o Jev nunca concede); opt-out aditivo (probabilidade alta
       aplica). Chamada antes do turno com prazo total de 1,5 s e as regras

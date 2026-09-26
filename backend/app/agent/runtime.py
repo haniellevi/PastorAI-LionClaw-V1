@@ -21,7 +21,9 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -80,7 +82,16 @@ from app.db.rls_observability import (
     require_tenant_scope,
 )
 from app.domain import consent as consent_rules
-from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
+from app.domain.agent_reply import (
+    AGENT_REPLY_AMBIGUOUS,
+    AGENT_REPLY_CONFIRMED,
+    AGENT_REPLY_EXECUTING,
+    AGENT_REPLY_IN_FLIGHT,
+    AGENT_REPLY_NO_RESPONSE,
+    AGENT_REPLY_PENDING,
+    AGENT_REPLY_RESERVED,
+    AGENT_REPLY_SUPPRESSED,
+)
 from app.domain.agent_authz import PrivilegeContext, tool_allowed, tool_denial_reason
 from app.services.conversation_handoff import fence_agent_replies_for_handoff
 from app.services.crypto import SecretDecryptionError, decrypt_secret
@@ -108,6 +119,45 @@ class AgentTurnResult:
     suppressed: bool = False  # True when a human owns the chat (handoff)
     tools_executed: list[str] = field(default_factory=list)
     reason: str | None = None
+    plan: "AgentTurnPlan | None" = None
+    preflight: "TierATurnPreflight | None" = None
+
+
+@dataclass(frozen=True)
+class TierATurnPreflight:
+    """Trusted, bounded facts needed before Tier A leaves the tenant session."""
+
+    igreja_id: uuid.UUID
+    conversation_id: uuid.UUID
+    pessoa_id: uuid.UUID
+    inbound_message_id: uuid.UUID
+    provider_message_id: str | None
+    current_text: str
+    tier_a_input_within_limit: bool
+    config_id: uuid.UUID
+    config_comportamento: str
+    credential_id: uuid.UUID
+    credential_provedor: str
+    credential_model: str
+    credential_key_encrypted: str
+    accepted_consent_version: str | None
+    term_version: str
+
+
+@dataclass(frozen=True)
+class AgentTurnPlan(TierATurnPreflight):
+    """Ephemeral onboarding work prepared after Tier A has allowed it.
+
+    The plan contains no tenant authority, tool capability or graph state.  It
+    is valid only for the bound inbound anchor and is revalidated immediately
+    before its deterministic effects are applied.
+    """
+
+    effects: AgentTurnEffects
+    draft_response: str
+    system_prompt: str
+    user_prompt: str
+    public_info_reply: bool = False
 
 
 def _require_bound_turn_identity(
@@ -613,6 +663,98 @@ def _route_allows_llm_refinement(route: str | None) -> bool:
     return route in _LLM_REFINABLE_ROUTES
 
 
+def _tier_a_plan_effects(effects: AgentTurnEffects) -> AgentTurnEffects | None:
+    """Copy only onboarding effects safe to defer across external planning."""
+
+    if (
+        effects["tool_calls"]
+        or effects["apply_optout"]
+        or effects["apply_consent_version"] is not None
+    ):
+        return None
+    return {
+        "events": [dict(event) for event in effects["events"]],
+        "tool_calls": [],
+        "apply_optout": False,
+        "apply_consent_version": None,
+        "intake_update": dict(effects["intake_update"]),
+    }
+
+
+def _build_tier_a_preflight(
+    *,
+    igreja_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    pessoa_id: uuid.UUID,
+    inbound_message_id: uuid.UUID | None,
+    provider_message_id: str | None,
+    current_text: str,
+    config: AgentConfig,
+    cred: LlmCredential,
+    accepted_consent_version: str | None,
+    term_version: str,
+ ) -> TierATurnPreflight | None:
+    """Bind Tier A to a complete persisted inbound identity before egress."""
+
+    model = getattr(cred, "modelo", None)
+    if (
+        not isinstance(inbound_message_id, uuid.UUID)
+        or not isinstance(config.id, uuid.UUID)
+        or not isinstance(config.comportamento, str)
+        or not isinstance(cred.id, uuid.UUID)
+        or not isinstance(cred.provedor, str)
+        or not isinstance(model, str)
+        or not isinstance(cred.api_key_encrypted, str)
+    ):
+        return None
+    return TierATurnPreflight(
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        pessoa_id=pessoa_id,
+        inbound_message_id=inbound_message_id,
+        provider_message_id=provider_message_id,
+        current_text=_bounded_text(current_text, _MAX_CURRENT_MESSAGE_CHARS),
+        tier_a_input_within_limit=len(current_text) <= _MAX_CURRENT_MESSAGE_CHARS,
+        config_id=config.id,
+        config_comportamento=config.comportamento,
+        credential_id=cred.id,
+        credential_provedor=cred.provedor,
+        credential_model=model,
+        credential_key_encrypted=cred.api_key_encrypted,
+        accepted_consent_version=accepted_consent_version,
+        term_version=term_version,
+    )
+
+
+def _build_tier_a_plan(
+    preflight: TierATurnPreflight,
+    *,
+    effects: AgentTurnEffects,
+    draft_response: object,
+    history: list[tuple[str, str, str]],
+    public_info_reply: bool = False,
+) -> AgentTurnPlan | None:
+    """Attach only effect-free onboarding work after Tier A allows the turn."""
+
+    copied_effects = _tier_a_plan_effects(effects)
+    response = _limit_agent_reply(draft_response)
+    if copied_effects is None or not response:
+        return None
+    system_prompt, user_prompt = _build_reply_prompt(
+        preflight.config_comportamento,
+        preflight.current_text,
+        history,
+    )
+    return AgentTurnPlan(
+        **preflight.__dict__,
+        effects=copied_effects,
+        draft_response=response,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        public_info_reply=public_info_reply,
+    )
+
+
 def _require_agent_session_scope(
     session: Session,
     tenant_uuid: uuid.UUID,
@@ -678,6 +820,492 @@ def _reply_with_llm(
         return None
 
 
+def _tier_a_prompt(plan: AgentTurnPlan) -> tuple[str, str]:
+    """Add the fixed output envelope without giving the model new authority."""
+
+    return (
+        plan.system_prompt
+        + "\n8. Responda exclusivamente um JSON válido com exatamente os campos "
+        '`handoff` (booleano) e `resposta` (texto). Se `handoff` for true, '
+        "a resposta deve ser vazia. Sinalize `handoff` como true diante de risco, "
+        "crise, pedido de atendimento humano ou contexto que exija uma pessoa; "
+        "o servidor decide qualquer efeito.",
+        plan.user_prompt,
+    )
+
+
+def reply_tier_a_plan_with_llm(
+    plan: AgentTurnPlan,
+    *,
+    timeout_seconds: float,
+) -> object | None:
+    """Invoke the typed LLM path with no fallback or provider payload logging."""
+
+    if not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
+        return None
+    try:
+        api_key = decrypt_secret(plan.credential_key_encrypted)
+        client = LLMClient(
+            plan.credential_provedor,
+            api_key,
+            plan.credential_model,
+        )
+        complete_typed = getattr(client, "complete_typed", None)
+        if not callable(complete_typed):
+            return None
+        system_prompt, user_prompt = _tier_a_prompt(plan)
+        return complete_typed(
+            system_prompt,
+            user_prompt,
+            timeout_seconds=float(timeout_seconds),
+        )
+    except (SecretDecryptionError, LLMError) as exc:
+        logger.warning("Tier A typed LLM failed: %s", type(exc).__name__)
+        return None
+
+
+def _load_tier_a_plan_state(
+    session: Session,
+    plan: TierATurnPreflight,
+) -> tuple[Conversation | None, Pessoa | None, str | None]:
+    """Lock and revalidate all mutable facts used by one deferred plan."""
+
+    _require_agent_session_scope(session, plan.igreja_id)
+    if _uses_dedicated_agent_runtime_session(session):
+        return None, None, "runtime_effects_unavailable"
+    conversation = session.execute(
+        select(Conversation)
+        .where(
+            Conversation.id == plan.conversation_id,
+            Conversation.igreja_id == plan.igreja_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if conversation is None or conversation.pessoa_id != plan.pessoa_id:
+        return None, None, "conversation_not_found"
+    pessoa = session.execute(
+        select(Pessoa)
+        .where(Pessoa.id == plan.pessoa_id, Pessoa.igreja_id == plan.igreja_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if pessoa is None:
+        return conversation, None, "pessoa_not_found"
+    anchor = _load_persisted_inbound_turn(
+        session,
+        igreja_id=plan.igreja_id,
+        conversation_id=plan.conversation_id,
+        current_message_id=plan.inbound_message_id,
+        provider_message_id=plan.provider_message_id,
+    )
+    if anchor is None or _bounded_text(anchor[1], _MAX_CURRENT_MESSAGE_CHARS) != plan.current_text:
+        return conversation, pessoa, "inbound_message_not_found"
+    if pessoa.optout:
+        return conversation, pessoa, "optout"
+    if conversation.estado == ESTADO_HUMANO:
+        return conversation, pessoa, "handoff"
+    settings = get_settings()
+    if settings.agent_term_version != plan.term_version:
+        return conversation, pessoa, "term_changed"
+    config = session.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == plan.igreja_id)
+    ).scalar_one_or_none()
+    if (
+        config is None
+        or config.id != plan.config_id
+        or config.igreja_id != plan.igreja_id
+        or not config.ativo
+        or config.comportamento != plan.config_comportamento
+    ):
+        return conversation, pessoa, "config_changed"
+    cred = _active_credential(session, plan.igreja_id)
+    if (
+        cred is None
+        or cred.id != plan.credential_id
+        or cred.igreja_id != plan.igreja_id
+        or cred.provedor != plan.credential_provedor
+        or cred.modelo != plan.credential_model
+        or cred.api_key_encrypted != plan.credential_key_encrypted
+    ):
+        return conversation, pessoa, "credential_changed"
+    if _latest_consent_version(session, plan.igreja_id, pessoa.id) != plan.accepted_consent_version:
+        return conversation, pessoa, "consent_changed"
+    return conversation, pessoa, None
+
+
+def _tier_a_plan_invalid_result(
+    session: Session,
+    *,
+    conversation: Conversation | None,
+    pessoa: Pessoa | None,
+    igreja_id: uuid.UUID,
+    reason: str,
+) -> AgentTurnResult:
+    """Suppress known terminal states; human-handoff every other stale plan."""
+
+    if reason in {"optout", "handoff"}:
+        session.commit()
+        return AgentTurnResult(
+            handled=True,
+            route=ROUTE_OPTOUT if reason == "optout" else ROUTE_HANDOFF,
+            suppressed=True,
+            reason=reason,
+        )
+    if conversation is None or pessoa is None:
+        return AgentTurnResult(handled=False, reason=reason)
+    if _mark_conversation_for_handoff(
+        session,
+        igreja_id=igreja_id,
+        conversation_id=conversation.id,
+    ) is None:
+        return AgentTurnResult(handled=False, reason=reason)
+    log_agent_event(
+        session,
+        igreja_id=igreja_id,
+        evento="agent_handoff_tier_a_revalidation",
+        payload={"reason": reason},
+        conversation_id=conversation.id,
+    )
+    session.commit()
+    return AgentTurnResult(
+        handled=True,
+        route=ROUTE_HANDOFF,
+        suppressed=True,
+        reason=reason,
+    )
+
+
+def apply_agent_turn_plan(
+    session: Session,
+    *,
+    plan: AgentTurnPlan,
+    response: object,
+    usage: object | None = None,
+    decision_payload: dict[str, Any] | None = None,
+) -> AgentTurnResult:
+    """Revalidate and apply one safe onboarding plan after external planning."""
+
+    if type(plan) is not AgentTurnPlan:
+        return AgentTurnResult(handled=False, reason="invalid_tier_a_plan")
+    bounded_response = _limit_agent_reply(response)
+    if not bounded_response:
+        return persist_tier_a_handoff(
+            session,
+            plan=plan,
+            decision_payload={"erro": "llm_schema_invalido"},
+        )
+    conversation, pessoa, reason = _load_tier_a_plan_state(session, plan)
+    if reason is not None:
+        return _tier_a_plan_invalid_result(
+            session,
+            conversation=conversation,
+            pessoa=pessoa,
+            igreja_id=plan.igreja_id,
+            reason=reason,
+        )
+    if conversation is None or pessoa is None:
+        return AgentTurnResult(handled=False, reason="tier_a_state_missing")
+    if plan.public_info_reply:
+        if bounded_response != plan.draft_response:
+            return persist_tier_a_handoff(
+                session,
+                plan=plan,
+                decision_payload={"erro": "public_reply_changed"},
+            )
+        if decision_payload is not None:
+            log_agent_event(
+                session,
+                igreja_id=plan.igreja_id,
+                evento="jev_tier_a_decision",
+                payload=dict(decision_payload),
+                conversation_id=conversation.id,
+            )
+        log_agent_event(
+            session,
+            igreja_id=plan.igreja_id,
+            evento="agent_public_info_reply",
+            payload={},
+            conversation_id=conversation.id,
+        )
+        session.commit()
+        return AgentTurnResult(
+            handled=True,
+            route=ROUTE_ONBOARDING,
+            response=bounded_response,
+        )
+    _apply_intake(pessoa, plan.effects["intake_update"])
+    if decision_payload is not None:
+        log_agent_event(
+            session,
+            igreja_id=plan.igreja_id,
+            evento="jev_tier_a_decision",
+            payload=dict(decision_payload),
+            conversation_id=conversation.id,
+        )
+    for event in plan.effects["events"]:
+        log_agent_event(
+            session,
+            igreja_id=plan.igreja_id,
+            evento=event.get("evento", "agent_event"),
+            payload=event.get("payload"),
+            conversation_id=conversation.id,
+        )
+    if usage is not None:
+        log_ai_usage(
+            session,
+            igreja_id=plan.igreja_id,
+            usage=usage,
+            ferramenta=ROUTE_ONBOARDING,
+        )
+    session.commit()
+    return AgentTurnResult(
+        handled=True,
+        route=ROUTE_ONBOARDING,
+        response=bounded_response,
+    )
+
+
+def apply_tier_a_optout_confirmation(
+    session: Session,
+    *,
+    plan: TierATurnPreflight,
+    decision_payload: dict[str, Any],
+    source_reply_provider_message_id: str | None = None,
+    source_marker_provider_message_id: str | None = None,
+    confirmation_provider_message_id: str | None = None,
+    ownership_guard: Callable[[], None] | None = None,
+) -> AgentTurnResult:
+    """Revalidate and atomically bind one inferred opt-out confirmation."""
+
+    if type(plan) not in {AgentTurnPlan, TierATurnPreflight}:
+        return AgentTurnResult(handled=False, reason="invalid_tier_a_plan")
+    conversation, pessoa, reason = _load_tier_a_plan_state(session, plan)
+    if reason is not None:
+        return _tier_a_plan_invalid_result(
+            session,
+            conversation=conversation,
+            pessoa=pessoa,
+            igreja_id=plan.igreja_id,
+            reason=reason,
+        )
+    if conversation is None or pessoa is None:
+        return AgentTurnResult(handled=False, reason="tier_a_state_missing")
+    pair_ids = (
+        source_reply_provider_message_id,
+        source_marker_provider_message_id,
+        confirmation_provider_message_id,
+    )
+    if any(value is not None for value in pair_ids):
+        if not all(isinstance(value, str) and value for value in pair_ids):
+            return AgentTurnResult(handled=False, reason="invalid_optout_reply_fence")
+        if ownership_guard is not None:
+            ownership_guard()
+        source = session.execute(
+            select(Message)
+            .where(
+                Message.igreja_id == plan.igreja_id,
+                Message.conversation_id == conversation.id,
+                Message.direcao == "out",
+                Message.autor == "ia",
+                Message.provider_message_id == source_reply_provider_message_id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if source is None or source.agent_reply_state != AGENT_REPLY_RESERVED:
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=ROUTE_ONBOARDING,
+                suppressed=True,
+                reason="tier_a_source_fenced",
+            )
+        marker = session.execute(
+            select(Message)
+            .where(
+                Message.igreja_id == plan.igreja_id,
+                Message.conversation_id == conversation.id,
+                Message.direcao == "out",
+                Message.autor == "ia",
+                Message.provider_message_id == source_marker_provider_message_id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if marker is None:
+            session.add(
+                Message(
+                    igreja_id=plan.igreja_id,
+                    conversation_id=conversation.id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=AGENT_REPLY_NO_RESPONSE,
+                    texto=None,
+                    tipo="texto",
+                    provider_message_id=source_marker_provider_message_id,
+                )
+            )
+        elif marker.agent_reply_state != AGENT_REPLY_NO_RESPONSE:
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=ROUTE_ONBOARDING,
+                suppressed=True,
+                reason="tier_a_source_fenced",
+            )
+        confirmation = session.execute(
+            select(Message)
+            .where(
+                Message.igreja_id == plan.igreja_id,
+                Message.conversation_id == conversation.id,
+                Message.direcao == "out",
+                Message.autor == "ia",
+                Message.provider_message_id == confirmation_provider_message_id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        confirmation_text = "Deseja parar de receber mensagens? Responda SAIR"
+        if confirmation is None:
+            session.add(
+                Message(
+                    igreja_id=plan.igreja_id,
+                    conversation_id=conversation.id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state=AGENT_REPLY_PENDING,
+                    texto=confirmation_text,
+                    tipo="texto",
+                    provider_message_id=confirmation_provider_message_id,
+                )
+            )
+        source.agent_reply_state = AGENT_REPLY_NO_RESPONSE
+    log_agent_event(
+        session,
+        igreja_id=plan.igreja_id,
+        evento="jev_tier_a_decision",
+        payload=dict(decision_payload),
+        conversation_id=conversation.id,
+    )
+    session.commit()
+    return AgentTurnResult(
+        handled=True,
+        route=ROUTE_ONBOARDING,
+        response="Deseja parar de receber mensagens? Responda SAIR",
+    )
+
+
+def persist_tier_a_handoff(
+    session: Session,
+    *,
+    plan: TierATurnPreflight,
+    decision_payload: dict[str, Any],
+    reply_provider_message_id: str | None = None,
+    usage: object | None = None,
+    ownership_guard: Callable[[], None] | None = None,
+) -> AgentTurnResult:
+    """Persist a fail-safe Tier A handoff with only typed diagnostic fields."""
+
+    if type(plan) not in {AgentTurnPlan, TierATurnPreflight}:
+        return AgentTurnResult(handled=False, reason="invalid_tier_a_plan")
+    _require_agent_session_scope(session, plan.igreja_id)
+    if _uses_dedicated_agent_runtime_session(session):
+        return AgentTurnResult(handled=False, reason="runtime_effects_unavailable")
+    conversation = session.execute(
+        select(Conversation)
+        .where(
+            Conversation.id == plan.conversation_id,
+            Conversation.igreja_id == plan.igreja_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if conversation is None or conversation.pessoa_id != plan.pessoa_id:
+        return AgentTurnResult(handled=False, reason="conversation_not_found")
+    pessoa = session.execute(
+        select(Pessoa).where(
+            Pessoa.id == plan.pessoa_id,
+            Pessoa.igreja_id == plan.igreja_id,
+        )
+    ).scalar_one_or_none()
+    if pessoa is None:
+        return AgentTurnResult(handled=False, reason="pessoa_not_found")
+    anchor = _load_persisted_inbound_turn(
+        session,
+        igreja_id=plan.igreja_id,
+        conversation_id=plan.conversation_id,
+        current_message_id=plan.inbound_message_id,
+        provider_message_id=plan.provider_message_id,
+    )
+    if anchor is None:
+        return AgentTurnResult(handled=False, reason="inbound_message_not_found")
+    if reply_provider_message_id is not None:
+        current_reply = session.execute(
+            select(Message)
+            .where(
+                Message.igreja_id == plan.igreja_id,
+                Message.conversation_id == conversation.id,
+                Message.direcao == "out",
+                Message.autor == "ia",
+                Message.provider_message_id == reply_provider_message_id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if (
+            current_reply is not None
+            and current_reply.agent_reply_state != AGENT_REPLY_RESERVED
+        ):
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=ROUTE_HANDOFF,
+                suppressed=True,
+                reason="tier_a_source_fenced",
+            )
+    if pessoa.optout or conversation.estado == ESTADO_HUMANO:
+        if _apply_tier_a_terminal_reply(
+            session,
+            igreja_id=plan.igreja_id,
+            conversation_id=plan.conversation_id,
+            reply_provider_message_id=reply_provider_message_id,
+            handoff=False,
+            ownership_guard=ownership_guard,
+        ) is None:
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
+        session.commit()
+        return AgentTurnResult(
+            handled=True,
+            route=ROUTE_OPTOUT if pessoa.optout else ROUTE_HANDOFF,
+            suppressed=True,
+            reason="optout" if pessoa.optout else "handoff",
+        )
+    if _apply_tier_a_terminal_reply(
+        session,
+        igreja_id=plan.igreja_id,
+        conversation_id=plan.conversation_id,
+        reply_provider_message_id=reply_provider_message_id,
+        handoff=True,
+        ownership_guard=ownership_guard,
+    ) is None:
+        return AgentTurnResult(handled=False, reason="conversation_not_found")
+    if usage is not None:
+        log_ai_usage(
+            session,
+            igreja_id=plan.igreja_id,
+            usage=usage,
+            ferramenta=ROUTE_ONBOARDING,
+        )
+    log_agent_event(
+        session,
+        igreja_id=plan.igreja_id,
+        evento="jev_tier_a_decision",
+        payload=dict(decision_payload),
+        conversation_id=plan.conversation_id,
+    )
+    session.commit()
+    return AgentTurnResult(
+        handled=True,
+        route=ROUTE_HANDOFF,
+        suppressed=True,
+        reason="tier_a_handoff",
+    )
+
+
 def _mark_conversation_for_handoff(
     session: Session,
     *,
@@ -712,6 +1340,106 @@ def _mark_conversation_for_handoff(
     return conversation
 
 
+def _lock_tier_a_conversation(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+) -> Conversation | None:
+    """Lock the conversation before touching its durable Tier A reply fence."""
+
+    return session.execute(
+        select(Conversation)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.igreja_id == igreja_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+
+def _suppress_tier_a_current_reply(
+    session: Session,
+    *,
+    conversation: Conversation,
+    reply_provider_message_id: str | None,
+) -> None:
+    """Write the current inbound turn's terminal reply fence under its lock."""
+
+    if not isinstance(reply_provider_message_id, str) or not reply_provider_message_id:
+        return
+    existing = session.execute(
+        select(Message)
+        .where(
+            Message.igreja_id == conversation.igreja_id,
+            Message.conversation_id == conversation.id,
+            Message.direcao == "out",
+            Message.autor == "ia",
+            Message.provider_message_id == reply_provider_message_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(
+            Message(
+                igreja_id=conversation.igreja_id,
+                conversation_id=conversation.id,
+                direcao="out",
+                autor="ia",
+                agent_reply_state=AGENT_REPLY_SUPPRESSED,
+                texto=None,
+                tipo="texto",
+                provider_message_id=reply_provider_message_id,
+            )
+        )
+        return
+    if existing.agent_reply_state == AGENT_REPLY_IN_FLIGHT:
+        existing.agent_reply_state = AGENT_REPLY_AMBIGUOUS
+    elif existing.agent_reply_state in {
+        AGENT_REPLY_RESERVED,
+        AGENT_REPLY_EXECUTING,
+        AGENT_REPLY_PENDING,
+    }:
+        existing.agent_reply_state = AGENT_REPLY_SUPPRESSED
+
+
+def _apply_tier_a_terminal_reply(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    reply_provider_message_id: str | None,
+    handoff: bool,
+    ownership_guard: Callable[[], None] | None,
+) -> Conversation | None:
+    """Stage a terminal Tier A decision and fence this inbound turn atomically."""
+
+    if ownership_guard is not None:
+        ownership_guard()
+    conversation = (
+        _mark_conversation_for_handoff(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conversation_id,
+        )
+        if handoff
+        else _lock_tier_a_conversation(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conversation_id,
+        )
+    )
+    if conversation is None:
+        return None
+    _suppress_tier_a_current_reply(
+        session,
+        conversation=conversation,
+        reply_provider_message_id=reply_provider_message_id,
+    )
+    return conversation
+
+
 def process_inbound_message(
     session: Session,
     *,
@@ -721,6 +1449,10 @@ def process_inbound_message(
     turn_identity: AgentTurnIdentity | None = None,
     inbound_message_id: uuid.UUID | None = None,
     provider_message_id: str | None = None,
+    tier_a_preflight: bool = False,
+    defer_onboarding_plan: bool = False,
+    tier_a_reply_provider_message_id: str | None = None,
+    tier_a_ownership_guard: Callable[[], None] | None = None,
 ) -> AgentTurnResult:
     """Run one orchestrator turn for an inbound message and apply side effects.
 
@@ -843,11 +1575,82 @@ def process_inbound_message(
         _current_created_at, current_text = anchor
         has_persisted_inbound_anchor = True
 
+    def stage_tier_a_terminal(*, handoff: bool) -> bool:
+        """Fence only a trusted active turn, in the same short transaction."""
+
+        if (
+            not (tier_a_preflight or defer_onboarding_plan)
+            or not has_persisted_inbound_anchor
+        ):
+            return True
+        return (
+            _apply_tier_a_terminal_reply(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=conv_uuid,
+                reply_provider_message_id=tier_a_reply_provider_message_id,
+                handoff=handoff,
+                ownership_guard=tier_a_ownership_guard,
+            )
+            is not None
+        )
+
     # O direito de sair das comunicações independe de LLM, AgentConfig, handoff
     # ou credencial. Persistimos antes de qualquer gate do agente e não enviamos
     # resposta automática nesta trilha fail-closed.
-    if not pessoa.optout and consent_rules.is_optout_request(current_text):
-        _apply_optout(pessoa, igreja_id, session, settings.agent_term_version)
+    if consent_rules.is_optout_request(current_text):
+        tier_a_terminal = (
+            (tier_a_preflight or defer_onboarding_plan)
+            and has_persisted_inbound_anchor
+        )
+        locked_conversation = _lock_tier_a_conversation(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+        )
+        if locked_conversation is None:
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
+        # Reload under a short row lock.  A second inbound ``SAIR`` that waited
+        # behind the first sees the persisted flag instead of the stale ORM
+        # identity-map value, so it never writes a second withdrawal record.
+        locked_pessoa = session.execute(
+            select(Pessoa)
+            .where(Pessoa.id == pessoa.id, Pessoa.igreja_id == igreja_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if locked_pessoa is None:
+            return AgentTurnResult(handled=False, reason="pessoa_not_found")
+        if locked_pessoa.optout:
+            if tier_a_ownership_guard is not None:
+                tier_a_ownership_guard()
+            fence_agent_replies_for_handoff(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=conv_uuid,
+            )
+            if tier_a_terminal:
+                _suppress_tier_a_current_reply(
+                    session,
+                    conversation=locked_conversation,
+                    reply_provider_message_id=tier_a_reply_provider_message_id,
+                )
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=ROUTE_OPTOUT,
+                response=None,
+                suppressed=True,
+                reason="optout",
+            )
+        if tier_a_ownership_guard is not None:
+            tier_a_ownership_guard()
+        _apply_optout(
+            locked_pessoa,
+            igreja_id,
+            session,
+            settings.agent_term_version,
+        )
         log_agent_event(
             session,
             igreja_id=igreja_id,
@@ -855,6 +1658,17 @@ def process_inbound_message(
             payload={"conversationId": str(conv_uuid), "pessoaId": str(pessoa.id)},
             conversation_id=conv_uuid,
         )
+        fence_agent_replies_for_handoff(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+        )
+        if tier_a_terminal:
+            _suppress_tier_a_current_reply(
+                session,
+                conversation=locked_conversation,
+                reply_provider_message_id=tier_a_reply_provider_message_id,
+            )
         session.commit()
         return AgentTurnResult(
             handled=True,
@@ -869,6 +1683,8 @@ def process_inbound_message(
     # lida no inbox para um humano decidir; só não há auto-resposta. Re-opt-in
     # (voltar a receber) é manual pelo humano hoje — fica como follow-up.
     if pessoa.optout:
+        if not stage_tier_a_terminal(handoff=False):
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         log_agent_event(
             session,
             igreja_id=igreja_id,
@@ -885,6 +1701,8 @@ def process_inbound_message(
     # provedor. Não regravamos estado aqui: um operador pode ter liberado a IA
     # depois desta leitura, e este turno antigo deve apenas permanecer suprimido.
     if conversation.estado == ESTADO_HUMANO:
+        if not stage_tier_a_terminal(handoff=False):
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         session.commit()
         return AgentTurnResult(
             handled=True,
@@ -897,11 +1715,15 @@ def process_inbound_message(
     # Pedido explícito por uma pessoa ou sinal de crise não depende de termo,
     # AgentConfig ou credencial BYO. Opt-out já teve precedência acima.
     if is_handoff_request(current_text):
-        if _mark_conversation_for_handoff(
-            session,
-            igreja_id=igreja_id,
-            conversation_id=conv_uuid,
-        ) is None:
+        if (tier_a_preflight or defer_onboarding_plan) and has_persisted_inbound_anchor:
+            marked = stage_tier_a_terminal(handoff=True)
+        else:
+            marked = _mark_conversation_for_handoff(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=conv_uuid,
+            ) is not None
+        if not marked:
             return AgentTurnResult(handled=False, reason="conversation_not_found")
         log_agent_event(
             session,
@@ -924,6 +1746,8 @@ def process_inbound_message(
     # si (1ª vez) ainda roda pelo grafo: aqui `pessoa.sem_interesse` só é True
     # depois que um turno anterior já persistiu o flag.
     if pessoa.sem_interesse:
+        if not stage_tier_a_terminal(handoff=False):
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         log_agent_event(
             session,
             igreja_id=igreja_id,
@@ -943,6 +1767,8 @@ def process_inbound_message(
     # US-27: the agent does not operate without a validated, active credential.
     cred = _active_credential(session, igreja_id)
     if cred is None:
+        if not stage_tier_a_terminal(handoff=True):
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         log_agent_event(
             session,
             igreja_id=igreja_id,
@@ -966,6 +1792,8 @@ def process_inbound_message(
     config_igreja_id = getattr(config, "igreja_id", None)
     config_matches_tenant = config is not None and config_igreja_id == igreja_id
     if not config_matches_tenant or not config.ativo:
+        if not stage_tier_a_terminal(handoff=True):
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         reason = "config_ausente" if not config_matches_tenant else "config_inativo"
         event = (
             "agent_skipped_config_missing"
@@ -983,6 +1811,37 @@ def process_inbound_message(
         return AgentTurnResult(handled=False, reason=reason)
 
     accepted_version = _latest_consent_version(session, igreja_id, pessoa.id)
+    tier_a_snapshot = None
+    if tier_a_preflight or defer_onboarding_plan:
+        tier_a_snapshot = _build_tier_a_preflight(
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+            pessoa_id=pessoa.id,
+            inbound_message_id=inbound_message_id,
+            provider_message_id=provider_message_id,
+            current_text=current_text,
+            config=config,
+            cred=cred,
+            accepted_consent_version=accepted_version,
+            term_version=settings.agent_term_version,
+        )
+    if tier_a_preflight:
+        if tier_a_snapshot is None:
+            if not stage_tier_a_terminal(handoff=True):
+                return AgentTurnResult(handled=False, reason="conversation_not_found")
+            session.commit()
+            return AgentTurnResult(handled=False, reason="tier_a_preflight_invalid")
+        if consent_rules.needs_reaccept(
+            accepted_version,
+            settings.agent_term_version,
+        ):
+            session.commit()
+            return AgentTurnResult(handled=False, reason="tier_a_legacy_route")
+        session.commit()
+        return AgentTurnResult(
+            handled=True,
+            preflight=tier_a_snapshot,
+        )
     privilege = _resolve_privilege(session, igreja_id, pessoa)
     context = _build_trusted_context(
         igreja_id=igreja_id,
@@ -1005,6 +1864,34 @@ def process_inbound_message(
     if has_persisted_inbound_anchor and route == ROUTE_ONBOARDING:
         public_reply = resolve_public_info_reply(current_text, config.comportamento)
         if public_reply is not None:
+            if defer_onboarding_plan:
+                if tier_a_snapshot is None:
+                    session.commit()
+                    return AgentTurnResult(
+                        handled=False,
+                        route=route,
+                        reason="tier_a_plan_invalid",
+                    )
+                plan = _build_tier_a_plan(
+                    tier_a_snapshot,
+                    effects={
+                        "events": [],
+                        "tool_calls": [],
+                        "apply_optout": False,
+                        "apply_consent_version": None,
+                        "intake_update": {},
+                    },
+                    draft_response=public_reply,
+                    history=[],
+                    public_info_reply=True,
+                )
+                session.commit()
+                return AgentTurnResult(
+                    handled=plan is not None,
+                    route=route,
+                    plan=plan,
+                    reason=None if plan is not None else "tier_a_plan_invalid",
+                )
             log_agent_event(
                 session,
                 igreja_id=igreja_id,
@@ -1019,6 +1906,55 @@ def process_inbound_message(
                 response=public_reply,
                 suppressed=False,
             )
+
+    if defer_onboarding_plan:
+        if route != ROUTE_ONBOARDING:
+            session.commit()
+            return AgentTurnResult(
+                handled=False,
+                route=route,
+                reason="tier_a_legacy_route",
+            )
+        if not has_persisted_inbound_anchor:
+            session.commit()
+            return AgentTurnResult(
+                handled=False,
+                route=route,
+                reason="tier_a_plan_invalid",
+            )
+        history = _load_recent_conversation_history(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+            current_message_id=inbound_message_id,
+            provider_message_id=provider_message_id,
+        )
+        if tier_a_snapshot is None:
+            session.commit()
+            return AgentTurnResult(
+                handled=False,
+                route=route,
+                reason="tier_a_plan_invalid",
+            )
+        plan = _build_tier_a_plan(
+            tier_a_snapshot,
+            effects=effects,
+            draft_response=final.get("response"),
+            history=history,
+        )
+        if plan is None:
+            session.commit()
+            return AgentTurnResult(
+                handled=False,
+                route=route,
+                reason="tier_a_plan_invalid",
+            )
+        session.commit()
+        return AgentTurnResult(
+            handled=True,
+            route=route,
+            plan=plan,
+        )
 
     # Apply person backfill from intake (origem / primeiro_contato).
     _apply_intake(pessoa, effects["intake_update"])
