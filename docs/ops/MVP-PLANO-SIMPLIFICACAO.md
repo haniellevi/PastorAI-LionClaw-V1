@@ -235,7 +235,9 @@ colunas e tabelas que o backend antigo não usava.
    membro de célula), `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
    (reserva de resposta do worker) e
    `20260925_183811_preserve_platform_admins_on_tenant_deletion` (exclusão de
-   tenant; muda a RLS de `app_users`). Confira cada uma por SQL: a tabela ou
+   tenant; muda a RLS de `app_users`) e
+   `20260926_120446_platform_jev_settings` (configuração do Jev pelo console;
+   tabela nova fechada, só o backend lê). Confira cada uma por SQL: a tabela ou
    a coluna existe? O preflight de 28/08 viu `public.schema_migrations`
    ausente, e o `migrate.py` recusa rodar sem ele. **Não crie o ledger vazio:**
    o `status` passaria a listar como pendentes migrations que já estão em
@@ -298,6 +300,11 @@ chamada, então **custo não é a alavanca; o ganho é acertar** onde a regex er
       zero falso opt-out no limiar, veto de todo "sim, mas não…", CSIM sem os
       falsos positivos de substring. O corpus ainda precisa de frases
       escritas pelo pastor antes de uma decisão final.
+- [x] **Configuração pelo console (26/09):** chave da TypeSafe (cifrada com
+      `SECRETS_ENCRYPTION_KEY`, nunca devolvida), modelo, timeout, data do DPA e
+      igrejas em modo sombra, que só aceitam igreja com DPA informado. Campo
+      vazio usa o ambiente. `ALLOW_REAL_SENDS` e a URL da API ficam só no
+      servidor.
 - [ ] **J1, sombra na Filadélfia:** só com J0 = GO, chave, DPA com a TypeSafe,
       termo LGPD que cite IA e processador estrangeiro e backend atualizado.
       Chamada depois do envio da resposta, em transação própria (nunca na
