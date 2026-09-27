@@ -114,7 +114,7 @@ def test_handle_choice_must_belong_to_offered_handles(answer, status) -> None:
     assert len(client.calls) == 3
 
 
-@pytest.mark.parametrize("code", ["registrar_decisao", "consultar_agenda"])
+@pytest.mark.parametrize("code", ["registrar_decisao", "marcar_presenca"])
 def test_catalog_without_candidates_handoffs_before_model(code: str) -> None:
     client = FakeClient([])
     result = route_privileged_message(
@@ -125,6 +125,18 @@ def test_catalog_without_candidates_handoffs_before_model(code: str) -> None:
         clock=Clock(),
     )
     assert result.status == "handoff" and result.handle is None and client.calls == []
+
+
+def test_empty_catalog_handoffs_before_model() -> None:
+    client = FakeClient([])
+    result = route_privileged_message(
+        client,
+        texto="mensagem",
+        catalog=(),
+        deadline_monotonic=10,
+        clock=Clock(),
+    )
+    assert result.status == "handoff" and client.calls == []
 
 
 @pytest.mark.parametrize("code", ["vincular_celula", "avancar_trilha", "delete_person", "tenant"])
@@ -144,18 +156,39 @@ def test_authorized_readonly_catalog_subset_is_allowed() -> None:
 
 
 def test_agenda_catalog_code_is_closed_and_can_be_selected_without_event_data() -> None:
-    client = FakeClient(["restrita", "consultar_agenda", "h1"])
+    client = FakeClient(["restrita", "consultar_agenda"])
     result = route_privileged_message(
         client,
         texto="Quais eventos temos?",
-        catalog=(_option("consultar_agenda", candidates=(
-            CandidateOption("h1", "Consultar agenda autorizada da igreja"),
-        )),),
+        catalog=(_option("consultar_agenda", candidates=()),),
         deadline_monotonic=10,
         clock=Clock(),
     )
-    assert result.status == "selected" and result.tool == "consultar_agenda"
+    assert result == RoutingDecision(
+        "selected", RouteChoice.RESTRITA, "consultar_agenda", None, (USAGE, USAGE),
+    )
+    assert [call["name"] for call in client.calls] == ["s3_route", "s3_tool"]
+    assert all("candidatos" not in call["user"] for call in client.calls)
     assert all("Encontro com Deus" not in call["user"] for call in client.calls)
+
+
+@pytest.mark.parametrize("answer,status", [
+    ("nenhuma", "clarify"),
+    ("handoff", "handoff"),
+    ("forjada", "handoff"),
+    ("registrar_decisao", "handoff"),
+])
+def test_agenda_without_candidates_rejects_invalid_or_explicit_tool_choice(answer: str, status: str) -> None:
+    client = FakeClient(["restrita", answer])
+    result = route_privileged_message(
+        client,
+        texto="Quais eventos temos?",
+        catalog=(_option("consultar_agenda", candidates=()),),
+        deadline_monotonic=10,
+        clock=Clock(),
+    )
+    assert result.status == status and result.handle is None
+    assert [call["name"] for call in client.calls] == ["s3_route", "s3_tool"]
 
 
 @pytest.mark.parametrize("summary", [

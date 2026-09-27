@@ -214,12 +214,12 @@ def agenda_turn(s3_turn, monkeypatch: pytest.MonkeyPatch):
 
 
 def _agenda_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
-    prompts: list[str] = []
+    stages: list[str] = []
 
     def choose(_self, _system, prompt, *, schema_name, choices, timeout_seconds):
         assert turn.engine.pool.checkedout() == 0
         assert timeout_seconds > 0
-        prompts.append(prompt)
+        stages.append(schema_name)
         payload = json.loads(prompt)
         assert "Encontro com Deus" not in prompt
         assert "descricao" not in prompt and "mensagem_confirmacao" not in prompt
@@ -229,7 +229,7 @@ def _agenda_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
             assert "consultar_agenda" in payload["ferramentas"]
             answer = "consultar_agenda"
         else:
-            answer = "h1"
+            pytest.fail(f"D indevido para capacidade de agenda: {schema_name}")
         assert answer in choices
         return TypedChoiceResult(
             answer,
@@ -237,7 +237,7 @@ def _agenda_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
         )
 
     monkeypatch.setattr(LLMClient, "generate_typed", choose)
-    return prompts
+    return stages
 
 
 def _agenda_outbound(turn):
@@ -254,6 +254,31 @@ def _agenda_outbound(turn):
     ]
 
 
+def _set_agenda_turn_role(turn, role: str) -> None:
+    with turn.factory.begin() as session:
+        session.execute(delete(UserRole).where(
+            UserRole.igreja_id == _IGREJA,
+            UserRole.user_id == turn.app_user_id,
+        ))
+        session.add(UserRole(
+            igreja_id=_IGREJA,
+            user_id=turn.app_user_id,
+            papel=role,
+        ))
+
+
+def _assert_agenda_delivery(turn, evolution, outbound: list[Message]) -> None:
+    assert len(outbound) == 1
+    assert len(evolution.calls) == 1
+    assert evolution.calls[0][2] == outbound[0].texto
+    with turn.factory() as session:
+        persisted = session.get(Message, outbound[0].id)
+        conversation = session.get(Conversation, turn.conversation_id)
+        assert persisted is not None
+        assert persisted.agent_reply_state == worker_module._AGENT_REPLY_CONFIRMED
+        assert conversation is not None and conversation.estado == "ia"
+
+
 def test_member_agenda_turn_uses_generic_choice_then_real_projection(agenda_turn, monkeypatch):
     prompts = _agenda_choices(monkeypatch, agenda_turn)
     evolution = _ClassifiedEvolution()
@@ -266,18 +291,36 @@ def test_member_agenda_turn_uses_generic_choice_then_real_projection(agenda_turn
     ) is worker_module.AgentRunDisposition.COMPLETED
 
     outbound = _agenda_outbound(agenda_turn)
-    assert len(outbound) == 1
+    _assert_agenda_delivery(agenda_turn, evolution, outbound)
     assert "Encontro com Deus" in outbound[0].texto
     assert outbound[0].public_info_reply is False
     assert outbound[0].agent_privilege_context["kind"] == "agenda"
-    assert len(prompts) == 3
-    assert len(evolution.calls) == 1
+    assert prompts == ["s3_route", "s3_tool"]
+
+
+def test_leader_agenda_turn_uses_generic_choice_then_real_projection(agenda_turn, monkeypatch):
+    _set_agenda_turn_role(agenda_turn, "lider_celula")
+    prompts = _agenda_choices(monkeypatch, agenda_turn)
+    evolution = _ClassifiedEvolution()
+    inbound = _inbound(agenda_turn, "AGENDA-LEADER", "agenda próximos 7 dias")
+
+    assert worker_module.run_agent_for_message(
+        agenda_turn.factory,
+        inbound,
+        evolution_client=evolution,
+    ) is worker_module.AgentRunDisposition.COMPLETED
+
+    outbound = _agenda_outbound(agenda_turn)
+    _assert_agenda_delivery(agenda_turn, evolution, outbound)
+    assert "Encontro com Deus" in outbound[0].texto
+    assert outbound[0].agent_privilege_context["kind"] == "agenda"
+    assert prompts == ["s3_route", "s3_tool"]
 
 
 def test_empty_agenda_prepares_existing_secretary_offer_then_sim_handoffs(agenda_turn, monkeypatch):
     with agenda_turn.factory.begin() as session:
         session.execute(delete(Event).where(Event.igreja_id == _IGREJA))
-    _agenda_choices(monkeypatch, agenda_turn)
+    prompts = _agenda_choices(monkeypatch, agenda_turn)
     evolution = _ClassifiedEvolution()
     request = _inbound(agenda_turn, "AGENDA-EMPTY", "agenda")
 
@@ -288,6 +331,7 @@ def test_empty_agenda_prepares_existing_secretary_offer_then_sim_handoffs(agenda
     ) is worker_module.AgentRunDisposition.COMPLETED
     outbound = _agenda_outbound(agenda_turn)
     assert len(outbound) == 1
+    assert prompts == ["s3_route", "s3_tool"]
     with agenda_turn.factory() as session:
         conversation = session.get(Conversation, agenda_turn.conversation_id)
         assert conversation is not None
@@ -316,7 +360,7 @@ def test_pending_agenda_reply_is_suppressed_when_event_changes_before_retry(agen
             inbound,
             evolution_client=evolution,
         )
-    assert len(prompts) == 3 and len(evolution.calls) == 1
+    assert prompts == ["s3_route", "s3_tool"] and len(evolution.calls) == 1
     with agenda_turn.factory.begin() as session:
         event = session.execute(select(Event).where(Event.igreja_id == _IGREJA)).scalar_one()
         event.titulo = "Festa da Ana"
@@ -326,7 +370,7 @@ def test_pending_agenda_reply_is_suppressed_when_event_changes_before_retry(agen
         inbound,
         evolution_client=evolution,
     ) is worker_module.AgentRunDisposition.COMPLETED
-    assert len(prompts) == 3
+    assert prompts == ["s3_route", "s3_tool"]
     assert len(evolution.calls) == 1
 
 
@@ -436,7 +480,7 @@ def test_draft_agenda_requires_clerk_proof_then_projects_only_type(agenda_pastor
     assert len(outbound) == 1
     assert "Rascunho: Culto" in outbound[0].texto
     assert "Festa da Ana" not in outbound[0].texto
-    assert len(prompts) == 6
+    assert prompts == ["s3_route", "s3_tool", "s3_route", "s3_tool"]
 
 
 @pytest.mark.parametrize("revocation", ("role", "agenda_release"))
@@ -465,5 +509,5 @@ def test_pending_agenda_reply_rechecks_role_and_feature_gate(agenda_turn, monkey
         inbound,
         evolution_client=evolution,
     ) is worker_module.AgentRunDisposition.COMPLETED
-    assert len(prompts) == 3
+    assert prompts == ["s3_route", "s3_tool"]
     assert len(evolution.calls) == 1

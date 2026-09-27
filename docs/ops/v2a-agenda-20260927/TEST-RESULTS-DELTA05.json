@@ -1,0 +1,77 @@
+{
+  "observed_at_utc": "2026-09-27T23:04:34.554658+00:00",
+  "base": "3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36",
+  "delta_after": "d4bf0f5ac6595ea914344a0b86d3c5f20691deda",
+  "backend_patch_sha256": "6c27a42401f13bb44bb60d422c8814a9115a02be2bd580b11d891d1d1b84b953",
+  "red": {
+    "selection": "Novos E2E membro/líder contra fonte C04/d4bf0f5: duas falhas esperadas, D indevido s3_handle",
+    "junit_sha256": "5fc8628d7ec4bad05f9647e16949bf198f5c8d78c5a1b46a50375ae3ca8f9b5a",
+    "result": {
+      "tests": "2",
+      "failures": "2",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.363",
+      "timestamp": "2026-09-27T20:01:43.317816-03:00"
+    }
+  },
+  "green": [
+    {
+      "selection": "test_whatsapp_agenda_pg.py + test_agent_privileged_turn_pg.py",
+      "junit_sha256": "eb7387196b38f066fcdda983e305daa1c0bb69a06d24c843228b26ff3b3d5a1d",
+      "result": {
+        "tests": "36",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "19.330",
+        "timestamp": "2026-09-27T20:02:35.000716-03:00"
+      }
+    },
+    {
+      "selection": "pytest -m not rls_integration;643 PG deselected",
+      "junit_sha256": "33620b04a9b5beac09b2c53a8e29a6d45592b4d398481cc7fb310c4ed1def662",
+      "result": {
+        "tests": "5887",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "37.805",
+        "timestamp": "2026-09-27T20:02:34.595455-03:00"
+      }
+    }
+  ],
+  "e2e": {
+    "entrypoint": "queue_worker.run_agent_for_message com inbound persistido",
+    "real_components": [
+      "PrivilegeContext servidor",
+      "build_catalog",
+      "route_privileged_message",
+      "privileged_turn",
+      "resolve_agenda_reply",
+      "ledger e dispatcher existentes"
+    ],
+    "synthetic_boundaries": [
+      "LLMClient.generate_typed",
+      "Evolution classificado",
+      "credencial cifrada e settings de fixture",
+      "PG17 descartável, sem banco real"
+    ],
+    "assertions": [
+      "membro e lider_celula vinculados recebem agenda",
+      "somente s3_route e s3_tool; qualquer s3_handle falha",
+      "texto recebido no transporte igual ao Message persistido",
+      "ledger confirmado e Conversation.estado ia",
+      "ação mutante sem candidato e catálogo genuinamente vazio falham fechados"
+    ],
+    "positive_nodes": [
+      "test_member_agenda_turn_uses_generic_choice_then_real_projection",
+      "test_leader_agenda_turn_uses_generic_choice_then_real_projection"
+    ]
+  },
+  "baseline_note": "O controle antigo com h1 no d4bf0f5 passou e está em BASELINE-TURN-D4BF0F5.json; isso não demonstrava o contrato sem candidatos.",
+  "limits": [
+    "Sem provider real, reset, painel/simulador, banco compartilhado, merge ou deploy.",
+    "Flags e releases de produto permanecem inativas; somente fixtures as abrem."
+  ]
+}

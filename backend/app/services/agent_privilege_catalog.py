@@ -223,6 +223,17 @@ def build_catalog(session: Session, context):
             ' '.join(unicodedata.normalize('NFKD', target.summary).casefold().split())] == 1]
         if not targets:
             continue
+        if code == 'consultar_agenda':
+            target = targets[0]
+            if (
+                len(targets) != 1
+                or target.code != code
+                or dict(target.arguments)
+            ):
+                continue
+            catalog.append(ToolOption(code, RouteChoice.RESTRITA, descriptions[code], ()))
+            mapping[(code, None)] = target
+            continue
         options = []
         for n, target in enumerate(targets, start=1):
             handle = f'h{n}'

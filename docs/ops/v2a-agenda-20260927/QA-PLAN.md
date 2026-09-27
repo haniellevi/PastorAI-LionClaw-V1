@@ -50,3 +50,7 @@ Além dos testes unitários, a evidência mínima é uma suíte PG17 sintética 
 ## Limites e próximo gate
 
 Não há garantia de detectar qualquer nome humano em texto livre. A proteção aceitável nesta fatia é não exibir título cuja autorização institucional e segurança não sejam demonstráveis pelo servidor, usando o fallback fixo de `tipo`. O próximo gate é receber o patch congelado com hashes e evidência no SHA exato para revisão independente de implementação.
+
+## Gate permanente após NO-GO do contrato sem candidatos
+
+Toda capacidade nova precisa de E2E do turno completo, conforme AGENTS.md. Para V2a, provar com membro e líder: inbound persistido -> catálogo real sem candidatos de agenda -> route_privileged_message seleciona consultar_agenda após B/C -> privileged_turn persiste resposta correta -> transporte fake recebe essa resposta e a conversa permanece em IA. Não mockar catálogo, roteador, resolvedor de privilégios ou projeção de Event. O stub LLM deve falhar se D for chamado para agenda. Provar também catálogo realmente vazio, enum inválido, ausência de mapping autorizado e recusa de ação mutante sem alvo. O controle anterior com h1 continua apenas evidência histórica e não substitui este contrato.

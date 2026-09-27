@@ -113,6 +113,11 @@ sem ler seu conteúdo.
   alterações do usuário.
 - Uma fatia vertical por vez, na ordem do plano do MVP, testada de ponta a
   ponta.
+- Toda capacidade nova do agente exige ao menos um teste E2E do turno completo:
+  inbound persistido, catálogo e roteador reais, serviço de domínio e resposta
+  persistida/entregue pelo fluxo existente. Simule provedores externos, sem
+  substituir por mocks o catálogo, o roteador ou a autorização que o teste
+  pretende provar. Cubra o papel autorizado e a recusa sem permissão.
 - CI obrigatório: `backend-tests`, `frontend-ci`, `e2e-critical` e
   `rls-integration`. Não crie testes que congelam hash de arquivo ou leem texto
   de documento.
