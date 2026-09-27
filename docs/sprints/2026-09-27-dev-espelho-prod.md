@@ -1,6 +1,6 @@
 # DEV recriado como espelho do schema de PROD, com o mesmo ledger — 2026-09-27
 
-**Branch:** `ops/dev-espelho-prod-20260927` (base `148007f`, da branch `docs/prod-sessao-a-b-20260926`) · **Commits:** `2b474e8`, `036c479`, `d9793ed`, `e9bc854` e este registro · **Deploy:** nenhum. Escrita só no banco do DEV (Supabase `cxmjojnocigekgcxhubi`), com "ok" do Raniel antes de cada passo; PROD só leitura.
+**Branch:** `ops/dev-espelho-prod-20260927` (base `148007f`, que entrou no `main` pelo #427), PR #431 · **Commits:** `2b474e8`, `036c479`, `d9793ed`, `e9bc854` e este registro · **Deploy:** nenhum. Escrita só no banco do DEV (Supabase `cxmjojnocigekgcxhubi`), com "ok" do Raniel antes de cada passo; PROD só leitura.
 
 Fase 0 do plano do MVP, item "Reconciliar ou recriar o DEV": pré-requisito da próxima
 migration em PROD (decisão do Raniel, 26/09). Nenhum `.env`, URL de banco ou senha foi
@@ -67,7 +67,8 @@ impresso; a URL do DEV não passou pelo chat.
 - **Ledger do DEV** com as mesmas 70 linhas e origens do PROD; `applied_at` = data da cópia no
   DEV. O comentário da tabela é o do PROD (faz parte da planta).
 - **Semente** = dados fictícios que as 70 migrations criam num banco vazio ("Igreja Piloto
-  PastorAI") + as contas de teste do proprietário que já estavam no DEV. O login com o id do
+  PastorAI"; inclui os dados de referência das seeds 0005/0009/0012/0014/20260730, então o ledger
+  copiado não marca como aplicada migration cujos dados faltem) + as contas de teste do proprietário que já estavam no DEV. O login com o id do
   Pastor Piloto foi fundido a ele e manteve os papéis que tinha. O tenant vem de
   `app_users.clerk_user_id`, então os logins funcionam sem mexer no Clerk.
 - **Aceito pelo proprietário** (aviso antes do "ok para A"): o DEV perdeu os dados de teste
@@ -82,7 +83,8 @@ impresso; a URL do DEV não passou pelo chat.
 - PR de follow-up: `--lock-timeout` no `backend/scripts/migrate.py` (`SET LOCAL` na mesma
   transação do apply; o pooler ignora `PGOPTIONS`). Depois, `20260926_120446_platform_jev_settings`:
   DEV primeiro, então PROD com backup, Sarah e "ok".
-- Enviar esta branch ao GitHub e abrir o PR (inclui o commit `148007f` de 26/09, ainda local).
+- PR #431 aberto em 27/09. No mesmo dia o plano tinha dado este item à sessão do Maestri: avisar
+  essa sessão de que o DEV já foi recriado, para ela não repetir nem mexer no DEV.
 - Diferenças deliberadas que ficam: schema `recovery` só em PROD;
   `supabase_migrations.schema_migrations` (DEV 6, PROD 32), só histórico; `applied_at` do ledger.
 
