@@ -1,8 +1,8 @@
 # queue-worker: timeout transitório do Redis não encerra mais o processo — 2026-09-27
 
-**Branch:** `fix/queue-worker-redis-transient` · **Base:** `e6aafc2` · **Deploy:** não.
-Ambiente local, com Redis falso e Redis 7 descartável em Docker. Nenhum acesso a
-PROD ou à VPS.
+**Branch:** `fix/queue-worker-redis-transient` (PR #425) · **Base:** `e6aafc2` · **Deploy:** PROD `eb5a09b` em 27/09, 13:16 UTC.
+Código e testes: local, com Redis falso e Redis 7 descartável em Docker.
+Investigação e deploy: VPS de PROD, com chave temporária revogada no fim.
 
 ## Incidente
 
@@ -28,7 +28,27 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
   `finally` podia trocar um desligamento limpo por um traceback.
 - O traceback de PROD não mostra o frame do worker, então a linha exata é
   inferência: o BRPOPLPUSH é o único comando cuja duração normal chega perto do
-  timeout. O motivo do travamento do Redis não foi investigado.
+  timeout. O travamento veio do backup diário (seção seguinte).
+
+## Causa do travamento: o backup diário pausa o Redis
+
+O cron da VPS roda `/usr/local/sbin/pastorai-backup.sh`
+(`deploy/backup-production.sh`) todo dia às 06:15:01 UTC. Para copiar os
+volumes, o script faz `docker pause` no Redis, na Evolution e no Postgres da
+Evolution, compacta os três volumes e só então faz `docker unpause`. Em 27/09,
+pelo journal da VPS:
+
+- ~06:15:52: começa a pausa (primeiro container de `tar`);
+- 06:15:57: o worker cai, 7 s depois do envio do BRPOPLPUSH em andamento
+  (enviado ~06:15:50, antes da pausa);
+- ~06:16:01: termina o último `tar` e o Redis volta.
+
+A pausa dura ~9 s e se repete todo dia (26/09 teve o mesmo padrão). O log do
+Redis não mostra erro no intervalo, e o `apt-daily-upgrade` das 06:15:18 não
+instalou nada. O log do worker dessa hora se perdeu (container recriado às
+11:10 UTC), então a linha exata continua inferida, mas o horário bate ao
+segundo. Com a correção, o worker registra um aviso, espera e continua quando o
+Redis volta, dentro da lease de 30 s.
 
 ## O que foi feito (`backend/app/workers/queue_worker.py`)
 
@@ -99,16 +119,15 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
 
 ## Pendente / próximo passo
 
-- **Deploy:** rebuild da imagem e restart do `queue-worker`, pelo runbook. Não
-  foi feito aqui.
-- **Motivo do travamento do Redis às 06:15 UTC** (Fase 4, B8 e B16). Leituras
-  sugeridas em PROD, só de leitura:
-  - `docker logs pastorai_redis` perto de 06:15:50 (procurar
-    `Asynchronous AOF fsync is taking too long` ou BGREWRITEAOF);
-  - `redis-cli INFO persistence` e `LATENCY LATEST`;
-  - I/O e CPU steal do host no mesmo horário.
-
-  O Redis roda com `appendonly yes` e é compartilhado com a Evolution (db 1).
+- **Conferir o backup de 28/09, 06:15 UTC.** O log do `queue-worker` deve
+  mostrar `Redis call failed ... attempt=1` e `recovered after N failure(s)`,
+  sem reinício do container. Precisa de acesso à VPS.
+- **O backup pausa o Redis e a Evolution ~9 s todo dia.** Com a correção isso
+  não derruba mais o worker, mas os dois ficam parados nesse intervalo. Dá para
+  copiar o Redis sem pausar (`BGSAVE` e cópia do `dump.rdb`). Não feito.
+- **Monitor público:** o cron pede uma execução a cada 30 min, mas o GitHub
+  rodou o workflow só a cada 2 a 6 h entre 25 e 27/09. Um incidente curto passa
+  sem alerta.
 - **Erro transitório durante o processamento de um item** continua valendo como
   falha do item (usa 1 das 5 tentativas) ou para o worker por
   `ClaimOwnershipLost`. Fora do escopo.
@@ -146,7 +165,45 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
   - Backend: 5.450 passed, 340 deselected (`rls_integration`), zero skip,
     incluindo os 27 testes Redis 7.
   - Frontend: 883 testes em 99 arquivos, e typecheck.
-- Nada disso prova o comportamento em PROD. A prova operacional é o deploy
-  seguido de logs sem reinício do container.
+- Nada disso prova o comportamento em PROD. A prova operacional é o próximo
+  backup (28/09, 06:15 UTC) passar sem reinício do container.
 
-**Rollback:** revert do commit. Não há migration nem mudança de configuração.
+## Deploy em PROD — `eb5a09b` (27/09, 13:16 UTC)
+
+Feito pelo Claude Code com "ok" do proprietário, pela seção 5 do
+`PRODUCTION-RUNBOOK.md` e pelo roteiro B1–B3 do deploy anterior. Sem migration.
+
+- **Acesso:** chave ed25519 temporária (`claude-deploy-2026-09-27`), colada pelo
+  proprietário com `expiry-time="20260928Z"`. A host key foi conferida contra o
+  registro já conhecido do IP. No fim, a chave saiu do `authorized_keys` (as duas
+  linhas coladas; 9 → 7 linhas) e o acesso passou a ser recusado. Artefato e log
+  de build foram apagados da VPS.
+- **Artefato:** `git archive` do `eb5a09b` (`backend` + `deploy`, sem testes e
+  sem `.env*`), 306 arquivos, SHA-256 `f74275e6a02b…`. A mesma receita reproduz
+  os 306 arquivos do `e6aafc2`. A única diferença para o release ativo era o
+  `queue_worker.py`; `backend` e `deploy` são idênticos aos do merge `dd02368`
+  (a #427 só mudou docs).
+- **Travas:** `ALLOW_REAL_SENDS=true` já estava ligado. O proprietário escolheu o
+  deploy completo mantendo os envios ligados. A prova pós-restart conferiu que as
+  travas ficaram iguais nos 4 processos: envios ligados; Asaas, broadcast e Brevo
+  desligados; lista piloto definida. O `.env` foi copiado idêntico, modo 600, sem
+  impressão.
+- **B1:** release em `/opt/pastorai-releases/eb5a09b…`. A imagem anterior
+  `pastorai-backend:e6aafc2` (`439b42dff0e0`) ficou para rollback; a nova
+  `pastorai-backend:eb5a09b` (`bab6320c3331`) saiu em 5 s, com o código novo
+  conferido dentro dela. O dry-run mostrou só os 4 processos do app.
+- **B2:** `docker compose up -d --no-deps --wait` dos 4 processos às 13:15:52,
+  todos `healthy` às 13:16:17. O `--wait` evita o falso negativo do `/health` do
+  deploy anterior. `/health` ok, `/ready` verde e symlink trocado para o
+  `eb5a09b`.
+- **B3:** `/health` e `/ready` públicos verdes; portas 8000 e 8080 sem resposta
+  de fora; Redis e Evolution intocados (start às 12:01:06); `queue-worker` sem
+  erro e sem reinício.
+- A `main` já está à frente: a #424 (latência do banco) entrou depois deste
+  deploy e não foi implantada.
+
+**Rollback:** do código, reverter o merge da PR #425 (`git revert -m 1
+dd02368`), não o `eb5a09b`, que é o merge só de docs da #427. Do deploy, apontar
+`/opt/pastorai-current` de volta para o release `e6aafc2…` e recriar os 4
+processos a partir dele (imagem `pastorai-backend:e6aafc2` guardada). Não há
+migration nem mudança de configuração.
