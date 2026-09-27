@@ -471,9 +471,12 @@ Achados para depois:
 - Pré-existente, fora deste escopo: `anon` tem SELECT/UPDATE em
   `public.app_users` (default privileges); a RLS é a única barreira; a
   `20260925_183811` corrige no gate dela.
-- No fim: o proprietário remove a chave temporária da VPS pelo console da Hostinger
-  (junto com o pacote `pastorai-e6aafc2….tar` enviado para o deploy), e a cópia
-  local é apagada depois de confirmar que a chave foi recusada.
+- Encerramento (27/09, ~11:50 UTC): o proprietário removeu a chave temporária da VPS
+  e o pacote `pastorai-e6aafc2….tar` pelo console da Hostinger (`ACESSO_REMOVIDO`).
+  A conexão com a chave passou a ser recusada (`Permission denied`) e a cópia local
+  da chave foi apagada. Uma primeira colagem levou junto texto antigo da tela; cada
+  linha falhou como "command not found" e nada foi executado (conferido: `.env`,
+  horários de início dos containers e cópias do `.env` inalterados).
 
 ## Verificação
 
