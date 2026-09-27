@@ -24,9 +24,9 @@
 
 ## Pendente / próximo passo
 
-- Publicar PR e conferir CI no head; solicitar Sarah com o candidato exato.
-- Merge exige ordem nominal com número e gates vivos. Avisar necessidade de
-  deploy manual backend. Banco, implantação e envios mantêm gates próprios.
+- PR426: delta P2 em revisão e CI no novo head; solicitar Sarah apenas o delta.
+- Merge426 retido: DEV reconciliado -> migration PROD -> merge -> deploy.
+  Liberação coordenada e gates vivos continuam obrigatórios.
 - S3 anterior preservada; seu plano será revisado para telefone com confirmação
   por ação comum, Clerk nas leituras sensíveis e nenhuma finança por telefone.
 
@@ -35,9 +35,22 @@
 - Roteiro DEV: oito blocos Bash conferidos sintaticamente e seis DSNs
   sintéticos, inclusive Python otimizado. Revisão documental independente APTO
   no SHA256 `15dac264ecdfe45e7d1bf0714d754381e08de0c17329bd50b559c666e234856f`.
-- Backend: 5.453 testes passaram; RLS PostgreSQL17: 352 passaram, sem skips.
+- Histórico do head `7a00383`: 5.453 testes backend passaram; RLS PostgreSQL17: 352 passaram, sem skips.
   Frontend: 902 testes, typecheck/build e seis cenários E2E conferidos (5+1).
-- SQL original final aplicado em `public` de banco descartável exclusivo, duas
+- SQL original do head `7a00383` aplicado em `public` de banco descartável exclusivo, duas
   provas passaram. Migration SHA256 `6679087ae4b8b97eba7dca1a8b068c76fdc7a799b87cda95347e285c16d6ebe1`.
 - Base, patch de código, hashes e limites: [evidência](../ops/s2b-church-cell-20260927/TEST-EVIDENCE.json).
 - Zero acesso a DEV/PROD/VPS/provedores nesta missão; nenhum backup real lido.
+
+## Delta de revisão da PR426
+
+Dia único normalizado na API e projeção; dia inválido omite apenas esse detalhe
+da célula e gera aviso ao publicar. Guard exige `igrejas_self_update` de UPDATE.
+Oferta da secretaria é resolvida antes de aceitar termo novo, com cancelamento
+ancorado e retry terminal quando necessário. Erro de publicação acessível nos
+dois controles da UI. Migration corrigida SHA256
+`3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65`.
+
+5.467 testes backend, 354 RLS PG17 sem skips, 915 frontend/typecheck; quatro
+provas do SQL original em banco descartável. [Evidência do delta](../ops/s2b-church-cell-20260927/P2-TEST-EVIDENCE.json).
+Nenhuma aplicação compartilhada; merge426 segue retido na ordem informada.

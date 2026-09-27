@@ -1901,12 +1901,12 @@ def process_inbound_message(
         accepted_version,
         settings.agent_term_version,
     )
-    # A secretary offer is resolved only after the permanent opt-out, human,
-    # credential, active-config and current-consent gates above.  The inbound
-    # text is always the persisted anchor loaded earlier, never caller input.
+    # Resolve an anchored secretary offer before consent routing. A live ``sim``
+    # belongs to that offer even when a newer term is pending; an expired or
+    # missing offer anchor binds only an otherwise valid term acceptance so a
+    # retry cannot turn it into consent for a term never presented.
     if (
         has_persisted_inbound_anchor
-        and not consent_needs_reaccept
         and inbound_message_id is not None
     ):
         locked_offer_conversation = _lock_tier_a_conversation(
@@ -1922,6 +1922,7 @@ def process_inbound_message(
             igreja_id=igreja_id,
             inbound_message_id=inbound_message_id,
             current_text=current_text,
+            consent_needs_reaccept=consent_needs_reaccept,
         )
         if offer_resolution.handoff:
             if (tier_a_preflight or defer_onboarding_plan) and has_persisted_inbound_anchor:

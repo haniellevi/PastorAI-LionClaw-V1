@@ -18,9 +18,14 @@ try:
     proof.test_s2b_migration_is_idempotent_backfills_and_preserves_rls_acl((engine, baseline))
     baseline = proof._prepare_pre_s2b_baseline(engine)
     proof.test_s2b_anchor_fks_trigger_and_two_sim_are_tenant_scoped((engine, baseline))
+    for wrong_command in (False, True):
+        baseline = proof._prepare_pre_s2b_baseline(engine)
+        proof.test_s2b_migration_requires_existing_igrejas_self_update_policy(
+            (engine, baseline), wrong_command
+        )
     result = {
         'recorded_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        'base': 'e6aafc296014770ceabc24d5ea6bd9572f33ace4',
+        'base': '7a00383576878f90c1eb35bfd8648a09c4152529',
         'migration': proof._MIGRATION.name,
         'migration_sha256': hashlib.sha256(proof._MIGRATION.read_bytes()).hexdigest(),
         'test_sha256': hashlib.sha256(Path(proof.__file__).read_bytes()).hexdigest(),
@@ -28,7 +33,7 @@ try:
         'sql_original_unchanged': True,
         'postgres': '17.6-trixie',
         'database': 's2b_exact_sql_test descartável sintético',
-        'proofs_passed': 2,
+        'proofs_passed': 4,
         'limits': 'Baseline sintética; sem DEV/PROD ou providers. Não comprova schema/ledger real nem deploy.'
     }
     Path('/tmp/igreja12-s2b-exact-sql-evidence.json').write_text(json.dumps(result, indent=2, ensure_ascii=False)+'\n')

@@ -11,6 +11,10 @@ da igreja. A tela Agente mantém configuração do agente e credencial, sem outr
 formulário de dados públicos. O líder edita o bairro da própria célula pelo
 cadastro existente; somente pastor/admin pode marcar “Divulgar no WhatsApp”.
 Células nascem sem divulgação. Atividade e bairro são requisitos de publicação.
+Se informado, o dia precisa representar um único dia da semana: aliases como
+“Qua” e “quarta feira” são normalizados. Ao publicar, dia inválido recebe
+aviso no painel e erro na API; dia ausente é permitido. Um dia legado inválido
+é omitido da resposta pública, preservando os outros detalhes da célula.
 
 O agente consulta os dados da própria igreja. Para células, só divulga nome,
 bairro, dia e horário; nunca endereço residencial, nome/telefone do líder,
@@ -23,7 +27,10 @@ Quer falar com a secretaria da igreja?”. A confirmação da oferta tem validad
 de dez minutos a partir do envio confirmado, é determinística e precede o Jev.
 SAIR, LGPD, atendimento humano e gates mantêm precedência. “Sim” consome uma
 oferta vigente uma vez; “não” ou mudança de assunto cancela. O retry não reabre
-uma oferta nem prolonga seu prazo.
+uma oferta nem prolonga seu prazo. Se a versão do termo mudar enquanto
+a oferta aguarda resposta, o aceite continua pertencendo à oferta, sem
+registrar consentimento novo. Aceites ligados a oferta inválida ou expirada
+ficam encerrados de forma durável, inclusive no retry.
 
 A resposta pública recebe classificação tipada no ledger; termo LGPD e outras
 respostas novas ficam separados desse caminho. Pendências antigas sem essa
@@ -60,8 +67,14 @@ de novas gravações. A API antiga fica em leitura canônica temporária.
 
 O [roteiro DEV](RECONCILIAR-DEV-RANIEL.md) foi preparado para Raniel executar.
 DEV reconciliado condiciona migration/deploy PROD, sem bloquear código/PR/CI.
-Esta missão não acessa DEV/PROD/VPS/provedores. Não executar a suíte RLS contra
+Merge426 permanece retido na ordem DEV reconciliado -> migration PROD ->
+merge -> deploy. Esta missão não acessa DEV/PROD/VPS/provedores. Não executar a suíte RLS contra
 DEV: ela usa PostgreSQL descartável e fixtures sintéticas.
+
+O assert de `igrejas_self_update` exige a policy existente de UPDATE. Não
+certifica predicados alterados nem policies adicionais em um banco real;
+a reconciliação precisa confirmar a baseline tenant da migration de branding.
+Os testes sintéticos exercitam os predicados canônicos e o isolamento.
 
 A migration deve usar espera curta de lock, referência de 2 segundos; em
 timeout, abortar e reagendar com o operador, sem retry automático. O processo
@@ -77,9 +90,27 @@ Uma compensação de banco precisa de decisão operacional específica.
 
 ## Evidência local
 
-Backend: 5.453 testes passaram. PostgreSQL17 descartável: 352 testes RLS
+Evidência histórica do head `7a00383`: 5.453 testes backend passaram. PostgreSQL17 descartável: 352 testes RLS
 passaram, sem skips. Frontend: 902 testes, typecheck/build e seis cenários E2E
 conferidos, com hashes preservados. O [registro](TEST-EVIDENCE.json) vincula
 base, patch e arquivos; [SQL original](EXACT-SQL-EVIDENCE.json) foi aplicado
 sem substituição em `public` de um banco descartável separado. CI e Sarah
 continuam ligados ao head publicado. Nenhum resultado prova ambiente real.
+
+## Delta de revisão da PR426
+
+Dois P2 de Sarah corrigidos: normalização de dia único compartilhada pela API
+e pelo agente, com aviso de publicação na UI/API, e assert de existência da
+policy `igrejas_self_update` de UPDATE. A célula permanece na resposta quando
+somente o dia legado é inválido. A thread do robô sobre resposta à oferta
+interpretada como aceite de termo novo também está coberta pelo delta.
+
+Migration corrigida SHA256
+`3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65`.
+As evidências anteriores permanecem históricas; a validação deste delta fica
+registrada separadamente, vinculada à base `7a00383` e ao hash do patch.
+
+Delta validado: 5.467 testes backend, 354 RLS PG17 sem skips, 915 frontend
+e typecheck final. SQL original em `public`: quatro provas passaram.
+[Evidência do delta](P2-TEST-EVIDENCE.json), [SQL](P2-EXACT-SQL-EVIDENCE.json)
+e [UI](UI-P2-EVIDENCE.json) mantêm os hashes e os limites de cada execução.

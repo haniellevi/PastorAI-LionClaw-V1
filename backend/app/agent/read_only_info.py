@@ -12,6 +12,11 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from app.domain.cell_meetings_schedule import (
+    InvalidDiaReuniao,
+    canonical_weekday_label,
+)
+
 
 _MARKER_CLOSERS = {"[": "]", "{": "}", "(": ")"}
 _MAX_VALUE_CHARS = 400
@@ -372,9 +377,6 @@ def _public_reply(value: str) -> str:
 
 
 _CANONICAL_HOURS = re.compile(r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
-_CANONICAL_WEEKDAY = re.compile(
-    r"^(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:-feira)?$"
-)
 _CANONICAL_MISSING = (
     "Não tenho essa informação cadastrada. Quer falar com a secretaria da igreja?"
 )
@@ -395,8 +397,11 @@ def _canonical_cell_for_reply(value: CanonicalPublicCell) -> CanonicalPublicCell
     normalized = _normalized(" ".join((bairro, nome)))
     if _ADDRESS_WORD.search(normalized) or _PUBLIC_FORBIDDEN_MARKER.search(normalized):
         return None
-    if dia is not None and not _CANONICAL_WEEKDAY.fullmatch(_normalized(dia)):
-        return None
+    if dia is not None:
+        try:
+            dia = canonical_weekday_label(dia)
+        except InvalidDiaReuniao:
+            dia = None
     if horario is not None and not _CANONICAL_HOURS.fullmatch(horario):
         return None
     return CanonicalPublicCell(

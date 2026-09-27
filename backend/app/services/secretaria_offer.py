@@ -16,6 +16,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Conversation, Message
+from app.domain import consent as consent_rules
 from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
 
 OFFER_PREPARED = "preparada"
@@ -138,6 +139,20 @@ def _cancel_for_inbound(
     conversation.secretaria_oferta_resposta_message_id = inbound_message_id
 
 
+def _is_stale_term_acceptance(
+    current_text: object,
+    *,
+    consent_needs_reaccept: bool,
+) -> bool:
+    """Only bind an obsolete offer when the inbound could otherwise accept a term."""
+
+    return (
+        consent_needs_reaccept
+        and isinstance(current_text, str)
+        and consent_rules.is_acceptance(current_text)
+    )
+
+
 def resolve_secretaria_offer_inbound(
     session: Session,
     conversation: Conversation,
@@ -145,6 +160,7 @@ def resolve_secretaria_offer_inbound(
     igreja_id: uuid.UUID,
     inbound_message_id: uuid.UUID,
     current_text: object,
+    consent_needs_reaccept: bool = False,
     now: dt.datetime | None = None,
 ) -> OfferInboundResolution:
     """Resolve one anchored inbound while its Conversation row is locked."""
@@ -156,7 +172,7 @@ def resolve_secretaria_offer_inbound(
         return OfferInboundResolution(continue_turn=True)
     if state in _TERMINAL_STATES:
         if (
-            state in {OFFER_CONSUMED, OFFER_CANCELLED}
+            state in {OFFER_CONSUMED, OFFER_CANCELLED, OFFER_EXPIRED}
             and response_id == inbound_message_id
         ):
             return OfferInboundResolution(terminal=True)
@@ -171,8 +187,18 @@ def resolve_secretaria_offer_inbound(
         message_id=anchor_id,
         confirmed=state == OFFER_PENDING,
     ):
-        _cancel_for_inbound(conversation)
-        return OfferInboundResolution(continue_turn=True)
+        bind_stale_acceptance = _is_stale_term_acceptance(
+            current_text,
+            consent_needs_reaccept=consent_needs_reaccept,
+        )
+        _cancel_for_inbound(
+            conversation,
+            inbound_message_id=(inbound_message_id if bind_stale_acceptance else None),
+        )
+        return OfferInboundResolution(
+            terminal=bind_stale_acceptance,
+            continue_turn=not bind_stale_acceptance,
+        )
 
     if state == OFFER_ACCEPT_WAITING:
         if response_id == inbound_message_id:
@@ -183,6 +209,12 @@ def resolve_secretaria_offer_inbound(
         if answer == "no":
             _cancel_for_inbound(conversation, inbound_message_id=inbound_message_id)
             return OfferInboundResolution(terminal=True)
+        if _is_stale_term_acceptance(
+            current_text,
+            consent_needs_reaccept=consent_needs_reaccept,
+        ):
+            _cancel_for_inbound(conversation, inbound_message_id=inbound_message_id)
+            return OfferInboundResolution(terminal=True)
         _cancel_for_inbound(conversation)
         return OfferInboundResolution(continue_turn=True)
 
@@ -191,6 +223,12 @@ def resolve_secretaria_offer_inbound(
         if answer == "yes":
             conversation.secretaria_oferta_estado = OFFER_ACCEPT_WAITING
             conversation.secretaria_oferta_resposta_message_id = inbound_message_id
+            return OfferInboundResolution(terminal=True)
+        if answer == "other" and _is_stale_term_acceptance(
+            current_text,
+            consent_needs_reaccept=consent_needs_reaccept,
+        ):
+            _cancel_for_inbound(conversation, inbound_message_id=inbound_message_id)
             return OfferInboundResolution(terminal=True)
         _cancel_for_inbound(
             conversation,
@@ -204,8 +242,25 @@ def resolve_secretaria_offer_inbound(
     expires_at = getattr(conversation, "secretaria_oferta_expira_em", None)
     observed_now = now or session.execute(select(func.clock_timestamp())).scalar_one()
     if expires_at is None or expires_at <= observed_now:
-        _cancel_for_inbound(conversation, state=OFFER_EXPIRED)
-        return OfferInboundResolution(continue_turn=True)
+        bind_stale_acceptance = _is_stale_term_acceptance(
+            current_text,
+            consent_needs_reaccept=consent_needs_reaccept,
+        )
+        _cancel_for_inbound(
+            conversation,
+            inbound_message_id=(inbound_message_id if bind_stale_acceptance else None),
+            state=OFFER_EXPIRED,
+        )
+        return OfferInboundResolution(
+            terminal=bind_stale_acceptance,
+            continue_turn=not bind_stale_acceptance,
+        )
+    if answer == "other" and _is_stale_term_acceptance(
+        current_text,
+        consent_needs_reaccept=consent_needs_reaccept,
+    ):
+        _cancel_for_inbound(conversation, inbound_message_id=inbound_message_id)
+        return OfferInboundResolution(terminal=True)
     if answer == "yes":
         _cancel_for_inbound(
             conversation,

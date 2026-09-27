@@ -272,6 +272,14 @@ begin
   end if;
   if not exists (
     select 1 from pg_policy
+    where polrelid = 'public.igrejas'::regclass
+      and polname = 'igrejas_self_update'
+      and polcmd = 'w'
+  ) then
+    raise exception 'policy igrejas_self_update ausente ou inválida';
+  end if;
+  if not exists (
+    select 1 from pg_policy
     where polrelid = 'public.celulas'::regclass
       and polname = 'tenant_isolation' and polcmd = '*'
   ) or not exists (

@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from psycopg2 import Error as PsycopgError
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -405,6 +406,52 @@ def test_s2b_migration_is_idempotent_backfills_and_preserves_rls_acl(
         assert connection.execute(
             text(f"select igreja_id from {_SCHEMA}.celulas order by igreja_id")
         ).scalars().all() == [_TENANT_B]
+
+
+@pytest.mark.parametrize("wrong_command", (False, True), ids=("missing", "insert"))
+def test_s2b_migration_requires_existing_igrejas_self_update_policy(
+    s2b_engine: tuple[Engine, tuple[object, ...]],
+    wrong_command: bool,
+) -> None:
+    """The final policy guard aborts all additive DDL if UPDATE policy is absent."""
+
+    engine, _baseline = s2b_engine
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            f"drop policy igrejas_self_update on {_SCHEMA}.igrejas"
+        )
+        if wrong_command:
+            connection.exec_driver_sql(
+                f"create policy igrejas_self_update on {_SCHEMA}.igrejas for insert "
+                f"with check (id = {_SCHEMA}.current_igreja_id())"
+            )
+        before = _catalog_fingerprint(connection)
+
+    with pytest.raises(PsycopgError) as migration_error:
+        _apply_migration(engine)
+    assert migration_error.value.pgcode == "P0001"
+    assert "policy igrejas_self_update ausente ou inválida" in str(
+        migration_error.value
+    )
+
+    with engine.connect() as connection:
+        after = _catalog_fingerprint(connection)
+        columns = connection.execute(
+            text(
+                "select table_name, column_name from information_schema.columns "
+                "where table_schema = :schema and ("
+                "(table_name = 'igrejas' and column_name in "
+                "('endereco_institucional', 'horarios_culto')) or "
+                "(table_name = 'celulas' and column_name in "
+                "('bairro', 'divulgar_whatsapp')) or "
+                "(table_name = 'conversations' and column_name like 'secretaria_oferta%') or "
+                "(table_name = 'messages' and column_name = 'public_info_reply')) "
+                "order by table_name, column_name"
+            ),
+            {"schema": _SCHEMA},
+        ).all()
+    assert after == before
+    assert columns == []
 
 
 def _seed_offer_rows(engine: Engine) -> dict[str, uuid.UUID]:

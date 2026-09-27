@@ -33,6 +33,19 @@ const DIAS_SEMANA = [
   "Sábado",
 ] as const;
 
+function normalizedWeekday(value: string): string | null {
+  if (!value.trim()) return null;
+  const key = (day: string) => day.normalize("NFKD").replace(/\p{M}/gu, "")
+    .trim().toLowerCase();
+  const token = key(value);
+  const input = token.endsWith("-feira") || token.endsWith(" feira")
+    ? token.slice(0, -6).trim() : token;
+  return DIAS_SEMANA.find((day) => {
+    const name = key(day).replace(/-feira$/, "");
+    return input === name || input === name.slice(0, 3);
+  }) ?? null;
+}
+
 export interface CellFormModalProps {
   /** Célula em edição; ausente = criação. */
   cell?: CellSummary | null;
@@ -75,6 +88,7 @@ export function CellFormModal({
   );
   const [bairroChanged, setBairroChanged] = useState(false);
   const [publishChanged, setPublishChanged] = useState(false);
+  const [diaChanged, setDiaChanged] = useState(false);
   const [touched, setTouched] = useState(false);
 
   const currentLeaderOption = leaders.find((option) => option.id === liderId);
@@ -87,8 +101,8 @@ export function CellFormModal({
   // Valor legado de dia ("Quinta 20h") vira opção extra do select: editar sem
   // mexer no campo preserva a string antiga em vez de apagá-la.
   const legacyDia =
-    diaReuniao && !(DIAS_SEMANA as readonly string[]).includes(diaReuniao)
-      ? diaReuniao
+    cell?.diaReuniao && !(DIAS_SEMANA as readonly string[]).includes(cell.diaReuniao)
+      ? cell.diaReuniao
       : null;
 
   const nomeError = touched && !nome.trim() ? "Informe o nome da célula." : undefined;
@@ -100,15 +114,23 @@ export function CellFormModal({
   const invalidPublish = publicDataEnabled && canPublish && publishChanged && divulgarWhatsapp === true && !ativo;
   const publishError = touched && invalidPublish
     ? "Ative a célula antes de divulgar no WhatsApp." : undefined;
+  const validatePublicDay = publicDataEnabled && (
+    (canPublish && publishChanged && divulgarWhatsapp === true) ||
+    (cell?.divulgarWhatsapp === true && divulgarWhatsapp === true && diaChanged)
+  );
+  const canonicalDay = normalizedWeekday(diaReuniao);
+  const invalidPublicDay = validatePublicDay && Boolean(diaReuniao.trim()) && !canonicalDay;
+  const diaError = touched && invalidPublicDay
+    ? "Dia fora do padrão. Escolha um dia da semana ou deixe sem dia." : undefined;
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !cobertura.trim() || leadershipBlocked || invalidBairro || invalidPublish) return;
+    if (!nome.trim() || !cobertura.trim() || leadershipBlocked || invalidBairro || invalidPublish || invalidPublicDay) return;
     onSubmit({
       id: cell?.id ?? null,
       nome: nome.trim(),
       liderId: liderId || null,
-      diaReuniao: diaReuniao || null,
+      diaReuniao: validatePublicDay ? canonicalDay : diaReuniao || null,
       horario: horario || null,
       coberturaEspiritual: cobertura.trim(),
       ativo,
@@ -230,7 +252,12 @@ export function CellFormModal({
               <select
                 id="cf-dia"
                 value={diaReuniao}
-                onChange={(e) => setDiaReuniao(e.target.value)}
+                onChange={(e) => {
+                  setDiaReuniao(e.target.value);
+                  setDiaChanged(true);
+                }}
+                aria-invalid={Boolean(diaError) || undefined}
+                aria-describedby={diaError ? "cf-dia-error" : undefined}
               >
                 <option value="">Sem dia definido</option>
                 {legacyDia ? <option value={legacyDia}>{legacyDia} (atual)</option> : null}
@@ -240,6 +267,7 @@ export function CellFormModal({
                   </option>
                 ))}
               </select>
+              {diaError ? <span id="cf-dia-error" className="err" role="alert">{diaError}</span> : null}
             </div>
             <Field
               label="Horário"
@@ -285,7 +313,10 @@ export function CellFormModal({
                 cell && cell.divulgarWhatsapp === undefined ? (
                   <div className="field">
                     <label htmlFor="cf-divulgar">Divulgação no WhatsApp</label>
-                    <select id="cf-divulgar" value={divulgarWhatsapp === undefined ? "" : String(divulgarWhatsapp)} onChange={(event) => {
+                    <select id="cf-divulgar" value={divulgarWhatsapp === undefined ? "" : String(divulgarWhatsapp)}
+                      aria-invalid={Boolean(publishError) || undefined}
+                      aria-describedby={publishError ? "cf-divulgar-error" : undefined}
+                      onChange={(event) => {
                       setDivulgarWhatsapp(event.target.value === "true" ? true : event.target.value === "false" ? false : undefined);
                       setPublishChanged(event.target.value !== "");
                     }}>
@@ -293,6 +324,7 @@ export function CellFormModal({
                       <option value="true">Divulgar</option>
                       <option value="false">Não divulgar</option>
                     </select>
+                    {publishError ? <span id="cf-divulgar-error" className="err" role="alert">{publishError}</span> : null}
                   </div>
                 ) : <>
                   <label className="check-row">

@@ -33,6 +33,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.domain.cell_meetings_schedule import (
     InvalidDiaReuniao,
+    canonical_weekday_label,
     next_meeting_date,
     parse_weekday,
 )
@@ -73,8 +74,32 @@ def test_parse_accepts_full_names_and_abbreviations() -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "label"),
+    (
+        ("quarta feira", "Quarta-feira"),
+        ("Qua", "Quarta-feira"),
+    ),
+)
+def test_canonical_weekday_label_normalizes_one_allowlisted_alias(
+    value: str,
+    label: str,
+) -> None:
+    assert canonical_weekday_label(value) == label
+
+
+@pytest.mark.parametrize(
     "value",
-    [None, "", "   ", "2", "toda quinta", "quinta a noite", "seg.", "segundas"],
+    [
+        None,
+        "",
+        "   ",
+        "2",
+        "toda quinta",
+        "quinta a noite",
+        "Quarta e Sábado",
+        "seg.",
+        "segundas",
+    ],
 )
 def test_parse_rejects_out_of_allowlist(value) -> None:
     with pytest.raises(InvalidDiaReuniao):

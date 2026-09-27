@@ -195,10 +195,37 @@ def test_canonical_cell_reply_has_the_exact_secretary_offer_without_private_data
     assert resolution.oferece_secretaria is True
     assert resolution.resposta == (
         "Há uma célula com informações públicas no bairro Centro: Esperança. "
-        "Encontro: terça, 19:00. Quer falar com a secretaria da igreja para "
+        "Encontro: Terça-feira, 19:00. Quer falar com a secretaria da igreja para "
         "entrar em contato com o líder da célula?"
     )
     assert "Rua privada" not in resolution.resposta
+
+
+def test_public_cell_with_invalid_weekday_keeps_cell_and_omits_only_weekday() -> None:
+    resolution = resolve_canonical_public_info(
+        "Qual célula no bairro Centro?",
+        CanonicalPublicChurchInfo(
+            endereco_institucional=None,
+            horarios_culto=None,
+            celulas=(
+                CanonicalPublicCell(
+                    bairro="Centro",
+                    nome="Esperança",
+                    dia_reuniao="Quarta e Sábado",
+                    horario="19:00",
+                ),
+            ),
+        ),
+    )
+
+    assert resolution is not None
+    assert resolution.oferece_secretaria is True
+    assert resolution.resposta == (
+        "Há uma célula com informações públicas no bairro Centro: Esperança. "
+        "Encontro: 19:00. Quer falar com a secretaria da igreja para entrar em "
+        "contato com o líder da célula?"
+    )
+    assert "Quarta e Sábado" not in resolution.resposta
 
 
 @pytest.mark.parametrize(
