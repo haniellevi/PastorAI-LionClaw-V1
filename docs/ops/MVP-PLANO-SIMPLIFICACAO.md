@@ -404,9 +404,9 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 
 - [ ] Investigar a causa raiz dos ~30 incidentes do monitor (VPS, Evolution,
       Supabase, Redis).
-- [x] Menos idas ao banco por requisição, em código (branch
-      `perf/db-round-trips`, merge após revisão da Sarah): contexto de tenant
-      numa instrução, ping só em conexão parada, preflight CORS por 2 h.
+- [ ] Menos idas ao banco por requisição, em código (PR #424, Sarah GO;
+      merge pendente): contexto de tenant numa instrução, ping só em conexão
+      parada, preflight CORS por 2 h.
       `/auth/me` de 1,3 s para 0,75 s com 185 ms simulados
       ([registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
 - [ ] Decidir a infraestrutura (B16): banco em São Paulo (recomendado) ou

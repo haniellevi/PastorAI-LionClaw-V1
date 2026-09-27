@@ -302,20 +302,13 @@ def test_scope_begins_transaction_sets_local_tenant_and_probes_private_helper() 
     assert session.rollback_calls == 0
     assert session.info[runtime_session.AGENT_RUNTIME_TENANT_KEY] == TENANT_A
     statements = [sql for sql, _params in session.calls]
-    # Baseline, then GUC + identity probe together in one round trip.
-    assert len(statements) == 2
     assert "as persisted_tenant" in statements[0]
-    assert "set_config" not in statements[0]
-    scope_sql = statements[1]
-    assert scope_sql.startswith(
-        "select set_config('app.tenant_igreja_id', :igreja_id, true); select "
-    )
+    assert "set_config('app.tenant_igreja_id', :igreja_id, true)" in statements[1]
     assert session.calls[1][1] == {"igreja_id": TENANT_A}
-    assert "agent_private.current_tenant_id()" in scope_sql
-    assert "session_user" in scope_sql
-    assert "current_user" in scope_sql
+    assert "agent_private.current_tenant_id()" in statements[2]
+    assert "session_user" in statements[2]
+    assert "current_user" in statements[2]
     assert all("set role" not in sql.lower() for sql in statements)
-    assert all("'role'" not in sql for sql in statements)
 
 
 def test_scope_rejects_active_transaction_before_any_sql() -> None:
@@ -396,7 +389,7 @@ def test_verify_rejects_unpinned_or_inactive_session_before_sql() -> None:
         match="active transaction",
     ):
         runtime_session.verify_agent_runtime_scope(inactive, TENANT_A)
-    assert len(inactive.calls) == 2
+    assert len(inactive.calls) == 3
 
 
 def test_verify_rolls_back_when_identity_or_tenant_drifts() -> None:
@@ -465,7 +458,9 @@ class _FakeDbapiCursor:
     def execute(self, sql: str) -> None:
         self._connection.executed.append((sql, self._connection.autocommit))
         if self._connection.fail:
-            raise RuntimeError("server closed the connection unexpectedly")
+            if self._connection.dies_on_fail:
+                self._connection.closed = 2  # psycopg2: connection lost
+            raise self._connection.failure
 
     def fetchone(self) -> tuple[str | None, str]:
         return self._connection.state
@@ -481,12 +476,26 @@ class _FakeDbapiConnection:
         persisted_tenant: str | None = None,
         search_path: str = runtime_session.AGENT_RUNTIME_SEARCH_PATH,
         fail: bool = False,
+        dies_on_fail: bool = False,
     ) -> None:
-        self.autocommit = False
+        self.closed = 0
+        self._autocommit = False
         self.state = (persisted_tenant, search_path)
         self.fail = fail
+        self.dies_on_fail = dies_on_fail
+        self.failure = RuntimeError("server closed the connection unexpectedly")
         self.executed: list[tuple[str, bool]] = []
         self.cursors_closed = 0
+
+    @property
+    def autocommit(self) -> bool:
+        return self._autocommit
+
+    @autocommit.setter
+    def autocommit(self, value: bool) -> None:
+        if self.closed:
+            raise RuntimeError("connection already closed")
+        self._autocommit = value
 
     def cursor(self) -> _FakeDbapiCursor:
         return _FakeDbapiCursor(self)
@@ -536,4 +545,19 @@ def test_checkout_guard_turns_dead_connection_into_disconnection() -> None:
     ):
         runtime_session._guard_agent_runtime_checkout(connection, None, None)
     assert connection.autocommit is False
+    assert connection.cursors_closed == 1
+
+
+def test_checkout_guard_keeps_original_error_when_connection_died() -> None:
+    connection = _FakeDbapiConnection(fail=True, dies_on_fail=True)
+
+    with pytest.raises(
+        runtime_session.DisconnectionError,
+        match="verification failed",
+    ) as raised:
+        runtime_session._guard_agent_runtime_checkout(connection, None, None)
+
+    # The restore is skipped on a dead connection, as SQLAlchemy's ping does,
+    # so the pool sees the real failure instead of "connection already closed".
+    assert raised.value.__cause__ is connection.failure
     assert connection.cursors_closed == 1

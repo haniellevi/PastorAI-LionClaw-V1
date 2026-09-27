@@ -69,8 +69,10 @@ transações curtas) e 51 consultas de domínio. Antes havia ainda 14 pings e 24
   Starlette já era 600 s.
 - Sessão dedicada D2A (pausada, sem efeito em PROD hoje):
   `backend/app/db/agent_runtime_session.py` faz a guarda de checkout numa ida
-  (autocommit, sem BEGIN/ROLLBACK), dispensa o pre-ping duplicado e manda o
-  GUC junto com a prova de identidade (4 idas a menos por turno quando voltar).
+  (autocommit, sem BEGIN/ROLLBACK) e dispensa o pre-ping duplicado (3 idas a
+  menos por checkout quando voltar). O GUC e a prova de identidade continuam
+  em instruções separadas: juntos, a prova passaria mesmo com a conexão em
+  autocommit, e o ganho numa sessão pausada seria de 1 ida (P2-1 da Sarah).
 - Testes: unitários atualizados para o SQL novo e para o ping por ociosidade;
   `tests/test_tenant_context_round_trips_pg.py` (Postgres real) prova uma
   instrução só, RLS aplicada, reversão no commit/rollback, a mesma checagem de
@@ -92,7 +94,10 @@ transações curtas) e 51 consultas de domínio. Antes havia ainda 14 pings e 24
 - **Preflight continua existindo.** O cache do navegador é por URL; cada
   conversa, página ou filtro novo ainda paga um OPTIONS (~55 ms, sem banco).
   Safari limita o cache a 10 min. Eliminar de vez exigiria servir a API na
-  mesma origem do painel (proxy da Vercel); não feito.
+  mesma origem do painel (proxy da Vercel); não feito. Efeito colateral
+  registrado em `docs/ops/PROD-ENV-RUNBOOK.md`: uma origem removida da lista
+  pode seguir mandando requisições por até 2 h (as respostas já ficam
+  bloqueadas na hora).
 - **Sem otimização por endpoint neste PR** (PR pequeno, revisão focada em RLS).
   Ficam como próximos passos, com ganho estimado.
 
@@ -129,7 +134,15 @@ backup e no monitor; acrescentar a ref do projeto novo na trava
 
 ## Pendente / próximo passo
 
-- **Revisão da Sarah antes do merge** (mexe em RLS e no pool de conexões).
+- **Sarah: GO no `ef6f2c1`** (P0=0, P1=1, P2=5), válido com `rls-integration`
+  verde no head. Os cinco P2 foram tratados no commit seguinte (D2A com GUC e
+  prova separados de novo, restauração do autocommit como no SQLAlchemy,
+  comentário sobre `handle_error`, defasagem de CORS no runbook, item do plano
+  desmarcado); o delta aguarda a conferência dela.
+- **P1-1, decisão do proprietário:** o PR mexe na D2A, pausada pelo
+  `AGENTS.md` até a Fase 5 (guarda de checkout e pre-ping; sem efeito em PROD
+  hoje). Aceitar a exceção por escrito no PR #424 ou separar esses trechos num
+  PR próprio parado até a Fase 5.
 - Decisão do proprietário sobre a infraestrutura (seção acima) e o teste de
   latência em São Paulo. Enquanto o banco estiver em us-west-2, o aceite da
   Fase 1 (resposta em menos de 10 s) não é alcançável.
@@ -147,7 +160,7 @@ backup e no monitor; acrescentar a ref do projeto novo na trava
 
 ## Verificação
 
-- `./test-local.sh`: backend 5.430 testes e frontend 883 testes verdes
+- `./test-local.sh`: backend 5.431 testes e frontend 883 testes verdes
   (Python 3.13.14, Node 24.19.0, `umask 022`).
 - `pytest -m rls_integration` em PostgreSQL 17.6 descartável: 345 passaram,
   zero pulados, incluindo T1–T6, D2A real (pool contaminado) e os 5 novos.

@@ -56,6 +56,9 @@ def _install_idle_pre_ping(engine: Engine, idle_seconds: float) -> None:
         last_checkin = connection_record.info.get(_LAST_CHECKIN_KEY)
         if last_checkin is None or time.monotonic() - last_checkin < idle_seconds:
             return
+        # Public do_ping, not SQLAlchemy's internal _do_ping_w_event: a failed
+        # ping here does not dispatch `handle_error` events. The app registers
+        # no such listener today; add one here if that ever changes.
         try:
             dialect.do_ping(dbapi_connection)
         except dialect.loaded_dbapi.Error as exc:
