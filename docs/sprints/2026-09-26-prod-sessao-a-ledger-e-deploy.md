@@ -323,7 +323,7 @@ depois de explicação em linguagem simples):
   apresentadas antes; resposta: "sim, pode ligar", aceitando o risco de a
   detecção de crise ser fraca (o robô responde qualquer pessoa que escrever para o
   número da igreja).
-- Pré-checagem só leitura: Filadélfia `228ebda0-92c1-422c-8ab4-78fdc06c1b8e`,
+- Pré-checagem só leitura: Filadélfia (identificador omitido; ver o Admin Master),
   agente ativo, 1 credencial OpenAI ativa e validada, WhatsApp `online` no banco
   (última sincronização registrada em 07/08; conferir no painel), informações
   públicas vazias, 0 avisos de upgrade pendentes. Mensagens recebidas com o robô
@@ -463,9 +463,16 @@ Achados para depois:
   segredos): apagar após uma semana estável.
 - Correções do roteiro de deploy: esperar o `/health` no B2; P2 da Sarah no wrapper
   de migration (hash do `migrate.py`, digest da imagem, fingerprint mais amplo).
-- **DEV confiável** antes da próxima migration em PROD: recriar o DEV a partir
-  do schema de PROD (sem dados reais), com o mesmo ledger, e conferir com as
-  mesmas 243 checagens; depois `--lock-timeout` no `migrate.py`.
+- **DEV confiável** antes da próxima migration em PROD. Dono: a sessão do
+  Maestri (decisão de 27/09).
+  - Se o DEV for recriado a partir do schema de PROD sem dados reais, restaurar
+    também os dados de referência higienizados: catálogo de planos (`0012`),
+    modelo do orquestrador (`0014`), papéis RBAC (`0009`) e demais seeds. A
+    alternativa é montar um ledger do DEV só com os efeitos presentes.
+  - Copiar o ledger de PROD sem esses dados faria o `migrate.py` pular migrations
+    cujos dados não existem.
+  - As 243 checagens de catálogo provam objetos, não dados.
+  - Depois, `--lock-timeout` no `migrate.py`.
 - Gates próprios: `20260925_183811`; `20260926_120446`; d1a/d2a/d2b2/d2b2b3;
   os dois backfills de 11/07; reabrir envios (`ALLOW_REAL_SENDS=true` e
   `WHATSAPP_PILOTO_IGREJA_IDS`, piloto interno); exclusão de igreja só depois

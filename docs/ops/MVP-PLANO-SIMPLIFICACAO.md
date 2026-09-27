@@ -193,8 +193,14 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [ ] Reconciliar ou recriar o DEV (44 migrations pendentes) com
       `scripts/migrate.py status`. Precisa da URL do DEV, que fica com o
       proprietário. **Pré-requisito da próxima migration em
-      PROD** (decisão do proprietário, 26/09). Caminho recomendado: recriar o
-      DEV a partir do schema de PROD, sem dados reais, com o mesmo ledger.
+      PROD** (decisão do proprietário, 26/09). Dono: a sessão do Maestri
+      (decisão de 27/09). Se recriar o DEV a partir do schema de PROD, sem
+      dados reais: restaurar também os dados de referência higienizados
+      (catálogo de planos da `0012`, modelo do orquestrador da `0014`, papéis
+      RBAC da `0009` e demais seeds), ou montar um ledger do DEV só com os
+      efeitos presentes. Copiar o ledger de PROD sem esses dados marca como
+      aplicadas migrations cujos dados não existem, e o `migrate.py` passa a
+      pulá-las. As 243 checagens de catálogo não provam dados.
 
 **Pronto quando:** `./test-local.sh` passa, e o CI tem só os jobs
 obrigatórios de produto.
@@ -317,14 +323,14 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       e indicação de célula por bairro explicitamente publicado no perfil do
       agente. Respostas determinísticas, sem LLM nem alterações cadastrais.
       Contrato inicial: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
-- [x] **S2 implementada em código, candidata no PR423:** painel/API de campos
-      públicos estruturados, migration tenant/RLS, perguntas naturais de culto
-      e remoção de Cf no legado. Testes locais e revisão técnica concluídos;
-      [registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md).
-      **Merge bloqueado** até liberação explícita coordenada com a sessão
-      PastorAI PROD operacional. Não aplicada em banco compartilhado nem
-      implantada por esta missão. Sarah GO no código `fe544d7`; delta documental
-      segue para conferência, sem liberar merge.
+- [x] **S2 em produção:** painel/API de campos públicos estruturados,
+      migration tenant/RLS, perguntas naturais de culto e remoção de Cf no
+      legado ([registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md)).
+      Sarah GO no código `fe544d7`. Em 26/09: migration `20260926_191500`
+      aplicada em PROD com backup e revisão da Sarah, PR #423 integrado e
+      backend `e6aafc2` implantado
+      ([registro da sessão](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)).
+      Informações públicas da Filadélfia ainda vazias no painel.
 - [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
       nem política pública para endereços residenciais; indicação por bairro
       não representa a célula mais próxima.
