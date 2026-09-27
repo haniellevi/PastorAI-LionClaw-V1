@@ -23,6 +23,7 @@ from app.db.session import get_engine
 from app.middleware.body_limit import MediaUploadBodyLimitMiddleware
 from app.routers import (
     agent,
+    agent_identity,
     assistant,
     auth,
     broadcasts,
@@ -236,6 +237,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(dashboard.router)
     app.include_router(agent.router)
+    app.include_router(agent_identity.router)
     app.include_router(assistant.router)
     app.include_router(reports.router)
     app.include_router(broadcasts.router)

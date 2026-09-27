@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Celula, Consolidacao, Decision, Pessoa
 from app.db.session import get_db
+from app.services.ministerial_actions import register_decision
 from app.deps import CurrentUser, get_current_user
 from app.domain.consolidation import (
     CONNECTION_DEADLINE_HOURS,
@@ -108,83 +109,17 @@ def launch_decision(
     - celula flow (fluxo A): links the cell, no 24h deadline.
     """
 
-    if not current_user.has_any_role(CONSOLIDATION_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Você não tem permissão para lançar decisões",
-        )
-
-    pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == uuid.UUID(payload.pessoa))
-    ).scalar_one_or_none()
-    if pessoa is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
-        )
-
-    celula_uuid: uuid.UUID | None = None
-    if payload.celulaId is not None:
-        celula_uuid = uuid.UUID(payload.celulaId)
-        celula = db.execute(
-            select(Celula).where(Celula.id == celula_uuid)
-        ).scalar_one_or_none()
-        if celula is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Célula não encontrada"
-            )
-
-    # fluxo B (visitante): 24h connection deadline; fluxo A (celula): none.
-    prazo_conexao: dt.datetime | None = None
-    if payload.vinculo == VINCULO_VISITANTE:
-        prazo_conexao = dt.datetime.now(dt.timezone.utc) + dt.timedelta(
-            hours=CONNECTION_DEADLINE_HOURS
-        )
-
-    decision = Decision(
-        igreja_id=uuid.UUID(current_user.igreja_id),
-        pessoa_id=pessoa.id,
-        origem=payload.origem,
-        vinculo=payload.vinculo,
-        celula_id=celula_uuid,
-        prazo_conexao=prazo_conexao,
-    )
-    db.add(decision)
-    # A decision implies the person accepted Jesus (feeds F2 promotion).
-    pessoa.aceitou_jesus = True
     try:
-        # Flush so trg_decision_opens_consolidation creates the consolidation.
-        db.flush()
+        consolidacao = register_decision(
+            db, current_user, pessoa_id=uuid.UUID(payload.pessoa),
+            vinculo=payload.vinculo, origem=payload.origem,
+            celula_id=uuid.UUID(payload.celulaId) if payload.celulaId else None,
+        )
     except IntegrityError as exc:
-        # CONSOL-1: TOCTOU — two concurrent decisions for the SAME pessoa both
-        # fire trg_decision_opens_consolidation; uq_consolidacoes_pessoa_aberta
-        # (partial unique on pessoa_id where concluida=false AND
-        # abandonada_em IS NULL) serializes them. The 2nd to commit gets
-        # unique_violation, translated DETERMINISTICALLY to 409. Any other
-        # integrity error (not unique) bubbles up as 500 — not a state conflict.
         db.rollback()
         if getattr(exc.orig, "pgcode", None) == _PG_UNIQUE_VIOLATION:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Pessoa já possui uma consolidação em aberto",
-            ) from exc
+            raise HTTPException(409, "Pessoa já possui uma consolidação em aberto") from exc
         raise
-
-    consolidacao = db.execute(
-        select(Consolidacao)
-        .where(Consolidacao.pessoa_id == pessoa.id)
-        .order_by(Consolidacao.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if consolidacao is None:
-        # The trigger should always create one; fail loudly if it did not.
-        logger.error(
-            "consolidation not created by trigger for decision pessoa=%s",
-            pessoa.id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Falha ao abrir consolidação",
-        )
 
     db.commit()
 

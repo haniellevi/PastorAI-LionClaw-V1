@@ -365,6 +365,12 @@ sem declarar as próximas verticais implementadas.
    ambiguidade encaminha a humano. Ações ministeriais comuns por telefone
    exigem confirmação explícita por ação; leituras sensíveis exigem Clerk;
    finanças nunca são liberadas por telefone. Revalidar tenant/papel no uso.
+   [Plano aprovado com ajustes](mvp-s3-whatsapp-first-plano.md): roteamento BYO
+   com enum fechado sem depender de Jev; plataforma genérica de proposta,
+   confirmação única em até 10 minutos e comprovante após commit, provada
+   somente com `registrar_decisao` e `marcar_presenca`. Jev B/C/D continua
+   inerte até seus gates. Flag `AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` vazia;
+   ativação interna sem Jev exige ordem nominal e testes, sem DPA TypeSafe.
 2. **V1: relatório de célula pelo WhatsApp**, primeira vertical delta-052.
    Integrar D6 coordinator e `transcribe_audio`: lembrete, texto/áudio, resumo
    editável, confirmação, gravação e comprovante somente após commit. O plano

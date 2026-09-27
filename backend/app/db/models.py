@@ -1177,6 +1177,11 @@ class Message(Base):
             "direcao = 'out' AND autor = 'ia' AND agent_reply_state IS NOT NULL)",
             name="messages_public_info_reply_ia_chk",
         ),
+        CheckConstraint(
+            "agent_privilege_context IS NULL "
+            "OR jsonb_typeof(agent_privilege_context) = 'object'",
+            name="messages_agent_privilege_context_object_chk",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -1199,6 +1204,12 @@ class Message(Base):
     # NULL é legado/desconhecido. Novos intents escrevem True somente para a
     # resposta pública determinística e False para qualquer outro retorno.
     public_info_reply: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # S3 metadata for a server-resolved WhatsApp privilege result.  The worker
+    # owns its closed protocol; NULL is legacy and no server default invents a
+    # context for prior messages.
+    agent_privilege_context: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Id estável do provider (Evolution `data.key.id` / ParsedMessage.
     # provider_message_id). Só populado para mensagens vindas do webhook
@@ -1222,6 +1233,317 @@ class Message(Base):
         UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
     )
     criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class AgentIdentityChallenge(Base):
+    """Inbound-bound, non-authorizing panel-confirmation correlator for S3."""
+
+    __tablename__ = "agent_identity_challenges"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="agent_identity_challenges_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "issued_from_message_id",
+            name="agent_identity_challenges_inbound_once_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "conversation_id",
+            "sequence",
+            name="agent_identity_challenges_conversation_sequence_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="agent_identity_challenges_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="agent_identity_challenges_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "issued_from_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="agent_identity_challenges_inbound_anchor_fkey",
+        ),
+        CheckConstraint("sequence > 0", name="agent_identity_challenges_sequence_positive"),
+        CheckConstraint(
+            "challenge_expires_at > issued_at "
+            "AND challenge_expires_at <= issued_at + interval '5 minutes'",
+            name="agent_identity_challenges_expiry_window",
+        ),
+        Index(
+            "agent_identity_challenges_conversation_latest_idx",
+            "igreja_id",
+            "conversation_id",
+            "sequence",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    issued_from_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    issued_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    challenge_expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class AgentIdentityProof(Base):
+    """Immutable S3 proof of a locally verified panel session."""
+
+    __tablename__ = "agent_identity_proofs"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="agent_identity_proofs_tenant_id_key"),
+        UniqueConstraint("challenge_id", name="agent_identity_proofs_challenge_once_key"),
+        ForeignKeyConstraint(
+            ("igreja_id", "challenge_id"),
+            ("agent_identity_challenges.igreja_id", "agent_identity_challenges.id"),
+            ondelete="CASCADE",
+            name="agent_identity_proofs_tenant_challenge_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="agent_identity_proofs_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="agent_identity_proofs_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "confirmed_by_app_user_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            ondelete="CASCADE",
+            name="agent_identity_proofs_tenant_app_user_fkey",
+        ),
+        CheckConstraint(
+            "confirmed_until = confirmed_at + interval '15 minutes'",
+            name="agent_identity_proofs_expiry_window",
+        ),
+        CheckConstraint(
+            "credential_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="agent_identity_proofs_credential_fingerprint_shape",
+        ),
+        CheckConstraint(
+            "roles_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="agent_identity_proofs_roles_fingerprint_shape",
+        ),
+        CheckConstraint(
+            "integrity_hmac ~ '^[0-9a-f]{64}$'",
+            name="agent_identity_proofs_integrity_hmac_shape",
+        ),
+        Index("agent_identity_proofs_conversation_lookup_idx", "igreja_id", "conversation_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    challenge_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmed_by_app_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    confirmed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confirmed_until: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    credential_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    roles_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    integrity_hmac: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class AgentActionProposal(Base):
+    """One closed S3 action proposal, never a model-granted capability."""
+
+    __tablename__ = "agent_action_proposals"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="agent_action_proposals_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "source_message_id",
+            name="agent_action_proposals_source_once_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "summary_message_id",
+            name="agent_action_proposals_summary_once_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "confirmation_message_id",
+            name="agent_action_proposals_confirmation_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="agent_action_proposals_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "actor_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="agent_action_proposals_tenant_actor_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "actor_app_user_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            ondelete="CASCADE",
+            name="agent_action_proposals_tenant_actor_app_user_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "source_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="agent_action_proposals_source_anchor_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "summary_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="agent_action_proposals_summary_anchor_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "confirmation_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="agent_action_proposals_confirmation_anchor_fkey",
+        ),
+        CheckConstraint(
+            "action IN ('registrar_decisao', 'marcar_presenca')",
+            name="agent_action_proposals_action_closed",
+        ),
+        CheckConstraint(
+            "target_kind = 'pessoa'",
+            name="agent_action_proposals_target_kind_closed",
+        ),
+        CheckConstraint(
+            "state IN ('preparada', 'pendente', 'executada', 'rejeitada', "
+            "'cancelada', 'expirada', 'falha')",
+            name="agent_action_proposals_state_closed",
+        ),
+        CheckConstraint(
+            "arguments_sha256 ~ '^[0-9a-f]{64}$'",
+            name="agent_action_proposals_arguments_digest_shape",
+        ),
+        CheckConstraint(
+            "scope_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="agent_action_proposals_scope_fingerprint_shape",
+        ),
+        CheckConstraint(
+            "summary_sha256 ~ '^[0-9a-f]{64}$'",
+            name="agent_action_proposals_summary_digest_shape",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR delivered_at IS NOT NULL",
+            name="agent_action_proposals_expiry_requires_delivery",
+        ),
+        Index(
+            "agent_action_proposals_one_active_conversation_idx",
+            "igreja_id",
+            "conversation_id",
+            unique=True,
+            postgresql_where=text("state IN ('preparada', 'pendente')"),
+        ),
+        Index(
+            "agent_action_proposals_conversation_state_idx",
+            "igreja_id",
+            "conversation_id",
+            "state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    actor_pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    actor_app_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    target_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    arguments_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    arguments_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    confirmation_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    delivered_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    executed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    terminal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class AgentActionReceipt(Base):
+    """A post-commit transport intent for an action already executed once."""
+
+    __tablename__ = "agent_action_receipts"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="agent_action_receipts_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id", "proposal_id", name="agent_action_proposals_receipt_once_key"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "proposal_id"),
+            ("agent_action_proposals.igreja_id", "agent_action_proposals.id"),
+            ondelete="CASCADE",
+            name="agent_action_receipts_tenant_proposal_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="agent_action_receipts_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "confirmation_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="agent_action_receipts_confirmation_anchor_fkey",
+        ),
+        CheckConstraint(
+            "outcome = 'executada'", name="agent_action_receipts_outcome_closed"
+        ),
+        CheckConstraint(
+            "effect_reference ~ "
+            "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
+            name="agent_action_receipts_effect_reference_shape",
+        ),
+        CheckConstraint(
+            "receipt_text = 'Registro confirmado.'",
+            name="agent_action_receipts_receipt_text_closed",
+        ),
+        Index("agent_action_receipts_conversation_idx", "igreja_id", "conversation_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    proposal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmation_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'executada'"))
+    effect_reference: Mapped[str] = mapped_column(Text, nullable=False)
+    receipt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 

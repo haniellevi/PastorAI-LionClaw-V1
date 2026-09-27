@@ -281,6 +281,10 @@ class MeetingSession:
         if isinstance(obj, CelulaExpectativaVisitante):
             self.expectativas.append(obj)
 
+    def begin_nested(self):
+        from contextlib import nullcontext
+        return nullcontext()
+
     def flush(self) -> None:
         pass
 
@@ -316,7 +320,7 @@ def make_cell(
 
 
 def make_pessoa(*, pessoa_id: str = _LP, lider_id: str | None = None):
-    return SimpleNamespace(id=pessoa_id, lider_id=lider_id)
+    return SimpleNamespace(id=pessoa_id, lider_id=lider_id, igreja_id=_TENANT)
 
 
 def make_reuniao(

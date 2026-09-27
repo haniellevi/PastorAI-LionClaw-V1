@@ -1610,12 +1610,24 @@ class _SairSession:
         self.added: list[object] = []
         self.commits = 0
         self.fence_updates = 0
+        self.proposal_updates = 0
         self.conversation_updates = 0
 
     def execute(self, statement: object, _params: object = None) -> _Scalar:
         if getattr(statement, "is_update", False):
             if statement.table.name == Message.__tablename__:
                 self.fence_updates += 1
+            elif statement.table.name == "agent_action_proposals":
+                sql = str(statement)
+                assert "agent_action_proposals.igreja_id" in sql
+                assert "agent_action_proposals.conversation_id" in sql
+                assert "agent_action_proposals.state IN" in sql
+                values = list(statement.compile().params.values())
+                assert _IGREJA_ID in values and _CONVERSA_ID in values
+                assert "cancelada" in values and "handoff_or_optout" in values
+                assert any(isinstance(value, (list, tuple)) and
+                           set(value) == {"preparada", "pendente"} for value in values)
+                self.proposal_updates += 1
             elif statement.table.name == Conversation.__tablename__:
                 self.conversation_updates += 1
             else:
@@ -1679,4 +1691,5 @@ def test_explicit_sair_persists_before_agent_config_or_tier_a(monkeypatch) -> No
     assert len(session.added) == 1
     assert session.commits == 1
     assert session.fence_updates == 1
+    assert session.proposal_updates == 1
     assert session.conversation_updates == 1

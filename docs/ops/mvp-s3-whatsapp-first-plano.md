@@ -32,9 +32,9 @@ Jev B/C/D reforça/substitui quando ativado: C após B, D após C. LLM/Jev receb
 SAIR/humano/LGPD e confirmação determinística precedem o roteador. Jev mantém DPA/decisão nominal, aceite interno, holdout/metas/Wilson95 e release próprios.
 Alvo p95 <10s, deadline global de 9s e reserva de 1s; chamadas externas sem lock/transação e métricas sem conteúdo privado.
 Arquivos previstos: agent_authz/context/runtime/tools, worker, agent_identity/API/UI, semantic_routing, models, testes e migration própria após aprovação.
-Provar exatamente `registrar_decisao` e `marcar_presenca` ponta a ponta; demais tools ficam fora. V1 relatório/áudio reutilizará a plataforma, em plano/PR próprio.
+Provar exatamente `registrar_decisao` e `marcar_presenca` ponta a ponta; demais ações mutantes ficam fora; consultas readonly seguem a matriz. V1 relatório/áudio reutilizará a plataforma, em plano/PR próprio.
 Testes: telefone duplicado/revogado, contas/roles ambíguos, cross-tenant e intra-tenant, escopo do líder, finanças negadas, Clerk expirado/replay/concorrência.
 Testar confirmação antes de Jev, troca de termo/ação/papel, entrega/retry, B->C->D, handles forjados, egress zero; PG17 descartável, Node24/E2E e CI do SHA.
 Migration futura datada, aditiva, RLS/ACL/FKs tenant e rollback comentado; revisar o SQL antigo de identidade, sem tocar a migration congelada da S2b.
-Rollback: desligar a flag da fatia e reverter código, preservando registros; leitura sensível/ação pendente negada por padrão, sem reenvio automático.
+Rollback: desligar a flag mantendo backend que suprime intents S3; só reverter binário após zerar seus envios pendentes, preservando registros e sem reenvio.
 Próximo gate: ordem nominal de merge da PR após Sarah e gates vivos; rebase após merge426. Deploy/ativação separados; sem DEV/PROD/VPS/provedores aqui.

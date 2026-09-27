@@ -1,0 +1,39 @@
+{
+  "validated_at_utc": "2026-09-27T13:52:36.911501+00:00",
+  "base": "2bacfe8ae7688e7b489294ad75f1b9f2dac29b72",
+  "s2b_base": "2e08d11d49868091c88e704b32be80e81fb3ec34",
+  "candidate_manifest_sha256": "6155f34a635220ea20877dc367079f3c7d7f5495ada5b73e8d95abe44bc3c358",
+  "migration_sha256": "d087013e0da83c7d80a1e3df05307861314eaaf2195bcd83149fe8927c2a50cc",
+  "frozen_s2b_migration_sha256": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
+  "tests": {
+    "backend": {
+      "passed": 5660,
+      "failed": 0,
+      "skipped": 0
+    },
+    "rls_pg17": {
+      "passed": 384,
+      "failed": 0,
+      "skipped": 0,
+      "byte_exact_sql": true
+    },
+    "frontend": {
+      "passed": 937,
+      "failed": 0
+    },
+    "frontend_lint": "passed",
+    "frontend_build": "passed",
+    "identity_e2e": {
+      "passed": 1,
+      "providers": "mock"
+    }
+  },
+  "scope": "local source-only; all provider calls mocked; no DEV/PROD/VPS or real credentials",
+  "limitations": [
+    "OpenAI/TypeSafe detection quality and real p95 not measured",
+    "bounded candidate catalog; ambiguous names denied",
+    "PR426 remains frozen; S3 rebase only after its merge",
+    "migration before backend deployment; flag empty until nominal activation",
+    "Jev B/C/D release and DPA gates remain closed"
+  ]
+}

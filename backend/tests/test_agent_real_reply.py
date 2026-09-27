@@ -966,6 +966,22 @@ def test_process_inbound_fails_closed_when_persisted_anchor_is_absent(monkeypatc
     )
 
 
+def _assert_proposal_handoff_update(statement: object, igreja_id: uuid.UUID,
+                                    conversation_id: uuid.UUID) -> None:
+    """The fake accepts only the closed, tenant-bound proposal cancellation."""
+    assert getattr(statement, "is_update", False)
+    assert statement.table.name == "agent_action_proposals"
+    sql = str(statement)
+    assert "agent_action_proposals.igreja_id" in sql
+    assert "agent_action_proposals.conversation_id" in sql
+    assert "agent_action_proposals.state IN" in sql
+    values = list(statement.compile().params.values())
+    assert igreja_id in values and conversation_id in values
+    assert "cancelada" in values and "handoff_or_optout" in values
+    assert any(isinstance(value, (list, tuple)) and
+               set(value) == {"preparada", "pendente"} for value in values)
+
+
 class _HandoffSession:
     def __init__(self, conversation: object, pessoa: object) -> None:
         self.conversation = conversation
@@ -973,6 +989,7 @@ class _HandoffSession:
         self.added: list[object] = []
         self.commits = 0
         self.statements: list[object] = []
+        self.proposal_updates = 0
 
     def execute(self, statement: object, _params: object = None) -> _Scalar:
         self.statements.append(statement)
@@ -982,10 +999,13 @@ class _HandoffSession:
             return _Scalar(self.conversation)
         if entity is Pessoa:
             return _Scalar(self.pessoa)
-        if getattr(getattr(statement, "table", None), "name", None) in {
-            "messages",
-            "conversations",
-        }:
+        table = getattr(getattr(statement, "table", None), "name", None)
+        if table == "agent_action_proposals":
+            _assert_proposal_handoff_update(statement, self.conversation.igreja_id,
+                                            self.conversation.id)
+            self.proposal_updates += 1
+            return _Scalar(None)
+        if table in {"messages", "conversations"}:
             return _Scalar(None)
         raise AssertionError("handoff não deve consultar credencial, configuração ou LLM")
 
@@ -1046,6 +1066,7 @@ def test_handoff_request_persists_unassigned_human_queue_before_llm(
     assert conversation.assumido_em is None
     assert isinstance(conversation.espera_desde, dt.datetime)
     assert session.commits == 1
+    assert session.proposal_updates == 1
     assert any("FOR UPDATE" in str(statement) for statement in session.statements)
 
 
@@ -1178,6 +1199,7 @@ def test_existing_handoff_does_not_restore_human_after_operator_releases_ia(
         def __init__(self) -> None:
             self.conversation_reads = 0
             self.commits = 0
+            self.proposal_updates = 0
 
         def execute(self, statement: object, _params: object = None) -> _Scalar:
             descriptions = list(getattr(statement, "column_descriptions", []) or [])
@@ -1191,10 +1213,12 @@ def test_existing_handoff_does_not_restore_human_after_operator_releases_ia(
                 )
             if entity is Pessoa:
                 return _Scalar(pessoa)
-            if getattr(getattr(statement, "table", None), "name", None) in {
-                "messages",
-                "conversations",
-            }:
+            table = getattr(getattr(statement, "table", None), "name", None)
+            if table == "agent_action_proposals":
+                _assert_proposal_handoff_update(statement, igreja_id, conversation_id)
+                self.proposal_updates += 1
+                return _Scalar(None)
+            if table in {"messages", "conversations"}:
                 return _Scalar(None)
             raise AssertionError("liberação não deve consultar configuração nem LLM")
 
@@ -1214,6 +1238,7 @@ def test_existing_handoff_does_not_restore_human_after_operator_releases_ia(
     assert result.route == ROUTE_HANDOFF
     assert released_conversation.estado == "ia"
     assert session.conversation_reads == 2
+    assert session.proposal_updates == 1
     assert session.commits == 1
 
 

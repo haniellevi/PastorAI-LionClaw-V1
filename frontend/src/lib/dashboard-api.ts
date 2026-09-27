@@ -227,6 +227,39 @@ export async function authedFetch(
   return res;
 }
 
+/** Confirma no painel uma conversa iniciada no WhatsApp; autoridade vem da sessão. */
+export async function confirmAgentIdentity(
+  token: string,
+  challenge: string,
+  signal?: AbortSignal,
+): Promise<{ status: "confirmed" }> {
+  const res = await authedFetch(token, "/agent/identity-confirmations", {
+    method: "POST",
+    cache: "no-store",
+    signal,
+    body: JSON.stringify({ challenge }),
+  });
+  if (!res.ok) {
+    const message = [400, 403, 409, 410, 422].includes(res.status)
+      ? "Código inválido, expirado ou já usado. Solicite outro pelo WhatsApp."
+      : [404, 405, 501].includes(res.status)
+        ? "Confirmação de conversa indisponível nesta versão. Continue pelo WhatsApp e tente após a atualização."
+        : res.status === 429
+          ? "Muitas tentativas. Aguarde antes de solicitar outro código."
+          : "Não foi possível confirmar a conversa. Verifique no WhatsApp antes de tentar novamente.";
+    throw new ApiError(res.status, message);
+  }
+  try {
+    const result: unknown = await res.json();
+    if (isRecord(result) && result.status === "confirmed") {
+      return { status: "confirmed" };
+    }
+  } catch {
+    // Resposta inválida não confirma a conversa no cliente.
+  }
+  throw new ApiError(res.status, "Não foi possível confirmar a conversa.");
+}
+
 export async function readDetail(res: Response): Promise<string | null> {
   try {
     const body = (await res.json()) as { detail?: unknown };

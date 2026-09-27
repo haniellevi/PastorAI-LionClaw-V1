@@ -57,6 +57,18 @@ def fence_agent_replies_for_handoff(
             )
         )
     )
+    # An action summary that was already delivered is also revoked. Returning
+    # the chat to IA must never revive an old confirmation opportunity.
+    from app.db.models import AgentActionProposal
+    session.execute(
+        update(AgentActionProposal)
+        .where(
+            AgentActionProposal.igreja_id == igreja_id,
+            AgentActionProposal.conversation_id == conversation_id,
+            AgentActionProposal.state.in_(("preparada", "pendente")),
+        )
+        .values(state="cancelada", terminal_reason="handoff_or_optout")
+    )
     # An existing public-cell offer cannot survive an explicit human handoff or
     # opt-out fence.  This update runs under the caller's Conversation lock and
     # deliberately does not create a response marker for a different inbound.

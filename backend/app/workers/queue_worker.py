@@ -1005,6 +1005,7 @@ class _AgentReplyIntent:
     response: str
     provider_message_id: str
     public_info_reply: bool | None
+    privileged_reply: bool = False
 
 
 @dataclass
@@ -2456,6 +2457,7 @@ def _intent_from_message(message: Message) -> _AgentReplyIntent:
         state=state or "",
         response=message.texto or "",
         provider_message_id=message.provider_message_id or "",
+        privileged_reply=type(getattr(message, "agent_privilege_context", None)) is dict,
         public_info_reply=(
             public_info_reply
             if type(public_info_reply) is bool
@@ -2810,6 +2812,20 @@ def _transition_agent_reply_intent(
         ).one_or_none()
         if transitioned is None:
             return False
+        if intent.privileged_reply and target in {
+            _AGENT_REPLY_CONFIRMED, _AGENT_REPLY_AMBIGUOUS, _AGENT_REPLY_FAILED,
+            _AGENT_REPLY_SUPPRESSED, _AGENT_REPLY_NO_RESPONSE,
+        }:
+            from app.agent.privileged_turn import promote_delivered_proposal, invalidate_undelivered_proposal
+            privileged_message = session.execute(select(Message).where(
+                Message.id == intent.id, Message.igreja_id == outcome.igreja_id,
+                Message.conversation_id == conversation.id,
+            ).execution_options(populate_existing=True)).scalar_one_or_none()
+            if privileged_message is not None:
+                if target == _AGENT_REPLY_CONFIRMED:
+                    promote_delivered_proposal(session, privileged_message)
+                else:
+                    invalidate_undelivered_proposal(session, privileged_message)
         if target == _AGENT_REPLY_CONFIRMED:
             if promote_secretaria_offer_after_delivery(
                 session,
@@ -2976,6 +2992,26 @@ def _suppress_agent_reply_after_handoff(
             )
             session.commit()
             return True
+        if intent.privileged_reply:
+            from app.agent.privileged_turn import reply_still_authorized
+            privileged_message = session.execute(select(Message).where(
+                Message.id == intent.id, Message.igreja_id == outcome.igreja_id,
+                Message.conversation_id == conversation.id,
+            )).scalar_one_or_none()
+            if privileged_message is None or not reply_still_authorized(
+                session, privileged_message, conversation=conversation,
+                recipient_phone=outcome.telefone, instance=outcome.instance,
+            ):
+                session.execute(update(Message).where(
+                    Message.id == intent.id, Message.igreja_id == outcome.igreja_id,
+                    Message.conversation_id == conversation.id,
+                    Message.agent_reply_state == expected,
+                ).values(agent_reply_state=_AGENT_REPLY_SUPPRESSED))
+                if privileged_message is not None:
+                    from app.agent.privileged_turn import invalidate_undelivered_proposal
+                    invalidate_undelivered_proposal(session, privileged_message)
+                session.commit()
+                return True
         if _public_info_reply_changed_before_transport(
             session,
             outcome,
@@ -4213,6 +4249,15 @@ def run_agent_for_message(
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
     igreja_id = _require_agent_igreja_id(outcome)
+
+    from app.agent.privileged_turn import run_privileged_turn
+    privilege_result = run_privileged_turn(
+        session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
+        turn_identity=turn_identity, uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client,
+    )
+    if privilege_result is not None:
+        return privilege_result
 
     tier_a_result = _run_active_tier_a_turn(
         session_factory,

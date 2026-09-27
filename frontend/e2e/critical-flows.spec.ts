@@ -187,6 +187,65 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     });
   });
 
+  test("confirma conversa no perfil sem expor código em URL, storage ou log", async ({
+    page,
+    request,
+  }, testInfo) => {
+    await resetHarness(request);
+    const safety = await armBrowserSafety(page);
+    await loginThroughUi(page);
+    await page.goto("/#perfil", { waitUntil: "domcontentloaded" });
+
+    const code = page.getByLabel("Código recebido no WhatsApp");
+    await expect(code).toBeVisible();
+    await expect(page.getByText("Envie #perfil no WhatsApp", { exact: false })).toBeVisible();
+    await code.fill("7c9e68c2-2a43-4953-a62d-917d80628b41");
+    await code.press("Tab");
+    await expect(page.getByRole("button", { name: "Confirmar conversa" })).toBeFocused();
+    await page.getByRole("button", { name: "Confirmar conversa" }).click();
+    await expect(page.getByText("Conversa confirmada. Volte ao WhatsApp.")).toBeVisible();
+    await expect(code).toHaveValue("");
+    await testInfo.attach("s3-identity-desktop", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+
+    const requests = (await harnessRequests(request)).filter(
+      (entry) => entry.method === "POST" && entry.path === "/agent/identity-confirmations",
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.query).toBe("");
+    expect(requests[0]?.body).toEqual({ challenge: "[redacted]" });
+    expect(page.url()).not.toContain("7c9e68c2");
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("7c9e68c2");
+
+    await page.reload();
+    await expect(page.getByLabel("Código recebido no WhatsApp")).toHaveValue("");
+    await expect(page.getByRole("button", { name: "Confirmar conversa" })).toBeDisabled();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const confirmation = page.getByRole("heading", { name: "Confirmar conversa do WhatsApp" }).locator("..");
+    await expect.poll(async () => page.locator(".sidebar").evaluate(
+      (sidebar) => sidebar.getBoundingClientRect().right,
+    )).toBeLessThanOrEqual(1);
+    await confirmation.scrollIntoViewIfNeeded();
+    await expect.poll(async () => confirmation.evaluate((form) => {
+      const rect = form.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= window.innerWidth &&
+        rect.top >= 0 && rect.bottom <= window.innerHeight;
+    })).toBe(true);
+    await expect.poll(async () => page.evaluate(
+      () => document.scrollingElement!.scrollWidth <= window.innerWidth,
+    )).toBe(true);
+    await page.getByLabel("Código recebido no WhatsApp").fill("codigo-sintetico");
+    await page.getByLabel("Código recebido no WhatsApp").press("Tab");
+    await expect(page.getByRole("button", { name: "Confirmar conversa" })).toBeFocused();
+    await testInfo.attach("s3-identity-mobile", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    expectCleanBrowser(safety);
+  });
+
   test("cadastro da igreja salva e reabre no desktop e no mobile por teclado", async ({
     page,
     request,

@@ -26,6 +26,7 @@ let nextRequestId = 1;
 let selectedModel = "gpt-5.6-luna";
 let publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
 let churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
+let identityChallengeConsumed = false;
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
 
 function resetState() {
@@ -34,6 +35,7 @@ function resetState() {
   selectedModel = "gpt-5.6-luna";
   publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
   churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
+  identityChallengeConsumed = false;
   whatsapp = { numero: null, status: "offline", ultimaSync: null };
 }
 
@@ -102,7 +104,7 @@ function safeBody(_pathname, body) {
   return Object.fromEntries(
     Object.entries(body).map(([key, value]) => [
       key,
-      /password|api.?key|token|secret|authorization/i.test(key)
+      /password|api.?key|token|secret|authorization|challenge/i.test(key)
         ? "[redacted]"
         : safeBody("", value),
     ]),
@@ -167,6 +169,17 @@ const server = createServer(async (request, response) => {
     if (method === "POST" && pathname === "/auth/login") {
       record.status = 200;
       sendJson(response, 200, { token, ...profile });
+      return;
+    }
+    if (method === "POST" && pathname === "/agent/identity-confirmations") {
+      if (body?.challenge !== "7c9e68c2-2a43-4953-a62d-917d80628b41" || identityChallengeConsumed) {
+        record.status = 410;
+        sendJson(response, 410, { detail: "Código inválido ou expirado." });
+        return;
+      }
+      identityChallengeConsumed = true;
+      record.status = 200;
+      sendJson(response, 200, { status: "confirmed" });
       return;
     }
     if (method === "GET" && pathname === "/auth/me") {

@@ -52,6 +52,7 @@ jobs:
       # RLS_TEST_DATABASE_URL definida SOMENTE neste job, apontando para o
       # Postgres descartavel efemero (loopback literal do runner). Nunca DEV/PROD.
       RLS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/rls_disposable
+      S3_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/s3_migration_exact_test
 
     defaults:
       run:
@@ -82,6 +83,22 @@ jobs:
           url = os.environ["RLS_TEST_DATABASE_URL"]
           assert_disposable_database(url)  # levanta se aparentar DEV/PROD
           print("guard OK: alvo descartavel")
+          PY
+
+      - name: Criar banco descartavel separado para SQL S3 byte-exato
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" - <<'PY'
+          import os
+          from sqlalchemy import create_engine
+          from tests.conftest_rls import assert_disposable_database
+          from tests.test_s3_migration_exact_pg import _exact_database_url
+          url = os.environ["RLS_TEST_DATABASE_URL"]
+          assert_disposable_database(url)
+          _exact_database_url()
+          engine = create_engine(url, isolation_level="AUTOCOMMIT")
+          with engine.connect() as connection:
+              connection.exec_driver_sql("CREATE DATABASE s3_migration_exact_test")
+          engine.dispose()
           PY
 
       - name: Rodar a suite marcada rls_integration fora dos guards de replay fresco
