@@ -340,12 +340,125 @@ depois de explicação em linguagem simples):
   e recriar os 4 processos.
 - Evidência de apoio: `docs/ops/prod-ledger-20260926/` (kit de conferência).
 
+## 27/09 — WhatsApp "Online" sem receber: diagnóstico, reconexão e teste
+
+Sintoma relatado pelo proprietário (07:13 BRT): o painel mostrava o número
+"Online", mas nada chegava, o "Desconectar" falhava e o sistema estava lento.
+
+Diagnóstico (só leitura):
+
+- A conexão da Evolution com o WhatsApp morreu em **03/09, às 21:05 BRT**
+  (`error in sending keep alive` seguido de erro do Prisma no
+  `ChannelStartupService`), mas ficou marcada `open` em memória e no banco da
+  Evolution. Foi uma conexão "zumbi": a Evolution não gravou nenhum log de 04/09
+  até 27/09.
+  - Última mensagem guardada na Evolution: 03/09 20:24. No banco do app, a última
+    é de 01/09 00:42: as recebidas entre 01 e 03/09 não chegaram ao app, porque os
+    webhooks falharam na época.
+- O "Desconectar" chama `DELETE /instance/logout`, que falha com a conexão morta.
+  O painel recebeu 502 (`Evolution logout failed: HTTPStatusError`) duas vezes, às
+  10:13 UTC.
+- O caminho Evolution → backend estava íntegro:
+  - token do webhook igual ao segredo do backend, tanto na instância quanto no
+    global;
+  - mesma rede Docker;
+  - `GET http://backend:8000/health` = 200 a partir da Evolution.
+- Lentidão: o servidor estava ocioso (load 0,3 em 1 vCPU, 2,6 GB livres). A causa
+  é a distância: o Supabase está em **us-west-2** e a VPS no Brasil, com 185–190 ms
+  por ida e volta.
+  - O custo mínimo de uma requisição do backend é ≈1,3 s: pre-ping, três comandos
+    de contexto de tenant, a consulta e o fim da transação.
+  - `/ready` leva ≈1,7 s.
+  - Tarefa própria aberta: "Reduzir a lentidão: banco longe do servidor".
+- O `queue-worker` caiu às 06:15:57 UTC com `redis.exceptions.TimeoutError` e o
+  Docker o religou em 8 s. Tarefa própria aberta.
+- Salvar a configuração do Jev no Console responde 409, porque a
+  `20260926_120446_platform_jev_settings` não está aplicada. É o esperado; a chave
+  da TypeSafe digitada não foi salva.
+
+Correção, com "ok" do proprietário:
+
+1. Resposta automática do robô desligada (`WHATSAPP_PILOTO_IGREJA_IDS=` vazio) e
+   reinício **só** do container da Evolution.
+   - `ALLOW_REAL_SENDS=true` ficou ligado, porque o painel precisa dele para
+     gerir a conexão.
+   - Motivo: não responder, semanas depois, o que o WhatsApp entregasse acumulado.
+   - O classificador automático do Claude Code bloqueou a execução mesmo com o
+     "ok". O proprietário rodou a linha equivalente no console da Hostinger às
+     10:53 UTC.
+   - Cópia do `.env`:
+     `/root/pastorai-env-bak/e6aafc2.env.pre-reconexao-20260927T105319Z`.
+2. A Evolution reconectou com a sessão existente (`connecting` → `open`,
+   statusReason 200), sem QR. O WhatsApp entregou o acumulado:
+   - mensagens de grupo, ignoradas pelo parser;
+   - 3 mensagens diretas de 04–08/09, ingeridas sem resposta;
+   - uma sincronização de ~3.100 eventos de contato em 2 minutos, ignorados; a
+     fila acompanhou.
+3. Robô religado só para a Filadélfia às 11:10 UTC (`REABERTURA_OK`).
+   - Cópia do `.env`: `…pre-reabertura-20260927T111031Z`.
+   - SLA, Asaas, Brevo, broadcast, agenda e Jev seguem desligados.
+
+Teste com celular da equipe interna:
+
+- **1ª tentativa:** a resposta foi gerada em 3 s, mas alguém clicou em
+  "Assumir (pausar IA)" no painel antes do envio. A cerca de handoff suprimiu a
+  resposta (`ia_suprimida`), comportamento esperado. Para testar de novo, é
+  preciso "Devolver para a IA".
+- **Entregas atrasadas:** mensagens antigas seguiram chegando com atraso de
+  dezenas de minutos, com avisos `No session found to decrypt message` e
+  `Decrypted message with closed session` (sessões de criptografia velhas se
+  refazendo).
+  - Uma mensagem de 26/09 22:26 chegou às 08:21 de 27/09 e foi respondida pelo
+    robô.
+  - Uma de 08:12 chegou às 08:22.
+- **2ª tentativa (08:30 BRT):** as mensagens chegaram na hora.
+  - Resposta enviada em 27–28 s: ≈15 s até o LLM responder, mais ≈13 s de
+    trabalho de banco até o `sendText` (201).
+  - O WhatsApp confirmou a entrega (`DELIVERY_ACK`) e o proprietário confirmou o
+    recebimento no celular.
+  - O critério do plano, resposta em menos de 10 s, **não foi atingido**.
+
+Estado final (11:40 UTC):
+
+- release `e6aafc2`;
+- robô ligado só para a Filadélfia; SLA, Asaas, Brevo, broadcast, agenda e Jev
+  desligados;
+- os 4 processos `healthy` e `/ready` verde;
+- filas zeradas e Evolution `open`.
+
+Achados para depois:
+
+- Não há limite de idade para responder: mensagem entregue atrasada é tratada como
+  nova. Avaliar um limite pelo `messageTimestamp` antes do turno do agente.
+- `parse_message_event` não extrai texto de `templateMessage`: a mensagem chega com
+  texto vazio e o agente responde assim mesmo.
+- Cada evento chega duas vezes, pelo webhook da instância e pelo global, e a
+  Evolution processa grupos (`groupsIgnore=false`). O dedupe segura, mas a carga
+  dobra. Considerar desligar o webhook global ou filtrar eventos, e usar
+  `groupsIgnore=true`.
+- Remetentes chegam como `@lid`, com `remoteJidAlt` de telefone. O payload do
+  webhook trouxe o telefone e casou com contatos existentes, mas o código não trata
+  `@lid` explicitamente. Há 5 pessoas com 14–15 dígitos, prováveis LIDs, criadas em
+  jun–jul.
+- Segredos em logs da VPS (só root, mas convém filtrar):
+  - o access log do uvicorn grava a query string do webhook (`?token=`);
+  - os dumps de erro da Evolution incluem a `apikey`.
+- A Evolution não percebe conexão morta. Criar alerta, por exemplo: nenhuma
+  mensagem recebida há N horas em horário comercial.
+- A VPS pede reinício (kernel e libc atualizados); agendar em horário calmo.
+- Scripts da sessão: `! grep` não abortava sob `set -e` no script da reabertura.
+  As checagens seguintes, dentro dos containers, cobriram; o script foi corrigido
+  para `if grep …; then exit 1; fi`.
+
 ## Pendente / próximo passo
 
-- Teste do robô com celular da equipe interna; preencher as informações públicas
-  no painel.
-- Remover a chave SSH temporária da VPS (linha para o console da Hostinger) e
-  apagar a cópia local.
+- Preencher as informações públicas no painel.
+- Tempo de resposta do robô (~28 s, meta < 10 s): tarefa "Reduzir a lentidão"
+  (banco em us-west-2), além dos achados acima (limite de idade, `templateMessage`,
+  webhook duplicado, grupos).
+- `queue-worker` tolerar timeout do Redis (tarefa própria).
+- Cópias do `.env` em `/root/pastorai-env-bak/` (3 arquivos, modo 600, contêm
+  segredos): apagar após uma semana estável.
 - Correções do roteiro de deploy: esperar o `/health` no B2; P2 da Sarah no wrapper
   de migration (hash do `migrate.py`, digest da imagem, fingerprint mais amplo).
 - **DEV confiável** antes da próxima migration em PROD: recriar o DEV a partir
@@ -358,7 +471,9 @@ depois de explicação em linguagem simples):
 - Pré-existente, fora deste escopo: `anon` tem SELECT/UPDATE em
   `public.app_users` (default privileges); a RLS é a única barreira; a
   `20260925_183811` corrige no gate dela.
-- No fim: remover a chave temporária da VPS e apagar a local.
+- No fim: o proprietário remove a chave temporária da VPS pelo console da Hostinger
+  (junto com o pacote `pastorai-e6aafc2….tar` enviado para o deploy), e a cópia
+  local é apagada depois de confirmar que a chave foi recusada.
 
 ## Verificação
 

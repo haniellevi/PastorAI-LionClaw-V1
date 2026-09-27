@@ -220,7 +220,7 @@ obrigatórios de produto.
       própria). Implementação local em 25/09: até cinco tentativas por envelope,
       depois dead-letter; sem teste real ou deploy. Timeout após envio pode
       duplicar resposta, pois a Evolution não garante idempotência nesse fluxo.
-- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo). Ligado em 27/09; teste com a equipe interna pendente.
+- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo). Ligado em 27/09. No teste da equipe interna (27/09), a resposta chegou ao celular em ~28 s; a meta de < 10 s ainda não foi atingida (banco em us-west-2, tarefa própria).
 
 **Pronto quando:** as mensagens para o número da Filadélfia recebem resposta
 em menos de 10 s e aparecem no inbox do painel.
@@ -287,7 +287,10 @@ operacional de 26/09 (registro em
    Reinicie os serviços.
 6. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
    número da Filadélfia. Esperado: o termo LGPD. Responda "sim". Esperado:
-   a saudação. As duas conversas aparecem no inbox.
+   a saudação. As duas conversas aparecem no inbox. Não clique em "Assumir
+   (pausar IA)" durante o teste: isso cancela a resposta do robô.
+   27/09: resposta entregue em ~28 s; antes, foi preciso reconectar a Evolution,
+   que estava "Online" sem receber desde 03/09 (registro da sessão).
 7. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
    ou `ALLOW_REAL_SENDS=false` e reiniciar.
 
