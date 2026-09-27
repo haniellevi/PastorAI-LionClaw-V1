@@ -140,10 +140,10 @@ backup e no monitor; acrescentar a ref do projeto novo na trava
   autocommit como no SQLAlchemy, comentário sobre `handle_error`, defasagem de
   CORS no runbook, item do plano desmarcado). O P2-6 do delta (voltar a
   assertiva de que a D2A nunca manda `'role'`) entrou no commit seguinte.
-- **P1-1, decisão do proprietário:** o PR mexe na D2A, pausada pelo
-  `AGENTS.md` até a Fase 5 (guarda de checkout e pre-ping; sem efeito em PROD
-  hoje). Aceitar a exceção por escrito no PR #424 ou separar esses trechos num
-  PR próprio parado até a Fase 5.
+- **P1-1 decidido em 27/09:** o proprietário aceitou a exceção de mexer na
+  D2A pausada (guarda de checkout e pre-ping; sem efeito em PROD hoje) e
+  autorizou o merge do PR #424. Decisão registrada no PR. O merge não é deploy:
+  o código entra em produção no próximo deploy pelo runbook.
 - Decisão do proprietário sobre a infraestrutura (seção acima) e o teste de
   latência em São Paulo. Enquanto o banco estiver em us-west-2, o aceite da
   Fase 1 (resposta em menos de 10 s) não é alcançável.
