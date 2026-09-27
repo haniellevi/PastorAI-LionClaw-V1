@@ -140,15 +140,22 @@ essas variáveis.
   `20260711_023515` e `20260711_152127` (só dados, sem prova de aplicação),
   d1a `20260827_175634`, d2a `20260827_230003`, d2b2 `20260828_045213`, d2b2b3
   `20260828_094914`, `20260925_183811` e `20260926_120446`.
-- **Regras:** DEV primeiro (o DEV reconciliado é pré-requisito da próxima
-  migration em PROD; a S2 foi exceção única); backup verificado imediatamente
+- **DEV** (Supabase `cxmjojnocigekgcxhubi`): recriado em 2026-09-27 como espelho
+  do schema `public` de PROD, com o mesmo ledger (70 linhas, mesmas origens) e o
+  `ensure_rls`; `migrate.py status` igual ao de PROD (8 pendentes). Sem dados
+  reais: igreja fictícia "Igreja Piloto PastorAI" com as contas de teste. Acesso
+  pelo serviço libpq `pastorai_dev` (`backend/scripts/dev_db_service.py`, sem URL
+  no chat); kit para repetir o espelho em `docs/ops/dev-espelho-prod-20260927/`.
+- **Regras:** DEV primeiro (o DEV reconciliado era pré-requisito da próxima
+  migration em PROD e está pronto desde 27/09; a S2 foi exceção única); backup verificado imediatamente
   antes; o pooler do Supabase ignora `PGOPTIONS` e o CLI não define
   `lock_timeout`, então migration que toma `ACCESS EXCLUSIVE` roda com
   `SET LOCAL lock_timeout` na mesma transação (até o `migrate.py` ganhar essa
   opção); os default privileges do Supabase concedem `arwdDxtm` a `anon` e
   `authenticated` em toda tabela nova de `public`, então migration que cria
   tabela revoga na mesma transação.
-- Evidência: `docs/sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md`.
+- Evidência: `docs/sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md` e
+  `docs/sprints/2026-09-27-dev-espelho-prod.md`.
 
 ### Histórico (até 2026-09-25; não é procedimento corrente)
 

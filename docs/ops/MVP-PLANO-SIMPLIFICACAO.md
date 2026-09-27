@@ -60,7 +60,8 @@ antes de estar pronta, e o produto regrediu.**
 
 - Não existe hoje **nenhuma forma autorizada** de aplicar migration em DEV ou
   PROD (`backend/migrations/README.md`).
-- O DEV tem 44 migrations pendentes e 8 aplicadas fora de ordem.
+- O DEV tem 44 migrations pendentes e 8 aplicadas fora de ordem. (Resolvido em
+  27/09: DEV recriado como espelho do schema de PROD, com o mesmo ledger.)
 - Qualquer feature que precise mudar o banco está parada.
 
 ### 1.5 Produção instável
@@ -162,7 +163,7 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 3. **DEV:** `MIGRATION_DATABASE_URL=... python scripts/migrate.py apply <arquivo> --yes`,
    que registra em `public.schema_migrations` na mesma transação.
 4. **PROD:** backup, o mesmo comando, verificação e registro no log da fatia.
-5. Uma vez só: reconciliar as 44 pendentes do DEV, ou recriar o DEV a partir
+5. Feito em 27/09 (recriado): reconciliar as 44 pendentes do DEV, ou recriar o DEV a partir
    do schema de PROD (é o mais simples).
 
 ---
@@ -190,11 +191,16 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [x] Checks obrigatórios da `main`: `backend-tests`, `frontend-ci`,
       `e2e-critical`, `rls-integration` e Vercel.
 - [ ] Limpar worktrees e branches mortas (só as limpas e já integradas).
-- [ ] Reconciliar ou recriar o DEV (44 migrations pendentes) com
-      `scripts/migrate.py status`. Precisa da URL do DEV, que fica com o
-      proprietário. **Pré-requisito da próxima migration em
-      PROD** (decisão do proprietário, 26/09). Caminho recomendado: recriar o
-      DEV a partir do schema de PROD, sem dados reais, com o mesmo ledger.
+- [x] Reconciliar ou recriar o DEV (44 migrations pendentes; 45 com a S2).
+      **Recriado em 27/09** a partir do schema de PROD, sem dados reais, com o
+      mesmo ledger (70 linhas, mesmas origens): fingerprint e `pg_dump` do
+      `public` idênticos aos de PROD e `migrate.py status` = 70/78/8, com as
+      mesmas 8 pendentes. Igreja fictícia "Igreja Piloto PastorAI" com as
+      contas de teste. Acesso ao DEV pelo serviço libpq `pastorai_dev`
+      (`backend/scripts/dev_db_service.py`); kit em
+      `docs/ops/dev-espelho-prod-20260927/`; registro em
+      [`2026-09-27-dev-espelho-prod.md`](../sprints/2026-09-27-dev-espelho-prod.md).
+      "DEV primeiro" volta a valer para a próxima migration.
 
 **Pronto quando:** `./test-local.sh` passa, e o CI tem só os jobs
 obrigatórios de produto.
@@ -444,7 +450,7 @@ UV e Capacitação, e Enviar editável.
 | B7 | Primeira mensagem sempre recebe o termo (o trigger não grava `consent_records`) | `migrations/0004_triggers.sql` | 2 |
 | B8 | ~30 incidentes de indisponibilidade em um mês | produção | 4 |
 | B9 | Deploy manual do backend | `deploy/` | 4 |
-| B10 | 44 migrations pendentes no DEV e 8 fora de ordem | Supabase DEV | 0 |
+| B10 | 44 migrations pendentes no DEV e 8 fora de ordem. Resolvido em 27/09: DEV recriado como espelho do schema de PROD | Supabase DEV | 0 |
 | B11 | Testes locais falham por ambiente (umask, Python 3.12, Node 26) | máquina local | 0 |
 | B12 | `V1-FINALIZATION-MAP.md` desatualizado (cita PR #257 como aberto) | docs | 0 |
 | B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |
