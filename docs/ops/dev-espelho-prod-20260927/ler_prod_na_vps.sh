@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # ler_prod_na_vps.sh - leitura SÓ LEITURA do PROD para o espelho DEV = PROD (27/09/2026).
 #
-# Roda na VPS, como root:  bash ler_prod_na_vps.sh <pasta com os .sql do kit>
+# Roda na VPS, como root, e manda o resultado como tar pela saída padrão:
+#   ssh root@vps 'bash <kit>/ler_prod_na_vps.sh <kit>' > leitura_prod.tar
+# Nada da leitura fica na VPS: a pasta de saída é apagada ao sair (também em
+# erro). Quem chamou apaga depois a pasta <kit> que copiou.
 #
 # A senha do banco não sai da VPS: o helper do backup gera um pg_service.conf e um
 # pgpass efêmeros (modo 0600), montados só leitura no container do psql/pg_dump e
@@ -19,7 +22,8 @@ SAIDA="$(mktemp -d "${PASTORAI_SAIDA_BASE:-/root}/pastorai-leitura-prod.XXXXXX")
 CRED="$SAIDA/cred"
 
 limpa() { rm -rf -- "$CRED"; }
-trap limpa EXIT
+limpa_tudo() { rm -rf -- "$SAIDA"; }
+trap limpa_tudo EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -56,4 +60,4 @@ limpa
 } > "$SAIDA/contexto.txt"
 (cd "$SAIDA" && sha256sum prod_public_schema.sql inventario_prod.txt fingerprint_prod.csv ledger_prod.csv \
   prova_prod.csv prova_s2_prod.csv contexto.txt > SHA256SUMS)
-echo "$SAIDA"
+tar -C "$SAIDA" -cf - .
