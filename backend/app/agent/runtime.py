@@ -50,7 +50,8 @@ from app.agent.private_runtime_projection import (
     load_private_runtime_projection,
 )
 from app.agent.read_only_info import (
-    resolve_public_info_reply,
+    canonical_public_info_request,
+    resolve_canonical_public_info,
     style_profile_without_public_info,
 )
 from app.agent.tools import TOOL_ACTOR_ROLE_CONTEXT, TOOL_ARG_SCHEMA, TOOLS, ToolError
@@ -93,9 +94,14 @@ from app.domain.agent_reply import (
     AGENT_REPLY_SUPPRESSED,
 )
 from app.domain.agent_authz import PrivilegeContext, tool_allowed, tool_denial_reason
-from app.services.conversation_handoff import fence_agent_replies_for_handoff
+from app.services.conversation_handoff import (
+    fence_agent_replies_for_handoff,
+    mark_conversation_for_handoff_locked,
+)
 from app.services.crypto import SecretDecryptionError, decrypt_secret
 from app.services.llm import LLMClient, LLMError
+from app.services.public_church_info import load_public_church_info
+from app.services.secretaria_offer import resolve_secretaria_offer_inbound
 
 logger = logging.getLogger("pastorai.agent.runtime")
 
@@ -119,6 +125,8 @@ class AgentTurnResult:
     suppressed: bool = False  # True when a human owns the chat (handoff)
     tools_executed: list[str] = field(default_factory=list)
     reason: str | None = None
+    secretaria_offer: bool = False
+    public_info_reply: bool = False
     plan: "AgentTurnPlan | None" = None
     preflight: "TierATurnPreflight | None" = None
 
@@ -158,6 +166,7 @@ class AgentTurnPlan(TierATurnPreflight):
     system_prompt: str
     user_prompt: str
     public_info_reply: bool = False
+    public_info_secretaria_offer: bool = False
 
 
 def _require_bound_turn_identity(
@@ -733,6 +742,7 @@ def _build_tier_a_plan(
     draft_response: object,
     history: list[tuple[str, str, str]],
     public_info_reply: bool = False,
+    public_info_secretaria_offer: bool = False,
 ) -> AgentTurnPlan | None:
     """Attach only effect-free onboarding work after Tier A allows the turn."""
 
@@ -752,6 +762,7 @@ def _build_tier_a_plan(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         public_info_reply=public_info_reply,
+        public_info_secretaria_offer=public_info_secretaria_offer,
     )
 
 
@@ -1046,11 +1057,21 @@ def apply_agent_turn_plan(
                 igreja_id=plan.igreja_id,
                 reason="config_changed",
             )
-        current_public_reply = resolve_public_info_reply(
+        public_request = canonical_public_info_request(plan.current_text)
+        resolution = resolve_canonical_public_info(
             plan.current_text,
-            config.informacoes_publicas,
+            load_public_church_info(
+                session,
+                igreja_id=plan.igreja_id,
+                bairro=(public_request[1] if public_request and public_request[0] == "celula" else None),
+                include_cells=bool(public_request and public_request[0] == "celula"),
+            ),
         )
-        if current_public_reply is None:
+        if (
+            resolution is None
+            or resolution.resposta != plan.draft_response
+            or resolution.oferece_secretaria != plan.public_info_secretaria_offer
+        ):
             return persist_tier_a_handoff(
                 session,
                 plan=plan,
@@ -1075,7 +1096,9 @@ def apply_agent_turn_plan(
         return AgentTurnResult(
             handled=True,
             route=ROUTE_ONBOARDING,
-            response=current_public_reply,
+            response=resolution.resposta,
+            secretaria_offer=resolution.oferece_secretaria,
+            public_info_reply=True,
         )
     _apply_intake(pessoa, plan.effects["intake_update"])
     if decision_payload is not None:
@@ -1374,14 +1397,7 @@ def _mark_conversation_for_handoff(
     ).scalar_one_or_none()
     if conversation is None:
         return None
-    conversation.estado = ESTADO_HUMANO
-    fence_agent_replies_for_handoff(
-        session,
-        igreja_id=igreja_id,
-        conversation_id=conversation_id,
-    )
-    if conversation.assumido_por is None and conversation.espera_desde is None:
-        conversation.espera_desde = dt.datetime.now(dt.UTC)
+    mark_conversation_for_handoff_locked(session, conversation=conversation)
     return conversation
 
 
@@ -1640,6 +1656,25 @@ def process_inbound_message(
             is not None
         )
 
+    def fence_secretaria_offer_for_gate() -> bool:
+        """Cancel a live offer under the Conversation lock before a hard gate."""
+
+        if tier_a_ownership_guard is not None:
+            tier_a_ownership_guard()
+        locked = _lock_tier_a_conversation(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+        )
+        if locked is None:
+            return False
+        fence_agent_replies_for_handoff(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+        )
+        return True
+
     # O direito de sair das comunicações independe de LLM, AgentConfig, handoff
     # ou credencial. Persistimos antes de qualquer gate do agente e não enviamos
     # resposta automática nesta trilha fail-closed.
@@ -1728,6 +1763,8 @@ def process_inbound_message(
     # lida no inbox para um humano decidir; só não há auto-resposta. Re-opt-in
     # (voltar a receber) é manual pelo humano hoje — fica como follow-up.
     if pessoa.optout:
+        if not fence_secretaria_offer_for_gate():
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         if not stage_tier_a_terminal(handoff=False):
             return AgentTurnResult(handled=False, reason="conversation_not_found")
         log_agent_event(
@@ -1746,6 +1783,8 @@ def process_inbound_message(
     # provedor. Não regravamos estado aqui: um operador pode ter liberado a IA
     # depois desta leitura, e este turno antigo deve apenas permanecer suprimido.
     if conversation.estado == ESTADO_HUMANO:
+        if not fence_secretaria_offer_for_gate():
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         if not stage_tier_a_terminal(handoff=False):
             return AgentTurnResult(handled=False, reason="conversation_not_found")
         session.commit()
@@ -1791,6 +1830,8 @@ def process_inbound_message(
     # si (1ª vez) ainda roda pelo grafo: aqui `pessoa.sem_interesse` só é True
     # depois que um turno anterior já persistiu o flag.
     if pessoa.sem_interesse:
+        if not fence_secretaria_offer_for_gate():
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
         if not stage_tier_a_terminal(handoff=False):
             return AgentTurnResult(handled=False, reason="conversation_not_found")
         log_agent_event(
@@ -1856,6 +1897,68 @@ def process_inbound_message(
         return AgentTurnResult(handled=False, reason=reason)
 
     accepted_version = _latest_consent_version(session, igreja_id, pessoa.id)
+    consent_needs_reaccept = consent_rules.needs_reaccept(
+        accepted_version,
+        settings.agent_term_version,
+    )
+    # A secretary offer is resolved only after the permanent opt-out, human,
+    # credential, active-config and current-consent gates above.  The inbound
+    # text is always the persisted anchor loaded earlier, never caller input.
+    if (
+        has_persisted_inbound_anchor
+        and not consent_needs_reaccept
+        and inbound_message_id is not None
+    ):
+        locked_offer_conversation = _lock_tier_a_conversation(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+        )
+        if locked_offer_conversation is None:
+            return AgentTurnResult(handled=False, reason="conversation_not_found")
+        offer_resolution = resolve_secretaria_offer_inbound(
+            session,
+            locked_offer_conversation,
+            igreja_id=igreja_id,
+            inbound_message_id=inbound_message_id,
+            current_text=current_text,
+        )
+        if offer_resolution.handoff:
+            if (tier_a_preflight or defer_onboarding_plan) and has_persisted_inbound_anchor:
+                marked = stage_tier_a_terminal(handoff=True)
+            else:
+                marked = _mark_conversation_for_handoff(
+                    session,
+                    igreja_id=igreja_id,
+                    conversation_id=conv_uuid,
+                ) is not None
+            if not marked:
+                return AgentTurnResult(handled=False, reason="conversation_not_found")
+            log_agent_event(
+                session,
+                igreja_id=igreja_id,
+                evento="agent_secretaria_offer",
+                payload={"estado": "consumida"},
+                conversation_id=conv_uuid,
+            )
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=ROUTE_HANDOFF,
+                response=None,
+                suppressed=True,
+                reason="secretaria_offer_accepted",
+            )
+        if offer_resolution.terminal:
+            if not stage_tier_a_terminal(handoff=False):
+                return AgentTurnResult(handled=False, reason="conversation_not_found")
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                response=None,
+                suppressed=True,
+                reason="secretaria_offer_resolved",
+            )
     tier_a_snapshot = None
     if tier_a_preflight or defer_onboarding_plan:
         tier_a_snapshot = _build_tier_a_preflight(
@@ -1876,10 +1979,7 @@ def process_inbound_message(
                 return AgentTurnResult(handled=False, reason="conversation_not_found")
             session.commit()
             return AgentTurnResult(handled=False, reason="tier_a_preflight_invalid")
-        if consent_rules.needs_reaccept(
-            accepted_version,
-            settings.agent_term_version,
-        ):
+        if consent_needs_reaccept:
             session.commit()
             return AgentTurnResult(handled=False, reason="tier_a_legacy_route")
         session.commit()
@@ -1906,12 +2006,22 @@ def process_inbound_message(
     # Consultas públicas explicitamente configuradas são estritamente de
     # leitura: a âncora inbound define a pergunta e o retorno acontece antes
     # de qualquer intake, ferramenta, auditoria de efeitos ou provedor.
-    if has_persisted_inbound_anchor and route == ROUTE_ONBOARDING:
-        public_reply = resolve_public_info_reply(
+    if (
+        has_persisted_inbound_anchor
+        and not consent_needs_reaccept
+        and route == ROUTE_ONBOARDING
+    ):
+        public_request = canonical_public_info_request(current_text)
+        public_resolution = resolve_canonical_public_info(
             current_text,
-            getattr(config, "informacoes_publicas", None),
+            load_public_church_info(
+                session,
+                igreja_id=igreja_id,
+                bairro=(public_request[1] if public_request and public_request[0] == "celula" else None),
+                include_cells=bool(public_request and public_request[0] == "celula"),
+            ),
         )
-        if public_reply is not None:
+        if public_resolution is not None:
             if defer_onboarding_plan:
                 if tier_a_snapshot is None:
                     session.commit()
@@ -1929,9 +2039,10 @@ def process_inbound_message(
                         "apply_consent_version": None,
                         "intake_update": {},
                     },
-                    draft_response=public_reply,
+                    draft_response=public_resolution.resposta,
                     history=[],
                     public_info_reply=True,
+                    public_info_secretaria_offer=public_resolution.oferece_secretaria,
                 )
                 session.commit()
                 return AgentTurnResult(
@@ -1951,8 +2062,10 @@ def process_inbound_message(
             return AgentTurnResult(
                 handled=True,
                 route=route,
-                response=public_reply,
+                response=public_resolution.resposta,
                 suppressed=False,
+                secretaria_offer=public_resolution.oferece_secretaria,
+                public_info_reply=True,
             )
 
     if defer_onboarding_plan:

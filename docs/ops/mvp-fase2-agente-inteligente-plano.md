@@ -1,7 +1,7 @@
 # Fase 2: agente com decisões tipadas e privilégios
 
 Aprovado com ajustes por Claude + Opencoded, 26/09/2026; S1 autorizada após fechar PR421. Ativação externa continua fechada.
-S1 PR422 MERGED por ordem nominal, main `a5244ca`; ativação fechada. S2 candidata separada; merge depende de liberação explícita coordenada com schema/deploy.
+S1 PR422 MERGED por ordem nominal, main `a5244ca`; ativação fechada. S2 PR423 MERGED em `e6aafc2`; S2b aprovada substitui a fonte pública, com migration/deploy separados.
 Substitui a proposta LLM+moderação. Piloto Filadélfia continua interno, sem divulgar o número.
 Base estudada: PR418/419/420 e candidato PR421 `d48b3d2`. Um PR por fatia; priorizar S1, S2 pode seguir em paralelo se houver capacidade.
 
@@ -11,7 +11,7 @@ Código decide rota, autorização, argumentos e envio. Probabilidade não conce
 Regex permanece rede mínima; esta fatia não amplia listas de frases nem adiciona moderação OpenAI.
 S1: tier A real, fail-safe, flag vazia, corpus congelado e relatório. S2: migration + API + UI de campos públicos, removendo o bloco em `comportamento`; filtrar `Cf` na leitura legada até sua remoção; consultas naturais de culto (que horas começa/é, horário do, quando é) devem usar o cadastro, sem cair no LLM.
 1. Validar inbound/tenant e `AgentConfig.ativo`; opt-out reconhecido é persistido primeiro. Termo pendente/estado humano/opt-out não egressam.
-2. S3, depois: confirmação Clerk, identidade/papel e ferramentas readonly por papel; Jev B/C/D só entram nessa fatia. Modelo nunca fornece tenant/papel.
+2. S3 será revisada pela ordem WhatsApp-first do MVP-PLANO (27/09); Jev B/C/D só entram nessa fatia. Modelo nunca fornece tenant/papel.
 3. Só com gates de egress abertos, enviar estado mínimo à primeira decisão Jev.
 4. Aplicar decisões abaixo em código; perguntas dependentes só são construídas após a decisora.
 5. Executar leitura autorizada, produzir resposta LLM com fatos e revalidar estado antes do envio.
@@ -35,13 +35,13 @@ LLM não revoga sinal positivo; erro/timeout/schema inválido também causa hand
 Reusar supressão durável/CAS do worker para que retry e retorno à IA não ressuscitem resposta descartada.
 Termo exige aceite explícito; Jev não cria consentimento/autoridade. Auditar razão enumerada, versão, latência/falhas, sem texto pastoral, telefone, chave ou raciocínio privado.
 
-## Identidade e matriz de leitura (S3)
+## Identidade e matriz de leitura (S3 histórica; revisão de 27/09 no MVP-PLANO prevalece)
 Vínculo backend: instância WhatsApp → igreja → contato/conversa → pessoa → app_user ativo → UserRole da mesma igreja.
-App_user único, com identidade Clerk válida; vínculo ausente, ambíguo ou revogado não concede papel.
+App_user único e ativo ligado à pessoa; vínculo ausente, ambíguo ou revogado não concede papel.
 `Pessoa.tipo`, telefone, autodeclaração e `leads_cells` isolados não provam privilégio.
-Antes de qualquer dado não público, exigir confirmação recente em sessão autenticada do painel/Clerk.
-Vincular confirmação a igreja, app_user, conversa e desafio de uso único com expiração; OTP no mesmo WhatsApp não basta.
-Revalidar vínculo/papéis por turno e antes do envio; sem confirmação, oferecer só público ou handoff.
+Leituras sensíveis exigem confirmação recente Clerk; ações ministeriais comuns por telefone único exigem confirmação explícita por ação.
+O plano S3 revisado definirá confirmação vinculada a igreja, ator, conversa, ação e prazo; finanças nunca por telefone.
+Revalidar vínculo/papéis por turno e antes do efeito/envio; ambiguidade encaminha a humano. Matriz abaixo é histórica até o novo plano aprovado.
 
 | Papel confirmado | Ferramentas/dados máximos na S3 |
 |---|---|

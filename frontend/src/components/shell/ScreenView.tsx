@@ -24,6 +24,7 @@ import {
   loadG12Screen,
   loadGanharScreen,
   loadIdentidadeVisualScreen,
+  loadCadastroIgrejaScreen,
   loadInboxScreen,
   loadIntegracoesScreen,
   loadLockedScreen,
@@ -35,6 +36,7 @@ import {
   loadWhatsappScreen,
 } from "./screen-loaders";
 import { Icon } from "@/lib/icons";
+import { useAuth } from "@/lib/auth-context";
 import { SCREEN_META } from "@/lib/navigation";
 
 function ScreenLoading() {
@@ -76,6 +78,10 @@ const EquipeScreen = dynamic(
 );
 const IdentidadeVisualScreen = dynamic(
   () => loadIdentidadeVisualScreen().then((m) => m.IdentidadeVisualScreen),
+  { loading: ScreenLoading },
+);
+const CadastroIgrejaScreen = dynamic(
+  () => loadCadastroIgrejaScreen().then((m) => m.CadastroIgrejaScreen),
   { loading: ScreenLoading },
 );
 const IntegracoesScreen = dynamic(
@@ -152,6 +158,8 @@ const PerfilScreen = dynamic(
 );
 
 export function ScreenView({ route, param }: { route: string; param?: string | null }) {
+  const { token, user } = useAuth();
+  const identityKey = `${token ?? ""}:${user?.churchId ?? ""}:${user?.appUserId ?? ""}`;
   const meta = SCREEN_META[route] ?? { title: "Tela", crumb: "" };
 
   // Telas implementadas.
@@ -165,7 +173,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return <ContatosScreen selectedId={param ?? null} />;
   }
   if (route === "celulas") {
-    return <CelulasScreen />;
+    return <CelulasScreen key={identityKey} />;
   }
   if (route === "g12") {
     return (
@@ -207,7 +215,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return (
       <>
         <ModuleTabs group="discipular" />
-        <CentralCelulaScreen />
+        <CentralCelulaScreen key={identityKey} />
       </>
     );
   }
@@ -234,6 +242,9 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   }
   if (route === "identidade") {
     return <IdentidadeVisualScreen />;
+  }
+  if (route === "cadastro-igreja") {
+    return <CadastroIgrejaScreen key={identityKey} />;
   }
   if (route === "setup") {
     return <SetupChecklistScreen />;

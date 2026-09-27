@@ -38,6 +38,7 @@ export const ADMIN_ONLY = [
   "integracoes",
   "whatsapp",
   "agente",
+  "cadastro-igreja",
   "assinatura",
 ] as const;
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -90,6 +91,8 @@ class CellOut(BaseModel):
     linkGrupo: str | None = None  # noqa: N815
     linkLocalizacao: str | None = None  # noqa: N815
     mensagemConvite: str | None = None  # noqa: N815
+    bairro: str | None = None
+    divulgarWhatsapp: bool = False  # noqa: N815
     ativo: bool
 
     @classmethod
@@ -107,6 +110,8 @@ class CellOut(BaseModel):
             linkGrupo=c.link_grupo,
             linkLocalizacao=c.link_localizacao,
             mensagemConvite=c.mensagem_convite,
+            bairro=getattr(c, "bairro", None),
+            divulgarWhatsapp=bool(getattr(c, "divulgar_whatsapp", False)),
             ativo=c.ativo,
         )
 
@@ -246,6 +251,8 @@ class UpsertCellRequest(BaseModel):
     linkGrupo: str | None = Field(default=None, max_length=500)  # noqa: N815
     linkLocalizacao: str | None = Field(default=None, max_length=500)  # noqa: N815
     mensagemConvite: str | None = Field(default=None, max_length=2000)  # noqa: N815
+    bairro: str | None = Field(default=None, max_length=120)
+    divulgarWhatsapp: bool = False  # noqa: N815
     ativo: bool = True
 
     @field_validator("nome", "coberturaEspiritual")
@@ -287,6 +294,14 @@ class UpsertCellRequest(BaseModel):
         if value is None:
             return None
         value = value.strip()
+        return value or None
+
+    @field_validator("bairro")
+    @classmethod
+    def _bairro_nfc(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = unicodedata.normalize("NFC", value.strip())
         return value or None
 
 
@@ -486,6 +501,19 @@ def _sensitive_changed(payload: UpsertCellRequest, cell: Celula) -> bool:
     )
 
 
+def _assert_whatsapp_publication(
+    *,
+    ativo: bool,
+    bairro: str | None,
+    divulgar_whatsapp: bool,
+) -> None:
+    if divulgar_whatsapp and (not ativo or not bairro):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Divulgação no WhatsApp exige célula ativa e bairro preenchido",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -577,6 +605,8 @@ def upsert_cell(
             link_grupo=payload.linkGrupo,
             link_localizacao=payload.linkLocalizacao,
             mensagem_convite=payload.mensagemConvite,
+            bairro=payload.bairro,
+            divulgar_whatsapp=payload.divulgarWhatsapp,
             ativo=False,
         )
         try:
@@ -586,6 +616,11 @@ def upsert_cell(
                 cell=cell,
                 new_leader_id=_to_uuid(payload.liderId),
                 new_active=payload.ativo,
+            )
+            _assert_whatsapp_publication(
+                ativo=payload.ativo,
+                bairro=payload.bairro,
+                divulgar_whatsapp=payload.divulgarWhatsapp,
             )
             db.add(cell)
             db.flush()
@@ -626,6 +661,15 @@ def upsert_cell(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas a Central de Células altera liderança ou ativação",
         )
+    if (
+        "divulgarWhatsapp" in payload.model_fields_set
+        and payload.divulgarWhatsapp != bool(getattr(cell, "divulgar_whatsapp", False))
+        and not current_user.has_any_role(CENTRAL_ROLES)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas a Central de Células publica no WhatsApp",
+        )
     _validate_pessoa_refs(db, payload)
     _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
     # Decisão 3.2: campos sensíveis só a Central altera direto; o líder solicita
@@ -661,8 +705,17 @@ def upsert_cell(
             cell.link_localizacao = payload.linkLocalizacao
         if "mensagemConvite" in payload.model_fields_set:
             cell.mensagem_convite = payload.mensagemConvite
+        if "bairro" in payload.model_fields_set:
+            cell.bairro = payload.bairro
+        if "divulgarWhatsapp" in payload.model_fields_set:
+            cell.divulgar_whatsapp = payload.divulgarWhatsapp
         for attribute, value in _sensitive_payload(payload).items():
             setattr(cell, attribute, value)
+        _assert_whatsapp_publication(
+            ativo=bool(cell.ativo),
+            bairro=cell.bairro,
+            divulgar_whatsapp=bool(cell.divulgar_whatsapp),
+        )
         db.flush()
         db.refresh(cell)
         db.commit()

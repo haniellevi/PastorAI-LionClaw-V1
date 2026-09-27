@@ -42,6 +42,8 @@ export interface CellFormModalProps {
   coverageOptions: Contact[];
   /** Somente a Central pode trocar liderança ou ativar/desativar a célula. */
   canManageLeadership: boolean;
+  publicDataEnabled?: boolean;
+  canPublish?: boolean;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -53,6 +55,8 @@ export function CellFormModal({
   leaders,
   coverageOptions,
   canManageLeadership,
+  publicDataEnabled = false,
+  canPublish = false,
   busy,
   error,
   onClose,
@@ -65,6 +69,12 @@ export function CellFormModal({
   const [horario, setHorario] = useState(cell?.horario ?? "");
   const [cobertura, setCobertura] = useState(cell?.coberturaEspiritual ?? "");
   const [ativo, setAtivo] = useState(cell?.ativo ?? true);
+  const [bairro, setBairro] = useState<string | undefined>(cell && cell.bairro === undefined ? undefined : cell?.bairro ?? "");
+  const [divulgarWhatsapp, setDivulgarWhatsapp] = useState<boolean | undefined>(
+    cell && cell.divulgarWhatsapp === undefined ? undefined : cell?.divulgarWhatsapp ?? false,
+  );
+  const [bairroChanged, setBairroChanged] = useState(false);
+  const [publishChanged, setPublishChanged] = useState(false);
   const [touched, setTouched] = useState(false);
 
   const currentLeaderOption = leaders.find((option) => option.id === liderId);
@@ -84,10 +94,16 @@ export function CellFormModal({
   const nomeError = touched && !nome.trim() ? "Informe o nome da célula." : undefined;
   const coberturaError =
     touched && !cobertura.trim() ? "A cobertura espiritual é obrigatória." : undefined;
+  const invalidBairro = publicDataEnabled && (bairroChanged || publishChanged) &&
+    divulgarWhatsapp === true && !bairro?.trim();
+  const bairroError = touched && invalidBairro ? "Informe o bairro antes de divulgar a célula." : undefined;
+  const invalidPublish = publicDataEnabled && canPublish && publishChanged && divulgarWhatsapp === true && !ativo;
+  const publishError = touched && invalidPublish
+    ? "Ative a célula antes de divulgar no WhatsApp." : undefined;
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !cobertura.trim() || leadershipBlocked) return;
+    if (!nome.trim() || !cobertura.trim() || leadershipBlocked || invalidBairro || invalidPublish) return;
     onSubmit({
       id: cell?.id ?? null,
       nome: nome.trim(),
@@ -96,6 +112,9 @@ export function CellFormModal({
       horario: horario || null,
       coberturaEspiritual: cobertura.trim(),
       ativo,
+      ...(publicDataEnabled && bairroChanged ? { bairro: bairro?.trim() || null } : {}),
+      ...(publicDataEnabled && canPublish && publishChanged && divulgarWhatsapp !== undefined
+        ? { divulgarWhatsapp } : {}),
     });
   };
 
@@ -245,6 +264,50 @@ export function CellFormModal({
               ? "Desativar preserva o histórico e retira a célula dos fluxos ativos."
               : "Ativação e desativação são geridas exclusivamente na Central de Células."}
           </p>
+
+          {publicDataEnabled ? (
+            <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+              <legend className="panel-title">Divulgação no WhatsApp</legend>
+              <p className="sub">Informe apenas o bairro público da célula, sem endereço residencial ou contato.</p>
+              <div className="field">
+                <label htmlFor="cf-bairro">Bairro da célula</label>
+                <input id="cf-bairro" value={bairro ?? ""} onChange={(event) => {
+                  setBairro(event.target.value);
+                  setBairroChanged(true);
+                }}
+                  aria-invalid={Boolean(bairroError) || undefined} aria-describedby={bairroError ? "cf-bairro-error" : undefined} />
+                {bairroError ? <span id="cf-bairro-error" className="err" role="alert">{bairroError}</span> : null}
+              </div>
+              {cell && (bairro === undefined || (canPublish && divulgarWhatsapp === undefined)) ? (
+                <p className="sub">Dados ausentes desta lista serão mantidos até alteração explícita.</p>
+              ) : null}
+              {canPublish ? (
+                cell && cell.divulgarWhatsapp === undefined ? (
+                  <div className="field">
+                    <label htmlFor="cf-divulgar">Divulgação no WhatsApp</label>
+                    <select id="cf-divulgar" value={divulgarWhatsapp === undefined ? "" : String(divulgarWhatsapp)} onChange={(event) => {
+                      setDivulgarWhatsapp(event.target.value === "true" ? true : event.target.value === "false" ? false : undefined);
+                      setPublishChanged(event.target.value !== "");
+                    }}>
+                      <option value="">Manter estado atual</option>
+                      <option value="true">Divulgar</option>
+                      <option value="false">Não divulgar</option>
+                    </select>
+                  </div>
+                ) : <>
+                  <label className="check-row">
+                    <input id="cf-divulgar" type="checkbox" checked={divulgarWhatsapp}
+                      onChange={(event) => {
+                        setDivulgarWhatsapp(event.target.checked);
+                        setPublishChanged(true);
+                      }} />
+                    <span>Divulgar célula no WhatsApp</span>
+                  </label>
+                  {publishError ? <p className="err" role="alert">{publishError}</p> : null}
+                </>
+              ) : <p className="sub">Somente pastor ou administrador pode alterar a divulgação.</p>}
+            </fieldset>
+          ) : null}
 
           <div className="modal-foot">
             <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>

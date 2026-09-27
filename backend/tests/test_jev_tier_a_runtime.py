@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
+from dataclasses import fields, replace
 from types import SimpleNamespace
 
 import pytest
 
 from app.agent import runtime
 from app.agent.nodes import empty_turn_effects
-from app.db.models import Conversation, Message, Pessoa
+from app.db.models import AgentConfig, Celula, Conversation, Igreja, Message, Pessoa
 from app.services import semantic_triage
 from app.workers import queue_worker
 
@@ -34,16 +34,39 @@ class _Session:
 
 
 class _PublicPlanSession:
-    """Small session seam for the post-wait public-profile revalidation."""
+    """Small session seam for post-wait config and canonical-fact revalidation."""
 
-    def __init__(self, config: object) -> None:
+    def __init__(
+        self,
+        config: object,
+        *,
+        church: tuple[object, object] | None = ("Rua institucional", "Domingo, 19:00"),
+        cells: tuple[tuple[object, object, object, object], ...] = (),
+    ) -> None:
         self.config = config
+        self.church = church
+        self.cells = cells
         self.statements: list[object] = []
         self.commits = 0
 
     def execute(self, statement: object) -> SimpleNamespace:
         self.statements.append(statement)
-        return SimpleNamespace(scalar_one_or_none=lambda: self.config)
+        descriptions = list(getattr(statement, "column_descriptions", []) or [])
+        entities = {item.get("entity") for item in descriptions}
+        names = [item.get("name") for item in descriptions]
+        if entities == {AgentConfig}:
+            return SimpleNamespace(scalar_one_or_none=lambda: self.config)
+        sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        assert _IGREJA_ID.hex in sql.replace("-", "")
+        if entities == {Igreja}:
+            assert names == ["endereco_institucional", "horarios_culto"]
+            return SimpleNamespace(one_or_none=lambda: self.church)
+        if entities == {Celula}:
+            assert names == ["bairro", "nome", "dia_reuniao", "horario"]
+            assert "celulas.ativo IS true" in sql
+            assert "celulas.divulgar_whatsapp IS true" in sql
+            return SimpleNamespace(all=lambda: list(self.cells))
+        raise AssertionError(f"unexpected public revalidation query: {sql}")
 
     def commit(self) -> None:
         self.commits += 1
@@ -79,6 +102,7 @@ def _no_existing_tier_a_reply_intent(monkeypatch: pytest.MonkeyPatch) -> None:
             state=queue_worker._AGENT_REPLY_RESERVED,
             response="",
             provider_message_id=provider_message_id,
+            public_info_reply=None,
         )
         ledger[provider_message_id] = intent
         return intent
@@ -122,19 +146,9 @@ def _plan(*, within_limit: bool = True) -> runtime.AgentTurnPlan:
 
 
 def _preflight(*, within_limit: bool = True) -> runtime.TierATurnPreflight:
+    plan = _plan(within_limit=within_limit)
     return runtime.TierATurnPreflight(
-        **{
-            key: value
-            for key, value in _plan(within_limit=within_limit).__dict__.items()
-            if key
-            not in {
-                "effects",
-                "draft_response",
-                "system_prompt",
-                "user_prompt",
-                "public_info_reply",
-            }
-        }
+        **{field.name: getattr(plan, field.name) for field in fields(runtime.TierATurnPreflight)}
     )
 
 
@@ -142,7 +156,7 @@ def _public_plan() -> runtime.AgentTurnPlan:
     return replace(
         _plan(),
         current_text="Que horas começa o culto?",
-        draft_response="Horário de culto: Sábado, 18:00.",
+        draft_response="Horário de culto: Domingo, 19:00.",
         public_info_reply=True,
     )
 
@@ -153,7 +167,7 @@ def _current_public_config(**changes: object) -> SimpleNamespace:
         "igreja_id": _IGREJA_ID,
         "ativo": True,
         "comportamento": _plan().config_comportamento,
-        "informacoes_publicas": {"horarios_culto": "Domingo, 19:00"},
+        "informacoes_publicas": {"horarios_culto": "LEGADO-NAO-PUBLICAR"},
     }
     values.update(changes)
     return SimpleNamespace(**values)
@@ -170,10 +184,10 @@ def _allow_public_plan(monkeypatch: pytest.MonkeyPatch) -> tuple[SimpleNamespace
     return conversation, pessoa
 
 
-def test_public_plan_reresolves_locked_profile_after_tier_a_wait(
+def test_public_plan_revalidates_matching_canonical_hours_after_tier_a_wait(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A public answer uses the profile locked after Tier A, never its draft."""
+    """The locked plan and canonical Igreja fact must still agree after HTTP."""
 
     _allow_public_plan(monkeypatch)
     session = _PublicPlanSession(_current_public_config())
@@ -201,11 +215,15 @@ def test_public_plan_reresolves_locked_profile_after_tier_a_wait(
     )
 
     assert result.response == "Horário de culto: Domingo, 19:00."
+    assert result.public_info_reply is True
+    assert "LEGADO-NAO-PUBLICAR" not in result.response
     assert session.commits == 1
-    assert len(session.statements) == 1
-    statement = session.statements[0]
-    assert statement._for_update_arg is not None
-    assert statement.get_execution_options()["populate_existing"] is True
+    assert len(session.statements) == 2
+    config_statement, church_statement = session.statements
+    assert config_statement._for_update_arg is not None
+    assert config_statement.get_execution_options()["populate_existing"] is True
+    assert _IGREJA_ID.hex in str(config_statement.compile(compile_kwargs={"literal_binds": True})).replace("-", "")
+    assert _IGREJA_ID.hex in str(church_statement.compile(compile_kwargs={"literal_binds": True})).replace("-", "")
     assert audits == [
         {
             "igreja_id": _IGREJA_ID,
@@ -222,16 +240,56 @@ def test_public_plan_reresolves_locked_profile_after_tier_a_wait(
     ]
 
 
-@pytest.mark.parametrize("public_info", ({}, []))
-def test_public_plan_reresolves_cleared_or_invalid_profile_after_tier_a_wait(
+def test_public_plan_revalidates_published_canonical_cell_after_tier_a_wait(
     monkeypatch: pytest.MonkeyPatch,
-    public_info: object,
 ) -> None:
-    """Clearing or corrupting JSONB after the wait cannot send an old fact."""
+    """The cell reply reads only the current public Celula projection."""
 
     _allow_public_plan(monkeypatch)
-    session = _PublicPlanSession(_current_public_config(informacoes_publicas=public_info))
+    session = _PublicPlanSession(
+        _current_public_config(),
+        cells=(("Centro", "Esperança", "Terça-feira", "19:00"),),
+    )
     monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
+    plan = replace(
+        _public_plan(),
+        current_text="Tem uma célula no bairro Centro?",
+        draft_response=(
+            "Há uma célula com informações públicas no bairro Centro: Esperança. "
+            "Encontro: Terça-feira, 19:00. Quer falar com a secretaria da igreja "
+            "para entrar em contato com o líder da célula?"
+        ),
+        public_info_secretaria_offer=True,
+    )
+
+    result = runtime.apply_agent_turn_plan(
+        session,
+        plan=plan,
+        response=plan.draft_response,
+    )
+
+    assert result.response == plan.draft_response
+    assert result.secretaria_offer is True
+    assert len(session.statements) == 3
+    assert session.commits == 1
+
+
+@pytest.mark.parametrize("church", (None, (None, None), (None, [])))
+def test_public_plan_handoffs_when_canonical_hours_are_missing_or_invalid_after_wait(
+    monkeypatch: pytest.MonkeyPatch,
+    church: tuple[object, object] | None,
+) -> None:
+    """Missing or invalid canonical facts cannot release the pre-HTTP draft."""
+
+    _allow_public_plan(monkeypatch)
+    session = _PublicPlanSession(_current_public_config(), church=church)
+    handoffs: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        runtime,
+        "persist_tier_a_handoff",
+        lambda _session, **kwargs: handoffs.append(kwargs["decision_payload"])
+        or runtime.AgentTurnResult(handled=True, suppressed=True, reason="public_reply_missing"),
+    )
     plan = _public_plan()
 
     result = runtime.apply_agent_turn_plan(
@@ -240,11 +298,42 @@ def test_public_plan_reresolves_cleared_or_invalid_profile_after_tier_a_wait(
         response=plan.draft_response,
     )
 
-    assert result.response == (
-        "Não encontrei o horário de culto nas informações públicas configuradas "
-        "pela igreja."
+    assert result.response is None
+    assert result.suppressed is True
+    assert handoffs == [{"erro": "public_reply_missing"}]
+    assert len(session.statements) == 2
+    assert session.commits == 0
+
+
+def test_public_plan_handoffs_when_canonical_hours_change_after_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changed facts cannot send either the stale draft or an unreviewed reply."""
+
+    _allow_public_plan(monkeypatch)
+    session = _PublicPlanSession(
+        _current_public_config(), church=("Rua institucional", "Sábado, 18:00")
     )
-    assert session.commits == 1
+    handoffs: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        runtime,
+        "persist_tier_a_handoff",
+        lambda _session, **kwargs: handoffs.append(kwargs["decision_payload"])
+        or runtime.AgentTurnResult(handled=True, suppressed=True, reason="public_reply_missing"),
+    )
+    plan = _public_plan()
+
+    result = runtime.apply_agent_turn_plan(
+        session,
+        plan=plan,
+        response=plan.draft_response,
+    )
+
+    assert result.response is None
+    assert result.suppressed is True
+    assert handoffs == [{"erro": "public_reply_missing"}]
+    assert len(session.statements) == 2
+    assert session.commits == 0
 
 
 @pytest.mark.parametrize(
@@ -274,8 +363,10 @@ def test_public_plan_handoffs_when_locked_config_no_longer_matches_plan(
     monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         runtime,
-        "resolve_public_info_reply",
-        lambda *_args: pytest.fail("configuração alterada não pode resolver resposta"),
+        "load_public_church_info",
+        lambda *_args, **_kwargs: pytest.fail(
+            "configuração alterada não pode consultar fatos canônicos"
+        ),
     )
     plan = _public_plan()
 
@@ -301,6 +392,22 @@ def _outcome() -> queue_worker.IngestionOutcome:
         claim_id="claim-synthetic",
         inbound_message_id=_INBOUND_ID,
     )
+
+
+@pytest.mark.parametrize("marker", (True, False, None))
+def test_reply_intent_preserves_persisted_public_origin_marker(marker) -> None:
+    message = SimpleNamespace(
+        id=uuid.uuid4(),
+        agent_reply_state=queue_worker._AGENT_REPLY_PENDING,
+        autor="ia",
+        texto="resposta sintética",
+        provider_message_id="agent-reply:synthetic",
+        public_info_reply=marker,
+    )
+
+    intent = queue_worker._intent_from_message(message)
+
+    assert intent.public_info_reply is marker
 
 
 def _active_settings() -> semantic_triage.TriageSettings:
@@ -1018,6 +1125,7 @@ def test_tier_a_terminal_tombstone_skips_retriage_and_transport(monkeypatch) -> 
             state=queue_worker._AGENT_REPLY_SUPPRESSED,
             response="",
             provider_message_id="agent-reply:synthetic",
+            public_info_reply=None,
         ),
     )
     monkeypatch.setattr(
@@ -1063,12 +1171,14 @@ def test_optout_confirmation_source_marker_recovers_without_retriaging(monkeypat
         state=queue_worker._AGENT_REPLY_NO_RESPONSE,
         response="",
         provider_message_id=source_key,
+        public_info_reply=None,
     )
     confirmation = queue_worker._AgentReplyIntent(
         id=uuid.uuid4(),
         state=queue_worker._AGENT_REPLY_PENDING,
         response="Confirmação sintética",
         provider_message_id=confirmation_key,
+        public_info_reply=False,
     )
     _enable_tier_a(monkeypatch)
 
@@ -1125,6 +1235,7 @@ def test_pending_tier_a_reply_retries_transport_without_retriage(monkeypatch) ->
             state=queue_worker._AGENT_REPLY_PENDING,
             response="resposta sintética",
             provider_message_id="agent-reply:synthetic",
+            public_info_reply=False,
         ),
     )
     monkeypatch.setattr(
@@ -1164,6 +1275,7 @@ def test_reserved_tier_a_reply_keeps_legacy_recovery_path(monkeypatch) -> None:
         state=queue_worker._AGENT_REPLY_RESERVED,
         response="",
         provider_message_id="agent-reply:synthetic",
+        public_info_reply=None,
     )
     _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_scope_agent_execution_session", lambda *_a, **_k: None)
@@ -1227,6 +1339,7 @@ def test_executing_tier_a_reply_is_quarantined_without_retriage(monkeypatch) -> 
         state=queue_worker._AGENT_REPLY_EXECUTING,
         response="",
         provider_message_id="agent-reply:synthetic",
+        public_info_reply=None,
     )
     _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_AgentExecutionLease", lambda *_args: _Lease())
@@ -1267,6 +1380,7 @@ def test_live_execution_lease_keeps_tier_a_intent_in_flight(monkeypatch) -> None
         state=queue_worker._AGENT_REPLY_EXECUTING,
         response="",
         provider_message_id="agent-reply:synthetic",
+        public_info_reply=None,
     )
     _enable_tier_a(monkeypatch)
     monkeypatch.setattr(queue_worker, "_load_agent_reply_intent", lambda *_a, **_k: executing)
@@ -1337,6 +1451,7 @@ def test_pending_confirmation_from_another_turn_cannot_bypass_current_triage(
                 state=queue_worker._AGENT_REPLY_PENDING,
                 response="confirmação sintética",
                 provider_message_id=confirmation_key,
+                public_info_reply=False,
             )
         if kwargs["intent_provider_message_id"] == reply_key:
             return queue_worker._AgentReplyIntent(
@@ -1344,6 +1459,7 @@ def test_pending_confirmation_from_another_turn_cannot_bypass_current_triage(
                 state=queue_worker._AGENT_REPLY_RESERVED,
                 response="",
                 provider_message_id=reply_key,
+                public_info_reply=None,
             )
         return None
 
@@ -1494,10 +1610,16 @@ class _SairSession:
         self.added: list[object] = []
         self.commits = 0
         self.fence_updates = 0
+        self.conversation_updates = 0
 
     def execute(self, statement: object, _params: object = None) -> _Scalar:
         if getattr(statement, "is_update", False):
-            self.fence_updates += 1
+            if statement.table.name == Message.__tablename__:
+                self.fence_updates += 1
+            elif statement.table.name == Conversation.__tablename__:
+                self.conversation_updates += 1
+            else:
+                raise AssertionError("SAIR explícito tentou atualizar tabela inesperada")
             return _Scalar(None)
         descriptions = list(getattr(statement, "column_descriptions", []) or [])
         entity = descriptions[0].get("entity") if descriptions else None
@@ -1557,3 +1679,4 @@ def test_explicit_sair_persists_before_agent_config_or_tier_a(monkeypatch) -> No
     assert len(session.added) == 1
     assert session.commits == 1
     assert session.fence_updates == 1
+    assert session.conversation_updates == 1

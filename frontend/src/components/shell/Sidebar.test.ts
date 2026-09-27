@@ -14,7 +14,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PermissionsProvider } from "@/lib/permissions-context";
-import type { NavSection } from "@/lib/navigation";
+import { ADMIN_NAV_SECTIONS, type NavSection } from "@/lib/navigation";
 import type { Role } from "@/lib/roles";
 
 import { Sidebar } from "./Sidebar";
@@ -59,6 +59,7 @@ function render(
   mobileOpen = false,
   options?: {
     sections?: NavSection[];
+    user?: Parameters<typeof Sidebar>[0]["user"];
     crossSurface?: { href: string; label: string };
     crossSurfacePlacement?: "before" | "after";
   },
@@ -69,7 +70,7 @@ function render(
         PermissionsProvider,
         null,
         h(Sidebar, {
-          user,
+          user: options?.user ?? user,
           route,
           sections: options?.sections ?? SECTIONS,
           crossSurface: options?.crossSurface,
@@ -84,6 +85,27 @@ function render(
     );
   });
 }
+
+describe("Sidebar: cadastro da igreja", () => {
+  it("mostra e navega pelo menu para admin", () => {
+    render("dashboard", false, false, {
+      sections: ADMIN_NAV_SECTIONS,
+      user: { ...user, roles: ["admin"], isOwner: true },
+    });
+    const item = container.querySelector<HTMLButtonElement>('[aria-label="Cadastro da igreja"]');
+    expect(item).not.toBeNull();
+    act(() => item?.click());
+    expect(onNavigate).toHaveBeenCalledWith("cadastro-igreja");
+  });
+
+  it("não mostra cadastro da igreja ao líder", () => {
+    render("dashboard", false, false, {
+      sections: ADMIN_NAV_SECTIONS,
+      user: { ...user, roles: ["lider_celula"] },
+    });
+    expect(container.querySelector('[aria-label="Cadastro da igreja"]')).toBeNull();
+  });
+});
 
 beforeEach(() => {
   onNavigate.mockReset();

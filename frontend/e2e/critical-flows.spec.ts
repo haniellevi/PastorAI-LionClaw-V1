@@ -187,59 +187,78 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     });
   });
 
-  test("perfil público salva e reabre no desktop e no mobile por teclado", async ({
+  test("cadastro da igreja salva e reabre no desktop e no mobile por teclado", async ({
     page,
     request,
   }) => {
     await resetHarness(request);
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
-    await page.goto("/gestao#agente", { waitUntil: "domcontentloaded" });
+    await page.getByRole("link", { name: "Admin" }).click();
+    await expect(page).toHaveURL(/\/gestao/);
+    const cadastroItem = page.getByRole("button", { name: "Cadastro da igreja" });
+    await expect(cadastroItem).toBeVisible();
+    await cadastroItem.click();
 
-    const endereco = page.getByLabel("Endereço institucional da igreja");
+    const endereco = page.getByLabel("Endereço institucional");
     await expect(endereco).toBeEnabled();
     await endereco.fill("Rua Exemplo, 100");
     await endereco.press("Tab");
     await expect(page.getByLabel("Horários dos cultos")).toBeFocused();
     await page.getByLabel("Horários dos cultos").fill("Domingo, 19h");
-    await page.getByRole("button", { name: "Adicionar célula" }).click();
-    await page.getByLabel("Bairro da célula 1").fill("Centro");
-    await page.getByLabel("Nome da célula 1").fill("Esperança");
-    await page.getByLabel("Dia e horário do encontro 1 (opcional)").fill("terça, 19h");
-    await page.getByRole("button", { name: "Salvar informações públicas" }).click();
-    await expect(page.getByText("Informações públicas salvas.")).toBeVisible();
+    await page.getByRole("button", { name: "Salvar cadastro" }).click();
+    await expect(page.getByText("Cadastro salvo.")).toBeVisible();
 
     const requests = await harnessRequests(request);
-    const saves = requests.filter((entry) => entry.method === "PUT" && entry.path === "/agent/public-profile");
+    const saves = requests.filter((entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro");
     expect(saves).toHaveLength(1);
     expect(saves[0]?.body).toEqual({
-      enderecoIgreja: "Rua Exemplo, 100",
+      enderecoInstitucional: "Rua Exemplo, 100",
       horariosCulto: "Domingo, 19h",
-      celulas: [{ bairro: "Centro", nome: "Esperança", encontro: "terça, 19h" }],
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    await expect(page.getByLabel("Endereço institucional da igreja")).toHaveValue("Rua Exemplo, 100");
-    await expect(page.getByLabel("Nome da célula 1")).toHaveValue("Esperança");
-    await expect(page.getByRole("button", { name: "Salvar informações públicas" })).toBeVisible();
-    await page.getByLabel("Endereço institucional da igreja").focus();
+    await expect(page.getByLabel("Endereço institucional")).toHaveValue("Rua Exemplo, 100");
+    await expect(page.getByRole("button", { name: "Salvar cadastro" })).toBeVisible();
+    await page.getByLabel("Endereço institucional").focus();
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Horários dos cultos")).toBeFocused();
-    await page.getByLabel("Endereço institucional da igreja").fill("");
+    await page.getByLabel("Endereço institucional").fill("");
     await page.getByLabel("Horários dos cultos").fill("");
-    await page.getByRole("button", { name: "Remover célula 1" }).click();
-    await page.getByRole("button", { name: "Salvar informações públicas" }).click();
-    await expect(page.getByText("Informações públicas salvas.")).toBeVisible();
+    await page.getByRole("button", { name: "Salvar cadastro" }).click();
+    await expect(page.getByText("Cadastro salvo.")).toBeVisible();
     const cleared = (await harnessRequests(request)).filter(
-      (entry) => entry.method === "PUT" && entry.path === "/agent/public-profile",
+      (entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro",
     );
     expect(cleared.at(-1)?.body).toEqual({
-      enderecoIgreja: null,
+      enderecoInstitucional: null,
       horariosCulto: null,
-      celulas: [],
     });
+
     expectCleanBrowser(safety);
+    let unsupportedCapabilityRequests = 0;
+    await page.route("**/igreja/cadastro/capabilities", (route) => {
+      unsupportedCapabilityRequests += 1;
+      return route.fulfill({ status: 404 });
+    });
+    await page.reload();
+    await expect(page.getByText("Cadastro indisponível nesta versão do servidor.")).toBeVisible();
+    await expect(page.getByLabel("Endereço institucional")).toHaveCount(0);
+    expect(unsupportedCapabilityRequests).toBe(1);
+    expect(safety.externalRequests).toEqual([]);
+    expect(safety.pageErrors).toEqual([]);
+    expect(safety.consoleErrors).toHaveLength(1);
+    expect(safety.consoleErrors[0]).toContain("404");
+    expect((await harnessRequests(request)).filter((entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro")).toHaveLength(2);
+    await page.unroute("**/igreja/cadastro/capabilities");
+    await page.goto("/gestao#agente", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Credencial ativa")).toBeVisible();
+    await expect(page.getByText("Informações públicas da igreja")).toHaveCount(0);
+    expect(safety.externalRequests).toEqual([]);
+    expect(safety.pageErrors).toEqual([]);
+    expect(safety.consoleErrors).toHaveLength(1);
+    expect(safety.consoleErrors[0]).toContain("404");
   });
 
   test("conexão WhatsApp gera QR somente no mock local", async ({

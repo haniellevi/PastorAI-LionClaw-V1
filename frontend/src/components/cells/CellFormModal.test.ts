@@ -167,3 +167,86 @@ describe("CellFormModal: liderança e ativação", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe("CellFormModal: cadastro público S2b", () => {
+  it("edição só do nome preserva dados públicos ausentes da lista em cache", () => {
+    const onSubmit = vi.fn();
+    render(true, { cell: currentCell, publicDataEnabled: true, canPublish: true, onSubmit });
+    const nome = container.querySelector<HTMLInputElement>('input[placeholder="Ex.: Boas Novas"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(nome, "Célula Renovada");
+      nome?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    const input = onSubmit.mock.calls[0]?.[0];
+    expect(input?.nome).toBe("Célula Renovada");
+    expect(input).not.toHaveProperty("bairro");
+    expect(input).not.toHaveProperty("divulgarWhatsapp");
+  });
+
+  it("publicação desconhecida só muda após escolha explícita", () => {
+    const onSubmit = vi.fn();
+    render(true, { cell: currentCell, publicDataEnabled: true, canPublish: true, onSubmit });
+    const publish = container.querySelector<HTMLSelectElement>("#cf-divulgar");
+    expect(publish?.value).toBe("");
+    expect(container.textContent).toContain("Dados ausentes desta lista serão mantidos");
+    act(() => {
+      if (publish) {
+        publish.value = "false";
+        publish.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(onSubmit.mock.calls[0]?.[0]).toHaveProperty("divulgarWhatsapp", false);
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("bairro");
+  });
+
+  it("sem capability oculta novos campos e preserva payload antigo", () => {
+    const onSubmit = vi.fn();
+    render(false, { cell: { ...currentCell, bairro: "Centro", divulgarWhatsapp: true }, onSubmit });
+    expect(container.querySelector("#cf-bairro")).toBeNull();
+    expect(container.querySelector("#cf-divulgar")).toBeNull();
+    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    const input = onSubmit.mock.calls[0]?.[0];
+    expect(input).not.toHaveProperty("bairro");
+    expect(input).not.toHaveProperty("divulgarWhatsapp");
+  });
+
+  it("líder edita bairro, mas não envia decisão de publicação", () => {
+    const onSubmit = vi.fn();
+    render(false, { cell: currentCell, publicDataEnabled: true, canPublish: false, onSubmit });
+    const bairro = container.querySelector<HTMLInputElement>("#cf-bairro");
+    expect(bairro).not.toBeNull();
+    expect(container.querySelector("#cf-divulgar")).toBeNull();
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(bairro, "Centro");
+      bairro?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(onSubmit.mock.calls[0]?.[0]).toHaveProperty("bairro", "Centro");
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("divulgarWhatsapp");
+  });
+
+  it("pastor/admin controla divulgação, default off e exige bairro para publicar", () => {
+    const onSubmit = vi.fn();
+    render(true, { publicDataEnabled: true, canPublish: true, onSubmit });
+    const publish = container.querySelector<HTMLInputElement>("#cf-divulgar");
+    expect(publish?.checked).toBe(false);
+    act(() => publish?.click());
+    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Informe o bairro antes de divulgar");
+  });
+
+  it("pastor/admin envia publicação apenas para célula ativa com bairro", () => {
+    const onSubmit = vi.fn();
+    render(true, {
+      cell: { ...currentCell, ativo: true, bairro: "Centro", divulgarWhatsapp: false },
+      publicDataEnabled: true, canPublish: true, onSubmit,
+    });
+    act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
+    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ divulgarWhatsapp: true, ativo: true });
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("bairro");
+  });
+});

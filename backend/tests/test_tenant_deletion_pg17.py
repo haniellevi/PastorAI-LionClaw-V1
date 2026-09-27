@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 
 import pytest
@@ -42,6 +43,8 @@ create table igrejas (
   setup_fee_override numeric(10,2),
   dono_id uuid,
   logo_path text,
+  endereco_institucional text,
+  horarios_culto text,
   created_at timestamptz not null default now()
 );
 
@@ -98,6 +101,11 @@ create table conversations (
   id uuid primary key,
   igreja_id uuid not null references igrejas(id) on delete cascade,
   assumido_por uuid,
+  secretaria_oferta_estado text,
+  secretaria_oferta_message_id uuid,
+  secretaria_oferta_expira_em timestamptz,
+  secretaria_oferta_resposta_message_id uuid,
+  unique (igreja_id, id),
   constraint conversations_tenant_assumido_por_fkey foreign key (igreja_id, assumido_por)
     references app_users(igreja_id, id)
 );
@@ -105,8 +113,11 @@ create table conversations (
 create table messages (
   id uuid primary key,
   igreja_id uuid not null references igrejas(id) on delete cascade,
+  conversation_id uuid,
   media_path text,
   enviado_por uuid,
+  constraint messages_tenant_conversation_fkey foreign key (igreja_id, conversation_id)
+    references conversations(igreja_id, id),
   constraint messages_tenant_enviado_por_fkey foreign key (igreja_id, enviado_por)
     references app_users(igreja_id, id)
 );
@@ -258,7 +269,16 @@ def _seed_graph(
 ) -> dict[str, uuid.UUID]:
     ids = {
         name: uuid.uuid4()
-        for name in ("igreja", "master", "member", "pessoa", "event", "archive_event")
+        for name in (
+            "igreja",
+            "master",
+            "member",
+            "pessoa",
+            "conversation",
+            "message",
+            "event",
+            "archive_event",
+        )
     }
     if igreja_id is not None:
         ids["igreja"] = igreja_id
@@ -306,16 +326,22 @@ def _seed_graph(
                 "insert into conversations (id, igreja_id, assumido_por) "
                 "values (:id, :igreja, :master)"
             ),
-            {"id": uuid.uuid4(), "igreja": ids["igreja"], "master": ids["master"]},
+            {
+                "id": ids["conversation"],
+                "igreja": ids["igreja"],
+                "master": ids["master"],
+            },
         )
         connection.execute(
             text(
-                "insert into messages (id, igreja_id, media_path, enviado_por) "
-                "values (:id, :igreja, :path, :master)"
+                "insert into messages "
+                "(id, igreja_id, conversation_id, media_path, enviado_por) "
+                "values (:id, :igreja, :conversation, :path, :master)"
             ),
             {
-                "id": uuid.uuid4(),
+                "id": ids["message"],
                 "igreja": ids["igreja"],
+                "conversation": ids["conversation"],
                 "path": f"{ids['igreja']}/provider/deadbeef.jpg",
                 "master": ids["master"],
             },
@@ -521,6 +547,118 @@ def test_delete_one_tenant_preserves_other_tenant_and_detached_admin_token(
                 "where clerk_user_id = 'clerk-member-single-b'"
             )
         ).scalar_one() == 1
+
+
+def test_delete_waits_on_every_conversation_before_igreja_or_message_lock(
+    tenant_deletion_engine: Engine,
+) -> None:
+    """A worker holding a conversation can still write Message before delete.
+
+    The conversation deliberately has no secretary offer.  This distinguishes
+    the all-conversation prelock from an insufficient preclear of active
+    offers only.  ``pg_blocking_pids`` proves the deleter is waiting on the
+    worker's Conversation lock before the worker writes Message.
+    """
+
+    ids = _seed_graph(tenant_deletion_engine, suffix="conversation-first")
+    worker_connection = tenant_deletion_engine.connect()
+    worker_transaction = worker_connection.begin()
+    delete_started = threading.Event()
+    delete_finished = threading.Event()
+    deleter_pids: list[int] = []
+    results: list[object] = []
+    errors: list[BaseException] = []
+
+    try:
+        worker_pid = int(
+            worker_connection.execute(text("select pg_backend_pid()")).scalar_one()
+        )
+        worker_connection.execute(
+            text(
+                "select id from conversations "
+                "where igreja_id = :igreja_id and id = :conversation_id for update"
+            ),
+            {"igreja_id": ids["igreja"], "conversation_id": ids["conversation"]},
+        )
+
+        def delete_tenant() -> None:
+            session = Session(tenant_deletion_engine, future=True)
+            try:
+                deleter_pids.append(
+                    int(session.execute(text("select pg_backend_pid()")).scalar_one())
+                )
+                delete_started.set()
+                results.append(
+                    delete_tenant_locally(
+                        session,
+                        ids["igreja"],
+                        TenantDeletionActor(ids["master"], "master@test"),
+                    )
+                )
+                session.commit()
+            except BaseException as exc:  # pragma: no cover - asserted below
+                session.rollback()
+                errors.append(exc)
+            finally:
+                delete_finished.set()
+                session.close()
+
+        deleter = threading.Thread(target=delete_tenant)
+        deleter.start()
+        assert delete_started.wait(timeout=5)
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if deleter_pids:
+                blockers = worker_connection.execute(
+                    text("select pg_blocking_pids(:pid)"),
+                    {"pid": deleter_pids[0]},
+                ).scalar_one()
+                if worker_pid in set(blockers or ()):
+                    break
+            time.sleep(0.02)
+        else:
+            pytest.fail("deleção não aguardou o lock da Conversation do worker")
+
+        # If delete had acquired Igreja first, this FK write would wait for it.
+        # If it had acquired Message first, the update would wait for it. Both
+        # succeed while the deleter is visibly blocked on Conversation.
+        worker_connection.execute(text("set local statement_timeout = '750ms'"))
+        worker_connection.execute(
+            text("update messages set media_path = :path where id = :message_id"),
+            {
+                "path": f"{ids['igreja']}/provider/worker-update.jpg",
+                "message_id": ids["message"],
+            },
+        )
+        worker_connection.execute(
+            text(
+                "insert into messages "
+                "(id, igreja_id, conversation_id, media_path, enviado_por) "
+                "values (:id, :igreja_id, :conversation_id, :path, :enviado_por)"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "igreja_id": ids["igreja"],
+                "conversation_id": ids["conversation"],
+                "path": f"{ids['igreja']}/provider/worker-insert.jpg",
+                "enviado_por": ids["master"],
+            },
+        )
+        worker_transaction.commit()
+
+        assert delete_finished.wait(timeout=5)
+        deleter.join(timeout=1)
+        assert not deleter.is_alive()
+    finally:
+        if worker_transaction.is_active:
+            worker_transaction.rollback()
+        worker_connection.close()
+
+    assert errors == []
+    assert len(results) == 1
+    assert results[0].deleted_now is True
+    assert _count(tenant_deletion_engine, "igrejas") == 0
 
 
 @pytest.mark.parametrize("task_kind", ("clerk_user", "storage_media"))

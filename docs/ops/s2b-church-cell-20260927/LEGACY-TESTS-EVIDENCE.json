@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-09-27T11:50:44.770447+00:00",
+  "base": "e6aafc296014770ceabc24d5ea6bd9572f33ace4",
+  "files": {
+    "backend/tests/test_agent_public_profile.py": "75cdb71d01ac3442a7aa16fefcde6ac882aa963b051b894825dee1e0dcf74b30",
+    "backend/tests/test_agent_public_profile_rls.py": "37ba094c5468bff4f328cc71689009b6f118656fd9886bea3776b1900c5d59a4"
+  },
+  "legacy_unit": "8 passed",
+  "legacy_rls": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "postgres": "17.6-trixie",
+    "database": "s2b_test descartável e sintético",
+    "command": "pytest tests/test_agent_public_profile_rls.py -m rls_integration -o addopts= -q",
+    "fixture_order_check": "7 passed (profile e backfills)",
+    "final_full_suite": "352 passed sem skips"
+  },
+  "limits": "Prova da migration S2 legada e contrato adaptado. Não prova nova migration S2b, grants de cadastro ou candidato conjunto."
+}

@@ -63,6 +63,16 @@ class Igreja(Base):
     """Tenant root (F1). The only core table without igreja_id."""
 
     __tablename__ = "igrejas"
+    __table_args__ = (
+        CheckConstraint(
+            "endereco_institucional IS NULL OR length(endereco_institucional) <= 400",
+            name="igrejas_endereco_institucional_400_chk",
+        ),
+        CheckConstraint(
+            "horarios_culto IS NULL OR length(horarios_culto) <= 400",
+            name="igrejas_horarios_culto_400_chk",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     nome: Mapped[str] = mapped_column(Text, nullable=False)
@@ -85,6 +95,11 @@ class Igreja(Base):
     # Missão 4 (branding): path da logo no bucket público church-logos.
     # NULL = sem logo (a UI mostra o nome da igreja como fallback).
     logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # S2b: fatos institucionais públicos, administrados pela própria igreja.
+    # O agente lê estes campos canônicos; ``agent_configs.informacoes_publicas``
+    # permanece apenas legado e não é fallback de execução.
+    endereco_institucional: Mapped[str | None] = mapped_column(Text, nullable=True)
+    horarios_culto: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -361,6 +376,12 @@ class Celula(Base):
     """Cell group."""
 
     __tablename__ = "celulas"
+    __table_args__ = (
+        CheckConstraint(
+            "bairro IS NULL OR length(bairro) <= 120",
+            name="celulas_bairro_120_chk",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -389,6 +410,13 @@ class Celula(Base):
     link_grupo: Mapped[str | None] = mapped_column(Text, nullable=True)
     link_localizacao: Mapped[str | None] = mapped_column(Text, nullable=True)
     mensagem_convite: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # S2b: publicação explícita no WhatsApp. Bairro nunca é inferido do
+    # endereço residencial; a projeção pública seleciona estes dois campos e
+    # nome/dia/horário, sem carregar os demais dados da célula.
+    bairro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    divulgar_whatsapp: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     ativo: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
@@ -969,6 +997,16 @@ class Conversation(Base):
             ("app_users.igreja_id", "app_users.id"),
             name="conversations_tenant_assumido_por_fkey",
         ),
+        ForeignKeyConstraint(
+            ("igreja_id", "id", "secretaria_oferta_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            name="conversations_secretaria_oferta_anchor_tenant_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "id", "secretaria_oferta_resposta_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            name="conversations_secretaria_oferta_response_tenant_fkey",
+        ),
         Index(
             "conversations_igreja_id_pessoa_id_idx",
             "igreja_id",
@@ -980,6 +1018,44 @@ class Conversation(Base):
             "igreja_id",
             "assumido_por",
             postgresql_where=text("assumido_por IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "COALESCE(("
+            "secretaria_oferta_estado IS NULL "
+            "AND secretaria_oferta_message_id IS NULL "
+            "AND secretaria_oferta_expira_em IS NULL "
+            "AND secretaria_oferta_resposta_message_id IS NULL"
+            ") OR ("
+            "secretaria_oferta_estado = 'preparada' "
+            "AND secretaria_oferta_message_id IS NOT NULL "
+            "AND secretaria_oferta_expira_em IS NULL "
+            "AND secretaria_oferta_resposta_message_id IS NULL"
+            ") OR ("
+            "secretaria_oferta_estado = 'aceite_aguardando_ancora' "
+            "AND secretaria_oferta_message_id IS NOT NULL "
+            "AND secretaria_oferta_expira_em IS NULL "
+            "AND secretaria_oferta_resposta_message_id IS NOT NULL"
+            ") OR ("
+            "secretaria_oferta_estado = 'pendente' "
+            "AND secretaria_oferta_message_id IS NOT NULL "
+            "AND secretaria_oferta_expira_em IS NOT NULL "
+            "AND secretaria_oferta_resposta_message_id IS NULL"
+            ") OR ("
+            "secretaria_oferta_estado = 'consumida' "
+            "AND secretaria_oferta_message_id IS NOT NULL "
+            "AND secretaria_oferta_expira_em IS NULL "
+            "AND secretaria_oferta_resposta_message_id IS NOT NULL"
+            ") OR ("
+            "secretaria_oferta_estado = 'cancelada' "
+            "AND secretaria_oferta_message_id IS NOT NULL "
+            "AND secretaria_oferta_expira_em IS NULL"
+            ") OR ("
+            "secretaria_oferta_estado = 'expirada' "
+            "AND secretaria_oferta_message_id IS NOT NULL "
+            "AND secretaria_oferta_expira_em IS NULL "
+            "AND secretaria_oferta_resposta_message_id IS NULL"
+            "), false)",
+            name="conversations_secretaria_oferta_estado_chk",
         ),
     )
 
@@ -1007,6 +1083,21 @@ class Conversation(Base):
     espera_desde: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # S2b: uma oferta de secretaria ativa por conversa, sempre ancorada em uma
+    # saída IA reservada. Não há texto livre, tarefa de domínio ou contato de
+    # líder neste estado.
+    secretaria_oferta_estado: Mapped[str | None] = mapped_column(Text, nullable=True)
+    secretaria_oferta_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+    secretaria_oferta_expira_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    secretaria_oferta_resposta_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
     numero_oficial: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
@@ -1029,6 +1120,12 @@ class Message(Base):
     # provider_message_id nunca persiste duas vezes na mesma direção/igreja,
     # mesmo que o Redis diga "novo" de novo.
     __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "conversation_id",
+            "id",
+            name="messages_igreja_id_conversation_id_id_key",
+        ),
         ForeignKeyConstraint(
             ("igreja_id", "conversation_id"),
             ("conversations.igreja_id", "conversations.id"),
@@ -1075,6 +1172,11 @@ class Message(Base):
             + "))",
             name="messages_agent_reply_state_check",
         ),
+        CheckConstraint(
+            "public_info_reply IS NULL OR ("
+            "direcao = 'out' AND autor = 'ia' AND agent_reply_state IS NOT NULL)",
+            name="messages_public_info_reply_ia_chk",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -1094,6 +1196,9 @@ class Message(Base):
     # contrato público ``contato | ia | humano``; intenções não confirmadas são
     # ocultadas da thread pelo router até cruzarem o transporte com sucesso.
     agent_reply_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NULL é legado/desconhecido. Novos intents escrevem True somente para a
+    # resposta pública determinística e False para qualquer outro retorno.
+    public_info_reply: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Id estável do provider (Evolution `data.key.id` / ParsedMessage.
     # provider_message_id). Só populado para mensagens vindas do webhook
