@@ -458,7 +458,8 @@ Achados para depois:
 - Tempo de resposta do robô (~28 s, meta < 10 s): tarefa "Reduzir a lentidão"
   (banco em us-west-2), além dos achados acima (limite de idade, `templateMessage`,
   webhook duplicado, grupos).
-- `queue-worker` tolerar timeout do Redis (tarefa própria).
+- `queue-worker` tolerar timeout do Redis: feito e implantado em 27/09 (PR #425,
+  `eb5a09b`; [registro](2026-09-27-queue-worker-redis-transitorio.md)).
 - Cópias do `.env` em `/root/pastorai-env-bak/` (3 arquivos, modo 600, contêm
   segredos): apagar após uma semana estável.
 - Correções do roteiro de deploy: esperar o `/health` no B2; P2 da Sarah no wrapper
