@@ -69,6 +69,11 @@ logger = logging.getLogger("pastorai")
 
 _REQUEST_ID_HEADER = "X-Request-ID"
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+# How long a browser may reuse a CORS preflight (OPTIONS) answer for the same
+# URL. Every panel call carries `Authorization`, so without a cached answer each
+# GET costs an extra round trip. Browsers cap it: Chromium and Firefox honor
+# 2 h here, Safari stops at 10 min. Starlette's default is 600 s.
+_CORS_PREFLIGHT_MAX_AGE_SECONDS = 7200
 
 
 def _request_id(value: str | None) -> str:
@@ -135,6 +140,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=[_REQUEST_ID_HEADER, "Server-Timing"],
+        max_age=_CORS_PREFLIGHT_MAX_AGE_SECONDS,
     )
 
     @app.middleware("http")

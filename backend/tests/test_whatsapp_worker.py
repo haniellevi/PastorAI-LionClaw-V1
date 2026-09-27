@@ -946,7 +946,7 @@ def test_ingest_sets_tenant_context_for_igreja() -> None:
     assert outcome.igreja_id == _IGREJA
     joined = " ".join(sql for sql, _ in session.tenant_calls)
     assert "app.tenant_igreja_id" in joined
-    assert "set local role authenticated" in joined
+    assert "set_config('role', 'authenticated', true)" in joined
     bound = [p for _, p in session.tenant_calls if p and "igreja_id" in p]
     assert bound and bound[0]["igreja_id"] == _IGREJA
 

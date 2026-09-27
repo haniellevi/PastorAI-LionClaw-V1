@@ -231,6 +231,13 @@ obrigatórios de produto.
 **Pronto quando:** as mensagens para o número da Filadélfia recebem resposta
 em menos de 10 s e aparecem no inbox do painel.
 
+**Medição de 27/09 (local, latência de PROD simulada):** com o banco em
+us-west-2 a ~185 ms por ida, o código em produção (`e6aafc2`) faz 152 a 167
+idas ao banco por mensagem, 29 a 33 s, o que bate com os ~28 s do teste real.
+Depois dos cortes do PR #424, 114 a 130 idas, 21 a 26 s. A meta de 10 s
+depende de aproximar servidor e banco (B17,
+[registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
+
 #### Passo a passo para ligar na Filadélfia (proprietário)
 
 **Decisão de 26/09: piloto apenas com testadores internos da equipe pastoral.**
@@ -420,6 +427,15 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
       do Redis, em vez de encerrar o processo (incidente de 27/09, B16). Só
       código, sem deploy; o motivo do travamento do Redis continua aberto.
       [Registro](../sprints/2026-09-27-queue-worker-redis-transitorio.md).
+- [x] Menos idas ao banco por requisição, em código (PR #424, Sarah GO,
+      exceção D2A aceita pelo proprietário; entra em produção no próximo
+      deploy): contexto de tenant numa instrução, ping só em conexão parada,
+      preflight CORS por 2 h.
+      `/auth/me` de 1,3 s para 0,75 s com 185 ms simulados
+      ([registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
+- [ ] Decidir a infraestrutura (B17): banco em São Paulo (recomendado) ou
+      servidor em Oregon. Antes, medir do VPS a latência de um projeto vazio
+      em sa-east-1.
 - [ ] Deploy automatizado: uma GitHub Action ou um script único
       `deploy.sh` com build, restart, health check e rollback.
 - [ ] Backup diário verificado e restauração testada uma vez.
@@ -464,5 +480,6 @@ UV e Capacitação, e Enviar editável.
 | B14 | Custo de IA (em US$) exibido como R$ no console. Corrigido em 26/09 | `AdminConsole.tsx`, `ChurchPage.tsx` | 0 |
 | B15 | `is_optout_request` perde "me tira da lista", "pare" e "stop"; `looks_like_report` responde "Relatório recebido!" a "vou mandar o relatório amanhã" e troca números no formato em linhas | `domain/consent.py`, `domain/report.py` | 2 |
 | B16 | `queue-worker` caiu em PROD (27/09) com `TimeoutError` do Redis: 2 s de margem entre o BRPOPLPUSH e o `socket_timeout`, e nenhum retry no laço. Corrigido em código em 27/09; falta deploy | `queue_worker.py` | 4 |
+| B17 | VPS no Brasil e banco em us-west-2 (~185 ms por ida): tela 0,8 a 1,9 s por chamada e bot 21 a 26 s por mensagem; impede o aceite da Fase 1 | infra (VPS, Supabase) | 4 |
 | L1 | UV e Capacitação são placeholders; Enviar é só leitura | frontend | 5 |
 | L2 | Apenas OpenAI como provedor do agente | `AgenteScreen.tsx` | 5 |
