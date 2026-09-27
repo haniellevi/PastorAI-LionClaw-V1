@@ -4,7 +4,8 @@ These checks deliberately use a disposable Redis 7 container instead of the
 in-memory worker fake.  A Lua script is atomic between commands, but Redis does
 not roll back an earlier command when a later command errors; the tests prove
 that every uncertain path keeps either the source claim or one durable
-replacement.
+replacement. The last tests drive the worker loop through a real socket
+timeout and through replies lost after Redis applied the command.
 """
 
 from __future__ import annotations
@@ -15,17 +16,22 @@ import subprocess
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 import redis
 
+from app.workers import queue_worker
 from app.workers.queue_worker import (
     _ACK_CLAIM_SCRIPT,
     _MOVE_DUE_RETRIES_SCRIPT,
     _MOVE_FAILED_CLAIM_SCRIPT,
     _RECONCILE_RETRY_CLAIM_SCRIPT,
     RETRY_STATE_TTL_SECONDS,
+    WEBHOOK_QUEUE,
+    QueueWorker,
+    WebhookQueue,
+    _Envelope,
     _retry_state_key,
 )
 
@@ -910,3 +916,215 @@ def test_real_redis7_canonical_owner_fences_duplicate_and_recovers_after_expiry(
         "owner_lease": lease_c,
         "owner_processing": processing_c,
     }
+
+
+# ---------------------------------------------------------------------------
+# Worker loop against transient Redis errors (PROD 2026-09-27)
+# ---------------------------------------------------------------------------
+class _LoseReplyOnce:
+    """Run a real Redis command, then drop its reply like a socket timeout."""
+
+    def __init__(
+        self,
+        client: redis.Redis,
+        method: str,
+        when: Callable[..., bool],
+    ) -> None:
+        self._client = client
+        self._method = method
+        self._when = when
+        self.fired = False
+
+    def __getattr__(self, name: str):
+        target = getattr(self._client, name)
+        if name != self._method:
+            return target
+
+        def call(*args, **kwargs):
+            result = target(*args, **kwargs)
+            if not self.fired and self._when(result, *args, **kwargs):
+                self.fired = True
+                raise redis.exceptions.TimeoutError("Timeout reading from socket")
+            return result
+
+        return call
+
+
+class _ShortBlockingPoll:
+    """Send only BRPOPLPUSH through a client whose socket times out first."""
+
+    def __init__(self, client: redis.Redis, poll_client: redis.Redis) -> None:
+        self._client = client
+        self._poll_client = poll_client
+
+    def __getattr__(self, name: str):
+        if name == "brpoplpush":
+            return self._poll_client.brpoplpush
+        return getattr(self._client, name)
+
+
+def _no_session():  # pragma: no cover - ignored events never open a session
+    raise AssertionError("ignored webhook events must not open a DB session")
+
+
+def _run_until_first_handled(
+    monkeypatch: pytest.MonkeyPatch,
+    queue: WebhookQueue,
+    worker_id: str,
+    on_wait: Callable[[], None],
+) -> tuple[list[str], list[float]]:
+    """Run a real worker loop; stop after one item, or fail instead of hanging."""
+    handled: list[str] = []
+    sleeps: list[float] = []
+    polls: list[int] = []
+    worker: QueueWorker
+
+    def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+        on_wait()
+
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=_no_session,
+        worker_id=worker_id,
+        heartbeat_publisher=lambda _state, _ttl: None,
+        sleeper=sleeper,
+    )
+    original_claim_next = worker._claim_next  # noqa: SLF001
+    original_handle = worker._handle_raw  # noqa: SLF001
+
+    def claim_next() -> str | None:
+        polls.append(1)
+        if len(polls) > 10:  # safety net: a regression fails, never hangs
+            worker.stop()
+            return None
+        return original_claim_next()
+
+    def handle_once(raw: str) -> None:
+        handled.append(raw)
+        original_handle(raw)
+        worker.stop()
+
+    monkeypatch.setattr(worker, "_claim_next", claim_next)
+    monkeypatch.setattr(worker, "_handle_raw", handle_once)
+    worker.run()
+    return handled, sleeps
+
+
+def test_real_redis7_idle_poll_socket_timeout_is_waited_out(
+    redis7: redis.Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real BRPOPLPUSH reply outlives the client socket, as in production."""
+    redis7.flushdb()
+    connection = redis7.connection_pool.connection_kwargs
+    poll_client = redis.Redis(
+        host=connection["host"],
+        port=connection["port"],
+        decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=0.5,
+    )
+    monkeypatch.setattr(queue_worker, "BRPOP_TIMEOUT", 2)
+    with pytest.raises(redis.exceptions.TimeoutError, match="Timeout reading from socket"):
+        poll_client.brpoplpush("m08:idle:ready", "m08:idle:processing", timeout=2)
+
+    queue = WebhookQueue(redis_client=_ShortBlockingPoll(redis7, poll_client))
+    worker_id = "real-idle-timeout"
+    enqueued: list[bool] = []
+
+    def deliver_once() -> None:
+        if not enqueued:
+            enqueued.append(True)
+            queue.enqueue({"event": "connection.update"})
+
+    handled, sleeps = _run_until_first_handled(
+        monkeypatch, queue, worker_id, deliver_once
+    )
+
+    assert sleeps == [queue_worker.REDIS_RETRY_BASE_DELAY_SECONDS]
+    assert len(handled) == 1
+    assert redis7.llen(WEBHOOK_QUEUE) == 0
+    assert redis7.llen(queue.processing_queue(worker_id)) == 0
+    assert not redis7.exists(queue._lease_key(worker_id))  # noqa: SLF001
+    poll_client.close()
+
+
+def test_real_redis7_lost_claim_reply_is_requeued_and_processed_once(
+    redis7: redis.Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis7.flushdb()
+    monkeypatch.setattr(queue_worker, "BRPOP_TIMEOUT", 1)
+    proxy = _LoseReplyOnce(
+        redis7, "brpoplpush", lambda result, *_args, **_kwargs: result is not None
+    )
+    queue = WebhookQueue(redis_client=proxy)
+    queue.enqueue({"event": "connection.update"})
+    worker_id = "real-lost-reply"
+    stranded: list[list[str]] = []
+
+    handled, sleeps = _run_until_first_handled(
+        monkeypatch,
+        queue,
+        worker_id,
+        lambda: stranded.append(redis7.lrange(queue.processing_queue(worker_id), 0, -1)),
+    )
+
+    assert proxy.fired
+    assert sleeps == [queue_worker.REDIS_RETRY_BASE_DELAY_SECONDS]
+    assert len(stranded[0]) == 1
+    assert handled == stranded[0]
+    assert redis7.llen(WEBHOOK_QUEUE) == 0
+    assert redis7.llen(queue.processing_queue(worker_id)) == 0
+
+
+def test_real_redis7_lost_reconcile_reply_keeps_canonical_retry_state(
+    redis7: redis.Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis7.flushdb()
+    monkeypatch.setattr(queue_worker, "BRPOP_TIMEOUT", 1)
+    setup = WebhookQueue(redis_client=redis7)
+    failed_worker = "real-retry-failed"
+    setup.register_worker(failed_worker)
+    original = _Envelope(payload={"event": "connection.update"})
+    raw = original.to_json()
+    redis7.lpush(WEBHOOK_QUEUE, raw)
+    assert setup.claim(failed_worker, timeout=1) == raw
+    setup.transition_failed_claim(failed_worker, raw, original)
+    (replacement,) = redis7.lrange(WEBHOOK_QUEUE, 0, -1)
+    state_key = _retry_state_key(original.claim_id)
+    assert redis7.hget(state_key, "status") == "ready"
+
+    proxy = _LoseReplyOnce(
+        redis7,
+        "eval",
+        lambda _result, script, *_args, **_kwargs: (
+            script == _RECONCILE_RETRY_CLAIM_SCRIPT
+        ),
+    )
+    queue = WebhookQueue(redis_client=proxy)
+    worker_id = "real-retry-blip"
+    owners: list[str | None] = []
+
+    handled, sleeps = _run_until_first_handled(
+        monkeypatch,
+        queue,
+        worker_id,
+        lambda: owners.append(redis7.hget(state_key, "owner")),
+    )
+
+    # The script adopted the retry before its reply was lost.
+    assert proxy.fired
+    assert owners == [worker_id]
+    assert sleeps == [queue_worker.REDIS_RETRY_BASE_DELAY_SECONDS]
+    assert handled == [replacement]
+    assert redis7.hgetall(state_key) == {
+        "raw": replacement,
+        "attempts": "1",
+        "retry_at": "",
+        "status": "done",
+    }
+    assert redis7.llen(queue.processing_queue(worker_id)) == 0
+    assert redis7.llen(WEBHOOK_QUEUE) == 0

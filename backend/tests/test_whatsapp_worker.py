@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+from collections.abc import Callable
 from threading import Event, Thread
 from types import SimpleNamespace
 
 import pytest
+from redis import exceptions as redis_exceptions
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
@@ -74,6 +77,18 @@ class FakeRedis:
             return None
         value = items.pop()
         self.lpush(destination, value)
+        return value
+
+    def lmove(self, source: str, destination: str, src: str, dest: str):
+        items = self.lists.get(source)
+        if not items:
+            return None
+        value = items.pop(0) if src == "LEFT" else items.pop()
+        target = self.lists.setdefault(destination, [])
+        if dest == "LEFT":
+            target.insert(0, value)
+        else:
+            target.append(value)
         return value
 
     def lrem(self, key: str, count: int, value: str) -> int:
@@ -2502,3 +2517,526 @@ def test_expired_canonical_owner_is_recovered_without_resetting_retry_state() ->
         "owner_lease": queue._lease_key(new_worker),  # noqa: SLF001
         "owner_processing": queue.processing_queue(new_worker),
     }
+
+
+# ---------------------------------------------------------------------------
+# Transient Redis errors (PROD 2026-09-27: TimeoutError on an idle poll)
+# ---------------------------------------------------------------------------
+class FaultyRedis:
+    """Proxy that makes chosen Redis calls fail like a flaky connection.
+
+    ``after_run`` executes the command before raising, like a socket timeout
+    after Redis already applied it: the reply is lost, the effect is not.
+    """
+
+    def __init__(self, inner: FakeRedis) -> None:
+        self.inner = inner
+        self._faults: list[tuple[str, BaseException, bool, Callable[..., bool]]] = []
+
+    def fail_next(
+        self,
+        method: str,
+        exc: BaseException,
+        *,
+        after_run: bool = False,
+        when: Callable[..., bool] = lambda *_args, **_kwargs: True,
+        times: int = 1,
+    ) -> None:
+        self._faults.extend([(method, exc, after_run, when)] * times)
+
+    def __getattr__(self, name: str):
+        target = getattr(self.inner, name)
+        if not callable(target):
+            return target
+
+        def call(*args, **kwargs):
+            for index, (method, exc, after_run, when) in enumerate(self._faults):
+                if method == name and when(*args, **kwargs):
+                    del self._faults[index]
+                    if after_run:
+                        target(*args, **kwargs)
+                    raise exc
+            return target(*args, **kwargs)
+
+        return call
+
+
+def _socket_timeout() -> redis_exceptions.TimeoutError:
+    return redis_exceptions.TimeoutError("Timeout reading from socket")
+
+
+def _script_is(script: str) -> Callable[..., bool]:
+    return lambda called, *_args, **_kwargs: called == script
+
+
+def _resilient_worker(
+    queue: WebhookQueue,
+    worker_id: str,
+    *,
+    sleeper: Callable[[float], None],
+    session_factory=FakeIngestSession,
+) -> QueueWorker:
+    return QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        worker_id=worker_id,
+        heartbeat_publisher=lambda _state, _ttl: None,
+        sleeper=sleeper,
+    )
+
+
+def _guard_run(
+    monkeypatch,
+    worker: QueueWorker,
+    *,
+    stop_after_handled: int | None = 1,
+    max_polls: int = 20,
+) -> list[str]:
+    """Stop after N handled items; a regression fails instead of spinning.
+
+    FakeRedis never blocks, so a loop that stops making progress would
+    otherwise hang the suite.
+    """
+    handled: list[str] = []
+    polls: list[int] = []
+    original_claim_next = worker._claim_next  # noqa: SLF001
+    original_handle = worker._handle_raw  # noqa: SLF001
+
+    def claim_next() -> str | None:
+        polls.append(1)
+        if len(polls) > max_polls:
+            worker.stop()
+            return None
+        return original_claim_next()
+
+    def handle(raw: str) -> None:
+        handled.append(raw)
+        original_handle(raw)
+        if stop_after_handled is not None and len(handled) >= stop_after_handled:
+            worker.stop()
+
+    monkeypatch.setattr(worker, "_claim_next", claim_next)
+    monkeypatch.setattr(worker, "_handle_raw", handle)
+    return handled
+
+
+def test_socket_timeout_on_idle_poll_is_waited_out_instead_of_crashing(
+    monkeypatch, caplog
+) -> None:
+    """PROD 2026-09-27: BRPOPLPUSH timed out on an empty queue and the process died."""
+    caplog.set_level(logging.INFO, logger="pastorai.queue_worker")
+    redis = FaultyRedis(FakeRedis())
+    redis.fail_next("brpoplpush", _socket_timeout())
+    queue = WebhookQueue(redis_client=redis)
+    sleeps: list[float] = []
+
+    def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+        # Redis answers again and new traffic arrives during the wait.
+        queue.enqueue({"event": "connection.update"})
+
+    worker = _resilient_worker(queue, "worker-blip", sleeper=sleeper)
+    handled = _guard_run(monkeypatch, worker)
+
+    worker.run()
+
+    assert sleeps == [worker_module.REDIS_RETRY_BASE_DELAY_SECONDS]
+    assert len(handled) == 1
+    assert redis.inner.lists[WEBHOOK_QUEUE] == []
+    assert redis.inner.lists[queue.processing_queue("worker-blip")] == []
+    assert not redis.inner.exists(queue._lease_key("worker-blip"))  # noqa: SLF001
+    assert "worker-blip" not in redis.inner.smembers(WORKER_REGISTRY)
+    assert "stage=claim error_type=TimeoutError attempt=1" in caplog.text
+    assert "recovered after 1 failure(s)" in caplog.text
+
+
+def test_lost_brpoplpush_reply_is_requeued_in_order_and_processed_once(
+    monkeypatch, caplog
+) -> None:
+    """Redis moved the item but the reply timed out: it must not be stranded."""
+    caplog.set_level(logging.INFO, logger="pastorai.queue_worker")
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-lost-reply"
+    queue.enqueue(_parsed_payload("LOST-REPLY"))
+    redis.fail_next("brpoplpush", _socket_timeout(), after_run=True)
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    sessions: list[FakeIngestSession] = []
+    stranded: list[list[str]] = []
+    sleeps: list[float] = []
+
+    def session_factory() -> FakeIngestSession:
+        session = FakeIngestSession(connection=connection)
+        sessions.append(session)
+        return session
+
+    def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+        stranded.append(list(redis.inner.lists[queue.processing_queue(worker_id)]))
+        # The same contact writes again while the worker waits.
+        queue.enqueue(_parsed_payload("NEWER"))
+
+    worker = _resilient_worker(
+        queue, worker_id, sleeper=sleeper, session_factory=session_factory
+    )
+    handled = _guard_run(monkeypatch, worker, stop_after_handled=2)
+
+    worker.run()
+
+    assert sleeps == [worker_module.REDIS_RETRY_BASE_DELAY_SECONDS]
+    assert len(stranded[0]) == 1
+    # Back at the consumer end: the lost message still runs before the newer one.
+    assert [_Envelope.from_json(raw).payload["data"]["key"]["id"] for raw in handled] == [
+        "LOST-REPLY",
+        "NEWER",
+    ]
+    assert handled[0] == stranded[0][0]
+    assert [session.committed for session in sessions] == [True, True]
+    assert redis.inner.get("pastorai:processed:LOST-REPLY") == "done"
+    assert redis.inner.lists[WEBHOOK_QUEUE] == []
+    assert redis.inner.lists[queue.processing_queue(worker_id)] == []
+    assert "Requeued 1 unverified webhook claim(s)" in caplog.text
+
+
+def test_unverified_ack_is_requeued_and_deduplicated(monkeypatch) -> None:
+    """A processed raw whose ACK failed must not linger in the private list."""
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-ack-blip"
+    queue.enqueue(_parsed_payload("ACK-BLIP"))
+    redis.fail_next(
+        "eval",
+        redis_exceptions.ConnectionError("Connection reset by peer"),
+        when=_script_is(worker_module._ACK_CLAIM_SCRIPT),
+    )
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    sessions: list[FakeIngestSession] = []
+    sleeps: list[float] = []
+
+    def session_factory() -> FakeIngestSession:
+        session = FakeIngestSession(connection=connection)
+        sessions.append(session)
+        return session
+
+    worker = _resilient_worker(
+        queue, worker_id, sleeper=sleeps.append, session_factory=session_factory
+    )
+    handled = _guard_run(monkeypatch, worker, stop_after_handled=2)
+
+    worker.run()
+
+    # The requeued copy is rejected by the idempotency marker, then acked.
+    assert len(handled) == 2
+    assert handled[0] == handled[1]
+    assert [session.committed for session in sessions] == [True]
+    assert redis.inner.get("pastorai:processed:ACK-BLIP") == "done"
+    assert redis.inner.lists[queue.processing_queue(worker_id)] == []
+    assert redis.inner.lists[WEBHOOK_QUEUE] == []
+    assert sleeps == []
+
+
+def test_malformed_envelope_ack_tolerates_redis_error() -> None:
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-poison-blip"
+    redis.inner.lpush(WEBHOOK_QUEUE, "[]")
+    claimed = queue.claim(worker_id, timeout=0)
+    redis.fail_next("lrem", redis_exceptions.ConnectionError("Connection refused"))
+    worker = _resilient_worker(queue, worker_id, sleeper=lambda _seconds: None)
+
+    worker._handle_raw(claimed)  # noqa: SLF001
+
+    assert redis.inner.lists[queue.processing_queue(worker_id)] == ["[]"]
+    assert worker._own_claims_unverified is True  # noqa: SLF001
+
+
+def test_lost_reconcile_reply_resumes_canonical_retry_without_resetting_it(
+    monkeypatch,
+) -> None:
+    """The reconcile script adopted the retry, then its reply was lost."""
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    failed_worker = "retry-failed"
+    worker_id = "retry-blip"
+    queue.register_worker(failed_worker)
+    original = _Envelope(payload={"event": "connection.update"})
+    raw = original.to_json()
+    redis.inner.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(failed_worker, timeout=0) == raw
+    queue.transition_failed_claim(failed_worker, raw, original)
+    (replacement,) = redis.inner.lists[WEBHOOK_QUEUE]
+    state_key = worker_module._retry_state_key(original.claim_id)
+    assert redis.inner.hashes[state_key]["status"] == "ready"
+    redis.fail_next(
+        "eval",
+        _socket_timeout(),
+        after_run=True,
+        when=_script_is(worker_module._RECONCILE_RETRY_CLAIM_SCRIPT),
+    )
+    owners: list[str | None] = []
+
+    def sleeper(_seconds: float) -> None:
+        owners.append(redis.inner.hashes[state_key].get("owner"))
+
+    worker = _resilient_worker(queue, worker_id, sleeper=sleeper)
+    handled = _guard_run(monkeypatch, worker)
+
+    worker.run()
+
+    # The script ran before the reply was lost: this worker owned the retry.
+    assert owners == [worker_id]
+    assert handled == [replacement]
+    assert _Envelope.from_json(replacement).attempts == 1
+    assert redis.inner.hashes[state_key] == {
+        "raw": replacement,
+        "attempts": "1",
+        "retry_at": "",
+        "status": "done",
+    }
+    assert redis.inner.lists[queue.processing_queue(worker_id)] == []
+    assert redis.inner.lists[WEBHOOK_QUEUE] == []
+
+
+def test_lease_lost_during_outage_stops_and_leaves_claim_recoverable(
+    monkeypatch,
+) -> None:
+    """A worker whose lease expired must not requeue or process its list."""
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-expired"
+    queue.enqueue({"event": "connection.update"})
+    redis.fail_next("brpoplpush", _socket_timeout(), after_run=True)
+
+    def outage_outlives_lease(_seconds: float) -> None:
+        redis.inner.delete(queue._lease_key(worker_id))  # noqa: SLF001
+
+    worker = _resilient_worker(queue, worker_id, sleeper=outage_outlives_lease)
+    handled = _guard_run(monkeypatch, worker, stop_after_handled=None)
+
+    worker.run()
+
+    assert handled == []
+
+    processing = queue.processing_queue(worker_id)
+    assert len(redis.inner.lists[processing]) == 1
+    assert worker_id in redis.inner.smembers(WORKER_REGISTRY)
+    queue.register_worker("worker-next")
+    assert queue.recover_pending("worker-next") == 1
+    assert redis.inner.lists[processing] == []
+    assert len(redis.inner.lists[WEBHOOK_QUEUE]) == 1
+
+
+def test_registration_waits_while_redis_loads_its_dataset(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="pastorai.queue_worker")
+    redis = FaultyRedis(FakeRedis())
+    redis.fail_next(
+        "set",
+        redis_exceptions.BusyLoadingError("Redis is loading the dataset in memory"),
+        times=2,
+    )
+    queue = WebhookQueue(redis_client=redis)
+    queue.enqueue({"event": "connection.update"})
+    sleeps: list[float] = []
+    worker = _resilient_worker(queue, "worker-loading", sleeper=sleeps.append)
+    handled = _guard_run(monkeypatch, worker)
+
+    worker.run()
+
+    assert sleeps == [0.5, 1.0]
+    assert len(handled) == 1
+    assert "stage=register error_type=BusyLoadingError attempt=2" in caplog.text
+
+
+def test_backoff_restarts_from_base_after_redis_answers_again(
+    monkeypatch, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="pastorai.queue_worker")
+    redis = FaultyRedis(FakeRedis())
+    polls: list[int] = []
+
+    def second_poll(*_args, **_kwargs) -> bool:
+        polls.append(1)
+        return len(polls) == 2
+
+    redis.fail_next(
+        "set",
+        redis_exceptions.ConnectionError("Connection reset by peer"),
+        when=lambda *_args, **kwargs: kwargs.get("xx", False),
+    )
+    redis.fail_next("brpoplpush", _socket_timeout(), when=second_poll)
+    queue = WebhookQueue(redis_client=redis)
+    sleeps: list[float] = []
+    worker: QueueWorker
+
+    def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 2:
+            worker.stop()
+
+    worker = _resilient_worker(queue, "worker-reset", sleeper=sleeper)
+    _guard_run(monkeypatch, worker, stop_after_handled=None)
+
+    worker.run()
+
+    # Lease renewal failed, one idle poll succeeded, then a poll timed out.
+    assert sleeps == [0.5, 0.5]
+    assert "stage=lease error_type=ConnectionError attempt=1" in caplog.text
+    assert "stage=claim error_type=TimeoutError attempt=1" in caplog.text
+
+
+def test_redis_retry_backoff_doubles_to_a_cap_without_overflow() -> None:
+    delays = [worker_module._redis_retry_delay(n) for n in range(1, 8)]
+
+    assert delays == [0.5, 1.0, 2.0, 4.0, 5.0, 5.0, 5.0]
+    assert worker_module._redis_retry_delay(100_000) == 5.0
+
+
+def test_stop_request_cuts_a_redis_backoff_short() -> None:
+    sleeps: list[float] = []
+    worker: QueueWorker
+
+    def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+        worker.stop()
+
+    worker = _resilient_worker(
+        WebhookQueue(redis_client=FakeRedis()), "worker-sigterm", sleeper=sleeper
+    )
+    worker._running = True  # noqa: SLF001
+    worker._redis_failures = 4  # noqa: SLF001 - the next wait is the 5 s cap
+
+    worker._wait_after_redis_error("claim", _socket_timeout())  # noqa: SLF001
+
+    assert sleeps == [1.0]
+
+
+@pytest.mark.parametrize(
+    ("method", "fault", "expected"),
+    [
+        (
+            "brpoplpush",
+            redis_exceptions.ResponseError(
+                "WRONGTYPE Operation against a key holding the wrong kind of value"
+            ),
+            redis_exceptions.ResponseError,
+        ),
+        (
+            "brpoplpush",
+            redis_exceptions.AuthenticationError("invalid username-password pair"),
+            redis_exceptions.AuthenticationError,
+        ),
+        ("eval", ValueError("unexpected script reply"), RuntimeError),
+    ],
+)
+def test_non_transient_errors_still_end_the_worker(
+    monkeypatch, method, fault, expected
+) -> None:
+    redis = FaultyRedis(FakeRedis())
+    redis.fail_next(method, fault)
+    queue = WebhookQueue(redis_client=redis)
+    sleeps: list[float] = []
+    worker = _resilient_worker(queue, "worker-fatal", sleeper=sleeps.append)
+    _guard_run(monkeypatch, worker, stop_after_handled=None)
+
+    with pytest.raises(expected):
+        worker.run()
+
+    assert sleeps == []
+    assert not redis.inner.exists(queue._lease_key("worker-fatal"))  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    ("fault", "keeps_running"),
+    [
+        (redis_exceptions.TimeoutError("Timeout reading from socket"), True),
+        (redis_exceptions.ConnectionError("Connection reset by peer"), True),
+        (redis_exceptions.ResponseError("WRONGTYPE wrong kind of value"), False),
+    ],
+)
+def test_heartbeat_defers_renewal_only_for_transient_redis_errors(
+    monkeypatch, fault, keeps_running
+) -> None:
+    queue = WebhookQueue(redis_client=FakeRedis())
+    heartbeats: list[str] = []
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id="worker-heartbeat-blip",
+        heartbeat_publisher=lambda state, _ttl: heartbeats.append(state),
+    )
+    worker._running = True  # noqa: SLF001
+    worker._record_progress()  # noqa: SLF001
+
+    def refresh(_worker_id: str) -> bool:
+        raise fault
+
+    monkeypatch.setattr(queue, "refresh_worker_lease", refresh)
+
+    assert worker._heartbeat_once() is keeps_running  # noqa: SLF001
+    assert worker._running is keeps_running  # noqa: SLF001
+    assert heartbeats == ([] if keeps_running else ["error"])
+
+
+def test_shutdown_tolerates_a_redis_error_while_unregistering(
+    monkeypatch, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="pastorai.queue_worker")
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    queue.enqueue({"event": "connection.update"})
+    redis.fail_next(
+        "eval",
+        redis_exceptions.ConnectionError("Connection refused"),
+        when=_script_is(worker_module._COMPARE_AND_DELETE_SCRIPT),
+    )
+    worker = _resilient_worker(queue, "worker-bye", sleeper=lambda _seconds: None)
+    handled = _guard_run(monkeypatch, worker)
+
+    worker.run()
+
+    assert len(handled) == 1
+    # Not deleted: the lease expires by its TTL instead.
+    assert redis.inner.exists(queue._lease_key("worker-bye"))  # noqa: SLF001
+    assert "unregister failed error_type=ConnectionError" in caplog.text
+
+
+def _caused_by(outer: BaseException, cause: BaseException) -> BaseException:
+    outer.__cause__ = cause
+    return outer
+
+
+@pytest.mark.parametrize(
+    ("exc", "transient"),
+    [
+        (redis_exceptions.TimeoutError("Timeout reading from socket"), True),
+        (redis_exceptions.ConnectionError("Connection refused"), True),
+        (redis_exceptions.BusyLoadingError("loading"), True),
+        (redis_exceptions.AuthenticationError("invalid password"), False),
+        (redis_exceptions.AuthorizationError("NOPERM"), False),
+        (redis_exceptions.ResponseError("WRONGTYPE"), False),
+        (TimeoutError("not raised by redis-py"), False),
+        (
+            _caused_by(
+                RuntimeError("Webhook scheduled retry could not be reconciled"),
+                redis_exceptions.TimeoutError("Timeout reading from socket"),
+            ),
+            True,
+        ),
+        (RuntimeError("Webhook scheduled retry queue is not usable"), False),
+    ],
+)
+def test_transient_redis_error_classification(exc, transient) -> None:
+    assert (worker_module._transient_redis_error(exc) is not None) is transient
+
+
+def test_redis_timeouts_leave_room_for_stalls_and_lease_renewal() -> None:
+    # An idle BRPOPLPUSH must survive a multi-second Redis or host stall.
+    assert REDIS_SOCKET_TIMEOUT_SECONDS - worker_module.BRPOP_TIMEOUT >= 5
+    # A renewal that hangs until the socket timeout is still followed by
+    # another heartbeat before the lease expires.
+    assert (
+        2 * worker_module.WORKER_HEARTBEAT_SECONDS + REDIS_SOCKET_TIMEOUT_SECONDS
+        < WORKER_LEASE_SECONDS
+    )
+    # A capped retry wait leaves most of the lease for the next attempt.
+    assert worker_module.REDIS_RETRY_MAX_DELAY_SECONDS < WORKER_LEASE_SECONDS / 2
