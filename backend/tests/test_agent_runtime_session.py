@@ -309,6 +309,7 @@ def test_scope_begins_transaction_sets_local_tenant_and_probes_private_helper() 
     assert "session_user" in statements[2]
     assert "current_user" in statements[2]
     assert all("set role" not in sql.lower() for sql in statements)
+    assert all("'role'" not in sql for sql in statements)
 
 
 def test_scope_rejects_active_transaction_before_any_sql() -> None:

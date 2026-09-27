@@ -134,11 +134,12 @@ backup e no monitor; acrescentar a ref do projeto novo na trava
 
 ## Pendente / próximo passo
 
-- **Sarah: GO no `ef6f2c1`** (P0=0, P1=1, P2=5), válido com `rls-integration`
-  verde no head. Os cinco P2 foram tratados no commit seguinte (D2A com GUC e
-  prova separados de novo, restauração do autocommit como no SQLAlchemy,
-  comentário sobre `handle_error`, defasagem de CORS no runbook, item do plano
-  desmarcado); o delta aguarda a conferência dela.
+- **Sarah: GO no `ef6f2c1` e no delta `82c7fc0`** (P0=0, P1=1), válido com
+  `rls-integration` verde no head. Os cinco P2 da primeira rodada foram
+  tratados em `82c7fc0` (D2A com GUC e prova separados de novo, restauração do
+  autocommit como no SQLAlchemy, comentário sobre `handle_error`, defasagem de
+  CORS no runbook, item do plano desmarcado). O P2-6 do delta (voltar a
+  assertiva de que a D2A nunca manda `'role'`) entrou no commit seguinte.
 - **P1-1, decisão do proprietário:** o PR mexe na D2A, pausada pelo
   `AGENTS.md` até a Fase 5 (guarda de checkout e pre-ping; sem efeito em PROD
   hoje). Aceitar a exceção por escrito no PR #424 ou separar esses trechos num
