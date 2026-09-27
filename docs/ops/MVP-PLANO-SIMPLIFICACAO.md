@@ -192,7 +192,15 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [ ] Limpar worktrees e branches mortas (só as limpas e já integradas).
 - [ ] Reconciliar ou recriar o DEV (44 migrations pendentes) com
       `scripts/migrate.py status`. Precisa da URL do DEV, que fica com o
-      proprietário.
+      proprietário. **Pré-requisito da próxima migration em
+      PROD** (decisão do proprietário, 26/09). Dono: a sessão do Maestri
+      (decisão de 27/09). Se recriar o DEV a partir do schema de PROD, sem
+      dados reais: restaurar também os dados de referência higienizados
+      (catálogo de planos da `0012`, modelo do orquestrador da `0014`, papéis
+      RBAC da `0009` e demais seeds), ou montar um ledger do DEV só com os
+      efeitos presentes. Copiar o ledger de PROD sem esses dados marca como
+      aplicadas migrations cujos dados não existem, e o `migrate.py` passa a
+      pulá-las. As 243 checagens de catálogo não provam dados.
 
 **Pronto quando:** `./test-local.sh` passa, e o CI tem só os jobs
 obrigatórios de produto.
@@ -218,7 +226,7 @@ obrigatórios de produto.
       própria). Implementação local em 25/09: até cinco tentativas por envelope,
       depois dead-letter; sem teste real ou deploy. Timeout após envio pode
       duplicar resposta, pois a Evolution não garante idempotência nesse fluxo.
-- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo).
+- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo). Ligado em 27/09. No teste da equipe interna (27/09), a resposta chegou ao celular em ~28 s; a meta de < 10 s ainda não foi atingida (banco em us-west-2, tarefa própria).
 
 **Pronto quando:** as mensagens para o número da Filadélfia recebem resposta
 em menos de 10 s e aparecem no inbox do painel.
@@ -232,41 +240,48 @@ A restrição permanece até a nova detecção de risco/handoff passar pela
 avaliação e revisão definidas abaixo. Deploy ou merge não removem essa restrição.
 
 Ordem revisada em 26/09: o banco vem antes do código, porque o `main` mapeia
-colunas e tabelas que o backend antigo não usava.
+colunas e tabelas que o backend antigo não usava. Estado real depois da sessão
+operacional de 26/09 (registro em
+[`2026-09-26-prod-sessao-a-ledger-e-deploy.md`](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)):
 
-1. **Backup** do banco de PROD.
-2. **Banco de PROD antes do deploy**, em duas sessões, cada uma com revisão
-   da Sarah (veredito de 26/09):
-   - **Sessão de reconciliação, só leitura.** Backup, inspeção por SQL e
-     reconciliação do ledger; não aplica nada novo. Confira cada migration
-     abaixo: a tabela ou a coluna existe? O preflight de 28/08 viu
-     `public.schema_migrations` ausente, e o `migrate.py` recusa rodar sem
-     ele. **Não crie o ledger vazio:** o `status` passaria a listar como
-     pendentes migrations que já estão em PROD. Registre nele só as já
-     aplicadas.
-   - **Sessão de aplicação.** Aplique as que faltam, uma a uma, com
-     `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py apply <arquivo> --yes`.
-     O `main` depende de:
-     - `20260822_225752_celula_membro_evento_audit_table` (transferir ou
-       remover membro de célula);
-     - `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
-       (reserva de resposta do worker);
-     - `20260925_183811_preserve_platform_admins_on_tenant_deletion`
-       (exclusão de tenant; muda a RLS de `app_users`).
-
-     `20260926_120446_platform_jev_settings` (configuração do Jev pelo
-     console; tabela nova fechada, só o backend lê) é decisão separada. Sem
-     ela o deploy funciona: o console mostra só o ambiente, e salvar responde
-     409 pedindo a migration.
-3. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
+1. ✅ **Backup** do banco de PROD: `pastorai-backup-20260926T200839Z` (antes do
+   ledger) e `pastorai-backup-20260926T210416Z` (antes da migration S2), com
+   SHA-256 conferido contra o `.sha256` e o manifesto.
+2. ✅ **Banco de PROD**, com revisão da Sarah em cada escrita:
+   - Ledger `public.schema_migrations` criado com registro nominal de 69
+     migrations: 63 por prova de objeto no catálogo e 6 só de dados por
+     evidência histórica (exceção aceita pelo proprietário). Já estavam
+     aplicadas, entre outras, `20260822_225752`, `20260824_180000`,
+     `20260826_030508` e `20260826_094317`.
+   - Aplicada `20260926_191500_agent_public_profile` (S2), com backup antes,
+     `lock_timeout` de 2 s na mesma transação e conferência de permissões
+     antes e depois. Exceção única ao "DEV primeiro": a próxima migration em
+     PROD só depois do DEV reconciliado.
+   - `migrate.py status` lista 8 pendentes, **nenhuma para aplicar em lote**
+     (cada uma tem gate próprio): `20260711_023515` e `20260711_152127` (só
+     dados, sem prova de aplicação), d1a, d2a, d2b2, d2b2b3, `20260925_183811`
+     e `20260926_120446`.
+   - Correção do plano anterior: o `main` **não** depende da
+     `20260925_183811` para login, `/me` ou o Console. Sem ela, só a
+     **exclusão de igreja** falha (500 com rollback se a igreja tiver admin de
+     plataforma; sem admin, apaga usuários no Clerk e arquivos no Storage mesmo
+     com `ALLOW_REAL_SENDS=false`). **Não excluir igreja** até o gate dessa
+     migration. A `20260926_120446_platform_jev_settings` é opcional: sem ela o
+     console do Jev mostra só o ambiente e salvar responde 409.
+3. ✅ **Deploy** feito em 26–27/09: backend `e6aafc2` (main pós-#423) nos quatro
+   processos, com `ALLOW_REAL_SENDS=false` na troca; `/admin/jev` sem login
+   responde 401. Texto original do passo: deploy do backend com o `main` atualizado, pelo runbook de produção
    (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`),
    ainda com `ALLOW_REAL_SENDS=false`: a prova pós-restart do runbook aborta
    se os envios estiverem abertos. Confira que
    `https://api.igreja12.com.br/admin/jev` sem login responde 401, não 404
    (404 = backend antigo, bug B13).
-4. **Painel da Filadélfia → Agente:** credencial OpenAI validada e ativa,
+4. **Painel da Filadélfia → Agente** (27/09: credencial OpenAI ativa e validada e
+   agente ativo; informações públicas ainda vazias): credencial OpenAI validada e ativa,
    agente **ativo**, comportamento com o tom da igreja.
-5. **`.env` de PROD** (passo separado, depois do deploy verificado):
+5. ✅ **`.env` de PROD** (27/09, 01:18 UTC: reaberto só para a Filadélfia, com
+   aceite de risco do proprietário; SLA, Asaas, Brevo, broadcast, agenda e Jev
+   desligados) — passo separado, depois do deploy verificado:
    - `WHATSAPP_PILOTO_IGREJA_IDS=<igreja_id da Filadélfia>` (copie do Admin
      Master);
    - `ALLOW_REAL_SENDS=true`. Isso também libera envios feitos por pessoas
@@ -278,7 +293,10 @@ colunas e tabelas que o backend antigo não usava.
    Reinicie os serviços.
 6. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
    número da Filadélfia. Esperado: o termo LGPD. Responda "sim". Esperado:
-   a saudação. As duas conversas aparecem no inbox.
+   a saudação. As duas conversas aparecem no inbox. Não clique em "Assumir
+   (pausar IA)" durante o teste: isso cancela a resposta do robô.
+   27/09: resposta entregue em ~28 s; antes, foi preciso reconectar a Evolution,
+   que estava "Online" sem receber desde 03/09 (registro da sessão).
 7. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
    ou `ALLOW_REAL_SENDS=false` e reiniciar.
 
@@ -305,14 +323,14 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       e indicação de célula por bairro explicitamente publicado no perfil do
       agente. Respostas determinísticas, sem LLM nem alterações cadastrais.
       Contrato inicial: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
-- [x] **S2 implementada em código, candidata no PR423:** painel/API de campos
-      públicos estruturados, migration tenant/RLS, perguntas naturais de culto
-      e remoção de Cf no legado. Testes locais e revisão técnica concluídos;
-      [registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md).
-      **Merge bloqueado** até liberação explícita coordenada com a sessão
-      PastorAI PROD operacional. Não aplicada em banco compartilhado nem
-      implantada por esta missão. Sarah GO no código `fe544d7`; delta documental
-      segue para conferência, sem liberar merge.
+- [x] **S2 em produção:** painel/API de campos públicos estruturados,
+      migration tenant/RLS, perguntas naturais de culto e remoção de Cf no
+      legado ([registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md)).
+      Sarah GO no código `fe544d7`. Em 26/09: migration `20260926_191500`
+      aplicada em PROD com backup e revisão da Sarah, PR #423 integrado e
+      backend `e6aafc2` implantado
+      ([registro da sessão](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)).
+      Informações públicas da Filadélfia ainda vazias no painel.
 - [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
       nem política pública para endereços residenciais; indicação por bairro
       não representa a célula mais próxima.
