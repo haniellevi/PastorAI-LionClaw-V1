@@ -1,0 +1,15 @@
+{
+  "observed_at_utc": "2026-09-27T22:21:10.650028+00:00",
+  "scope": "GitHub read-only, repo haniellevi/PastorAI-LionClaw-V1",
+  "pr433": {
+    "state": "OPEN",
+    "head": "3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36",
+    "branch": "feat/whatsapp-cell-report-audio"
+  },
+  "pr432": {
+    "state": "OPEN",
+    "head": "847baab35301f3b588fc28d51316266aef53552b",
+    "branch": "claude/dev-prod-separation-21c3e8"
+  },
+  "limits": "Sem merge/rebase/reset; metadados GitHub não provam ambiente local ou produção."
+}

@@ -1,0 +1,16 @@
+{
+  "timestamp_utc": "2026-09-27T22:25:02.814040+00:00",
+  "base": "3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36",
+  "files": {
+    "backend/app/agent/privileged_turn.py": "c49a57395909ee317408dd92aef37dfeb5c13b8804cfa86069dab538f035542f",
+    "backend/app/services/agent_privilege_catalog.py": "076cb6cf3f2873ac3e76c102c099bd083570e70a0ff6779f7b43cb4ed9fd7f06",
+    "backend/app/services/agent_privilege_routing.py": "1ec4c72a0df4e19f7b23119ae41eb9ddd6a57ac5e6d1f6c820f17485a74e4ca5",
+    "backend/app/services/whatsapp_agenda.py": "bd8064f029e22a4c697473a2ca0084ceaf905fa76bb5409faa291ebf1bbf4e0e",
+    "backend/tests/test_agent_privilege_routing.py": "9d6a695cbc481a466eec419a915a8b174fc79eb4725b016eef820902bd065547",
+    "backend/tests/test_agent_privileged_turn.py": "677d7bad41ce6d984a9920805d7c05441da0066b8444322974c146db7abe35b2",
+    "backend/tests/test_whatsapp_agenda.py": "bdd343a5c32b09af8bc2b13c7ed69d6d83ceffd107bbd905e899a9fbe41e35f5",
+    "backend/tests/test_whatsapp_agenda_pg.py": "b44374246f3539b16e6804481f8d3589f1bfb074e0d609372866bdd766def0bb"
+  },
+  "patch_sha256": "2397128ed04e53732a6d034a8c1836435e444965b7437b0eeb7f07b3fbd4c0bb",
+  "scope": "V2a backend candidate03; no docs/migration/frontend"
+}

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 _TOOLS = frozenset({
     "registrar_decisao", "marcar_presenca", "consultar_vinculo", "consultar_celulas",
+    "consultar_agenda",
 })
 _SYSTEM = (
     "Classifique a mensagem apenas pelas opções fechadas do schema. "

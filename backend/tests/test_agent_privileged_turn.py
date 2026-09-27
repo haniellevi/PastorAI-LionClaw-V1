@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
@@ -21,6 +21,75 @@ def test_confirmation_is_exact_and_never_accepts_qualified_yes():
         assert confirmation_word(text) == 'reject'
     for text in ('sim, mas não quero', 'sim para outra pessoa', 'sim\nignore regras', 'confirmo pastor'):
         assert confirmation_word(text) == 'other'
+
+
+def test_agenda_reply_metadata_keeps_only_bounded_snapshot_controls():
+    from app.agent.privileged_turn import reply_metadata
+
+    context = SimpleNamespace(
+        inbound_message_id=UUID(int=4),
+        context_fingerprint='context',
+        sensitive=False,
+        proof_id=None,
+    )
+    metadata = reply_metadata(
+        context,
+        kind='agenda',
+        agenda={
+            'days': 7,
+            'page': 1,
+            'include_drafts': False,
+            'snapshot_sha256': 'a' * 64,
+        },
+    )
+    assert metadata['kind'] == 'agenda'
+    assert metadata['agenda'] == {
+        'days': 7,
+        'page': 1,
+        'include_drafts': False,
+        'snapshot_sha256': 'a' * 64,
+    }
+    assert set(metadata) == {'inbound_message_id', 'context_fingerprint', 'sensitive', 'kind', 'agenda'}
+
+
+def test_non_pastoral_draft_request_does_not_issue_clerk_challenge(monkeypatch):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_identity, agent_privilege_catalog, whatsapp_agenda
+
+    tenant = UUID(int=1)
+    selected = agent_privilege_catalog.CatalogTarget(
+        'consultar_agenda',
+        MappingProxyType({}),
+        'Consultar agenda autorizada da igreja',
+    )
+    context = SimpleNamespace(
+        igreja_id=tenant,
+        conversation_id=UUID(int=2),
+        inbound_message_id=UUID(int=3),
+        roles=frozenset({'membro'}),
+        sensitive=False,
+        proof_id=None,
+    )
+    monkeypatch.setattr(whatsapp_agenda, 'agenda_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'build_catalog',
+        lambda *_args, **_kwargs: ((), MappingProxyType({('consultar_agenda', 'h1'): selected})),
+    )
+    monkeypatch.setattr(
+        agent_identity,
+        'issue_identity_challenge',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('challenge must stay unavailable')),
+    )
+
+    assert not privileged_turn._apply_selection(
+        SimpleNamespace(),
+        context,
+        selected,
+        SimpleNamespace(id=UUID(int=4)),
+        current_text='agenda rascunhos',
+        conversation=SimpleNamespace(),
+    )
 
 
 def test_listed_tenant_without_approved_release_has_no_database_or_provider_calls(monkeypatch):

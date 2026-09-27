@@ -137,6 +137,21 @@ def test_authorized_readonly_catalog_subset_is_allowed() -> None:
     assert result.status == "selected" and result.tool == "consultar_celulas"
 
 
+def test_agenda_catalog_code_is_closed_and_can_be_selected_without_event_data() -> None:
+    client = FakeClient(["restrita", "consultar_agenda", "h1"])
+    result = route_privileged_message(
+        client,
+        texto="Quais eventos temos?",
+        catalog=(_option("consultar_agenda", candidates=(
+            CandidateOption("h1", "Consultar agenda autorizada da igreja"),
+        )),),
+        deadline_monotonic=10,
+        clock=Clock(),
+    )
+    assert result.status == "selected" and result.tool == "consultar_agenda"
+    assert all("Encontro com Deus" not in call["user"] for call in client.calls)
+
+
 @pytest.mark.parametrize("summary", [
     "id 12345678", "pessoa_id: abc",
     "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
