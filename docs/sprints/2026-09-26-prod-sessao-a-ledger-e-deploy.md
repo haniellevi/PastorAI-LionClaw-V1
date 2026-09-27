@@ -445,7 +445,9 @@ Achados para depois:
   - os dumps de erro da Evolution incluem a `apikey`.
 - A Evolution não percebe conexão morta. Criar alerta, por exemplo: nenhuma
   mensagem recebida há N horas em horário comercial.
-- A VPS pede reinício (kernel e libc atualizados); agendar em horário calmo.
+- VPS reiniciada pelo proprietário em 27/09 às ~12:01 UTC (kernel 6.8.0-142). O
+  sistema voltou sozinho e o `/ready` público ficou verde (banco, Redis, Evolution e
+  os três workers). Restam 30 atualizações comuns de pacotes, sem urgência.
 - Scripts da sessão: `! grep` não abortava sob `set -e` no script da reabertura.
   As checagens seguintes, dentro dos containers, cobriram; o script foi corrigido
   para `if grep …; then exit 1; fi`.
