@@ -1963,17 +1963,17 @@ def process_inbound_message(
                 suppressed=True,
                 reason="secretaria_offer_resolved",
             )
-    # A SIM for a delivered S3 action can never be reinterpreted as accepting
-    # a newer LGPD term. Cancel its proposal and consume this inbound first.
+    # A changed term invalidates an old action for every inbound. A strict SIM
+    # must also be consumed before it can be interpreted as accepting the term.
     if consent_needs_reaccept and has_persisted_inbound_anchor:
         from app.agent.privileged_turn import _enabled, confirmation_word
-        if _enabled(igreja_id) and confirmation_word(current_text) == "confirm":
+        if _enabled(igreja_id):
             from app.services.agent_action_proposals import cancel_action_proposal_for_term_change
             cancelled = cancel_action_proposal_for_term_change(
                 session, igreja_id=igreja_id, conversation_id=conv_uuid,
                 inbound_message_id=inbound_message_id,
             )
-            if cancelled.status != "no_pending":
+            if cancelled.status != "no_pending" and confirmation_word(current_text) == "confirm":
                 if not stage_tier_a_terminal(handoff=False):
                     return AgentTurnResult(handled=False, reason="conversation_not_found")
                 session.commit()

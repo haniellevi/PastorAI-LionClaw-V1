@@ -29,9 +29,10 @@ Candidato source-only; manifesto e evidência em docs/ops/s3-whatsapp-20260927/.
 ## Verificação
 
 Local: backend5660, RLS PG17 384 sem skip, frontend937, lint/build e E2E1.
+Delta final LGPD: 25 PG focais verdes, incluindo dois novos aceites não estritos.
 O SQL S3 byte-exato foi aplicado no public de banco descartável separado:
 SHA256 d087013e0da83c7d80a1e3df05307861314eaaf2195bcd83149fe8927c2a50cc.
-Manifesto fonte/testes/CI: 6155f34a635220ea20877dc367079f3c7d7f5495ada5b73e8d95abe44bc3c358.
+Manifesto fonte/testes/CI: 927a583ccbf1405343d15015dc11c42a999ec633cd01ac08996d77d2fb9906ae.
 Duas ações, confirmações concorrentes, rollback, TTL, homônimos, mudança de termo,
 revogação de alvo/papel, retry e supressão de respostas privadas foram exercitados.
 Isso não comprova qualidade do LLM real, p95 real ou estado de ambiente compartilhado.

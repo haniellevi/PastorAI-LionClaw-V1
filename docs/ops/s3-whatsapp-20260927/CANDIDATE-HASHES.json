@@ -3,7 +3,7 @@
   "source_files": {
     ".github/workflows/rls-integration.yml": "dac7e1dc6fc2704b18b38cda8702aaf334732d09fd2dd62840d41c3dee7f9a1c",
     "backend/app/agent/privileged_turn.py": "23561a002c964f34c37c364cea72a236b886cb2be3e9bf6656079023db739e36",
-    "backend/app/agent/runtime.py": "f024bd60b5845dc3fd25d104ab5566d749f8d1a471f5a2e61a22b7f17fcbf888",
+    "backend/app/agent/runtime.py": "18a75bebee29a30e1d643caa394fbeaec9fb9a8faef1ac44adb1db2c54bb264c",
     "backend/app/db/models.py": "e57bc6d1247379b8093b0975cc618b099a2f7bb5ef9a7f5a3bfb2cfe83916583",
     "backend/app/main.py": "99f134344e441e94319df06d42dc137e34a4cc57144d7a474ab1a90474528e97",
     "backend/app/routers/agent_identity.py": "56acb713b11f4ca091cc8c6c5c2debb618fe37c1dd5a4d06a22ad5655c4371c7",
@@ -29,7 +29,7 @@
     "backend/tests/test_agent_privilege_catalog.py": "7c0af0e5eaa649d746d925d999da6fbf0fd7a29c8efa693ffdcd9d8a5d4bca86",
     "backend/tests/test_agent_privilege_routing.py": "31cfd77b6a0ef99c3b17605cf47c51aa77fd478621d3b358fd97b4e64f29851c",
     "backend/tests/test_agent_privileged_turn.py": "80cc1fb582010c3f730a90d91951ee354ba76fedf244a8693a6a474e5c962d60",
-    "backend/tests/test_agent_privileged_turn_pg.py": "de035a5a54f4ea60a7f221b3b132ff7c5a2b652183c8e5547faeea7b614a0313",
+    "backend/tests/test_agent_privileged_turn_pg.py": "05923381bd109f93dfdbe153adc0c6ea7ecddffb1a3c948c8a29b362155c2737",
     "backend/tests/test_agent_privileged_turn_sim_concurrency_pg.py": "a5ac29977b8631efca8ca5fff8271fa65f2d4cf9b05314d1788460ad6d7f8c1e",
     "backend/tests/test_agent_real_reply.py": "3c8bb15368b249c1be8720f9f6da2779eddcd6ffe6949f7a66d4f10e1d2977e0",
     "backend/tests/test_cell_meetings.py": "e1e476b09c36e86a5e1f374fce3bf2f470b9c9a77603e6329c1dc16411a4b915",

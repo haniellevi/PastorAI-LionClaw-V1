@@ -467,3 +467,23 @@ def test_target_revoked_during_routing_handoffs_without_rerouting(s3_turn, monke
     assert _rows(s3_turn, AgentActionProposal) == []
     with s3_turn.factory() as session:
         assert session.get(Conversation, s3_turn.conversation_id).estado == 'humano'
+
+
+@pytest.mark.parametrize('acceptance', ['Aceito', 'sim, concordo'])
+def test_changed_term_cancels_old_action_before_any_acceptance(s3_turn, monkeypatch, acceptance):
+    _fake_choices(monkeypatch, s3_turn, 'marcar_presenca')
+    evolution = _ClassifiedEvolution()
+    worker_module.run_agent_for_message(s3_turn.factory,
+        _inbound(s3_turn, 'S3-TERM-AFFIX-REQUEST', 'Confirme presença sintética'), evolution_client=evolution)
+    settings = SimpleNamespace(agent_term_version='new-synthetic-term',
+        agent_trusted_inbound_identity_enabled=False, effective_session_secret='s3-secret-synthetic')
+    monkeypatch.setattr(runtime_module, 'get_settings', lambda: settings)
+    monkeypatch.setattr(whatsapp_privilege, 'get_settings', lambda: settings)
+    monkeypatch.setattr(runtime_module, '_reply_with_llm', lambda *_a, **_k: (None, None))
+    worker_module.run_agent_for_message(s3_turn.factory,
+        _inbound(s3_turn, 'S3-TERM-AFFIX-ACCEPT', acceptance), evolution_client=evolution)
+    assert _rows(s3_turn, AgentActionProposal)[0].state == 'cancelada'
+    worker_module.run_agent_for_message(s3_turn.factory,
+        _inbound(s3_turn, 'S3-TERM-AFFIX-SIM', 'SIM'), evolution_client=evolution)
+    assert _effect_count(s3_turn, 'marcar_presenca') == 0
+    assert _rows(s3_turn, AgentActionReceipt) == []
