@@ -67,6 +67,10 @@ from app.domain.cell_report_snapshot import (
     validate_cell_report_snapshot_v2,
 )
 from app.domain.hierarchy import is_leader_or_superior
+from app.services.cell_report_finalizer import (
+    CellReportFinalizerError,
+    finalize_human_cell_report,
+)
 
 # Reuso dos helpers de cells.py (BK-DEC-01) — não reimplementar aqui.
 from app.routers.cells import (
@@ -1644,18 +1648,39 @@ def submit_report(
         _invalidate_pending_agent_report_for_human_takeover(reuniao)
 
         actor = resolve_actor_pessoa_id(db, current_user)
+        try:
+            actor_pessoa_id = uuid.UUID(actor) if actor is not None else None
+        except (TypeError, ValueError):
+            actor_pessoa_id = None
+        if actor_pessoa_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Célula não encontrada",
+            )
         now = dt.datetime.now(dt.timezone.utc)
-        reuniao.relatorio_status = RELATORIO_ENVIADO
-        reuniao.relatorio_enviado_em = now
-        reuniao.relatorio_enviado_por = uuid.UUID(actor) if actor else None
-        reuniao.updated_at = now
-        # Congela o consolidado (E10/E11): materializa fatos num snapshot imutável.
-        reuniao.relatorio_snapshot = _build_report_out(
+        # The panel preserves its established complete snapshot, while the
+        # shared finalizer owns terminal state and the concurrency boundary.
+        snapshot = _build_report_out(
             db,
             uuid.UUID(current_user.igreja_id),
             reuniao,
         ).model_dump()
-        db.flush()
+        try:
+            finalize_human_cell_report(
+                db,
+                igreja_id=uuid.UUID(current_user.igreja_id),
+                meeting=reuniao,
+                actor_pessoa_id=actor_pessoa_id,
+                snapshot=snapshot,
+                oferta_valor=reuniao.oferta_valor,
+                observacoes=reuniao.observacoes,
+                now=now,
+            )
+        except CellReportFinalizerError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Relatório indisponível",
+            ) from exc
         db.refresh(reuniao)
         db.commit()
         return SubmitReportOut(

@@ -1,0 +1,41 @@
+{
+  "status": "partial; paid extraction and cron pending",
+  "base": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "recorded_at": "2026-09-27T16:46:12.279615+00:00",
+  "environment": "local PG17 disposable; synthetic fixtures; provider mocks only",
+  "files": {
+    "backend/app/services/cell_report_finalizer.py": "aadd06e17d866135a9e4c2d005108f1b9a843ec59a62f9c9c1930066107c0953",
+    "backend/app/services/cell_report_v1a_service.py": "4330f0d10194b3ee24ae60b7169f73a38bf0c22e012658f1cd885c80dbe3d605",
+    "backend/app/services/cell_report_whatsapp.py": "013275411802e7eea295b93c6d23e6e2a48e24f5222705624c65fe267a72f100",
+    "backend/app/routers/cell_meetings.py": "6721548046c8b76eb7eb9368af098225bb30621d03d97b5f39a013ea10cca7cf",
+    "backend/app/agent/privileged_turn.py": "58e157e6f3fed16269223138567fc9f29386296c19729bd81c99b26b5ab9a849",
+    "backend/tests/test_cell_report_v1a_worker_pg.py": "48855e752ee7a581dfc8d5b231f3c8948ddc7ef96f46038dd1b1e69ad429f3be",
+    "backend/tests/test_cell_report_v1a_budget_pg.py": "db328414208e2ea97cf5379d3943dbc02611893f754b0a2cd3456e933692b856"
+  },
+  "checks": [
+    {
+      "scope": "reminder and retention PG",
+      "passed": 43,
+      "skipped": 0,
+      "snapshot": "reminders35e379e8"
+    },
+    {
+      "scope": "worker23 + budget9 + finalizer6",
+      "passed": 38,
+      "skipped": 0,
+      "snapshot": "finalizer47581a88; service4330f0d1; budget01327541",
+      "limit": "preceded removal of two legacy metadata fields"
+    },
+    {
+      "scope": "test-local backend",
+      "result": "one failure in legacy snapshot closed contract",
+      "delta": "removed two unsolicited metadata fields from human snapshot; no validator expansion"
+    },
+    {
+      "scope": "human/application/finalizer after delta aadd06e1",
+      "passed": 280,
+      "skipped": 0
+    }
+  ],
+  "next": "paid extraction and cron proof; full backend/RLS; independent review; CI/Sarah; no merge"
+}

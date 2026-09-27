@@ -39,3 +39,19 @@ evidência de consentimento) ficam fora de `status` e `apply` até a Fase 5.
 
 `0001`–`0017` são as migrations originais. `private_runtime/` pertence à
 fundação D2A, que está pausada; não aplique esses arquivos no MVP.
+
+## V1a: relatório de célula por texto (candidata)
+
+`20260927_190000_cell_report_whatsapp_v1a.sql` depende da migration S3
+`20260927_170000_whatsapp_privilege_actions.sql`. Acrescenta estado privado
+de rascunho, preferências/lembretes e reservas de custo, com RLS, e amplia
+o catálogo S3 somente para o relatório agregado. A execução usa
+`lock_timeout = '2s'`; se o lock não vier, parar e tentar em outra janela.
+
+A verificação local usa PostgreSQL 17 descartável e aplica o SQL duas vezes.
+Isso não prova aplicação em DEV/PROD. Preservar os SQLs congelados das PRs
+426/428, reconciliar a base e revisar novamente antes de qualquer aplicação.
+A flag `CELL_REPORT_ENABLED_IGREJA_IDS` fica vazia e
+`CELL_REPORT_APPROVED_RELEASE_ID=None`; migration e deploy não ativam envios.
+Rollback comentado no próprio SQL exige tratar pendências antes de remover
+o schema; relatórios já confirmados continuam sendo registros do domínio.

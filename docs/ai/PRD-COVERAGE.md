@@ -9,6 +9,14 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Recorte V1a de 27/09/2026: o [plano aprovado do relatório de célula](../ops/mvp-v1-relatorio-celula-whatsapp-plano.md)
+divide delta-052 em texto e áudio. O [candidato por texto](../sprints/2026-09-27-v1a-relatorio-celula-texto.md)
+foi implementado sobre a S3 e está sujeito aos gates de revisão; não reclassifica o domínio. O MVP usa o termo
+LGPD vigente, versionado e revogável como fonte de consentimento; E4B permanece
+pausado e seus gates históricos abaixo não autorizam esta vertical. Release
+V1a `None`, allowlist vazia, migration/deploy/ativação separados e dados somente
+sintéticos delimitam a prova local. Áudio permanece para V1b.
+
 Recorte E4b source-only de 22/09/2026: o precheck de projeção operacional
 valida somente declarações sintéticas de política, árvore, seleção, fechamento
 de dependências e recibo de patch. Ele sempre produz recibo `BLOCKED`, com

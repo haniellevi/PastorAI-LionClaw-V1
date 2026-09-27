@@ -1782,6 +1782,46 @@ def process_inbound_message(
             handled=True, route=None, response=None, suppressed=True, reason="optout"
         )
 
+    # A scoped reminder refusal is distinct from global opt-out.  It is a
+    # durable user control, so it is accepted before consent/configuration
+    # routing, but never generates an automatic reply or changes LGPD state.
+    if has_persisted_inbound_anchor:
+        from app.domain.cell_report_v1a import is_stop_cell_report_reminders_request
+
+        if is_stop_cell_report_reminders_request(current_text):
+            from app.services.cell_report_reminders import disable_cell_report_reminders
+
+            locked_conversation = _lock_tier_a_conversation(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=conv_uuid,
+            )
+            if locked_conversation is None:
+                return AgentTurnResult(handled=False, reason="conversation_not_found")
+            disable_cell_report_reminders(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=conv_uuid,
+                pessoa_id=pessoa.id,
+            )
+            if not stage_tier_a_terminal(handoff=False):
+                return AgentTurnResult(handled=False, reason="conversation_not_found")
+            log_agent_event(
+                session,
+                igreja_id=igreja_id,
+                evento="cell_report_reminders_disabled",
+                payload={},
+                conversation_id=conv_uuid,
+            )
+            session.commit()
+            return AgentTurnResult(
+                handled=True,
+                route=None,
+                response=None,
+                suppressed=True,
+                reason="cell_report_reminders_disabled",
+            )
+
     # Uma conversa já entregue a uma pessoa nunca volta a invocar o grafo ou o
     # provedor. Não regravamos estado aqui: um operador pode ter liberado a IA
     # depois desta leitura, e este turno antigo deve apenas permanecer suprimido.

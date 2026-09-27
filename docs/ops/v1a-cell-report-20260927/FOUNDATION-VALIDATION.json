@@ -1,0 +1,33 @@
+{
+  "at": "2026-09-27T14:58:25.196806+00:00",
+  "base": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "phase": "foundation-partial",
+  "patch_sha256": "6e483ad68bbf20e278b3aec258b3d6bea1304661c767544f483dc251677ecb48",
+  "files": {
+    "backend/app/db/models.py": "3a77afdc194d2886d709ca1a5efaad38f17357086ab621156465cd44df4e34e5",
+    "backend/app/services/agent_action_proposals.py": "fc2164fa764652ec3ad447466e280a1b5d8afb096420f0ddc942da3dfd1c302f",
+    "backend/app/domain/cell_report_v1a.py": "d693e26d07920c3217d5e09909e739f01788235a7000cb6fba61d35a08521a15",
+    "backend/app/services/cell_report_whatsapp.py": "c814acd6289d36d56f30abf5d384c7eabcdf3ce810a6da0f2cf6e2b3dfac13bb",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "d76ab1c6096d2c33781c5cd03a978c5a1cdd524c2a4bdc344b08c73df8abda50",
+    "backend/tests/test_cell_report_v1a.py": "1f13858e3b1562ed3a218598cbfae14cc1ec9278e3a6136a90c2e17b412e0326",
+    "backend/tests/test_cell_report_v1a_models.py": "695f2c7d06b34490c7ee7580e0db85998cdcc97157db3d917f1f46d561146564",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "c8c85e28bccf292a332d71c43e7808e43d094c720516e078a5c24fb7512bbfe3",
+    "backend/tests/test_agent_action_proposals.py": "1113ee7f984109e7edf3ee6b8405d996c95a4f5f8c01e60c35ccdb67b2e475ae",
+    "backend/tests/test_cell_report_v1a_migration_pg.py": "3da540af1ef1ad2f3d91133919c18546a4af7b43ea3298307eba045456da03c6"
+  },
+  "tests": {
+    "root_initial_unit": 26,
+    "root_corrected_model": 4,
+    "root_sql_rls": 15
+  },
+  "postgres": "17.6;loopback55477;disposableonly",
+  "migration_applied_twice": true,
+  "cross_tenant_draft_and_reminder_denied": "23503",
+  "not_proven": [
+    "worker flow",
+    "live providers",
+    "shared DB",
+    "deploy",
+    "final candidate"
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "status": "LOCAL_PASS; CI and Sarah remain separate gates",
+  "recorded_at": "2026-09-27T17:12:27.132445+00:00",
+  "base_sha": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "branch": "feat/whatsapp-cell-report-text",
+  "source_patch_sha256": "4a36ca014b006d7eccbda5f162cf331c6474edfb56173d9f38f4f373e41892e6",
+  "source_patch_scope": "30 staged production, migration and test files; documentation excluded",
+  "files": {
+    "backend/app/agent/privileged_turn.py": "a76f03901deaee4cacebe6394d1bb3cfa8efa804e27dd861ecd484879a44f387",
+    "backend/app/agent/runtime.py": "77ae4084feeceafc8baeb28339ffdff6879c0e23bf5054c230485d36e43e491b",
+    "backend/app/db/models.py": "be2f6f7bfa01d2a7a7dc6a0c49be6e4ab2dd7ad751ae27e4f52a20a73a96ac53",
+    "backend/app/domain/cell_report_v1a.py": "fbaf1f6b881cecdee7b97306ea60778f5fb26a85d9683f0d9b1b55f9f714f007",
+    "backend/app/routers/cell_meetings.py": "6721548046c8b76eb7eb9368af098225bb30621d03d97b5f39a013ea10cca7cf",
+    "backend/app/services/agent_action_proposals.py": "b742fe05473637e3342bf19609fee89fb6d4b03a522b23d8d8aba867bca64d28",
+    "backend/app/services/cell_report_application.py": "e408add357a570876bf5bcbf1f15b121a66cdd87da202ebd7385994b947d4311",
+    "backend/app/services/cell_report_finalizer.py": "aadd06e17d866135a9e4c2d005108f1b9a843ec59a62f9c9c1930066107c0953",
+    "backend/app/services/cell_report_reminders.py": "35e379e802ae6748894475315015bb36c33dd7866553268291a6464fa16bb593",
+    "backend/app/services/cell_report_v1a_service.py": "32bfb5745ec3cc279fd708341da162c3332f18b7f6eb69fa206c8e0c8c92aad7",
+    "backend/app/services/cell_report_whatsapp.py": "09a87dee78bc9e5f71d025b312baddf998a7a594148891ad736139573319dbea",
+    "backend/app/services/llm.py": "b92f325d03ee6de8249111b37f743ef0fb640e983dbd59fd0c32269b7c230653",
+    "backend/app/workers/cron_worker.py": "ff7f6a725997dfaf7d187bc7b18a34f2aebe94345e88848d38fb3beea0c4a495",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "d76ab1c6096d2c33781c5cd03a978c5a1cdd524c2a4bdc344b08c73df8abda50",
+    "backend/tests/test_agent_action_proposals.py": "956f03ab3c5cc101928de56ab572bcc2f6b25970f2c7a61915cb8106b3198cae",
+    "backend/tests/test_agent_hygiene.py": "5f2d17971f9dcfa1fcc3aa14502dee7ae0bd3d7658ad036fccb6e7f6f074f51c",
+    "backend/tests/test_cell_lider.py": "a571787968f9105284f104a1b5267c3781281a0c707c65791df0a10feec51b2e",
+    "backend/tests/test_cell_report_finalizer_v1a.py": "1e9f4ae4867d1a644465226701a1fdc3fe2fff53009e13b36dab5e76cc88aa5e",
+    "backend/tests/test_cell_report_reminders_v1a.py": "cf4359c8e6c99edbb2541d31fb98fae3dc8cab985c5643a482e1d45a8d4ec739",
+    "backend/tests/test_cell_report_v1a.py": "be4383fe09723deccdeeb12a2af0eda5ca861e541ad2c280cd2b228d0907a729",
+    "backend/tests/test_cell_report_v1a_budget_pg.py": "db328414208e2ea97cf5379d3943dbc02611893f754b0a2cd3456e933692b856",
+    "backend/tests/test_cell_report_v1a_cron_pg.py": "16c76dcaf9c479e1afc9e7f096357f81b17e52a400e0d07a4811e1a3725c6385",
+    "backend/tests/test_cell_report_v1a_extraction_pg.py": "4fad23cd4d7e6b583be760b39a58f94a48df4dd94d67648bb6d81aaa1779e2df",
+    "backend/tests/test_cell_report_v1a_migration_pg.py": "02562d7f74e0c37f4280c0979333f04b881084d075b3e342324d957b2c5bb21b",
+    "backend/tests/test_cell_report_v1a_models.py": "4b212a358e7bdce1e8a0deb3be5b788daa4f84cbe052420d9bcd69c9498a5e6a",
+    "backend/tests/test_cell_report_v1a_projection_contract.py": "783f66b17a64e4d51c6058b8ddc521882a5bc25276da436e5adaf90856645e19",
+    "backend/tests/test_cell_report_v1a_reminder_pg.py": "59bc66e60269ef75a0b7f01098d4e4858f0c93430779a1e235b6e040ee2f8a82",
+    "backend/tests/test_cell_report_v1a_worker_pg.py": "48855e752ee7a581dfc8d5b231f3c8948ddc7ef96f46038dd1b1e69ad429f3be",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "6f8f04252861161ad56e11d05ab23945908649e0a0be34f2ccea94dd67cfad25",
+    "backend/tests/test_llm_v1a_extraction.py": "b2f3edc913ad4d281aa1caa353af1ed69db5abe10cb211a408d9a74a0bb30da9"
+  },
+  "checks": [
+    {
+      "suite": "backend",
+      "command": "bash test-local.sh backend",
+      "results": {
+        "tests": 5747,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "seconds": 49.062,
+      "started_at": "2026-09-27T14:07:41.561232-03:00",
+      "junit_sha256": "e12e50b9cde64db24b94dec3333a2e898f8fca09c37c922f578d93d6d5cfbaa3"
+    },
+    {
+      "suite": "rls_integration",
+      "command": "python -m pytest -m rls_integration",
+      "results": {
+        "tests": 500,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "seconds": 160.902,
+      "started_at": "2026-09-27T14:07:46.302075-03:00",
+      "junit_sha256": "0308bf5854de8405c761e7444f0d1e19e213aec2346e6e8f0c2bd917a8b7c874"
+    }
+  ],
+  "exact_migration_pg_cases": 16,
+  "environment": {
+    "python": "3.13.14",
+    "database": "disposable PostgreSQL17, loopback only",
+    "providers": "synthetic mocks; no real call",
+    "data": "synthetic only"
+  },
+  "reviews": {
+    "outbox": "REVIEW-OUTBOX-DELTA.md",
+    "budget_finalizer": "REVIEW-BUDGET-FINAL.md",
+    "extraction_cron": "REVIEW-EXTRACTION.md",
+    "verdict": "Independent source review only; no open P1/P2 in reviewed slices; not Sarah approval"
+  },
+  "frozen_parent_sql": {
+    "20260927_170000_whatsapp_privilege_actions.sql": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
+    "20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65"
+  },
+  "limits": [
+    "No shared migration, deploy, activation, merge or real provider.",
+    "CELL_REPORT_APPROVED_RELEASE_ID=None and empty allowlist; S3 gates remain cumulative.",
+    "Concurrent distinct inbounds may consume two permitted reservations and hand off on stale draft revision; no new draft serialization.",
+    "No measured real LLM quality, cost or latency.",
+    "Audio belongs to a later V1b PR."
+  ],
+  "next_human_gate": "Sarah review of the exact PR head after green CI"
+}

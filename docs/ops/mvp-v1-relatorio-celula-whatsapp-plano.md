@@ -1,0 +1,40 @@
+# V1: relatório de célula pelo WhatsApp (delta-052)
+Status: APTO COM AJUSTES por Claude + Opencoded em27/09; V1a autorizada, V1b em PR posterior; sem ativação.
+Base: `f2a532a9cadba44a31e3d3067125a9e2b624c233`; branch documental própria; PR426/428 congeladas e intactas, rebase posterior com nova conferência. Referências: PRD0611 delta-046/047/052, contrato D6 e S3.
+1. Reusar D6 e proposta durável S3; evitar segundo fluxo de confirmação ou gravação direta pelo modelo. D6 hoje é offline, aceita só texto e nega consentimento por padrão.
+2. Servidor deriva tenant, inbound, PrivilegeContext e líder ativo da própria célula; resolvedor D6 emite alvo opaco da ocorrência materializada elegível. Ambiguidade/revogação -> humano.
+3. V1a = texto/lembrete/extração/resumo/correção/confirmação/serviço humano/comprovante; V1b = áudio em outra PR. Lembrete apenas ao líder autorizado, sem relatório enviado: início da reunião +2h, fuso America/Sao_Paulo, janela08h-21h; fora dela, adiar para08h, nunca antecipar reunião.
+4. Uma intenção por igreja/reunião/líder e máximo um lembrete por líder/24h; ocorrência com mais de24h perde lembrete, sem recuperação em massa nem segunda cobrança.
+5. Persistir intenção na outbox transacional reutilizando transporte/worker canônico; chave idempotente, claim/lease curta, revalidação antes de HTTP, sem lock durante envio.
+6. Falha comprovadamente antes de envio admite até2 retries em1/5min; resultado ambíguo suspende para conciliação, nunca reenvia cegamente. Sem consumer paralelo ou broadcast.
+7. Fonte de consentimento MVP: termo LGPD existente vigente, com versão, timestamp e revogação persistidos; aviso curto no primeiro lembrete registrado; PARAR LEMBRETES registrado desliga só lembretes; SAIR global prevalece.
+8. E4B/tarefas_operacionais pausados: não criar dependência nem mint/permit/bypass; reusar D6 via contrato MVP explícito. Consentimento ilegível/ausente/revogado ou termo desatualizado nega egress/escrita; humano impede automação.
+9. Antes do primeiro áudio, aviso curto: OpenAI da igreja transcreve para preparar relatório; aceite explícito separado, versionado e revogável; texto continua alternativa, sem enviar áudio pré-aceite ao LLM.
+10. Texto até4.000 caracteres e16KiB; áudio até5MiB e120s por mensagem, máximo3 áudios por relatório; validar tamanho efetivo, MIME/conteúdo permitido e duração local antes de upload.
+11. Download apenas do objeto privado vinculado ao inbound/tenant, nunca URL fornecida pelo modelo; decoder isolado com limites; duração ilegível/arquivo inválido -> pedir texto, sem transcrição.
+12. Adaptar D6 explicitamente para entrada transcrita com proveniência imutável (inbound, mídia/hash, consentimento e versão); não fabricar Message texto nem retirar metadados para contornar o guard.
+13. Reusar `transcribe_audio` com OpenAI BYO da igreja; budget áudio180s (V1b, limite120s de mídia), extração9s, sem retry externo automático ou transação aberta; erro/timeout -> humano ou novo texto solicitado, sem efeito.
+14. Parser determinístico existente primeiro; complemento LLM com JSON schema fechado: presentes/visitantes/decisões inteiros e oferta decimal em centavos, campos ausentes nulos, nunca zero inventado.
+15. Validar limites do domínio, negativos/frações/inconsistências e moeda BRL; perguntar só o que falta. Sem nomes, roster, endereço privado ou observações pastorais no prompt/resumo desta V1.
+16. Oferta é apenas total declarado no relatório, conforme RF-D6/delta-047: sem cobrança, movimentação, saldo, doadores ou lançamento financeiro; qualquer ação financeira exige painel. Delimitação aprovada pelos conselheiros.
+17. Decisões são contagem agregada nesta fatia, sem criar pessoas/consolidações pela contagem; fluxo nominal de decisão existente e V3 continuam separados.
+18. Resumo determinístico identifica célula/ocorrência e os quatro valores; usuário corrige por texto/áudio, cada revisão invalida hash/aceite anteriores e exige novo resumo entregue.
+19. Uma pendência S3 por conversa, com ator/alvo/hash args/resumo/versão; SIM exato em novo inbound confirma a última revisão entregue, determinístico antes de Jev/LLM e distinto de LGPD/secretaria.
+20. TTL10min após entrega confirmada; NÃO, SAIR, humano, troca de papel/termo/alvo ou prazo cancela. Retry não renova TTL; rascunho incompleto dura no máximo24h desde início.
+21. Expiração impede efeito imediatamente; limpar conteúdo do rascunho/resumo pendente em até1h, mantendo tombstone mínimo contra replay. Novo pedido inicia novo ciclo, sem reaproveitar SIM antigo.
+22. Extrair/reusar serviço comum ao submit humano (`cell_meetings`) e `cell_report_application`, com mesmas regras e RLS; coordinator/UoW D6 adapta a S3 sem duas propostas ou dois receipts concorrentes.
+23. Revalidar reunião/líder/consentimento dentro da transação; gravar relatório canônico, auditoria mínima e comprovante/outbox atomicamente, com unique por reunião/ação e concorrência com painel.
+24. Enviar comprovante somente após commit, com referência opaca e data/célula; replay devolve mesmo resultado, falha de transporte não repete domínio; conflito com relatório já enviado vai ao humano.
+25. V1b, retenção aprovada: binário original no storage privado tenant, até24h da recepção; cópia de processamento em memória/tmp privado apagada em finally (sweeper1h); nunca áudio/transcrição em log/cache compartilhado.
+26. Transcrição de trabalho e revisões intermediárias ficam privadas no banco/RLS, excluídas no término/cancelamento ou máximo24h; resumo de proposta segue limpeza da linha21 e sai do histórico enviado ao LLM.
+27. Histórico original de mensagens e resumo efetivamente enviado continuam privados conforme delta-052, até pedido de exclusão aprovado pelo admin; não confundir esse histórico com rascunho descartado. Retenção curta do binário é ajuste expresso proposto ao delta.
+28. Relatório confirmado permanece fonte oficial do domínio; exclusão autorizada/tenant reset alcança mídias, transcrições, mensagens, resumos, propostas, checkpoints/vetores e pendências externas, sem ressuscitar conteúdo por restore/retry.
+29. Purga durável/idempotente cobre objeto órfão e falha de storage, com métrica/alerta de atraso; tombstones/auditoria sem texto ou identificador pessoal desnecessário. Não prometer apagar aparelho do usuário nem cópia do provedor.
+30. Aviso/política aprovada deve distinguir retenção local, backups e OpenAI; uso real bloqueado sem decisão nominal sobre termos/retencão externa. Consentimento do líder não autoriza dados pessoais desnecessários de terceiros.
+31. Custo: no máximo4 extrações por relatório (inclui correções),2.000 tokens entrada/400 saída por chamada; sem roster/histórico amplo. Reserva atômica de teto estimado antes de cada chamada e contabilização real sem conteúdo.
+32. Tetos piloto aprovados US$0,10/relatório e US$2/igreja/dia, incluindo áudio e roteamento; tabela de custo versionada/revisada, estimativa indisponível ou teto excedido -> texto determinístico/humano, sem chamada paga.
+33. `CELL_REPORT_ENABLED_IGREJA_IDS` vazia + `CELL_REPORT_APPROVED_RELEASE_ID=None`, cumulativos aos gates S3, consentimento, agente e envio; env sozinha inerte, Jev não obrigatório, nenhuma chamada TypeSafe nova.
+34. Testes mocks/fixtures: texto/áudio, quatro campos, correção, consentimento negado/retirado, supressão/opt-out, limites MIME/tempo/bytes/custo, TTL, exclusão e egress zero com gates fechados.
+35. PG17 descartável: cross/intra-tenant, identidade/alvo forjado, dois SIM e painel concorrentes, rollback/commit, replay, outbox/retry ambíguo, cron/fuso/antispam, purga/órfãos; CI do SHA e Sarah antes de merge.
+36. Migration aditiva própria se necessária, RLS/ACL/FKs/rollback e lock_timeout curto; não editar SQL congelado. Deploy/backend/migration/piloto interno só com gates próprios; flag off cancela envios pendentes e preserva registros.
+37. V1a em PR própria sobre f2a532a: próxima revisão Sarah do candidato testado; V1b depois, com aceite separado versionado e relatório confirmado independente do binário após24h. Sem merge/PROD/VPS/provedores reais.

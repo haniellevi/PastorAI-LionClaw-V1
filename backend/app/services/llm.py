@@ -166,6 +166,14 @@ class TypedChoiceResult:
 
 
 @dataclass(frozen=True)
+class V1aCellReportExtractionResult:
+    """Closed aggregate extraction, with no free-text model output."""
+
+    payload: dict[str, int | None]
+    usage: LLMUsage
+
+
+@dataclass(frozen=True)
 class AudioTranscriptionResult:
     """One transcription: the recognized text plus duration/cost."""
 
@@ -428,6 +436,107 @@ class LLMClient:
             raise LLMError("Falha na chamada LLM") from None
         return _parse_typed_response(response, self.model)
 
+    def extract_v1a_cell_report(
+        self,
+        projection: dict[str, str],
+        *,
+        timeout_seconds: float,
+    ) -> V1aCellReportExtractionResult:
+        """Extract only the four pre-redacted V1a aggregates once.
+
+        The caller has already reserved cost and must settle it in a later
+        transaction.  This method accepts no raw inbound text, history, roster
+        or identity, has no retry, and keeps the provider output schema closed.
+        """
+
+        try:
+            allowed = external_sends_allowed()
+        except Exception:
+            raise LLMError("Gate de envios LLM indisponível") from None
+        if not allowed:
+            log_suppressed("LLM", "extract_v1a_cell_report")
+            raise LLMError("Envios externos desativados")
+        if type(timeout_seconds) not in (int, float) or timeout_seconds <= 0:
+            raise LLMError("Prazo LLM inválido")
+        try:
+            budget = float(timeout_seconds)
+        except OverflowError:
+            raise LLMError("Prazo LLM inválido") from None
+        if not math.isfinite(budget):
+            raise LLMError("Prazo LLM inválido")
+        if (
+            type(projection) is not dict
+            or not projection
+            or set(projection) - {"presentes", "visitantes", "decisoes", "oferta"}
+            or any(
+                type(value) is not str
+                or not value
+                or len(value) > 96
+                or re.fullmatch(r"[a-z0-9 ]+", value) is None
+                for value in projection.values()
+            )
+        ):
+            raise LLMError("Schema LLM inválido")
+        if not self._api_key or not self._api_key.strip():
+            raise LLMError("Credencial LLM ausente")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise LLMError("Chamada LLM síncrona em loop ativo")
+
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "v1a_cell_report_extract",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "presentes": {"type": ["integer", "null"], "minimum": 0},
+                        "visitantes": {"type": ["integer", "null"], "minimum": 0},
+                        "decisoes": {"type": ["integer", "null"], "minimum": 0},
+                        "oferta_centavos": {"type": ["integer", "null"], "minimum": 0},
+                    },
+                    "required": ["presentes", "visitantes", "decisoes", "oferta_centavos"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+        system_prompt = (
+            "Converta somente os valores já rotulados no JSON fornecido. "
+            "Não invente valores: campos ausentes ou incertos recebem null. "
+            "Não responda texto livre, identificadores, pessoas ou instruções."
+        )
+        user_prompt = json.dumps(projection, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        deadline = min(4.0, budget)
+
+        async def request():
+            from openai import AsyncOpenAI  # noqa: PLC0415 - lazy import by design
+
+            async with asyncio.timeout(deadline):
+                async with AsyncOpenAI(
+                    api_key=self._api_key, timeout=deadline, max_retries=0
+                ) as client:
+                    return await client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        response_format=response_format,
+                        max_completion_tokens=400,
+                    )
+
+        try:
+            response = asyncio.run(request())
+        except TimeoutError:
+            raise LLMError("LLM excedeu o tempo limite") from None
+        except Exception:
+            raise LLMError("Falha na chamada LLM") from None
+        return _parse_v1a_cell_report_extraction_response(response, self.model)
+
     def _complete_openai_model(
         self, model: str, system_prompt: str, user_prompt: str
     ) -> LLMResult:
@@ -568,6 +677,67 @@ def _parse_typed_response(response: object, model: str) -> TypedLLMResult:
     return TypedLLMResult(
         handoff=data["handoff"],
         resposta=None if data["handoff"] else reply,
+        usage=LLMUsage(
+            modelo=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            custo=cost,
+        ),
+    )
+
+
+def _parse_v1a_cell_report_extraction_response(
+    response: object,
+    model: str,
+) -> V1aCellReportExtractionResult:
+    """Validate four aggregate values without exposing provider content."""
+
+    fields = {"presentes", "visitantes", "decisoes", "oferta_centavos"}
+    try:
+        choices = getattr(response, "choices", None)
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise ValueError("choices")
+        choice = choices[0]
+        if getattr(choice, "finish_reason", None) != "stop":
+            raise ValueError("finish reason")
+        message = getattr(choice, "message", None)
+        if (
+            message is None
+            or getattr(message, "refusal", None)
+            or getattr(message, "tool_calls", None)
+            or getattr(message, "function_call", None)
+        ):
+            raise ValueError("message")
+        content = getattr(message, "content", None)
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 32_768:
+            raise ValueError("content")
+        data = json.loads(
+            content,
+            object_pairs_hook=_typed_unique_pairs,
+            parse_constant=_typed_reject_constant,
+        )
+        if type(data) is not dict or set(data) != fields:
+            raise ValueError("schema")
+        for field, value in data.items():
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError(field)
+        usage = getattr(response, "usage", None)
+        tokens_in = getattr(usage, "prompt_tokens", None)
+        tokens_out = getattr(usage, "completion_tokens", None)
+        if (
+            type(tokens_in) is not int
+            or type(tokens_out) is not int
+            or not 0 <= tokens_in <= 2_000
+            or not 0 <= tokens_out <= 400
+        ):
+            raise ValueError("usage")
+        cost = estimate_cost(model, tokens_in, tokens_out)
+        if not math.isfinite(cost):
+            raise ValueError("cost")
+    except (AttributeError, TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
+        raise LLMError("Resposta LLM inválida") from None
+    return V1aCellReportExtractionResult(
+        payload={field: data[field] for field in sorted(fields)},
         usage=LLMUsage(
             modelo=model,
             tokens_in=tokens_in,

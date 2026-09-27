@@ -534,6 +534,15 @@ class CelulaReuniao(Base):
     """
 
     __tablename__ = "celula_reuniao"
+    __table_args__ = (
+        # V1a uses this tenant-scoped key from private report/outbox rows.
+        # The primary key remains ``id`` for the pre-existing human paths.
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="celula_reuniao_igreja_id_id_key",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -1423,11 +1432,14 @@ class AgentActionProposal(Base):
             name="agent_action_proposals_confirmation_anchor_fkey",
         ),
         CheckConstraint(
-            "action IN ('registrar_decisao', 'marcar_presenca')",
+            "action IN ('registrar_decisao', 'marcar_presenca', "
+            "'enviar_relatorio_celula')",
             name="agent_action_proposals_action_closed",
         ),
         CheckConstraint(
-            "target_kind = 'pessoa'",
+            "(action IN ('registrar_decisao', 'marcar_presenca') "
+            "AND target_kind = 'pessoa') OR "
+            "(action = 'enviar_relatorio_celula' AND target_kind = 'reuniao')",
             name="agent_action_proposals_target_kind_closed",
         ),
         CheckConstraint(
@@ -1529,7 +1541,7 @@ class AgentActionReceipt(Base):
             name="agent_action_receipts_effect_reference_shape",
         ),
         CheckConstraint(
-            "receipt_text = 'Registro confirmado.'",
+            "receipt_text IN ('Registro confirmado.', 'Relatório confirmado.')",
             name="agent_action_receipts_receipt_text_closed",
         ),
         Index("agent_action_receipts_conversation_idx", "igreja_id", "conversation_id"),
@@ -1546,6 +1558,294 @@ class AgentActionReceipt(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
+
+
+class CellReportDraft(Base):
+    """Private V1a aggregate-only collection state.
+
+    Delivery, confirmation and the ten-minute TTL remain exclusively on the
+    S3 ``AgentActionProposal``.  This row holds only the 24-hour draft and its
+    revisions, and can be purged while its terminal identity remains durable.
+    """
+
+    __tablename__ = "cell_report_drafts"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="cell_report_drafts_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "source_message_id",
+            name="cell_report_drafts_source_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="cell_report_drafts_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "actor_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="cell_report_drafts_tenant_actor_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "source_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="cell_report_drafts_source_anchor_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "reuniao_id"),
+            ("celula_reuniao.igreja_id", "celula_reuniao.id"),
+            ondelete="CASCADE",
+            name="cell_report_drafts_reuniao_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('coletando', 'pronto', 'concluido', 'cancelado', 'expirado')",
+            name="cell_report_drafts_state_closed",
+        ),
+        CheckConstraint("revision > 0", name="cell_report_drafts_revision_positive"),
+        CheckConstraint(
+            "candidate_json IS NULL OR jsonb_typeof(candidate_json) = 'object'",
+            name="cell_report_drafts_candidate_object_chk",
+        ),
+        CheckConstraint(
+            "candidate_sha256 IS NULL OR candidate_sha256 ~ '^[0-9a-f]{64}$'",
+            name="cell_report_drafts_candidate_digest_shape",
+        ),
+        CheckConstraint(
+            "expires_at > started_at AND expires_at <= started_at + interval '24 hours'",
+            name="cell_report_drafts_expiry_window",
+        ),
+        Index(
+            "cell_report_drafts_one_active_conversation_idx",
+            "igreja_id",
+            "conversation_id",
+            unique=True,
+            postgresql_where=text("state IN ('coletando', 'pronto')"),
+        ),
+        Index(
+            "cell_report_drafts_reuniao_state_idx",
+            "igreja_id",
+            "reuniao_id",
+            "state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    actor_pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    candidate_json: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    candidate_sha256: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    terminal_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    content_purged_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CellReportReminderPreference(Base):
+    """A scoped, durable refusal of future V1a report reminders."""
+
+    __tablename__ = "cell_report_reminder_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "pessoa_id",
+            name="cell_report_reminder_preferences_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="cell_report_reminder_preferences_tenant_pessoa_fkey",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    disabled_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CellReportReminder(Base):
+    """Canonical V1a outbox row, never an artificial inbound message."""
+
+    __tablename__ = "cell_report_reminders"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="cell_report_reminders_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "reuniao_id",
+            "leader_pessoa_id",
+            name="cell_report_reminders_meeting_leader_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "leader_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="cell_report_reminders_tenant_leader_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "reuniao_id"),
+            ("celula_reuniao.igreja_id", "celula_reuniao.id"),
+            ondelete="CASCADE",
+            name="cell_report_reminders_reuniao_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('pendente', 'em_envio', 'retry', 'enviado', 'ambiguo', "
+            "'cancelado', 'obsoleto')",
+            name="cell_report_reminders_state_closed",
+        ),
+        CheckConstraint(
+            "attempts >= 0 AND attempts <= 2",
+            name="cell_report_reminders_attempts_range",
+        ),
+        CheckConstraint(
+            "text_sha256 ~ '^[0-9a-f]{64}$'",
+            name="cell_report_reminders_text_digest_shape",
+        ),
+        Index(
+            "cell_report_reminders_due_idx",
+            "igreja_id",
+            "state",
+            "due_at",
+        ),
+        Index(
+            "cell_report_reminders_leader_created_idx",
+            "igreja_id",
+            "leader_pessoa_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    leader_pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    due_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    claim_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    claimed_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    notice_recorded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    text_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    terminal_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CellReportAiDailyBudget(Base):
+    """One locked daily total for the reviewed V1a cost constants."""
+
+    __tablename__ = "cell_report_ai_daily_budgets"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="cell_report_ai_daily_budgets_tenant_id_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "budget_day",
+            name="cell_report_ai_daily_budgets_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id",),
+            ("igrejas.id",),
+            ondelete="CASCADE",
+            name="cell_report_ai_daily_budgets_igreja_fkey",
+        ),
+        CheckConstraint(
+            "reserved_microusd >= 0 AND settled_microusd >= 0",
+            name="cell_report_ai_daily_budgets_totals_nonnegative",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    budget_day: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    cost_version: Mapped[str] = mapped_column(Text, nullable=False)
+    reserved_microusd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    settled_microusd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CellReportAiReservation(Base):
+    """One bounded extraction reservation, settled without raw prompt content."""
+
+    __tablename__ = "cell_report_ai_reservations"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="cell_report_ai_reservations_tenant_id_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "draft_id",
+            "call_number",
+            name="cell_report_ai_reservations_draft_call_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "draft_id"),
+            ("cell_report_drafts.igreja_id", "cell_report_drafts.id"),
+            ondelete="CASCADE",
+            name="cell_report_ai_reservations_tenant_draft_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "budget_id"),
+            ("cell_report_ai_daily_budgets.igreja_id", "cell_report_ai_daily_budgets.id"),
+            ondelete="CASCADE",
+            name="cell_report_ai_reservations_tenant_budget_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('reservada', 'liquidada', 'cancelada')",
+            name="cell_report_ai_reservations_state_closed",
+        ),
+        CheckConstraint(
+            "call_number >= 1 AND call_number <= 4",
+            name="cell_report_ai_reservations_call_number_range",
+        ),
+        CheckConstraint(
+            "estimated_microusd > 0 AND (actual_microusd IS NULL OR "
+            "actual_microusd >= 0)",
+            name="cell_report_ai_reservations_cost_nonnegative",
+        ),
+        Index(
+            "cell_report_ai_reservations_daily_idx",
+            "igreja_id",
+            "budget_day",
+            "state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    budget_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    call_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget_day: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    cost_version: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    estimated_microusd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    actual_microusd: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    settled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class WorkQueueItem(Base):

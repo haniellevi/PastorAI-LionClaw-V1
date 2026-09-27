@@ -36,6 +36,7 @@ class ProposalExecutionDenied(ProposalContractError):
 class AgentAction(StrEnum):
     REGISTRAR_DECISAO = "registrar_decisao"
     MARCAR_PRESENCA = "marcar_presenca"
+    ENVIAR_RELATORIO_CELULA = "enviar_relatorio_celula"
 
 
 class ProposalDisposition(StrEnum):
@@ -85,7 +86,7 @@ class ProposalTarget:
     id: uuid.UUID
 
     def __post_init__(self) -> None:
-        if self.kind != "pessoa" or type(self.id) is not uuid.UUID or self.id.int == 0:
+        if self.kind not in {"pessoa", "reuniao"} or type(self.id) is not uuid.UUID or self.id.int == 0:
             raise ProposalContractError("alvo inválido")
 
 
@@ -114,7 +115,7 @@ class ActionEffect:
     def __post_init__(self) -> None:
         if type(self.opaque_effect_id) is not uuid.UUID or self.opaque_effect_id.int == 0:
             raise ProposalContractError("resultado de ação inválido")
-        if self.receipt_text != "Registro confirmado.":
+        if self.receipt_text not in {"Registro confirmado.", "Relatório confirmado."}:
             raise ProposalContractError("recibo inválido")
 
 
@@ -169,10 +170,12 @@ def canonical_action_arguments(
 
     if type(action) is not AgentAction or type(arguments) is not dict:
         raise ProposalContractError("argumentos inválidos")
-    pessoa_id = _canonical_uuid(arguments.get("pessoa_id"), field="pessoa_id")
-    if pessoa_id != str(target.id):
-        raise ProposalContractError("alvo divergente")
     if action is AgentAction.REGISTRAR_DECISAO:
+        if target.kind != "pessoa":
+            raise ProposalContractError("alvo divergente")
+        pessoa_id = _canonical_uuid(arguments.get("pessoa_id"), field="pessoa_id")
+        if pessoa_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
         if set(arguments) != {"pessoa_id", "vinculo", "celula_id"}:
             raise ProposalContractError("argumentos inválidos")
         vinculo = arguments["vinculo"]
@@ -183,11 +186,35 @@ def canonical_action_arguments(
             celula_id = _canonical_uuid(celula_id, field="celula_id")
         return {"celula_id": celula_id, "pessoa_id": pessoa_id, "vinculo": vinculo}
     if action is AgentAction.MARCAR_PRESENCA:
+        if target.kind != "pessoa":
+            raise ProposalContractError("alvo divergente")
+        pessoa_id = _canonical_uuid(arguments.get("pessoa_id"), field="pessoa_id")
+        if pessoa_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
         if set(arguments) != {"pessoa_id", "reuniao_id"}:
             raise ProposalContractError("argumentos inválidos")
         return {
             "pessoa_id": pessoa_id,
             "reuniao_id": _canonical_uuid(arguments["reuniao_id"], field="reuniao_id"),
+        }
+    if action is AgentAction.ENVIAR_RELATORIO_CELULA:
+        if target.kind != "reuniao" or set(arguments) != {
+            "reuniao_id",
+            "rascunho_id",
+            "revisao",
+        }:
+            raise ProposalContractError("argumentos inválidos")
+        reuniao_id = _canonical_uuid(arguments["reuniao_id"], field="reuniao_id")
+        if reuniao_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
+        rascunho_id = _canonical_uuid(arguments["rascunho_id"], field="rascunho_id")
+        revisao = arguments["revisao"]
+        if type(revisao) is not int or revisao < 1 or revisao > 1_000_000:
+            raise ProposalContractError("argumentos inválidos")
+        return {
+            "rascunho_id": rascunho_id,
+            "reuniao_id": reuniao_id,
+            "revisao": revisao,
         }
     raise ProposalContractError("ação inválida")
 
@@ -587,7 +614,7 @@ def _receipt_from_row(value: AgentActionReceipt) -> ActionReceipt | None:
 
 
 def _require_receipt_text(value: object) -> str:
-    if value != "Registro confirmado.":
+    if value not in {"Registro confirmado.", "Relatório confirmado."}:
         raise ProposalContractError("recibo inválido")
     return value
 
@@ -911,6 +938,13 @@ def _new_receipt(
     if type(effect) is not ActionEffect:
         raise ProposalContractError("resultado de ação inválido")
     receipt_text = _require_receipt_text(effect.receipt_text)
+    expected_receipt = (
+        "Relatório confirmado."
+        if proposal.action == AgentAction.ENVIAR_RELATORIO_CELULA.value
+        else "Registro confirmado."
+    )
+    if receipt_text != expected_receipt:
+        raise ProposalContractError("recibo inválido")
     return AgentActionReceipt(
         igreja_id=proposal.igreja_id,
         proposal_id=proposal.id,

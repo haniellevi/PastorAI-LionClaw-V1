@@ -373,10 +373,20 @@ sem declarar as próximas verticais implementadas.
    constante `PRIVILEGE_APPROVED_RELEASE_ID=None` mantêm a S3 inerte;
    ativação interna sem Jev exige ordem nominal e testes, sem DPA TypeSafe.
 2. **V1: relatório de célula pelo WhatsApp**, primeira vertical delta-052.
-   Integrar D6 coordinator e `transcribe_audio`: lembrete, texto/áudio, resumo
-   editável, confirmação, gravação e comprovante somente após commit. O plano
-   deve fixar consentimento, retenção de áudio/resumo, conteúdo do comprovante
-   e expiração/descarte quando o resumo não for confirmado.
+   [Plano aprovado com ajustes](mvp-v1-relatorio-celula-whatsapp-plano.md),
+   dividido em duas PRs: V1a entrega texto, lembrete, extração, resumo/correção,
+   confirmação S3, serviço humano e comprovante após commit; V1b acrescenta áudio.
+   A fonte de consentimento no MVP é o termo LGPD existente, com versão,
+   timestamp e revogação persistidos, negando quando ilegível. E4B e
+   `tarefas_operacionais` continuam pausados; nenhum mint ou bypass do legado.
+   Primeiro lembrete tem aviso registrado e PARAR LEMBRETES persistido;
+   SAIR global prevalece. Oferta é só total declarado em centavos, sem
+   operação financeira; decisões são agregadas. Confirmação em10min e
+   rascunho de24h; até quatro extrações com tetos do plano.
+   V1b exige aceite separado versionado, binário/transcrição temporários
+   por24h e relatório confirmado independente do áudio depois da purga.
+   Flag `CELL_REPORT_ENABLED_IGREJA_IDS` vazia e release em código
+   `CELL_REPORT_APPROVED_RELEASE_ID=None` mantêm a entrega inerte.
 3. **V2: agenda**, consultas e lembretes pela outbox única.
 4. **V3: consolidação**, decisão para consolidação e alertas de 24h/fonovisita.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
@@ -384,7 +394,7 @@ sem declarar as próximas verticais implementadas.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;
-as fatias seguintes ainda exigem seus planos. Mudança backend exige aviso antes
+S3 e V1 também possuem planos aprovados; demais fatias exigem seus planos. Mudança backend exige aviso antes
 do merge e deploy manual; nova migration mantém backup e gate de banco.
 Nenhum merge, aprovação ou teste autoriza provedores/envios reais.
 
