@@ -404,13 +404,17 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 
 - [ ] Investigar a causa raiz dos ~30 incidentes do monitor (VPS, Evolution,
       Supabase, Redis).
+- [x] `queue-worker` espera e tenta de novo em timeout ou queda transitória
+      do Redis, em vez de encerrar o processo (incidente de 27/09, B16). Só
+      código, sem deploy; o motivo do travamento do Redis continua aberto.
+      [Registro](../sprints/2026-09-27-queue-worker-redis-transitorio.md).
 - [x] Menos idas ao banco por requisição, em código (PR #424, Sarah GO,
       exceção D2A aceita pelo proprietário; entra em produção no próximo
       deploy): contexto de tenant numa instrução, ping só em conexão parada,
       preflight CORS por 2 h.
       `/auth/me` de 1,3 s para 0,75 s com 185 ms simulados
       ([registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
-- [ ] Decidir a infraestrutura (B16): banco em São Paulo (recomendado) ou
+- [ ] Decidir a infraestrutura (B17): banco em São Paulo (recomendado) ou
       servidor em Oregon. Antes, medir do VPS a latência de um projeto vazio
       em sa-east-1.
 - [ ] Deploy automatizado: uma GitHub Action ou um script único
@@ -456,6 +460,7 @@ UV e Capacitação, e Enviar editável.
 | B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |
 | B14 | Custo de IA (em US$) exibido como R$ no console. Corrigido em 26/09 | `AdminConsole.tsx`, `ChurchPage.tsx` | 0 |
 | B15 | `is_optout_request` perde "me tira da lista", "pare" e "stop"; `looks_like_report` responde "Relatório recebido!" a "vou mandar o relatório amanhã" e troca números no formato em linhas | `domain/consent.py`, `domain/report.py` | 2 |
-| B16 | VPS no Brasil e banco em us-west-2 (~185 ms por ida): tela 0,8 a 1,9 s por chamada e bot 21 a 26 s por mensagem; impede o aceite da Fase 1 | infra (VPS, Supabase) | 4 |
+| B16 | `queue-worker` caiu em PROD (27/09) com `TimeoutError` do Redis: 2 s de margem entre o BRPOPLPUSH e o `socket_timeout`, e nenhum retry no laço. Corrigido em código em 27/09; falta deploy | `queue_worker.py` | 4 |
+| B17 | VPS no Brasil e banco em us-west-2 (~185 ms por ida): tela 0,8 a 1,9 s por chamada e bot 21 a 26 s por mensagem; impede o aceite da Fase 1 | infra (VPS, Supabase) | 4 |
 | L1 | UV e Capacitação são placeholders; Enviar é só leitura | frontend | 5 |
 | L2 | Apenas OpenAI como provedor do agente | `AgenteScreen.tsx` | 5 |
