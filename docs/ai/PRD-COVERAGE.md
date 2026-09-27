@@ -9,6 +9,13 @@ canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 
 # Cobertura atual do PRD e da visão WhatsApp-first
 
+Recorte V1b de 27/09/2026: [candidato de áudio](../sprints/2026-09-27-v1b-relatorio-celula-audio.md)
+implementado e validado localmente sobre PR430 `a8bf21d`, com aceite separado/versionado e retenção
+privada local de 24 horas. [Contrato e evidências](../ops/v1b-cell-report-audio-20260927/README.md)
+delimitam as provas sintéticas e gates cumulativos; não há ativação nem mudança
+da classificação do domínio. O relatório confirmado permanece independente da mídia.
+
+
 Recorte V1a de 27/09/2026: o [plano aprovado do relatório de célula](../ops/mvp-v1-relatorio-celula-whatsapp-plano.md)
 divide delta-052 em texto e áudio. O [candidato por texto](../sprints/2026-09-27-v1a-relatorio-celula-texto.md)
 foi implementado sobre a S3 e está sujeito aos gates de revisão; não reclassifica o domínio. O MVP usa o termo

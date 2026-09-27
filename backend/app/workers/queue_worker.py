@@ -731,23 +731,24 @@ return redis.call('LREM', KEYS[2], 1, ARGV[2])
 # Postgres error code for unique_violation (23505) — the only IntegrityError
 # `ingest_message_event_ex` treats as a duplicate; anything else re-raises.
 _PG_UNIQUE_VIOLATION = "23505"
-_PROVIDER_MESSAGE_UNIQUE_CONSTRAINTS = frozenset(
+_DURABLE_INBOUND_UNIQUE_CONSTRAINTS = frozenset(
     {
         "messages_inbound_provider_id_uidx",
         "messages_outbound_provider_id_uidx",
+        "cell_report_audio_inputs_provider_once_key",
     }
 )
 
 
 def _is_provider_message_duplicate(exc: IntegrityError) -> bool:
-    """Return True only for a durable provider-message idempotency index."""
+    """Return True only for the durable inbound idempotency barriers."""
     orig = exc.orig
     sqlstate = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
     diag = getattr(orig, "diag", None)
     constraint_name = getattr(diag, "constraint_name", None)
     return (
         sqlstate == _PG_UNIQUE_VIOLATION
-        and constraint_name in _PROVIDER_MESSAGE_UNIQUE_CONSTRAINTS
+        and constraint_name in _DURABLE_INBOUND_UNIQUE_CONSTRAINTS
     )
 
 
@@ -1298,6 +1299,49 @@ def ingest_message_event_ex(
     if ownership_guard is not None:
         ownership_guard()
 
+    # V1b retains a provider-digest tombstone after the original Message is
+    # deleted.  Consult it before creating a new contact/conversation so a
+    # replay cannot recreate an inbound, private object path, or paid job.
+    # The lookup is deliberately behind the environment and schema gates:
+    # deployments without V1b keep the established media ingestion untouched.
+    v1b_audio_candidate = False
+    if inbound and parsed.media_kind == "audio":
+        from app.services.cell_report_audio import (
+            cell_report_audio_enabled_from_environment,
+        )
+        from app.services.cell_report_audio_service import (
+            audio_schema_available,
+            find_audio_input_by_provider,
+        )
+
+        v1b_audio_candidate = (
+            cell_report_audio_enabled_from_environment(igreja_id)
+            and audio_schema_available(db)
+        )
+        if v1b_audio_candidate:
+            tombstone = find_audio_input_by_provider(
+                db,
+                igreja_id=igreja_id,
+                provider_message_id=parsed.provider_message_id,
+            )
+            if tombstone is not None:
+                logger.info(
+                    "Duplicate V1b audio provider message %s for igreja %s",
+                    parsed.provider_message_id,
+                    igreja_id,
+                )
+                return IngestionOutcome(
+                    result=IngestionResult.DUPLICATE,
+                    conversation_id=tombstone.live_conversation_id,
+                    instance=parsed.instance,
+                    telefone=parsed.telefone_raw,
+                    texto=parsed.texto,
+                    inbound=True,
+                    igreja_id=igreja_id,
+                    inbound_message_id=tombstone.live_message_id,
+                    provider_message_id=parsed.provider_message_id,
+                )
+
     lock_canonical_phone(
         db, igreja_id=igreja_id, canonical=parsed.telefone
     )
@@ -1364,11 +1408,19 @@ def ingest_message_event_ex(
         db.add(conversation)
         db.flush()
 
+    # V1b begins as a candidate only.  The persisted inbound is then checked
+    # against the server-owned report scope before the generic media path is
+    # bypassed.  A human conversation, missing active panel link, no eligible
+    # meeting, or ambiguity stays on the established inbox path.
+    v1b_audio_input = False
+    v1b_audio_mime: str | None = None
+
     # Mídia (Etapa 2): baixa da Evolution + sobe no Storage. Se falhar, o `tipo`
     # ainda reflete que era mídia (painel mostra "indisponível"), sem quebrar a
-    # ingestão nem perder a mensagem.
+    # ingestão nem perder a mensagem.  V1b deliberately defers its private
+    # audio fetch until an explicitly consented durable job owns it.
     stored = None
-    if parsed.media_kind and media_resolver is not None:
+    if parsed.media_kind and media_resolver is not None and not v1b_audio_candidate:
         if ownership_guard is not None:
             ownership_guard()
         try:
@@ -1387,7 +1439,11 @@ def ingest_message_event_ex(
         texto=parsed.texto,
         tipo=parsed.media_kind or "texto",
         media_path=stored.path if stored else None,
-        media_mime=(stored.mime if stored else parsed.media_mime)
+        media_mime=(
+            v1b_audio_mime
+            if v1b_audio_input
+            else (stored.mime if stored else parsed.media_mime)
+        )
         if parsed.media_kind
         else None,
         media_nome=(stored.nome if stored else parsed.media_nome)
@@ -1398,6 +1454,40 @@ def ingest_message_event_ex(
     )
     db.add(message)
 
+    if v1b_audio_candidate:
+        # The inbound row is the only safe anchor accepted by the identity
+        # resolver.  This flush remains in the existing ingestion transaction;
+        # no provider or storage work has occurred yet.
+        db.flush()
+        from app.services.cell_report_audio import canonical_audio_mime
+        from app.services.cell_report_audio_service import audio_capture_scope_allows
+
+        v1b_audio_input = audio_capture_scope_allows(
+            db,
+            igreja_id=igreja_id,
+            conversation_id=conversation.id,
+            inbound_message_id=message.id,
+        )
+        if v1b_audio_input:
+            v1b_audio_mime = canonical_audio_mime(parsed.media_mime)
+            message.media_mime = v1b_audio_mime
+            message.media_nome = parsed.media_nome
+        elif media_resolver is not None:
+            # V1b never takes ownership of inbox audio outside the report scope.
+            if ownership_guard is not None:
+                ownership_guard()
+            try:
+                stored = media_resolver(parsed, igreja_id, conversation.id)
+            except Exception:  # noqa: BLE001 - established legacy degradation
+                logger.warning(
+                    "Falha ao baixar/guardar mídia da mensagem %s",
+                    parsed.provider_message_id,
+                )
+            message.media_path = stored.path if stored else None
+            message.media_mime = stored.mime if stored else parsed.media_mime
+            message.media_nome = stored.nome if stored else parsed.media_nome
+            message.media_tamanho = stored.tamanho if stored else None
+
     conversation.ultima_mensagem = parsed.texto or media_snippet(parsed.media_kind)
     if inbound:
         conversation.nao_lidas = (conversation.nao_lidas or 0) + 1
@@ -1407,9 +1497,26 @@ def ingest_message_event_ex(
     # post-effect check prevents the stale owner from committing; Storage uses
     # a provider-id-derived upsert path, so the recovered owner overwrites the
     # same object instead of creating a duplicate/orphan.
-    if ownership_guard is not None:
-        ownership_guard()
     try:
+        if v1b_audio_input:
+            # PostgreSQL allocates the message UUID on flush.  Flush before
+            # recording the live FK, still inside the one inbound transaction.
+            db.flush()
+            from app.services.cell_report_audio_service import (
+                enqueue_audio_input_after_inbound,
+            )
+
+            enqueue_audio_input_after_inbound(
+                db,
+                igreja_id=igreja_id,
+                conversation_id=conversation.id,
+                pessoa_id=pessoa.id,
+                inbound_message_id=message.id,
+                provider_message_id=parsed.provider_message_id,
+                declared_mime=parsed.media_mime,
+            )
+        if ownership_guard is not None:
+            ownership_guard()
         db.commit()
     except IntegrityError as exc:
         # MSG-IDEMP-1: segunda barreira (DB) contra a mesma barreira do Redis
@@ -1434,10 +1541,26 @@ def ingest_message_event_ex(
             parsed.provider_message_id,
             inbound=inbound,
         )
+        audio_tombstone = None
+        if existing_message is None and inbound and v1b_audio_candidate:
+            # The original Message can have been deleted after V1b recorded its
+            # immutable cleanup anchor.  Treat that durable conflict as a
+            # terminal duplicate rather than recreating the inbound on retry.
+            from app.services.cell_report_audio_service import (
+                find_audio_input_by_provider,
+            )
+
+            audio_tombstone = find_audio_input_by_provider(
+                db,
+                igreja_id=igreja_id,
+                provider_message_id=parsed.provider_message_id,
+            )
         return IngestionOutcome(
             result=IngestionResult.DUPLICATE,
             conversation_id=(
-                existing_message.conversation_id if existing_message is not None else None
+                existing_message.conversation_id
+                if existing_message is not None
+                else getattr(audio_tombstone, "live_conversation_id", None)
             ),
             instance=parsed.instance,
             telefone=parsed.telefone_raw,
@@ -1447,7 +1570,7 @@ def ingest_message_event_ex(
             inbound_message_id=(
                 existing_message.id
                 if inbound and existing_message is not None
-                else None
+                else getattr(audio_tombstone, "live_message_id", None)
             ),
             provider_message_id=(
                 existing_message.provider_message_id
@@ -2250,6 +2373,7 @@ class QueueWorker:
         should_run_agent = outcome.result is IngestionResult.REGISTERED or (
             processing_claim is ProcessingClaim.RESUMED
             and outcome.result is IngestionResult.DUPLICATE
+            and outcome.inbound_message_id is not None
         )
         if (
             self._agent_runner is not None

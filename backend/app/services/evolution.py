@@ -16,10 +16,14 @@ The client never raises raw HTTP errors to callers: failures are normalized to
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
+import json
 import logging
 import math
+import time
 from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from dataclasses import dataclass, replace
@@ -33,6 +37,11 @@ from app.config import Settings, get_settings
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.evolution")
+
+# V1b is the sole caller of the bounded media endpoint.  It must never accept
+# a caller-selected payload size above the approved private-audio ceiling.
+MAX_BOUNDED_AUDIO_MEDIA_BYTES = 5 * 1024 * 1024
+_BOUNDED_MEDIA_JSON_OVERHEAD_BYTES = 4 * 1024
 
 # Map Evolution connection states to our whatsapp_status enum.
 _STATE_MAP = {
@@ -613,6 +622,110 @@ class EvolutionClient:
         if not isinstance(data, str) or not data:
             raise EvolutionError("Mídia sem conteúdo na resposta da Evolution API")
         return data, (mimetype if isinstance(mimetype, str) and mimetype else None)
+
+    def get_audio_media_bytes_limited(
+        self,
+        instance: str,
+        key: dict[str, object],
+        *,
+        max_bytes: int,
+        timeout_seconds: float,
+    ) -> tuple[bytes, str | None]:
+        """Fetch V1b audio through a bounded response stream.
+
+        This deliberately has no URL parameter.  The worker supplies a trusted
+        webhook key after persisting a durable input record.  Content-Length is
+        checked before reading and every chunk is capped before JSON/base64
+        parsing, so an Evolution response cannot allocate an unbounded body.
+        """
+
+        if (
+            type(instance) is not str
+            or not instance.strip()
+            or type(key) is not dict
+            or type(max_bytes) is not int
+            or max_bytes <= 0
+            or max_bytes > MAX_BOUNDED_AUDIO_MEDIA_BYTES
+            or type(timeout_seconds) not in (int, float)
+        ):
+            raise EvolutionError("Mídia de áudio indisponível")
+        try:
+            bounded_timeout = float(timeout_seconds)
+        except (OverflowError, ValueError):
+            raise EvolutionError("Mídia de áudio indisponível") from None
+        if not math.isfinite(bounded_timeout) or bounded_timeout <= 0.0:
+            raise EvolutionError("Mídia de áudio indisponível")
+
+        max_base64_bytes = ((max_bytes + 2) // 3) * 4
+        max_json_bytes = max_base64_bytes + _BOUNDED_MEDIA_JSON_OVERHEAD_BYTES
+        deadline_at = time.monotonic() + bounded_timeout
+
+        def remaining_timeout() -> float:
+            remaining = deadline_at - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0.0:
+                raise EvolutionError("Mídia de áudio indisponível")
+            return remaining
+
+        base_url, api_key = self._require_config()
+        headers = {**self._headers(api_key), "Accept-Encoding": "identity"}
+        try:
+            client = self._http_client(base_url)
+            with client.stream(
+                "POST",
+                f"/chat/getBase64FromMediaMessage/{instance}",
+                headers=headers,
+                json={"message": {"key": key}, "convertToMp4": False},
+                timeout=httpx.Timeout(
+                    connect=min(10.0, remaining_timeout()),
+                    read=min(1.0, remaining_timeout()),
+                    write=min(10.0, remaining_timeout()),
+                    pool=min(10.0, remaining_timeout()),
+                ),
+            ) as response:
+                response.raise_for_status()
+                content_encoding = response.headers.get("content-encoding", "").strip().lower()
+                if content_encoding not in {"", "identity"}:
+                    raise EvolutionError("Mídia de áudio indisponível")
+                declared_length = response.headers.get("content-length")
+                if declared_length is not None:
+                    if not declared_length.isascii() or not declared_length.isdecimal():
+                        raise EvolutionError("Mídia de áudio indisponível")
+                    if int(declared_length) > max_json_bytes:
+                        raise EvolutionError("Mídia de áudio indisponível")
+                raw = bytearray()
+                for chunk in response.iter_raw():
+                    remaining_timeout()
+                    if len(chunk) > max_json_bytes - len(raw):
+                        raise EvolutionError("Mídia de áudio indisponível")
+                    raw.extend(chunk)
+                remaining_timeout()
+        except EvolutionError:
+            raise
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution bounded audio fetch failed: %s", type(exc).__name__)
+            raise EvolutionError("Mídia de áudio indisponível") from exc
+        except (OSError, ValueError):
+            raise EvolutionError("Mídia de áudio indisponível") from None
+
+        try:
+            body = json.loads(bytes(raw).decode("utf-8", "strict"))
+            encoded = body.get("base64") if type(body) is dict else None
+            mimetype = body.get("mimetype") if type(body) is dict else None
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            raise EvolutionError("Mídia de áudio indisponível") from None
+        if type(encoded) is not str or not encoded or len(encoded) > max_base64_bytes:
+            raise EvolutionError("Mídia de áudio indisponível")
+        try:
+            media = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, UnicodeEncodeError, ValueError):
+            raise EvolutionError("Mídia de áudio indisponível") from None
+        if not media or len(media) > max_bytes:
+            raise EvolutionError("Mídia de áudio indisponível")
+        if mimetype is not None and (
+            type(mimetype) is not str or not mimetype.strip() or len(mimetype) > 255
+        ):
+            raise EvolutionError("Mídia de áudio indisponível")
+        return media, (mimetype.strip().lower() if type(mimetype) is str else None)
 
     def send_media(
         self,

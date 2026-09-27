@@ -357,6 +357,63 @@ class CronWorker:
         self._record_progress()
         return purged, scheduled, dispatched
 
+    def _run_cell_report_audio_cycle(
+        self,
+        *,
+        now: dt.datetime | None,
+    ) -> tuple[int, int]:
+        """Maintain V1b audio anchors, then dispatch only through live gates.
+
+        Private-content cleanup intentionally remains available after a feature
+        rollout is closed.  Transport is constructed only after the independent
+        external-send guard opens, and all V1b claim sessions have already
+        committed before the client can issue I/O.
+        """
+
+        from app.services.cell_report_audio import decode_audio_bytes
+        from app.services.cell_report_audio_service import (
+            dispatch_cell_report_audio_inputs,
+            purge_cell_report_audio_inputs,
+        )
+        from app.services.llm import transcribe_audio
+        from app.services.outbound_guard import external_sends_allowed
+        from app.services.storage import SupabaseStorage
+
+        purged = 0
+        dispatched = 0
+        storage = SupabaseStorage()
+        try:
+            purged = purge_cell_report_audio_inputs(
+                self._session_factory,
+                storage=storage,
+                now=now,
+            )
+        except Exception:  # noqa: BLE001 - retention must not stop cron
+            logger.warning(
+                "Cell-report audio purge failed",
+                extra={"event": "cell_report_audio_purge_failed"},
+            )
+        self._record_progress()
+        if not external_sends_allowed():
+            return purged, dispatched
+        try:
+            with EvolutionClient() as evolution_client:
+                dispatched = dispatch_cell_report_audio_inputs(
+                    self._session_factory,
+                    evolution_client=evolution_client,
+                    storage=storage,
+                    decoder=decode_audio_bytes,
+                    transcriber=transcribe_audio,
+                    progress_callback=self._record_progress,
+                ).completed
+        except Exception:  # noqa: BLE001 - one V1b batch cannot stop cron
+            logger.warning(
+                "Cell-report audio dispatch failed",
+                extra={"event": "cell_report_audio_dispatch_failed"},
+            )
+        self._record_progress()
+        return purged, dispatched
+
     def tick(self, now: dt.datetime | None = None) -> dict[str, int]:
         """Run one full cycle: purge + global SLA sweep + due crons.
 
@@ -366,6 +423,8 @@ class CronWorker:
         reminder_now = now
         now = now or _now()
         oauth_flows_purged = self._purge_oauth_flows(now)
+        audio_purged = 0
+        audio_dispatched = 0
         self._record_progress()
         session: Session = self._session_factory()
         try:
@@ -411,11 +470,16 @@ class CronWorker:
                 # still propagates after the hook has finished.
                 # With no injected clock, reminder fences read a fresh clock.
                 self._run_cell_report_reminder_cycle(now=reminder_now)
+                audio_purged, audio_dispatched = self._run_cell_report_audio_cycle(
+                    now=reminder_now,
+                )
         return {
             "sla_handled": sla_handled,
             "crons_run": crons_run,
             "oauth_flows_purged": oauth_flows_purged,
             "plan_changes_completed": plan_changes,
+            "audio_purged": audio_purged,
+            "audio_dispatched": audio_dispatched,
         }
 
     def run(self) -> None:

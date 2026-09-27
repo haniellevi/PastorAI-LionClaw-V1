@@ -264,6 +264,41 @@ def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
     assert session.closed is True
 
 
+def test_audio_cycle_purges_when_external_transport_is_closed(monkeypatch) -> None:
+    """Retention, including its local recovery pass, ignores send gates."""
+
+    import app.services.cell_report_audio_service as audio_service
+    import app.services.outbound_guard as outbound_guard
+    import app.services.storage as storage_module
+    import app.workers.cron_worker as worker_module
+
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        audio_service,
+        "purge_cell_report_audio_inputs",
+        lambda factory, *, storage, now: seen.update(
+            factory=factory, storage=storage, now=now
+        ) or 2,
+    )
+    monkeypatch.setattr(
+        outbound_guard,
+        "external_sends_allowed",
+        lambda: False,
+    )
+    sentinel_storage = object()
+    monkeypatch.setattr(storage_module, "SupabaseStorage", lambda: sentinel_storage)
+    monkeypatch.setattr(
+        worker_module,
+        "EvolutionClient",
+        lambda: (_ for _ in ()).throw(AssertionError("transport must stay closed")),
+    )
+    factory = lambda: object()  # noqa: E731
+    worker = CronWorker(session_factory=factory, engine=FakeEngine(), tick_seconds=300)
+
+    assert worker._run_cell_report_audio_cycle(now=_T0) == (2, 0)  # noqa: SLF001
+    assert seen == {"factory": factory, "storage": sentinel_storage, "now": _T0}
+
+
 def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> None:
     """Fronteira própria: billing quebrado nunca derruba SLA nem crons."""
     cron = _cron(acao="rodar_sla", frequencia="continuo")

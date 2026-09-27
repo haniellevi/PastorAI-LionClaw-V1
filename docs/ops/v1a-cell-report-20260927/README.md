@@ -31,3 +31,7 @@ Mensagens distintas enviadas simultaneamente podem consumir duas reservas permit
 Desligar a flag deve impedir novos efeitos e cancelar pendências, preservando o relatório oficial. A limpeza de dados transitórios continua ativa. Reversão de código/schema requer drenar pendências incompatíveis e seguir o rollback comentado da migration; esta missão não executa esse procedimento em ambiente compartilhado.
 
 PR426 e PR428 permanecem congeladas. Rebase/retarget, migration, deploy e ativação exigem conferências próprias. O próximo gate humano desta entrega é Sarah revisar o candidato completo, com testes e CI do mesmo SHA.
+
+## Limite registrado na revisão Sarah
+
+O PR430 ficou congelado em `a8bf21d`, com GO da Sarah. A guarda do índice compara a representação textual de `pg_get_expr` validada em PostgreSQL17. Uma mudança de versão/formatação pode abortar a migration mesmo com predicado equivalente. A falha é fechada, mas a comparação é frágil; qualquer mudança de versão PostgreSQL exige novo replay do SQL exato antes de aplicação. Esta observação foi acrescentada na branch V1b, sem alterar o head ou o SQL congelados do PR430.

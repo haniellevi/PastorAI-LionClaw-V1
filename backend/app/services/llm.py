@@ -807,6 +807,9 @@ def transcribe_audio(
     audio_bytes: bytes,
     mime_type: str,
     filename: str = "audio",
+    timeout_seconds: float = 20.0,
+    max_retries: int = 1,
+    require_real_result: bool = False,
 ) -> AudioTranscriptionResult:
     """Transcribe one bounded audio clip with the igreja's BYO credential.
 
@@ -821,6 +824,24 @@ def transcribe_audio(
     provider = _require_supported(provedor)
     if not api_key or not api_key.strip():
         raise LLMProviderError("Credencial LLM ausente para transcrição")
+    if (
+        type(timeout_seconds) not in (int, float)
+        or type(max_retries) is not int
+        or type(require_real_result) is not bool
+    ):
+        raise LLMProviderError("Parâmetros de transcrição inválidos")
+    try:
+        bounded_timeout = float(timeout_seconds)
+    except (OverflowError, ValueError):
+        raise LLMProviderError("Parâmetros de transcrição inválidos") from None
+    if (
+        not math.isfinite(bounded_timeout)
+        or bounded_timeout <= 0.0
+        or bounded_timeout > 180.0
+        or max_retries < 0
+        or max_retries > 1
+    ):
+        raise LLMProviderError("Parâmetros de transcrição inválidos")
     normalized_mime = (mime_type or "").strip().lower()
     if normalized_mime not in SUPPORTED_AUDIO_MIME_TYPES:
         raise UnsupportedAudioTypeError(
@@ -835,6 +856,8 @@ def transcribe_audio(
 
     if not external_sends_allowed():
         log_suppressed("LLM", "transcribe_audio")
+        if require_real_result:
+            raise LLMProviderError("Transcrição externa não autorizada")
         return AudioTranscriptionResult(
             texto="[Transcrição simulada — envios externos desativados neste ambiente.]",
             duracao_segundos=0.0,
@@ -847,29 +870,53 @@ def transcribe_audio(
     from openai import (  # noqa: PLC0415 - lazy import by design
         APIConnectionError,
         APIStatusError,
+        APITimeoutError,
         AuthenticationError,
     )
 
-    client = _build_openai_client(api_key)
+    client = _build_openai_client(
+        api_key, timeout=bounded_timeout, max_retries=max_retries
+    )
     extension = _AUDIO_EXTENSION_BY_MIME[normalized_mime]
     try:
-        response = client.audio.transcriptions.create(
-            model=TRANSCRIPTION_MODEL,
-            file=(f"{filename}.{extension}", audio_bytes, normalized_mime),
-            response_format="verbose_json",
-        )
-    except AuthenticationError as exc:
-        raise LLMProviderError("Credencial LLM rejeitada pelo provedor") from exc
-    except APIStatusError as exc:
-        raise LLMProviderError(
-            f"Erro do provedor LLM: {exc.status_code}"
-        ) from exc
-    except APIConnectionError as exc:
-        raise LLMProviderError("Falha de conexão com o provedor LLM") from exc
+        try:
+            response = client.audio.transcriptions.create(
+                model=TRANSCRIPTION_MODEL,
+                file=(f"{filename}.{extension}", audio_bytes, normalized_mime),
+                response_format="verbose_json",
+                timeout=bounded_timeout,
+            )
+        except AuthenticationError as exc:
+            raise LLMProviderError("Credencial LLM rejeitada pelo provedor") from exc
+        except APIStatusError as exc:
+            raise LLMProviderError(
+                f"Erro do provedor LLM: {exc.status_code}"
+            ) from exc
+        except (APIConnectionError, APITimeoutError) as exc:
+            raise LLMProviderError("Falha de conexão com o provedor LLM") from exc
+    finally:
+        closer = getattr(client, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:  # noqa: BLE001 - close cannot alter domain outcome.
+                logger.warning("LLM transcription client close failed")
 
     texto = (getattr(response, "text", "") or "").strip()
-    duracao = float(getattr(response, "duration", 0.0) or 0.0)
-    if duracao < 0.0:
+    raw_duration = getattr(response, "duration", None)
+    if require_real_result and (
+        type(raw_duration) not in (int, float) or type(raw_duration) is bool
+    ):
+        raise LLMProviderError("Duração da transcrição inválida")
+    try:
+        duracao = float(raw_duration or 0.0)
+    except (OverflowError, ValueError, TypeError):
+        if require_real_result:
+            raise LLMProviderError("Duração da transcrição inválida") from None
+        duracao = 0.0
+    if not math.isfinite(duracao) or duracao < 0.0 or (require_real_result and duracao <= 0.0):
+        if require_real_result:
+            raise LLMProviderError("Duração da transcrição inválida")
         duracao = 0.0
     custo = round((duracao / 60.0) * TRANSCRIPTION_USD_PER_MINUTE, 6)
     return AudioTranscriptionResult(

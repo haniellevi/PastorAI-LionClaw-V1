@@ -1,0 +1,71 @@
+{
+  "status": "partial_not_approved",
+  "base": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
+  "source": {
+    "cell_report_audio_service.py": "84ae76d41ebeccccf31530d9b0a4b6e5c5d4ba8f8831991c609c681ad5a149c0",
+    "privileged_turn.py": "7c1c35800bb281f24535d272c8f07458a1732a1a4a61064f849aabdc5d049f2d"
+  },
+  "tests": [
+    {
+      "artifact": "/tmp/v1b-audio-full-flow-green.xml",
+      "tests": 34,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "/tmp/v1b-audio-boundaries-red.xml",
+      "tests": 11,
+      "failures": 8,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "/tmp/v1b-audio-races-red.xml",
+      "tests": 4,
+      "failures": 4,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "fixture_corrections": [
+    "Initial expiry test violated its own received_at+24h CHECK; corrected to a valid expired row.",
+    "Initial summary retry fake consumed its failure one send too late; corrected to fail the actual summary."
+  ],
+  "confirmed_findings": [
+    "Gate/expiry closed after claim still allows provider calls.",
+    "Delivered summary cannot retry without retranscription.",
+    "Late upload after purge can leave an orphan object.",
+    "Transcript retained after success/revocation/handoff.",
+    "Budget reservation returning None can leave processing state."
+  ],
+  "limits": "Synthetic fixtures and mocked providers; disposable PG17 only; writer fixing; no final PR/CI/approval.",
+  "p1_delta": {
+    "source": "f6afd8294468e75ffe39a9fab73f710d845ee136a3a4e6646f757699551c968a",
+    "v1a_dependency": "81adba207c4ad601953a1bcf7d211bc4d9a0c4625265ed8ec0c6b000ea919f38",
+    "results": [
+      {
+        "artifact": "/tmp/v1b-audio-p1-complete-delta.xml",
+        "tests": 62,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "artifact": "/tmp/v1b-audio-p1-extra-red.xml",
+        "tests": 5,
+        "failures": 4,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "artifact": "/tmp/v1b-rollout-compatibility-red.xml",
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "note": "Initial P1-delta run lacked the skip_locked dependency and is not integration evidence. The complete snapshot passed60/62; extra cases reproduced post-claim contention, ambiguous late upload and retained transcript after text correction. Rollout compatibility RED precedes this delta and now passes."
+  }
+}

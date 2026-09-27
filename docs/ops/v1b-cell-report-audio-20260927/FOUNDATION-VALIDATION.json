@@ -1,0 +1,35 @@
+{
+  "phase": "foundation_only",
+  "at_utc": "2026-09-27T18:22:31.574985+00:00",
+  "base_sha": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
+  "sql_sha256": "1c421c8fd041fc1dd73ef78a830326c673d4763bb173edf22aa1f53715335e08",
+  "environment": "PostgreSQL17.6 disposable,127.0.0.1:55477",
+  "runs": [
+    {
+      "artifact": "v1b-initial-sql.xml",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-sql-negative.xml",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-foundation-orm.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "limitations": [
+    "Audio runtime integration still in development",
+    "No live providers or shared databases",
+    "Not final PR approval"
+  ]
+}

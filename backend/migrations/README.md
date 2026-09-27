@@ -55,3 +55,28 @@ A flag `CELL_REPORT_ENABLED_IGREJA_IDS` fica vazia e
 `CELL_REPORT_APPROVED_RELEASE_ID=None`; migration e deploy não ativam envios.
 Rollback comentado no próprio SQL exige tratar pendências antes de remover
 o schema; relatórios já confirmados continuam sendo registros do domínio.
+
+Observação Sarah registrada na branch V1b, mantendo PR430 `a8bf21d` congelado:
+a guarda do índice compara texto de `pg_get_expr`. A representação depende da
+versão PostgreSQL; divergência aborta com segurança, mas exige revisão e replay
+antes de adotar outra versão. A prova atual cobre PostgreSQL17.
+
+## V1b: áudio do relatório de célula (candidata)
+
+`20260927_210000_cell_report_audio_v1b.sql` depende da V1a e acrescenta quatro
+tabelas privadas: avisos de áudio, eventos de aceite/revogação, entradas de áudio
+e reservas. Mantém RLS/FORCE RLS, policies de worker, FKs compostas e somente
+SELECT/INSERT/UPDATE. Reaplicar revoga DELETE residual. O número de áudio é
+único por igreja/reunião e limitado a três; reservas encerradas conservam esse
+número. O custo é compartilhado com as quatro extrações textuais permitidas.
+
+As referências vivas de pessoa/conversa/mensagem podem ser anuladas por
+exclusão; a âncora imutável e a chave de storage sobrevivem para limpeza.
+Âncora sem fonte viva não autoriza processamento. Purga continua com flags
+fechadas. Antes de qualquer rollback destrutivo, concluir a remoção dos objetos
+e registrar ausência de pendências, conforme comentário no SQL.
+
+A migration usa `lock_timeout='2s'` e não altera os SQLs congelados 426/428/430.
+Somente PostgreSQL17 descartável foi usado nesta missão. Aplicação compartilhada
+e deploy mantêm gates próprios; `CELL_REPORT_AUDIO_ENABLED_IGREJA_IDS` vazia e
+`CELL_REPORT_AUDIO_APPROVED_RELEASE_ID=None` ficam cumulativos a V1a/S3.

@@ -86,6 +86,17 @@ def fence_agent_replies_for_handoff(
             secretaria_oferta_expira_em=None,
         )
     )
+    # V1b's private transcript is not conversation history.  The caller holds
+    # the Conversation fence, so the audio service can clear it and cancel any
+    # undelivered summary without retaining private content through handoff.
+    from app.services.cell_report_audio_service import cancel_audio_inputs_for_conversation
+
+    cancel_audio_inputs_for_conversation(
+        session,
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        reason="handoff_or_optout",
+    )
 
 
 def mark_conversation_for_handoff_locked(

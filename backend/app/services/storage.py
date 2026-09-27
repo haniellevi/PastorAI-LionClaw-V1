@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import Callable, Iterable
 from hashlib import sha256
@@ -160,6 +161,31 @@ def tenant_owned_paths(igreja_id: object, paths: Iterable[object]) -> list[str]:
     return clean
 
 
+def cell_report_audio_storage_path(
+    igreja_id: object, provider_message_sha256: object, mime_type: object,
+) -> str:
+    """One canonical private key shared by the durable intent and transport."""
+    from app.services.cell_report_audio import canonical_audio_mime
+
+    prefix = _tenant_prefix(igreja_id)
+    if prefix == f"{uuid.UUID(int=0)}/":
+        raise StoragePathError("Identificador de igreja inválido")
+    if type(provider_message_sha256) is not str or not re.fullmatch(
+        r"[0-9a-f]{64}", provider_message_sha256
+    ):
+        raise StoragePathError("Identificador de áudio inválido")
+    mime = canonical_audio_mime(mime_type)
+    extension = {
+        "audio/ogg": "ogg", "audio/opus": "ogg", "audio/mpeg": "mp3",
+        "audio/mp3": "mp3", "audio/mp4": "mp4", "audio/m4a": "m4a",
+        "audio/x-m4a": "m4a", "audio/wav": "wav", "audio/x-wav": "wav",
+        "audio/webm": "webm",
+    }.get(mime)
+    if extension is None:
+        raise StoragePathError("Formato de áudio inválido")
+    return f"{prefix}cell-report-audio/{provider_message_sha256}.{extension}"
+
+
 class SupabaseStorage:
     """Thin HTTP client around the Supabase Storage REST API."""
 
@@ -229,6 +255,45 @@ class SupabaseStorage:
         return StoredMedia(
             path=path, mime=content_type, nome=nome, tamanho=len(data)
         )
+
+    def upload_cell_report_audio(
+        self, *, igreja_id: object, provider_message_sha256: str,
+        mime_type: str, raw: bytes, deadline_seconds: float,
+    ) -> StoredMedia:
+        """Upload only a pre-authorized durable audio intent into the private bucket.
+
+        A late/uncertain result raises: the caller must retain its purge intent.
+        This method never retries or consumes the provider response body.
+        """
+        from app.services.cell_report_audio import (
+            CELL_REPORT_AUDIO_MAX_BYTES, canonical_audio_mime,
+        )
+
+        started = time.monotonic()
+        path = cell_report_audio_storage_path(igreja_id, provider_message_sha256, mime_type)
+        if type(raw) is not bytes or not 0 < len(raw) <= CELL_REPORT_AUDIO_MAX_BYTES:
+            raise StorageError("Áudio vazio ou acima do limite de 5 MiB")
+        if type(deadline_seconds) not in (int, float) or not 0 < deadline_seconds <= 180:
+            raise StorageError("Prazo de upload inválido")
+        deadline = started + min(deadline_seconds, 30.0)
+        content_type = canonical_audio_mime(mime_type)
+        url, key = self._require()
+        try:
+            with httpx.Client(timeout=max(deadline - time.monotonic(), 0.001),
+                              follow_redirects=False, trust_env=False) as client:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise StorageError("Prazo de upload excedido")
+                with client.stream("POST", f"{url}/storage/v1/object/{MEDIA_BUCKET}/{path}",
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": content_type,
+                             "x-upsert": "true"}, content=raw, timeout=remaining) as response:
+                    response.raise_for_status()
+                    if time.monotonic() >= deadline:
+                        raise StorageError("Resultado do upload fora do prazo")
+        except httpx.HTTPError as exc:
+            logger.warning("Cell report audio upload failed: %s", type(exc).__name__)
+            raise StorageError("Falha ao guardar o áudio do relatório") from None
+        return StoredMedia(path=path, mime=content_type, nome=None, tamanho=len(raw))
 
     def sign(self, paths: list[str]) -> dict[str, str]:
         """Batch-sign read URLs. Returns ``{path: absolute_url}``.

@@ -37,3 +37,7 @@ Três P2 reproduzidos com PostgreSQL descartável: rascunho parcial capturava pe
 Sarah solicitou revogar DELETE nas cinco tabelas privadas e impor unicidade global do efeito por igreja/reunião/ação. A migration V1a candidata foi ajustada antes de qualquer aplicação compartilhada; os SQLs congelados 426/428 permanecem byte a byte. A revisão local também exigiu que uma cabeça bloqueada não impeça o próximo lembrete: IDs já visitados ficam fora da seleção seguinte, sem antecipar locks de lembrete. Evidência do delta e limites em [DELTA-VALIDATION.json](../ops/v1a-cell-report-20260927/DELTA-VALIDATION.json); aprovação Sarah do novo head continua como gate separado.
 
 Validação do delta: 5.755 backend e 515 RLS, todos verdes, sem skips; 25 casos exercitam o SQL exato. Migration SHA256 `b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f`.
+
+## Observação após GO Sarah, registrada na V1b
+
+PR430 congelado em `a8bf21d`; SQL `b318e47a` preservado. A guarda compara texto de `pg_get_expr`, dependente da versão PostgreSQL. Mudança de representação aborta de forma segura, mas pode exigir revisão/replay para nova versão. A prova atual cobre PostgreSQL17; não presumir portabilidade textual para outra versão.

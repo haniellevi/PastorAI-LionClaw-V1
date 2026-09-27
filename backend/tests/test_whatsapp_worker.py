@@ -1493,6 +1493,7 @@ def test_lease_recovery_between_ingest_and_agent_has_one_external_effect(
                 texto="ola",
                 inbound=True,
                 igreja_id=_IGREJA,
+                inbound_message_id=uuid.UUID("00000000-0000-0000-0000-0000000000a1"),
             ),
             IngestionOutcome(
                 result=IngestionResult.DUPLICATE,
@@ -1502,6 +1503,7 @@ def test_lease_recovery_between_ingest_and_agent_has_one_external_effect(
                 texto="ola",
                 inbound=True,
                 igreja_id=_IGREJA,
+                inbound_message_id=uuid.UUID("00000000-0000-0000-0000-0000000000a1"),
             ),
         ]
     )

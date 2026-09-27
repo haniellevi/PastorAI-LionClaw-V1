@@ -1,0 +1,60 @@
+{
+  "recorded_at": "2026-09-27T19:06:53.162786+00:00",
+  "base": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
+  "scope": "partial_capture_consent",
+  "source_sha256": {
+    "backend/app/services/cell_report_audio_service.py": "4ec38e563947a515f7b2aafc1ebc50b7ac509e8d8d11eb94e6e536b652f41343",
+    "backend/app/services/cell_report_v1a_service.py": "c84f00ede00ae2c315bfbd19e41e2c0db1c0a63926c4f4cfb6f86af8a3f1061f",
+    "backend/app/workers/queue_worker.py": "c27998b0925ba529a15cf8dc0d899ba3e380a0692a5abab7b411dd034182d41e",
+    "backend/app/agent/privileged_turn.py": "17fa829c294c5742402790f4b0edb025471434c760af3762a9bc2e27d81b88fc"
+  },
+  "tests": [
+    {
+      "artifact": "v1b-consent-capture-pg.xml",
+      "sha256": "89a69090c404206de5f42c6147df661582d8c5ce532b5b4ed5b4205cc62cbf63",
+      "tests": 12,
+      "failures": 2,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-consent-pure.xml",
+      "sha256": "e8108159c368d4bfbf68a3b25f51a1006a5a25b8996f70118814f44977e431ec",
+      "tests": 55,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-worker-regression-partial.xml",
+      "sha256": "42a97e8c219e38406ce82263a77ad33319d94e6b89de50251d49aa0ad2185113",
+      "tests": 69,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-deleted-replay-red.xml",
+      "sha256": "e2e57012313eb09ac7958c5ad267feca52ca21b7b12748ec27449df7ab0f1cf3",
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-consent-anchor-red.xml",
+      "sha256": "c4e551571e0426feb380dcc900165e875d07fc900c2603c936c7337c7440e24e",
+      "tests": 3,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "limitations": [
+    "Consent end-to-end not complete",
+    "Dispatcher and durable purge not implemented in snapshot",
+    "No providers, shared database, deploy, PR or CI completion",
+    "Frozen SQL426/428/430 unchanged"
+  ],
+  "later_fixture_correction": "The notice E2E fixtures initially omitted claim_id normally assigned by QueueWorker. Those two RED cases do not independently prove a production notice bug. Setting the synthetic claim as production does yields 19 PASS in the later consent/tombstone snapshot. Invalid command anchors and deleted-source replay were separate real failures."
+}
