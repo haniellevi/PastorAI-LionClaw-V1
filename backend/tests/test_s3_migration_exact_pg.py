@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.rls_integration
 _MIGRATION = Path(__file__).parents[1] / "migrations" / (
     "20260927_170000_whatsapp_privilege_actions.sql"
 )
-_MIGRATION_SHA256 = "d087013e0da83c7d80a1e3df05307861314eaaf2195bcd83149fe8927c2a50cc"
+_MIGRATION_SHA256 = "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795"
 _EXACT_URL_ENV = "S3_MIGRATION_EXACT_DATABASE_URL"
 
 
@@ -189,8 +190,19 @@ def test_s3_migration_applies_exact_bytes_without_schema_rewrite(exact_s3_databa
             "and attname = 'agent_privilege_context' and not attisdropped"
         ).scalar_one() == 0
         connection.commit()
+        from tests.test_agent_action_proposals_pg17 import _seed, _proposal_insert
         with connection.connection.cursor() as cursor:
             cursor.execute(migration_sql)
+            _seed(cursor, "public")
+            _proposal_insert(cursor, "public", proposal_id=uuid.uuid4())
+            cursor.execute("select 'public.agent_action_proposals'::regclass::oid")
+            original_oid = cursor.fetchone()[0]
+            connection.connection.commit()
+            cursor.execute(migration_sql)
+            cursor.execute("select 'public.agent_action_proposals'::regclass::oid")
+            assert cursor.fetchone()[0] == original_oid
+            cursor.execute("select count(*) from public.agent_action_proposals")
+            assert cursor.fetchone()[0] == 1
 
         tables = connection.exec_driver_sql(
             "select relname from pg_class where relnamespace = 'public'::regnamespace "

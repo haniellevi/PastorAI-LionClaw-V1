@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import unicodedata
 import uuid
 from collections import Counter
@@ -13,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Celula, CelulaMembro, CelulaReuniao, Pessoa
+from app.db.models import Celula, CelulaMembro, CelulaReuniao, Message, Pessoa
 from app.deps import CurrentUser
 from app.domain.agent_authz import MINISTERIAL_ROLES, CONSOLIDATION_TOOL_ROLES
 from app.domain.consolidation import VALID_VINCULOS
@@ -72,6 +73,13 @@ def _label_key(value: object) -> str:
                    if not unicodedata.combining(c))
 
 
+def _mentioned_name(text: str, name: str) -> bool:
+    normalized = ' '.join(''.join(c for c in unicodedata.normalize('NFKD', text).casefold()
+        if not unicodedata.combining(c) and unicodedata.category(c) not in {'Cf'}).split())
+    key = _label_key(name)
+    return bool(key and re.search(r'(?<!\w)' + re.escape(key) + r'(?!\w)', normalized))
+
+
 def execute_catalog_action(session: Session, context, code: str, arguments: Mapping[str, Any]) -> str:
     from app.services.whatsapp_privilege import PrivilegeContext
     if type(context) is not PrivilegeContext or not action_allowed(context, code):
@@ -107,15 +115,24 @@ def build_catalog(session: Session, context):
     grouped: dict[str, list[CatalogTarget]] = {}
     # Detect collisions before candidate limits: a homonym outside the first
     # page is still ambiguous. Only these server-side counts see other names.
-    person_names = Counter(_label_key(name) for name in session.execute(
-        select(Pessoa.nome).where(Pessoa.igreja_id == tenant,
-            Pessoa.arquivada_em.is_(None))).scalars()) if any(
-                action_allowed(context, action) for action in ACTIONS) else Counter()
+    requested_text = session.execute(select(Message.texto).where(
+        Message.igreja_id == tenant, Message.conversation_id == context.conversation_id,
+        Message.id == context.inbound_message_id, Message.direcao == 'in',
+    )).scalar_one_or_none() or ''
+    roster = session.execute(select(Pessoa.id, Pessoa.nome).where(
+        Pessoa.igreja_id == tenant, Pessoa.arquivada_em.is_(None))).all() if any(
+            action_allowed(context, action) for action in ACTIONS) else []
+    person_names = Counter(_label_key(name) for _, name in roster)
+    # Only a name explicitly present in this anchored request can enter a D
+    # prompt. Unrelated roster entries and history never become model input.
+    requested_ids = [person_id for person_id, name in roster
+        if person_names[_label_key(name)] == 1 and _mentioned_name(requested_text, name)]
     cell_names = Counter(_label_key(name) for name in session.execute(
         select(Celula.nome).where(Celula.igreja_id == tenant,
-            Celula.ativo.is_(True))).scalars()) if person_names else Counter()
-    if action_allowed(context, 'registrar_decisao'):
+            Celula.ativo.is_(True))).scalars()) if requested_ids else Counter()
+    if requested_ids and action_allowed(context, 'registrar_decisao'):
         people = session.execute(select(Pessoa).where(Pessoa.igreja_id == tenant,
+            Pessoa.id.in_(requested_ids),
             Pessoa.arquivada_em.is_(None)).order_by(Pessoa.nome, Pessoa.id).limit(8)).scalars().all()
         targets = []
         for person in people:
@@ -135,7 +152,7 @@ def build_catalog(session: Session, context):
                     'pessoa_id': str(person.id), 'vinculo': 'celula', 'celula_id': str(cell.id),
                 }), f'Registrar decisão de {name}, vínculo célula {_label(cell.nome)}'))
         grouped['registrar_decisao'] = targets[:16]
-    if action_allowed(context, 'marcar_presenca'):
+    if requested_ids and action_allowed(context, 'marcar_presenca'):
         query = select(Celula).where(Celula.igreja_id == tenant, Celula.ativo.is_(True))
         # A superset is filtered by the same hierarchy rule used by the panel.
         cells = session.execute(query.order_by(Celula.id).limit(64)).scalars().all()
@@ -157,6 +174,7 @@ def build_catalog(session: Session, context):
             members = session.execute(select(Pessoa).join(CelulaMembro,
                 (CelulaMembro.pessoa_id == Pessoa.id) & (CelulaMembro.igreja_id == Pessoa.igreja_id))
                 .where(Pessoa.igreja_id == tenant, Pessoa.arquivada_em.is_(None),
+                    Pessoa.id.in_(requested_ids),
                     Pessoa.id != context.pessoa_id, CelulaMembro.celula_id == cell.id,
                     CelulaMembro.ativo.is_(True)).order_by(Pessoa.nome, Pessoa.id).limit(16)).scalars().all()
             for meeting in meetings:

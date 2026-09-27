@@ -74,6 +74,7 @@ def s3_turn(msg_engine_fx: Engine, monkeypatch: pytest.MonkeyPatch):
     settings = SimpleNamespace(agent_term_version=_TERM,
                                agent_trusted_inbound_identity_enabled=False,
                                effective_session_secret="s3-secret-synthetic")
+    monkeypatch.setattr(whatsapp_privilege, "PRIVILEGE_APPROVED_RELEASE_ID", "synthetic-approved-release")
     monkeypatch.setenv("AGENT_PRIVILEGE_ENABLED_IGREJA_IDS", str(_IGREJA))
     monkeypatch.setattr(worker_module, "_whatsapp_reply_enabled", lambda _id: True)
     monkeypatch.setattr(worker_module, "get_settings", lambda: settings)
@@ -145,7 +146,7 @@ def _revoke_role(turn):
 def test_whatsapp_action_requires_delivered_summary_and_new_sim_once(s3_turn, monkeypatch, action):
     calls = _fake_choices(monkeypatch, s3_turn, action)
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, f"S3-REQUEST-{action}", f"Pedido sintético {action}")
+    request = _inbound(s3_turn, f"S3-REQUEST-{action}", f"Pedido sintético {action} de Alvo Sintético")
     assert worker_module.run_agent_for_message(s3_turn.factory, request,
                                                 evolution_client=evolution) is worker_module.AgentRunDisposition.COMPLETED
     proposals = _rows(s3_turn, AgentActionProposal)
@@ -191,7 +192,7 @@ def test_whatsapp_action_requires_delivered_summary_and_new_sim_once(s3_turn, mo
 def test_role_revoked_before_sim_cannot_execute_pending_proposal(s3_turn, monkeypatch):
     calls = _fake_choices(monkeypatch, s3_turn, "marcar_presenca")
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, "S3-ROLE-REQUEST", "Confirme presença sintética")
+    request = _inbound(s3_turn, "S3-ROLE-REQUEST", "Confirme presença de Alvo Sintético")
     worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     assert _rows(s3_turn, AgentActionProposal)[0].state == "pendente"
     _revoke_role(s3_turn)
@@ -205,7 +206,7 @@ def test_role_revoked_before_sim_cannot_execute_pending_proposal(s3_turn, monkey
 def test_summary_retry_after_role_revocation_never_sends_or_executes(s3_turn, monkeypatch):
     calls = _fake_choices(monkeypatch, s3_turn, "registrar_decisao")
     evolution = _ClassifiedEvolution("falhou_retentavel", "aceito")
-    request = _inbound(s3_turn, "S3-RETRY-REQUEST", "Registre decisão sintética")
+    request = _inbound(s3_turn, "S3-RETRY-REQUEST", "Registre decisão de Alvo Sintético")
     with pytest.raises(worker_module.AgentReplyRetryable):
         worker_module.run_agent_for_message(s3_turn.factory, request,
                                             evolution_client=evolution)
@@ -222,7 +223,7 @@ def test_summary_retry_after_role_revocation_never_sends_or_executes(s3_turn, mo
 def test_invalid_typed_choice_handoffs_without_proposal_or_effect(s3_turn, monkeypatch):
     calls = _fake_choices(monkeypatch, s3_turn, "registrar_decisao", invalid=True)
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, "S3-SCHEMA-REQUEST", "Pedido sintético")
+    request = _inbound(s3_turn, "S3-SCHEMA-REQUEST", "Pedido sintético de Alvo Sintético")
     worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     assert calls == ["s3_route"]
     assert evolution.calls == []
@@ -234,7 +235,7 @@ def test_invalid_typed_choice_handoffs_without_proposal_or_effect(s3_turn, monke
 def test_explicit_handoff_revokes_delivered_proposal_even_after_ia_resumes(s3_turn, monkeypatch):
     _fake_choices(monkeypatch, s3_turn, "marcar_presenca")
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, "S3-HUMAN-REQUEST", "Confirme presença sintética")
+    request = _inbound(s3_turn, "S3-HUMAN-REQUEST", "Confirme presença de Alvo Sintético")
     worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     assert _rows(s3_turn, AgentActionProposal)[0].state == "pendente"
     request_human = _inbound(s3_turn, "S3-HUMAN-HANDOFF", "quero falar com um pastor")
@@ -255,7 +256,7 @@ def test_typed_handoff_records_actual_usage_once(s3_turn, monkeypatch):
         assert s3_turn.engine.pool.checkedout() == 0
         return TypedChoiceResult("handoff", LLMUsage(modelo="synthetic", tokens_in=3, tokens_out=1, custo=0.0001))
     monkeypatch.setattr(LLMClient, "generate_typed", handoff)
-    request = _inbound(s3_turn, "S3-TYPED-HANDOFF", "Pedido sintético")
+    request = _inbound(s3_turn, "S3-TYPED-HANDOFF", "Pedido sintético de Alvo Sintético")
     evolution = _ClassifiedEvolution()
     for _ in range(2):
         worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
@@ -290,7 +291,7 @@ def test_regular_reply_uses_typed_suppression_without_open_transaction(s3_turn, 
 def test_action_sim_never_accepts_a_changed_lgpd_term(s3_turn, monkeypatch):
     _fake_choices(monkeypatch, s3_turn, 'marcar_presenca')
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, 'S3-TERM-REQUEST', 'Confirme presença sintética')
+    request = _inbound(s3_turn, 'S3-TERM-REQUEST', 'Confirme presença de Alvo Sintético')
     worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     settings = SimpleNamespace(agent_term_version='new-synthetic-term',
                                agent_trusted_inbound_identity_enabled=False,
@@ -309,7 +310,7 @@ def test_summary_retry_rejects_mismatched_destination(s3_turn, monkeypatch, chan
     from dataclasses import replace
     _fake_choices(monkeypatch, s3_turn, 'registrar_decisao')
     evolution = _ClassifiedEvolution('falhou_retentavel', 'aceito')
-    request = _inbound(s3_turn, 'S3-DEST-REQUEST', 'Registre decisão sintética')
+    request = _inbound(s3_turn, 'S3-DEST-REQUEST', 'Registre decisão de Alvo Sintético')
     with pytest.raises(worker_module.AgentReplyRetryable):
         worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     unsafe = replace(request, **({'telefone': '5500000000009'} if changed == 'phone' else {'instance': 'other-synthetic'}))
@@ -321,7 +322,7 @@ def test_summary_retry_rejects_mismatched_destination(s3_turn, monkeypatch, chan
 def test_private_action_summary_is_excluded_from_later_llm_history(s3_turn, monkeypatch):
     _fake_choices(monkeypatch, s3_turn, 'registrar_decisao')
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, 'S3-HISTORY-REQUEST', 'Registre decisão sintética')
+    request = _inbound(s3_turn, 'S3-HISTORY-REQUEST', 'Registre decisão de Alvo Sintético')
     worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     next_turn = _inbound(s3_turn, 'S3-HISTORY-NEXT', 'Outra pergunta')
     with s3_turn.factory() as session:
@@ -330,14 +331,14 @@ def test_private_action_summary_is_excluded_from_later_llm_history(s3_turn, monk
             current_message_id=next_turn.inbound_message_id,
             provider_message_id=next_turn.provider_message_id)
     assert all('Responda SIM ou NÃO' not in text for _, _, text in history)
-    assert any('Registre decisão sintética' in text for _, _, text in history)
+    assert any('Registre decisão de Alvo Sintético' in text for _, _, text in history)
 
 
 def test_expired_proposal_cannot_be_confirmed(s3_turn, monkeypatch):
     calls = _fake_choices(monkeypatch, s3_turn, 'marcar_presenca')
     evolution = _ClassifiedEvolution()
     worker_module.run_agent_for_message(s3_turn.factory,
-        _inbound(s3_turn, 'S3-EXPIRE-REQUEST', 'Confirme presença sintética'), evolution_client=evolution)
+        _inbound(s3_turn, 'S3-EXPIRE-REQUEST', 'Confirme presença de Alvo Sintético'), evolution_client=evolution)
     with s3_turn.factory.begin() as session:
         proposal = session.execute(select(AgentActionProposal).where(
             AgentActionProposal.igreja_id == _IGREJA)).scalar_one()
@@ -355,7 +356,7 @@ def test_domain_effect_rolls_back_if_receipt_transaction_fails(s3_turn, monkeypa
     _fake_choices(monkeypatch, s3_turn, 'registrar_decisao')
     evolution = _ClassifiedEvolution()
     worker_module.run_agent_for_message(s3_turn.factory,
-        _inbound(s3_turn, 'S3-ROLLBACK-REQUEST', 'Registre decisão sintética'), evolution_client=evolution)
+        _inbound(s3_turn, 'S3-ROLLBACK-REQUEST', 'Registre decisão de Alvo Sintético'), evolution_client=evolution)
     original = catalog.execute_catalog_action
     def failing(*args, **kwargs):
         original(*args, **kwargs)
@@ -394,7 +395,7 @@ def test_ambiguous_targets_have_no_action_handle(s3_turn, collision):
             original = session.get(CelulaReuniao, s3_turn.meeting_id)
             session.add(CelulaReuniao(igreja_id=_IGREJA, celula_id=original.celula_id,
                 data=original.data, status='planejada'))
-    request = _inbound(s3_turn, 'S3-AMBIGUOUS', 'Pedido sintético')
+    request = _inbound(s3_turn, 'S3-AMBIGUOUS', 'Pedido sintético de Alvo Sintético')
     with s3_turn.factory() as session:
         worker_module._scope_agent_execution_session(session, request, dedicated=False)
         context = resolve_whatsapp_privilege_context(session, igreja_id=_IGREJA,
@@ -410,7 +411,7 @@ def test_ambiguous_targets_have_no_action_handle(s3_turn, collision):
 def test_summary_retry_revalidates_target_membership_before_send(s3_turn, monkeypatch):
     _fake_choices(monkeypatch, s3_turn, 'marcar_presenca')
     evolution = _ClassifiedEvolution('falhou_retentavel', 'aceito')
-    request = _inbound(s3_turn, 'S3-MEMBERSHIP-RETRY', 'Confirme presença sintética')
+    request = _inbound(s3_turn, 'S3-MEMBERSHIP-RETRY', 'Confirme presença de Alvo Sintético')
     with pytest.raises(worker_module.AgentReplyRetryable):
         worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     with s3_turn.factory.begin() as session:
@@ -459,7 +460,7 @@ def test_target_revoked_during_routing_handoffs_without_rerouting(s3_turn, monke
         return answer
     monkeypatch.setattr(LLMClient, 'generate_typed', choose)
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, 'S3-REVOKED-DURING-ROUTE', 'Confirme presença sintética')
+    request = _inbound(s3_turn, 'S3-REVOKED-DURING-ROUTE', 'Confirme presença de Alvo Sintético')
     for _ in range(2):
         worker_module.run_agent_for_message(s3_turn.factory, request, evolution_client=evolution)
     assert calls == ['s3_route', 's3_tool', 's3_handle']
@@ -474,7 +475,7 @@ def test_changed_term_cancels_old_action_before_any_acceptance(s3_turn, monkeypa
     _fake_choices(monkeypatch, s3_turn, 'marcar_presenca')
     evolution = _ClassifiedEvolution()
     worker_module.run_agent_for_message(s3_turn.factory,
-        _inbound(s3_turn, 'S3-TERM-AFFIX-REQUEST', 'Confirme presença sintética'), evolution_client=evolution)
+        _inbound(s3_turn, 'S3-TERM-AFFIX-REQUEST', 'Confirme presença de Alvo Sintético'), evolution_client=evolution)
     settings = SimpleNamespace(agent_term_version='new-synthetic-term',
         agent_trusted_inbound_identity_enabled=False, effective_session_secret='s3-secret-synthetic')
     monkeypatch.setattr(runtime_module, 'get_settings', lambda: settings)
@@ -487,3 +488,39 @@ def test_changed_term_cancels_old_action_before_any_acceptance(s3_turn, monkeypa
         _inbound(s3_turn, 'S3-TERM-AFFIX-SIM', 'SIM'), evolution_client=evolution)
     assert _effect_count(s3_turn, 'marcar_presenca') == 0
     assert _rows(s3_turn, AgentActionReceipt) == []
+
+
+@pytest.mark.parametrize('text,expected', [('oi', False), ('registre uma decisão', False),
+    ('registre decisão de Alvo Sintético', True)])
+def test_catalog_shortlists_only_names_explicit_in_persisted_request(s3_turn, text, expected):
+    from app.services.whatsapp_privilege import resolve_whatsapp_privilege_context
+    from app.services.agent_privilege_catalog import build_catalog, ACTIONS
+    request = _inbound(s3_turn, 'S3-NAME-SHORTLIST', text)
+    with s3_turn.factory() as session:
+        worker_module._scope_agent_execution_session(session, request, dedicated=False)
+        context = resolve_whatsapp_privilege_context(session, igreja_id=_IGREJA,
+            conversation_id=s3_turn.conversation_id, inbound_message_id=request.inbound_message_id)
+        _, targets = build_catalog(session, context)
+    actions = [t for t in targets.values() if t.code in ACTIONS]
+    assert bool(actions) is expected
+    assert all(t.arguments['pessoa_id'] == str(s3_turn.target_id) for t in actions)
+
+
+def test_router_prompts_exclude_unrequested_roster_and_ignore_outcome_text(s3_turn, monkeypatch):
+    from dataclasses import replace
+    with s3_turn.factory.begin() as session:
+        session.add(Pessoa(igreja_id=_IGREJA, nome='AAA Privada Não Solicitada', telefone='5500000000666'))
+    _fake_choices(monkeypatch, s3_turn, 'registrar_decisao')
+    original = LLMClient.generate_typed
+    prompts = []
+    def choose(self, system, user, **kwargs):
+        prompts.append(user)
+        return original(self, system, user, **kwargs)
+    monkeypatch.setattr(LLMClient, 'generate_typed', choose)
+    request = _inbound(s3_turn, 'S3-PROMPT-PRIVACY', 'Registre decisão de Alvo Sintético')
+    spoofed = replace(request, texto='Registre decisão de AAA Privada Não Solicitada')
+    worker_module.run_agent_for_message(s3_turn.factory, spoofed, evolution_client=_ClassifiedEvolution())
+    assert len(prompts) == 3
+    assert all('AAA Privada' not in prompt for prompt in prompts)
+    assert 'Alvo Sintético' in prompts[-1]
+    assert _rows(s3_turn, AgentActionProposal)[0].target_id == s3_turn.target_id

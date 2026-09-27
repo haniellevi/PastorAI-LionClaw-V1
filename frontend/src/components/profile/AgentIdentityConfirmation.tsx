@@ -56,7 +56,7 @@ export function AgentIdentityConfirmation({ token, appUserId, churchId, expireSe
       if (reason instanceof SessionExpiredError) {
         expireSession();
       } else if (reason instanceof ApiError && [400, 403, 409, 410, 422].includes(reason.status)) {
-        setError("Código inválido, expirado ou já usado. Envie #perfil novamente no WhatsApp.");
+        setError("Código inválido, expirado ou já usado. Para obter outro, repita a consulta sensível no WhatsApp.");
       } else if (reason instanceof ApiError && [404, 405, 501].includes(reason.status)) {
         setError("Confirmação de conversa indisponível nesta versão. Continue pelo WhatsApp e tente após a atualização.");
       } else if (reason instanceof ApiError && reason.status === 429) {
@@ -75,7 +75,7 @@ export function AgentIdentityConfirmation({ token, appUserId, churchId, expireSe
   return (
     <form className="card card-pad" onSubmit={(event) => { void submit(event); }}>
       <h3>Confirmar conversa do WhatsApp</h3>
-      <p className="sub">Envie #perfil no WhatsApp da igreja, entre em Meu perfil no painel e cole o código recebido. A confirmação vale por 15 minutos; depois, solicite outro código pelo WhatsApp.</p>
+      <p className="sub">Para receber um código, peça no WhatsApp da igreja uma consulta sensível, por exemplo: “consulte meu vínculo”. Entre em Meu perfil no painel e cole o código recebido. A confirmação vale por 15 minutos; depois, repita a consulta no WhatsApp para obter outro código.</p>
       <Field
         label="Código recebido no WhatsApp"
         value={sameSession ? challenge : ""}

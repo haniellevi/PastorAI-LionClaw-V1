@@ -65,7 +65,7 @@ def test_two_persisted_sim_confirmations_execute_one_action_once(s3_turn, monkey
 
     calls = _fake_choices(monkeypatch, s3_turn, "registrar_decisao")
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, "S3-SIM-RACE-REQUEST", "Pedido sintético")
+    request = _inbound(s3_turn, "S3-SIM-RACE-REQUEST", "Pedido sintético de Alvo Sintético")
     worker_module.run_agent_for_message(
         s3_turn.factory, request, evolution_client=evolution
     )
@@ -115,7 +115,7 @@ def test_failed_confirmation_transaction_rolls_back_before_competing_sim_execute
 
     _fake_choices(monkeypatch, s3_turn, "marcar_presenca")
     evolution = _ClassifiedEvolution()
-    request = _inbound(s3_turn, "S3-SIM-ROLLBACK-REQUEST", "Pedido sintético")
+    request = _inbound(s3_turn, "S3-SIM-ROLLBACK-REQUEST", "Pedido sintético de Alvo Sintético")
     worker_module.run_agent_for_message(
         s3_turn.factory, request, evolution_client=evolution
     )

@@ -162,6 +162,8 @@ def s3_actions_pg(rls_database_url):
         migration = _MIGRATION.read_text(encoding="utf-8").replace("public.", f"{schema}.")
         cursor.execute(migration)
         connection.commit()
+        cursor.execute(migration)
+        connection.commit()
         yield connection, cursor, schema, engine
     finally:
         connection.rollback()

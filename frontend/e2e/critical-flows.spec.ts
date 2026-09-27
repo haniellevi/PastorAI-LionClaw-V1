@@ -198,7 +198,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
 
     const code = page.getByLabel("Código recebido no WhatsApp");
     await expect(code).toBeVisible();
-    await expect(page.getByText("Envie #perfil no WhatsApp", { exact: false })).toBeVisible();
+    await expect(page.getByText("consulte meu vínculo", { exact: false })).toBeVisible();
     await code.fill("7c9e68c2-2a43-4953-a62d-917d80628b41");
     await code.press("Tab");
     await expect(page.getByRole("button", { name: "Confirmar conversa" })).toBeFocused();

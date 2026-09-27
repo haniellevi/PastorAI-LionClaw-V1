@@ -40,10 +40,17 @@ O catálogo é deliberadamente limitado: até oito pessoas para decisão, 64 cé
 para buscar presença, quatro reuniões por célula na janela de 14 dias antes/depois
 e 16 handles por ferramenta. Consulta sensível mostra até dez células. Alvos
 fora do catálogo exigem atendimento humano; esta fatia não implementa busca geral.
-Homônimos e resumos ambíguos são omitidos, inclusive colisões antes desses limites.
+Somente nomes explicitamente mencionados no inbound persistido entram na seleção
+de alvos. B/C recebem códigos e descrições; D recebe apenas a seleção local.
+Sem nome explícito não há candidato mutante; consultas readonly continuam
+classificadas pelo LLM e exigem confirmação forte. Histórico e texto solto do worker
+nunca ampliam a seleção. Homônimos são omitidos antes dos limites.
 A contagem de nomes ocorre no servidor e não amplia a projeção enviada ao modelo.
 
-A flag `AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` é vazia por padrão. Ativação interna
+A flag `AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` é vazia por padrão e só vale quando
+`PRIVILEGE_APPROVED_RELEASE_ID` identifica um release aprovado em código. Nesta
+PR a constante é `None`: a env sozinha permanece inerte, sem consulta ou HTTP.
+Ativação interna
 sem Jev não exige DPA TypeSafe, mas depende de ordem nominal de Raniel e testes.
 Jev mantém DPA, aprovação de release e métricas de holdout independentes.
 A meta de latência é inferior a dez segundos; mocks não comprovam p95 real.
@@ -68,6 +75,12 @@ PostgreSQL17.6 descartável em loopback; nenhuma chamada real de LLM, TypeSafe o
 WhatsApp. Testes incluem fluxo worker para as duas ações, uso único/retry, TTL,
 rollback após efeito antes do comprovante, alteração de termo e papel, retorno
 de humano para IA, destino divergente e exclusão de resumo privado do histórico.
-A suíte RLS verifica tenants/policies e há banco separado para aplicar os bytes
-exatos da migration no schema public. O CI cria esse banco efêmero e rejeita skip.
+A suíte RLS verifica tenants/policies e há banco separado para aplicar duas vezes
+os bytes exatos da migration no schema public, preservando a proposta existente. O CI cria esse banco efêmero e rejeita skip.
 Números finais, SHA e hash SQL ficam no relatório de validação do candidato.
+
+No Perfil, o usuário repete a consulta sensível no WhatsApp para obter outro
+código após expiração; não existe comando #perfil no backend.
+
+Revisão vigente do delta Sarah/robô: REVIEW-DELTA.md e CANDIDATE-HASHES.json.
+Os relatórios anteriores e BACKEND-SNAPSHOT-HASHES preservam etapas históricas.

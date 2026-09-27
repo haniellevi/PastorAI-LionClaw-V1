@@ -11,6 +11,9 @@ alter table public.messages
   add column if not exists agent_privilege_context jsonb;
 
 alter table public.messages
+  drop constraint if exists messages_agent_privilege_context_object_chk;
+
+alter table public.messages
   add constraint messages_agent_privilege_context_object_chk
   check (
     agent_privilege_context is null
@@ -20,7 +23,7 @@ alter table public.messages
 alter table public.messages
   validate constraint messages_agent_privilege_context_object_chk;
 
-create table public.agent_identity_challenges (
+create table if not exists public.agent_identity_challenges (
   id uuid primary key default gen_random_uuid(),
   igreja_id uuid not null,
   conversation_id uuid not null,
@@ -51,10 +54,10 @@ create table public.agent_identity_challenges (
     )
 );
 
-create index agent_identity_challenges_conversation_latest_idx
+create index if not exists agent_identity_challenges_conversation_latest_idx
   on public.agent_identity_challenges (igreja_id, conversation_id, sequence desc);
 
-create table public.agent_identity_proofs (
+create table if not exists public.agent_identity_proofs (
   id uuid primary key default gen_random_uuid(),
   igreja_id uuid not null,
   challenge_id uuid not null,
@@ -90,10 +93,10 @@ create table public.agent_identity_proofs (
     check (integrity_hmac ~ '^[0-9a-f]{64}$')
 );
 
-create index agent_identity_proofs_conversation_lookup_idx
+create index if not exists agent_identity_proofs_conversation_lookup_idx
   on public.agent_identity_proofs (igreja_id, conversation_id);
 
-create table public.agent_action_proposals (
+create table if not exists public.agent_action_proposals (
   id uuid primary key default gen_random_uuid(),
   igreja_id uuid not null,
   conversation_id uuid not null,
@@ -157,13 +160,13 @@ create table public.agent_action_proposals (
     check (expires_at is null or delivered_at is not null)
 );
 
-create unique index agent_action_proposals_one_active_conversation_idx
+create unique index if not exists agent_action_proposals_one_active_conversation_idx
   on public.agent_action_proposals (igreja_id, conversation_id)
   where state in ('preparada', 'pendente');
-create index agent_action_proposals_conversation_state_idx
+create index if not exists agent_action_proposals_conversation_state_idx
   on public.agent_action_proposals (igreja_id, conversation_id, state);
 
-create table public.agent_action_receipts (
+create table if not exists public.agent_action_receipts (
   id uuid primary key default gen_random_uuid(),
   igreja_id uuid not null,
   proposal_id uuid not null,
@@ -192,7 +195,7 @@ create table public.agent_action_receipts (
     check (receipt_text = 'Registro confirmado.')
 );
 
-create index agent_action_receipts_conversation_idx
+create index if not exists agent_action_receipts_conversation_idx
   on public.agent_action_receipts (igreja_id, conversation_id);
 
 alter table public.agent_identity_challenges enable row level security;
@@ -206,6 +209,8 @@ alter table public.agent_action_receipts force row level security;
 
 -- Panel reads only its own challenge/proof.  A worker has no JWT subject but
 -- must still correlate its tenant-scoped inbound after the backend set its GUC.
+drop policy if exists agent_identity_challenges_select
+  on public.agent_identity_challenges;
 create policy agent_identity_challenges_select
   on public.agent_identity_challenges for select to authenticated
   using (
@@ -230,6 +235,8 @@ create policy agent_identity_challenges_select
   );
 
 -- Challenges are issued only by the inbound worker. The panel only confirms.
+drop policy if exists agent_identity_challenges_insert
+  on public.agent_identity_challenges;
 create policy agent_identity_challenges_insert
   on public.agent_identity_challenges for insert to authenticated
   with check (
@@ -247,6 +254,8 @@ create policy agent_identity_challenges_insert
     ), '') is null
   );
 
+drop policy if exists agent_identity_proofs_select
+  on public.agent_identity_proofs;
 create policy agent_identity_proofs_select
   on public.agent_identity_proofs for select to authenticated
   using (
@@ -271,6 +280,8 @@ create policy agent_identity_proofs_select
 
 -- Only a locally verified panel subject can insert its own proof.  Worker
 -- sessions deliberately have no matching policy, even with a tenant GUC.
+drop policy if exists agent_identity_proofs_insert
+  on public.agent_identity_proofs;
 create policy agent_identity_proofs_insert
   on public.agent_identity_proofs for insert to authenticated
   with check (
@@ -309,6 +320,8 @@ create policy agent_identity_proofs_insert
 
 -- Proposals and receipts are backend worker artifacts. A panel JWT may read
 -- neither tenant-wide operational context nor create a writer intent directly.
+drop policy if exists agent_action_proposals_worker_only
+  on public.agent_action_proposals;
 create policy agent_action_proposals_worker_only
   on public.agent_action_proposals for all to authenticated
   using (
@@ -326,6 +339,8 @@ create policy agent_action_proposals_worker_only
     ), '') is null
   );
 
+drop policy if exists agent_action_receipts_worker_only
+  on public.agent_action_receipts;
 create policy agent_action_receipts_worker_only
   on public.agent_action_receipts for all to authenticated
   using (

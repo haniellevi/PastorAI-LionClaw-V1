@@ -44,6 +44,8 @@ _CONTEXT_DOMAIN = "pastorai:s3:whatsapp-privilege-context:v1"
 _CREDENTIAL_DOMAIN = "pastorai:s3:whatsapp-privilege-credential:v1"
 _PHONE_DOMAIN = "pastorai:s3:whatsapp-privilege-phone:v1"
 _AUTHORIZATION_DOMAIN = "pastorai:s3:whatsapp-privilege-authorization:v1"
+# A listed tenant remains inert until a reviewed release is identified here.
+PRIVILEGE_APPROVED_RELEASE_ID: str | None = None
 
 
 def parse_privilege_role(value: object) -> str:
@@ -56,6 +58,11 @@ def privilege_enabled_from_environment(igreja_id: uuid.UUID) -> bool:
     """Read the empty-by-default S3 activation allowlist without DB access."""
 
     if type(igreja_id) is not uuid.UUID or igreja_id.int == 0:
+        return False
+    if (
+        type(PRIVILEGE_APPROVED_RELEASE_ID) is not str
+        or not PRIVILEGE_APPROVED_RELEASE_ID.strip()
+    ):
         return False
     raw = os.environ.get("AGENT_PRIVILEGE_ENABLED_IGREJA_IDS", "")
     if not isinstance(raw, str) or not raw.strip():

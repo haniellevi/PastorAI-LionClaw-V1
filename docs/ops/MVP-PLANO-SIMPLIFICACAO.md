@@ -369,7 +369,8 @@ sem declarar as próximas verticais implementadas.
    com enum fechado sem depender de Jev; plataforma genérica de proposta,
    confirmação única em até 10 minutos e comprovante após commit, provada
    somente com `registrar_decisao` e `marcar_presenca`. Jev B/C/D continua
-   inerte até seus gates. Flag `AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` vazia;
+   inerte até seus gates. Flag `AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` vazia e
+   constante `PRIVILEGE_APPROVED_RELEASE_ID=None` mantêm a S3 inerte;
    ativação interna sem Jev exige ordem nominal e testes, sem DPA TypeSafe.
 2. **V1: relatório de célula pelo WhatsApp**, primeira vertical delta-052.
    Integrar D6 coordinator e `transcribe_audio`: lembrete, texto/áudio, resumo

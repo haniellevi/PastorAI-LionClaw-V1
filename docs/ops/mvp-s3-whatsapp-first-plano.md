@@ -28,7 +28,7 @@ Finanças nunca por telefone e ficam fora da S3, mesmo com prova; notas pastorai
 ## Integração e verificação
 Sem Jev, LLM da igreja escolhe intenção/ferramenta via JSON schema com ENUM fechado do catálogo autorizado e handles opacos; jamais concede autoridade.
 Jev B/C/D reforça/substitui quando ativado: C após B, D após C. LLM/Jev recebem projeção mínima; schema inválido/timeout -> handoff, mantendo supressão regex/LLM.
-`AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` nasce vazia; piloto interno sem Jev independe de DPA TypeSafe, mas exige ordem nominal de Raniel e testes verdes.
+`AGENT_PRIVILEGE_ENABLED_IGREJA_IDS` nasce vazia e exige `PRIVILEGE_APPROVED_RELEASE_ID` em código (None nesta PR); piloto sem Jev independe de DPA, com ordem nominal e testes.
 SAIR/humano/LGPD e confirmação determinística precedem o roteador. Jev mantém DPA/decisão nominal, aceite interno, holdout/metas/Wilson95 e release próprios.
 Alvo p95 <10s, deadline global de 9s e reserva de 1s; chamadas externas sem lock/transação e métricas sem conteúdo privado.
 Arquivos previstos: agent_authz/context/runtime/tools, worker, agent_identity/API/UI, semantic_routing, models, testes e migration própria após aprovação.

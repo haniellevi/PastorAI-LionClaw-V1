@@ -223,13 +223,23 @@ def test_suffix_candidate_limit_fails_closed_before_selecting_one_phone_match(mo
     assert result.kind is PrivilegeResolutionKind.HUMAN_REQUIRED
 
 
-def test_privilege_flag_is_inert_until_the_exact_tenant_is_listed(monkeypatch) -> None:
+def test_privilege_flag_requires_an_approved_release_and_exact_tenant(monkeypatch) -> None:
     import app.services.whatsapp_privilege as privilege
 
     monkeypatch.delenv("AGENT_PRIVILEGE_ENABLED_IGREJA_IDS", raising=False)
     assert not privilege.privilege_enabled_from_environment(_IGREJA)
 
     monkeypatch.setenv("AGENT_PRIVILEGE_ENABLED_IGREJA_IDS", str(_IGREJA))
+    assert not privilege.privilege_enabled_from_environment(_IGREJA)
+
+    monkeypatch.setattr(privilege, "PRIVILEGE_APPROVED_RELEASE_ID", "")
+    assert not privilege.privilege_enabled_from_environment(_IGREJA)
+
+    monkeypatch.setattr(
+        privilege,
+        "PRIVILEGE_APPROVED_RELEASE_ID",
+        "s3-synthetic-approved-release",
+    )
     assert privilege.privilege_enabled_from_environment(_IGREJA)
     assert not privilege.privilege_enabled_from_environment(uuid.uuid4())
 

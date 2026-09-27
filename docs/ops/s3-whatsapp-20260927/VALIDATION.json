@@ -2,20 +2,21 @@
   "validated_at_utc": "2026-09-27T13:52:36.911501+00:00",
   "base": "2bacfe8ae7688e7b489294ad75f1b9f2dac29b72",
   "s2b_base": "2e08d11d49868091c88e704b32be80e81fb3ec34",
-  "candidate_manifest_sha256": "927a583ccbf1405343d15015dc11c42a999ec633cd01ac08996d77d2fb9906ae",
-  "migration_sha256": "d087013e0da83c7d80a1e3df05307861314eaaf2195bcd83149fe8927c2a50cc",
+  "candidate_manifest_sha256": "6834153ed0fb80b183eef2b6baef3d33bff86448fe4a7b3defdcd1a89e327db6",
+  "migration_sha256": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
   "frozen_s2b_migration_sha256": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
   "tests": {
     "backend": {
-      "passed": 5660,
+      "passed": 5661,
       "failed": 0,
       "skipped": 0
     },
     "rls_pg17": {
-      "passed": 384,
+      "passed": 390,
       "failed": 0,
       "skipped": 0,
-      "byte_exact_sql": true
+      "byte_exact_sql": true,
+      "byte_exact_applications": 2
     },
     "frontend": {
       "passed": 937,
@@ -32,6 +33,20 @@
       "failed": 0,
       "skipped": 0,
       "includes": "two new non-strict LGPD acceptance cases after complete RLS run"
+    },
+    "robot_delta_pg17": {
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0,
+      "includes": "request-local target shortlist, no unrelated roster in prompts, persisted inbound instead of spoofed outcome"
+    },
+    "sarah_robot_delta": {
+      "backend_and_pg_passed": 43,
+      "frontend_passed": 22,
+      "e2e_passed": 1,
+      "sql_exact_applications": 2,
+      "existing_proposal_preserved": true,
+      "empty_release_zero_database_and_http": true
     }
   },
   "scope": "local source-only; all provider calls mocked; no DEV/PROD/VPS or real credentials",
@@ -40,6 +55,7 @@
     "bounded candidate catalog; ambiguous names denied",
     "PR426 remains frozen; S3 rebase only after its merge",
     "migration before backend deployment; flag empty until nominal activation",
-    "Jev B/C/D release and DPA gates remain closed"
+    "Jev B/C/D release and DPA gates remain closed",
+    "PRIVILEGE_APPROVED_RELEASE_ID is None: allowlist alone is inert"
   ]
 }

@@ -37,3 +37,18 @@ Manifesto fonte/testes/CI: 927a583ccbf1405343d15015dc11c42a999ec633cd01ac08996d7
 Duas ações, confirmações concorrentes, rollback, TTL, homônimos, mudança de termo,
 revogação de alvo/papel, retry e supressão de respostas privadas foram exercitados.
 Isso não comprova qualidade do LLM real, p95 real ou estado de ambiente compartilhado.
+
+## Delta Sarah e robô
+
+- SQL reaplicável, duas execuções byte-exatas preservando proposta existente;
+  novo SHA186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795.
+- Constante de release None impede ativação somente pela env, sem DB/HTTP S3.
+- Somente nomes mencionados no inbound persistido entram nos candidatos D;
+  roster não solicitado e texto solto do worker não ampliam a seleção.
+- Perfil orienta repetir a consulta sensível, sem comando WhatsApp inexistente.
+- Delta local:43backend/PG,22frontend,build e E2E1. Manifesto atualizado no diretório
+  de evidências; os números e hashes acima registram a rodada anterior.
+
+Rodada integral final do delta: backend5661 e RLS390 sem skips; manifesto
+6834153ed0fb80b183eef2b6baef3d33bff86448fe4a7b3defdcd1a89e327db6.
+Revisão independente do delta APTO; CI será reconferido no novo head.

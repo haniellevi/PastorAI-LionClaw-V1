@@ -59,7 +59,9 @@ afterEach(() => {
 it("aceita código colado sem validar formato no cliente e limpa após confirmação", async () => {
   mocks.confirmAgentIdentity.mockResolvedValue({ status: "confirmed" });
   render();
-  expect(container.textContent).toContain("Envie #perfil no WhatsApp");
+  expect(container.textContent).toContain("consulte meu vínculo");
+  expect(container.textContent).toContain("repita a consulta no WhatsApp");
+  expect(container.textContent).not.toContain("#perfil");
   expect(container.textContent).toContain("15 minutos");
   expect(input().maxLength).toBe(128);
   expect(button().disabled).toBe(true);
@@ -93,6 +95,7 @@ it.each([410, 422])("rejeição %i não ecoa detalhes nem conserva código", asy
 
   expect(input().value).toBe("");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Código inválido");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("repita a consulta sensível");
   expect(container.textContent).not.toContain("vínculo privado");
   expect(container.textContent).not.toContain("codigo-rejeitado");
 });
