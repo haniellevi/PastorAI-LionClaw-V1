@@ -630,7 +630,10 @@ def _run_audio_local_turn(session_factory, runtime_session_factory, outcome, *,
             inbound_message_id=outcome.inbound_message_id,
         )
     if not stage_notice:
-        return None
+        # This is a real V1b audio inbound whose consent is already current.
+        # It is queued for the durable audio worker, never textual input for
+        # Tier A, S3, or the LLM in this synchronous turn.
+        return qw.AgentRunDisposition.COMPLETED
 
     intent = qw._reserve_agent_reply_intent(session_factory, outcome)
     if intent is None:

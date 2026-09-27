@@ -1,5 +1,5 @@
 {
-  "status": "local_pass_pending_sarah_and_exact_head_ci",
+  "status": "baseline_superseded_by_queue_turn_delta",
   "base": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
   "recorded_at": "2026-09-27T21:01:18.716854+00:00",
   "environment": "Local PostgreSQL17.6 loopback, synthetic fixtures and mocked providers; Python3.13.14",
@@ -97,5 +97,7 @@
     "backend": "PASTORAI_PYTHON=<Python3.13.14 runtime> bash test-local.sh backend",
     "rls_integration": "RLS_TEST_DATABASE_URL=<PG17 loopback disposable> S3_MIGRATION_EXACT_DATABASE_URL=<separate loopback disposable> python -m pytest --strict-markers -m rls_integration -o addopts= -p no:cacheprovider -q --tb=short tests",
     "critical_audio_races": "python -m pytest -m rls_integration -o addopts= -p no:cacheprovider tests/test_cell_report_v1b_dispatch_pg.py -k 'deadline_handoff_survives or late_upload_after_purge or old_delete_ack'"
-  }
+  },
+  "snapshot_head": "481f1cab5c3612093f372845d8db5f096e9b29c0",
+  "delta_record": "QUEUE-TURN-DELTA.json"
 }

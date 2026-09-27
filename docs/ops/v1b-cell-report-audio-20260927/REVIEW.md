@@ -1,4 +1,6 @@
-# Revisão final V1b áudio
+# Revisão inicial V1b áudio
+
+Snapshot `481f1ca`; o P1 posterior do robô e sua correção estão em [REVIEW-QUEUE-TURN.md](REVIEW-QUEUE-TURN.md).
 
 ## Candidato conferido
 

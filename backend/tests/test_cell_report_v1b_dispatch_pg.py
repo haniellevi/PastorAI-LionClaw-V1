@@ -72,6 +72,10 @@ def _consented_audio(turn, providers):
     _notice(turn, providers.evolution, 'V1B-FULL-NOTICE')
     _run(turn, 'V1B-FULL-ACCEPT', 'ACEITO AUDIO', providers.evolution)
     outcome = _audio_inbound(turn, 'V1B-FULL-AUDIO', _unexpected_media, mime=providers.mime)
+    from app.workers import queue_worker
+    outcome.claim_id = 'claim-v1b-full-audio'
+    assert queue_worker.run_agent_for_message(turn.factory, outcome,
+        evolution_client=providers.evolution) is queue_worker.AgentRunDisposition.COMPLETED
     return outcome
 
 
@@ -105,6 +109,36 @@ def test_v1b_real_audio_summary_text_confirmation_receipt_and_purge(audio_turn, 
     assert len(_rows(audio_turn, AgentActionReceipt)) == 1
     assert providers.counts['transcribe'] == 1
     assert all(row.transcript_text is None for row in _rows(audio_turn, CellReportAudioInput))
+
+
+
+@pytest.mark.parametrize('retries', (1, 2))
+def test_v1b_consented_audio_queue_turn_never_enters_text_router(audio_turn, monkeypatch, retries):
+    from app.agent import privileged_turn
+    from app.workers import queue_worker
+    providers = _providers(audio_turn)
+    outcome = _consented_audio(audio_turn, providers)
+    outcome.claim_id = 'claim-v1b-consented-audio'
+    text_calls = []
+    def unexpected_text(*args, **kwargs):
+        text_calls.append('text')
+        return queue_worker.AgentRunDisposition.COMPLETED
+    monkeypatch.setattr(privileged_turn, '_run_enabled_turn', unexpected_text)
+    monkeypatch.setattr(queue_worker, '_run_active_tier_a_turn', unexpected_text)
+    before = list(providers.evolution.calls)
+    for _ in range(retries):
+        assert queue_worker.run_agent_for_message(audio_turn.factory, outcome,
+            evolution_client=providers.evolution) is queue_worker.AgentRunDisposition.COMPLETED
+    assert text_calls == []
+    assert providers.evolution.calls == before
+    job = next(row for row in _rows(audio_turn, CellReportAudioInput)
+               if row.inbound_message_id == outcome.inbound_message_id)
+    assert job.state == 'pendente' and job.transcription_attempts == 0
+    with audio_turn.factory() as session:
+        assert session.get(Conversation, audio_turn.conversation_id).estado == 'ia'
+    _dispatch(audio_turn, providers)
+    assert providers.counts['transcribe'] == 1
+    assert len([row for row in _rows(audio_turn, AgentActionProposal) if row.state == 'pendente']) == 1
 
 
 def _dispatch(turn, providers):

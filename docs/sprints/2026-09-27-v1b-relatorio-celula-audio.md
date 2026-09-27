@@ -27,3 +27,8 @@ Sarah revisar o head final da PR com CI verde. Releases permanecem `None`, allow
 [Validação final](../ops/v1b-cell-report-audio-20260927/FINAL-VALIDATION.json) fixa hashes, comandos, ambiente e limites; [revisão independente](../ops/v1b-cell-report-audio-20260927/REVIEW.md) não encontrou P1/P2 remanescente. Registros parciais preservam as falhas encontradas e as correções, inclusive distinção entre consulta segura de catálogo e acesso a dados e o ajuste dos dois relógios da fixture.
 
 Retenção só pode ser antecipada, nunca estendida. Handoff que espera um lock sobrevive ao deadline e às flags fechadas, sem repetir I/O; recuperação local precede purga. MP4/M4A que exija seek pode ser recusado com alternativa textual. Timeout HTTPX é por fase; deadline/fence do job e purga cobrem retorno tardio. Latência real e eliminação física durante indisponibilidade do storage não foram comprovadas. CI, incluindo build da imagem sem publicação, deve ser conferido no head exato da PR.
+
+
+## Delta do robô após publicação
+
+No head `481f1ca`, CI 7/7 passou, mas a revisão detectou que áudio já consentido podia cair no roteador textual síncrono. O turno agora encerra sem resposta e conserva a tarefa para transcrição. Dois casos reproduziram o erro; a correção passou 5.859 testes de backend e 114 PG V1a/V1b, sem skips. A prova completa de áudio agora atravessa ingestão, turno síncrono real, dispatcher e confirmação textual. [Evidência do delta](../ops/v1b-cell-report-audio-20260927/QUEUE-TURN-DELTA.json) e [revisão](../ops/v1b-cell-report-audio-20260927/REVIEW-QUEUE-TURN.md). SQL e demais componentes permanecem nos hashes aprovados; CI integral do novo head é registrado na PR.
