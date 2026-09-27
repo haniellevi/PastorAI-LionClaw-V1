@@ -47,6 +47,10 @@ O MESMO deployment Vercel serve **três subdomínios**, roteados por Host no
   domínios do projeto Vercel (o `vercel --prod` re-aliasa todos).
 - CORS do backend deriva `admin.` e `painel.` de `app.` automaticamente
   (`config.py::cors_origins`).
+- O navegador reusa a resposta do preflight por até 2 h (`max_age` em
+  `main.py`; no Safari, 10 min). Ao remover uma origem da lista, a leitura das
+  respostas é bloqueada na hora, mas navegadores que já usavam essa origem
+  podem continuar enviando requisições dela sem novo preflight por até 2 h.
 
 ⚠️ **Envios externos em produção:** `ALLOW_REAL_SENDS` é o gate global de
 WhatsApp/LLM/Google; Brevo usa `BREVO_SEND_MODE` separado. O primeiro deploy usa

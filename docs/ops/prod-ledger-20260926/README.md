@@ -3,7 +3,10 @@
 Arquivos usados na sessão operacional de 26/09 para decidir, com prova, quais migrations
 já estavam aplicadas em PROD e criar o ledger `public.schema_migrations`. Registro da sessão:
 [`docs/sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md`](../../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md).
-Serve também para provar que o DEV recriado ficou igual ao PROD.
+Serve também para provar que o DEV recriado ficou igual ao PROD **no catálogo**
+(tabelas, colunas, índices, funções, policies, grants). As checagens não provam
+dados: os dados de referência de migrations só de dados ou mistas (por exemplo
+`0009`, `0012` e `0014`) precisam de conferência própria antes de copiar o ledger.
 
 | Arquivo | O que é | Efeito no banco |
 |---|---|---|

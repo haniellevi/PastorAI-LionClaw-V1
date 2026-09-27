@@ -193,11 +193,17 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [ ] Limpar worktrees e branches mortas (só as limpas e já integradas).
 - [x] Reconciliar ou recriar o DEV (44 migrations pendentes; 45 com a S2).
       **Recriado em 27/09** a partir do schema de PROD, sem dados reais, com o
-      mesmo ledger (70 linhas, mesmas origens): fingerprint e `pg_dump` do
-      `public` idênticos aos de PROD e `migrate.py status` = 70/78/8, com as
-      mesmas 8 pendentes. Igreja fictícia "Igreja Piloto PastorAI" com as
-      contas de teste. Acesso ao DEV pelo serviço libpq `pastorai_dev`
-      (`backend/scripts/dev_db_service.py`); kit em
+      mesmo ledger (70 linhas, mesmas origens), a pedido do proprietário numa
+      sessão Claude Code, com "ok" dele a cada escrita (no mesmo dia o plano
+      tinha dado o item à sessão do Maestri). Os dados que as migrations do
+      ledger criam foram restaurados junto: seeds da `0005`/`0009`, planos da
+      `0012`, orquestrador da `0014` e `billing_settings` da `20260730`,
+      gerados aplicando as 70 migrations num Supabase 17.6 descartável. Assim
+      o ledger não marca como aplicada migration cujos dados faltem.
+      Fingerprint e `pg_dump` do `public` idênticos aos de PROD e
+      `migrate.py status` = 70/78/8, com as mesmas 8 pendentes. Igreja fictícia
+      "Igreja Piloto PastorAI" com as contas de teste. Acesso ao DEV pelo
+      serviço libpq `pastorai_dev` (`backend/scripts/dev_db_service.py`); kit em
       `docs/ops/dev-espelho-prod-20260927/`; registro em
       [`2026-09-27-dev-espelho-prod.md`](../sprints/2026-09-27-dev-espelho-prod.md).
       "DEV primeiro" volta a valer para a próxima migration.
@@ -226,10 +232,17 @@ obrigatórios de produto.
       própria). Implementação local em 25/09: até cinco tentativas por envelope,
       depois dead-letter; sem teste real ou deploy. Timeout após envio pode
       duplicar resposta, pois a Evolution não garante idempotência nesse fluxo.
-- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo). Ligado em 27/09; teste com a equipe interna pendente.
+- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo). Ligado em 27/09. No teste da equipe interna (27/09), a resposta chegou ao celular em ~28 s; a meta de < 10 s ainda não foi atingida (banco em us-west-2, tarefa própria).
 
 **Pronto quando:** as mensagens para o número da Filadélfia recebem resposta
 em menos de 10 s e aparecem no inbox do painel.
+
+**Medição de 27/09 (local, latência de PROD simulada):** com o banco em
+us-west-2 a ~185 ms por ida, o código em produção (`e6aafc2`) faz 152 a 167
+idas ao banco por mensagem, 29 a 33 s, o que bate com os ~28 s do teste real.
+Depois dos cortes do PR #424, 114 a 130 idas, 21 a 26 s. A meta de 10 s
+depende de aproximar servidor e banco (B17,
+[registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
 
 #### Passo a passo para ligar na Filadélfia (proprietário)
 
@@ -293,7 +306,10 @@ operacional de 26/09 (registro em
    Reinicie os serviços.
 6. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
    número da Filadélfia. Esperado: o termo LGPD. Responda "sim". Esperado:
-   a saudação. As duas conversas aparecem no inbox.
+   a saudação. As duas conversas aparecem no inbox. Não clique em "Assumir
+   (pausar IA)" durante o teste: isso cancela a resposta do robô.
+   27/09: resposta entregue em ~28 s; antes, foi preciso reconectar a Evolution,
+   que estava "Online" sem receber desde 03/09 (registro da sessão).
 7. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
    ou `ALLOW_REAL_SENDS=false` e reiniciar.
 
@@ -320,14 +336,14 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       e indicação de célula por bairro explicitamente publicado no perfil do
       agente. Respostas determinísticas, sem LLM nem alterações cadastrais.
       Contrato inicial: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
-- [x] **S2 implementada em código, candidata no PR423:** painel/API de campos
-      públicos estruturados, migration tenant/RLS, perguntas naturais de culto
-      e remoção de Cf no legado. Testes locais e revisão técnica concluídos;
-      [registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md).
-      **Merge bloqueado** até liberação explícita coordenada com a sessão
-      PastorAI PROD operacional. Não aplicada em banco compartilhado nem
-      implantada por esta missão. Sarah GO no código `fe544d7`; delta documental
-      segue para conferência, sem liberar merge.
+- [x] **S2 em produção:** painel/API de campos públicos estruturados,
+      migration tenant/RLS, perguntas naturais de culto e remoção de Cf no
+      legado ([registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md)).
+      Sarah GO no código `fe544d7`. Em 26/09: migration `20260926_191500`
+      aplicada em PROD com backup e revisão da Sarah, PR #423 integrado e
+      backend `e6aafc2` implantado
+      ([registro da sessão](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)).
+      Informações públicas da Filadélfia ainda vazias no painel.
 - [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
       nem política pública para endereços residenciais; indicação por bairro
       não representa a célula mais próxima.
@@ -413,6 +429,20 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 
 - [ ] Investigar a causa raiz dos ~30 incidentes do monitor (VPS, Evolution,
       Supabase, Redis).
+- [x] `queue-worker` espera e tenta de novo em timeout ou queda transitória
+      do Redis, em vez de encerrar o processo (incidente de 27/09, B16).
+      Implantado em PROD em 27/09 (`eb5a09b`). O travamento vinha do backup
+      diário das 06:15 UTC, que pausa o Redis por ~9 s.
+      [Registro](../sprints/2026-09-27-queue-worker-redis-transitorio.md).
+- [x] Menos idas ao banco por requisição, em código (PR #424, Sarah GO,
+      exceção D2A aceita pelo proprietário; entra em produção no próximo
+      deploy): contexto de tenant numa instrução, ping só em conexão parada,
+      preflight CORS por 2 h.
+      `/auth/me` de 1,3 s para 0,75 s com 185 ms simulados
+      ([registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
+- [ ] Decidir a infraestrutura (B17): banco em São Paulo (recomendado) ou
+      servidor em Oregon. Antes, medir do VPS a latência de um projeto vazio
+      em sa-east-1.
 - [ ] Deploy automatizado: uma GitHub Action ou um script único
       `deploy.sh` com build, restart, health check e rollback.
 - [ ] Backup diário verificado e restauração testada uma vez.
@@ -456,5 +486,7 @@ UV e Capacitação, e Enviar editável.
 | B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |
 | B14 | Custo de IA (em US$) exibido como R$ no console. Corrigido em 26/09 | `AdminConsole.tsx`, `ChurchPage.tsx` | 0 |
 | B15 | `is_optout_request` perde "me tira da lista", "pare" e "stop"; `looks_like_report` responde "Relatório recebido!" a "vou mandar o relatório amanhã" e troca números no formato em linhas | `domain/consent.py`, `domain/report.py` | 2 |
+| B16 | `queue-worker` caiu em PROD (27/09) com `TimeoutError` do Redis: 2 s de margem entre o BRPOPLPUSH e o `socket_timeout`, e nenhum retry no laço. Corrigido e implantado em 27/09 (`eb5a09b`). O travamento vem do backup diário, que pausa o Redis ~9 s às 06:15 UTC | `queue_worker.py` | 4 |
+| B17 | VPS no Brasil e banco em us-west-2 (~185 ms por ida): tela 0,8 a 1,9 s por chamada e bot 21 a 26 s por mensagem; impede o aceite da Fase 1 | infra (VPS, Supabase) | 4 |
 | L1 | UV e Capacitação são placeholders; Enviar é só leitura | frontend | 5 |
 | L2 | Apenas OpenAI como provedor do agente | `AgenteScreen.tsx` | 5 |
