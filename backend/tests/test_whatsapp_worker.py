@@ -2884,6 +2884,46 @@ def test_backoff_restarts_from_base_after_redis_answers_again(
     assert "stage=claim error_type=TimeoutError attempt=1" in caplog.text
 
 
+def test_sustained_redis_failures_report_error_health_until_recovery(
+    monkeypatch,
+) -> None:
+    """Polls keep failing while lease and heartbeat writes still succeed."""
+    clock = [0.0]
+    redis = FaultyRedis(FakeRedis())
+    queue = WebhookQueue(redis_client=redis)
+    queue.enqueue({"event": "connection.update"})
+    # Waits of 0.5+1+2+4+5*5 s: the 10th failure is the first after 30 s.
+    redis.fail_next("brpoplpush", _socket_timeout(), times=10)
+    heartbeats: list[tuple[float, str]] = []
+
+    def sleeper(seconds: float) -> None:
+        clock[0] += seconds
+
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id="worker-degraded",
+        heartbeat_publisher=lambda state, _ttl: heartbeats.append((clock[0], state)),
+        progress_clock=lambda: clock[0],
+        sleeper=sleeper,
+    )
+    handled = _guard_run(monkeypatch, worker)
+
+    worker.run()
+
+    assert len(handled) == 1
+    assert [state for _at, state in heartbeats] == [
+        "ready",
+        "error",  # alive but not consuming: healthcheck and readiness fail
+        "ready",  # Redis answered again
+        "running",
+        "stopped",
+    ]
+    (error_at,) = [at for at, state in heartbeats if state == "error"]
+    assert error_at >= worker_module.REDIS_DEGRADED_AFTER_SECONDS
+    assert error_at == 32.5
+
+
 def test_redis_retry_backoff_doubles_to_a_cap_without_overflow() -> None:
     delays = [worker_module._redis_retry_delay(n) for n in range(1, 8)]
 

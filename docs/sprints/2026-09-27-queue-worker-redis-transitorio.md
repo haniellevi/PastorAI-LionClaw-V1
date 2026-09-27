@@ -49,6 +49,12 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
 - **Heartbeat.** Um erro transitório adia a renovação para o próximo tick.
   Lease expirada, erro não transitório e worker travado continuam parando o
   consumo.
+- **Saúde degradada** (achado P1 do Codex na PR #425). Se as falhas do Redis
+  durarem mais que uma lease (30 s), o worker publica `error`, e o healthcheck
+  e a readiness passam a acusar. Isso cobre o caso em que o BRPOPLPUSH falha
+  enquanto a lease e o heartbeat ainda funcionam. O estado volta a `ready`
+  quando o Redis responde. Soluços curtos não mudam o estado publicado, para
+  não abrir incidente falso no monitor.
 - **Desligamento.** Um erro transitório no `unregister_worker` vira aviso. A
   lease expira pelo TTL, e o registro continua permitindo a recuperação.
   `stop()` marca a parada antes de logar, para que o SIGTERM não se perca.
@@ -68,6 +74,10 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
   Nesse caso o worker fica tentando em vez de reiniciar em loop. O sinal passa
   a ser o aviso `stage=register` no log e o healthcheck `unhealthy` (sem
   heartbeat).
+- **O progresso continua registrado durante as esperas.** O watchdog de
+  progresso detecta a thread principal travada. Sem esse registro, uma queda
+  total de mais de 60 s voltaria a encerrar o processo. O sinal de "vivo, mas
+  sem consumir" é o estado `error` depois de 30 s de falhas.
 - **Encurtar o bloqueio em vez de aumentar o `socket_timeout`.** O timeout
   também limita a renovação da lease: dois heartbeats de 10 s mais 7 s dão
   27 s, abaixo da lease de 30 s. A conta ignora uma reconexão (até 3 s de
@@ -107,13 +117,14 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
 
 ## Verificação
 
-- **30 casos novos.**
-  - 27 com Redis falso, em `test_whatsapp_worker.py`: timeout no poll ocioso;
+- **31 casos novos.**
+  - 28 com Redis falso, em `test_whatsapp_worker.py`: timeout no poll ocioso;
     resposta perdida do BRPOPLPUSH (com a ordem preservada) e do reconcile; ACK
     não confirmado; ACK de envelope malformado; lease perdida durante a queda;
-    registro com o Redis carregando; backoff e reinício da espera; SIGTERM
-    durante a espera; erros não transitórios; heartbeat; desligamento;
-    classificação dos erros; margens de timeout.
+    registro com o Redis carregando; backoff e reinício da espera; saúde
+    `error` depois de 30 s de falhas e volta a `ready`; SIGTERM durante a
+    espera; erros não transitórios; heartbeat; desligamento; classificação dos
+    erros; margens de timeout.
   - 3 com Redis 7.4 real em Docker, em `test_queue_redis7_transition.py`:
     socket timeout real com a mensagem de PROD; resposta perdida do claim;
     resposta perdida do reconcile, com o estado canônico do retry preservado.
@@ -125,11 +136,14 @@ Em PROD (release `e6aafc2`), às 06:15:57 UTC de 27/09, o
   corrigidos: ACK não confirmado, teste com timeout curto em todos os comandos,
   testes que podiam travar, ordem do requeue, ordem de `stop()` e teste do ACK
   malformado.
-- **Mutações:** remover o requeue, voltar o requeue para o fim da fila ou não
-  marcar o ACK não confirmado faz falhar os testes correspondentes, sem travar.
+- **Revisão do Codex na PR #425:** um P1. O worker continuava `ready` enquanto
+  não consumia. Foi corrigido com a saúde degradada acima.
+- **Mutações:** remover o requeue, voltar o requeue para o fim da fila, não
+  marcar o ACK não confirmado ou não publicar `error` faz falhar os testes
+  correspondentes, sem travar.
 - **`./test-local.sh` terminou com exit 0**, usando Python 3.13.14 e Node
   24.19.0 via `PASTORAI_PYTHON` e `PASTORAI_NODE_BIN`.
-  - Backend: 5.449 passed, 340 deselected (`rls_integration`), zero skip,
+  - Backend: 5.450 passed, 340 deselected (`rls_integration`), zero skip,
     incluindo os 27 testes Redis 7.
   - Frontend: 883 testes em 99 arquivos, e typecheck.
 - Nada disso prova o comportamento em PROD. A prova operacional é o deploy

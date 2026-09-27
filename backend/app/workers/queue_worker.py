@@ -144,6 +144,10 @@ REDIS_MAX_CONNECTIONS = 20
 # the worker resumes with the same lease once Redis answers again.
 REDIS_RETRY_BASE_DELAY_SECONDS = 0.5
 REDIS_RETRY_MAX_DELAY_SECONDS = 5.0
+# A failure streak longer than a lease is no longer a blip: the worker is alive
+# but not consuming, so it reports error health (healthcheck and readiness)
+# until Redis answers again. Shorter blips keep the published state.
+REDIS_DEGRADED_AFTER_SECONDS = WORKER_LEASE_SECONDS
 MAX_AGENT_CLAIM_ID_BYTES = 128
 
 # ``run_agent_for_message`` keeps a compatibility default for focused tests
@@ -2053,6 +2057,8 @@ class QueueWorker:
         # Waits between Redis retries (injectable for tests).
         self._sleeper = sleeper
         self._redis_failures = 0
+        self._redis_failing_since: float | None = None
+        self._redis_degraded = False
         self._own_claims_unverified = False
         self._next_recovery_at = 0.0
         self._heartbeat_publisher = heartbeat_publisher or (
@@ -2145,6 +2151,8 @@ class QueueWorker:
         self._running = True
         self._heartbeat_stop.clear()
         self._redis_failures = 0
+        self._redis_failing_since = None
+        self._redis_degraded = False
         self._own_claims_unverified = False
         self._next_recovery_at = 0.0
         if not self._register_worker():
@@ -2247,6 +2255,9 @@ class QueueWorker:
     def _wait_after_redis_error(self, stage: str, exc: BaseException) -> None:
         """Log a transient Redis failure and wait a capped, growing delay."""
         self._redis_failures += 1
+        now = self._progress_clock()
+        if self._redis_failing_since is None:
+            self._redis_failing_since = now
         delay = _redis_retry_delay(self._redis_failures)
         logger.warning(
             "Queue worker Redis call failed stage=%s error_type=%s attempt=%d; "
@@ -2256,7 +2267,20 @@ class QueueWorker:
             self._redis_failures,
             delay,
         )
-        # The loop is alive and holds no claim, so this is not a stall.
+        if (
+            not self._redis_degraded
+            and now - self._redis_failing_since >= REDIS_DEGRADED_AFTER_SECONDS
+        ):
+            # Alive but not consuming: fail the healthcheck and readiness
+            # instead of looking like a healthy idle worker.
+            self._redis_degraded = True
+            logger.error(
+                "Queue worker cannot use Redis for %ds; reporting error health",
+                REDIS_DEGRADED_AFTER_SECONDS,
+            )
+            self._publish_health("error")
+        # The loop is alive and holds no claim, so this is not a stall. The
+        # stall watchdog must not stop a worker that is only waiting for Redis.
         self._record_progress()
         # Sleep in short slices so a shutdown request stays responsive.
         remaining = delay
@@ -2266,12 +2290,17 @@ class QueueWorker:
             remaining -= step
 
     def _redis_recovered(self) -> None:
-        if self._redis_failures:
-            logger.info(
-                "Queue worker Redis calls recovered after %d failure(s)",
-                self._redis_failures,
-            )
-            self._redis_failures = 0
+        if not self._redis_failures:
+            return
+        logger.info(
+            "Queue worker Redis calls recovered after %d failure(s)",
+            self._redis_failures,
+        )
+        self._redis_failures = 0
+        self._redis_failing_since = None
+        if self._redis_degraded:
+            self._redis_degraded = False
+            self._publish_health("ready")
 
     def _unregister_worker(self) -> None:
         try:
