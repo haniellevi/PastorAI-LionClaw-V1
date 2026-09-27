@@ -232,10 +232,11 @@ obrigatórios de produto.
 em menos de 10 s e aparecem no inbox do painel.
 
 **Medição de 27/09 (local, latência de PROD simulada):** com o banco em
-us-west-2 a ~185 ms por ida, cada mensagem faz 114 a 130 idas ao banco, cerca
-de 21 a 26 s, mesmo depois dos cortes da branch `perf/db-round-trips`. A meta
-de 10 s depende de aproximar servidor e banco
-([registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
+us-west-2 a ~185 ms por ida, o código em produção (`e6aafc2`) faz 152 a 167
+idas ao banco por mensagem, 29 a 33 s, o que bate com os ~28 s do teste real.
+Depois dos cortes do PR #424, 114 a 130 idas, 21 a 26 s. A meta de 10 s
+depende de aproximar servidor e banco (B17,
+[registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
 
 #### Passo a passo para ligar na Filadélfia (proprietário)
 

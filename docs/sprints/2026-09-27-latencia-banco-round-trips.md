@@ -48,6 +48,11 @@ Mensagem do WhatsApp (webhook → worker → agente), 185 ms simulados:
 | "sim" | 155 idas, 29,2 s | 117 idas, 22,0 s |
 | "Que horas é o culto?" | 152 idas, 28,6 s | 114 idas, 21,5 s |
 
+Confirmação em PROD: no teste real da equipe interna em 27/09, com o backend
+`e6aafc2` (a base deste PR), a resposta chegou ao celular em ~28 s
+(`2026-09-26-prod-sessao-a-ledger-e-deploy.md`), perto dos 28,6 a 32,6 s
+que a simulação do "antes" deu.
+
 Composição do "sim" depois do PR: 24 comandos de contexto de tenant, 12
 provas de escopo (`require_tenant_scope`), 30 BEGIN/COMMIT/ROLLBACK (15
 transações curtas) e 51 consultas de domínio. Antes havia ainda 14 pings e 24
