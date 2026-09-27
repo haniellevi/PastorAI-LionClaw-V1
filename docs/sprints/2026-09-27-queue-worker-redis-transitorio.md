@@ -202,7 +202,8 @@ Feito pelo Claude Code com "ok" do proprietário, pela seção 5 do
 - A `main` já está à frente: a #424 (latência do banco) entrou depois deste
   deploy e não foi implantada.
 
-**Rollback:** do código, revert do commit. Do deploy, apontar
+**Rollback:** do código, reverter o merge da PR #425 (`git revert -m 1
+dd02368`), não o `eb5a09b`, que é o merge só de docs da #427. Do deploy, apontar
 `/opt/pastorai-current` de volta para o release `e6aafc2…` e recriar os 4
 processos a partir dele (imagem `pastorai-backend:e6aafc2` guardada). Não há
 migration nem mudança de configuração.
