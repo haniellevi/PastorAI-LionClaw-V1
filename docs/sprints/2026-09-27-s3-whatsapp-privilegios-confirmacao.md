@@ -22,7 +22,8 @@ Candidato source-only; manifesto e evidência em docs/ops/s3-whatsapp-20260927/.
 
 ## Pendente / próximo passo
 
-- Publicar PR e conferir CI do head exato; revisão Sarah permanece necessária.
+- Conferir CI do head exato; revisão Sarah permanece necessária.
+- Parecer independente final APTO, 46/46 hashes; não substitui Sarah nem gate operacional.
 - Sarah e ordem nominal de merge; rebase após merge426. Migration/deploy e
   ativação interna da flag dependem de coordenação e ordem próprias do Raniel.
 
