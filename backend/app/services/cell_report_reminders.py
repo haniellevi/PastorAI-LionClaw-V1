@@ -117,6 +117,15 @@ class ReminderClaim:
 
 
 @dataclass(frozen=True, slots=True)
+class _ReminderClaimAttempt:
+    """One bounded queue scan, including a candidate discarded in-transaction."""
+
+    claim: ReminderClaim | None
+    exhausted: bool
+    candidate_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ReminderResultTransition:
     state: str
     attempts: int
@@ -1228,27 +1237,32 @@ def _claim_next_reminder(
     *,
     now: dt.datetime,
     lease_seconds: int,
-) -> ReminderClaim | None:
+    excluded_reminder_ids: tuple[uuid.UUID, ...] = (),
+) -> _ReminderClaimAttempt:
     session = session_factory()
     try:
         _scoped(session, igreja_id, "cell_report_reminder_claim")
+        candidate_query = select(
+            CellReportReminder.id,
+            CellReportReminder.reuniao_id,
+            CellReportReminder.leader_pessoa_id,
+        ).where(
+            CellReportReminder.igreja_id == igreja_id,
+            CellReportReminder.state.in_(("pendente", "retry")),
+            CellReportReminder.due_at <= now,
+        )
+        if excluded_reminder_ids:
+            candidate_query = candidate_query.where(
+                CellReportReminder.id.not_in(excluded_reminder_ids)
+            )
         candidate = session.execute(
-            select(
-                CellReportReminder.id,
-                CellReportReminder.reuniao_id,
-                CellReportReminder.leader_pessoa_id,
-            )
-            .where(
-                CellReportReminder.igreja_id == igreja_id,
-                CellReportReminder.state.in_(("pendente", "retry")),
-                CellReportReminder.due_at <= now,
-            )
+            candidate_query
             .order_by(CellReportReminder.due_at.asc(), CellReportReminder.id.asc())
             .limit(1)
         ).one_or_none()
         if candidate is None:
             session.commit()
-            return None
+            return _ReminderClaimAttempt(claim=None, exhausted=True)
         reminder_id, reuniao_id, leader_pessoa_id = candidate
         allowed, phone_or_reason = _reminder_gates_allow(
             session,
@@ -1271,11 +1285,19 @@ def _claim_next_reminder(
         ).scalar_one_or_none()
         if reminder is None:
             session.commit()
-            return None
+            return _ReminderClaimAttempt(
+                claim=None,
+                exhausted=False,
+                candidate_id=reminder_id,
+            )
         if not allowed:
             _cancel_reminder(reminder, now=now, reason=phone_or_reason or "contexto_revogado")
             session.commit()
-            return None
+            return _ReminderClaimAttempt(
+                claim=None,
+                exhausted=False,
+                candidate_id=reminder_id,
+            )
         if not cell_report_reminder_transport_window_open(now):
             reminder.state = "retry"
             reminder.claim_token = None
@@ -1284,7 +1306,11 @@ def _claim_next_reminder(
             reminder.terminal_reason = None
             reminder.updated_at = now
             session.commit()
-            return None
+            return _ReminderClaimAttempt(
+                claim=None,
+                exhausted=False,
+                candidate_id=reminder_id,
+            )
         connection = session.execute(
             select(WhatsappConnection)
             .where(
@@ -1298,26 +1324,38 @@ def _claim_next_reminder(
             reminder.due_at = now + dt.timedelta(minutes=1)
             reminder.updated_at = now
             session.commit()
-            return None
+            return _ReminderClaimAttempt(
+                claim=None,
+                exhausted=False,
+                candidate_id=reminder_id,
+            )
         if reminder.text_sha256 != cell_report_reminder_text_sha256():
             _cancel_reminder(reminder, now=now, reason="texto_inconsistente")
             session.commit()
-            return None
+            return _ReminderClaimAttempt(
+                claim=None,
+                exhausted=False,
+                candidate_id=reminder_id,
+            )
         token = uuid.uuid4()
         reminder.state = "em_envio"
         reminder.claim_token = token
         reminder.claimed_until = now + dt.timedelta(seconds=max(1, lease_seconds))
         reminder.updated_at = now
         session.commit()
-        return ReminderClaim(
-            igreja_id=igreja_id,
-            reminder_id=reminder.id,
-            reuniao_id=reminder.reuniao_id,
-            leader_pessoa_id=reminder.leader_pessoa_id,
-            claim_token=token,
-            instance=connection.instance,
-            phone=phone_or_reason or "",
-            text=cell_report_reminder_text(),
+        return _ReminderClaimAttempt(
+            claim=ReminderClaim(
+                igreja_id=igreja_id,
+                reminder_id=reminder.id,
+                reuniao_id=reminder.reuniao_id,
+                leader_pessoa_id=reminder.leader_pessoa_id,
+                claim_token=token,
+                instance=connection.instance,
+                phone=phone_or_reason or "",
+                text=cell_report_reminder_text(),
+            ),
+            exhausted=False,
+            candidate_id=reminder_id,
         )
     except Exception:
         session.rollback()
@@ -1481,18 +1519,27 @@ def dispatch_cell_report_reminders(
         return fixed_now if fixed_now is not None else _now(None)
 
     dispatched = 0
+    scanned = 0
     for igreja_id in _discover_tenants(session_factory, source="cell_report_reminder_dispatch_discovery"):
-        if dispatched >= limit:
+        if scanned >= limit:
             break
-        while dispatched < limit:
-            claim = _claim_next_reminder(
+        excluded_reminder_ids: set[uuid.UUID] = set()
+        while scanned < limit:
+            attempt = _claim_next_reminder(
                 session_factory,
                 igreja_id,
                 now=current_time(),
                 lease_seconds=lease_seconds,
+                excluded_reminder_ids=tuple(sorted(excluded_reminder_ids, key=str)),
             )
-            if claim is None:
+            if attempt.exhausted:
                 break
+            scanned += 1
+            if attempt.candidate_id is not None:
+                excluded_reminder_ids.add(attempt.candidate_id)
+            claim = attempt.claim
+            if claim is None:
+                continue
             dispatched += 1
             try:
                 can_send = _renew_reminder_transport_fence(

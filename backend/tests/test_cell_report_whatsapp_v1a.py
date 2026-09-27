@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.domain.cell_report_v1a import parse_v1a_cell_report_text
+from app.services.whatsapp_privilege import PrivilegeContext, PrivilegeResolutionKind
 from app.services import cell_report_v1a_service as transaction_service
 from app.services import cell_report_whatsapp as service
 
@@ -15,6 +16,28 @@ from app.services import cell_report_whatsapp as service
 TENANT = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 PERSON = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 NOW = dt.datetime(2026, 9, 27, 15, tzinfo=dt.timezone.utc)
+
+
+def _privilege_context(*, inbound_message_id: uuid.UUID) -> PrivilegeContext:
+    return PrivilegeContext(
+        igreja_id=TENANT,
+        conversation_id=uuid.UUID("00000000-0000-0000-0000-0000000000c1"),
+        inbound_message_id=inbound_message_id,
+        pessoa_id=PERSON,
+        app_user_id=uuid.UUID("00000000-0000-0000-0000-0000000000d1"),
+        roles=frozenset({"lider_celula"}),
+        role_snapshot=((uuid.UUID("00000000-0000-0000-0000-0000000000e1"), "lider_celula"),),
+        owned_cell_ids=(uuid.UUID("00000000-0000-0000-0000-0000000000f1"),),
+        credential_fingerprint="a" * 64,
+        phone_fingerprint="b" * 64,
+        authorization_fingerprint="c" * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint="d" * 64,
+        context_fingerprint="e" * 64,
+        kind=PrivilegeResolutionKind.PRIVILEGED,
+    )
 
 
 def test_cell_report_gate_is_inert_without_its_reviewed_release(monkeypatch) -> None:
@@ -32,6 +55,107 @@ def test_cell_report_gate_requires_s3_gate_and_exact_allowlist(monkeypatch) -> N
 
     assert service.cell_report_enabled_from_environment(TENANT) is True
     assert service.cell_report_enabled_from_environment(uuid.uuid4()) is False
+
+
+def test_active_partial_draft_does_not_capture_an_unrelated_public_question(monkeypatch) -> None:
+    inbound_id = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+    active = transaction_service._DraftReference(
+        id=uuid.UUID("00000000-0000-0000-0000-0000000000a3"),
+        meeting_id=uuid.UUID("00000000-0000-0000-0000-0000000000a4"),
+    )
+    context = _privilege_context(inbound_message_id=inbound_id)
+    monkeypatch.setattr(transaction_service, "_now", lambda *_args: NOW)
+    monkeypatch.setattr(transaction_service, "require_tenant_scope", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(transaction_service, "_lock_conversation_and_inbound", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(transaction_service, "_current_lgpd_acceptance", lambda *_args, **_kwargs: "termo-v1")
+    monkeypatch.setattr(transaction_service, "_active_draft_hint", lambda *_args, **_kwargs: active)
+    monkeypatch.setattr(
+        transaction_service,
+        "_eligible_meeting",
+        lambda *_args, **_kwargs: pytest.fail("pergunta pública não deve tocar o rascunho"),
+    )
+
+    result = transaction_service.stage_v1a_cell_report_turn(
+        object(),
+        context=context,
+        inbound_message_id=inbound_id,
+        text="Qual é o endereço da igreja?",
+        summary_message=SimpleNamespace(),
+        now=NOW,
+    )
+
+    assert result.kind is transaction_service.CellReportStageKind.NOT_APPLICABLE
+
+
+def test_v1a_receipt_text_uses_only_server_cell_and_meeting_date() -> None:
+    meeting = transaction_service._Meeting(
+        uuid.UUID("00000000-0000-0000-0000-0000000000a5"),
+        "Célula Sintética",
+        dt.date(2026, 9, 26),
+    )
+
+    assert transaction_service._render_v1a_cell_report_receipt(meeting) == (
+        "Relatório confirmado. Célula Célula Sintética, reunião de 26/09/2026."
+    )
+
+
+def test_v1a_receipt_loads_only_the_executed_server_proposal_and_meeting(monkeypatch) -> None:
+    inbound_id = uuid.UUID("00000000-0000-0000-0000-0000000000a7")
+    proposal_id = uuid.UUID("00000000-0000-0000-0000-0000000000a8")
+    meeting_id = uuid.UUID("00000000-0000-0000-0000-0000000000a9")
+    proposal = SimpleNamespace(
+        arguments_json={
+            "rascunho_id": str(uuid.UUID("00000000-0000-0000-0000-0000000000aa")),
+            "reuniao_id": str(meeting_id),
+            "revisao": 1,
+        },
+        target_id=meeting_id,
+    )
+
+    class _Result:
+        def __init__(self, *, scalar=None, row=None) -> None:
+            self._scalar = scalar
+            self._row = row
+
+        def scalar_one_or_none(self):
+            return self._scalar
+
+        def one_or_none(self):
+            return self._row
+
+    class _Session:
+        def __init__(self) -> None:
+            self._results = iter(
+                (
+                    _Result(scalar=proposal),
+                    _Result(row=(dt.date(2026, 9, 26), "Célula Sintética")),
+                )
+            )
+
+        def execute(self, _statement):
+            return next(self._results)
+
+    monkeypatch.setattr(transaction_service, "require_tenant_scope", lambda *_args, **_kwargs: None)
+
+    assert transaction_service.v1a_receipt_text_after_execution(
+        _Session(),
+        context=_privilege_context(inbound_message_id=inbound_id),
+        proposal_id=proposal_id,
+    ) == "Relatório confirmado. Célula Célula Sintética, reunião de 26/09/2026."
+
+
+def test_committed_v1a_receipt_is_reused_without_rebuilding_current_cell_data() -> None:
+    import app.agent.privileged_turn as privileged_turn
+
+    proposal_id = uuid.UUID("00000000-0000-0000-0000-0000000000a6")
+    committed = "Relatório confirmado. Célula Célula Sintética, reunião de 26/09/2026. Comprovante: opaque."
+    message = SimpleNamespace(
+        texto=committed,
+        agent_privilege_context={"kind": "receipt", "proposal_id": str(proposal_id)},
+    )
+
+    assert privileged_turn._stored_receipt_response(message, proposal_id) == committed
+    assert privileged_turn._stored_receipt_response(message, uuid.uuid4()) is None
 
 
 def test_lgpd_consent_requires_latest_unambiguous_current_acceptance() -> None:

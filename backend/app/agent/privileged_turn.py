@@ -181,6 +181,22 @@ def _store_response(message, context, response, *, kind, proposal_id=None):
     message.agent_privilege_context = reply_metadata(context, kind=kind, proposal_id=proposal_id)
 
 
+def _stored_receipt_response(message, proposal_id) -> str | None:
+    """Reuse the committed receipt text instead of rebuilding it on retry."""
+
+    response = getattr(message, 'texto', None)
+    metadata = getattr(message, 'agent_privilege_context', None)
+    if (
+        type(response) is str
+        and response
+        and type(metadata) is dict
+        and metadata.get('kind') == 'receipt'
+        and metadata.get('proposal_id') == str(proposal_id)
+    ):
+        return response
+    return None
+
+
 def _action_summary(summary: str) -> str:
     return f'{summary}. Confirma esta ação? Responda SIM ou NÃO. A proposta vale por 10 minutos.'
 
@@ -235,7 +251,19 @@ def _local_confirmation(session, context, outcome, message):
             if resolution.receipt is not None
             else 'Registro confirmado.'
         )
-        response = f'{receipt_text} Comprovante: {resolution.receipt_id}.'
+        response = _stored_receipt_response(message, resolution.proposal_id)
+        if response is None:
+            if resolution.status == 'executed' and receipt_text == 'Relatório confirmado.':
+                from app.services.cell_report_v1a_service import v1a_receipt_text_after_execution
+
+                detailed_receipt = v1a_receipt_text_after_execution(
+                    session,
+                    context=context,
+                    proposal_id=resolution.proposal_id,
+                )
+                if detailed_receipt is not None:
+                    receipt_text = detailed_receipt
+            response = f'{receipt_text} Comprovante: {resolution.receipt_id}.'
         kind = 'receipt'
     elif resolution.status == 'delivery_uncertain':
         response = None

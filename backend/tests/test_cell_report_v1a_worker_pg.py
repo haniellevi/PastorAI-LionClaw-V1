@@ -49,8 +49,8 @@ def _snapshot(turn):
 
 
 class _CommittedReceiptEvolution(_ClassifiedEvolution):
-    def __init__(self, turn):
-        super().__init__()
+    def __init__(self, turn, *statuses):
+        super().__init__(*statuses)
         self.turn = turn
         self.committed_receipts = 0
 
@@ -485,3 +485,52 @@ def test_v1a_worker_does_not_hold_draft_ahead_of_budget_meeting_lock(report_turn
     finally:
         event.remove(turn.engine, 'before_cursor_execute', observe_meeting)
     assert locking_error is None, f'Worker held Draft while waiting for Meeting: {locking_error}'
+
+
+def test_partial_report_does_not_swallow_public_address_question(report_turn):
+    from app.db.models import CellReportDraft, Igreja
+    turn = report_turn
+    evolution = _ClassifiedEvolution()
+    with turn.factory.begin() as session:
+        session.get(Igreja, _IGREJA).endereco_institucional = 'Avenida Institucional Sintética, 100'
+    _run(turn, 'V1A-PARTIAL-BEFORE-PUBLIC', 'Relatório: presentes: 10', evolution)
+    before = _rows(turn, CellReportDraft)[0]
+    _run(turn, 'V1A-PUBLIC-DURING-DRAFT', 'Qual é o endereço da igreja?', evolution)
+    assert 'Avenida Institucional Sintética, 100' in evolution.calls[-1][2]
+    after = _rows(turn, CellReportDraft)[0]
+    assert (after.id, after.revision, after.candidate_json, after.state) == (
+        before.id, before.revision, before.candidate_json, before.state)
+    assert _rows(turn, AgentActionProposal) == []
+
+
+@pytest.mark.parametrize('retry_receipt', (False, True))
+def test_report_receipt_identifies_server_cell_date_and_is_stable_on_retry(report_turn, retry_receipt):
+    from app.db.models import Celula, Message
+    turn = report_turn
+    evolution = _CommittedReceiptEvolution(turn, 'aceito',
+        'falhou_retentavel' if retry_receipt else 'aceito', 'aceito')
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        cell = session.get(Celula, meeting.celula_id)
+        cell.nome = 'Célula Evidência Sintética'
+        date_label = meeting.data.strftime('%d/%m/%Y')
+    _run(turn, 'V1A-RECEIPT-CONTEXT-REPORT', _REPORT, evolution)
+    confirmation = _inbound(turn, 'V1A-RECEIPT-CONTEXT-SIM', 'SIM')
+    if retry_receipt:
+        with pytest.raises(worker_module.AgentReplyRetryable):
+            worker_module.run_agent_for_message(turn.factory, confirmation, evolution_client=evolution)
+    else:
+        worker_module.run_agent_for_message(turn.factory, confirmation, evolution_client=evolution)
+    receipt_text = evolution.calls[-1][2]
+    assert 'Comprovante:' in receipt_text
+    assert 'Célula Evidência Sintética' in receipt_text
+    assert date_label in receipt_text
+    assert any(row.texto == receipt_text for row in _rows(turn, Message))
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        session.get(Celula, meeting.celula_id).nome = 'Nome alterado depois do recibo'
+    worker_module.run_agent_for_message(turn.factory, confirmation, evolution_client=evolution)
+    assert len(evolution.calls) == (3 if retry_receipt else 2)
+    assert evolution.calls[-1][2] == receipt_text
+    assert len(_rows(turn, AgentActionReceipt)) == 1
+    assert any(row.texto == receipt_text for row in _rows(turn, Message))

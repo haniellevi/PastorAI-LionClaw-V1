@@ -224,6 +224,92 @@ def _proposal_summary_matches_candidate(
     )
 
 
+def _render_v1a_cell_report_receipt(meeting: _Meeting) -> str:
+    """Render the bounded, server-owned V1a receipt detail."""
+
+    if (
+        type(meeting) is not _Meeting
+        or type(meeting.cell_name) is not str
+        or not meeting.cell_name.strip()
+        or meeting.cell_name != meeting.cell_name.strip()
+        or "\n" in meeting.cell_name
+        or "\r" in meeting.cell_name
+        or len(meeting.cell_name.encode("utf-8", "strict")) > 120
+        or type(meeting.date) is not dt.date
+        or type(meeting.date) is dt.datetime
+    ):
+        _reject()
+    return (
+        f"Relatório confirmado. Célula {meeting.cell_name}, reunião de "
+        f"{meeting.date:%d/%m/%Y}."
+    )
+
+
+def v1a_receipt_text_after_execution(
+    session: Session,
+    *,
+    context: PrivilegeContext,
+    proposal_id: uuid.UUID,
+) -> str | None:
+    """Load one detailed V1a receipt from the already-finalized server state.
+
+    ``AgentActionReceipt`` remains the closed generic S3 ledger.  The detailed
+    text is only for the outbound Message created in the same transaction, so
+    the message itself becomes the immutable post-commit receipt.
+    """
+
+    context = _require_context(context)
+    if type(proposal_id) is not uuid.UUID or proposal_id.int == 0:
+        _reject()
+    require_tenant_scope(
+        session,
+        expected_igreja_id=context.igreja_id,
+        source="cell_report_v1a_receipt",
+    )
+    proposal = session.execute(
+        select(AgentActionProposal).where(
+            AgentActionProposal.igreja_id == context.igreja_id,
+            AgentActionProposal.id == proposal_id,
+            AgentActionProposal.conversation_id == context.conversation_id,
+            AgentActionProposal.action == _REPORT_ACTION.value,
+            AgentActionProposal.state == "executada",
+            AgentActionProposal.confirmation_message_id == context.inbound_message_id,
+        )
+    ).scalar_one_or_none()
+    if proposal is None:
+        return None
+    try:
+        reference = _draft_reference_from_arguments(
+            proposal.arguments_json,
+            target_id=proposal.target_id,
+        )
+    except ProposalExecutionDenied:
+        return None
+    row = session.execute(
+        select(CelulaReuniao.data, Celula.nome)
+        .join(
+            Celula,
+            (Celula.igreja_id == CelulaReuniao.igreja_id)
+            & (Celula.id == CelulaReuniao.celula_id),
+        )
+        .where(
+            CelulaReuniao.igreja_id == context.igreja_id,
+            CelulaReuniao.id == reference.meeting_id,
+            CelulaReuniao.relatorio_status == "enviado",
+            Celula.igreja_id == context.igreja_id,
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    meeting_date, cell_name = row
+    try:
+        return _render_v1a_cell_report_receipt(
+            _Meeting(reference.meeting_id, cell_name, meeting_date)
+        )
+    except CellReportV1aServiceError:
+        return None
+
+
 def _looks_like_report(text: object) -> bool:
     if type(text) is not str:
         return False
@@ -579,9 +665,11 @@ def stage_v1a_cell_report_turn(
     if (
         patch is not None
         and patch.is_empty
-        and active_hint is None
         and extraction_projection is None
     ):
+        # An unfinished draft never turns an unrelated inbound into a report
+        # revision.  In particular, public church questions must continue to
+        # the normal router without locking, extending or replacing the draft.
         return CellReportTurnStage(CellReportStageKind.NOT_APPLICABLE, None)
     meeting = _eligible_meeting(
         session,
@@ -601,13 +689,6 @@ def stage_v1a_cell_report_turn(
         _expire_draft(active, now=current_now)
         session.flush()
         active = None
-    if (
-        patch is not None
-        and patch.is_empty
-        and active is None
-        and extraction_projection is None
-    ):
-        return CellReportTurnStage(CellReportStageKind.NOT_APPLICABLE, None)
     if extraction_projection is not None:
         try:
             if active is None:
@@ -1105,5 +1186,6 @@ __all__ = [
     "complete_v1a_extraction_after_provider",
     "execute_v1a_cell_report_proposal",
     "stage_v1a_cell_report_turn",
+    "v1a_receipt_text_after_execution",
     "v1a_summary_still_authorized",
 ]

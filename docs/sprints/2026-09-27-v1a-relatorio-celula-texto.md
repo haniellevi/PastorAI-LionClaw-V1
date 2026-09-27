@@ -26,6 +26,14 @@ Mensagens simultâneas podem consumir duas reservas permitidas e levar uma delas
 
 ## Verificação
 
-`test-local.sh backend`: 5.747 testes verdes. `rls_integration`: 500 verdes, incluindo 16 casos do SQL exato aplicado duas vezes. Nenhum skip, falha ou erro nas duas suítes. Só PostgreSQL17 descartável e provedores falsos. A prova inclui isolamento, concorrência com painel/SIM, orçamento, retenção, cron, correções, revogação durante HTTP e comprovante após commit.
+Head inicial `7d98d0c`: `test-local.sh backend` com 5.747 testes verdes. `rls_integration`: 500 verdes, incluindo 16 casos do SQL exato aplicado duas vezes. Nenhum skip, falha ou erro nas duas suítes. Só PostgreSQL17 descartável e provedores falsos. A prova inclui isolamento, concorrência com painel/SIM, orçamento, retenção, cron, correções, revogação durante HTTP e comprovante após commit.
 
 Revisão independente de fonte sem P1/P2 aberto nos recortes conferidos. Hashes, comandos e limites estão em [VALIDATION.json](../ops/v1a-cell-report-20260927/VALIDATION.json). CI e aprovação Sarah são provas separadas; não houve operação real.
+
+## Delta após revisão do robô e Sarah
+
+Três P2 reproduzidos com PostgreSQL descartável: rascunho parcial capturava pergunta pública, candidato inelegível encerrava o lote de lembretes e comprovante omitia célula/data. A correção preserva o rascunho para continuar o roteamento normal, distingue candidato processado de fila esgotada e persiste o contexto do comprovante junto com o efeito, antes do transporte. Candidatos rejeitados contam no limite do lote. Retry recupera a mensagem original, inclusive se a célula for renomeada depois.
+
+Sarah solicitou revogar DELETE nas cinco tabelas privadas e impor unicidade global do efeito por igreja/reunião/ação. A migration V1a candidata foi ajustada antes de qualquer aplicação compartilhada; os SQLs congelados 426/428 permanecem byte a byte. A revisão local também exigiu que uma cabeça bloqueada não impeça o próximo lembrete: IDs já visitados ficam fora da seleção seguinte, sem antecipar locks de lembrete. Evidência do delta e limites em [DELTA-VALIDATION.json](../ops/v1a-cell-report-20260927/DELTA-VALIDATION.json); aprovação Sarah do novo head continua como gate separado.
+
+Validação do delta: 5.755 backend e 515 RLS, todos verdes, sem skips; 25 casos exercitam o SQL exato. Migration SHA256 `b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f`.

@@ -1471,6 +1471,16 @@ class AgentActionProposal(Base):
             postgresql_where=text("state IN ('preparada', 'pendente')"),
         ),
         Index(
+            "agent_action_proposals_v1a_one_executed_meeting_idx",
+            "igreja_id",
+            "target_id",
+            "action",
+            unique=True,
+            postgresql_where=text(
+                "action = 'enviar_relatorio_celula' AND state = 'executada'"
+            ),
+        ),
+        Index(
             "agent_action_proposals_conversation_state_idx",
             "igreja_id",
             "conversation_id",

@@ -45,7 +45,7 @@ fundação D2A, que está pausada; não aplique esses arquivos no MVP.
 `20260927_190000_cell_report_whatsapp_v1a.sql` depende da migration S3
 `20260927_170000_whatsapp_privilege_actions.sql`. Acrescenta estado privado
 de rascunho, preferências/lembretes e reservas de custo, com RLS, e amplia
-o catálogo S3 somente para o relatório agregado. A execução usa
+o catálogo S3 somente para o relatório agregado. O worker recebe apenas SELECT/INSERT/UPDATE nas cinco tabelas novas; reaplicar revoga DELETE residual. Um índice parcial único impede duas propostas V1a executadas para a mesma igreja/reunião/ação. Propostas canceladas/expiradas não impedem a correção. A execução usa
 `lock_timeout = '2s'`; se o lock não vier, parar e tentar em outra janela.
 
 A verificação local usa PostgreSQL 17 descartável e aplica o SQL duas vezes.

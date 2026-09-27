@@ -55,6 +55,18 @@ def test_v1a_action_is_closed_to_meeting_target_in_orm_contract() -> None:
     assert "reuniao" in checks["agent_action_proposals_target_kind_closed"]
 
 
+def test_v1a_executed_action_has_one_global_meeting_effect_index() -> None:
+    indexes = {index.name: index for index in AgentActionProposal.__table__.indexes}
+
+    effect_once = indexes["agent_action_proposals_v1a_one_executed_meeting_idx"]
+    predicate = str(effect_once.dialect_options["postgresql"]["where"])
+
+    assert effect_once.unique is True
+    assert tuple(effect_once.columns.keys()) == ("igreja_id", "target_id", "action")
+    assert "enviar_relatorio_celula" in predicate
+    assert "executada" in predicate
+
+
 def test_v1a_meeting_references_are_scoped_by_tenant_in_orm_contract() -> None:
     meeting_constraints = {constraint.name for constraint in CelulaReuniao.__table__.constraints}
     draft_foreign_keys = {

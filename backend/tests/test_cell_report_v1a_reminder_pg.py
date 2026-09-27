@@ -179,7 +179,7 @@ def test_reminder_fresh_fence_rejects_destination_changed_after_claim(reminder_t
     original_claim = reminders._claim_next_reminder
     def claim_then_change(*args, **kwargs):
         claim = original_claim(*args, **kwargs)
-        if claim is not None:
+        if claim.claim is not None:
             with turn.factory.begin() as session:
                 if changed == 'phone':
                     actor_id = session.get(Conversation, turn.conversation_id).pessoa_id
@@ -225,7 +225,7 @@ def test_real_clock_is_refreshed_between_claim_and_transport(reminder_turn, monk
 
     def delayed_claim(*args, **kwargs):
         claim = original_claim(*args, **kwargs)
-        if claim is not None:
+        if claim.claim is not None:
             current[0] += advance
         return claim
 
@@ -535,3 +535,61 @@ def test_ambiguous_summary_history_is_preserved_while_draft_expires(reminder_tur
         summary = session.get(Message, proposal.summary_message_id)
         assert summary.texto == original_text
         assert summary.agent_reply_state == 'ia_ambigua'
+
+
+@pytest.mark.parametrize('batch_limit', (1, 2))
+def test_rejected_head_counts_toward_bound_but_does_not_end_batch(reminder_turn, batch_limit):
+    from app.services import cell_report_reminders as reminders
+    turn = reminder_turn
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    valid = _rows(turn, CellReportReminder)[0]
+    rejected_id = uuid.uuid4()
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        rejected_meeting = CelulaReuniao(igreja_id=_IGREJA, celula_id=meeting.celula_id,
+            data=meeting.data - dt.timedelta(days=1), hora='10:00', status='cancelada')
+        session.add(rejected_meeting)
+        session.flush()
+        session.add(CellReportReminder(id=rejected_id, igreja_id=_IGREJA,
+            reuniao_id=rejected_meeting.id, leader_pessoa_id=valid.leader_pessoa_id,
+            state='pendente', due_at=valid.due_at - dt.timedelta(minutes=1),
+            text_sha256=valid.text_sha256, updated_at=_NOW))
+    provider = _ReminderTransport(turn)
+    reminders.dispatch_cell_report_reminders(turn.factory, provider,
+        worker_id='synthetic-batch-worker', now=_NOW, limit=batch_limit)
+    rows = {row.id: row for row in _rows(turn, CellReportReminder)}
+    assert rows[rejected_id].state == 'cancelado'
+    if batch_limit == 2:
+        assert rows[valid.id].state == 'enviado'
+        assert len(provider.calls) == 1
+    else:
+        assert rows[valid.id].state == 'pendente'
+        assert provider.calls == []
+
+
+def test_locked_head_does_not_starve_next_due_reminder(reminder_turn):
+    from app.services import cell_report_reminders as reminders
+    turn = reminder_turn
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    valid = _rows(turn, CellReportReminder)[0]
+    locked_id = uuid.uuid4()
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        first_meeting = CelulaReuniao(igreja_id=_IGREJA, celula_id=meeting.celula_id,
+            data=meeting.data, hora='09:00', status='planejada')
+        session.add(first_meeting)
+        session.flush()
+        session.add(CellReportReminder(id=locked_id, igreja_id=_IGREJA,
+            reuniao_id=first_meeting.id, leader_pessoa_id=valid.leader_pessoa_id,
+            state='pendente', due_at=valid.due_at - dt.timedelta(minutes=1),
+            text_sha256=valid.text_sha256, updated_at=_NOW))
+    provider = _ClassifiedEvolution()
+    with turn.factory.begin() as blocker:
+        blocker.execute(select(CellReportReminder).where(
+            CellReportReminder.id == locked_id).with_for_update()).scalar_one()
+        reminders.dispatch_cell_report_reminders(turn.factory, provider,
+            worker_id='synthetic-skip-locked-worker', now=_NOW, limit=2)
+    rows = {row.id: row for row in _rows(turn, CellReportReminder)}
+    assert rows[locked_id].state == 'pendente'
+    assert rows[valid.id].state == 'enviado'
+    assert len(provider.calls) == 1

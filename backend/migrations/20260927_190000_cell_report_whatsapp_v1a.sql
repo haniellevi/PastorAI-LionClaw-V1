@@ -24,6 +24,14 @@ alter table public.agent_action_receipts
   add constraint agent_action_receipts_receipt_text_closed
     check (receipt_text in ('Registro confirmado.', 'Relatório confirmado.'));
 
+-- The shared human finalizer remains the primary domain guard. This durable
+-- ledger fence additionally rejects a second executed WhatsApp proposal for
+-- the same tenant meeting if concurrent transactions bypass that application
+-- race. Cancelled, expired, and rejected revisions stay outside the index.
+create unique index if not exists agent_action_proposals_v1a_one_executed_meeting_idx
+  on public.agent_action_proposals (igreja_id, target_id, action)
+  where action = 'enviar_relatorio_celula' and state = 'executada';
+
 -- The legacy meeting primary key is global, but V1a references it through the
 -- tenant boundary.  The pair is intentionally unique so a known UUID from a
 -- different tenant cannot satisfy either private child foreign key.
@@ -275,10 +283,42 @@ begin
     end if;
   end loop;
   if pg_catalog.to_regrole('authenticated') is not null then
-    execute 'grant select, insert, update, delete on table public.cell_report_drafts, public.cell_report_reminder_preferences, public.cell_report_reminders, public.cell_report_ai_daily_budgets, public.cell_report_ai_reservations to authenticated';
+    execute 'revoke delete on table public.cell_report_drafts, public.cell_report_reminder_preferences, public.cell_report_reminders, public.cell_report_ai_daily_budgets, public.cell_report_ai_reservations from authenticated';
+    execute 'grant select, insert, update on table public.cell_report_drafts, public.cell_report_reminder_preferences, public.cell_report_reminders, public.cell_report_ai_daily_budgets, public.cell_report_ai_reservations to authenticated';
+    if pg_catalog.has_table_privilege('authenticated', 'public.cell_report_drafts', 'delete')
+      or pg_catalog.has_table_privilege('authenticated', 'public.cell_report_reminder_preferences', 'delete')
+      or pg_catalog.has_table_privilege('authenticated', 'public.cell_report_reminders', 'delete')
+      or pg_catalog.has_table_privilege('authenticated', 'public.cell_report_ai_daily_budgets', 'delete')
+      or pg_catalog.has_table_privilege('authenticated', 'public.cell_report_ai_reservations', 'delete') then
+      raise exception 'DELETE permanece concedido em tabela V1a';
+    end if;
   end if;
 end
 $v1a_acl$;
+
+do $v1a_index_guard$
+begin
+  if not exists (
+    select 1
+    from pg_catalog.pg_index index_catalog
+    join pg_catalog.pg_class index_class on index_class.oid = index_catalog.indexrelid
+    where index_catalog.indrelid = 'public.agent_action_proposals'::regclass
+      and index_class.relname = 'agent_action_proposals_v1a_one_executed_meeting_idx'
+      and index_catalog.indisunique
+      and index_catalog.indisvalid
+      and index_catalog.indisready
+      and index_catalog.indnatts = 3
+      and index_catalog.indnkeyatts = 3
+      and pg_catalog.pg_get_indexdef(index_catalog.indexrelid, 1, true) = 'igreja_id'
+      and pg_catalog.pg_get_indexdef(index_catalog.indexrelid, 2, true) = 'target_id'
+      and pg_catalog.pg_get_indexdef(index_catalog.indexrelid, 3, true) = 'action'
+      and pg_catalog.pg_get_expr(index_catalog.indpred, index_catalog.indrelid)
+        = '((action = ''enviar_relatorio_celula''::text) AND (state = ''executada''::text))'
+  ) then
+    raise exception 'índice único V1a de efeito executado ausente ou inválido';
+  end if;
+end
+$v1a_index_guard$;
 
 do $v1a_rls$
 declare
@@ -325,6 +365,7 @@ $v1a_rls$;
 --   drop constraint if exists agent_action_receipts_receipt_text_closed,
 --   add constraint agent_action_receipts_receipt_text_closed
 --     check (receipt_text = 'Registro confirmado.');
+-- drop index if exists public.agent_action_proposals_v1a_one_executed_meeting_idx;
 -- alter table public.agent_action_proposals
 --   drop constraint if exists agent_action_proposals_action_closed,
 --   drop constraint if exists agent_action_proposals_target_kind_closed,

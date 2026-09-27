@@ -15,6 +15,11 @@ Base congelada f2a532a; implementação autorizada em branch própria. Esta matr
 | Aviso inicial, PARAR LEMBRETES, SAIR, humano, papel/telefone/termo revogado após claim | Preferência/aviso registrados; supressão revalidada antes do envio e confirmação |
 | Quatro extrações, budget concorrente, custo desconhecido/estourado, retry | Reserva atômica limita gasto; falha fechada sem chamada; custo mínimo auditável sem payload |
 | Rascunho24h, proposta expirada, reset/exclusão | Conteúdo transitório purgado e nenhuma ressurreição; relatório confirmado e histórico privado têm políticas distintas |
+| Pergunta pública durante rascunho parcial | Resposta cadastrada normal; rascunho/proposta preservados |
+| Cabeça do lote cancelada, adiada ou bloqueada | Processar a seguinte dentro do mesmo limite; contar candidatos rejeitados; preservar ordem dos locks |
+| Comprovante após rename da célula e retry de transporte | Mesma mensagem durável com célula/data do servidor e referência opaca; efeito único |
+| Propostas distintas executando a mesma reunião em transações concorrentes | Índice único por igreja/reunião/ação rejeita a segunda execução, inclusive sem locks do serviço |
+| DELETE como worker, inclusive após reaplicar SQL sobre grant antigo | Negação nas cinco tabelas privadas; limpeza por UPDATE continua permitida |
 | RLS/ACL/FK/SQL idempotente | Cruzamento entre igrejas/atores negado; SQL próprio aplicado duas vezes sem perder dados; SQL426/428 byte-idênticos |
 
 V1b não faz parte desta prova. Não há áudio real, ativação, DEV/PROD/VPS ou declaração de qualidade/latência real de LLM. Próximo gate humano: Sarah revisar o candidato exato após testes/CI.

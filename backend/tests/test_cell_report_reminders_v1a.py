@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from types import SimpleNamespace
+import uuid
 
 import pytest
 
@@ -154,3 +155,134 @@ def test_reminder_message_is_fixed_and_only_its_digest_is_persistable() -> None:
 
     assert "PARAR LEMBRETES" in text
     assert len(reminders.cell_report_reminder_text_sha256()) == 64
+
+
+def _reminder_claim() -> reminders.ReminderClaim:
+    return reminders.ReminderClaim(
+        igreja_id=uuid.UUID("00000000-0000-0000-0000-0000000000a1"),
+        reminder_id=uuid.UUID("00000000-0000-0000-0000-0000000000b1"),
+        reuniao_id=uuid.UUID("00000000-0000-0000-0000-0000000000c1"),
+        leader_pessoa_id=uuid.UUID("00000000-0000-0000-0000-0000000000d1"),
+        claim_token=uuid.UUID("00000000-0000-0000-0000-0000000000e1"),
+        instance="synthetic-instance",
+        phone="5500000000000",
+        text=reminders.cell_report_reminder_text(),
+    )
+
+
+def test_dispatch_scans_past_a_cancelled_head_to_send_the_next_due_reminder(monkeypatch) -> None:
+    claim = _reminder_claim()
+    attempts = iter(
+        (
+            reminders._ReminderClaimAttempt(claim=None, exhausted=False),
+            reminders._ReminderClaimAttempt(claim=claim, exhausted=False),
+        )
+    )
+    scans: list[object] = []
+    sends: list[tuple[str, str, str]] = []
+
+    class _Client:
+        def send_text_classificado(self, instance: str, phone: str, text: str):
+            sends.append((instance, phone, text))
+            return BroadcastSendResult(status="aceito")
+
+    monkeypatch.setattr(reminders, "_discover_tenants", lambda *_args, **_kwargs: (claim.igreja_id,))
+
+    def claim_next(*_args, **_kwargs):
+        scans.append(object())
+        return next(attempts)
+
+    monkeypatch.setattr(reminders, "_claim_next_reminder", claim_next)
+    monkeypatch.setattr(reminders, "_renew_reminder_transport_fence", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(reminders, "_record_reminder_result", lambda *_args, **_kwargs: True)
+
+    dispatched = reminders.dispatch_cell_report_reminders(
+        lambda: pytest.fail("o teste não abre sessão"),
+        _Client(),
+        worker_id="synthetic-worker",
+        now=dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc),
+        limit=2,
+    )
+
+    assert dispatched == 1
+    assert len(scans) == 2
+    assert sends == [(claim.instance, claim.phone, claim.text)]
+
+
+def test_dispatch_excludes_a_skipped_head_before_the_next_scan(monkeypatch) -> None:
+    claim = _reminder_claim()
+    skipped_id = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+    attempts = iter(
+        (
+            reminders._ReminderClaimAttempt(
+                claim=None,
+                exhausted=False,
+                candidate_id=skipped_id,
+            ),
+            reminders._ReminderClaimAttempt(
+                claim=claim,
+                exhausted=False,
+                candidate_id=claim.reminder_id,
+            ),
+        )
+    )
+    exclusions: list[tuple[uuid.UUID, ...]] = []
+    sends: list[tuple[str, str, str]] = []
+
+    class _Client:
+        def send_text_classificado(self, instance: str, phone: str, text: str):
+            sends.append((instance, phone, text))
+            return BroadcastSendResult(status="aceito")
+
+    monkeypatch.setattr(reminders, "_discover_tenants", lambda *_args, **_kwargs: (claim.igreja_id,))
+
+    def claim_next(*_args, **kwargs):
+        exclusions.append(kwargs["excluded_reminder_ids"])
+        return next(attempts)
+
+    monkeypatch.setattr(reminders, "_claim_next_reminder", claim_next)
+    monkeypatch.setattr(reminders, "_renew_reminder_transport_fence", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(reminders, "_record_reminder_result", lambda *_args, **_kwargs: True)
+
+    dispatched = reminders.dispatch_cell_report_reminders(
+        lambda: pytest.fail("o teste não abre sessão"),
+        _Client(),
+        worker_id="synthetic-worker",
+        now=dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc),
+        limit=2,
+    )
+
+    assert dispatched == 1
+    assert exclusions == [(), (skipped_id,)]
+    assert sends == [(claim.instance, claim.phone, claim.text)]
+
+
+def test_dispatch_scan_limit_counts_discarded_candidates(monkeypatch) -> None:
+    claim = _reminder_claim()
+    attempts = iter(
+        (
+            reminders._ReminderClaimAttempt(claim=None, exhausted=False),
+            reminders._ReminderClaimAttempt(claim=None, exhausted=False),
+            reminders._ReminderClaimAttempt(claim=claim, exhausted=False),
+        )
+    )
+    scans: list[object] = []
+
+    monkeypatch.setattr(reminders, "_discover_tenants", lambda *_args, **_kwargs: (claim.igreja_id,))
+
+    def claim_next(*_args, **_kwargs):
+        scans.append(object())
+        return next(attempts)
+
+    monkeypatch.setattr(reminders, "_claim_next_reminder", claim_next)
+
+    dispatched = reminders.dispatch_cell_report_reminders(
+        lambda: pytest.fail("o teste não abre sessão"),
+        SimpleNamespace(send_text_classificado=lambda *_args: pytest.fail("não deve enviar")),
+        worker_id="synthetic-worker",
+        now=dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc),
+        limit=2,
+    )
+
+    assert dispatched == 0
+    assert len(scans) == 2

@@ -20,13 +20,13 @@ Parser determinístico primeiro, sem LLM para valores numéricos reconhecidos. A
 
 ## Verificação e limite
 
-A [validação final](VALIDATION.json) registra os testes locais, hashes do candidato e limites da prova. Os demais relatórios deste diretório preservam etapas intermediárias; falhas nelas descritas foram corrigidas no candidato final. Revisão independente de fonte: [outbox](REVIEW-OUTBOX-DELTA.md), [orçamento/finalizador](REVIEW-BUDGET-FINAL.md) e [extração/cron](REVIEW-EXTRACTION.md).
+A [validação inicial](VALIDATION.json) registra os testes locais e hashes do head `7d98d0c`. O [delta de revisão](DELTA-VALIDATION.json) registra o candidato posterior, com [revisão independente](REVIEW-PR430-P2.md) e regressões próprias. Os demais relatórios deste diretório preservam etapas intermediárias; as conclusões de cada etapa valem somente para os hashes nela registrados. Revisão independente de fonte: [outbox](REVIEW-OUTBOX-DELTA.md), [orçamento/finalizador](REVIEW-BUDGET-FINAL.md) e [extração/cron](REVIEW-EXTRACTION.md).
 
 Mensagens distintas enviadas simultaneamente podem consumir duas reservas permitidas e produzir handoff por revisão desatualizada. A revisão do rascunho impede sobrescrita; não há serialização nova por rascunho nesta fatia.
 
 ## Gates e reversão
 
-`CELL_REPORT_ENABLED_IGREJA_IDS` nasce vazia e `CELL_REPORT_APPROVED_RELEASE_ID=None`; a env sozinha permanece inerte. Gates S3, agente, consentimento, piloto e envio continuam cumulativos. A nova migration depende da S3 e usa o fluxo MVP datado, RLS/ACL, FKs de tenant e `lock_timeout=2s`.
+`CELL_REPORT_ENABLED_IGREJA_IDS` nasce vazia e `CELL_REPORT_APPROVED_RELEASE_ID=None`; a env sozinha permanece inerte. As cinco tabelas privadas não concedem DELETE ao worker; a purga usa UPDATE. Um índice único de propostas executadas protege o efeito V1a por igreja/reunião/ação, além dos locks do serviço. Gates S3, agente, consentimento, piloto e envio continuam cumulativos. A nova migration depende da S3 e usa o fluxo MVP datado, RLS/ACL, FKs de tenant e `lock_timeout=2s`.
 
 Desligar a flag deve impedir novos efeitos e cancelar pendências, preservando o relatório oficial. A limpeza de dados transitórios continua ativa. Reversão de código/schema requer drenar pendências incompatíveis e seguir o rollback comentado da migration; esta missão não executa esse procedimento em ambiente compartilhado.
 

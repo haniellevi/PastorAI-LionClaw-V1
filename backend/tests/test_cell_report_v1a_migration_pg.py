@@ -72,9 +72,13 @@ def test_v1a_sql_second_application_preserves_rows_and_oids(v1a_sql):
     engine, _, _ = v1a_sql
     with engine.connect() as c:
         before = {t: c.execute(text('select cast(:t as regclass)::oid'), {'t': t}).scalar_one() for t in _TABLES}
+    with engine.begin() as c:
+        for table in _TABLES:
+            c.exec_driver_sql(f'grant delete on {table} to authenticated')
     _apply(engine, _V1A.read_text())
     with engine.connect() as c:
         for table in _TABLES:
+            assert not c.execute(text("select has_table_privilege('authenticated',:t,'DELETE')"), {'t': table}).scalar_one()
             assert c.execute(text('select cast(:t as regclass)::oid'), {'t': table}).scalar_one() == before[table]
             assert c.exec_driver_sql(f'select count(*) from {table}').scalar_one() == 2
             assert c.execute(text('select relrowsecurity and relforcerowsecurity from pg_class where oid=cast(:t as regclass)'), {'t': table}).scalar_one()
@@ -83,12 +87,12 @@ def test_v1a_sql_second_application_preserves_rows_and_oids(v1a_sql):
 
 
 @pytest.mark.parametrize('table', _TABLES)
-def test_v1a_worker_cannot_read_or_delete_other_tenant(v1a_sql, table):
+def test_v1a_worker_cannot_read_or_update_other_tenant(v1a_sql, table):
     engine, a, b = v1a_sql
     with engine.begin() as c:
         _worker(c, a['tenant'])
         assert c.exec_driver_sql(f'select count(*) from {table}').scalar_one() == 1
-        assert c.execute(text(f'delete from {table} where igreja_id=:t'), {'t': b['tenant']}).rowcount == 0
+        assert c.execute(text(f'update {table} set igreja_id=:t where igreja_id=:t'), {'t': b['tenant']}).rowcount == 0
         assert c.execute(text(f'select count(*) from {table} where igreja_id=:t'), {'t': b['tenant']}).scalar_one() == 0
 
 
@@ -129,3 +133,90 @@ def test_v1a_worker_inserts_and_updates_all_five_private_relations(v1a_sql):
         for table in _TABLES:
             assert c.execute(text(f'select count(*) from {table} where igreja_id=:t'), {'t': own['tenant']}).scalar_one() == 1
             assert c.execute(text(f'update {table} set igreja_id=:t where igreja_id=:t'), {'t': own['tenant']}).rowcount == 1
+
+
+@pytest.mark.parametrize('table', _TABLES)
+def test_v1a_delete_is_denied_even_for_the_own_tenant(v1a_sql, table):
+    engine, a, b = v1a_sql
+    for tenant in (a['tenant'], b['tenant']):
+        with pytest.raises(DBAPIError) as err:
+            with engine.begin() as c:
+                _worker(c, a['tenant'])
+                c.execute(text(f'delete from {table} where igreja_id=:t'), {'t': tenant})
+        assert err.value.orig.pgcode == '42501'
+
+
+def _report_proposal(c, p, *, state='executada', meeting=None):
+    ids = {key: uuid.uuid4() for key in ('proposal', 'user', 'conversation', 'source')}
+    params = dict(p, **ids, state=state, target=meeting or p['meeting'])
+    c.execute(text("insert into app_users(id,igreja_id,pessoa_id,status) values(:user,:tenant,:person,'ativo')"), params)
+    c.execute(text("insert into conversations(id,igreja_id,pessoa_id,telefone,estado) values(:conversation,:tenant,:person,'5500000000000','ia')"), params)
+    c.execute(text("insert into messages(id,igreja_id,conversation_id,direcao,autor,texto) values(:source,:tenant,:conversation,'in','contato','teste sintético')"), params)
+    c.execute(text("""insert into agent_action_proposals(
+        id,igreja_id,conversation_id,actor_pessoa_id,actor_app_user_id,
+        source_message_id,action,target_kind,target_id,arguments_json,
+        arguments_sha256,scope_fingerprint,summary_sha256,state)
+        values(:proposal,:tenant,:conversation,:person,:user,:source,
+        'enviar_relatorio_celula','reuniao',:target,'{}'::jsonb,
+        repeat('a',64),repeat('b',64),repeat('c',64),:state)"""), params)
+    return ids['proposal']
+
+
+def test_report_effect_uniqueness_rejects_replay_after_different_proposal(v1a_sql):
+    engine, a, b = v1a_sql
+    with engine.begin() as c:
+        for state in ('cancelada', 'expirada', 'rejeitada'):
+            _report_proposal(c, a, state=state)
+        original = _report_proposal(c, a)
+        # A distinct meeting and tenant are independent effects.
+        other = uuid.uuid4()
+        c.execute(text('insert into celula_reuniao(id,igreja_id,celula_id) values(:id,:tenant,:cell)'), dict(a, id=other))
+        _report_proposal(c, a, meeting=other)
+        _report_proposal(c, b)
+    with pytest.raises(DBAPIError) as err:
+        with engine.begin() as c:
+            _report_proposal(c, a)
+    assert err.value.orig.pgcode == '23505'
+    with engine.connect() as c:
+        ids = c.execute(text("select id from agent_action_proposals where igreja_id=:tenant and target_id=:meeting and state='executada'"), a).scalars().all()
+        assert ids == [original]
+
+
+def test_report_effect_unique_index_serializes_different_proposal_transactions(v1a_sql):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    engine, a, _ = v1a_sql
+    with engine.begin() as c:
+        proposals = [_report_proposal(c, a, state='preparada') for _ in range(2)]
+    barrier = threading.Barrier(2)
+    def execute(proposal):
+        try:
+            with engine.begin() as c:
+                _worker(c, a['tenant'])
+                c.exec_driver_sql("set local statement_timeout='5s'")
+                barrier.wait(timeout=5)
+                # Deliberately bypass all application row locks and guards.
+                c.execute(text("update agent_action_proposals set state='executada' where id=:id"), {'id': proposal})
+            return 'committed'
+        except DBAPIError as err:
+            return err.orig.pgcode
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(execute, proposals))
+    assert sorted(results) == ['23505', 'committed']
+    with engine.connect() as c:
+        assert c.execute(text("select count(*) from agent_action_proposals where igreja_id=:tenant and target_id=:meeting and state='executada'"), a).scalar_one() == 1
+
+
+@pytest.mark.parametrize('mismatch', ('keys', 'predicate'))
+def test_v1a_reapply_rejects_an_incompatible_same_name_effect_index(v1a_sql, mismatch):
+    engine, _, _ = v1a_sql
+    index = 'agent_action_proposals_v1a_one_executed_meeting_idx'
+    keys = 'id' if mismatch == 'keys' else 'igreja_id,target_id,action'
+    operator = 'or' if mismatch == 'predicate' else 'and'
+    with engine.begin() as c:
+        c.exec_driver_sql(f'drop index {index}')
+        c.exec_driver_sql(f"create unique index {index} on agent_action_proposals ({keys}) where action='enviar_relatorio_celula' {operator} state='executada'")
+    import psycopg2
+    with pytest.raises(psycopg2.Error, match='índice único V1a') as err:
+        _apply(engine, _V1A.read_text())
+    assert err.value.pgcode == 'P0001'
