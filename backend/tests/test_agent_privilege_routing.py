@@ -114,11 +114,17 @@ def test_handle_choice_must_belong_to_offered_handles(answer, status) -> None:
     assert len(client.calls) == 3
 
 
-def test_missing_candidate_clarifies_without_external_call() -> None:
+@pytest.mark.parametrize("code", ["registrar_decisao", "consultar_agenda"])
+def test_catalog_without_candidates_handoffs_before_model(code: str) -> None:
     client = FakeClient([])
-    result = route_privileged_message(client, texto="mensagem", catalog=(_option(candidates=()),),
-                                      deadline_monotonic=10, clock=Clock())
-    assert result.status == "clarify" and result.handle is None and client.calls == []
+    result = route_privileged_message(
+        client,
+        texto="mensagem",
+        catalog=(_option(code, candidates=()),),
+        deadline_monotonic=10,
+        clock=Clock(),
+    )
+    assert result.status == "handoff" and result.handle is None and client.calls == []
 
 
 @pytest.mark.parametrize("code", ["vincular_celula", "avancar_trilha", "delete_person", "tenant"])

@@ -10,6 +10,10 @@ O agente recebe identidade, vínculo e papel resolvidos pelo servidor. Usuários
 
 Título válido tem até 120 caracteres e aparece apenas em template fixo; nunca entra no prompt do roteador. Descrição, mensagem livre, participantes, telefones e endereços residenciais ficam fora. Essa política prefere omitir um título legítimo a divulgar um nome não reconhecido; não se afirma detecção universal de PII por regex.
 
+## Follow-up de títulos (fora desta fatia)
+
+A allowlist atual contém nove títulos e limita o uso real: “Conferência de Mulheres 2026” cai no rótulo fixo do tipo. Proposta para fatia futura: flag “divulgar título no WhatsApp” em `Event`, editável somente por pastor/admin, como `Celula.divulgar_whatsapp`, mantendo validação S2b, limite de 120 caracteres e neutralização de delimitadores. A flag não será implementada nem ativada nesta PR; seu contrato de privacidade precisa de revisão própria.
+
 ## Ativação e operação
 
 A flag por igreja nasce vazia e a release em código permanece `None`, cumulativas aos gates S3. Variável de ambiente sozinha não autoriza acesso. O transporte existente revalida a autorização e a consulta antes de enviar, inclusive em retry.
@@ -21,5 +25,7 @@ PROD só muda por release em lote, com backup, migrations, backend, frontend e r
 O [plano de QA](QA-PLAN.md) foi exercitado no [candidato03](V2A-CANDIDATE-03.json): 5.881 testes offline e 117 testes PG17 passaram, sem skips nas suítes executadas. Os 642 casos PG foram excluídos da seleção offline, conforme o CI. [Resultados e hashes](TEST-RESULTS.json) registram ambiente e limites; [revisão independente](REVIEW-V2A-CANDIDATE03.md) confere os oito blobs. Os pareceres parciais preservam o histórico dos achados corrigidos.
 
 O teste Clerk inicialmente falhou por divergência na configuração sintética entre emissão e validação; agora usa confirmação real e exige contexto sensível válido antes da consulta. A suíte offline travou no TestClient sob sandbox; a execução local avaliada, com ambiente limpo e fakes, passou. Isso não comprova painel, simulador ou provedor real.
+
+Após Sarah GO no head `3fbe5e3`, o [delta04](V2A-CANDIDATE-04.json) corrige o catálogo sem candidatos: handoff antes de qualquer chamada, preservando clarificação somente quando explicitamente escolhida no enum válido. Passaram 5.882 testes offline e 35 PG17 V2a/S3, sem skips; [resultados](TEST-RESULTS-DELTA04.json) e [revisão independente](REVIEW-V2A-CANDIDATE04.md). A proposta de títulos acima é apenas follow-up.
 
 Rollback: desligar a flag V2a, suprimir/reconciliar suas respostas pendentes antes de reverter o consumidor. Nenhuma mudança de schema deve ser desfeita nesta fatia. V2b terá PR própria, unicidade por tenant/destinatário/ocorrência/finalidade e janela 08:00-21:00 igual à V1.

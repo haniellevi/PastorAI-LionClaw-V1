@@ -241,7 +241,7 @@ def route_privileged_message(
         text = _safe_message(texto)
         options = _safe_catalog(catalog)
         if not options:
-            return RoutingDecision("clarify", None, None, None, ())
+            return handoff
         routes = tuple(dict.fromkeys(item[0].route.value for item in options))
 
         def choose(name: str, choices: tuple[str, ...], state: dict[str, object]) -> str:

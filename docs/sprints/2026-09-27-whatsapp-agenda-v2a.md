@@ -14,6 +14,8 @@ Fatia V2a autorizada após parecer conjunto dos conselheiros sobre o [plano V2](
 - Eventos e papéis podem mudar depois da escolha da ferramenta. Reconsultar antes do transporte e suprimir respostas pendentes incompatíveis, inclusive em retry.
 - Manter flags vazias/release `None` e PR433 intacta. PROD só por release em lote; novo modelo de desenvolvimento local não autoriza reset ou provider real nesta missão.
 
+Follow-up registrado após Sarah GO no head `3fbe5e3`: a allowlist de nove títulos é restritiva. Uma fatia futura pode adicionar a flag “divulgar título no WhatsApp” em Event, exclusiva pastor/admin, com a mesma validação S2b. Não implementar esse desenho agora.
+
 ## Pendente / próximo passo
 
 Implementação e provas locais concluídas. O [README](../ops/v2a-agenda-20260927/README.md) registra limites da projeção e da operação. Próximo gate humano: revisão Sarah do candidato final. Teste painel/simulador depende da PR432 e da disponibilidade do simulador, ainda pendente no guia consultado.
@@ -21,3 +23,5 @@ Implementação e provas locais concluídas. O [README](../ops/v2a-agenda-202609
 ## Verificação
 
 O [plano QA](../ops/v2a-agenda-20260927/QA-PLAN.md) cobre RLS/tenant, papéis/Clerk, títulos, recorrência, limites e retry pós-revogação. Passaram 5.881 testes offline e 117 PG17 (V2a, S3, V1a e V1b), sem skips, no patch backend `2397128ed04e53732a6d034a8c1836435e444965b7437b0eeb7f07b3fbd4c0bb`. [Recebimento técnico](../ops/v2a-agenda-20260927/TEST-RESULTS.json) liga resultados aos blobs exatos, sem inferir deploy ou ambiente real. As quatro migrations congeladas permanecem intactas.
+
+Delta após Sarah GO `3fbe5e3`: catálogo sem candidatos agora retorna handoff sem chamada externa; enum inválido continua handoff e `nenhuma`/`nenhum` explícitos preservam clarify em catálogo válido. Novo patch backend `34cfaf5e3ee5a46e07a1396ca6ccc6d20541cc58b0019d9b080df9f759921677`, com 5.882 offline + 35 PG17 V2a/S3 verdes, zero skips. [Evidência do delta](../ops/v2a-agenda-20260927/TEST-RESULTS-DELTA04.json). Próximo gate: Sarah conferir somente o delta.
