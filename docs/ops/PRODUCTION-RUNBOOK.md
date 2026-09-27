@@ -138,10 +138,15 @@ essas variáveis.
   não escrever nele nem usá-lo para decidir aplicação.
 - **Pendentes em PROD, cada uma com gate próprio e nunca em lote:**
   `20260711_023515` e `20260711_152127` (só dados, sem prova de aplicação),
-  d1a `20260827_175634`, d2a `20260827_230003`, d2b2 `20260828_045213`, d2b2b3
-  `20260828_094914`, `20260925_183811` e `20260926_120446`.
-- **Regras:** DEV primeiro (o DEV reconciliado é pré-requisito da próxima
-  migration em PROD; a S2 foi exceção única); backup verificado imediatamente
+  d1a `20260827_175634`, `20260925_183811` e `20260926_120446`. Desde
+  2026-09-27, d2a `20260827_230003`, d2b2 `20260828_045213` e d2b2b3
+  `20260828_094914` estão pausadas (`OPERATIONAL_AUTHORIZATION=BLOCKED`, plano
+  §3.3) e saíram do `status`.
+- **Regras:** local primeiro: `./dev.sh reset` recria o banco local do zero
+  com todas as migrations não pausadas e os dados fictícios
+  ([`AMBIENTE-LOCAL.md`](AMBIENTE-LOCAL.md)). O DEV na nuvem está parado desde
+  2026-09-27 e não é mais pré-requisito. PROD recebe migration só no release;
+  backup verificado imediatamente
   antes; o pooler do Supabase ignora `PGOPTIONS` e o CLI não define
   `lock_timeout`, então migration que toma `ACCESS EXCLUSIVE` roda com
   `SET LOCAL lock_timeout` na mesma transação (até o `migrate.py` ganhar essa

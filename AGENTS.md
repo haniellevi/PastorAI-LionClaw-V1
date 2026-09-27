@@ -117,9 +117,13 @@ sem ler seu conteúdo.
   `rls-integration`. Não crie testes que congelam hash de arquivo ou leem texto
   de documento.
 - Banco: migration `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback
-  comentado, aplicada com `backend/scripts/migrate.py` (DEV primeiro; PROD com
-  backup antes). Ver `backend/migrations/README.md`. Não use
-  `apply_migrations.py` nem os wrappers catalog-bound (pausados).
+  comentado, aplicada com `backend/scripts/migrate.py` (local primeiro com
+  `./dev.sh`; PROD só no release, com backup antes). Ver
+  `backend/migrations/README.md`. Não use `apply_migrations.py` nem os
+  wrappers catalog-bound (pausados).
+- Desenvolva e teste no ambiente local (`./dev.sh up`, dados fictícios; guia em
+  `docs/ops/AMBIENTE-LOCAL.md`). O DEV na nuvem está parado desde 27/09. Nunca
+  copie dados de PROD para o local nem conecte o número da Filadélfia nele.
 - Revisão independente só para migration em PROD e mudanças de
   RLS/autenticação.
 - Não implemente UV ou CD a partir de placeholders antes da Fase 5.

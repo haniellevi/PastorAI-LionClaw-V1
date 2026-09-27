@@ -1,4 +1,6 @@
 -- PastorAI D2B2A: ledger oficial, append-only, de consentimento por finalidade.
+-- OPERATIONAL_AUTHORIZATION=BLOCKED
+-- Pausada no MVP (consentimento por finalidade, plano §3.3): fora de status/apply ate a Fase 5.
 --
 -- Esta fatia e deliberadamente inativa. Ela cria somente o contrato de dados,
 -- ACL e RLS. Nao faz backfill do consent_records legado, nao conecta runtime ou
