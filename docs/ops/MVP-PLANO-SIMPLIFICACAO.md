@@ -398,6 +398,10 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 
 - [ ] Investigar a causa raiz dos ~30 incidentes do monitor (VPS, Evolution,
       Supabase, Redis).
+- [x] `queue-worker` espera e tenta de novo em timeout ou queda transitória
+      do Redis, em vez de encerrar o processo (incidente de 27/09, B16). Só
+      código, sem deploy; o motivo do travamento do Redis continua aberto.
+      [Registro](../sprints/2026-09-27-queue-worker-redis-transitorio.md).
 - [ ] Deploy automatizado: uma GitHub Action ou um script único
       `deploy.sh` com build, restart, health check e rollback.
 - [ ] Backup diário verificado e restauração testada uma vez.
@@ -441,5 +445,6 @@ UV e Capacitação, e Enviar editável.
 | B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |
 | B14 | Custo de IA (em US$) exibido como R$ no console. Corrigido em 26/09 | `AdminConsole.tsx`, `ChurchPage.tsx` | 0 |
 | B15 | `is_optout_request` perde "me tira da lista", "pare" e "stop"; `looks_like_report` responde "Relatório recebido!" a "vou mandar o relatório amanhã" e troca números no formato em linhas | `domain/consent.py`, `domain/report.py` | 2 |
+| B16 | `queue-worker` caiu em PROD (27/09) com `TimeoutError` do Redis: 2 s de margem entre o BRPOPLPUSH e o `socket_timeout`, e nenhum retry no laço. Corrigido em código em 27/09; falta deploy | `queue_worker.py` | 4 |
 | L1 | UV e Capacitação são placeholders; Enviar é só leitura | frontend | 5 |
 | L2 | Apenas OpenAI como provedor do agente | `AgenteScreen.tsx` | 5 |
