@@ -63,30 +63,47 @@ def _runtime_identity_matches(row: Any, tenant_id: str) -> bool:
     return identity_matches and tenant_matches
 
 
+_RUNTIME_IDENTITY_PROBE_SQL = (
+    "select session_user::text as login_role, "
+    "current_user::text as effective_role, "
+    "role.rolcanlogin as can_login, "
+    "role.rolinherit as inherits_roles, "
+    "role.rolsuper as is_superuser, "
+    "role.rolbypassrls as bypass_rls, "
+    "role.rolcreatedb as can_create_database, "
+    "role.rolcreaterole as can_create_role, "
+    "role.rolreplication as can_replicate, "
+    "not exists ("
+    "  select 1 from pg_catalog.pg_auth_members membership "
+    "  where membership.member = role.oid"
+    ") as has_no_memberships, "
+    "current_setting('row_security') as row_security, "
+    "current_setting('search_path') as search_path, "
+    "agent_private.current_tenant_id()::text as tenant_id, "
+    "nullif(current_setting('app.tenant_igreja_id', true), '') "
+    "as tenant_guc "
+    "from pg_catalog.pg_roles as role "
+    "where role.rolname = current_user"
+)
+
+
 def _runtime_identity_probe() -> Any:
-    """Build the SQL probe shared by scope setup and later verification."""
+    """Build the SQL probe used to re-verify an already scoped transaction."""
+
+    return text(_RUNTIME_IDENTITY_PROBE_SQL)
+
+
+def _runtime_scope_and_probe() -> Any:
+    """Set the tenant GUC and probe the identity in one round trip.
+
+    Two statements in one message: the server runs them in order inside the
+    open transaction and psycopg2 returns only the probe row.  A driver that
+    cannot send them together fails before any domain query (fail closed).
+    """
 
     return text(
-        "select session_user::text as login_role, "
-        "current_user::text as effective_role, "
-        "role.rolcanlogin as can_login, "
-        "role.rolinherit as inherits_roles, "
-        "role.rolsuper as is_superuser, "
-        "role.rolbypassrls as bypass_rls, "
-        "role.rolcreatedb as can_create_database, "
-        "role.rolcreaterole as can_create_role, "
-        "role.rolreplication as can_replicate, "
-        "not exists ("
-        "  select 1 from pg_catalog.pg_auth_members membership "
-        "  where membership.member = role.oid"
-        ") as has_no_memberships, "
-        "current_setting('row_security') as row_security, "
-        "current_setting('search_path') as search_path, "
-        "agent_private.current_tenant_id()::text as tenant_id, "
-        "nullif(current_setting('app.tenant_igreja_id', true), '') "
-        "as tenant_guc "
-        "from pg_catalog.pg_roles as role "
-        "where role.rolname = current_user"
+        "select set_config('app.tenant_igreja_id', :igreja_id, true); "
+        + _RUNTIME_IDENTITY_PROBE_SQL
     )
 
 
@@ -95,28 +112,32 @@ def _guard_agent_runtime_checkout(
     _connection_record: Any,
     _connection_proxy: Any,
 ) -> None:
-    """Discard a pooled connection carrying tenant or search-path state."""
+    """Discard a pooled connection carrying tenant or search-path state.
+
+    The check runs in autocommit, like SQLAlchemy's ping, so it costs one round
+    trip with no BEGIN/ROLLBACK.  Any failure also means the connection is dead
+    and the pool retries on a fresh one, so the engine needs no pre-ping.
+    """
 
     cursor = None
     try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute(
-            "select nullif(current_setting('app.tenant_igreja_id', true), ''), "
-            "current_setting('search_path')"
-        )
-        persisted_tenant, search_path = cursor.fetchone()
-        dbapi_connection.rollback()
-    except BaseException as exc:
+        previous_autocommit = dbapi_connection.autocommit
+        dbapi_connection.autocommit = True
         try:
-            dbapi_connection.rollback()
-        except BaseException:
-            pass
+            cursor = dbapi_connection.cursor()
+            cursor.execute(
+                "select nullif(current_setting('app.tenant_igreja_id', true), ''), "
+                "current_setting('search_path')"
+            )
+            persisted_tenant, search_path = cursor.fetchone()
+        finally:
+            if cursor is not None:
+                cursor.close()
+            dbapi_connection.autocommit = previous_autocommit
+    except BaseException as exc:
         raise DisconnectionError(
             "agent runtime checkout verification failed"
         ) from exc
-    finally:
-        if cursor is not None:
-            cursor.close()
 
     if persisted_tenant is not None or search_path != AGENT_RUNTIME_SEARCH_PATH:
         raise DisconnectionError(
@@ -160,9 +181,10 @@ def get_agent_runtime_engine() -> Engine:
 
     global _agent_runtime_engine
     if _agent_runtime_engine is None:
+        # No pool_pre_ping: the checkout guard below already runs a query on
+        # every checkout and replaces a dead connection.
         engine = create_engine(
             _validated_runtime_url(),
-            pool_pre_ping=True,
             pool_size=2,
             max_overflow=3,
             pool_timeout=_POOL_CHECKOUT_TIMEOUT_SECONDS,
@@ -238,11 +260,10 @@ def scope_agent_runtime_session(session: Session, igreja_id: Any) -> str:
                 "agent runtime connection baseline verification failed"
             )
 
-        session.execute(
-            text("select set_config('app.tenant_igreja_id', :igreja_id, true)"),
+        row = session.execute(
+            _runtime_scope_and_probe(),
             {"igreja_id": tenant_id},
-        )
-        row = session.execute(_runtime_identity_probe()).one()
+        ).one()
 
         if not _runtime_identity_matches(row, tenant_id):
             raise AgentRuntimeScopeError(

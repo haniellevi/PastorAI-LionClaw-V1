@@ -48,3 +48,44 @@ def test_cors_origins_adds_admin_subdomain() -> None:
     assert "https://app.igreja12.com.br" in origins
     assert "https://admin.igreja12.com.br" in origins
     assert "https://painel.igreja12.com.br" in origins
+
+
+def test_preflight_answer_is_cacheable_for_two_hours(app) -> None:
+    """Every panel call sends Authorization, so each new GET needs a preflight.
+
+    A long Max-Age lets the browser reuse the answer for the same URL instead
+    of paying one more round trip to the API; the preflight never hits the DB.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.config import get_settings
+
+    origin = get_settings().cors_origins[0]
+    response = TestClient(app).options(
+        "/auth/me",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-max-age"] == "7200"
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_preflight_from_unknown_origin_is_still_rejected(app) -> None:
+    from fastapi.testclient import TestClient
+
+    response = TestClient(app).options(
+        "/auth/me",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers

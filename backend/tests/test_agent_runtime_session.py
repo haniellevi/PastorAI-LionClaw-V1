@@ -172,7 +172,6 @@ def test_engine_is_lazy_bounded_and_never_logs_the_dsn(
     assert captured == {
         "url": RUNTIME_URL,
         "kwargs": {
-            "pool_pre_ping": True,
             "pool_size": 2,
             "max_overflow": 3,
             "pool_timeout": 5,
@@ -303,13 +302,20 @@ def test_scope_begins_transaction_sets_local_tenant_and_probes_private_helper() 
     assert session.rollback_calls == 0
     assert session.info[runtime_session.AGENT_RUNTIME_TENANT_KEY] == TENANT_A
     statements = [sql for sql, _params in session.calls]
+    # Baseline, then GUC + identity probe together in one round trip.
+    assert len(statements) == 2
     assert "as persisted_tenant" in statements[0]
-    assert "set_config('app.tenant_igreja_id', :igreja_id, true)" in statements[1]
+    assert "set_config" not in statements[0]
+    scope_sql = statements[1]
+    assert scope_sql.startswith(
+        "select set_config('app.tenant_igreja_id', :igreja_id, true); select "
+    )
     assert session.calls[1][1] == {"igreja_id": TENANT_A}
-    assert "agent_private.current_tenant_id()" in statements[2]
-    assert "session_user" in statements[2]
-    assert "current_user" in statements[2]
+    assert "agent_private.current_tenant_id()" in scope_sql
+    assert "session_user" in scope_sql
+    assert "current_user" in scope_sql
     assert all("set role" not in sql.lower() for sql in statements)
+    assert all("'role'" not in sql for sql in statements)
 
 
 def test_scope_rejects_active_transaction_before_any_sql() -> None:
@@ -390,7 +396,7 @@ def test_verify_rejects_unpinned_or_inactive_session_before_sql() -> None:
         match="active transaction",
     ):
         runtime_session.verify_agent_runtime_scope(inactive, TENANT_A)
-    assert len(inactive.calls) == 3
+    assert len(inactive.calls) == 2
 
 
 def test_verify_rolls_back_when_identity_or_tenant_drifts() -> None:
@@ -450,3 +456,84 @@ def test_scope_rejects_invalid_tenant_before_begin_or_sql(bad_tenant) -> None:
 
     assert session.begin_calls == 0
     assert session.calls == []
+
+
+class _FakeDbapiCursor:
+    def __init__(self, connection: "_FakeDbapiConnection") -> None:
+        self._connection = connection
+
+    def execute(self, sql: str) -> None:
+        self._connection.executed.append((sql, self._connection.autocommit))
+        if self._connection.fail:
+            raise RuntimeError("server closed the connection unexpectedly")
+
+    def fetchone(self) -> tuple[str | None, str]:
+        return self._connection.state
+
+    def close(self) -> None:
+        self._connection.cursors_closed += 1
+
+
+class _FakeDbapiConnection:
+    def __init__(
+        self,
+        *,
+        persisted_tenant: str | None = None,
+        search_path: str = runtime_session.AGENT_RUNTIME_SEARCH_PATH,
+        fail: bool = False,
+    ) -> None:
+        self.autocommit = False
+        self.state = (persisted_tenant, search_path)
+        self.fail = fail
+        self.executed: list[tuple[str, bool]] = []
+        self.cursors_closed = 0
+
+    def cursor(self) -> _FakeDbapiCursor:
+        return _FakeDbapiCursor(self)
+
+    def rollback(self) -> None:  # pragma: no cover - must never be needed
+        raise AssertionError("guard runs in autocommit; no transaction to end")
+
+
+def test_checkout_guard_is_one_autocommit_query_and_restores_mode() -> None:
+    connection = _FakeDbapiConnection()
+
+    runtime_session._guard_agent_runtime_checkout(connection, None, None)
+
+    # One statement, sent in autocommit: no BEGIN/ROLLBACK round trips.
+    assert len(connection.executed) == 1
+    sql, autocommit_during_query = connection.executed[0]
+    assert "app.tenant_igreja_id" in sql and "search_path" in sql
+    assert autocommit_during_query is True
+    assert connection.autocommit is False
+    assert connection.cursors_closed == 1
+
+
+@pytest.mark.parametrize(
+    "connection",
+    [
+        _FakeDbapiConnection(persisted_tenant=TENANT_A),
+        _FakeDbapiConnection(search_path="public"),
+    ],
+)
+def test_checkout_guard_rejects_persistent_state(
+    connection: _FakeDbapiConnection,
+) -> None:
+    with pytest.raises(
+        runtime_session.DisconnectionError,
+        match="rejected persistent connection state",
+    ):
+        runtime_session._guard_agent_runtime_checkout(connection, None, None)
+    assert connection.autocommit is False
+
+
+def test_checkout_guard_turns_dead_connection_into_disconnection() -> None:
+    connection = _FakeDbapiConnection(fail=True)
+
+    with pytest.raises(
+        runtime_session.DisconnectionError,
+        match="verification failed",
+    ):
+        runtime_session._guard_agent_runtime_checkout(connection, None, None)
+    assert connection.autocommit is False
+    assert connection.cursors_closed == 1
