@@ -11,6 +11,7 @@ import pytest
 
 from app.agent import nodes, runtime
 from app.agent.nodes import ROUTE_HANDOFF
+from app.agent.read_only_info import CanonicalPublicChurchInfo
 from app.db.models import AgentConfig, Conversation, Igreja, Message, Pessoa
 from app.services.llm import LLMError
 
@@ -744,6 +745,15 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
         original_commit()
 
     monkeypatch.setattr(runtime, "log_agent_event", audit)
+    monkeypatch.setattr(
+        runtime,
+        "load_public_church_info",
+        lambda *_args, **_kwargs: CanonicalPublicChurchInfo(
+            endereco_institucional=None,
+            horarios_culto="Domingo, 19:00",
+            celulas=(),
+        ),
+    )
     monkeypatch.setattr(session, "commit", commit)
 
     result = runtime.process_inbound_message(
@@ -759,6 +769,7 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
         handled=True,
         route=runtime.ROUTE_ONBOARDING,
         response="Horário de culto: Domingo, 19:00.",
+        public_info_reply=True,
     )
     assert state_texts == [persisted_current]
     assert session.message_queries == 1
@@ -774,7 +785,21 @@ def test_process_inbound_answers_public_profile_from_anchor_before_effects(
     ]
 
 
-def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("persisted_question", "tier_a_preflight", "accepted_version"),
+    (
+        ("Qual é o horário do culto?", False, None),
+        ("Qual célula no bairro Centro?", False, "termo-obsoleto"),
+        ("Qual é o horário do culto?", True, None),
+        ("Qual célula no bairro Centro?", True, "termo-obsoleto"),
+    ),
+)
+def test_process_inbound_keeps_consent_before_public_profile_lookup(
+    monkeypatch,
+    persisted_question: str,
+    tier_a_preflight: bool,
+    accepted_version: str | None,
+) -> None:
     igreja_id, conversation_id, pessoa_id, message_id = (
         uuid.uuid4(),
         uuid.uuid4(),
@@ -804,6 +829,7 @@ def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch)
         pessoa,
         SimpleNamespace(id=igreja_id, nome="Igreja sintética"),
         SimpleNamespace(
+            id=uuid.uuid4(),
             igreja_id=igreja_id,
             ativo=True,
             comportamento=(
@@ -813,7 +839,7 @@ def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch)
             ),
         ),
         dt.datetime(2026, 9, 26, 12, tzinfo=dt.UTC),
-        "Qual é o horário do culto?",
+        persisted_question,
         [],
     )
     monkeypatch.setattr(runtime, "require_tenant_scope", lambda *_args, **_kwargs: None)
@@ -830,10 +856,17 @@ def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch)
         runtime,
         "_active_credential",
         lambda *_args: SimpleNamespace(
-            api_key_encrypted="encrypted", provedor="openai", modelo=None
+            id=uuid.uuid4(),
+            api_key_encrypted="encrypted",
+            provedor="openai",
+            modelo="synthetic-model",
         ),
     )
-    monkeypatch.setattr(runtime, "_latest_consent_version", lambda *_args: None)
+    monkeypatch.setattr(
+        runtime,
+        "_latest_consent_version",
+        lambda *_args: accepted_version,
+    )
     monkeypatch.setattr(
         runtime,
         "_resolve_privilege",
@@ -854,7 +887,7 @@ def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch)
     monkeypatch.setattr(runtime, "log_agent_event", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         runtime,
-        "resolve_public_info_reply",
+        "resolve_canonical_public_info",
         lambda *_args: pytest.fail("consentimento deve preceder consulta pública"),
     )
     monkeypatch.setattr(
@@ -869,10 +902,19 @@ def test_process_inbound_keeps_consent_before_public_profile_lookup(monkeypatch)
         conversation_id=conversation_id,
         texto="caller forjado",
         inbound_message_id=message_id,
+        tier_a_preflight=tier_a_preflight,
     )
 
-    assert result.response == "Termo determinístico"
-    assert result.route == nodes.ROUTE_CONSENT
+    if tier_a_preflight:
+        assert result == runtime.AgentTurnResult(
+            handled=False,
+            reason="tier_a_legacy_route",
+        )
+    else:
+        assert result.response == "Termo determinístico"
+        assert result.route == nodes.ROUTE_CONSENT
+        assert result.public_info_reply is False
+    assert result.secretaria_offer is False
     assert session.commits == 1
 
 
@@ -940,7 +982,10 @@ class _HandoffSession:
             return _Scalar(self.conversation)
         if entity is Pessoa:
             return _Scalar(self.pessoa)
-        if getattr(getattr(statement, "table", None), "name", None) == "messages":
+        if getattr(getattr(statement, "table", None), "name", None) in {
+            "messages",
+            "conversations",
+        }:
             return _Scalar(None)
         raise AssertionError("handoff não deve consultar credencial, configuração ou LLM")
 
@@ -1033,7 +1078,7 @@ def test_handoff_keeps_existing_human_holder_and_optout_still_wins(monkeypatch) 
     monkeypatch.setattr(runtime, "get_settings", _handoff_settings)
     monkeypatch.setattr(
         runtime,
-        "resolve_public_info_reply",
+        "resolve_canonical_public_info",
         lambda *_args: pytest.fail("opt-out tem precedência sobre consulta pública"),
     )
 
@@ -1080,7 +1125,7 @@ def test_existing_handoff_keeps_holder_and_never_reaches_llm(monkeypatch) -> Non
     monkeypatch.setattr(runtime, "get_settings", _handoff_settings)
     monkeypatch.setattr(
         runtime,
-        "resolve_public_info_reply",
+        "resolve_canonical_public_info",
         lambda *_args: pytest.fail("handoff tem precedência sobre consulta pública"),
     )
 
@@ -1146,6 +1191,11 @@ def test_existing_handoff_does_not_restore_human_after_operator_releases_ia(
                 )
             if entity is Pessoa:
                 return _Scalar(pessoa)
+            if getattr(getattr(statement, "table", None), "name", None) in {
+                "messages",
+                "conversations",
+            }:
+                return _Scalar(None)
             raise AssertionError("liberação não deve consultar configuração nem LLM")
 
         def commit(self) -> None:
@@ -1163,7 +1213,7 @@ def test_existing_handoff_does_not_restore_human_after_operator_releases_ia(
 
     assert result.route == ROUTE_HANDOFF
     assert released_conversation.estado == "ia"
-    assert session.conversation_reads == 1
+    assert session.conversation_reads == 2
     assert session.commits == 1
 
 

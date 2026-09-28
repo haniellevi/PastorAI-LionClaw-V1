@@ -1,0 +1,44 @@
+{
+  "recorded_at": "2026-09-27T12:28:39.631128+00:00",
+  "base": "7a00383576878f90c1eb35bfd8648a09c4152529",
+  "source_patch_sha256": "81847a6143b8ed0e037ec1bf75c8c04cb41223c56058f05e89f4a783b2b53e89",
+  "files": {
+    "backend/app/agent/read_only_info.py": "0682020d4f8b8a72355eebec5b213d3a122a933e66feb9e743b755f5cf5a78d9",
+    "backend/app/agent/runtime.py": "3f6d00b140402e340a5c6bc21edb14e962abc191e582f9e2632b75e9da693068",
+    "backend/app/domain/cell_meetings_schedule.py": "46beb4f85bcba49335c2c792d0f16455df7a7e364e0398145b7613f1e91c883a",
+    "backend/app/routers/cells.py": "9665092bc60bfe76715bde1c66d67d5a3ef7a0f20c1c9921d268dd2662cacaba",
+    "backend/app/services/secretaria_offer.py": "867aacfc5edd9788184ce9eae42f65832e984b406f4df76f530553adc137f74b",
+    "backend/migrations/20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
+    "backend/tests/test_cell_meetings.py": "360292e2b1781d0975703d4b8249a164fcfc967bb1dbeb86f3f40e1c9573ad3e",
+    "backend/tests/test_cells_crud.py": "0d9216fb0c714c217fc49e87b32d48e76f42a8f9f1f6da28f2f6be24c2b8d871",
+    "backend/tests/test_church_cell_public_data_s2b_pg17.py": "d7272f92e164d347fe2dd92c7bb5f7a647afca8c29f596f2ef50a54a66509ce6",
+    "backend/tests/test_public_church_info_s2b.py": "e8da35d3d83694bde843e7600519be8da3834b6c79d209e828419ddc5237c695",
+    "backend/tests/test_secretaria_offer_s2b.py": "25630625433985b9e7270a73c24fed9742bf73542d88c60c7e326f4a11653e96",
+    "frontend/src/components/cells/CellFormModal.test.ts": "e130dd83a9836b3b943a0130f0433cbd4d648b0e0497ab319755fb2329087488",
+    "frontend/src/components/cells/CellFormModal.tsx": "70d4b2a82685c0a4987aec1f90d91187b4cfa67c882ea4944150cbe9b8293dc7"
+  },
+  "status": "validação local verde e revisão independente APTO no patch exato",
+  "backend": {
+    "passed": 5467,
+    "deselected_rls": 354,
+    "log_sha256": "5971a3fdbbbbe2d0442d4c26fabbaba194e220c83d21530477e3c0ae6625e944",
+    "command": "pytest tests -m 'not rls_integration' -o addopts= -q",
+    "python": "3.13.14"
+  },
+  "frontend": "915 testes, typecheck final; hashes e limite de build em UI-P2-EVIDENCE.json",
+  "limits": [
+    "Fixtures sintéticas locais; nenhum DEV/PROD/VPS/provedor acessado.",
+    "Merge426 retido: DEV reconciliado -> migration PROD -> merge -> deploy.",
+    "Guard policy confirma nome e comando UPDATE, não certifica drift semântico da baseline."
+  ],
+  "rls": {
+    "passed": 354,
+    "skipped": 0,
+    "deselected_unit": 5467,
+    "postgres": "17.6-trixie",
+    "database": "s2b_p2_final_test descartável sintético",
+    "command": "pytest tests -m rls_integration -o addopts= -q",
+    "log_sha256": "d30edbded5a222b130d04ec06639a0192a15767eabc2c955df76ef1090194df8"
+  },
+  "exact_sql": "P2-EXACT-SQL-EVIDENCE.json:4 provas do SQL original public, incluindo policy ausente/comando inválido e rollback"
+}

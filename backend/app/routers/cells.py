@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -26,6 +27,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
 from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central, resolve_actor_pessoa_id
+from app.domain.cell_meetings_schedule import (
+    InvalidDiaReuniao,
+    canonical_weekday_label,
+)
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
 from app.services.celula_membro import (
@@ -90,6 +95,8 @@ class CellOut(BaseModel):
     linkGrupo: str | None = None  # noqa: N815
     linkLocalizacao: str | None = None  # noqa: N815
     mensagemConvite: str | None = None  # noqa: N815
+    bairro: str | None = None
+    divulgarWhatsapp: bool = False  # noqa: N815
     ativo: bool
 
     @classmethod
@@ -107,6 +114,8 @@ class CellOut(BaseModel):
             linkGrupo=c.link_grupo,
             linkLocalizacao=c.link_localizacao,
             mensagemConvite=c.mensagem_convite,
+            bairro=getattr(c, "bairro", None),
+            divulgarWhatsapp=bool(getattr(c, "divulgar_whatsapp", False)),
             ativo=c.ativo,
         )
 
@@ -246,6 +255,8 @@ class UpsertCellRequest(BaseModel):
     linkGrupo: str | None = Field(default=None, max_length=500)  # noqa: N815
     linkLocalizacao: str | None = Field(default=None, max_length=500)  # noqa: N815
     mensagemConvite: str | None = Field(default=None, max_length=2000)  # noqa: N815
+    bairro: str | None = Field(default=None, max_length=120)
+    divulgarWhatsapp: bool = False  # noqa: N815
     ativo: bool = True
 
     @field_validator("nome", "coberturaEspiritual")
@@ -287,6 +298,14 @@ class UpsertCellRequest(BaseModel):
         if value is None:
             return None
         value = value.strip()
+        return value or None
+
+    @field_validator("bairro")
+    @classmethod
+    def _bairro_nfc(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = unicodedata.normalize("NFC", value.strip())
         return value or None
 
 
@@ -456,6 +475,30 @@ def _assert_referenced_pessoas_nao_arquivadas(
     )
 
 
+def _dia_reuniao_for_storage(value: str | None) -> str | None:
+    """Canonicalize one accepted weekday without rejecting legacy draft data."""
+
+    if value is None:
+        return None
+    try:
+        return canonical_weekday_label(value)
+    except InvalidDiaReuniao:
+        return value
+
+
+def _same_dia_reuniao(left: str | None, right: str | None) -> bool:
+    """Treat two recognized aliases as one weekday; unknown legacy text is exact."""
+
+    if left == right:
+        return True
+    if left is None or right is None:
+        return False
+    try:
+        return canonical_weekday_label(left) == canonical_weekday_label(right)
+    except InvalidDiaReuniao:
+        return False
+
+
 def _sensitive_payload(payload: UpsertCellRequest) -> dict[str, object | None]:
     """Campos sensíveis explicitamente enviados, mapeados para o modelo.
 
@@ -465,7 +508,7 @@ def _sensitive_payload(payload: UpsertCellRequest) -> dict[str, object | None]:
     """
 
     values = {
-        "diaReuniao": ("dia_reuniao", payload.diaReuniao),
+        "diaReuniao": ("dia_reuniao", _dia_reuniao_for_storage(payload.diaReuniao)),
         "horario": ("horario", payload.horario),
         "endereco": ("endereco", payload.endereco),
         "anfitriaoId": ("anfitriao_id", _to_uuid(payload.anfitriaoId)),
@@ -480,10 +523,36 @@ def _sensitive_payload(payload: UpsertCellRequest) -> dict[str, object | None]:
 
 def _sensitive_changed(payload: UpsertCellRequest, cell: Celula) -> bool:
     """True se o payload muda algum campo sensível em relação ao valor atual."""
-    return any(
-        getattr(cell, attr) != value
-        for attr, value in _sensitive_payload(payload).items()
-    )
+    for attribute, value in _sensitive_payload(payload).items():
+        if attribute == "dia_reuniao":
+            if not _same_dia_reuniao(cell.dia_reuniao, value):
+                return True
+        elif getattr(cell, attribute) != value:
+            return True
+    return False
+
+
+def _assert_whatsapp_publication(
+    *,
+    ativo: bool,
+    bairro: str | None,
+    divulgar_whatsapp: bool,
+    dia_reuniao: str | None,
+    validate_dia_reuniao: bool,
+) -> None:
+    if divulgar_whatsapp and (not ativo or not bairro):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Divulgação no WhatsApp exige célula ativa e bairro preenchido",
+        )
+    if validate_dia_reuniao and dia_reuniao is not None:
+        try:
+            canonical_weekday_label(dia_reuniao)
+        except InvalidDiaReuniao as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="dia fora do padrão",
+            ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -563,13 +632,14 @@ def upsert_cell(
             )
         _validate_pessoa_refs(db, payload)
         _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
+        dia_reuniao = _dia_reuniao_for_storage(payload.diaReuniao)
         cell = Celula(
             igreja_id=uuid.UUID(current_user.igreja_id),
             nome=payload.nome,
             # Liderança/estado são aplicados pelo serviço derivado abaixo.
             lider_id=None,
             cobertura_espiritual=payload.coberturaEspiritual,
-            dia_reuniao=payload.diaReuniao,
+            dia_reuniao=dia_reuniao,
             horario=payload.horario,
             endereco=payload.endereco,
             anfitriao_id=_to_uuid(payload.anfitriaoId),
@@ -577,6 +647,8 @@ def upsert_cell(
             link_grupo=payload.linkGrupo,
             link_localizacao=payload.linkLocalizacao,
             mensagem_convite=payload.mensagemConvite,
+            bairro=payload.bairro,
+            divulgar_whatsapp=payload.divulgarWhatsapp,
             ativo=False,
         )
         try:
@@ -586,6 +658,13 @@ def upsert_cell(
                 cell=cell,
                 new_leader_id=_to_uuid(payload.liderId),
                 new_active=payload.ativo,
+            )
+            _assert_whatsapp_publication(
+                ativo=payload.ativo,
+                bairro=payload.bairro,
+                divulgar_whatsapp=payload.divulgarWhatsapp,
+                dia_reuniao=dia_reuniao,
+                validate_dia_reuniao=bool(payload.divulgarWhatsapp),
             )
             db.add(cell)
             db.flush()
@@ -626,6 +705,15 @@ def upsert_cell(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas a Central de Células altera liderança ou ativação",
         )
+    if (
+        "divulgarWhatsapp" in payload.model_fields_set
+        and payload.divulgarWhatsapp != bool(getattr(cell, "divulgar_whatsapp", False))
+        and not current_user.has_any_role(CENTRAL_ROLES)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas a Central de Células publica no WhatsApp",
+        )
     _validate_pessoa_refs(db, payload)
     _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
     # Decisão 3.2: campos sensíveis só a Central altera direto; o líder solicita
@@ -661,8 +749,35 @@ def upsert_cell(
             cell.link_localizacao = payload.linkLocalizacao
         if "mensagemConvite" in payload.model_fields_set:
             cell.mensagem_convite = payload.mensagemConvite
+        if "bairro" in payload.model_fields_set:
+            cell.bairro = payload.bairro
+        next_dia_reuniao = (
+            _dia_reuniao_for_storage(payload.diaReuniao)
+            if "diaReuniao" in payload.model_fields_set
+            else cell.dia_reuniao
+        )
+        dia_reuniao_changed = (
+            "diaReuniao" in payload.model_fields_set
+            and not _same_dia_reuniao(cell.dia_reuniao, next_dia_reuniao)
+        )
+        if "divulgarWhatsapp" in payload.model_fields_set:
+            cell.divulgar_whatsapp = payload.divulgarWhatsapp
         for attribute, value in _sensitive_payload(payload).items():
             setattr(cell, attribute, value)
+        _assert_whatsapp_publication(
+            ativo=bool(cell.ativo),
+            bairro=cell.bairro,
+            divulgar_whatsapp=bool(cell.divulgar_whatsapp),
+            dia_reuniao=cell.dia_reuniao,
+            validate_dia_reuniao=bool(cell.divulgar_whatsapp)
+            and (
+                (
+                    "divulgarWhatsapp" in payload.model_fields_set
+                    and payload.divulgarWhatsapp
+                )
+                or dia_reuniao_changed
+            ),
+        )
         db.flush()
         db.refresh(cell)
         db.commit()

@@ -470,7 +470,7 @@ def test_worker_durable_execution_uses_dedicated_factory_only_for_runtime(
     monkeypatch.setattr(
         queue_worker,
         "_prepare_agent_reply_intent",
-        lambda factory, current, response: calls.append(("prepare", factory))
+        lambda factory, current, response, **_kwargs: calls.append(("prepare", factory))
         or pending,
     )
     monkeypatch.setattr(
@@ -1218,7 +1218,7 @@ def test_runtime_fails_closed_when_config_adapter_has_no_matching_tenant(
     )
     monkeypatch.setattr(
         runtime,
-        "resolve_public_info_reply",
+        "resolve_canonical_public_info",
         lambda *_args: pytest.fail("configuração de outro tenant não pode ser lida"),
     )
     monkeypatch.setattr(

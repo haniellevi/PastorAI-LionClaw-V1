@@ -760,7 +760,7 @@ def test_agent_reply_recovery_after_intent_before_transport_reuses_text_once(
     conversation_id = _seed_agent_delivery(factory)
     outcome = _agent_outcome(conversation_id)
     prepared = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta persistida"
+        factory, outcome, "Resposta persistida", public_info_reply=False
     )
     assert prepared is not None
     agent_calls = _stub_agent(monkeypatch)
@@ -776,6 +776,426 @@ def test_agent_reply_recovery_after_intent_before_transport_reuses_text_once(
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
 
 
+def test_new_reserved_public_reply_replaces_only_a_terminal_prior_offer(
+    msg_engine_fx: Engine,
+) -> None:
+    """A new CAS arms its own offer; a retry of the old pending intent cannot."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    old_outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="S2B-OFFER-OLD",
+        claim_id="s2b-offer-old",
+    )
+    old_intent = worker_module._prepare_agent_reply_intent(
+        factory,
+        old_outcome,
+        "Resposta pública antiga",
+        secretaria_offer=True,
+        public_info_reply=True,
+    )
+    assert old_intent is not None
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, old_outcome)
+        session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+            .values(
+                secretaria_oferta_estado="cancelada",
+                secretaria_oferta_expira_em=None,
+                secretaria_oferta_resposta_message_id=None,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    new_outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="S2B-OFFER-NEW",
+        claim_id="s2b-offer-new",
+    )
+    reserved = worker_module._reserve_agent_reply_intent(factory, new_outcome)
+    assert reserved is not None
+    assert reserved.state == worker_module._AGENT_REPLY_RESERVED
+
+    new_intent = worker_module._prepare_agent_reply_intent(
+        factory,
+        new_outcome,
+        "Resposta pública nova",
+        secretaria_offer=True,
+        public_info_reply=True,
+    )
+    assert new_intent is not None
+    assert new_intent.state == worker_module._AGENT_REPLY_PENDING
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, new_outcome)
+        conversation = session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+        ).scalar_one()
+        assert conversation.secretaria_oferta_estado == "preparada"
+        assert conversation.secretaria_oferta_message_id == new_intent.id
+        session.rollback()
+    finally:
+        session.close()
+
+    retried_old = worker_module._prepare_agent_reply_intent(
+        factory,
+        old_outcome,
+        "Resposta antiga reexecutada",
+        secretaria_offer=True,
+        public_info_reply=True,
+    )
+    assert retried_old is not None
+    assert retried_old.id == old_intent.id
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, new_outcome)
+        conversation = session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+        ).scalar_one()
+        assert conversation.secretaria_oferta_estado == "preparada"
+        assert conversation.secretaria_oferta_message_id == new_intent.id
+        session.rollback()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(
+    "revocation",
+    ("config_inactive", "term_changed", "credential_inactive"),
+)
+def test_public_reply_retry_rechecks_current_gates_before_transport(
+    msg_engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    revocation: str,
+) -> None:
+    """A pending public reply cannot cross transport after a gate revocation."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    inbound_id = _seed_inbound_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        provider_message_id=f"S2B-PUBLIC-GATE-{revocation}",
+        texto="Que horas é o culto?",
+    )
+    session = factory()
+    try:
+        pessoa_id = session.execute(
+            select(Conversation.pessoa_id).where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+        ).scalar_one()
+        session.add_all(
+            (
+                AgentConfig(
+                    igreja_id=_IGREJA_A,
+                    comportamento="perfil sintético",
+                    ativo=True,
+                ),
+                LlmCredential(
+                    igreja_id=_IGREJA_A,
+                    provedor="synthetic",
+                    modelo="synthetic",
+                    api_key_encrypted="synthetic",
+                    validado=True,
+                    ativo=True,
+                ),
+                ConsentRecord(
+                    igreja_id=_IGREJA_A,
+                    pessoa_id=pessoa_id,
+                    termo_versao="s2b-current",
+                    aceite_em=dt.datetime.now(dt.UTC),
+                ),
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        worker_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_term_version="s2b-current"),
+    )
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id=f"S2B-PUBLIC-GATE-{revocation}",
+        claim_id=f"s2b-public-gate-{revocation}",
+        inbound_message_id=inbound_id,
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory,
+        outcome,
+        "Não tenho essa informação cadastrada. Quer falar com a secretaria da igreja?",
+        secretaria_offer=True,
+        public_info_reply=True,
+    )
+    assert intent is not None
+
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        if revocation == "config_inactive":
+            session.execute(
+                update(AgentConfig)
+                .where(AgentConfig.igreja_id == _IGREJA_A)
+                .values(ativo=False)
+            )
+        elif revocation == "credential_inactive":
+            session.execute(
+                update(LlmCredential)
+                .where(LlmCredential.igreja_id == _IGREJA_A)
+                .values(ativo=False)
+            )
+        else:
+            session.add(
+                ConsentRecord(
+                    igreja_id=_IGREJA_A,
+                    pessoa_id=session.execute(
+                        select(Conversation.pessoa_id).where(
+                            Conversation.id == conversation_id,
+                            Conversation.igreja_id == _IGREJA_A,
+                        )
+                    ).scalar_one(),
+                    termo_versao="s2b-obsolete",
+                    aceite_em=dt.datetime.now(dt.UTC) + dt.timedelta(seconds=1),
+                )
+            )
+        session.commit()
+    finally:
+        session.close()
+
+    evolution = _ClassifiedEvolution("aceito")
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=evolution,
+    )
+
+    assert evolution.calls == []
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        state = session.execute(
+            select(Message.agent_reply_state).where(Message.id == intent.id)
+        ).scalar_one()
+        offer = session.execute(
+            select(
+                Conversation.secretaria_oferta_estado,
+                Conversation.secretaria_oferta_message_id,
+            ).where(
+                Conversation.id == conversation_id,
+                Conversation.igreja_id == _IGREJA_A,
+            )
+        ).one()
+    finally:
+        session.close()
+    assert state == worker_module._AGENT_REPLY_SUPPRESSED
+    assert offer == ("cancelada", intent.id)
+
+
+def test_nonpublic_reply_to_public_question_keeps_its_durable_false_marker(
+    msg_engine_fx: Engine,
+) -> None:
+    """A consent gate reply must not inherit authority from inbound wording."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    inbound_id = _seed_inbound_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        provider_message_id="S2B-PUBLIC-CONSENT-GATE",
+        texto="Que horas é o culto?",
+    )
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="S2B-PUBLIC-CONSENT-GATE",
+        claim_id="s2b-public-consent-gate",
+        inbound_message_id=inbound_id,
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory,
+        outcome,
+        "Para continuar, preciso do seu aceite do termo.",
+        public_info_reply=False,
+    )
+    assert intent is not None
+    assert intent.public_info_reply is False
+
+    evolution = _ClassifiedEvolution("aceito")
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=evolution,
+    )
+
+    assert evolution.calls == [
+        ("igreja-1", outcome.telefone, "Para continuar, preciso do seu aceite do termo.")
+    ]
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        assert session.execute(
+            select(Message.agent_reply_state, Message.public_info_reply).where(
+                Message.id == intent.id
+            )
+        ).one() == (worker_module._AGENT_REPLY_CONFIRMED, False)
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(
+    ("inbound_text", "must_deliver"),
+    (
+        ("Que horas é o culto?", False),
+        ("Olá, preciso de ajuda", True),
+    ),
+)
+def test_legacy_null_public_marker_only_fences_recognized_public_anchor(
+    msg_engine_fx: Engine,
+    inbound_text: str,
+    must_deliver: bool,
+) -> None:
+    """Unknown legacy rows fail closed only for a persisted public request."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    inbound_id = _seed_inbound_anchor(
+        factory,
+        igreja_id=_IGREJA_A,
+        conversation_id=conversation_id,
+        provider_message_id=f"S2B-LEGACY-{must_deliver}",
+        texto=inbound_text,
+    )
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id=f"S2B-LEGACY-{must_deliver}",
+        claim_id=f"s2b-legacy-{must_deliver}",
+        inbound_message_id=inbound_id,
+    )
+    provider_key = worker_module._agent_reply_idempotency_key(outcome)
+    assert provider_key is not None
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        session.add(
+            Message(
+                igreja_id=_IGREJA_A,
+                conversation_id=conversation_id,
+                direcao="out",
+                autor="ia",
+                agent_reply_state=worker_module._AGENT_REPLY_PENDING,
+                public_info_reply=None,
+                texto="Resposta legada",
+                tipo="texto",
+                provider_message_id=provider_key,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+    intent = worker_module._load_agent_reply_intent(factory, outcome)
+    assert intent is not None
+    assert intent.public_info_reply is None
+    retried = worker_module._prepare_agent_reply_intent(
+        factory,
+        outcome,
+        "Resposta que não pode reclassificar o legado",
+        public_info_reply=False,
+    )
+    assert retried is not None
+    assert retried.id == intent.id
+    assert retried.public_info_reply is None
+
+    evolution = _ClassifiedEvolution("aceito")
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=evolution,
+    )
+
+    assert bool(evolution.calls) is must_deliver
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        state = session.execute(
+            select(Message.agent_reply_state).where(Message.id == intent.id)
+        ).scalar_one()
+    finally:
+        session.close()
+    assert state == (
+        worker_module._AGENT_REPLY_CONFIRMED
+        if must_deliver
+        else worker_module._AGENT_REPLY_SUPPRESSED
+    )
+
+
+def test_public_marker_fails_closed_when_persisted_anchor_is_missing(
+    msg_engine_fx: Engine,
+) -> None:
+    """A TRUE marker cannot authorize transport without its bound inbound row."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="S2B-PUBLIC-ANCHOR-MISSING",
+        claim_id="s2b-public-anchor-missing",
+        inbound_message_id=uuid.uuid4(),
+    )
+    intent = worker_module._prepare_agent_reply_intent(
+        factory,
+        outcome,
+        "Horário de culto: Domingo, 19h.",
+        public_info_reply=True,
+    )
+    assert intent is not None
+
+    evolution = _ClassifiedEvolution("aceito")
+    worker_module._deliver_agent_reply_intent(
+        factory,
+        outcome,
+        intent,
+        None,
+        evolution_client=evolution,
+    )
+
+    assert evolution.calls == []
+    session = factory()
+    try:
+        worker_module._scope_agent_session(session, outcome)
+        assert session.execute(
+            select(Message.agent_reply_state).where(Message.id == intent.id)
+        ).scalar_one() == worker_module._AGENT_REPLY_SUPPRESSED
+    finally:
+        session.close()
+
+
 def test_handoff_race_ambiguates_inflight_intent_before_provider_transport(
     msg_engine_fx: Engine, monkeypatch
 ) -> None:
@@ -788,7 +1208,7 @@ def test_handoff_race_ambiguates_inflight_intent_before_provider_transport(
         claim_id="agent-handoff-race",
     )
     intent = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta que não pode sair"
+        factory, outcome, "Resposta que não pode sair", public_info_reply=False
     )
     assert intent is not None
     assert intent.state == worker_module._AGENT_REPLY_PENDING
@@ -848,7 +1268,7 @@ def test_handoff_suppression_survives_ia_release_and_does_not_touch_other_tenant
         claim_id="agent-handoff-durable",
     )
     intent = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta anterior ao handoff"
+        factory, outcome, "Resposta anterior ao handoff", public_info_reply=False
     )
     assert intent is not None
     assert intent.state == worker_module._AGENT_REPLY_PENDING
@@ -963,7 +1383,7 @@ def test_handoff_suppression_is_not_revived_by_prepare_after_ia_release(
         release_session.close()
 
     prepared = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta tardia"
+        factory, outcome, "Resposta tardia", public_info_reply=False
     )
 
     assert prepared is not None
@@ -1927,7 +2347,7 @@ def test_handoff_ambiguates_inflight_and_blocks_every_pre_send_after_ia_release(
         claim_id=f"agent-handoff-inflight-{transport}",
     )
     intent = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta em transporte"
+        factory, outcome, "Resposta em transporte", public_info_reply=False
     )
     assert intent is not None
     assert worker_module._transition_agent_reply_intent(
@@ -2012,7 +2432,7 @@ def test_handoff_does_not_restore_pending_after_retryable_transport_result(
         claim_id="agent-handoff-retryable",
     )
     intent = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta que ficou incerta"
+        factory, outcome, "Resposta que ficou incerta", public_info_reply=False
     )
     assert intent is not None
 
@@ -2077,7 +2497,7 @@ def test_handoff_does_not_restore_pending_after_ownership_loss(
         claim_id="agent-handoff-ownership",
     )
     intent = worker_module._prepare_agent_reply_intent(
-        factory, outcome, "Resposta sem transporte"
+        factory, outcome, "Resposta sem transporte", public_info_reply=False
     )
     assert intent is not None
     guard_calls = 0

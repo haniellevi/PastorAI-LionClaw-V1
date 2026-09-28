@@ -73,6 +73,7 @@ from app.db.models import (
     AgentConfig,
     ConsentRecord,
     Conversation,
+    LlmCredential,
     Message,
     Pessoa,
     WhatsappConnection,
@@ -104,7 +105,15 @@ from app.domain.conversations import (
 from app.domain.consent import needs_reaccept
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import insert_pessoa_or_get_winner, lock_canonical_phone
-from app.services.conversation_handoff import fence_agent_replies_for_handoff
+from app.services.conversation_handoff import (
+    fence_agent_replies_for_handoff,
+    mark_conversation_for_handoff_locked,
+)
+from app.services.secretaria_offer import (
+    cancel_secretaria_offer_for_delivery,
+    prepare_secretaria_offer,
+    promote_secretaria_offer_after_delivery,
+)
 from app.services.worker_health import publish_worker_heartbeat
 
 logger = logging.getLogger("pastorai.queue_worker")
@@ -1016,6 +1025,7 @@ class _AgentReplyIntent:
     state: str
     response: str
     provider_message_id: str
+    public_info_reply: bool | None
 
 
 @dataclass
@@ -2659,11 +2669,17 @@ def _intent_from_message(message: Message) -> _AgentReplyIntent:
     state = message.agent_reply_state
     if state is None and message.autor == "ia":
         state = _AGENT_REPLY_CONFIRMED
+    public_info_reply = getattr(message, "public_info_reply", None)
     return _AgentReplyIntent(
         id=message.id,
         state=state or "",
         response=message.texto or "",
         provider_message_id=message.provider_message_id or "",
+        public_info_reply=(
+            public_info_reply
+            if type(public_info_reply) is bool
+            else None
+        ),
     )
 
 
@@ -2786,6 +2802,7 @@ def _reserve_agent_reply_intent(
             direcao="out",
             autor="ia",
             agent_reply_state=_AGENT_REPLY_RESERVED,
+            public_info_reply=None,
             texto=None,
             tipo="texto",
             provider_message_id=provider_message_id,
@@ -2816,6 +2833,8 @@ def _prepare_agent_reply_intent(
     response: str,
     *,
     intent_provider_message_id: str | None = None,
+    secretaria_offer: bool = False,
+    public_info_reply: bool,
 ) -> _AgentReplyIntent | None:
     """Persist a reply intent before the provider call.
 
@@ -2824,6 +2843,8 @@ def _prepare_agent_reply_intent(
     race always returns the first intent and never grants two transports.
     """
 
+    if type(public_info_reply) is not bool:
+        raise TypeError("public_info_reply must be bool")
     provider_message_id = intent_provider_message_id or _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
         return None
@@ -2852,6 +2873,7 @@ def _prepare_agent_reply_intent(
             )
             return _intent_from_message(existing) if existing is not None else None
         if existing is not None:
+            offer_prepared = False
             if existing.agent_reply_state in {
                 _AGENT_REPLY_RESERVED,
                 _AGENT_REPLY_EXECUTING,
@@ -2864,10 +2886,21 @@ def _prepare_agent_reply_intent(
                             {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}
                         ),
                     )
-                    .values(agent_reply_state=_AGENT_REPLY_PENDING, texto=response)
+                    .values(
+                        agent_reply_state=_AGENT_REPLY_PENDING,
+                        texto=response,
+                        public_info_reply=public_info_reply,
+                    )
                     .returning(Message.id)
                 ).scalar_one_or_none()
                 if transitioned is not None:
+                    if secretaria_offer:
+                        prepare_secretaria_offer(
+                            conversation,
+                            outbound_message_id=existing.id,
+                            replace_terminal=True,
+                        )
+                        offer_prepared = True
                     session.commit()
                     session.refresh(existing)
                 else:
@@ -2879,6 +2912,17 @@ def _prepare_agent_reply_intent(
                     )
                     if existing is None:
                         raise RuntimeError("Agent reply reservation disappeared")
+            if (
+                secretaria_offer
+                and existing.agent_reply_state == _AGENT_REPLY_PENDING
+                and getattr(conversation, "secretaria_oferta_estado", None) is None
+                and not offer_prepared
+            ):
+                prepare_secretaria_offer(
+                    conversation,
+                    outbound_message_id=existing.id,
+                )
+                session.commit()
             return _intent_from_message(existing)
 
         message = Message(
@@ -2887,12 +2931,20 @@ def _prepare_agent_reply_intent(
             direcao="out",
             autor="ia",
             agent_reply_state=_AGENT_REPLY_PENDING,
+            public_info_reply=public_info_reply,
             texto=response,
             tipo="texto",
             provider_message_id=provider_message_id,
         )
         session.add(message)
         try:
+            session.flush()
+            if secretaria_offer:
+                prepare_secretaria_offer(
+                    conversation,
+                    outbound_message_id=message.id,
+                    replace_terminal=True,
+                )
             session.commit()
         except IntegrityError:
             # The database fence already serializes Postgres.  This catch is a
@@ -2977,6 +3029,29 @@ def _transition_agent_reply_intent(
         ).one_or_none()
         if transitioned is None:
             return False
+        if target == _AGENT_REPLY_CONFIRMED:
+            if promote_secretaria_offer_after_delivery(
+                session,
+                conversation,
+                outbound_message_id=intent.id,
+            ):
+                # A persisted early "sim" is applied only after this exact
+                # outbound offer reached the durable accepted state.
+                mark_conversation_for_handoff_locked(
+                    session,
+                    conversation=conversation,
+                )
+        elif target in {
+            _AGENT_REPLY_AMBIGUOUS,
+            _AGENT_REPLY_EXECUTION_AMBIGUOUS,
+            _AGENT_REPLY_FAILED,
+            _AGENT_REPLY_NO_RESPONSE,
+            _AGENT_REPLY_SUPPRESSED,
+        }:
+            cancel_secretaria_offer_for_delivery(
+                conversation,
+                outbound_message_id=intent.id,
+            )
         session.commit()
         return True
     except Exception:
@@ -2984,6 +3059,102 @@ def _transition_agent_reply_intent(
         raise
     finally:
         session.close()
+
+
+def _public_info_reply_changed_before_transport(
+    session: Session,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+    conversation: Conversation,
+) -> bool:
+    """Re-derive a canonical public reply from its persisted inbound anchor.
+
+    The caller already holds the short Conversation lock. This function never
+    trusts generated text as an authority: it only compares the durable reply
+    with a fresh resolution of a recognized, persisted public-information
+    request. A non-public inbound bypasses this narrow seam.
+    """
+
+    if intent.public_info_reply is False:
+        return False
+    if outcome.inbound_message_id is None:
+        return intent.public_info_reply is True
+    inbound_text = session.execute(
+        select(Message.texto).where(
+            Message.id == outcome.inbound_message_id,
+            Message.igreja_id == outcome.igreja_id,
+            Message.conversation_id == conversation.id,
+            Message.direcao == "in",
+        )
+    ).scalar_one_or_none()
+    if not isinstance(inbound_text, str):
+        return intent.public_info_reply is True
+
+    from app.agent.read_only_info import (  # noqa: PLC0415
+        canonical_public_info_request,
+        resolve_canonical_public_info,
+    )
+    from app.services.public_church_info import load_public_church_info  # noqa: PLC0415
+
+    request = canonical_public_info_request(inbound_text)
+    if request is None:
+        return intent.public_info_reply is True
+    if intent.public_info_reply is None:
+        # Pre-migration rows cannot prove that a public-looking inbound led to
+        # a deterministic public reply. Suppress that narrow legacy case
+        # rather than classifying it from response text or backfilling history.
+        return True
+    current_term = getattr(get_settings(), "agent_term_version", None)
+    active_config = session.execute(
+        select(AgentConfig.id).where(
+            AgentConfig.igreja_id == outcome.igreja_id,
+            AgentConfig.ativo.is_(True),
+        )
+    ).scalar_one_or_none()
+    latest_term = session.execute(
+        select(ConsentRecord.termo_versao)
+        .where(
+            ConsentRecord.igreja_id == outcome.igreja_id,
+            ConsentRecord.pessoa_id == conversation.pessoa_id,
+        )
+        .order_by(ConsentRecord.aceite_em.desc().nullslast())
+        .limit(1)
+    ).scalar_one_or_none()
+    active_credential = session.execute(
+        select(LlmCredential.id).where(
+            LlmCredential.igreja_id == outcome.igreja_id,
+            LlmCredential.ativo.is_(True),
+            LlmCredential.validado.is_(True),
+        )
+    ).scalar_one_or_none()
+    if (
+        active_config is None
+        or active_credential is None
+        or not isinstance(current_term, str)
+        or not current_term
+        or needs_reaccept(latest_term, current_term)
+    ):
+        return True
+    kind, bairro = request
+    resolution = resolve_canonical_public_info(
+        inbound_text,
+        load_public_church_info(
+            session,
+            igreja_id=outcome.igreja_id,
+            bairro=bairro if kind == "celula" else None,
+            include_cells=kind == "celula",
+        ),
+    )
+    offer_is_live = (
+        getattr(conversation, "secretaria_oferta_message_id", None) == intent.id
+        and getattr(conversation, "secretaria_oferta_estado", None)
+        in {"preparada", "aceite_aguardando_ancora", "pendente"}
+    )
+    return (
+        resolution is None
+        or resolution.resposta != intent.response
+        or resolution.oferece_secretaria != offer_is_live
+    )
 
 
 def _suppress_agent_reply_after_handoff(
@@ -3021,6 +3192,30 @@ def _suppress_agent_reply_after_handoff(
                 session,
                 igreja_id=conversation.igreja_id,
                 conversation_id=conversation.id,
+            )
+            session.commit()
+            return True
+        if _public_info_reply_changed_before_transport(
+            session,
+            outcome,
+            intent,
+            conversation,
+        ):
+            session.execute(
+                update(Message)
+                .where(
+                    Message.id == intent.id,
+                    Message.igreja_id == outcome.igreja_id,
+                    Message.conversation_id == conversation.id,
+                    Message.direcao == "out",
+                    Message.autor == "ia",
+                    Message.agent_reply_state == expected,
+                )
+                .values(agent_reply_state=_AGENT_REPLY_SUPPRESSED)
+            )
+            cancel_secretaria_offer_for_delivery(
+                conversation,
+                outbound_message_id=intent.id,
             )
             session.commit()
             return True
@@ -3619,6 +3814,8 @@ def _complete_tier_a_reply_intent(
                     outcome,
                     result.response,
                     intent_provider_message_id=provider_message_id,
+                    secretaria_offer=bool(getattr(result, "secretaria_offer", False)),
+                    public_info_reply=bool(getattr(result, "public_info_reply", False)),
                 )
         if intent is not None:
             _deliver_agent_reply_intent(
@@ -4414,6 +4611,8 @@ def run_agent_for_message(
                         session_factory,
                         outcome,
                         result.response,
+                        secretaria_offer=bool(getattr(result, "secretaria_offer", False)),
+                        public_info_reply=bool(getattr(result, "public_info_reply", False)),
                     )
                 except Exception:
                     _quarantine_agent_execution(session_factory, outcome, intent)

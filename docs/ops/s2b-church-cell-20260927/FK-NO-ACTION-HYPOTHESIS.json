@@ -1,0 +1,21 @@
+{
+  "recorded_at": "2026-09-27T11:11:22.030053+00:00",
+  "scope": "hipótese em tabelas temporárias, inteiros sintéticos, transação revertida",
+  "environment": "PostgreSQL17.6 local descartável s2b_test",
+  "sql_sha256": "1038737a20fcc49312bce3cfaf9d6c5055b7b9f73b49e32d0c84e12256dcd7dd",
+  "result": "S2B_NO_ACTION_TRIGGER_PROOF_OK",
+  "rollback": "confirmed",
+  "exercised": [
+    "cross-tenant FK rejection",
+    "anchor delete clears own offer",
+    "other tenant unchanged",
+    "conversation cascade",
+    "bulk delete"
+  ],
+  "limits": [
+    "superuser synthetic temporary tables",
+    "not candidate migration",
+    "not authenticated RLS",
+    "not full lifecycle service test"
+  ]
+}

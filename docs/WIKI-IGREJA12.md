@@ -1,6 +1,24 @@
 # Wiki do projeto Igreja 12
 
-## S2: perfil público estruturado, candidato de 26/09/2026
+## S2b: candidato de fonte pública canônica, 27/09/2026
+
+O cadastro da igreja passa a ser a fonte de endereço institucional e horários;
+células públicas vêm do cadastro real, somente com nome/bairro/dia/horário.
+Endereços residenciais e contatos de liderança ficam fora da projeção. A oferta
+de secretaria e sua confirmação são determinísticas antes do Jev. A seção
+pública sai do Agente, e os novos campos dependem do suporte anunciado pela API.
+[Contrato, compatibilidade e gates](ops/s2b-church-cell-20260927/README.md).
+Validação local registrada na [evidência](ops/s2b-church-cell-20260927/TEST-EVIDENCE.json);
+CI, revisão Sarah, merge e implantação permanecem etapas separadas.
+
+A [ordem WhatsApp-first vigente](ops/MVP-PLANO-SIMPLIFICACAO.md) revisa a S3:
+telefone único com vínculo ativo e confirmação por ação ministerial comum;
+Clerk para leituras sensíveis; finanças nunca por telefone. As próximas verticais
+continuam planejadas e a classificação em PRD-COVERAGE permanece inalterada.
+O [roteiro DEV para Raniel](ops/s2b-church-cell-20260927/RECONCILIAR-DEV-RANIEL.md)
+é preparação documental, sem operação de banco por esta missão.
+
+## S2: perfil público estruturado, histórico da PR423
 
 A aba Comportamento do Agente IA permite ao admin publicar endereço institucional,
 horários e até cinco células públicas por bairro. Salvar exige configuração já
@@ -13,9 +31,10 @@ não é importado nem usado como fonte; continua removido do prompt, inclusive
 com caracteres invisíveis Cf. O perfil estruturado também não entra no LLM
 nesta fatia. Consultas privadas, proximidade geográfica e identidade ficam para S3.
 
-**Merge S2 bloqueado até liberação explícita**, mesmo com CI/revisões verdes:
-a sessão PastorAI PROD operacional coordena schema e deploy. Este trabalho
-não aplica migration em ambiente compartilhado nem opera PROD/VPS/provedores.
+PR423 integrada em `e6aafc2`, após ordem nominal e liberação coordenada com a
+sessão PastorAI PROD operacional. A S2b acima substitui esse cadastro separado;
+a nova migration/deploy mantém gate próprio. Este trabalho não aplica migration
+em ambiente compartilhado nem opera PROD/VPS/provedores.
 [Contrato, uso e limites](ops/s2-public-agent-profile-20260926/README.md).
 
 ## Jev tier A S1: candidato com ativação bloqueada, 26/09/2026

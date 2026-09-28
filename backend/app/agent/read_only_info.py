@@ -12,6 +12,11 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from app.domain.cell_meetings_schedule import (
+    InvalidDiaReuniao,
+    canonical_weekday_label,
+)
+
 
 _MARKER_CLOSERS = {"[": "]", "{": "}", "(": ")"}
 _MAX_VALUE_CHARS = 400
@@ -92,6 +97,33 @@ class _PublicInfo:
 class _PublicInfoMarker:
     closing: bool
     complete: bool
+
+
+@dataclass(frozen=True)
+class CanonicalPublicCell:
+    """Whitelisted cell fields read from the canonical domain tables."""
+
+    bairro: str
+    nome: str
+    dia_reuniao: str | None
+    horario: str | None
+
+
+@dataclass(frozen=True)
+class CanonicalPublicChurchInfo:
+    """Whitelisted church facts supplied by the tenant-scoped read service."""
+
+    endereco_institucional: str | None
+    horarios_culto: str | None
+    celulas: tuple[CanonicalPublicCell, ...]
+
+
+@dataclass(frozen=True)
+class PublicInfoResolution:
+    """A deterministic public reply plus the narrow secretary-offer signal."""
+
+    resposta: str
+    oferece_secretaria: bool = False
 
 
 def _recognize_public_info_marker(value: object) -> _PublicInfoMarker | None:
@@ -307,7 +339,13 @@ def canonical_public_info(value: object) -> dict[str, object] | None:
     }
 
 
-def _request(value: object) -> tuple[str, str | None] | None:
+def canonical_public_info_request(value: object) -> tuple[str, str | None] | None:
+    """Classify a deterministic public lookup without touching domain data.
+
+    The service uses the returned normalized-neighborhood key to bound its
+    cell projection before the five-row limit.  Keeping the parser here means
+    the SQL boundary and response resolver share the exact same normalization.
+    """
     text = _normalized(value)
     if not text:
         return None
@@ -328,8 +366,115 @@ def _request(value: object) -> tuple[str, str | None] | None:
     return None
 
 
+def canonical_public_bairro_key(value: object) -> str:
+    """Return the bounded comparison key used for public cell neighborhoods."""
+
+    return _normalized(value).strip()
+
+
 def _public_reply(value: str) -> str:
     return value.replace("<", "[").replace(">", "]")[:_MAX_REPLY_CHARS]
+
+
+_CANONICAL_HOURS = re.compile(r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+_CANONICAL_MISSING = (
+    "Não tenho essa informação cadastrada. Quer falar com a secretaria da igreja?"
+)
+_CELL_SECRETARY_OFFER = (
+    "Quer falar com a secretaria da igreja para entrar em contato com o líder da célula?"
+)
+
+
+def _canonical_cell_for_reply(value: CanonicalPublicCell) -> CanonicalPublicCell | None:
+    """Validate a domain projection again before it reaches a response."""
+
+    bairro = _display_text(value.bairro)
+    nome = _display_text(value.nome)
+    dia = _display_text(value.dia_reuniao) if value.dia_reuniao is not None else None
+    horario = _display_text(value.horario) if value.horario is not None else None
+    if bairro is None or nome is None:
+        return None
+    normalized = _normalized(" ".join((bairro, nome)))
+    if _ADDRESS_WORD.search(normalized) or _PUBLIC_FORBIDDEN_MARKER.search(normalized):
+        return None
+    if dia is not None:
+        try:
+            dia = canonical_weekday_label(dia)
+        except InvalidDiaReuniao:
+            dia = None
+    if horario is not None and not _CANONICAL_HOURS.fullmatch(horario):
+        return None
+    return CanonicalPublicCell(
+        bairro=bairro,
+        nome=nome,
+        dia_reuniao=dia,
+        horario=horario,
+    )
+
+
+def _canonical_meeting(cell: CanonicalPublicCell) -> str | None:
+    parts = [part for part in (cell.dia_reuniao, cell.horario) if part is not None]
+    return ", ".join(parts) if parts else None
+
+
+def resolve_canonical_public_info(
+    current_text: object,
+    info: CanonicalPublicChurchInfo | None,
+) -> PublicInfoResolution | None:
+    """Resolve a supported lookup from canonical Igreja/Celula fields only.
+
+    A missing or unsafe fact remains a deterministic absence. It never falls
+    through to the profile JSON, free-text behaviour, an LLM, or a contact
+    lookup. The offer flag is metadata for the delivery seam and does not make
+    a human handoff by itself.
+    """
+
+    request = canonical_public_info_request(current_text)
+    if request is None:
+        return None
+    kind, bairro = request
+    if kind == "horarios_culto":
+        value = _display_text(info.horarios_culto) if info is not None else None
+        return PublicInfoResolution(
+            resposta=_public_reply(f"Horário de culto: {value}." if value else _CANONICAL_MISSING),
+            oferece_secretaria=not bool(value),
+        )
+    if kind == "endereco_igreja":
+        value = _display_text(info.endereco_institucional) if info is not None else None
+        return PublicInfoResolution(
+            resposta=_public_reply(f"Endereço da igreja: {value}." if value else _CANONICAL_MISSING),
+            oferece_secretaria=not bool(value),
+        )
+    if info is None or bairro is None:
+        return PublicInfoResolution(
+            resposta=_public_reply(_CANONICAL_MISSING),
+            oferece_secretaria=True,
+        )
+    bairro_key = canonical_public_bairro_key(bairro)
+    cell = next(
+        (
+            candidate
+            for raw in info.celulas
+            if (candidate := _canonical_cell_for_reply(raw)) is not None
+            and _normalized(candidate.bairro) == bairro_key
+        ),
+        None,
+    )
+    if cell is None:
+        return PublicInfoResolution(
+            resposta=_public_reply(_CANONICAL_MISSING),
+            oferece_secretaria=True,
+        )
+    reply = (
+        f"Há uma célula com informações públicas no bairro {cell.bairro}: {cell.nome}."
+    )
+    meeting = _canonical_meeting(cell)
+    if meeting is not None:
+        reply = f"{reply} Encontro: {meeting}."
+    return PublicInfoResolution(
+        resposta=_public_reply(f"{reply} {_CELL_SECRETARY_OFFER}"),
+        oferece_secretaria=True,
+    )
 
 
 def resolve_public_info_reply(
@@ -343,7 +488,7 @@ def resolve_public_info_reply(
     absence reply and cannot fall through to an inferred data source.
     """
 
-    request = _request(current_text)
+    request = canonical_public_info_request(current_text)
     if request is None:
         return None
     info = project_public_info(public_info)

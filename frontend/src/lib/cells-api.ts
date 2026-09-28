@@ -32,6 +32,8 @@ export interface CellSummary {
   horario: string | null;
   coberturaEspiritual: string;
   ativo: boolean;
+  bairro?: string | null;
+  divulgarWhatsapp?: boolean;
 }
 
 /** Alerta aberto sobre um liderado da célula (cell_alerts). */
@@ -58,6 +60,9 @@ export interface UpsertCellInput {
   horario?: string | null;
   coberturaEspiritual: string;
   ativo?: boolean;
+  /** Só enviar quando /igreja/cadastro/capabilities declarar version:1. */
+  bairro?: string | null;
+  divulgarWhatsapp?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +211,8 @@ export async function upsertCell(
       horario: input.horario ?? null,
       coberturaEspiritual: input.coberturaEspiritual,
       ativo: input.ativo ?? true,
+      ...(input.bairro !== undefined ? { bairro: input.bairro } : {}),
+      ...(input.divulgarWhatsapp !== undefined ? { divulgarWhatsapp: input.divulgarWhatsapp } : {}),
     }),
   });
   if (!res.ok) {

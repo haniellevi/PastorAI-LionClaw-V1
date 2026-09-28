@@ -18,7 +18,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
-import { PublicAgentProfile } from "@/components/config/PublicAgentProfile";
 import { Toggle } from "@/components/ui/Toggle";
 import { SessionExpiredError } from "@/lib/api";
 import {
@@ -456,7 +455,6 @@ export function AgenteScreen() {
           </div>
         </div>
 
-        {token ? <PublicAgentProfile token={token} expireSession={expireSession} /> : null}
 
         {/* ── Requisição de mudança ao master ──────────────────────────── */}
         <form

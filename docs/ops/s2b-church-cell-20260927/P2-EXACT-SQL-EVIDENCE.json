@@ -1,0 +1,13 @@
+{
+  "recorded_at": "2026-09-27T12:28:02.511745+00:00",
+  "base": "7a00383576878f90c1eb35bfd8648a09c4152529",
+  "migration": "20260927_120000_church_cell_public_data.sql",
+  "migration_sha256": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
+  "test_sha256": "d7272f92e164d347fe2dd92c7bb5f7a647afca8c29f596f2ef50a54a66509ce6",
+  "namespace": "public",
+  "sql_original_unchanged": true,
+  "postgres": "17.6-trixie",
+  "database": "s2b_exact_sql_test descartável sintético",
+  "proofs_passed": 4,
+  "limits": "Baseline sintética; sem DEV/PROD ou providers. Não comprova schema/ledger real nem deploy."
+}

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { fetchChurchCadastroCapability } from "@/lib/church-cadastro-api";
 import {
   baixarAlert,
   fetchCellDetail,
@@ -66,12 +67,14 @@ export function CelulasScreen() {
   const [editing, setEditing] = useState<CellSummary | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [publicDataEnabled, setPublicDataEnabled] = useState(false);
 
   const [busyAlert, setBusyAlert] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
 
   const roles = user?.roles ?? [];
   const canManage = isLeader(roles);
+  const canPublish = roles.some((role) => role === "admin" || role === "pastor");
   const canAddMember = canAddMemberInLegacy(roles);
 
   const handleSessionError = useCallback(
@@ -84,6 +87,20 @@ export function CelulasScreen() {
     },
     [expireSession],
   );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setPublicDataEnabled(false);
+    if (token) {
+      void fetchChurchCadastroCapability(token, controller.signal).then(
+        (enabled) => { if (!controller.signal.aborted) setPublicDataEnabled(enabled); },
+        (reason: unknown) => {
+          if (!controller.signal.aborted && reason instanceof SessionExpiredError) expireSession();
+        },
+      );
+    }
+    return () => controller.abort();
+  }, [token, user?.appUserId, user?.churchId, expireSession]);
 
   const load = useCallback(
     async (mode: "initial" | "retry") => {
@@ -407,6 +424,8 @@ export function CelulasScreen() {
           leaders={leaderOptions}
           coverageOptions={coverageOptions}
           canManageLeadership={false}
+          publicDataEnabled={publicDataEnabled}
+          canPublish={canPublish}
           busy={saving}
           error={formError}
           onClose={() => {

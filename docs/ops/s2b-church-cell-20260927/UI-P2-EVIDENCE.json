@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-09-27T12:20:09.065643+00:00",
+  "base": "7a00383576878f90c1eb35bfd8648a09c4152529",
+  "files": {
+    "frontend/e2e/critical-flows.spec.ts": "9c1ccefb403dc7976042590ae3665ae1d5233b18b811c181254056f7eaef3893",
+    "frontend/e2e/support/mock-api.mjs": "f97629c2b6afe12f15a0a6a8523a4a6d367ce43e7a01b17a93a6615d01aef178",
+    "frontend/src/app/performance-boundaries.test.ts": "8d9c7353743dd94d017a844ee61dfc8dd2250f4ab499b5fac0826d3361ae4d7f",
+    "frontend/src/components/cells/CellFormModal.test.ts": "e130dd83a9836b3b943a0130f0433cbd4d648b0e0497ab319755fb2329087488",
+    "frontend/src/components/cells/CellFormModal.tsx": "70d4b2a82685c0a4987aec1f90d91187b4cfa67c882ea4944150cbe9b8293dc7",
+    "frontend/src/components/cells/CelulasScreen.tsx": "cde238700a29ac244bba4feb24557439576c81e2752c74de206605bde311ecf9",
+    "frontend/src/components/central-celula/ManageCellsPanel.tsx": "9fbbdaf98c73ef49a80bd772a8be04d1539a836164c2045196208a10c699c21e",
+    "frontend/src/components/config/AgenteScreen.tsx": "cfa41497130533fd5704ba99811288d8bee4f9ff0478957be9ddb7ebd0a6fbc0",
+    "frontend/src/components/config/CadastroIgrejaScreen.test.tsx": "a413717171514ce9782b376f367ac6950f2f1e79b0ab319edb8e9fc50629f0f3",
+    "frontend/src/components/config/CadastroIgrejaScreen.tsx": "eece5b66bec3975224c07c480ee62844565418269d64c7b6d2b15424744f5a8d",
+    "frontend/src/components/shell/ScreenView.tsx": "b71149c680c74045cf8d7b227d4f857bef3c316e599a22944a70d53d1bd1a696",
+    "frontend/src/components/shell/Sidebar.test.ts": "634292ca253673377edbde4f11d0c4bb9b4769a697dc288ca8f09c641d9ecf50",
+    "frontend/src/components/shell/screen-loaders.ts": "326a34e29346bf58453ff71d1a732b2ef0ed8c083b733b8dd84aaa62a469c583",
+    "frontend/src/lib/cells-api.s2b.test.ts": "036d8bfd999a0f2f43ae4aa63d9d4d01320c720d718723a483b5feef56c61a57",
+    "frontend/src/lib/cells-api.ts": "9c481ba9c3b8a139aca6496d906b154265038364515b574dd940ddea42076ca9",
+    "frontend/src/lib/church-cadastro-api.test.ts": "d333c42c74dc497f54d8cbb9011d13949e270eee4c8f3bce28b8efc24adcf874",
+    "frontend/src/lib/church-cadastro-api.ts": "988585cf771edc44046ed0978b296e60947f4863bc091a22e696f3e366e1ef7b",
+    "frontend/src/lib/navigation.ts": "24511276118fcbc3a331ccaa66a8e3d9a6d41534f70c4347e8a85d2106f34c15",
+    "frontend/src/lib/permissions.ts": "1e69a6bba26c0771b21c281fe5fcd8275191b9fc4860f813fbd85269ab803599"
+  },
+  "unit": {
+    "passed": 915,
+    "command": "Node24 npm test -- --reporter=default",
+    "log_sha256": "dbcb4b2c2bde2fc8d378d1e509d4a48627b3f39a2ca9403e1678298d12aaa3a6"
+  },
+  "build": {
+    "result": "passed including typecheck",
+    "command": "Node24 npm run build",
+    "log_sha256": "73867a633d1cae7ce2251ee4eabf14d5fc81924985461178a3266a0ba72db084",
+    "scope": "Build antes do delta adicional de aria/alerta; build final será conferido no CI do novo head."
+  },
+  "limits": "UI isolada e integrada byte-idênticas. Testes locais sintéticos, sem prova de deploy. E2E do novo head será executado no CI.",
+  "typecheck": {
+    "result": "passed final delta",
+    "log_sha256": "6c42e9ce6631cfe53e8a6e61df8ddb9916d84349506a772349f64d2f81f06477"
+  }
+}

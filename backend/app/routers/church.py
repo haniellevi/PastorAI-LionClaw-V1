@@ -23,14 +23,14 @@ import binascii
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.models import Igreja
 from app.db.session import get_db
-from app.deps import CurrentUser, require_role
+from app.deps import CurrentUser, get_current_user, require_role
 from app.services.storage import (
     MAX_LOGO_BYTES,
     StorageError,
@@ -75,6 +75,29 @@ class BrandingOut(BaseModel):
     logoUrl: str | None = None  # noqa: N815 - external contract uses camelCase
 
 
+class ChurchCadastroOut(BaseModel):
+    enderecoInstitucional: str | None  # noqa: N815 - external HTTP contract
+    horariosCulto: str | None  # noqa: N815 - external HTTP contract
+
+
+class ChurchCadastroPayload(ChurchCadastroOut):
+    """Strict replacement payload for canonical institutional facts."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    @field_validator("enderecoInstitucional", "horariosCulto")
+    @classmethod
+    def _optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if len(value) > 400:
+            raise ValueError("campo deve ter no máximo 400 caracteres")
+        return value
+
+
 def _sniff_image(data: bytes) -> tuple[str, str] | None:
     """Identifica PNG/JPEG/WebP pelos magic bytes. None = não é formato aceito."""
     for mime, ext, matches in _MAGIC_SNIFFERS:
@@ -95,6 +118,46 @@ def _own_igreja(db: Session, current_user: CurrentUser) -> Igreja:
             detail="Igreja não encontrada",
         )
     return igreja
+
+
+def _cadastro_out(igreja: Igreja) -> ChurchCadastroOut:
+    return ChurchCadastroOut(
+        enderecoInstitucional=igreja.endereco_institucional,
+        horariosCulto=igreja.horarios_culto,
+    )
+
+
+@router.get("/cadastro/capabilities")
+def get_church_cadastro_capabilities(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, int]:
+    """Advertise the additive S2b API without reading tenant data."""
+
+    del current_user
+    return {"version": 1}
+
+
+@router.get("/cadastro", response_model=ChurchCadastroOut)
+def get_church_cadastro(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> ChurchCadastroOut:
+    return _cadastro_out(_own_igreja(db, current_user))
+
+
+@router.put("/cadastro", response_model=ChurchCadastroOut)
+def put_church_cadastro(
+    payload: ChurchCadastroPayload,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> ChurchCadastroOut:
+    """Replace only the two canonical public Igreja facts for this tenant."""
+
+    igreja = _own_igreja(db, current_user)
+    igreja.endereco_institucional = payload.enderecoInstitucional
+    igreja.horarios_culto = payload.horariosCulto
+    db.commit()
+    return _cadastro_out(igreja)
 
 
 def _decode_and_validate(payload: UploadLogoRequest) -> tuple[bytes, str, str]:

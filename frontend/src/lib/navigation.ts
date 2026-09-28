@@ -124,6 +124,11 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    id: "configuracoes",
+    label: "Configurações",
+    items: [{ target: "cadastro-igreja", label: "Cadastro da igreja", icon: "image" }],
+  },
+  {
     id: "sistema",
     label: "Sistema",
     items: [
@@ -279,6 +284,11 @@ export const SCREEN_META: Record<
     title: "Identidade Visual",
     crumb: "Gestão",
     info: "Logo e aparência da igreja no sistema. Opcional: sem logo, mostramos o nome da igreja.",
+  },
+  "cadastro-igreja": {
+    title: "Cadastro da igreja",
+    crumb: "Configurações",
+    info: "Endereço institucional e horários dos cultos publicados pela igreja.",
   },
   integracoes: {
     title: "Calendário",

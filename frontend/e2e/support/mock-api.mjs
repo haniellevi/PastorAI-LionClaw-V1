@@ -25,6 +25,7 @@ let requests = [];
 let nextRequestId = 1;
 let selectedModel = "gpt-5.6-luna";
 let publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
+let churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
 
 function resetState() {
@@ -32,6 +33,7 @@ function resetState() {
   nextRequestId = 1;
   selectedModel = "gpt-5.6-luna";
   publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
+  churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
   whatsapp = { numero: null, status: "offline", ultimaSync: null };
 }
 
@@ -230,6 +232,30 @@ const server = createServer(async (request, response) => {
     if (method === "GET" && pathname === "/cells") {
       record.status = 200;
       sendJson(response, 200, page([{ id: "00000000-0000-4000-8000-000000000020", nome: "Célula E2E", liderId: profile.appUserId, ativo: true }]));
+      return;
+    }
+    if (method === "GET" && pathname === "/setup/checklist") {
+      record.status = 200;
+      sendJson(response, 200, { items: [], pendingCount: 0 });
+      return;
+    }
+    if (method === "GET" && pathname === "/igreja/cadastro/capabilities") {
+      record.status = 200;
+      sendJson(response, 200, { version: 1 });
+      return;
+    }
+    if (method === "GET" && pathname === "/igreja/cadastro") {
+      record.status = 200;
+      sendJson(response, 200, churchCadastro);
+      return;
+    }
+    if (method === "PUT" && pathname === "/igreja/cadastro") {
+      churchCadastro = {
+        enderecoInstitucional: body?.enderecoInstitucional ?? null,
+        horariosCulto: body?.horariosCulto ?? null,
+      };
+      record.status = 200;
+      sendJson(response, 200, churchCadastro);
       return;
     }
     if (method === "GET" && pathname === "/dashboard/overview") {

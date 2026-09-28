@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa, UserRole
@@ -225,6 +226,8 @@ def make_cell(
     link_grupo: str | None = None,
     link_localizacao: str | None = None,
     mensagem_convite: str | None = None,
+    bairro: str | None = None,
+    divulgar_whatsapp: bool = False,
     ativo: bool = True,
 ):
     return SimpleNamespace(
@@ -242,6 +245,8 @@ def make_cell(
         link_grupo=link_grupo,
         link_localizacao=link_localizacao,
         mensagem_convite=mensagem_convite,
+        bairro=bairro,
+        divulgar_whatsapp=divulgar_whatsapp,
         ativo=ativo,
         created_at=None,
     )
@@ -383,6 +388,133 @@ def test_create_cell_rejects_bad_horario(app) -> None:
     assert resp.status_code == 422
 
 
+def test_central_can_publish_only_active_cell_with_bairro(app) -> None:
+    session = CellSession(app_user=make_app_user(), roles=["pastor"])
+
+    response = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(bairro="Centro", divulgarWhatsapp=True),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["bairro"] == "Centro"
+    assert response.json()["divulgarWhatsapp"] is True
+
+
+def test_central_publishing_normalizes_single_weekday_alias(app) -> None:
+    session = CellSession(app_user=make_app_user(), roles=["pastor"])
+
+    response = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(
+            bairro="Centro",
+            divulgarWhatsapp=True,
+            diaReuniao="Qua",
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["diaReuniao"] == "Quarta-feira"
+
+
+def test_publication_rejects_invalid_weekday_but_unpublished_legacy_value_survives(app) -> None:
+    session = CellSession(app_user=make_app_user(), roles=["pastor"])
+    client = _wire(app, session=session)
+
+    rejected = client.post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(
+            bairro="Centro",
+            divulgarWhatsapp=True,
+            diaReuniao="Quarta e Sábado",
+        ),
+    )
+    allowed = client.post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(diaReuniao="Quarta e Sábado"),
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"] == "dia fora do padrão"
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["diaReuniao"] == "Quarta e Sábado"
+
+
+def test_republishing_rejects_existing_invalid_weekday(app) -> None:
+    cell = make_cell(
+        dia_reuniao="Quarta e Sábado",
+        bairro="Centro",
+        divulgar_whatsapp=True,
+    )
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+    )
+
+    response = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(
+            id=_CELL,
+            bairro="Centro",
+            divulgarWhatsapp=True,
+            diaReuniao="Quarta e Sábado",
+        ),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "dia fora do padrão"
+
+
+def test_cell_leader_resending_equivalent_weekday_alias_is_not_sensitive_change(app) -> None:
+    cell = make_cell(
+        lider_id=_LP,
+        dia_reuniao="Quarta-feira",
+        bairro="Centro",
+        divulgar_whatsapp=True,
+    )
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["lider_celula"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_LP)],
+        actor_pessoa_id=_LP,
+    )
+
+    response = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(id=_CELL, bairro="Jardim", diaReuniao="quarta feira"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert cell.bairro == "Jardim"
+    assert cell.dia_reuniao == "Quarta-feira"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        _full_payload(divulgarWhatsapp=True),
+        _full_payload(bairro="Centro", divulgarWhatsapp=True, ativo=False),
+    ),
+)
+def test_publication_requires_active_cell_and_bairro(app, payload) -> None:
+    session = CellSession(app_user=make_app_user(), roles=["pastor"])
+
+    response = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=payload
+    )
+
+    assert response.status_code == 422
+    assert session.committed is False
+
+
 # ---- elegibilidade do líder (regra 2026-07-06) -----------------------------
 _CELL2 = "00000000-0000-0000-0000-0000000000e9"
 
@@ -458,6 +590,47 @@ def test_edit_cell_keeping_same_leader_passes(app) -> None:
     )
     assert resp.status_code == 200, resp.text
     assert str(cell.lider_id) == _P1
+
+
+def test_cell_leader_can_edit_own_bairro_but_cannot_publish(app) -> None:
+    cell = make_cell(lider_id=_LP, bairro="Centro", divulgar_whatsapp=False)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["lider_celula"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_LP)],
+        actor_pessoa_id=_LP,
+    )
+    client = _wire(app, session=session)
+
+    edit = client.post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(id=_CELL, bairro="Jardim"),
+    )
+    publish = client.post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(id=_CELL, bairro="Jardim", divulgarWhatsapp=True),
+    )
+
+    assert edit.status_code == 200, edit.text
+    assert cell.bairro == "Jardim"
+    assert publish.status_code == 403
+    assert cell.divulgar_whatsapp is False
+
+
+def test_legacy_cell_payload_omits_new_fields_without_clearing_them(app) -> None:
+    cell = make_cell(bairro="Centro", divulgar_whatsapp=True)
+    session = CellSession(app_user=make_app_user(), roles=["pastor"], cells=[cell])
+
+    response = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(id=_CELL)
+    )
+
+    assert response.status_code == 200, response.text
+    assert cell.bairro == "Centro"
+    assert cell.divulgar_whatsapp is True
 
 
 def test_edit_cell_changing_leader_validates(app) -> None:

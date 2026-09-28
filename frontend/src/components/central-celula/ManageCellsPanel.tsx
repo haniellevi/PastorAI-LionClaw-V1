@@ -26,6 +26,7 @@ import { AddCellMemberModal } from "@/components/cells/InviteMemberModal";
 import { buildCellLeaderOptions } from "@/components/cells/cell-leadership";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { fetchChurchCadastroCapability } from "@/lib/church-cadastro-api";
 import {
   fetchCellMembros,
   fetchCellsFull,
@@ -61,7 +62,7 @@ export function ManageCellsPanel({
   onToast: (t: CentralToast) => void;
   onChanged: () => void;
 }) {
-  const { expireSession } = useAuth();
+  const { user, expireSession } = useAuth();
 
   const [cells, setCells] = useState<CellSummary[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -73,6 +74,20 @@ export function ManageCellsPanel({
   const [editing, setEditing] = useState<CellSummary | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [publicDataEnabled, setPublicDataEnabled] = useState(false);
+  const canPublish = user?.roles.some((role) => role === "admin" || role === "pastor") ?? false;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setPublicDataEnabled(false);
+    void fetchChurchCadastroCapability(token, controller.signal).then(
+      (enabled) => { if (!controller.signal.aborted) setPublicDataEnabled(enabled); },
+      (reason: unknown) => {
+        if (!controller.signal.aborted && reason instanceof SessionExpiredError) expireSession();
+      },
+    );
+    return () => controller.abort();
+  }, [token, user?.appUserId, user?.churchId, expireSession]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
@@ -460,6 +475,8 @@ export function ManageCellsPanel({
           leaders={leaderOptions}
           coverageOptions={coverageOptions}
           canManageLeadership
+          publicDataEnabled={publicDataEnabled}
+          canPublish={canPublish}
           busy={saving}
           error={formError}
           onClose={() => {

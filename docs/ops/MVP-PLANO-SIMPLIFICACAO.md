@@ -365,6 +365,9 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       backend `e6aafc2` implantado
       ([registro da sessão](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)).
       Informações públicas da Filadélfia ainda vazias no painel.
+      A S2b aprovada abaixo substitui a fonte pública por Igreja/Celula e
+      mantém novo gate de migration/deploy. Esta atualização da PR426 não
+      aplicou banco compartilhado nem fez deploy.
 - [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
       nem política pública para endereços residenciais; indicação por bairro
       não representa a célula mais próxima.
@@ -387,8 +390,10 @@ Uma PR por fatia:
   Perguntas `que horas comeca o culto?`, `que horas e o culto`, `horario do culto`
   e `quando e o culto`, com/sem acento e pontuação, consultam cadastro público
   ou retornam ausência, sem cair no LLM sem horário.
-- S3: identidade/papel com confirmação Clerk e ferramentas readonly por papel;
-  perguntas dependentes Jev B/C/D somente depois das respectivas decisoras.
+- S3: identidade/papel derivados no servidor e ferramentas por papel, conforme
+  a revisão WhatsApp-first de 27/09 abaixo; Clerk para leituras sensíveis,
+  confirmação explícita por ação ministerial comum. Perguntas dependentes Jev
+  B/C/D somente depois das respectivas decisoras.
 
 Dev/holdout sintéticos ficam congelados antes de ajustar perguntas e limiares.
 Ativação exige holdout aferido (crise recall >=90%, FPR<10%, humano recall>=85%,
@@ -397,6 +402,40 @@ Mock verde não aferiu qualidade do Jev. Medir handoff total no holdout; no
 piloto, mais de 30% das conversas avaliadas na janela diária exige pausa e
 revisão. Corpus enriquecido não estima prevalência real. Sem provider real,
 DEV ou PROD nesta preparação; piloto continua interno, sem divulgação pública.
+
+#### Ordem WhatsApp-first aprovada por Raniel, 27/09/2026
+
+Base: [PRD0611, delta-046/047/052](../Docs20260611_163530/PRD20260611_163530.md)
+e [cobertura](../ai/PRD-COVERAGE.md). O agente é o assistente do sistema:
+rotinas comuns pelo WhatsApp; painel para configuração, governança e ações
+sensíveis. Esta ordem substitui Clerk obrigatório para todo dado não público,
+sem declarar as próximas verticais implementadas.
+
+0. **Agora: S2b aprovada**, Igreja/Celula como fonte pública, oferta determinística
+   de secretaria e UI protegida por suporte da API. Validar em ambiente local
+   descartável e no CI, conforme §3.5. O [roteiro DEV histórico](s2b-church-cell-20260927/RECONCILIAR-DEV-RANIEL.md)
+   foi supersedido; DEV na nuvem não é pré-requisito de merge ou migration.
+   Migration/deploy PROD continuam sujeitos ao gate humano próprio de release.
+1. **S3 revisada:** `PrivilegeContext` derivado no servidor por telefone único,
+   vínculo ativo `app_users.pessoa_id -> user_roles` e `celulas.lider_id`;
+   ambiguidade encaminha a humano. Ações ministeriais comuns por telefone
+   exigem confirmação explícita por ação; leituras sensíveis exigem Clerk;
+   finanças nunca são liberadas por telefone. Revalidar tenant/papel no uso.
+2. **V1: relatório de célula pelo WhatsApp**, primeira vertical delta-052.
+   Integrar D6 coordinator e `transcribe_audio`: lembrete, texto/áudio, resumo
+   editável, confirmação, gravação e comprovante somente após commit. O plano
+   deve fixar consentimento, retenção de áudio/resumo, conteúdo do comprovante
+   e expiração/descarte quando o resumo não for confirmado.
+3. **V2: agenda**, consultas e lembretes pela outbox única.
+4. **V3: consolidação**, decisão para consolidação e alertas de 24h/fonovisita.
+5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
+6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
+
+Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
+merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;
+as fatias seguintes ainda exigem seus planos. Mudança backend exige aviso antes
+do merge e deploy manual; nova migration mantém backup e gate de banco.
+Nenhum merge, aprovação ou teste autoriza provedores/envios reais.
 
 #### Trilha Jev histórica (J0/sombra), 26/09
 

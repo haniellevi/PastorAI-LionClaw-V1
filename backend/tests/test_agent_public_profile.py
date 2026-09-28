@@ -1,4 +1,4 @@
-"""HTTP contract for the per-tenant structured public agent profile."""
+"""The legacy public-profile route reads canonical church facts only."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.models import AgentConfig
+from app.db.models import AgentConfig, Celula, Igreja
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
@@ -19,20 +19,25 @@ _TENANT_B = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
 
 class _Result:
-    def __init__(self, scalar: object | None) -> None:
-        self._scalar = scalar
+    def __init__(self, *, one=None, rows=()) -> None:
+        self._one = one
+        self._rows = rows
 
-    def scalar_one_or_none(self) -> object | None:
-        return self._scalar
+    def one_or_none(self):
+        return self._one
+
+    def all(self):
+        return list(self._rows)
 
 
 class PublicProfileSession(FakeSession):
-    """Fake that applies the router's actual AgentConfig tenant predicate."""
+    """Apply tenant and publication predicates from the real SELECTs."""
 
-    def __init__(self, *, store: list[object] | None = None, roles=None) -> None:
+    def __init__(self, *, churches=None, cells=(), roles=None) -> None:
         super().__init__(app_user=make_app_user(), roles=roles or ["admin"])
-        self.store = store or []
-        self.agent_config_queries: list[object] = []
+        self.churches = churches or {}
+        self.cells = cells
+        self.public_queries = []
 
     @staticmethod
     def _predicates(statement: object) -> dict[str, str]:
@@ -54,36 +59,49 @@ class PublicProfileSession(FakeSession):
 
     def execute(self, statement, params=None):
         descriptions = list(getattr(statement, "column_descriptions", []) or [])
-        entity = descriptions[0].get("entity") if descriptions else None
-        if entity is AgentConfig:
-            self.agent_config_queries.append(statement)
-            predicates = self._predicates(statement)
-            row = next(
-                (
-                    config
-                    for config in self.store
-                    if all(str(getattr(config, key, None)) == value for key, value in predicates.items())
-                ),
-                None,
-            )
-            return _Result(row)
+        entities = {item.get("entity") for item in descriptions}
+        names = [item.get("name") for item in descriptions]
+        if AgentConfig in entities:
+            raise AssertionError("legacy AgentConfig JSON must not be queried")
+        if entities == {Igreja} and names == ["endereco_institucional", "horarios_culto"]:
+            self.public_queries.append(statement)
+            tenant_id = self._predicates(statement).get("id")
+            assert tenant_id is not None
+            return _Result(one=self.churches.get(tenant_id))
+        if entities == {Celula}:
+            assert names == ["bairro", "nome", "dia_reuniao", "horario"]
+            sql = str(statement)
+            assert "celulas.ativo IS true" in sql
+            assert "celulas.divulgar_whatsapp IS true" in sql
+            assert "celulas.bairro IS NOT NULL" in sql
+            assert statement._limit_clause.value == 5
+            self.public_queries.append(statement)
+            tenant_id = self._predicates(statement).get("igreja_id")
+            assert tenant_id is not None
+            rows = [
+                (cell.bairro, cell.nome, cell.dia_reuniao, cell.horario)
+                for cell in self.cells
+                if str(cell.igreja_id) == tenant_id
+                and cell.ativo and cell.divulgar_whatsapp and cell.bairro is not None
+            ]
+            return _Result(rows=rows[:5])
         return super().execute(statement, params)
 
 
-def _config(
-    tenant_id: uuid.UUID = _TENANT_A,
-    *,
-    ativo: bool = False,
-    public_info: object | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        igreja_id=tenant_id,
-        nome="Agente sintético",
-        tom="acolhedor",
-        comportamento="Tom externo que não pode ser alterado.",
-        ativo=ativo,
-        informacoes_publicas={} if public_info is None else public_info,
-    )
+def _cell(tenant_id: uuid.UUID, **overrides):
+    values = {
+        "igreja_id": tenant_id,
+        "bairro": "Centro",
+        "nome": "Esperança",
+        "dia_reuniao": "Terça-feira",
+        "horario": "19:00",
+        "ativo": True,
+        "divulgar_whatsapp": True,
+        "endereco": "RUA-RESIDENCIAL-PRIVADA",
+        "link_grupo": "LINK-PRIVADO",
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 def _client(app, session: PublicProfileSession) -> TestClient:
@@ -92,22 +110,9 @@ def _client(app, session: PublicProfileSession) -> TestClient:
     return TestClient(app)
 
 
-def _payload(**overrides: object) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "enderecoIgreja": "Rua da Igreja, 100",
-        "horariosCulto": "Domingo, 19:00",
-        "celulas": [
-            {"bairro": "Centro", "nome": "Esperança", "encontro": "terça, 19h"}
-        ],
-    }
-    payload.update(overrides)
-    return payload
-
-
-def test_get_public_profile_returns_empty_shape_when_config_is_absent(app) -> None:
-    response = _client(app, PublicProfileSession()).get(
-        "/agent/public-profile", headers=_AUTH
-    )
+def test_get_public_profile_returns_empty_shape_without_canonical_church(app) -> None:
+    session = PublicProfileSession(churches={str(_TENANT_B): ("Rua B", "Sábado")})
+    response = _client(app, session).get("/agent/public-profile", headers=_AUTH)
 
     assert response.status_code == 200
     assert response.json() == {
@@ -118,110 +123,79 @@ def test_get_public_profile_returns_empty_shape_when_config_is_absent(app) -> No
             "celulas": [],
         },
     }
+    assert len(session.public_queries) == 1
 
 
-def test_put_public_profile_requires_existing_config_without_creating_one(app) -> None:
-    session = PublicProfileSession()
-
-    response = _client(app, session).put(
-        "/agent/public-profile", headers=_AUTH, json=_payload()
+def test_get_public_profile_uses_only_tenant_canonical_published_facts(app) -> None:
+    session = PublicProfileSession(
+        churches={
+            str(_TENANT_A): ("Rua Institucional A, 100", "Domingo, 19:00"),
+            str(_TENANT_B): ("Rua Institucional B, 200", "Sábado, 18:00"),
+        },
+        cells=[
+            _cell(_TENANT_A),
+            _cell(_TENANT_A, bairro="Oculto", divulgar_whatsapp=False),
+            _cell(_TENANT_A, bairro="Inativo", ativo=False),
+            _cell(_TENANT_A, bairro=None),
+            _cell(_TENANT_B, nome="Célula B"),
+        ],
     )
-
-    assert response.status_code == 409
-    assert session.added == []
-    assert session.commits == 0
-
-
-def test_admin_replaces_own_public_profile_in_canonical_snake_case(app) -> None:
-    config = _config(ativo=False)
-    session = PublicProfileSession(store=[_config(_TENANT_B), config])
-
-    response = _client(app, session).put(
-        "/agent/public-profile", headers=_AUTH, json=_payload()
-    )
+    response = _client(app, session).get("/agent/public-profile", headers=_AUTH)
 
     assert response.status_code == 200
     assert response.json() == {
         "configured": True,
         "informacoesPublicas": {
-            "enderecoIgreja": "Rua da Igreja, 100",
+            "enderecoIgreja": "Rua Institucional A, 100",
             "horariosCulto": "Domingo, 19:00",
             "celulas": [
-                {"bairro": "Centro", "nome": "Esperança", "encontro": "terça, 19h"}
+                {"bairro": "Centro", "nome": "Esperança", "encontro": "Terça-feira, 19:00"}
             ],
         },
     }
-    assert config.informacoes_publicas == {
-        "endereco_igreja": "Rua da Igreja, 100",
-        "horarios_culto": "Domingo, 19:00",
-        "celulas": [
-            {"bairro": "Centro", "nome": "Esperança", "encontro": "terça, 19h"}
-        ],
-    }
-    assert config.ativo is False
-    assert config.comportamento == "Tom externo que não pode ser alterado."
-    assert session.commits == 1
-    assert all(
-        "agent_configs.igreja_id" in str(query)
-        for query in session.agent_config_queries
-    )
+    assert "Rua Institucional B" not in response.text
+    assert "RUA-RESIDENCIAL-PRIVADA" not in response.text
+    assert "LINK-PRIVADO" not in response.text
+    assert len(session.public_queries) == 2
 
 
-def test_put_public_profile_replaces_omitted_fields_with_empty_values(app) -> None:
-    config = _config(
-        public_info={
-            "endereco_igreja": "Rua anterior, 10",
-            "horarios_culto": "Sábado, 18:00",
-            "celulas": [{"bairro": "Centro", "nome": "Anterior", "encontro": None}],
-        }
-    )
-    session = PublicProfileSession(store=[config])
-
-    response = _client(app, session).put(
-        "/agent/public-profile",
-        headers=_AUTH,
-        json={"enderecoIgreja": "Rua atual, 20"},
-    )
+def test_get_public_profile_never_falls_back_to_agent_config_json(app) -> None:
+    session = PublicProfileSession(churches={str(_TENANT_A): (None, None)})
+    response = _client(app, session).get("/agent/public-profile", headers=_AUTH)
 
     assert response.status_code == 200
-    assert config.informacoes_publicas == {
-        "endereco_igreja": "Rua atual, 20",
-        "horarios_culto": None,
+    assert response.json()["informacoesPublicas"] == {
+        "enderecoIgreja": None,
+        "horariosCulto": None,
         "celulas": [],
     }
+    assert session.commits == 0
 
 
 @pytest.mark.parametrize(
     "payload",
     (
-        _payload(enderecoIgreja="NOME-SINTETICO-90000-0000"),
-        _payload(ativo=True),
-        {"endereco_igreja": "Rua sintética, 100", "celulas": []},
+        {"enderecoIgreja": "Rua A, 100"},
+        {"igrejaId": str(_TENANT_B), "segredo": "NOME-SINTETICO-90000-0000"},
+        {},
     ),
 )
-def test_public_profile_rejects_extra_or_private_input_without_echoing_it(
-    app,
-    payload: dict[str, object],
-) -> None:
-    config = _config()
-    session = PublicProfileSession(store=[config])
-    secret = "NOME-SINTETICO-90000-0000"
-
+def test_put_public_profile_is_read_only_without_echo_or_write(app, payload) -> None:
+    session = PublicProfileSession(churches={str(_TENANT_A): ("Rua A", "Domingo")})
     response = _client(app, session).put(
-        "/agent/public-profile",
-        headers=_AUTH,
-        json=payload,
+        "/agent/public-profile", headers=_AUTH, json=payload
     )
 
-    assert response.status_code == 422
-    assert secret not in response.text
-    assert config.informacoes_publicas == {}
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "public_profile_read_only"
+    assert "NOME-SINTETICO-90000-0000" not in response.text
+    assert session.public_queries == []
+    assert session.added == []
     assert session.commits == 0
 
 
-def test_public_profile_is_admin_only(app) -> None:
-    response = _client(
-        app, PublicProfileSession(store=[_config()], roles=["lider_celula"])
-    ).get("/agent/public-profile", headers=_AUTH)
-
+@pytest.mark.parametrize("method", ["get", "put"])
+def test_public_profile_remains_admin_only(app, method: str) -> None:
+    client = _client(app, PublicProfileSession(roles=["lider_celula"]))
+    response = getattr(client, method)("/agent/public-profile", headers=_AUTH)
     assert response.status_code == 403

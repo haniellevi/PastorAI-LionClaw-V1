@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 # Fuso canônico do produto (mesmo usado no sync Google Calendar).
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 
-_FEIRA_SUFFIX = "-feira"
+_FEIRA_SUFFIXES = ("-feira", " feira")
 
 # Índice de dia da semana idêntico a `date.weekday()`: segunda=0 … domingo=6.
 _FULL_NAMES: dict[str, int] = {
@@ -48,6 +48,15 @@ _ABBREVIATIONS: dict[str, int] = {
 }
 # Allowlist FECHADA = nomes completos ∪ abreviações (14 tokens).
 _WEEKDAY_BY_TOKEN: dict[str, int] = {**_FULL_NAMES, **_ABBREVIATIONS}
+_WEEKDAY_LABELS = (
+    "Segunda-feira",
+    "Terça-feira",
+    "Quarta-feira",
+    "Quinta-feira",
+    "Sexta-feira",
+    "Sábado",
+    "Domingo",
+)
 
 # HH:MM (24h) — espelha o CHECK de celulas.horario (PR1).
 _HORA_RE = re.compile(r"^([01][0-9]|2[0-3]):([0-5][0-9])$")
@@ -68,12 +77,14 @@ def _strip_accents(value: str) -> str:
 
 
 def normalize_dia_reuniao(value: str | None) -> str:
-    """Normaliza o rótulo: minúsculo, sem acento, trim, sem sufixo ``-feira``."""
+    """Normaliza por allowlist, preservando espaços e hífens internos."""
     if value is None:
         return ""
     token = _strip_accents(value).strip().lower()
-    if token.endswith(_FEIRA_SUFFIX):
-        token = token[: -len(_FEIRA_SUFFIX)]
+    for suffix in _FEIRA_SUFFIXES:
+        if token.endswith(suffix):
+            token = token[: -len(suffix)]
+            break
     return token.strip()
 
 
@@ -90,6 +101,12 @@ def parse_weekday(value: str | None) -> int:
     if weekday is None:
         raise InvalidDiaReuniao(f"dia_reuniao não reconhecido: {value!r}")
     return weekday
+
+
+def canonical_weekday_label(value: str | None) -> str:
+    """Retorna o rótulo público canônico de um único dia reconhecido."""
+
+    return _WEEKDAY_LABELS[parse_weekday(value)]
 
 
 def _parse_hora(hora: str | None) -> tuple[int, int] | None:

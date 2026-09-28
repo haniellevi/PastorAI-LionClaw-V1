@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from sqlalchemy import case, update
 from sqlalchemy.orm import Session
 
-from app.db.models import Message
+from app.db.models import Conversation, Message
 from app.domain.agent_reply import (
     AGENT_REPLY_AMBIGUOUS,
     AGENT_REPLY_EXECUTING,
@@ -56,3 +57,37 @@ def fence_agent_replies_for_handoff(
             )
         )
     )
+    # An existing public-cell offer cannot survive an explicit human handoff or
+    # opt-out fence.  This update runs under the caller's Conversation lock and
+    # deliberately does not create a response marker for a different inbound.
+    session.execute(
+        update(Conversation)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.igreja_id == igreja_id,
+            Conversation.secretaria_oferta_estado.in_(
+                ("preparada", "aceite_aguardando_ancora", "pendente")
+            ),
+        )
+        .values(
+            secretaria_oferta_estado="cancelada",
+            secretaria_oferta_expira_em=None,
+        )
+    )
+
+
+def mark_conversation_for_handoff_locked(
+    session: Session,
+    *,
+    conversation: Conversation,
+) -> None:
+    """Mark an already locked conversation human and fence unsent replies."""
+
+    conversation.estado = "humano"
+    fence_agent_replies_for_handoff(
+        session,
+        igreja_id=conversation.igreja_id,
+        conversation_id=conversation.id,
+    )
+    if conversation.assumido_por is None and conversation.espera_desde is None:
+        conversation.espera_desde = dt.datetime.now(dt.UTC)

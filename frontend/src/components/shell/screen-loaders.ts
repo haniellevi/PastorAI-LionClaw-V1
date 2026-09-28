@@ -12,6 +12,8 @@ export const loadAssinaturaScreen = () =>
 export const loadEquipeScreen = () => import("@/components/config/EquipeScreen");
 export const loadIdentidadeVisualScreen = () =>
   import("@/components/config/IdentidadeVisualScreen");
+export const loadCadastroIgrejaScreen = () =>
+  import("@/components/config/CadastroIgrejaScreen");
 export const loadIntegracoesScreen = () =>
   import("@/components/config/IntegracoesScreen");
 export const loadPermissoesScreen = () =>
@@ -51,6 +53,7 @@ const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
   assinatura: loadAssinaturaScreen,
   equipe: loadEquipeScreen,
   identidade: loadIdentidadeVisualScreen,
+  "cadastro-igreja": loadCadastroIgrejaScreen,
   integracoes: loadIntegracoesScreen,
   permissoes: loadPermissoesScreen,
   setup: loadSetupChecklistScreen,

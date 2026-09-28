@@ -612,10 +612,59 @@ def _build_cleanup_tasks(
     return tuple(tasks)
 
 
+def _lock_and_clear_secretaria_offers_before_messages(
+    session: Session,
+    igreja_id: uuid.UUID,
+) -> None:
+    """Take every tenant Conversation lock before any Message delete.
+
+    Worker transitions use Conversation then Message. Locking every conversation
+    in a stable order closes the inverse Message-trigger-Conversation cycle,
+    including a worker that has not staged its offer yet. Clearing the four
+    fields keeps the message-delete trigger as a defensive no-op for this path.
+    """
+
+    conversations = list(
+        session.execute(
+            select(
+                Conversation.id,
+                Conversation.secretaria_oferta_estado,
+                Conversation.secretaria_oferta_message_id,
+                Conversation.secretaria_oferta_expira_em,
+                Conversation.secretaria_oferta_resposta_message_id,
+            )
+            .where(Conversation.igreja_id == igreja_id)
+            .order_by(Conversation.id)
+            .with_for_update()
+        ).all()
+    )
+    for conversation_id, *offer_fields in conversations:
+        if not any(field is not None for field in offer_fields):
+            continue
+        session.execute(
+            update(Conversation)
+            .where(
+                Conversation.igreja_id == igreja_id,
+                Conversation.id == conversation_id,
+            )
+            .values(
+                secretaria_oferta_estado=None,
+                secretaria_oferta_message_id=None,
+                secretaria_oferta_expira_em=None,
+                secretaria_oferta_resposta_message_id=None,
+            )
+        )
+
+
 def delete_tenant_locally(
     session: Session, igreja_id: uuid.UUID, actor: TenantDeletionActor
 ) -> TenantDeletionResult:
     """Persist cleanup work and delete one tenant without calling providers."""
+    # Worker transitions acquire Conversation then Message.  Take every
+    # Conversation lock before Igreja too: an in-flight worker can insert a
+    # Message whose igreja FK needs the Igreja row lock.
+    _lock_and_clear_secretaria_offers_before_messages(session, igreja_id)
+
     igreja = session.execute(
         select(Igreja)
         .where(Igreja.id == igreja_id)
