@@ -28,6 +28,33 @@ Backend e workers rodam em Docker (`deploy/docker-compose.dev.yml`, projeto
 `pastorai-dev`) com o código do checkout atual montado. Só um worktree por vez
 roda a stack: `./dev.sh up` em outro worktree passa a usar o código de lá.
 
+## Prova da instância PostgreSQL local
+
+Antes de executar migration ou seed, `./dev.sh` consulta o
+`system_identifier` pelo container local conhecido e grava um recibo sem segredo
+em `.dev/local-db-identity.json`. O backend recebe somente esse arquivo como
+montagem de leitura; ele é legível pelo `appuser` do container, mas não concede
+acesso ao socket Docker, à configuração ou ao `.env.dev`.
+
+O caminho do recibo é fixado pelo layout do host ou do container. Nenhuma
+variável de ambiente escolhe, cria ou substitui esse arquivo.
+
+Antes de iniciar a stack, o `dev.sh` fixa um endpoint Docker em socket Unix
+local permitido e existente. Ele recusa `DOCKER_HOST` TCP ou SSH e contextos
+que resolvam para eles. Os sockets suportados são o padrão do Docker, o
+rootless do usuário e os caminhos locais do Docker Desktop; o backend nunca
+recebe o socket.
+
+O script Python aceita somente a URL PostgreSQL local canônica
+`127.0.0.1:54322/postgres` e compara o `system_identifier` de
+`pg_control_system()` na própria conexão antes de qualquer DDL ou DML. Por
+isso, uma flag de ambiente ou um túnel loopback na porta esperada não basta. A
+execução também recusa as variáveis libpq que poderiam alterar host, porta,
+banco ou serviço antes de abrir a conexão. A prova reduz enganos de destino no
+ambiente local, mas não é uma atestação
+criptográfica contra quem possa alterar o host, o container ou o próprio
+recibo.
+
 ## Primeira vez
 
 Precisa de Docker, Node 24 (`nvm install`) e da CLI do Supabase, que vem com o
@@ -63,6 +90,8 @@ O `dev.sh` recusa um `.env.dev` com chave ou endereço de produção
 Migration nova: crie o arquivo e rode `./dev.sh migrate`. Se precisar mudá-la
 depois, edite e rode `./dev.sh reset`: no local o banco é descartável. Ao trocar
 para uma branch que não tem uma migration já aplicada, rode `./dev.sh reset`.
+Se a descoberta dos serviços ou o reinício final falhar, `reset` termina com
+erro e não informa sucesso.
 
 ## Dados de teste
 

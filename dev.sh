@@ -23,6 +23,7 @@ state_dir="$root/.dev"
 network="pastorai-supabase-local"
 db_container="supabase_db_pastorai-local"
 node_bin="${PASTORAI_NODE_BIN:-$HOME/.nvm/versions/node/v$(cat "$root/.nvmrc")/bin}"
+docker_endpoint_fixado=""
 
 info() { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
 aviso() { printf '\033[1;33m!\033[0m %s\n' "$*"; }
@@ -62,11 +63,73 @@ garantir_env() {
 
 # --- Supabase local ----------------------------------------------------------
 
+docker_context_host() {
+  local context
+  if [[ -n "${DOCKER_CONTEXT:-}" ]]; then
+    context="$DOCKER_CONTEXT"
+  else
+    context=$(env -u DOCKER_HOST -u DOCKER_CONTEXT docker context show 2>/dev/null) || return 1
+  fi
+  env -u DOCKER_HOST -u DOCKER_CONTEXT docker context inspect "$context" \
+    --format '{{ .Endpoints.docker.Host }}' 2>/dev/null
+}
+
+docker_socket_permitido() {
+  local socket_path="${1#unix://}"
+  case "$socket_path" in
+    /var/run/docker.sock|/run/user/"$UID"/docker.sock|"$HOME"/.docker/run/docker.sock|"$HOME"/.docker/desktop/docker.sock)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+docker_socket_valido() {
+  [[ -S "${1#unix://}" ]]
+}
+
+docker_endpoint_local() {
+  local endpoint
+  if [[ -n "${DOCKER_HOST:-}" ]]; then
+    endpoint="$DOCKER_HOST"
+  else
+    endpoint=$(docker_context_host) || {
+      printf 'Docker local indisponível: não foi possível determinar o endpoint Unix do contexto.\n' >&2
+      return 1
+    }
+  fi
+  if [[ "$endpoint" != unix://* ]] || ! docker_socket_permitido "$endpoint" || ! docker_socket_valido "$endpoint"; then
+    printf 'Docker local indisponível: use um socket Unix local permitido, não TCP, SSH ou contexto remoto.\n' >&2
+    return 1
+  fi
+  printf '%s\n' "$endpoint"
+}
+
+fixar_docker_local() {
+  docker_endpoint_fixado=$(docker_endpoint_local) || erro "Docker local indisponível"
+}
+
+docker_endpoint_para_comando() {
+  if [[ -n "$docker_endpoint_fixado" ]]; then
+    printf '%s\n' "$docker_endpoint_fixado"
+  else
+    docker_endpoint_local
+  fi
+}
+
+docker_local_exec() {
+  local endpoint
+  endpoint=$(docker_endpoint_para_comando) || return 1
+  env -u DOCKER_CONTEXT DOCKER_HOST="$endpoint" docker --host "$endpoint" "$@"
+}
+
 supabase_cli() {
-  local cli
+  local cli endpoint
+  endpoint=$(docker_endpoint_para_comando) || erro "Docker local indisponível"
   for cli in "$root/node_modules/.bin/supabase" "$main_root/node_modules/.bin/supabase"; do
     if [[ -x "$cli" ]]; then
-      DO_NOT_TRACK=1 SUPABASE_TELEMETRY_DISABLED=1 "$cli" "$@" --workdir "$root"
+      DO_NOT_TRACK=1 SUPABASE_TELEMETRY_DISABLED=1 \
+        env -u DOCKER_CONTEXT DOCKER_HOST="$endpoint" "$cli" "$@" --workdir "$root"
       return
     fi
   done
@@ -77,8 +140,8 @@ subir_supabase() {
   if supabase_cli status >/dev/null 2>&1; then
     return
   fi
-  docker network inspect "$network" >/dev/null 2>&1 \
-    || docker network create -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$network" >/dev/null
+  docker_local_exec network inspect "$network" >/dev/null 2>&1 \
+    || docker_local_exec network create -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$network" >/dev/null
   info "subindo o Supabase local (na primeira vez baixa as imagens)…"
   supabase_cli start --network-id "$network" --yes >"$state_dir/logs/supabase.log" 2>&1 \
     || { tail -20 "$state_dir/logs/supabase.log" >&2; erro "o Supabase local não subiu"; }
@@ -93,12 +156,27 @@ carregar_chaves_supabase() {
 }
 
 banco_tem_schema() {
-  docker exec "$db_container" psql -U postgres -d postgres -Atc \
+  docker_local_exec exec "$db_container" psql -U postgres -d postgres -Atc \
     "select to_regclass('public.schema_migrations') is not null" 2>/dev/null | grep -q t
 }
 
+emitir_recibo_banco_local() {
+  local system_identifier recibo_temporario
+  system_identifier=$(docker_local_exec exec "$db_container" psql -U postgres -d postgres -Atq \
+    -v ON_ERROR_STOP=1 -c "SELECT system_identifier FROM pg_control_system()") \
+    || erro "não foi possível comprovar a instância PostgreSQL local"
+  [[ "$system_identifier" =~ ^[0-9]+$ ]] \
+    || erro "a instância PostgreSQL local não retornou system_identifier válido"
+  recibo_temporario=$(mktemp "$state_dir/local-db-identity.XXXXXX") \
+    || erro "não foi possível preparar o recibo da instância local"
+  printf '{"schema":"pastorai-local-db-identity-v1","host":"127.0.0.1","port":54322,"database":"postgres","system_identifier":"%s"}\n' \
+    "$system_identifier" >"$recibo_temporario"
+  chmod 644 "$recibo_temporario"
+  mv "$recibo_temporario" "$state_dir/local-db-identity.json"
+}
+
 criar_buckets() {
-  docker exec "$db_container" psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 -c "
+  docker_local_exec exec "$db_container" psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 -c "
     insert into storage.buckets (id, name, public) values
       ('whatsapp-media', 'whatsapp-media', false),
       ('church-logos', 'church-logos', true)
@@ -108,7 +186,10 @@ criar_buckets() {
 # --- backend e workers (Docker) ----------------------------------------------
 
 compose() {
-  PASTORAI_DEV_ENV_FILE="$env_file" docker compose --progress quiet \
+  local endpoint
+  endpoint=$(docker_endpoint_para_comando) || return 1
+  PASTORAI_DEV_ENV_FILE="$env_file" \
+    env -u DOCKER_CONTEXT DOCKER_HOST="$endpoint" docker --host "$endpoint" compose --progress quiet \
     --env-file "$env_file" -f "$compose_file" "$@"
 }
 
@@ -122,9 +203,11 @@ no_backend() { compose run --rm --no-deps -T backend python scripts/dev_local.py
 
 preparar() {
   command -v docker >/dev/null || erro "Docker não encontrado"
+  fixar_docker_local
   mkdir -p "$state_dir/logs"
   garantir_env
   subir_supabase
+  emitir_recibo_banco_local
   carregar_chaves_supabase
   construir_imagem
 }
@@ -220,12 +303,19 @@ cmd_reset() {
   compose stop backend queue-worker cron-worker broadcast-worker >/dev/null 2>&1 || true
   supabase_cli db reset --local --no-seed --network-id "$network" --yes >"$state_dir/logs/reset.log" 2>&1 \
     || { tail -20 "$state_dir/logs/reset.log" >&2; erro "o reset do banco falhou"; }
+  emitir_recibo_banco_local
   carregar_chaves_supabase
   no_backend migrate
   criar_buckets
   no_backend seed
-  if compose ps -a --services 2>/dev/null | grep -q .; then
-    compose up -d --wait --wait-timeout 180 >"$state_dir/logs/compose.log" 2>&1 || true
+  local servicos
+  if ! servicos=$(compose ps -a --services 2>"$state_dir/logs/compose-ps.log"); then
+    tail -20 "$state_dir/logs/compose-ps.log" >&2
+    erro "não foi possível descobrir os serviços para reiniciar"
+  fi
+  if [[ -n "$servicos" ]]; then
+    compose up -d --wait --wait-timeout 180 >"$state_dir/logs/compose.log" 2>&1 \
+      || { tail -30 "$state_dir/logs/compose.log" >&2; erro "backend ou workers não reiniciaram"; }
   fi
   info "banco local recriado"
 }
@@ -269,7 +359,7 @@ cmd_logs() {
   compose logs -f --tail=100 "$@"
 }
 
-cmd_psql() { exec docker exec -it "$db_container" psql -U postgres -d postgres; }
+cmd_psql() { docker_local_exec exec -it "$db_container" psql -U postgres -d postgres; }
 
 comando="${1:-}"
 [[ $# -gt 0 ]] && shift

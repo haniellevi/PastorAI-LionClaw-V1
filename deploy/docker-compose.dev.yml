@@ -34,6 +34,7 @@ x-backend: &backend
     - ../backend/app:/app/app:ro
     - ../backend/migrations:/app/migrations:ro
     - ../backend/scripts:/app/scripts:ro
+    - ../.dev/local-db-identity.json:/run/pastorai/local-db-identity.json:ro
   depends_on:
     redis:
       condition: service_healthy

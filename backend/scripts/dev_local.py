@@ -16,6 +16,7 @@ import argparse
 import contextlib
 import datetime as dt
 import io
+import json
 import os
 import sys
 import uuid
@@ -27,8 +28,21 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-LOCAL_DB_HOSTS = frozenset(
-    {"supabase_db_pastorai-local", "127.0.0.1", "localhost", "::1"}
+LOCAL_DB_HOST = "127.0.0.1"
+LOCAL_DB_PORT = 54322
+LOCAL_DB_NAME = "postgres"
+LOCAL_DB_SCHEMES = frozenset({"postgresql", "postgresql+psycopg2"})
+LOCAL_DB_RECEIPT_SCHEMA = "pastorai-local-db-identity-v1"
+_CONTAINER_BACKEND_ROOT = Path("/app")
+_CONTAINER_RECEIPT_PATH = Path("/run/pastorai/local-db-identity.json")
+_LIBPQ_ROUTING_ENV = (
+    "PGHOST",
+    "PGHOSTADDR",
+    "PGPORT",
+    "PGDATABASE",
+    "PGSERVICE",
+    "PGSERVICEFILE",
+    "PGOPTIONS",
 )
 
 # Criados pela migration 0005_seed (igreja piloto, Pastor Piloto e seu login).
@@ -65,14 +79,75 @@ def fone(n: int) -> str:
 
 def local_database_url() -> str:
     """DATABASE_URL do Supabase local; qualquer outro alvo é recusado."""
+    if any(os.environ.get(name) for name in _LIBPQ_ROUTING_ENV):
+        sys.exit("recusado: variáveis libpq de roteamento não são aceitas")
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
         sys.exit("defina DATABASE_URL (o dev.sh já faz isso)")
-    if (urlsplit(url).hostname or "") not in LOCAL_DB_HOSTS:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        sys.exit("recusado: dev_local.py só roda no Supabase local")
+    if (
+        parsed.scheme not in LOCAL_DB_SCHEMES
+        or parsed.hostname != LOCAL_DB_HOST
+        or port != LOCAL_DB_PORT
+        or parsed.path != f"/{LOCAL_DB_NAME}"
+        or parsed.query
+        or parsed.fragment
+    ):
         sys.exit("recusado: dev_local.py só roda no Supabase local")
     if os.environ.get("APP_ENV", "development").strip().lower() == "production":
         sys.exit("recusado: APP_ENV=production")
     return url
+
+
+def _local_database_receipt_path() -> Path:
+    if _BACKEND_ROOT == _CONTAINER_BACKEND_ROOT:
+        return _CONTAINER_RECEIPT_PATH
+    return _BACKEND_ROOT.parent / ".dev" / "local-db-identity.json"
+
+
+def _receipt_system_identifier() -> str:
+    try:
+        receipt = json.loads(_local_database_receipt_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        sys.exit("recusado: recibo da instância local ausente ou inválido")
+
+    expected = {
+        "schema": LOCAL_DB_RECEIPT_SCHEMA,
+        "host": LOCAL_DB_HOST,
+        "port": LOCAL_DB_PORT,
+        "database": LOCAL_DB_NAME,
+    }
+    if not isinstance(receipt, dict) or any(
+        receipt.get(key) != value for key, value in expected.items()
+    ):
+        sys.exit("recusado: recibo da instância local inválido")
+    system_identifier = receipt.get("system_identifier")
+    if not isinstance(system_identifier, str) or not system_identifier.isdecimal():
+        sys.exit("recusado: recibo da instância local inválido")
+    return system_identifier
+
+
+def _confirm_local_database_identity(connection: object) -> None:
+    """Confere o recibo emitido pelo dev.sh na própria conexão que vai escrever."""
+    expected = _receipt_system_identifier()
+    try:
+        if hasattr(connection, "cursor"):
+            with connection.cursor() as cursor:  # type: ignore[attr-defined]
+                cursor.execute("SELECT system_identifier FROM pg_control_system()")
+                row = cursor.fetchone()
+                actual = row[0] if row else None
+        else:
+            actual = connection.exec_driver_sql(  # type: ignore[attr-defined]
+                "SELECT system_identifier FROM pg_control_system()"
+            ).scalar_one()
+    except Exception:
+        sys.exit("recusado: não foi possível comprovar a instância local")
+    if str(actual) != expected:
+        sys.exit("recusado: instância local não confere com o recibo")
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +164,7 @@ def cmd_migrate() -> int:
     conn = psycopg2.connect(url)
     conn.autocommit = True
     try:
+        _confirm_local_database_identity(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('public.schema_migrations') IS NULL")
             if cur.fetchone()[0]:
@@ -121,6 +197,7 @@ def cmd_migrate() -> int:
         # Conexão nova por arquivo: cmd_apply liga o autocommit nas sem transação.
         conn = psycopg2.connect(url)
         try:
+            _confirm_local_database_identity(conn)
             with contextlib.redirect_stdout(io.StringIO()):
                 migrate.cmd_apply(conn, name, transactional=not concurrently)
         finally:
@@ -135,27 +212,31 @@ def cmd_migrate() -> int:
 
 
 def cmd_seed() -> int:
-    local_database_url()
-    from sqlalchemy import select
+    url = local_database_url()
+    from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
 
     from app.db.models import Igreja
-    from app.db.session import get_engine
 
     hoje = dt.date.today()
     agora = dt.datetime.now(dt.timezone.utc)
-    with Session(get_engine()) as db:
-        novo = (
-            db.execute(
-                select(Igreja.id).where(Igreja.id == IGREJA_VIZINHA_ID)
-            ).scalar_one_or_none()
-            is None
-        )
-        if novo:
-            _criar_dados(db, hoje, agora)
-        vinculos = _ligar_contas_de_teste(db)
-        db.commit()
-        resumo = _resumo(db)
+    engine = create_engine(url)
+    try:
+        with Session(engine) as db:
+            _confirm_local_database_identity(db.connection())
+            novo = (
+                db.execute(
+                    select(Igreja.id).where(Igreja.id == IGREJA_VIZINHA_ID)
+                ).scalar_one_or_none()
+                is None
+            )
+            if novo:
+                _criar_dados(db, hoje, agora)
+            vinculos = _ligar_contas_de_teste(db)
+            db.commit()
+            resumo = _resumo(db)
+    finally:
+        engine.dispose()
 
     print("dados de teste: " + ("criados" if novo else "já existiam (mantidos)"))
     for linha in resumo:
