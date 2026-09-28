@@ -146,10 +146,12 @@ Ficam na branch `archive/governanca-2026-09` e deixam de ser mantidas e de
 bloquear o `main`. Voltam, se voltarem, na Fase 5.
 
 - E4B (catálogo, ledger e evidência de consentimento), consentimento por
-  finalidade e `tarefas_operacionais`;
+  finalidade (migrations d2b2 e d2b2b3 marcadas como pausadas em 27/09) e
+  `tarefas_operacionais`;
 - D3 (turn identity, plan, receipts, outbox v2) e D6 (coordenador offline de
   relatório);
-- sessão dedicada D2A e projeção privada do runtime;
+- sessão dedicada D2A (migration d2a marcada como pausada em 27/09) e projeção
+  privada do runtime;
 - executor catalog-bound, atestação de ambiente, divergence v4, replay PG17 e
   missões F1/F2;
 - testes que congelam hash ou leem texto de documento.
@@ -159,11 +161,42 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 1. Arquivo `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback comentado.
 2. O CI roda a migration num PostgreSQL descartável (reaproveitando o job já
    existente).
-3. **DEV:** `MIGRATION_DATABASE_URL=... python scripts/migrate.py apply <arquivo> --yes`,
-   que registra em `public.schema_migrations` na mesma transação.
-4. **PROD:** backup, o mesmo comando, verificação e registro no log da fatia.
-5. Uma vez só: reconciliar as 44 pendentes do DEV, ou recriar o DEV a partir
-   do schema de PROD (é o mais simples).
+3. **Local** (desde 27/09, no lugar do DEV): `./dev.sh migrate` aplica as
+   pendentes e `./dev.sh reset` recria o banco do zero com todas
+   ([`AMBIENTE-LOCAL.md`](AMBIENTE-LOCAL.md)).
+4. **PROD:** só no release: backup, `MIGRATION_DATABASE_URL=... python
+   scripts/migrate.py apply <arquivo> --yes`, verificação e registro no log da
+   fatia.
+5. ~~Reconciliar ou recriar o DEV~~: substituído pelo ambiente local (§3.5).
+
+### 3.5 Ambientes: local e produção (decisão de 27/09)
+
+Até 27/09 só a produção funcionava de ponta a ponta, então todo teste real
+acontecia nela, e cada mudança era feita duas vezes (DEV e PROD). Agora:
+
+| | Local (`./dev.sh`) | Produção |
+|---|---|---|
+| Banco | Supabase local, recriado pelas migrations em ~1 min | Supabase PROD |
+| Dados | fictícios, gerados por script | Filadélfia (reais) |
+| WhatsApp | simulador ou chip de teste | número da Filadélfia |
+| Quando muda | a cada alteração | só no release, quando o proprietário decide |
+
+- [x] **1. Ambiente local** (`./dev.sh`): Supabase local, backend e workers em
+      Docker com recarga automática, frontend e seed fictício com duas igrejas
+      ([registro](../sprints/2026-09-27-ambiente-local.md)).
+- [ ] **2. Simulador de WhatsApp:** página tipo WhatsApp que manda mensagens
+      como se fossem da Evolution e mostra a resposta do bot, com o fluxo real
+      (webhook, fila, agente, LLM); só a rede do WhatsApp é simulada.
+- [ ] **3. Chip de teste:** número próprio de teste conectado por QR à
+      Evolution local. Nunca o número da Filadélfia.
+- [ ] **4. Release:** a Vercel deixa de publicar a cada merge e passa a
+      publicar só a branch `producao`. Um script faz, na ordem: backup,
+      migrations pendentes, backend, frontend e checagens. Backend e frontend
+      sobem juntos (fim do B13), e a revisão da Sarah das migrations passa a
+      ser uma por release.
+
+O DEV na nuvem foi recriado em 27/09 como espelho do schema de PROD (PR #431)
+e ficou parado. Não recebe mais migrations nem testes.
 
 ---
 
@@ -190,17 +223,11 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [x] Checks obrigatórios da `main`: `backend-tests`, `frontend-ci`,
       `e2e-critical`, `rls-integration` e Vercel.
 - [ ] Limpar worktrees e branches mortas (só as limpas e já integradas).
-- [ ] Reconciliar ou recriar o DEV (44 migrations pendentes) com
-      `scripts/migrate.py status`. Precisa da URL do DEV, que fica com o
-      proprietário. **Pré-requisito da próxima migration em
-      PROD** (decisão do proprietário, 26/09). Dono: a sessão do Maestri
-      (decisão de 27/09). Se recriar o DEV a partir do schema de PROD, sem
-      dados reais: restaurar também os dados de referência higienizados
-      (catálogo de planos da `0012`, modelo do orquestrador da `0014`, papéis
-      RBAC da `0009` e demais seeds), ou montar um ledger do DEV só com os
-      efeitos presentes. Copiar o ledger de PROD sem esses dados marca como
-      aplicadas migrations cujos dados não existem, e o `migrate.py` passa a
-      pulá-las. As 243 checagens de catálogo não provam dados.
+- [x] ~~Reconciliar ou recriar o DEV~~: substituído em 27/09 pelo ambiente
+      local (§3.5). O banco local nasce das migrations, com os dados de
+      referência das seeds, e o DEV deixa de ser pré-requisito da próxima
+      migration em PROD. No mesmo dia o DEV na nuvem foi recriado como espelho
+      de PROD (PR #431) e depois parado.
 
 **Pronto quando:** `./test-local.sh` passa, e o CI tem só os jobs
 obrigatórios de produto.
@@ -437,8 +464,9 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 - [ ] Decidir a infraestrutura (B17): banco em São Paulo (recomendado) ou
       servidor em Oregon. Antes, medir do VPS a latência de um projeto vazio
       em sa-east-1.
-- [ ] Deploy automatizado: uma GitHub Action ou um script único
-      `deploy.sh` com build, restart, health check e rollback.
+- [ ] Deploy automatizado: é o release do item 4 da §3.5 (Vercel só na branch
+      `producao` e um script único com backup, migrations, backend, frontend,
+      health check e rollback).
 - [ ] Backup diário verificado e restauração testada uma vez.
 
 ### Fase 5 — Endurecimento (só com o MVP rodando e usado)
@@ -460,6 +488,8 @@ UV e Capacitação, e Enviar editável.
    (Fase 1), pausando a sessão dedicada D2A.
 5. Igreja piloto: **Filadélfia**. O número de teste ainda precisa ser definido.
 6. Maestri pausado até a Fase 3; trabalho direto, um agente por fatia.
+7. (27/09) Desenvolvimento e testes no ambiente local; PROD só por release
+   (§3.5). A frente do DEV na nuvem foi encerrada e o DEV ficou parado.
 
 ## 6. Lista de bugs e lacunas (viva)
 
@@ -474,7 +504,7 @@ UV e Capacitação, e Enviar editável.
 | B7 | Primeira mensagem sempre recebe o termo (o trigger não grava `consent_records`) | `migrations/0004_triggers.sql` | 2 |
 | B8 | ~30 incidentes de indisponibilidade em um mês | produção | 4 |
 | B9 | Deploy manual do backend | `deploy/` | 4 |
-| B10 | 44 migrations pendentes no DEV e 8 fora de ordem | Supabase DEV | 0 |
+| B10 | ~~44 migrations pendentes no DEV e 8 fora de ordem~~ Resolvido em 27/09: o DEV na nuvem parou e o banco local nasce das migrations (§3.5) | Supabase DEV | 0 |
 | B11 | Testes locais falham por ambiente (umask, Python 3.12, Node 26) | máquina local | 0 |
 | B12 | `V1-FINALIZATION-MAP.md` desatualizado (cita PR #257 como aberto) | docs | 0 |
 | B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |

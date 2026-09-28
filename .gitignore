@@ -3,17 +3,21 @@
 Thumbs.db
 
 # ===== Segredos / variaveis de ambiente =====
-# (.env.example e .env.staging.example NAO sao ignorados de proposito — sao
-#  templates sem segredo, devem ir pro repo)
+# (os *.env.example e deploy/.env.dev.example NAO sao ignorados de proposito —
+#  sao templates sem segredo, devem ir pro repo)
 .env
 .env.local
 .env.*.local
 .env.production
 .env.development
 .env.staging
+.env.dev
 
-# Credenciais locais de smoke DEV — fica na RAIZ do checkout e nunca vai pro repo.
-# Ver docs/ops/DEV-SMOKE-USERS.md.
+# Ambiente local (./dev.sh): logs e PID do frontend.
+/.dev/
+
+# Credenciais das contas de teste do Clerk de desenvolvimento — fica na RAIZ do
+# checkout e nunca vai pro repo. Ver docs/ops/AMBIENTE-LOCAL.md.
 /usuario-dev.md
 
 # ===== Python (backend) =====
