@@ -68,11 +68,16 @@ jobs:
         run: |
           test -x deploy/check-local-tooling.sh
           test -x deploy/start-local-supabase.sh
+          test -x dev.sh
           bash -n deploy/check-local-tooling.sh
           bash -n deploy/start-local-supabase.sh
+          bash -n dev.sh
 
       - name: Validar Compose com template seguro
         run: |
           PASTORAI_ENV_FILE=.env.example docker compose \
             --env-file deploy/.env.example \
             -f deploy/docker-compose.yml config --quiet
+          PASTORAI_DEV_ENV_FILE=.env.dev.example docker compose \
+            --env-file deploy/.env.dev.example \
+            -f deploy/docker-compose.dev.yml config --quiet
