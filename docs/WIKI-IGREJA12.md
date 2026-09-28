@@ -1,5 +1,16 @@
 # Wiki do projeto Igreja 12
 
+## S3 revisada: candidato WhatsApp-first, 27/09/2026
+
+O [plano aprovado](ops/mvp-s3-whatsapp-first-plano.md) define identidade operacional
+por vínculo único ativo, roteamento BYO com catálogo fechado e confirmação por
+ação. O candidato prova somente decisão e presença prevista de terceiro;
+leituras sensíveis usam confirmação explícita na sessão do painel vinculada ao
+Clerk. Finanças ficam fora. [Contrato e limites](ops/s3-whatsapp-20260927/README.md).
+A flag nasce vazia; não houve deploy ou ativação. Jev B/C/D continua sujeito a
+DPA e release próprios. A classificação do produto em PRD-COVERAGE não muda.
+
+
 ## S2b: candidato de fonte pública canônica, 27/09/2026
 
 O cadastro da igreja passa a ser a fonte de endereço institucional e horários;

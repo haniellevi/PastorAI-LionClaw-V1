@@ -1,0 +1,467 @@
+"""S3 turn boundary: local confirmations, external choices, atomic effects.
+
+All provider calls happen between closed database sessions. The existing
+outbound ledger remains the only transport; proposals never send directly.
+"""
+from __future__ import annotations
+
+import hashlib
+import time
+import unicodedata
+import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any
+
+
+def confirmation_word(text: object) -> str:
+    if type(text) is not str:
+        return 'other'
+    normalized = ''.join(c for c in unicodedata.normalize('NFKD', text).casefold()
+                         if not unicodedata.combining(c)).strip()
+    if normalized in {'sim', 'confirmo'}:
+        return 'confirm'
+    if normalized in {'nao', 'cancela', 'cancelar'}:
+        return 'reject'
+    return 'other'
+
+
+def _enabled(igreja_id: object) -> bool:
+    from app.services.whatsapp_privilege import privilege_enabled_from_environment
+    return privilege_enabled_from_environment(igreja_id)
+
+
+@contextmanager
+def _session(factory, outcome, *, dedicated=False):
+    from app.workers.queue_worker import _scope_agent_execution_session
+    session = factory()
+    try:
+        _scope_agent_execution_session(session, outcome, dedicated=dedicated)
+        yield session
+    except BaseException:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def reply_metadata(context, *, kind: str, proposal_id: uuid.UUID | None = None) -> dict:
+    result = dict(inbound_message_id=str(context.inbound_message_id),
+                  context_fingerprint=context.context_fingerprint,
+                  sensitive=context.sensitive, kind=kind)
+    if proposal_id is not None:
+        result['proposal_id'] = str(proposal_id)
+    if context.proof_id is not None:
+        result['proof_id'] = str(context.proof_id)
+    return result
+
+
+def reply_still_authorized(session, message, *, conversation, recipient_phone, instance) -> bool:
+    """Revalidate every S3 reply immediately before transport, including retry."""
+    raw = message.agent_privilege_context
+    if raw is None:
+        return False
+    if not _enabled(message.igreja_id):
+        return False
+    from sqlalchemy import select
+    from app.db.models import WhatsappConnection
+    from app.domain.phone import normalize_phone
+    if (not normalize_phone(recipient_phone or '')
+        or normalize_phone(recipient_phone or '') != normalize_phone(conversation.telefone or '')):
+        return False
+    connection = session.execute(select(WhatsappConnection.id).where(
+        WhatsappConnection.igreja_id == message.igreja_id,
+        WhatsappConnection.instance == instance,
+    )).scalar_one_or_none()
+    if connection is None:
+        return False
+    from app.services.whatsapp_privilege import PrivilegeContext, resolve_whatsapp_privilege_context
+    required = {'inbound_message_id','context_fingerprint','sensitive','kind'}
+    try:
+        if (type(raw) is not dict or not required <= raw.keys()
+            or raw.keys() - required - {'proposal_id','proof_id'}
+            or type(raw['sensitive']) is not bool
+            or raw['kind'] not in {'summary','receipt','readonly','challenge','clarify'}):
+            return False
+        context = resolve_whatsapp_privilege_context(session, igreja_id=message.igreja_id,
+            conversation_id=message.conversation_id,
+            inbound_message_id=uuid.UUID(raw['inbound_message_id']), sensitive=raw['sensitive'])
+        valid = (type(context) is PrivilegeContext
+                and context.context_fingerprint == raw['context_fingerprint']
+                and (str(context.proof_id) if context.proof_id else None) == raw.get('proof_id'))
+        if valid and raw['kind'] == 'challenge':
+            from sqlalchemy import func
+            from app.db.models import AgentIdentityChallenge
+            latest = session.execute(select(AgentIdentityChallenge).where(
+                AgentIdentityChallenge.igreja_id == message.igreja_id,
+                AgentIdentityChallenge.conversation_id == message.conversation_id,
+            ).order_by(AgentIdentityChallenge.sequence.desc()).limit(1)).scalar_one_or_none()
+            return (latest is not None and latest.pessoa_id == context.pessoa_id
+                and latest.issued_from_message_id == context.inbound_message_id
+                and latest.challenge_expires_at > session.execute(select(func.clock_timestamp())).scalar_one())
+        if not valid or raw['kind'] != 'summary':
+            return valid
+        # Revalidate the target as well as the actor before every summary send.
+        # A member may have left the cell while transport was awaiting retry.
+        from app.db.models import AgentActionProposal
+        from app.services.agent_action_proposals import canonical_arguments_sha256
+        from app.services.agent_privilege_catalog import build_catalog
+        proposal = session.execute(select(AgentActionProposal).where(
+            AgentActionProposal.id == uuid.UUID(raw['proposal_id']),
+            AgentActionProposal.igreja_id == message.igreja_id,
+            AgentActionProposal.conversation_id == message.conversation_id,
+            AgentActionProposal.summary_message_id == message.id,
+            AgentActionProposal.source_message_id == context.inbound_message_id,
+            AgentActionProposal.state.in_(('preparada', 'pendente')),
+        )).scalar_one_or_none()
+        if (proposal is None or proposal.scope_fingerprint != context.scope_fingerprint
+            or canonical_arguments_sha256(proposal.arguments_json) != proposal.arguments_sha256
+            or hashlib.sha256((message.texto or '').encode()).hexdigest() != proposal.summary_sha256):
+            return False
+        _, targets = build_catalog(session, context)
+        return any(target.code == proposal.action
+            and dict(target.arguments) == proposal.arguments_json
+            and _action_summary(target.summary) == message.texto for target in targets.values())
+    except (ValueError, TypeError, KeyError):
+        return False
+
+
+def promote_delivered_proposal(session, message) -> None:
+    raw = message.agent_privilege_context
+    if type(raw) is not dict or raw.get('kind') != 'summary':
+        return
+    from app.services.agent_action_proposals import promote_action_proposal_after_delivery
+    promote_action_proposal_after_delivery(session, igreja_id=message.igreja_id,
+        conversation_id=message.conversation_id, proposal_id=uuid.UUID(raw['proposal_id']),
+        summary_message_id=message.id)
+
+
+
+def invalidate_undelivered_proposal(session, message) -> None:
+    raw = message.agent_privilege_context
+    if type(raw) is not dict or raw.get('kind') != 'summary':
+        return
+    from app.services.agent_action_proposals import invalidate_action_proposal_for_delivery
+    invalidate_action_proposal_for_delivery(session, igreja_id=message.igreja_id,
+        conversation_id=message.conversation_id, proposal_id=uuid.UUID(raw['proposal_id']))
+
+
+def run_privileged_turn(session_factory, runtime_session_factory, outcome, *,
+        igreja_id, turn_identity, uses_dedicated_agent_session,
+        ownership_guard, evolution_client):
+    if not _enabled(igreja_id):
+        return None
+    return _run_enabled_turn(session_factory, runtime_session_factory, outcome,
+        igreja_id=igreja_id, turn_identity=turn_identity,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client)
+
+
+def _lock_reply(session, outcome, provider_id):
+    from sqlalchemy import select
+    from app.db.models import Message
+    return session.execute(select(Message).where(Message.igreja_id == outcome.igreja_id,
+        Message.conversation_id == outcome.conversation_id, Message.provider_message_id == provider_id,
+        Message.direcao == 'out', Message.autor == 'ia').with_for_update()).scalar_one_or_none()
+
+
+def _store_response(message, context, response, *, kind, proposal_id=None):
+    from app.domain.agent_reply import AGENT_REPLY_PENDING, AGENT_REPLY_NO_RESPONSE
+    message.texto = response or ''
+    message.agent_reply_state = AGENT_REPLY_PENDING if response else AGENT_REPLY_NO_RESPONSE
+    message.public_info_reply = False
+    message.agent_privilege_context = reply_metadata(context, kind=kind, proposal_id=proposal_id)
+
+
+def _action_summary(summary: str) -> str:
+    return f'{summary}. Confirma esta ação? Responda SIM ou NÃO. A proposta vale por 10 minutos.'
+
+
+def _execute(session, execution):
+    from app.services.agent_action_proposals import ActionEffect, ProposalExecutionDenied
+    from fastapi import HTTPException
+    from sqlalchemy.exc import IntegrityError
+    from app.services.agent_privilege_catalog import execute_catalog_action
+    try:
+        effect_id = execute_catalog_action(session, execution.privilege_context,
+            execution.action.value, execution.arguments)
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            raise
+        raise ProposalExecutionDenied('domain_denied') from None
+    except IntegrityError as exc:
+        if getattr(exc.orig, 'pgcode', None) != '23505':
+            raise
+        raise ProposalExecutionDenied('domain_conflict') from None
+    return ActionEffect(receipt_text='Registro confirmado.', opaque_effect_id=uuid.UUID(effect_id))
+
+
+def _local_confirmation(session, context, outcome, message):
+    from app.services.agent_action_proposals import (
+        ProposalDisposition, resolve_and_execute_action_proposal,
+    )
+    word = confirmation_word(outcome.texto)
+    disposition = {'confirm': ProposalDisposition.CONFIRM,
+                   'reject': ProposalDisposition.REJECT}.get(word, ProposalDisposition.OTHER)
+    resolution = resolve_and_execute_action_proposal(session, igreja_id=context.igreja_id,
+        conversation_id=context.conversation_id, confirmation_message_id=context.inbound_message_id,
+        disposition=disposition, execute=lambda execution: _execute(session, execution))
+    if resolution.status == 'no_pending':
+        if word in {'confirm', 'reject'}:
+            # A second SIM may race the successful commit or retry after it.
+            # It cannot become a fresh model-selected action.
+            _store_response(message, context, None, kind='clarify')
+            return True
+        return False
+    if resolution.status == 'continue':
+        if word != 'confirm':
+            return False
+        _store_response(message, context, None, kind='clarify', proposal_id=resolution.proposal_id)
+        return True
+    if resolution.status in {'executed', 'receipt'}:
+        response = f'Registro confirmado. Comprovante: {resolution.receipt_id}.'
+        kind = 'receipt'
+    elif resolution.status == 'delivery_uncertain':
+        response = None
+        kind = 'clarify'
+    else:
+        response = 'A proposta foi encerrada sem executar a ação. Envie um novo pedido se desejar.'
+        kind = 'clarify'
+    _store_response(message, context, response, kind=kind, proposal_id=resolution.proposal_id)
+    return True
+
+
+def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igreja_id,
+        turn_identity, uses_dedicated_agent_session, ownership_guard, evolution_client):
+    from app.workers import queue_worker as qw
+    from app.agent.runtime import process_inbound_message, _load_tier_a_plan_state
+    from app.agent.read_only_info import canonical_public_info_request
+    from app.domain.agent_reply import AGENT_REPLY_RESERVED
+    from app.services.whatsapp_privilege import (
+        PrivilegeContext, PublicWhatsappContext, resolve_whatsapp_privilege_context,
+    )
+    from app.services.agent_privilege_catalog import build_catalog
+    from app.services.agent_privilege_routing import route_privileged_message
+    from app.services.crypto import decrypt_secret
+    from app.services.llm import LLMClient
+
+    if (uses_dedicated_agent_session or outcome.inbound_message_id is None
+        or outcome.conversation_id is None):
+        return qw.AgentRunDisposition.COMPLETED
+    started = time.monotonic()
+    provider_id = qw._agent_reply_idempotency_key(outcome)
+    if provider_id is None:
+        return qw.AgentRunDisposition.COMPLETED
+    existing = qw._load_agent_reply_intent(session_factory, outcome)
+    if existing is not None and existing.state != AGENT_REPLY_RESERVED:
+        qw._deliver_agent_reply_intent(session_factory, outcome, existing,
+            ownership_guard, evolution_client=evolution_client)
+        return qw.AgentRunDisposition.COMPLETED
+    with _session(runtime_session_factory, outcome) as session:
+        kwargs = dict(igreja_id=igreja_id, conversation_id=outcome.conversation_id,
+            texto=outcome.texto, inbound_message_id=outcome.inbound_message_id,
+            provider_message_id=outcome.provider_message_id, tier_a_preflight=True,
+            tier_a_reply_provider_message_id=provider_id, tier_a_ownership_guard=ownership_guard)
+        if turn_identity is not None:
+            kwargs['turn_identity'] = turn_identity
+        prepared = process_inbound_message(session, **kwargs)
+    if prepared.reason == 'tier_a_legacy_route':
+        return None
+    preflight = prepared.preflight
+    if preflight is None:
+        return qw.AgentRunDisposition.COMPLETED
+
+    routing_usage = ()
+
+    def handoff(reason):
+        return qw._persist_tier_a_handoff(runtime_session_factory, outcome,
+            uses_dedicated_agent_session=False, plan=preflight,
+            decision_payload={'erro': reason}, usage=routing_usage or None, ownership_guard=ownership_guard)
+
+    with _session(runtime_session_factory, outcome) as session:
+        context = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
+            conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
+    if type(context) is PublicWhatsappContext:
+        return None
+    if type(context) is not PrivilegeContext:
+        return handoff('privilege_identity')
+    if qw._reserve_agent_reply_intent(session_factory, outcome) is None:
+        return qw.AgentRunDisposition.COMPLETED
+    with _session(runtime_session_factory, outcome) as session:
+        _, _, error = _load_tier_a_plan_state(session, preflight)
+        current = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
+            conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
+        message = _lock_reply(session, outcome, provider_id)
+        if message is None or message.agent_reply_state != AGENT_REPLY_RESERVED:
+            return qw.AgentRunDisposition.COMPLETED
+        if error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint:
+            invalid = True
+            local = False
+        else:
+            invalid = False
+            # Use the persisted inbound snapshot, never outcome.texto as authority.
+            local_outcome = type('InboundText', (), {'texto': preflight.current_text})()
+            local = _local_confirmation(session, current, local_outcome, message)
+        if not invalid:
+            session.commit()
+    if invalid:
+        return handoff('privilege_changed')
+    if local:
+        intent = qw._load_agent_reply_intent(session_factory, outcome)
+        if intent is not None:
+            qw._deliver_agent_reply_intent(session_factory, outcome, intent,
+                ownership_guard, evolution_client=evolution_client)
+        return qw.AgentRunDisposition.COMPLETED
+    if canonical_public_info_request(preflight.current_text) is not None:
+        return None
+    # Optional Tier A remains a suppression gate before routing. Local pending
+    # confirmations above never call Jev. The default release is inert.
+    from app.services.semantic_triage import (
+        tier_a_enabled_from_environment, get_triage_settings, TIER_A_APPROVED_RELEASE_ID,
+    )
+    effective = None
+    if tier_a_enabled_from_environment(igreja_id):
+        effective = qw._tier_a_effective_settings(session_factory, get_triage_settings())
+        decision = qw._run_tier_a_batch(effective, igreja_id, preflight.current_text,
+            min(1.2, max(0.01, started + 9 - time.monotonic())), TIER_A_APPROVED_RELEASE_ID)
+        if decision.handoff:
+            return handoff('privilege_tier_a')
+        if decision.pede_optout:
+            return qw._run_active_tier_a_turn(session_factory, runtime_session_factory, outcome,
+                igreja_id=igreja_id, turn_identity=turn_identity,
+                uses_dedicated_agent_session=False, ownership_guard=ownership_guard,
+                evolution_client=evolution_client)
+    with _session(runtime_session_factory, outcome) as session:
+        _, _, error = _load_tier_a_plan_state(session, preflight)
+        current = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
+            conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
+        if error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint:
+            catalog, mapping = (), {}
+        else:
+            catalog, mapping = build_catalog(session, current)
+    if not catalog:
+        return handoff('privilege_catalog')
+    if ownership_guard is not None:
+        ownership_guard()
+    try:
+        client = LLMClient(preflight.credential_provedor,
+            decrypt_secret(preflight.credential_key_encrypted), preflight.credential_model)
+        from app.services.semantic_routing import S3_ROUTING_APPROVED_RELEASE_ID
+        if effective is not None and S3_ROUTING_APPROVED_RELEASE_ID is not None:
+            from app.services.agent_privilege_routing import JevChoiceAdapter
+            client = JevChoiceAdapter(effective, igreja_id,
+                tier_a_release_id=TIER_A_APPROVED_RELEASE_ID, s3_release_id=S3_ROUTING_APPROVED_RELEASE_ID)
+        routed = route_privileged_message(client, texto=preflight.current_text,
+            catalog=catalog, deadline_monotonic=started + 10)
+    except Exception:
+        return handoff('privilege_router_error')
+    routing_usage = routed.usage
+    if ownership_guard is not None:
+        ownership_guard()
+    if routed.status == 'handoff' or time.monotonic() >= started + 9:
+        return handoff('privilege_router_handoff')
+    general_response = None
+    if routed.status == 'clarify' and routed.route is None:
+        generated = _general_answer(runtime_session_factory, outcome, preflight, context, started + 9)
+        if generated is not None:
+            routing_usage += (generated.usage,)
+        if generated is None or generated.handoff or not generated.resposta:
+            return handoff('privilege_general_handoff')
+        general_response = generated.resposta
+    with _session(runtime_session_factory, outcome) as session:
+        _, _, error = _load_tier_a_plan_state(session, preflight)
+        current = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
+            conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
+        message = _lock_reply(session, outcome, provider_id)
+        if message is None or message.agent_reply_state != AGENT_REPLY_RESERVED:
+            return qw.AgentRunDisposition.COMPLETED
+        invalid = error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint
+        if not invalid:
+            selected = mapping.get((routed.tool, routed.handle))
+            if routed.status == 'selected' and selected is None:
+                invalid = True
+            elif selected is None:
+                _store_response(message, current,
+                    general_response or 'Não identifiquei uma ação ou alvo autorizado. Diga qual registro deseja consultar ou confirmar.',
+                    kind='clarify')
+            else:
+                invalid = not _apply_selection(session, current, selected, message)
+            if not invalid:
+                from app.agent.masking import log_agent_event, log_ai_usage
+                for usage in routing_usage:
+                    log_ai_usage(session, igreja_id=igreja_id, usage=usage, ferramenta='s3_routing')
+                log_agent_event(session, igreja_id=igreja_id, conversation_id=outcome.conversation_id,
+                    evento='agent_privilege_routing', payload={'estado': routed.status})
+                session.commit()
+    if invalid:
+        return handoff('privilege_changed')
+    intent = qw._load_agent_reply_intent(session_factory, outcome)
+    if intent is not None:
+        qw._deliver_agent_reply_intent(session_factory, outcome, intent,
+            ownership_guard, evolution_client=evolution_client)
+    return qw.AgentRunDisposition.COMPLETED
+
+
+def _apply_selection(session, context, selected, message) -> bool:
+    from app.services.agent_action_proposals import (
+        AgentAction, ProposalTarget, prepare_action_proposal,
+    )
+    from app.services.agent_privilege_catalog import ACTIONS, read_sensitive_catalog
+    if selected.code in ACTIONS:
+        # A role snapshot alone cannot authorize a target whose membership or
+        # cell leadership changed while the LLM was running.
+        from app.services.agent_privilege_catalog import build_catalog
+        _, current_targets = build_catalog(session, context)
+        if not any(target == selected for target in current_targets.values()):
+            return False
+        summary = _action_summary(selected.summary)
+        message.texto = summary
+        proposal = prepare_action_proposal(session, context=context,
+            inbound_message_id=context.inbound_message_id, action=AgentAction(selected.code),
+            target=ProposalTarget(kind='pessoa', id=uuid.UUID(selected.arguments['pessoa_id'])),
+            arguments=dict(selected.arguments), summary=summary, summary_message_id=message.id)
+        _store_response(message, context, summary, kind='summary', proposal_id=proposal.proposal_id)
+        return True
+    from app.services.whatsapp_privilege import PrivilegeContext, resolve_whatsapp_privilege_context
+    sensitive = resolve_whatsapp_privilege_context(session, igreja_id=context.igreja_id,
+        conversation_id=context.conversation_id, inbound_message_id=context.inbound_message_id, sensitive=True)
+    if type(sensitive) is not PrivilegeContext:
+        from app.services.agent_identity import issue_identity_challenge
+        challenge = issue_identity_challenge(session, igreja_id=context.igreja_id,
+            conversation_id=context.conversation_id, inbound_message_id=context.inbound_message_id)
+        response = ('Para consultar esse dado, abra seu Perfil no painel e confirme o acesso ao WhatsApp '
+                    f'com o código {challenge.challenge}. Ele vale por 5 minutos. Depois repita seu pedido aqui.')
+        _store_response(message, context, response, kind='challenge')
+        return True
+    response = read_sensitive_catalog(session, sensitive, selected.code)
+    _store_response(message, sensitive, response, kind='readonly')
+    return True
+
+
+def _general_answer(factory, outcome, preflight, context, deadline):
+    """Preserve ordinary typed replies without executing a legacy tool route."""
+    from app.agent.runtime import (
+        _load_tier_a_plan_state, _load_recent_conversation_history,
+        _build_tier_a_plan, reply_tier_a_plan_with_llm,
+    )
+    from app.agent.nodes import empty_turn_effects
+    from app.services.whatsapp_privilege import PrivilegeContext, resolve_whatsapp_privilege_context
+    from app.services.llm import TypedLLMResult
+    with _session(factory, outcome) as session:
+        _, _, error = _load_tier_a_plan_state(session, preflight)
+        current = resolve_whatsapp_privilege_context(session, igreja_id=preflight.igreja_id,
+            conversation_id=preflight.conversation_id, inbound_message_id=preflight.inbound_message_id)
+        if error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint:
+            return None
+        history = _load_recent_conversation_history(session, igreja_id=preflight.igreja_id,
+            conversation_id=preflight.conversation_id, current_message_id=preflight.inbound_message_id,
+            provider_message_id=preflight.provider_message_id)
+        plan = _build_tier_a_plan(preflight, effects=empty_turn_effects(),
+            draft_response='Como posso ajudar?', history=history)
+    remaining = deadline - time.monotonic()
+    if plan is None or remaining <= 0:
+        return None
+    result = reply_tier_a_plan_with_llm(plan, timeout_seconds=min(4.0, remaining))
+    if time.monotonic() >= deadline or type(result) is not TypedLLMResult:
+        return None
+    return result

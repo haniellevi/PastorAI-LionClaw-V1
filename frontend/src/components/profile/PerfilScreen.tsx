@@ -7,6 +7,7 @@
  */
 import { useState, type FormEvent } from "react";
 
+import { AgentIdentityConfirmation } from "@/components/profile/AgentIdentityConfirmation";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { changePassword, LoginError, SessionExpiredError, updateMe } from "@/lib/api";
@@ -211,6 +212,14 @@ export function PerfilScreen() {
             Alterar senha
           </Button>
         </form>
+        {token && user ? (
+          <AgentIdentityConfirmation
+            token={token}
+            appUserId={user.appUserId}
+            churchId={user.churchId}
+            expireSession={expireSession}
+          />
+        ) : null}
       </div>
     </div>
   );

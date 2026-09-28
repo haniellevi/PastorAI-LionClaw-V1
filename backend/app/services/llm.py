@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 from dataclasses import dataclass
 from typing import Final
 
@@ -157,6 +158,14 @@ class TypedLLMResult:
 
 
 @dataclass(frozen=True)
+class TypedChoiceResult:
+    """One closed-enum choice; no model-supplied arguments or authority."""
+
+    choice: str
+    usage: LLMUsage
+
+
+@dataclass(frozen=True)
 class AudioTranscriptionResult:
     """One transcription: the recognized text plus duration/cost."""
 
@@ -262,6 +271,92 @@ class LLMClient:
         self.provedor = _require_supported(provedor)
         self._api_key = api_key
         self.model = _require_supported_model(model)
+
+    def generate_typed(
+        self, system_prompt: str, user_prompt: str, *, schema_name: str,
+        choices: tuple[str, ...], timeout_seconds: float,
+    ) -> TypedChoiceResult:
+        """Choose one server-offered enum value with one cancellable BYO call."""
+        try:
+            allowed = external_sends_allowed()
+        except Exception:
+            raise LLMError("Gate de envios LLM indisponível") from None
+        if not allowed:
+            log_suppressed("LLM", "generate_typed")
+            raise LLMError("Envios externos desativados")
+        if type(timeout_seconds) not in (int, float) or timeout_seconds <= 0:
+            raise LLMError("Prazo LLM inválido")
+        try:
+            budget = float(timeout_seconds)
+        except OverflowError:
+            raise LLMError("Prazo LLM inválido") from None
+        if not math.isfinite(budget):
+            raise LLMError("Prazo LLM inválido")
+        if (
+            type(schema_name) is not str
+            or re.fullmatch(r"s3_(?:route|tool|handle)", schema_name) is None
+            or type(choices) is not tuple
+            or not 1 <= len(choices) <= 17
+            or any(
+                type(choice) is not str
+                or re.fullmatch(r"[a-z][a-z0-9_]{0,47}", choice) is None
+                or choice in {"tenant", "role", "igreja_id", "pessoa_id", "args", "admin"}
+                for choice in choices
+            )
+            or len(set(choices)) != len(choices)
+            or type(system_prompt) is not str
+            or type(user_prompt) is not str
+            or len(system_prompt) > 16_384
+            or len(user_prompt) > 16_384
+        ):
+            raise LLMError("Schema LLM inválido")
+        if not self._api_key or not self._api_key.strip():
+            raise LLMError("Credencial LLM ausente")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise LLMError("Chamada LLM síncrona em loop ativo")
+
+        deadline = min(4.0, budget)
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"choice": {"type": "string", "enum": list(choices)}},
+                    "required": ["choice"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+        async def request():
+            from openai import AsyncOpenAI  # noqa: PLC0415 - import only after gate
+
+            async with asyncio.timeout(deadline):
+                async with AsyncOpenAI(
+                    api_key=self._api_key, timeout=deadline, max_retries=0
+                ) as client:
+                    return await client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        response_format=response_format,
+                    )
+
+        try:
+            response = asyncio.run(request())
+        except TimeoutError:
+            raise LLMError("LLM excedeu o tempo limite") from None
+        except Exception:
+            raise LLMError("Falha na chamada LLM") from None
+        return _parse_choice_response(response, self.model, choices)
 
     def complete_typed(
         self, system_prompt: str, user_prompt: str, *, timeout_seconds: float
@@ -479,6 +574,59 @@ def _parse_typed_response(response: object, model: str) -> TypedLLMResult:
             tokens_out=tokens_out,
             custo=cost,
         ),
+    )
+
+
+def _parse_choice_response(
+    response: object, model: str, choices: tuple[str, ...]
+) -> TypedChoiceResult:
+    """Fail closed on malformed output without surfacing provider content."""
+    try:
+        rows = getattr(response, "choices", None)
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ValueError("choices")
+        row = rows[0]
+        if getattr(row, "finish_reason", None) != "stop":
+            raise ValueError("finish reason")
+        message = getattr(row, "message", None)
+        if (
+            message is None
+            or getattr(message, "refusal", None) is not None
+            or getattr(message, "tool_calls", None) is not None
+            or getattr(message, "function_call", None) is not None
+        ):
+            raise ValueError("message")
+        content = getattr(message, "content", None)
+        if type(content) is not str or len(content.encode("utf-8")) > 32_768:
+            raise ValueError("content")
+        data = json.loads(
+            content,
+            object_pairs_hook=_typed_unique_pairs,
+            parse_constant=_typed_reject_constant,
+        )
+        if type(data) is not dict or set(data) != {"choice"}:
+            raise ValueError("schema")
+        selected = data["choice"]
+        if type(selected) is not str or selected not in choices:
+            raise ValueError("enum")
+        usage = getattr(response, "usage", None)
+        tokens_in = getattr(usage, "prompt_tokens", None)
+        tokens_out = getattr(usage, "completion_tokens", None)
+        if (
+            type(tokens_in) is not int
+            or type(tokens_out) is not int
+            or tokens_in < 0
+            or tokens_out < 0
+        ):
+            raise ValueError("usage")
+        cost = estimate_cost(model, tokens_in, tokens_out)
+        if not math.isfinite(cost):
+            raise ValueError("cost")
+    except (AttributeError, TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
+        raise LLMError("Resposta LLM inválida") from None
+    return TypedChoiceResult(
+        choice=selected,
+        usage=LLMUsage(modelo=model, tokens_in=tokens_in, tokens_out=tokens_out, custo=cost),
     )
 
 

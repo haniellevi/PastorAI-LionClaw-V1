@@ -44,6 +44,7 @@ from app.db.models import (
     Pessoa,
 )
 from app.db.session import get_db
+from app.services.ministerial_actions import confirm_meeting_attendance
 from app.deps import (
     CENTRAL_ROLES,
     CurrentUser,
@@ -503,91 +504,16 @@ def mark_presenca(
         INSERT ou UPDATE; corrida contra o UNIQUE → IntegrityError → rollback →
         recupera. SEMPRE 200 (nunca 409/500).
     """
-    igreja_id = uuid.UUID(current_user.igreja_id)
-    reuniao = _get_reuniao_or_404(db, reuniao_id, igreja_id)
-
-    actor_pessoa = _actor_pessoa_id(db, current_user)
-    is_auto = payload.pessoaId is None or (
-        actor_pessoa is not None and payload.pessoaId == actor_pessoa
-    )
-
-    if is_auto:
-        # Auto-confirmação: o app_user precisa ter uma pessoa vinculada (SEC-DEC-04).
-        if actor_pessoa is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seu usuário não está vinculado a uma pessoa",
-            )
-        target_uuid = uuid.UUID(actor_pessoa)
-        origem = ORIGEM_AUTO
-    else:
-        # Marcar terceiro exige liderança da célula-ou-superior / pastor / admin /
-        # Central (mesma regra da materialização). Membro comum → 403.
-        cell = _get_cell_or_404(db, str(reuniao.celula_id))
-        if not _can_materialize(db, current_user, cell):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Sem permissão para marcar a presença de outra pessoa",
-            )
-        target_uuid = uuid.UUID(payload.pessoaId)  # type: ignore[arg-type]
-        # Isolamento por tenant: pessoa de outra igreja → 422 (a FK não é RLS).
-        _assert_pessoa_tenant(db, target_uuid, "pessoaId")
-        origem = ORIGEM_LIDER
-
-    # E11: vínculo ativo obrigatório na célula DA REUNIÃO (não vale outra célula).
-    if not _has_active_membership(db, igreja_id, reuniao.celula_id, target_uuid):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Pessoa sem vínculo ativo na célula desta reunião",
-        )
-
-    # Upsert idempotente (last-write-wins). No PR2 o estado gravado é SEMPRE
-    # 'confirmada'.
-    existing = _find_presenca(db, igreja_id, reuniao.id, target_uuid)
-    if existing is not None:
-        existing.estado = ESTADO_CONFIRMADA
-        existing.origem = origem
-        existing.updated_at = dt.datetime.now(dt.timezone.utc)
-        db.flush()
-        db.refresh(existing)
-        db.commit()
-        return PresencaOut.from_model(existing)
-
-    presenca = CelulaPresenca(
-        igreja_id=igreja_id,
-        reuniao_id=reuniao.id,
-        pessoa_id=target_uuid,
-        estado=ESTADO_CONFIRMADA,
-        origem=origem,
-    )
-    db.add(presenca)
     try:
-        db.flush()
-        db.refresh(presenca)
-        db.commit()
-    except IntegrityError:
-        # Corrida no UNIQUE (igreja_id, reuniao_id, pessoa_id): outra requisição
-        # gravou entre o pré-check e o INSERT. Recupera e aplica last-write-wins;
-        # devolve 200 — NUNCA 409/500 (409 é reservado a add_cell_member).
-        db.rollback()
-        recovered = _find_presenca(db, igreja_id, reuniao.id, target_uuid)
-        if recovered is None:
-            logger.error(
-                "IntegrityError ao marcar presença sem linha recuperável "
-                "(reuniao=%s pessoa=%s)",
-                reuniao.id,
-                target_uuid,
-            )
-            raise
-        recovered.estado = ESTADO_CONFIRMADA
-        recovered.origem = origem
-        recovered.updated_at = dt.datetime.now(dt.timezone.utc)
-        db.flush()
-        db.refresh(recovered)
-        db.commit()
-        return PresencaOut.from_model(recovered)
-
-    return PresencaOut.from_model(presenca)
+        meeting_id = uuid.UUID(reuniao_id)
+    except ValueError as exc:
+        raise HTTPException(404, "Reunião não encontrada") from exc
+    attendance = confirm_meeting_attendance(
+        db, current_user, reuniao_id=meeting_id,
+        pessoa_id=uuid.UUID(payload.pessoaId) if payload.pessoaId else None,
+    )
+    db.commit()
+    return PresencaOut.from_model(attendance)
 
 
 @router.post(

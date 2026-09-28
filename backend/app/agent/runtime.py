@@ -593,6 +593,10 @@ def _load_recent_conversation_history(
             Message.conversation_id == conversation_id,
             Message.id != current_message_id,
             Message.criado_em < current_created_at,
+            # Sensitive/action replies must not leak into a later unprivileged
+            # generation after a proof expires or a role is revoked.
+            or_(Message.agent_privilege_context.is_(None),
+                Message.agent_privilege_context["kind"].astext == "clarify"),
             Message.texto.is_not(None),
             func.length(func.trim(Message.texto)) > 0,
             visible_outbound,
@@ -1352,12 +1356,11 @@ def persist_tier_a_handoff(
     ) is None:
         return AgentTurnResult(handled=False, reason="conversation_not_found")
     if usage is not None:
-        log_ai_usage(
-            session,
-            igreja_id=plan.igreja_id,
-            usage=usage,
-            ferramenta=ROUTE_ONBOARDING,
-        )
+        for item in (usage if type(usage) is tuple else (usage,)):
+            log_ai_usage(
+                session, igreja_id=plan.igreja_id, usage=item,
+                ferramenta="s3_routing" if type(usage) is tuple else ROUTE_ONBOARDING,
+            )
     log_agent_event(
         session,
         igreja_id=plan.igreja_id,
@@ -1960,6 +1963,21 @@ def process_inbound_message(
                 suppressed=True,
                 reason="secretaria_offer_resolved",
             )
+    # A changed term invalidates an old action for every inbound. A strict SIM
+    # must also be consumed before it can be interpreted as accepting the term.
+    if consent_needs_reaccept and has_persisted_inbound_anchor:
+        from app.agent.privileged_turn import _enabled, confirmation_word
+        if _enabled(igreja_id):
+            from app.services.agent_action_proposals import cancel_action_proposal_for_term_change
+            cancelled = cancel_action_proposal_for_term_change(
+                session, igreja_id=igreja_id, conversation_id=conv_uuid,
+                inbound_message_id=inbound_message_id,
+            )
+            if cancelled.status != "no_pending" and confirmation_word(current_text) == "confirm":
+                if not stage_tier_a_terminal(handoff=False):
+                    return AgentTurnResult(handled=False, reason="conversation_not_found")
+                session.commit()
+                return AgentTurnResult(handled=True, suppressed=True, reason="privilege_term_changed")
     tier_a_snapshot = None
     if tier_a_preflight or defer_onboarding_plan:
         tier_a_snapshot = _build_tier_a_preflight(

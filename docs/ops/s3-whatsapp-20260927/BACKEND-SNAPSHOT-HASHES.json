@@ -1,0 +1,9 @@
+{
+  "backend/app/db/models.py": "e57bc6d1247379b8093b0975cc618b099a2f7bb5ef9a7f5a3bfb2cfe83916583",
+  "backend/app/main.py": "99f134344e441e94319df06d42dc137e34a4cc57144d7a474ab1a90474528e97",
+  "backend/app/routers/agent_identity.py": "56acb713b11f4ca091cc8c6c5c2debb618fe37c1dd5a4d06a22ad5655c4371c7",
+  "backend/app/services/agent_identity.py": "c73a9a52cceecf380a33e234809218b3e6cfc3f2372de68890c2b48385dbda44",
+  "backend/app/services/agent_action_proposals.py": "3532095111a9cd2636cc6b888a9c0a6152776d946dc696efdc39fd34bde0869d",
+  "backend/app/services/whatsapp_privilege.py": "d07763056ddeb4711cadeb21302987c6293fd299d710916036e8e9cc7bb23517",
+  "backend/migrations/20260927_170000_whatsapp_privilege_actions.sql": "a5781d04432cc2d3adef076f8518690a3639400d25566d5cff78826d7fccc72a"
+}
