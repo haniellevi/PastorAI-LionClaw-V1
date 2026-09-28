@@ -1,0 +1,30 @@
+{
+  "recorded_at_utc": "2026-09-28 05:38:57 UTC",
+  "code_commit": "42cab69eaebceb425ac461493921c665d04769b4",
+  "base_sha": "342f0ced7af53d2d7e708d99e3b92d54e7a3e22c",
+  "environment": "local disposable PostgreSQL17 and Python3.13.14, synthetic data and providers",
+  "source_manifest_sha256": "b5b8ebc28a2b7afb169b6218c7caf32fa3b517f4193c38ebedf3546540028825",
+  "suites": {
+    "offline": {
+      "tests": 5982,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 42.801
+    },
+    "rls_integration": {
+      "tests": 750,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 302.86,
+      "v3_modules": {
+        "tests.test_consolidation_notification_outbox_pg": 21,
+        "tests.test_consolidation_privileged_pg": 1,
+        "tests.test_consolidation_turn_e2e_pg": 12,
+        "tests.test_consolidation_workflow_pg": 18,
+        "tests.test_whatsapp_consolidation_v3_migration_pg": 15
+      }
+    }
+  }
+}

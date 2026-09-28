@@ -1,0 +1,24 @@
+{
+  "base": "342f0ced7af53d2d7e708d99e3b92d54e7a3e22c",
+  "status": "production sources frozen, full turn tests still in progress",
+  "files": {
+    ".github/workflows/rls-integration.yml": "d45f2a766f83c7c5f4877553db2b5f838066835eb488f0338d5b374b8c6ce2ff",
+    "backend/app/agent/privileged_turn.py": "03049ea93ed8335f6b27acc5734b78509d85dceafaa2ab3db223fc6c94b38581",
+    "backend/app/config.py": "f0ead0a4426f66d7d93c70efe054da15ffe35c78e06ac7baa2e25d3e088f6d43",
+    "backend/app/db/models.py": "51f3f954f551de7cfe22b5c3bb349fc7e5f2b08180c2f62cba67ef24e13c7eed",
+    "backend/app/domain/conversations.py": "301bb8717fc636ad42fb13c89a0ec99e6f278a658045239e6fc500abaf61475e",
+    "backend/app/routers/pipeline.py": "1d06d5bfadc3ec48c2537e3b217e8179cbb5ee7aa89b09e9281710fb7e7c550a",
+    "backend/app/routers/work_queue.py": "69f2d44fc4c722fa101ee1f1a592f32786a34c15085d9ab74677d805f89d0b0a",
+    "backend/app/services/agent_action_proposals.py": "ef6c38500e3ef16d4660272eb4692b71bef5fc63263835bf13b53b0b68337bb9",
+    "backend/app/services/agent_privilege_catalog.py": "de18da0f1535a321897c04d6175de89b01b189ff7a2b592fa83ab48018602ddc",
+    "backend/app/services/agent_privilege_routing.py": "a0e3dde9f6ae2c2d7c6e2d9b383d765b4b3baa3509222ba17a7d24340ad83586",
+    "backend/app/services/consolidation_privileged.py": "6b3f20bb1984edf63cbc08a9a86a8e4616feb12e824d7819a2dcabba1c074e85",
+    "backend/app/services/consolidation_whatsapp.py": "21a7734818e49624fbcd0603eb9ef9f8ea7e6f3d51e169b924b8e967e5dc9452",
+    "backend/app/services/consolidation_workflow.py": "271187e38f0f8e510be22e0184acc04be6c4257c9df74e1e89bea16f42a9cf47",
+    "backend/app/services/ministerial_actions.py": "0815ef4ae3840f5c4a7f013aa86f655a870fefad01f0b794ef174bdf3c38a512",
+    "backend/app/services/notification_outbox.py": "880e24e848317eaf60fd01025db85c2ca52ddaff93b057383244f398fd4f46bb",
+    "backend/app/workers/cron_worker.py": "76743053ee6d3baaefadc589a92e73a3a89523f8bf0a381c0b6c60ec4763cae4",
+    "backend/migrations/20260928_080000_whatsapp_consolidation_v3.sql": "267f619713f1e2c3ece030227ec387bcef3b76cfbba237f00568e1e347c5b82d",
+    "backend/tests/test_whatsapp_consolidation_v3_migration_pg.py": "a0d2a43146e7e3e49939d48914f58dfb8e12cb43fbf021c08ea17dda332e151d"
+  }
+}

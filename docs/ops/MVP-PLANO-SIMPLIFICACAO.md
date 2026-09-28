@@ -396,7 +396,12 @@ sem declarar as próximas verticais implementadas.
    [Registro V2a](../sprints/2026-09-27-whatsapp-agenda-v2a.md): implementação
    autorizada, sem merge/deploy/ativação presumidos. Desenvolvimento local e
    release em lote seguem a decisão de 27/09; PR432 ainda pendente no preflight.
-4. **V3: consolidação**, decisão para consolidação e alertas de 24h/fonovisita.
+4. **V3: consolidação**, [plano aprovado](mvp-v3-consolidacao-whatsapp-plano.md)
+   com consulta, fonovisita e atribuição pelo WhatsApp, confirmação S3 e alertas
+   pela outbox comum. Primeiro nome somente ao responsável atual em conversa
+   individual; coordenação sem atribuição recebe códigos/contagens. [Candidato
+   validado localmente](v3-consolidacao-20260928/README.md), base PR435 `342f0ce`,
+   sem ativação, migration compartilhada ou conclusão do domínio presumida.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
 

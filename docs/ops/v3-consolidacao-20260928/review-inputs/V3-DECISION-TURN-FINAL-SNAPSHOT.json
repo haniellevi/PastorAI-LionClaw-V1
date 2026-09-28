@@ -1,0 +1,7 @@
+{
+  "base": "342f0ced7af53d2d7e708d99e3b92d54e7a3e22c",
+  "files": {
+    "backend/app/services/agent_privilege_catalog.py": "acd0545b205943239e35703230b95571e09ffa5118694c79a47d673ade43f545",
+    "backend/tests/test_consolidation_turn_e2e_pg.py": "9bfe532746a43a9989b9c0d281b25cc697bd02342ccc1d75912944d15a48f4d6"
+  }
+}

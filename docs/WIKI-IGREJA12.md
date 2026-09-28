@@ -1,5 +1,12 @@
 # Wiki do projeto Igreja 12
 
+## V3: candidato de consolidação WhatsApp, 28/09/2026
+
+O [plano aprovado](ops/mvp-v3-consolidacao-whatsapp-plano.md) parte do PR435
+`342f0ce` e reutiliza decisão, fila, etapas, S3 e outbox. [Contrato e limites](ops/v3-consolidacao-20260928/README.md): primeiro nome somente ao responsável atual em 1:1, códigos/contagens à coordenação, detalhes no painel autenticado.
+A classificação de Consolidação permanece `PARCIAL`; implementação e testes
+sintéticos não provam migration compartilhada, ativação, envio ou deploy.
+
 ## V1b: candidato de áudio, 27/09/2026
 
 A [V1b](ops/v1b-cell-report-audio-20260927/README.md), sobre PR430 `a8bf21d`,

@@ -110,3 +110,24 @@ com gates próprios; flags vazias e releases None não autorizam envio.
 SHA256 candidato: `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`.
 Prova SQL local: PostgreSQL17 sintético, reaplicação real e RLS sob
 `authenticated` sem BYPASSRLS. Isso não prova aplicação compartilhada.
+
+
+## V3: consolidação pelo WhatsApp (candidata)
+
+`20260928_080000_whatsapp_consolidation_v3.sql` depende de S3 e V2b.
+Acrescenta origem exata da decisão, revisão de atribuição e vínculo canônico
+entre consolidação e tarefa; cada nova consolidação recebe uma fonovisita,
+sem backfill das anteriores. A outbox ganha três finalidades V3, mantendo
+unicidade por tenant, destinatário, ocorrência e finalidade. Para fonovisita,
+o pai é derivado exclusivamente da tarefa, sem referência redundante na outbox.
+
+A nova `consolidation_whatsapp_activation` tem RLS/FORCE RLS e acesso somente
+worker SELECT/INSERT/UPDATE, sem DELETE ou linhas inseridas pela migration.
+O corte permanece durante a época aberta e no fechamento; somente a reabertura
+observada pode avançá-lo. Nenhuma alteração autoriza alertas retroativos.
+
+`lock_timeout='2s'` limita espera por locks. O rollback comentado preserva
+recibos, terminais e ambiguidades. A futura release exige aplicação e deploy
+coordenados, com gates próprios. Flags vazias e release `None` continuam inertes.
+A evidência e o hash do candidato constam no
+[registro V3](../../docs/ops/v3-consolidacao-20260928/README.md).
