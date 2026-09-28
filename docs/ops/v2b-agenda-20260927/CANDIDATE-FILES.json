@@ -4,6 +4,7 @@
     ".github/workflows/rls-integration.yml": "71d5e9f647a537856375ac51d2ee0fb88d02ff30ddf8796bc15758b394fa9f3d",
     "backend/app/agent/privileged_turn.py": "1971396ba079695eddd5162647f9ecaee50e683faa39fa337c8ce8c1384ceeaa",
     "backend/app/agent/runtime.py": "9dd54ddffdc941390b2befc52607f8492da7cd7dc7ae04591e28f8d2543e0400",
+    "backend/app/config.py": "38d653f1b7fd136a828dccf25a3cb69745dbada4b46fe26aafee31d3389ae1cd",
     "backend/app/db/models.py": "51c2781712584dd10cc76fbdf3402c6ce87aef7d7e796505145a1e8252bb6a45",
     "backend/app/routers/calendar.py": "64643cb06c60ed46c12a42df623c0016ea613e6b71dc4ab89a5471198f340d1b",
     "backend/app/routers/events.py": "f2610a165939f4e40de5cadc2a28b83c2d777177b51ad413e877a3dd220408a5",
@@ -38,6 +39,6 @@
     "backend/tests/test_notification_outbox_v2b_migration_pg.py": "32e78544e8b73b8521dae584a51915833b935b4ec6247825b30831452e52c0a8",
     "backend/tests/test_tenant_deletion_pg17.py": "dba703af9f10fd9cc910aee19c951a0964565959e442520262c3cb6e4855a7e9"
   },
-  "scope": "current file bytes before final commit; verify against published head",
+  "scope": "37 changed code, tests, migration and CI files versus base; documentation is tracked in the full Git diff separately",
   "algorithm": "SHA-256 of raw file bytes from repository root"
 }
