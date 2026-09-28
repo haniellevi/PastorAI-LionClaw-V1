@@ -1,6 +1,6 @@
 # Agenda V2b pelo WhatsApp, 2026-09-27
 
-**Branch:** feat/whatsapp-agenda-outbox · **Base:** 58bcd1808aa511cdfafc7957d5c36a9c0f8ee348 · **Deploy:** não
+**Branch:** feat/whatsapp-agenda-outbox · **Base original:** 58bcd1808aa511cdfafc7957d5c36a9c0f8ee348 · **Base atual:** main@87e13da06eee047419b583d87545ee44326e1a28 · **Deploy:** não
 
 ## O que foi feito
 

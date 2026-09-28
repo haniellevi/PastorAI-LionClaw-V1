@@ -7,7 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.domain.cell_report_v1a import parse_v1a_cell_report_text
+from app.domain.cell_report_v1a import (
+    CellReportV1aError,
+    parse_v1a_cell_report_text,
+)
 from app.services.whatsapp_privilege import PrivilegeContext, PrivilegeResolutionKind
 from app.services import cell_report_v1a_service as transaction_service
 from app.services import cell_report_whatsapp as service
@@ -210,6 +213,183 @@ def test_llm_projection_preserves_missing_values_as_null() -> None:
         "decisoes": None,
         "oferta_centavos": None,
     }
+
+
+def _assert_educational_clarify(result) -> None:
+    assert result.kind is transaction_service.CellReportStageKind.CLARIFY
+    assert result.proposal is None
+    assert result.response is not None
+    assert (
+        "Exemplo válido: presentes: 8, visitantes: 2, decisões: 1, oferta: R$ 42,50."
+        in result.response
+    )
+    assert "vírgula ou quebra de linha" in result.response
+
+
+def _patch_stage_access(monkeypatch) -> None:
+    monkeypatch.setattr(transaction_service, "_now", lambda *_args: NOW)
+    monkeypatch.setattr(
+        transaction_service, "require_tenant_scope", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_lock_conversation_and_inbound",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_current_lgpd_acceptance",
+        lambda *_args, **_kwargs: "termo-v1",
+    )
+
+
+def _raise_v1a_error(*_args, **_kwargs):
+    raise CellReportV1aError("inválido")
+
+
+def test_v1a_parse_clarify_teaches_closed_multiline_format(monkeypatch) -> None:
+    inbound_id = uuid.uuid4()
+    _patch_stage_access(monkeypatch)
+    monkeypatch.setattr(
+        transaction_service, "_active_draft_hint", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "v1a_whitelisted_extraction_projection",
+        lambda *_args, **_kwargs: pytest.fail("parser inválido não chama provedor"),
+    )
+
+    result = transaction_service.stage_v1a_cell_report_turn(
+        object(),
+        context=_privilege_context(inbound_message_id=inbound_id),
+        inbound_message_id=inbound_id,
+        text="presentes: 8, obs: dado sintético",
+        summary_message=SimpleNamespace(),
+        now=NOW,
+    )
+
+    _assert_educational_clarify(result)
+    assert "dado sintético" not in result.response
+
+
+def test_v1a_missing_fields_clarify_teaches_closed_multiline_format(monkeypatch) -> None:
+    inbound_id = uuid.uuid4()
+    meeting = transaction_service._Meeting(uuid.uuid4(), "Célula Sintética", NOW.date())
+
+    class _Session:
+        def add(self, draft) -> None:
+            draft.id = uuid.uuid4()
+
+        def flush(self) -> None:
+            pass
+
+    _patch_stage_access(monkeypatch)
+    monkeypatch.setattr(
+        transaction_service, "_active_draft_hint", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        transaction_service, "_eligible_meeting", lambda *_args, **_kwargs: meeting
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_lock_active_draft_after_meeting",
+        lambda *_args, **_kwargs: None,
+    )
+
+    result = transaction_service.stage_v1a_cell_report_turn(
+        _Session(),
+        context=_privilege_context(inbound_message_id=inbound_id),
+        inbound_message_id=inbound_id,
+        text="presentes: 8",
+        summary_message=SimpleNamespace(),
+        now=NOW,
+    )
+
+    _assert_educational_clarify(result)
+
+
+def test_v1a_extraction_correction_clarify_teaches_closed_multiline_format(monkeypatch) -> None:
+    inbound_id = uuid.uuid4()
+    meeting = transaction_service._Meeting(uuid.uuid4(), "Célula Sintética", NOW.date())
+    _patch_stage_access(monkeypatch)
+    monkeypatch.setattr(
+        transaction_service, "_active_draft_hint", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        transaction_service, "_eligible_meeting", lambda *_args, **_kwargs: meeting
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_lock_active_draft_after_meeting",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "v1a_whitelisted_extraction_projection",
+        lambda *_args, **_kwargs: {"presentes": "oito"},
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "canonical_v1a_draft_payload",
+        _raise_v1a_error,
+    )
+
+    result = transaction_service.stage_v1a_cell_report_turn(
+        object(),
+        context=_privilege_context(inbound_message_id=inbound_id),
+        inbound_message_id=inbound_id,
+        text="visitantes: 2",
+        summary_message=SimpleNamespace(),
+        now=NOW,
+    )
+
+    _assert_educational_clarify(result)
+
+
+def test_v1a_revision_correction_clarify_teaches_closed_multiline_format(monkeypatch) -> None:
+    inbound_id = uuid.uuid4()
+    meeting = transaction_service._Meeting(uuid.uuid4(), "Célula Sintética", NOW.date())
+    active = SimpleNamespace(expires_at=NOW + dt.timedelta(hours=1))
+    _patch_stage_access(monkeypatch)
+    monkeypatch.setattr(
+        transaction_service,
+        "_active_draft_hint",
+        lambda *_args, **_kwargs: SimpleNamespace(meeting_id=meeting.id),
+    )
+    monkeypatch.setattr(
+        transaction_service, "_eligible_meeting", lambda *_args, **_kwargs: meeting
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_lock_active_draft_after_meeting",
+        lambda *_args, **_kwargs: active,
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "v1a_whitelisted_extraction_projection",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_rehydrate_verified_draft_candidate",
+        lambda *_args, **_kwargs: parse_v1a_cell_report_text("presentes: 8"),
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "merge_v1a_cell_report_text",
+        _raise_v1a_error,
+    )
+
+    result = transaction_service.stage_v1a_cell_report_turn(
+        object(),
+        context=_privilege_context(inbound_message_id=inbound_id),
+        inbound_message_id=inbound_id,
+        text="presentes: 9",
+        summary_message=SimpleNamespace(),
+        now=NOW,
+    )
+
+    _assert_educational_clarify(result)
 
 
 def test_draft_payload_is_closed_and_round_trips_only_aggregate_values() -> None:

@@ -118,22 +118,62 @@ essas variáveis.
 
 ## 4. Migrations do Supabase
 
-> **Bloqueio corrente (2026-09-04):** não existe comando de aplicação
-> operacional liberado neste SHA. `apply_migrations.py` é legado e não deve ser
-> invocado diretamente. `apply_migrations_catalog_bound_v2.py` valida o catálogo,
-> mas bloqueia `status`, `harden-ledger`, `bootstrap-ledger` e `apply` antes da
-> conexão até existirem trust anchors externos, evidências separadas DEV/PROD e
-> decisão humana de cutover. Os registros abaixo descrevem história, não
-> autorização atual.
+### Estado corrente (2026-09-26)
 
-Existem dois históricos diferentes:
+- **Processo:** `backend/scripts/migrate.py` (`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`
+  §3.4 e `backend/migrations/README.md`): um arquivo por vez, numa transação, com o
+  nome registrado no ledger na mesma transação. `apply_migrations.py` e os
+  executores catalog-bound seguem pausados (`archive/governanca-2026-09`).
+- **Ledger oficial único:** `public.schema_migrations` em PROD, criado em
+  2026-09-26 (colunas `name`, `applied_at`, `origem`; RLS sem FORCE; nenhum
+  privilégio para `anon`/`authenticated`). Registro nominal inicial de 69
+  migrations: 63 `PROVA_OBJETO` (objetos conferidos no catálogo) e 6
+  `BASELINE_V1_HISTORICO` (só dados, sem objeto a provar). As 6 são exceção
+  aceita pelo proprietário em 2026-09-26: `0005_seed`, `0007_remove_demo_data`,
+  `0009_unify_system_managers`, `20260708_164756`, `20260808_014425` e
+  `20260808_023500`; o `migrate.py` nunca vai reaplicá-las. Linhas novas do
+  `migrate.py` recebem `origem = MIGRATE_PY` (a primeira:
+  `20260926_191500_agent_public_profile.sql`). O ledger nativo
+  `supabase_migrations.schema_migrations` (32 linhas) passa a ser só histórico:
+  não escrever nele nem usá-lo para decidir aplicação.
+- **Pendentes em PROD, cada uma com gate próprio e nunca em lote:**
+  `20260711_023515` e `20260711_152127` (só dados, sem prova de aplicação),
+  d1a `20260827_175634`, `20260925_183811` e `20260926_120446`. Desde
+  2026-09-27, d2a `20260827_230003`, d2b2 `20260828_045213` e d2b2b3
+  `20260828_094914` estão pausadas (`OPERATIONAL_AUTHORIZATION=BLOCKED`, plano
+  §3.3) e saíram do `status`.
+- **Regras:** local primeiro: `./dev.sh reset` recria o banco local do zero
+  com todas as migrations não pausadas e os dados fictícios
+  ([`AMBIENTE-LOCAL.md`](AMBIENTE-LOCAL.md)). O DEV na nuvem está parado desde
+  2026-09-27 e não é mais pré-requisito. PROD recebe migration só no release;
+  backup verificado imediatamente
+  antes; o pooler do Supabase ignora `PGOPTIONS` e o CLI não define
+  `lock_timeout`, então migration que toma `ACCESS EXCLUSIVE` roda com
+  `SET LOCAL lock_timeout` na mesma transação (até o `migrate.py` ganhar essa
+  opção); os default privileges do Supabase concedem `arwdDxtm` a `anon` e
+  `authenticated` em toda tabela nova de `public`, então migration que cria
+  tabela revoga na mesma transação.
+- Evidência: `docs/sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md`.
+
+### Histórico (até 2026-09-25; não é procedimento corrente)
+
+> **Bloqueio de 2026-09-04 (supersedido pelo processo do MVP e pelo estado
+> acima):** não existia comando de aplicação operacional liberado.
+> `apply_migrations.py` é legado e não deve ser invocado diretamente.
+> `apply_migrations_catalog_bound_v2.py` bloqueava `status`, `harden-ledger`,
+> `bootstrap-ledger` e `apply` antes da conexão. Os registros abaixo descrevem
+> história, não autorização atual.
+
+Existiam dois históricos diferentes:
 
 - `supabase_migrations.schema_migrations`, ledger nativo do Supabase;
 - `public.schema_migrations`, ledger de controle do executor local de arquivo
   único.
 
 Eles não são equivalentes. Nome, ordem ou presença em um deles não autorizam
-copiar, preencher, reaplicar ou registrar entradas no outro. O preflight PROD
+copiar, preencher, reaplicar ou registrar entradas no outro. (Em 2026-09-26 o
+proprietário aceitou, como exceção nominal, registrar no ledger público as 6
+migrations só de dados com evidência histórica; ver "Estado corrente".) O preflight PROD
 de 2026-08-28 observou `public.schema_migrations` ausente e
 `M06_MIGRATION_DATABASE_URL` não provisionada naquele executor. O estado vivo
 atual desses itens não foi revalidado. `bootstrap-ledger` foi

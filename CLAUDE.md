@@ -3,7 +3,7 @@
 SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → enviar) com WhatsApp, IA e billing. MVP gerado pelo pipeline `development-v2` do LionClaw (16 sprints). Repositório: https://github.com/haniellevi/PastorAI-LionClaw-V1
 
 ## Stack
-- **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — nome `AAAAMMDD_HHMMSS_slug.sql`, aplicadas uma a uma com `python scripts/migrate.py` (DEV primeiro; PROD com backup antes). Ver `backend/migrations/README.md`.
+- **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — nome `AAAAMMDD_HHMMSS_slug.sql`, aplicadas uma a uma com `python scripts/migrate.py` (local primeiro com `./dev.sh`; PROD só no release, com backup antes). Ver `backend/migrations/README.md`.
 - **Frontend**: Next.js 15.5.25 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
 - **Serviços externos**: Supabase, Clerk, Evolution API (WhatsApp), OpenAI, Asaas (billing), Brevo (e-mail de convite), Google Calendar.
 - **Docs do pipeline**: `docs/Docs<id>/` (PRD, SPEC, sprints, design).
@@ -23,6 +23,10 @@ Regras do MVP:
 - **Uma fatia vertical por vez**, na ordem do plano; cada fatia termina em algo
   que um pastor ou contato usa, testado de ponta a ponta (mensagem real no
   número de teste quando envolver WhatsApp).
+- **Desenvolver e testar no local, PROD só por release.** `./dev.sh up` sobe o
+  sistema inteiro nesta máquina (Supabase local, backend, workers e frontend)
+  com dados fictícios; `./dev.sh reset` recria o banco do zero. O DEV na nuvem
+  está parado desde 27/09. Guia: `docs/ops/AMBIENTE-LOCAL.md`.
 - **PR pequeno, merge rápido, `main` sempre implantável.** CI obrigatório:
   `backend-tests`, `frontend-ci`, `e2e-critical`, `rls-integration`.
 - **Sem testes que congelam hash de arquivo ou leem texto de documento.**
@@ -50,7 +54,8 @@ Use o code-review-graph antes de Grep/Read quando ele estiver no commit atual.
 
 ## Cuidados técnicos
 - **RLS / multi-tenant**: todo endpoint e query respeita `igreja_id`. Nunca vazar dados entre igrejas. ⚠️ O role de conexão do Supabase (`postgres`) tem **BYPASSRLS**; por isso `set_tenant_context` (em `app/db/rls.py`) faz `SET LOCAL ROLE authenticated` — sem isso a RLS é ignorada e as queries vazam entre tenants. Não remover.
-- **Backend `:8000`**: mudanças no backend só valem após reiniciar o uvicorn.
+- **Backend `:8000`**: no ambiente local (`./dev.sh up`) a API recarrega sozinha e os workers reiniciam quando um `.py` muda. Fora dele, mudanças no backend só valem após reiniciar o uvicorn.
+- **Banco local**: o `./dev.sh reset` repõe os privilégios padrão antigos do Supabase antes da 1ª migration, porque o PROD nasceu com eles e o Supabase local de hoje não os concede. Sem isso, toda rota autenticada dá 500 (`permission denied` para `authenticated`).
 - **Testes**: rodar `./test-local.sh` (raiz) antes de commitar — usa Python 3.13 (`backend/.venv-runtime`), Node 24 (`.nvmrc`) e `umask 022`, iguais ao CI. O `backend/.venv` antigo (3.12) e o Node global (26) geram falhas falsas.
 - **Segredos**: nunca commitar `.env` real — só `.env.example`. O `.gitignore` já protege.
 

@@ -48,15 +48,25 @@ def test_me_includes_chat_nome(app) -> None:
     assert resp.json()["chatNome"] == "Pastor Raniel"
 
 
-def test_me_authentication_uses_five_database_round_trips(app) -> None:
+def test_me_authentication_uses_three_database_round_trips(app) -> None:
     session = FakeSession(app_user=make_app_user(), roles=["admin", "pastor"])
     client = _wire(app, session=session, clerk=FakeClerk())
 
     resp = client.get("/auth/me", headers=_AUTH)
 
     assert resp.status_code == 200
-    # claim GUC + SET LOCAL ROLE + user/igreja/roles + tenant GUC + role.
-    assert session.execute_count == 5
+    # claim GUC + role, user/igreja/roles, tenant GUC + role: each context
+    # statement carries its own role drop, so no separate SET LOCAL ROLE.
+    assert session.execute_count == 3
+    context_sql = [
+        str(statement)
+        for statement in session.executed_statements
+        if "set_config" in str(statement)
+    ]
+    assert len(context_sql) == 2
+    assert all(
+        "set_config('role', 'authenticated', true)" in sql for sql in context_sql
+    )
     app_user_sql = next(
         str(statement)
         for statement in session.executed_statements

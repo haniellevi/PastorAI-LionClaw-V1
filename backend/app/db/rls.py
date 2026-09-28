@@ -14,6 +14,13 @@ alone is not enough. We therefore drop the transaction to the `authenticated`
 role (NOBYPASSRLS, already granted DML on the public tables) so the
 `current_igreja_id()`-based policies are actually enforced at the database.
 Without this, every tenant-scoped query would return all tenants' rows.
+
+The role drop travels in the SAME statement as the tenant GUC, as
+`set_config('role', 'authenticated', true)`. PostgreSQL applies it through the
+same path as `SET LOCAL ROLE authenticated` (same membership check, reverted on
+commit/rollback); PostgREST sets the role this way too. One statement means one
+round trip to the database instead of two — each one costs ~185 ms between the
+VPS and Supabase us-west-2.
 """
 
 from __future__ import annotations
@@ -23,22 +30,30 @@ import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+# Transaction-local equivalent of `SET LOCAL ROLE authenticated`, usable inside
+# a SELECT so it shares the round trip with the tenant GUC. Also used, with the
+# driver's own placeholder, by the after_begin listener in tenant_session.py.
+ROLE_AUTHENTICATED_SQL = "set_config('role', 'authenticated', true)"
+
 
 def set_tenant_context(session: Session, clerk_user_id: str) -> None:
     """Inject the Clerk subject into the session so RLS resolves the tenant.
 
     `current_igreja_id()` reads `request.jwt.claims ->> 'sub'`; we set exactly
     that claim shape. Bound as a parameter to avoid any injection.
+
+    The same statement drops the transaction to a role subject to RLS. The
+    connection role has BYPASSRLS, so without the role the policies are ignored
+    and tenant isolation is lost. Both settings revert on commit/rollback.
     """
     claims = json.dumps({"sub": clerk_user_id})
     session.execute(
-        text("select set_config('request.jwt.claims', :claims, true)"),
+        text(
+            "select set_config('request.jwt.claims', :claims, true), "
+            f"{ROLE_AUTHENTICATED_SQL}"
+        ),
         {"claims": claims},
     )
-    # Drop to a role subject to RLS for the rest of this transaction. The
-    # connection role has BYPASSRLS, so without this the policies are ignored
-    # and tenant isolation is lost. SET LOCAL reverts on commit/rollback.
-    session.execute(text("set local role authenticated"))
 
 
 def set_tenant_context_for_igreja(session: Session, igreja_id: str) -> None:
@@ -54,15 +69,15 @@ def set_tenant_context_for_igreja(session: Session, igreja_id: str) -> None:
     igreja from a WhatsApp `instance`), since dropping to `authenticated` makes
     every subsequent query in this transaction RLS-scoped to this igreja. The id
     is bound as a parameter (cast to uuid in `current_igreja_id`) to avoid any
-    injection.
+    injection. GUC and role go in one statement, as in `set_tenant_context`.
     """
     session.execute(
-        text("select set_config('app.tenant_igreja_id', :igreja_id, true)"),
+        text(
+            "select set_config('app.tenant_igreja_id', :igreja_id, true), "
+            f"{ROLE_AUTHENTICATED_SQL}"
+        ),
         {"igreja_id": str(igreja_id)},
     )
-    # Same role drop as set_tenant_context: the connection role has BYPASSRLS,
-    # so without this the policies are ignored. SET LOCAL reverts on commit.
-    session.execute(text("set local role authenticated"))
 
 
 def clear_tenant_context(session: Session) -> None:

@@ -146,10 +146,12 @@ Ficam na branch `archive/governanca-2026-09` e deixam de ser mantidas e de
 bloquear o `main`. Voltam, se voltarem, na Fase 5.
 
 - E4B (catálogo, ledger e evidência de consentimento), consentimento por
-  finalidade e `tarefas_operacionais`;
+  finalidade (migrations d2b2 e d2b2b3 marcadas como pausadas em 27/09) e
+  `tarefas_operacionais`;
 - D3 (turn identity, plan, receipts, outbox v2) e D6 (coordenador offline de
   relatório);
-- sessão dedicada D2A e projeção privada do runtime;
+- sessão dedicada D2A (migration d2a marcada como pausada em 27/09) e projeção
+  privada do runtime;
 - executor catalog-bound, atestação de ambiente, divergence v4, replay PG17 e
   missões F1/F2;
 - testes que congelam hash ou leem texto de documento.
@@ -159,11 +161,42 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 1. Arquivo `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback comentado.
 2. O CI roda a migration num PostgreSQL descartável (reaproveitando o job já
    existente).
-3. **DEV:** `MIGRATION_DATABASE_URL=... python scripts/migrate.py apply <arquivo> --yes`,
-   que registra em `public.schema_migrations` na mesma transação.
-4. **PROD:** backup, o mesmo comando, verificação e registro no log da fatia.
-5. Uma vez só: reconciliar as 44 pendentes do DEV, ou recriar o DEV a partir
-   do schema de PROD (é o mais simples).
+3. **Local** (desde 27/09, no lugar do DEV): `./dev.sh migrate` aplica as
+   pendentes e `./dev.sh reset` recria o banco do zero com todas
+   ([`AMBIENTE-LOCAL.md`](AMBIENTE-LOCAL.md)).
+4. **PROD:** só no release: backup, `MIGRATION_DATABASE_URL=... python
+   scripts/migrate.py apply <arquivo> --yes`, verificação e registro no log da
+   fatia.
+5. ~~Reconciliar ou recriar o DEV~~: substituído pelo ambiente local (§3.5).
+
+### 3.5 Ambientes: local e produção (decisão de 27/09)
+
+Até 27/09 só a produção funcionava de ponta a ponta, então todo teste real
+acontecia nela, e cada mudança era feita duas vezes (DEV e PROD). Agora:
+
+| | Local (`./dev.sh`) | Produção |
+|---|---|---|
+| Banco | Supabase local, recriado pelas migrations em ~1 min | Supabase PROD |
+| Dados | fictícios, gerados por script | Filadélfia (reais) |
+| WhatsApp | simulador ou chip de teste | número da Filadélfia |
+| Quando muda | a cada alteração | só no release, quando o proprietário decide |
+
+- [x] **1. Ambiente local** (`./dev.sh`): Supabase local, backend e workers em
+      Docker com recarga automática, frontend e seed fictício com duas igrejas
+      ([registro](../sprints/2026-09-27-ambiente-local.md)).
+- [ ] **2. Simulador de WhatsApp:** página tipo WhatsApp que manda mensagens
+      como se fossem da Evolution e mostra a resposta do bot, com o fluxo real
+      (webhook, fila, agente, LLM); só a rede do WhatsApp é simulada.
+- [ ] **3. Chip de teste:** número próprio de teste conectado por QR à
+      Evolution local. Nunca o número da Filadélfia.
+- [ ] **4. Release:** a Vercel deixa de publicar a cada merge e passa a
+      publicar só a branch `producao`. Um script faz, na ordem: backup,
+      migrations pendentes, backend, frontend e checagens. Backend e frontend
+      sobem juntos (fim do B13), e a revisão da Sarah das migrations passa a
+      ser uma por release.
+
+O DEV na nuvem foi recriado em 27/09 como espelho do schema de PROD (PR #431)
+e ficou parado. Não recebe mais migrations nem testes.
 
 ---
 
@@ -190,9 +223,11 @@ bloquear o `main`. Voltam, se voltarem, na Fase 5.
 - [x] Checks obrigatórios da `main`: `backend-tests`, `frontend-ci`,
       `e2e-critical`, `rls-integration` e Vercel.
 - [ ] Limpar worktrees e branches mortas (só as limpas e já integradas).
-- [ ] Reconciliar ou recriar o DEV (44 migrations pendentes) com
-      `scripts/migrate.py status`. Precisa da URL do DEV, que fica com o
-      proprietário.
+- [x] ~~Reconciliar ou recriar o DEV~~: substituído em 27/09 pelo ambiente
+      local (§3.5). O banco local nasce das migrations, com os dados de
+      referência das seeds, e o DEV deixa de ser pré-requisito da próxima
+      migration em PROD. No mesmo dia o DEV na nuvem foi recriado como espelho
+      de PROD (PR #431) e depois parado.
 
 **Pronto quando:** `./test-local.sh` passa, e o CI tem só os jobs
 obrigatórios de produto.
@@ -218,10 +253,17 @@ obrigatórios de produto.
       própria). Implementação local em 25/09: até cinco tentativas por envelope,
       depois dead-letter; sem teste real ou deploy. Timeout após envio pode
       duplicar resposta, pois a Evolution não garante idempotência nesse fluxo.
-- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo).
+- [ ] **Ligar na Filadélfia e testar com número real** (passo a passo abaixo). Ligado em 27/09. No teste da equipe interna (27/09), a resposta chegou ao celular em ~28 s; a meta de < 10 s ainda não foi atingida (banco em us-west-2, tarefa própria).
 
 **Pronto quando:** as mensagens para o número da Filadélfia recebem resposta
 em menos de 10 s e aparecem no inbox do painel.
+
+**Medição de 27/09 (local, latência de PROD simulada):** com o banco em
+us-west-2 a ~185 ms por ida, o código em produção (`e6aafc2`) faz 152 a 167
+idas ao banco por mensagem, 29 a 33 s, o que bate com os ~28 s do teste real.
+Depois dos cortes do PR #424, 114 a 130 idas, 21 a 26 s. A meta de 10 s
+depende de aproximar servidor e banco (B17,
+[registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
 
 #### Passo a passo para ligar na Filadélfia (proprietário)
 
@@ -232,41 +274,48 @@ A restrição permanece até a nova detecção de risco/handoff passar pela
 avaliação e revisão definidas abaixo. Deploy ou merge não removem essa restrição.
 
 Ordem revisada em 26/09: o banco vem antes do código, porque o `main` mapeia
-colunas e tabelas que o backend antigo não usava.
+colunas e tabelas que o backend antigo não usava. Estado real depois da sessão
+operacional de 26/09 (registro em
+[`2026-09-26-prod-sessao-a-ledger-e-deploy.md`](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)):
 
-1. **Backup** do banco de PROD.
-2. **Banco de PROD antes do deploy**, em duas sessões, cada uma com revisão
-   da Sarah (veredito de 26/09):
-   - **Sessão de reconciliação, só leitura.** Backup, inspeção por SQL e
-     reconciliação do ledger; não aplica nada novo. Confira cada migration
-     abaixo: a tabela ou a coluna existe? O preflight de 28/08 viu
-     `public.schema_migrations` ausente, e o `migrate.py` recusa rodar sem
-     ele. **Não crie o ledger vazio:** o `status` passaria a listar como
-     pendentes migrations que já estão em PROD. Registre nele só as já
-     aplicadas.
-   - **Sessão de aplicação.** Aplique as que faltam, uma a uma, com
-     `MIGRATION_DATABASE_URL=<PROD> python scripts/migrate.py apply <arquivo> --yes`.
-     O `main` depende de:
-     - `20260822_225752_celula_membro_evento_audit_table` (transferir ou
-       remover membro de célula);
-     - `20260826_030508_separar_estado_resposta_agente_de_autor_mensagem`
-       (reserva de resposta do worker);
-     - `20260925_183811_preserve_platform_admins_on_tenant_deletion`
-       (exclusão de tenant; muda a RLS de `app_users`).
-
-     `20260926_120446_platform_jev_settings` (configuração do Jev pelo
-     console; tabela nova fechada, só o backend lê) é decisão separada. Sem
-     ela o deploy funciona: o console mostra só o ambiente, e salvar responde
-     409 pedindo a migration.
-3. **Deploy** do backend com o `main` atualizado, pelo runbook de produção
+1. ✅ **Backup** do banco de PROD: `pastorai-backup-20260926T200839Z` (antes do
+   ledger) e `pastorai-backup-20260926T210416Z` (antes da migration S2), com
+   SHA-256 conferido contra o `.sha256` e o manifesto.
+2. ✅ **Banco de PROD**, com revisão da Sarah em cada escrita:
+   - Ledger `public.schema_migrations` criado com registro nominal de 69
+     migrations: 63 por prova de objeto no catálogo e 6 só de dados por
+     evidência histórica (exceção aceita pelo proprietário). Já estavam
+     aplicadas, entre outras, `20260822_225752`, `20260824_180000`,
+     `20260826_030508` e `20260826_094317`.
+   - Aplicada `20260926_191500_agent_public_profile` (S2), com backup antes,
+     `lock_timeout` de 2 s na mesma transação e conferência de permissões
+     antes e depois. Exceção única ao "DEV primeiro": a próxima migration em
+     PROD só depois do DEV reconciliado.
+   - `migrate.py status` lista 8 pendentes, **nenhuma para aplicar em lote**
+     (cada uma tem gate próprio): `20260711_023515` e `20260711_152127` (só
+     dados, sem prova de aplicação), d1a, d2a, d2b2, d2b2b3, `20260925_183811`
+     e `20260926_120446`.
+   - Correção do plano anterior: o `main` **não** depende da
+     `20260925_183811` para login, `/me` ou o Console. Sem ela, só a
+     **exclusão de igreja** falha (500 com rollback se a igreja tiver admin de
+     plataforma; sem admin, apaga usuários no Clerk e arquivos no Storage mesmo
+     com `ALLOW_REAL_SENDS=false`). **Não excluir igreja** até o gate dessa
+     migration. A `20260926_120446_platform_jev_settings` é opcional: sem ela o
+     console do Jev mostra só o ambiente e salvar responde 409.
+3. ✅ **Deploy** feito em 26–27/09: backend `e6aafc2` (main pós-#423) nos quatro
+   processos, com `ALLOW_REAL_SENDS=false` na troca; `/admin/jev` sem login
+   responde 401. Texto original do passo: deploy do backend com o `main` atualizado, pelo runbook de produção
    (rebuild da imagem; reiniciar `backend`, `queue-worker` e `cron-worker`),
    ainda com `ALLOW_REAL_SENDS=false`: a prova pós-restart do runbook aborta
    se os envios estiverem abertos. Confira que
    `https://api.igreja12.com.br/admin/jev` sem login responde 401, não 404
    (404 = backend antigo, bug B13).
-4. **Painel da Filadélfia → Agente:** credencial OpenAI validada e ativa,
+4. **Painel da Filadélfia → Agente** (27/09: credencial OpenAI ativa e validada e
+   agente ativo; informações públicas ainda vazias): credencial OpenAI validada e ativa,
    agente **ativo**, comportamento com o tom da igreja.
-5. **`.env` de PROD** (passo separado, depois do deploy verificado):
+5. ✅ **`.env` de PROD** (27/09, 01:18 UTC: reaberto só para a Filadélfia, com
+   aceite de risco do proprietário; SLA, Asaas, Brevo, broadcast, agenda e Jev
+   desligados) — passo separado, depois do deploy verificado:
    - `WHATSAPP_PILOTO_IGREJA_IDS=<igreja_id da Filadélfia>` (copie do Admin
      Master);
    - `ALLOW_REAL_SENDS=true`. Isso também libera envios feitos por pessoas
@@ -278,7 +327,10 @@ colunas e tabelas que o backend antigo não usava.
    Reinicie os serviços.
 6. **Teste:** de um celular que não seja o da igreja, mande "oi" para o
    número da Filadélfia. Esperado: o termo LGPD. Responda "sim". Esperado:
-   a saudação. As duas conversas aparecem no inbox.
+   a saudação. As duas conversas aparecem no inbox. Não clique em "Assumir
+   (pausar IA)" durante o teste: isso cancela a resposta do robô.
+   27/09: resposta entregue em ~28 s; antes, foi preciso reconectar a Evolution,
+   que estava "Online" sem receber desde 03/09 (registro da sessão).
 7. **Desligar rápido, se precisar:** agente inativo no painel, lista vazia
    ou `ALLOW_REAL_SENDS=false` e reiniciar.
 
@@ -305,14 +357,17 @@ pendente. Não há garantia geral de factualidade por teste de prompt.
       e indicação de célula por bairro explicitamente publicado no perfil do
       agente. Respostas determinísticas, sem LLM nem alterações cadastrais.
       Contrato inicial: [fatia 2](../sprints/2026-09-26-mvp-fase2-fatia2.md).
-- [x] **S2 integrada pela PR423, merge `e6aafc2`:** painel/API de campos
-      públicos estruturados, migration tenant/RLS, perguntas naturais de culto
-      e remoção de Cf no legado. Testes locais e revisão técnica concluídos;
-      [registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md).
-      A autorização nominal do Raniel e a liberação coordenada com a sessão
-      PastorAI PROD operacional antecederam o merge. Esta missão não aplicou
-      banco compartilhado nem fez deploy. A S2b aprovada abaixo substitui a
-      fonte pública por Igreja/Celula e mantém novo gate de migration/deploy.
+- [x] **S2 em produção:** painel/API de campos públicos estruturados,
+      migration tenant/RLS, perguntas naturais de culto e remoção de Cf no
+      legado ([registro da fatia](../sprints/2026-09-26-mvp-s2-perfil-publico.md)).
+      Sarah GO no código `fe544d7`. Em 26/09: migration `20260926_191500`
+      aplicada em PROD com backup e revisão da Sarah, PR #423 integrado e
+      backend `e6aafc2` implantado
+      ([registro da sessão](../sprints/2026-09-26-prod-sessao-a-ledger-e-deploy.md)).
+      Informações públicas da Filadélfia ainda vazias no painel.
+      A S2b aprovada abaixo substitui a fonte pública por Igreja/Celula e
+      mantém novo gate de migration/deploy. Esta atualização da PR426 não
+      aplicou banco compartilhado nem fez deploy.
 - [ ] Proximidade geográfica de células: o cadastro atual não fornece distância
       nem política pública para endereços residenciais; indicação por bairro
       não representa a célula mais próxima.
@@ -357,9 +412,10 @@ sensíveis. Esta ordem substitui Clerk obrigatório para todo dado não público
 sem declarar as próximas verticais implementadas.
 
 0. **Agora: S2b aprovada**, Igreja/Celula como fonte pública, oferta determinística
-   de secretaria e UI protegida por suporte da API. Entregar imediatamente o
-   [roteiro DEV para Raniel](s2b-church-cell-20260927/RECONCILIAR-DEV-RANIEL.md).
-   DEV reconciliado condiciona migration/deploy PROD, não código/PR/CI.
+   de secretaria e UI protegida por suporte da API. Validar em ambiente local
+   descartável e no CI, conforme §3.5. O [roteiro DEV histórico](s2b-church-cell-20260927/RECONCILIAR-DEV-RANIEL.md)
+   foi supersedido; DEV na nuvem não é pré-requisito de merge ou migration.
+   Migration/deploy PROD continuam sujeitos ao gate humano próprio de release.
 1. **S3 revisada:** `PrivilegeContext` derivado no servidor por telefone único,
    vínculo ativo `app_users.pessoa_id -> user_roles` e `celulas.lider_id`;
    ambiguidade encaminha a humano. Ações ministeriais comuns por telefone
@@ -394,8 +450,9 @@ sem declarar as próximas verticais implementadas.
    histórico, com unicidade por tenant/destinatário/ocorrência/finalidade, janela
    08:00 inclusive até 21:00 exclusive e teto agenda de dois/dia.
    [Registro V2a](../sprints/2026-09-27-whatsapp-agenda-v2a.md): implementação
-   autorizada, sem merge/deploy/ativação presumidos. Desenvolvimento local e
-   release em lote seguem a decisão de 27/09; PR432 ainda pendente no preflight.
+   autorizada; #434 foi integrada à main em `87e13da`, sem deploy ou ativação.
+   Desenvolvimento local e release em lote seguem a decisão de 27/09;
+   V2b permanece em PR própria e exige revisão e gate nominal.
 4. **V3: consolidação**, decisão para consolidação e alertas de 24h/fonovisita.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
@@ -458,8 +515,23 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 
 - [ ] Investigar a causa raiz dos ~30 incidentes do monitor (VPS, Evolution,
       Supabase, Redis).
-- [ ] Deploy automatizado: uma GitHub Action ou um script único
-      `deploy.sh` com build, restart, health check e rollback.
+- [x] `queue-worker` espera e tenta de novo em timeout ou queda transitória
+      do Redis, em vez de encerrar o processo (incidente de 27/09, B16).
+      Implantado em PROD em 27/09 (`eb5a09b`). O travamento vinha do backup
+      diário das 06:15 UTC, que pausa o Redis por ~9 s.
+      [Registro](../sprints/2026-09-27-queue-worker-redis-transitorio.md).
+- [x] Menos idas ao banco por requisição, em código (PR #424, Sarah GO,
+      exceção D2A aceita pelo proprietário; entra em produção no próximo
+      deploy): contexto de tenant numa instrução, ping só em conexão parada,
+      preflight CORS por 2 h.
+      `/auth/me` de 1,3 s para 0,75 s com 185 ms simulados
+      ([registro](../sprints/2026-09-27-latencia-banco-round-trips.md)).
+- [ ] Decidir a infraestrutura (B17): banco em São Paulo (recomendado) ou
+      servidor em Oregon. Antes, medir do VPS a latência de um projeto vazio
+      em sa-east-1.
+- [ ] Deploy automatizado: é o release do item 4 da §3.5 (Vercel só na branch
+      `producao` e um script único com backup, migrations, backend, frontend,
+      health check e rollback).
 - [ ] Backup diário verificado e restauração testada uma vez.
 
 ### Fase 5 — Endurecimento (só com o MVP rodando e usado)
@@ -481,6 +553,8 @@ UV e Capacitação, e Enviar editável.
    (Fase 1), pausando a sessão dedicada D2A.
 5. Igreja piloto: **Filadélfia**. O número de teste ainda precisa ser definido.
 6. Maestri pausado até a Fase 3; trabalho direto, um agente por fatia.
+7. (27/09) Desenvolvimento e testes no ambiente local; PROD só por release
+   (§3.5). A frente do DEV na nuvem foi encerrada e o DEV ficou parado.
 
 ## 6. Lista de bugs e lacunas (viva)
 
@@ -495,11 +569,13 @@ UV e Capacitação, e Enviar editável.
 | B7 | Primeira mensagem sempre recebe o termo (o trigger não grava `consent_records`) | `migrations/0004_triggers.sql` | 2 |
 | B8 | ~30 incidentes de indisponibilidade em um mês | produção | 4 |
 | B9 | Deploy manual do backend | `deploy/` | 4 |
-| B10 | 44 migrations pendentes no DEV e 8 fora de ordem | Supabase DEV | 0 |
+| B10 | ~~44 migrations pendentes no DEV e 8 fora de ordem~~ Resolvido em 27/09: o DEV na nuvem parou e o banco local nasce das migrations (§3.5) | Supabase DEV | 0 |
 | B11 | Testes locais falham por ambiente (umask, Python 3.12, Node 26) | máquina local | 0 |
 | B12 | `V1-FINALIZATION-MAP.md` desatualizado (cita PR #257 como aberto) | docs | 0 |
 | B13 | Frontend (Vercel, automático) à frente do backend (deploy manual, último release registrado de 26/08): rotas novas dão 404, como "Não foi possível carregar o status do Jev". Mensagem clara no console em 26/09; a correção é o deploy | deploy, `admin-api.ts` | 1 |
 | B14 | Custo de IA (em US$) exibido como R$ no console. Corrigido em 26/09 | `AdminConsole.tsx`, `ChurchPage.tsx` | 0 |
 | B15 | `is_optout_request` perde "me tira da lista", "pare" e "stop"; `looks_like_report` responde "Relatório recebido!" a "vou mandar o relatório amanhã" e troca números no formato em linhas | `domain/consent.py`, `domain/report.py` | 2 |
+| B16 | `queue-worker` caiu em PROD (27/09) com `TimeoutError` do Redis: 2 s de margem entre o BRPOPLPUSH e o `socket_timeout`, e nenhum retry no laço. Corrigido e implantado em 27/09 (`eb5a09b`). O travamento vem do backup diário, que pausa o Redis ~9 s às 06:15 UTC | `queue_worker.py` | 4 |
+| B17 | VPS no Brasil e banco em us-west-2 (~185 ms por ida): tela 0,8 a 1,9 s por chamada e bot 21 a 26 s por mensagem; impede o aceite da Fase 1 | infra (VPS, Supabase) | 4 |
 | L1 | UV e Capacitação são placeholders; Enviar é só leitura | frontend | 5 |
 | L2 | Apenas OpenAI como provedor do agente | `AgenteScreen.tsx` | 5 |

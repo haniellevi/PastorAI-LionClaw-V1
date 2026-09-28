@@ -21,6 +21,14 @@ from app.domain.cell_report_workflow import (
 
 MAX_V1A_REPORT_TEXT_CHARS = 4_000
 _STOP_REMINDERS = re.compile(r"\s*parar\s+lembretes\s*[.!?]*\s*\Z")
+_V1A_AGGREGATE_LINE_BREAK = re.compile(
+    r"[ \t]*(?:\r\n|\n)[ \t]*(?="
+    r"(?:presentes?|visitantes?|decis(?:ão|ões|ao|oes)|ofertas?)\b"
+    r"|[0-9]+\s+(?:presentes?|visitantes?|decis(?:ão|ões|ao|oes))\b"
+    r"|r\$\s*[0-9]"
+    r")",
+    re.IGNORECASE,
+)
 
 
 class CellReportV1aError(ValueError):
@@ -41,8 +49,11 @@ def parse_v1a_cell_report_text(text: object) -> CellReportCandidate:
 
     if type(text) is not str or len(text) > MAX_V1A_REPORT_TEXT_CHARS:
         _reject()
+    normalized_text = unicodedata.normalize("NFC", text)
     try:
-        candidate = parse_cell_report_candidate(text)
+        candidate = parse_cell_report_candidate(
+            _V1A_AGGREGATE_LINE_BREAK.sub("; ", normalized_text)
+        )
     except CellReportWorkflowError as exc:
         raise CellReportV1aError("relatório de célula inválido") from exc
     if candidate.observacoes is not None:

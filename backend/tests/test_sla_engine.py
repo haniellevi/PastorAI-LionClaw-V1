@@ -611,7 +611,7 @@ def test_run_all_igrejas_scopes_a_new_session_per_igreja() -> None:
     for s in created:
         joined = " ".join(sql for sql, _ in s.tenant_calls)
         assert "app.tenant_igreja_id" in joined
-        assert "set local role authenticated" in joined
+        assert "set_config('role', 'authenticated', true)" in joined
     assert total == 2
 
 

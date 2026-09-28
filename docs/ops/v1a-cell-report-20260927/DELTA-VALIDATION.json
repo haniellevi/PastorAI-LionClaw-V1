@@ -1,74 +1,71 @@
 {
-  "base_sha": "7d98d0ced6652437d4689e5f71f1ebad0a9f5274",
-  "recorded_at": "2026-09-27T17:49:05.398003+00:00",
-  "patch_sha256": "6f66b635722c594d505e6ff9c31099840e9254b836d7e545fd79e6230ae3ab60",
+  "base_sha": "c3e8fb3171682b5f2bdfa36ae153414fe73bb47a",
+  "base_main_sha": "5f34b08695d148dc004d123d16f897da066cae5a",
+  "recorded_at": "2026-09-28T16:26:18.517764+00:00",
+  "patch_sha256": "110bd532f2307baaf87ca0af0b23a47fbb4182571782b20fad1d6ecf29c21517",
+  "patch_format": "git diff --binary --full-index HEAD -- <seven source/test paths>",
   "files": {
-    "backend/app/agent/privileged_turn.py": "85896c2e02912c5108ab6e50129a36d062a69fbe2c1f22baa8f0447e72f19c45",
-    "backend/app/db/models.py": "02fcea3b15702af6e2ac958c407a09563d64ca82f6d0bb1ca9de0f143eafd346",
-    "backend/app/services/cell_report_reminders.py": "828ac0896ec96257c4ca681a727d22b23515ef725647c4a2874566c64fe1fb1b",
-    "backend/app/services/cell_report_v1a_service.py": "b574353c64fd2aab5b50afac75e55ad29433868a8356583d3c616b0cfe0cf082",
-    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f",
-    "backend/tests/test_cell_report_reminders_v1a.py": "7c9cabf4e390b376bc48d6ebe03b33fd767f2dc4e83ec1d16834cdf11315ad32",
-    "backend/tests/test_cell_report_v1a_migration_pg.py": "fc0d0c950c9c7aba322fcdba8ab6e408a2da8511122e3ed85ef634b5c1374350",
-    "backend/tests/test_cell_report_v1a_models.py": "882b82a8bc47ac256d3aa169b39854a1f3864cb3c9a3126a880c80f33e529f02",
-    "backend/tests/test_cell_report_v1a_reminder_pg.py": "ddb97debd0d22be130ade40c1a544a0a14173b85843bda1de38ed5b4066fdb99",
-    "backend/tests/test_cell_report_v1a_worker_pg.py": "e13ef39bb45dfc4453ebdce258e92c77d94dbaeebb044b76bde86e8ef5f88125",
-    "backend/tests/test_cell_report_whatsapp_v1a.py": "f2b5d4c3c5b6551f22ecea73a78cbc1b2464a742d071b0c2e8a10172c90deb5b"
+    "backend/app/domain/cell_report_v1a.py": "f08c3acdf933e913e2269357e1cf06c99237d6f970e271c9b3617cbc9276e37e",
+    "backend/app/services/cell_report_finalizer.py": "82ccfcc3858b720c1b5e073e115abe5d6e8226db570ea3f4603496ac28bba34b",
+    "backend/app/services/cell_report_v1a_service.py": "df475519aeeb3c2bb5e0c0155084b0d11caa6c928dbd22486a93afca40cba11e",
+    "backend/tests/test_cell_meetings.py": "3032ebcb16c752f49f7dedbf9f9a238a362db042fc95ca8e3fff2a9c3ecfe1e9",
+    "backend/tests/test_cell_report_finalizer_v1a.py": "877ba09a49935259b6fefe3b62f9637f6dfaa4cc78dbd459e84ffa0e418cccb9",
+    "backend/tests/test_cell_report_v1a.py": "3f42790b58cab1296c456e5b26da851a499d8aacea0c0a16b82889b5d0040b37",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "6dbbda311d3a492366dd2b473fd30ae845f4cc5f18eeb1aaae1b033e27567c8a"
   },
-  "status": "LOCAL_PASS; independent source review APTO; GitHub CI and Sarah delta remain separate gates",
-  "stack_base_sha": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
-  "migration_sha256": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f",
+  "historical_delta": {
+    "file": "DELTA-VALIDATION-20260927.json",
+    "sha256": "45fb296f0b1516c35b73d47487f23c0ceb29130976e14bf00fdf9c0e5a05a1aa"
+  },
   "changes": [
-    "Unrelated text bypasses partial draft without mutation.",
-    "Reminder scan distinguishes exhaustion from rejection/defer/lock and excludes previously visited candidates within the bounded batch.",
-    "Receipt Message atomically records server cell/date before post-commit send and preserves text on retry.",
-    "Explicit DELETE revoke on all five private tables, including reapply over residual grants.",
-    "Unique executed V1a proposal by tenant/meeting/action; exact index keys/predicate guard rejects incompatible namesake."
+    "The human submit no longer applies the V1a-only meeting_has_passed predicate. The V1a finalizer still checks it after locking and before mutation.",
+    "The V1a wrapper accepts LF/CRLF and mixed separators while preserving BRL decimals, Unicode normalization and rejection of observations. It retains the existing projection to aggregate fields; the legacy parser is unchanged.",
+    "All four CLARIFY paths explain the four-field format with a valid example and comma/newline separators."
   ],
+  "regressions_before_fix": {
+    "human_endpoint": "Both same-day cases, hora=None and hora=23:59, returned HTTP409 instead of200; 2 failed in1.95s with the real finalizer.",
+    "parser_and_clarify": "Three multiline cases and four CLARIFY cases failed before production changes; 7 failed,51 passed in0.73s."
+  },
   "checks": [
     {
-      "suite": "backend",
-      "command": "bash test-local.sh backend",
+      "suite": "local_panel_and_v1a_regressions",
+      "command": "python -m pytest -o addopts='' -q -p no:cacheprovider tests/test_cell_meetings.py tests/test_cell_lider.py tests/test_cell_report_finalizer_v1a.py tests/test_cell_report_v1a.py tests/test_cell_report_whatsapp_v1a.py tests/test_cell_report_workflow.py",
       "results": {
-        "tests": 5755,
+        "tests": 470,
         "failures": 0,
         "errors": 0,
         "skipped": 0
       },
-      "seconds": 45.896,
-      "started_at": "2026-09-27T14:44:16.322613-03:00",
-      "junit_sha256": "72f2951721a846808506acc6806eba957fec10bef883beb97ef624d9b9003d04"
-    },
-    {
-      "suite": "rls_integration",
-      "command": "python -m pytest -m rls_integration",
-      "results": {
-        "tests": 515,
-        "failures": 0,
-        "errors": 0,
-        "skipped": 0
-      },
-      "seconds": 163.113,
-      "started_at": "2026-09-27T14:45:21.763610-03:00",
-      "junit_sha256": "cdb9f961e1d70cac3563db9103abab6f8da82098ae3e7e21ddc5a22ef5d74db7"
+      "seconds": 4.84,
+      "junit_sha256": "e3ee1cd43875807ffd7d66fb315316a32cb8ed6cb2dbf00fe68de79e4a37f945",
+      "environment": "Python 3.13.14; synthetic fixtures and real ASGI routes; no database or providers",
+      "candidate_source_patch_sha256": "110bd532f2307baaf87ca0af0b23a47fbb4182571782b20fad1d6ecf29c21517"
     }
   ],
-  "exact_migration_pg_cases": 25,
-  "regressions_before_fix": "All three Codex P2 reproduced; nine Sarah/locked-head regressions and two index-shape regressions reproduced before correction.",
-  "frozen_parent_sql": {
-    "20260927_170000_whatsapp_privilege_actions.sql": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
-    "20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65"
+  "frozen_sql_sha256": {
+    "backend/migrations/20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
+    "backend/migrations/20260927_170000_whatsapp_privilege_actions.sql": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f"
   },
-  "environment": "Local disposable PostgreSQL17 loopback, synthetic fixtures and provider mocks only.",
+  "status": "LOCAL_PASS; independent source and evidence review APTO (P0=0/P1=0/P2=0); GitHub CI and Sarah remain separate gates",
   "limits": [
-    "Sarah GO was for 7d98d0c, not this delta.",
-    "No shared migration, deploy, activation, merge or real provider.",
-    "V1b remains separate and awaits V1a review."
+    "No database replay was run locally in this delta; historical PostgreSQL results are not attributed to this candidate.",
+    "No merge, deploy, migration, activation, provider or production operation.",
+    "Sarah NO-GO on c3e8fb31 requires new review of the published head."
   ],
   "next_human_gate": "Sarah review of the exact updated PR head after green CI",
+  "compatibility": "NFC/NFD, legacy Relatório: prefix and ignored extra labels retain the baseline aggregate projection; observations remain rejected.",
   "review": {
-    "file": "REVIEW-PR430-P2.md",
-    "sha256": "39de3e498d8d999ce11fea33061c1d5fe8c0a14c966f4bcff2cdad054a71c380",
-    "verdict": "APTO technical source review; no open P0/P1/P2 in this patch; not Sarah approval"
+    "file": "REVIEW-SARAH-FIXES-20260928.md",
+    "sha256": "9a0d89bb544cfe1752bdda637b002de51e0e36cf1871908ae12569b105ed665d",
+    "verdict": "APTO technical delta review; no open P0/P1/P2 in this patch; not Sarah approval",
+    "executed_tests": {
+      "tests": 65,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.8
+    },
+    "scope": "Frozen source/test patch and five evidence documents; expanded HTTP suite supplied by the orchestrator."
   }
 }

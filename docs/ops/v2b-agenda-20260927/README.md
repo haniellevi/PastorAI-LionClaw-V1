@@ -1,6 +1,6 @@
 # V2b: lembretes e outbox comum
 
-Implementação autorizada sobre PR434 `58bcd1808aa511cdfafc7957d5c36a9c0f8ee348`, mantida congelada. O [plano V2](../mvp-v2-agenda-whatsapp-plano.md) foi aprovado com entrega separada de consulta e lembretes. Esta fatia reúne os avisos internos EVT-7, lembretes de agenda e lembretes de relatório V1a em uma única outbox e dispatcher. Respostas inbound, broadcast e cobrança ficam fora.
+Implementação originalmente autorizada sobre PR434 `58bcd1808aa511cdfafc7957d5c36a9c0f8ee348`. Após o merge da #434, esta PR foi atualizada contra `main@87e13da06eee047419b583d87545ee44326e1a28`. O [plano V2](../mvp-v2-agenda-whatsapp-plano.md) foi aprovado com entrega separada de consulta e lembretes. Esta fatia reúne os avisos internos EVT-7, lembretes de agenda e lembretes de relatório V1a em uma única outbox e dispatcher. Respostas inbound, broadcast e cobrança ficam fora.
 
 ## Contrato de entrega
 
