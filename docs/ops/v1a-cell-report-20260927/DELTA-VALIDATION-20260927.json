@@ -1,0 +1,74 @@
+{
+  "base_sha": "7d98d0ced6652437d4689e5f71f1ebad0a9f5274",
+  "recorded_at": "2026-09-27T17:49:05.398003+00:00",
+  "patch_sha256": "6f66b635722c594d505e6ff9c31099840e9254b836d7e545fd79e6230ae3ab60",
+  "files": {
+    "backend/app/agent/privileged_turn.py": "85896c2e02912c5108ab6e50129a36d062a69fbe2c1f22baa8f0447e72f19c45",
+    "backend/app/db/models.py": "02fcea3b15702af6e2ac958c407a09563d64ca82f6d0bb1ca9de0f143eafd346",
+    "backend/app/services/cell_report_reminders.py": "828ac0896ec96257c4ca681a727d22b23515ef725647c4a2874566c64fe1fb1b",
+    "backend/app/services/cell_report_v1a_service.py": "b574353c64fd2aab5b50afac75e55ad29433868a8356583d3c616b0cfe0cf082",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f",
+    "backend/tests/test_cell_report_reminders_v1a.py": "7c9cabf4e390b376bc48d6ebe03b33fd767f2dc4e83ec1d16834cdf11315ad32",
+    "backend/tests/test_cell_report_v1a_migration_pg.py": "fc0d0c950c9c7aba322fcdba8ab6e408a2da8511122e3ed85ef634b5c1374350",
+    "backend/tests/test_cell_report_v1a_models.py": "882b82a8bc47ac256d3aa169b39854a1f3864cb3c9a3126a880c80f33e529f02",
+    "backend/tests/test_cell_report_v1a_reminder_pg.py": "ddb97debd0d22be130ade40c1a544a0a14173b85843bda1de38ed5b4066fdb99",
+    "backend/tests/test_cell_report_v1a_worker_pg.py": "e13ef39bb45dfc4453ebdce258e92c77d94dbaeebb044b76bde86e8ef5f88125",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "f2b5d4c3c5b6551f22ecea73a78cbc1b2464a742d071b0c2e8a10172c90deb5b"
+  },
+  "status": "LOCAL_PASS; independent source review APTO; GitHub CI and Sarah delta remain separate gates",
+  "stack_base_sha": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "migration_sha256": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f",
+  "changes": [
+    "Unrelated text bypasses partial draft without mutation.",
+    "Reminder scan distinguishes exhaustion from rejection/defer/lock and excludes previously visited candidates within the bounded batch.",
+    "Receipt Message atomically records server cell/date before post-commit send and preserves text on retry.",
+    "Explicit DELETE revoke on all five private tables, including reapply over residual grants.",
+    "Unique executed V1a proposal by tenant/meeting/action; exact index keys/predicate guard rejects incompatible namesake."
+  ],
+  "checks": [
+    {
+      "suite": "backend",
+      "command": "bash test-local.sh backend",
+      "results": {
+        "tests": 5755,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "seconds": 45.896,
+      "started_at": "2026-09-27T14:44:16.322613-03:00",
+      "junit_sha256": "72f2951721a846808506acc6806eba957fec10bef883beb97ef624d9b9003d04"
+    },
+    {
+      "suite": "rls_integration",
+      "command": "python -m pytest -m rls_integration",
+      "results": {
+        "tests": 515,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "seconds": 163.113,
+      "started_at": "2026-09-27T14:45:21.763610-03:00",
+      "junit_sha256": "cdb9f961e1d70cac3563db9103abab6f8da82098ae3e7e21ddc5a22ef5d74db7"
+    }
+  ],
+  "exact_migration_pg_cases": 25,
+  "regressions_before_fix": "All three Codex P2 reproduced; nine Sarah/locked-head regressions and two index-shape regressions reproduced before correction.",
+  "frozen_parent_sql": {
+    "20260927_170000_whatsapp_privilege_actions.sql": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
+    "20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65"
+  },
+  "environment": "Local disposable PostgreSQL17 loopback, synthetic fixtures and provider mocks only.",
+  "limits": [
+    "Sarah GO was for 7d98d0c, not this delta.",
+    "No shared migration, deploy, activation, merge or real provider.",
+    "V1b remains separate and awaits V1a review."
+  ],
+  "next_human_gate": "Sarah review of the exact updated PR head after green CI",
+  "review": {
+    "file": "REVIEW-PR430-P2.md",
+    "sha256": "39de3e498d8d999ce11fea33061c1d5fe8c0a14c966f4bcff2cdad054a71c380",
+    "verdict": "APTO technical source review; no open P0/P1/P2 in this patch; not Sarah approval"
+  }
+}

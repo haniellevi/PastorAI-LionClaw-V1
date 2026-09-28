@@ -1,6 +1,6 @@
 # V2a: consulta da agenda pelo WhatsApp
 
-Fatia somente de leitura, empilhada sobre PR433 `3e8306e`. O [plano V2](../mvp-v2-agenda-whatsapp-plano.md) foi aprovado com separação entre consulta V2a e lembretes/outbox V2b. Esta entrega não ativa lembretes, não muda frontend e não cria migration.
+Fatia somente de leitura, criada sobre PR433 `3e8306e` e agora atualizada contra a main pós-merge #433 `9dc28f9`. O [plano V2](../mvp-v2-agenda-whatsapp-plano.md) foi aprovado com separação entre consulta V2a e lembretes/outbox V2b. Esta entrega não ativa lembretes, não muda frontend e não cria migration.
 
 ## Contrato de privacidade
 
@@ -18,7 +18,7 @@ A allowlist atual contém nove títulos e limita o uso real: “Conferência de 
 
 A flag por igreja nasce vazia e a release em código permanece `None`, cumulativas aos gates S3. Variável de ambiente sozinha não autoriza acesso. O transporte existente revalida a autorização e a consulta antes de enviar, inclusive em retry.
 
-PROD só muda por release em lote, com backup, migrations, backend, frontend e revisão Sarah da release. A PR432 ainda estava aberta no preflight desta missão; seu guia também marcava o simulador como pendente. Esta implementação não comprova `./dev.sh reset` nem E2E no painel/simulador. Esses testes serão feitos após disponibilização da base local, sem reutilizar dados ou provedores reais.
+PROD só muda por release em lote, com backup, migrations, backend, frontend e revisão Sarah da release. No preflight original, #432 ainda estava aberta e o simulador pendente. #432 e #433 foram integradas depois. Esta implementação ainda não comprova `./dev.sh reset` nem E2E no painel/simulador; esses testes seguem para a etapa local própria, sem dados ou provedores reais.
 
 ## Verificação e rollback
 

@@ -136,11 +136,6 @@ def _finalize_locked_cell_report(
         or getattr(meeting, "relatorio_status", None) != "pendente"
         or getattr(meeting, "status", None) == "cancelada"
         or type(getattr(meeting, "data", None)) is not dt.date
-        or not meeting_has_passed(
-            data=meeting.data,
-            hora=getattr(meeting, "hora", None),
-            now=now,
-        )
         or type(snapshot) is not dict
         or type(oferta_valor) not in {Decimal, type(None)}
         or (
@@ -249,6 +244,15 @@ def finalize_v1a_cell_report(
         actor_pessoa_id=actor_pessoa_id,
     )
     if meeting is None:
+        raise CellReportFinalizerError("relatório indisponível")
+    if (
+        type(getattr(meeting, "data", None)) is not dt.date
+        or not meeting_has_passed(
+            data=meeting.data,
+            hora=getattr(meeting, "hora", None),
+            now=now,
+        )
+    ):
         raise CellReportFinalizerError("relatório indisponível")
     snapshot = build_cell_report_snapshot_v2(
         presentes=candidate.presentes,

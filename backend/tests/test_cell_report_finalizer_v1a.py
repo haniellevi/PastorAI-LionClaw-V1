@@ -86,12 +86,23 @@ def test_v1a_finalizer_materializes_only_aggregates_without_committing(monkeypat
     assert session.commits == 0
 
 
-def test_human_finalizer_uses_the_same_terminal_boundary_without_commit() -> None:
+@pytest.mark.parametrize(
+    ("meeting_date", "meeting_time"),
+    [
+        (dt.date(2026, 9, 26), "19:00"),
+        (NOW.date(), None),
+        (NOW.date(), "23:59"),
+    ],
+)
+def test_human_finalizer_uses_the_same_terminal_boundary_without_commit(
+    meeting_date: dt.date,
+    meeting_time: str | None,
+) -> None:
     meeting = SimpleNamespace(
         id=MEETING,
         igreja_id=TENANT,
-        data=dt.date(2026, 9, 26),
-        hora="19:00",
+        data=meeting_date,
+        hora=meeting_time,
         status="realizada",
         relatorio_status="pendente",
         relatorio_enviado_em=None,
@@ -200,9 +211,10 @@ def test_v1a_finalizer_refuses_duplicate_or_incomplete_report(monkeypatch) -> No
     [
         ("cancelada", dt.date(2026, 9, 26), "19:00"),
         ("planejada", dt.date(2026, 9, 28), "19:00"),
+        ("realizada", NOW.date(), None),
     ],
 )
-def test_v1a_finalizer_refuses_cancelled_or_future_meeting(
+def test_v1a_finalizer_refuses_cancelled_future_or_timeless_meeting_without_mutation(
     monkeypatch,
     meeting_status: str,
     meeting_date: dt.date,
@@ -215,13 +227,20 @@ def test_v1a_finalizer_refuses_cancelled_or_future_meeting(
         hora=meeting_time,
         status=meeting_status,
         relatorio_status="pendente",
+        relatorio_enviado_em=None,
+        relatorio_enviado_por=None,
+        relatorio_snapshot=None,
+        oferta_valor=None,
+        observacoes=None,
+        updated_at=None,
     )
     monkeypatch.setattr(finalizer, "_lock_owned_meeting", lambda *_args, **_kwargs: meeting)
     monkeypatch.setattr(finalizer, "require_tenant_scope", lambda *_args, **_kwargs: None)
+    session = _Session()
 
     with pytest.raises(finalizer.CellReportFinalizerError):
         finalizer.finalize_v1a_cell_report(
-            _Session(),
+            session,
             igreja_id=TENANT,
             reuniao_id=MEETING,
             actor_pessoa_id=ACTOR,
@@ -232,3 +251,10 @@ def test_v1a_finalizer_refuses_cancelled_or_future_meeting(
             draft_payload_sha256="a" * 64,
             now=NOW,
         )
+
+    assert meeting.relatorio_status == "pendente"
+    assert meeting.relatorio_enviado_em is None
+    assert meeting.relatorio_enviado_por is None
+    assert meeting.relatorio_snapshot is None
+    assert session.flushes == 0
+    assert session.commits == 0
