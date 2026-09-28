@@ -1,0 +1,85 @@
+# ============================================================================
+# PastorAI — stack LOCAL de desenvolvimento (use pelo ./dev.sh, não direto)
+# ----------------------------------------------------------------------------
+# Mesmo backend e mesmos workers da produção, com o código montado do checkout
+# atual: a API recarrega sozinha e os workers reiniciam quando um .py muda.
+# O banco é o Supabase local (supabase start, portas 54321/54322). O frontend
+# roda fora do Docker (npm run dev), também pelo dev.sh.
+#
+# Backend e workers usam a rede do host e só escutam em 127.0.0.1: as URLs de
+# mídia e de logo que o backend monta a partir de SUPABASE_URL abrem no
+# navegador, e o WhatsApp local alcança o webhook sem túnel.
+#
+# Nada aqui é produção: APP_ENV=development, segredos gerados só para esta
+# máquina e nenhum serviço externo real (WhatsApp, Asaas, Brevo, Google).
+# ============================================================================
+
+name: pastorai-dev
+
+x-backend: &backend
+  image: pastorai-backend:dev
+  network_mode: host
+  env_file:
+    - ${PASTORAI_DEV_ENV_FILE:?rode pelo ./dev.sh}
+  environment:
+    APP_ENV: development
+    DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    SUPABASE_URL: http://127.0.0.1:54321
+    SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    REDIS_URL: redis://127.0.0.1:${DEV_REDIS_PORT:-6380}/0
+    EVOLUTION_API_URL: http://127.0.0.1:${DEV_EVOLUTION_PORT:-8080}
+    EVOLUTION_WEBHOOK_CALLBACK_URL: http://127.0.0.1:${DEV_BACKEND_PORT:-8000}/whatsapp/webhook
+  volumes:
+    - ../backend/app:/app/app:ro
+    - ../backend/migrations:/app/migrations:ro
+    - ../backend/scripts:/app/scripts:ro
+    - ../.dev/local-db-identity.json:/run/pastorai/local-db-identity.json:ro
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEV_REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    <<: *backend
+    build:
+      context: ../backend
+    command:
+      ["uvicorn", "app.main:app", "--host", "127.0.0.1",
+       "--port", "${DEV_BACKEND_PORT:-8000}", "--reload", "--reload-dir", "/app/app"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${DEV_BACKEND_PORT:-8000}/health',timeout=3).status==200 else 1)",
+        ]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 20
+
+  queue-worker:
+    <<: *backend
+    command: ["watchfiles", "--filter", "python", "python -m app.workers.queue_worker", "/app/app"]
+
+  cron-worker:
+    <<: *backend
+    command: ["watchfiles", "--filter", "python", "python -m app.workers.cron_worker", "/app/app"]
+
+  broadcast-worker:
+    <<: *backend
+    command: ["watchfiles", "--filter", "python", "python -m app.workers.broadcast_worker", "/app/app"]

@@ -1,4 +1,6 @@
 -- PastorAI D2B2b3A: rascunhos governados por finalidade no Console Master.
+-- OPERATIONAL_AUTHORIZATION=BLOCKED
+-- Pausada no MVP (consentimento por finalidade, plano §3.3): fora de status/apply ate a Fase 5.
 --
 -- Uma linha por igreja contém exatamente quatro rascunhos. Esta migration não
 -- cria aprovações, digest, catálogo, evidence store, writer, caller de runtime

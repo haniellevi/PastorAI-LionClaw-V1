@@ -28,6 +28,12 @@ Design notes:
   distinguishes it from completed work. A crash before/after the database
   commit is safe to retry; the database unique index remains the durable final
   barrier.
+- Redis outages: timeouts and dropped connections while registering, renewing
+  the lease, polling or cleaning up are waited out in-process with capped
+  backoff instead of ending the process. The lease stays the fence: an expired
+  lease still stops the worker. An item that a lost reply or an unverified ACK
+  left in the private list goes back to the front of the ready queue before
+  the next claim.
 
 The worker is a standalone process: `python -m app.workers.queue_worker`.
 """
@@ -50,6 +56,7 @@ from hashlib import sha256
 from threading import Event, Lock, Thread
 from typing import Any
 
+from redis import exceptions as redis_exceptions
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
@@ -127,15 +134,29 @@ MAX_ATTEMPTS = 5
 # The total window gives Evolution a bounded opportunity to reconnect without
 # tying up a worker or allowing retries to spin through the budget.
 AGENT_REPLY_RETRY_BACKOFF_SECONDS = (5, 15, 30, 60)
-BRPOP_TIMEOUT = 5  # seconds
+BRPOP_TIMEOUT = 2  # seconds
 WORKER_LEASE_SECONDS = 30
 WORKER_HEARTBEAT_SECONDS = 10
 WORKER_PROGRESS_TIMEOUT_SECONDS = WORKER_LEASE_SECONDS * 2
 REDIS_CONNECT_TIMEOUT_SECONDS = 3
-# Must exceed BRPOP_TIMEOUT so the client socket does not time out before the
-# blocking Redis command returns normally.
-REDIS_SOCKET_TIMEOUT_SECONDS = BRPOP_TIMEOUT + 2
+# The client socket must outlast the BRPOPLPUSH block by more than a short
+# Redis or host stall (AOF fsync, fork, I/O or CPU steal); otherwise an idle
+# poll turns its normal nil reply into TimeoutError. The block stays short
+# instead of raising the socket timeout, which also bounds lease renewal: a
+# renewal that hangs until the timeout is still followed by another heartbeat
+# before WORKER_LEASE_SECONDS runs out.
+REDIS_BLOCKING_READ_MARGIN_SECONDS = 5
+REDIS_SOCKET_TIMEOUT_SECONDS = BRPOP_TIMEOUT + REDIS_BLOCKING_READ_MARGIN_SECONDS
 REDIS_MAX_CONNECTIONS = 20
+# Transient Redis errors are retried in-process with capped exponential
+# backoff. The cap keeps a short outage well inside WORKER_LEASE_SECONDS, so
+# the worker resumes with the same lease once Redis answers again.
+REDIS_RETRY_BASE_DELAY_SECONDS = 0.5
+REDIS_RETRY_MAX_DELAY_SECONDS = 5.0
+# A failure streak longer than a lease is no longer a blip: the worker is alive
+# but not consuming, so it reports error health (healthcheck and readiness)
+# until Redis answers again. Shorter blips keep the published state.
+REDIS_DEGRADED_AFTER_SECONDS = WORKER_LEASE_SECONDS
 MAX_AGENT_CLAIM_ID_BYTES = 128
 
 # ``run_agent_for_message`` keeps a compatibility default for focused tests
@@ -1534,6 +1555,39 @@ def _retry_state_key(claim_id: str) -> str:
     return f"{RETRY_STATE_PREFIX}{digest}"
 
 
+def _transient_redis_error(exc: BaseException) -> BaseException | None:
+    """Return the Redis timeout or connection error behind ``exc``, if any.
+
+    Timeouts and refused, dropped or still-loading connections may heal by
+    waiting; credential and ACL failures (also ConnectionError subclasses)
+    do not. The queue wraps some script failures as ``RuntimeError(...) from
+    exc``, so the explicit cause chain is followed.
+    """
+    current: BaseException | None = exc
+    for _ in range(4):
+        if current is None or isinstance(
+            current,
+            (redis_exceptions.AuthenticationError, redis_exceptions.AuthorizationError),
+        ):
+            return None
+        if isinstance(
+            current,
+            (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError),
+        ):
+            return current
+        current = current.__cause__
+    return None
+
+
+def _redis_retry_delay(failures: int) -> float:
+    """Capped exponential backoff after ``failures`` consecutive Redis errors."""
+    exponent = min(max(failures - 1, 0), 16)  # bounded: no float overflow
+    return min(
+        REDIS_RETRY_MAX_DELAY_SECONDS,
+        REDIS_RETRY_BASE_DELAY_SECONDS * 2**exponent,
+    )
+
+
 class WebhookQueue:
     """Reliable Redis-list handoff for webhook payloads."""
 
@@ -1671,7 +1725,11 @@ class WebhookQueue:
         try:
             envelope = _Envelope.from_json(raw)
         except (TypeError, ValueError):
-            return bool(self._redis.lrem(self.processing_queue(worker_id), 1, raw))
+            try:
+                return bool(self._redis.lrem(self.processing_queue(worker_id), 1, raw))
+            except Exception:  # noqa: BLE001 - retain an unverified claim for recovery
+                logger.warning("Webhook claim acknowledgement could not be verified")
+                return False
         try:
             return bool(
                 self._redis.eval(
@@ -1778,6 +1836,25 @@ class WebhookQueue:
             finally:
                 self._compare_and_delete(lock_key, current_worker_id)
         return recovered
+
+    def requeue_own_claims(self, worker_id: str) -> int:
+        """Return a live, idle worker's private claims to the ready queue.
+
+        When a Redis reply is lost, BRPOPLPUSH (or the reconcile script) may
+        already have moved an item into this worker's private list without the
+        worker receiving it; an unverified ACK can leave a processed one. The
+        worker calls this once its lease renewed and with no claim in flight,
+        so no item is stranded while the process lives. Each LMOVE is atomic,
+        so an item is never outside a list, and it lands back at the consumer
+        end in its original order, ahead of newer messages. Retry state is
+        left alone: the next claim reconciles it, and a canonical owner is
+        live only while its raw is in that owner's list.
+        """
+        processing = self.processing_queue(worker_id)
+        requeued = 0
+        while self._redis.lmove(processing, WEBHOOK_QUEUE, "LEFT", "RIGHT") is not None:
+            requeued += 1
+        return requeued
 
     @staticmethod
     def _claim_marker(claim_id: str) -> str:
@@ -1965,6 +2042,7 @@ class QueueWorker:
         heartbeat_publisher: Callable[[str, int], None] | None = None,
         progress_clock: Callable[[], float] = time.monotonic,
         progress_timeout_seconds: float = WORKER_PROGRESS_TIMEOUT_SECONDS,
+        sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self._queue = queue or WebhookQueue()
         self._session_factory = session_factory or get_session_factory()
@@ -1987,6 +2065,13 @@ class QueueWorker:
         )
         self._progress_lock = Lock()
         self._last_progress_at = self._progress_clock()
+        # Waits between Redis retries (injectable for tests).
+        self._sleeper = sleeper
+        self._redis_failures = 0
+        self._redis_failing_since: float | None = None
+        self._redis_degraded = False
+        self._own_claims_unverified = False
+        self._next_recovery_at = 0.0
         self._heartbeat_publisher = heartbeat_publisher or (
             lambda state, ttl: publish_worker_heartbeat(
                 None,
@@ -2019,6 +2104,16 @@ class QueueWorker:
         try:
             renewed = self._queue.refresh_worker_lease(self._worker_id)
         except Exception as exc:  # noqa: BLE001 - lease loss stops consumption
+            transient = _transient_redis_error(exc)
+            if transient is not None:
+                # SET XX never revives an expired lease and every effect is
+                # fenced by it, so a blip only defers renewal to the next tick
+                # or to the main loop, still inside WORKER_LEASE_SECONDS.
+                logger.warning(
+                    "Webhook worker lease renewal deferred error_type=%s",
+                    type(transient).__name__,
+                )
+                return True
             logger.error(
                 "Webhook worker lease renewal failed error_type=%s",
                 type(exc).__name__,
@@ -2047,8 +2142,9 @@ class QueueWorker:
 
     def stop(self, *_: Any) -> None:
         """Request a graceful shutdown (used as a SIGTERM/SIGINT handler)."""
-        logger.info("Queue worker shutdown requested")
+        # Flag first: a log write interrupted by the signal must not drop it.
         self._running = False
+        logger.info("Queue worker shutdown requested")
 
     def _heartbeat_loop(self) -> None:
         """Renew a claim lease only inside the bounded progress window."""
@@ -2065,7 +2161,13 @@ class QueueWorker:
         """Block draining the queue until stopped (graceful shutdown)."""
         self._running = True
         self._heartbeat_stop.clear()
-        self._queue.register_worker(self._worker_id)
+        self._redis_failures = 0
+        self._redis_failing_since = None
+        self._redis_degraded = False
+        self._own_claims_unverified = False
+        self._next_recovery_at = 0.0
+        if not self._register_worker():
+            return
         self._record_progress()
         self._publish_health("ready")
         heartbeat = Thread(
@@ -2075,7 +2177,6 @@ class QueueWorker:
         )
         self._heartbeat_thread = heartbeat
         heartbeat.start()
-        next_recovery_at = 0.0
         try:
             logger.info(
                 "Queue worker %s started, consuming %s",
@@ -2083,23 +2184,7 @@ class QueueWorker:
                 WEBHOOK_QUEUE,
             )
             while self._running:
-                if not self._queue.refresh_worker_lease(self._worker_id):
-                    logger.error("Webhook worker lease expired; stopping consumer")
-                    self._publish_health("error")
-                    break
-                self._record_progress()
-                if not self._running:
-                    break
-                now = time.monotonic()
-                if now >= next_recovery_at:
-                    recovered = self._queue.recover_pending(self._worker_id)
-                    if recovered:
-                        logger.warning(
-                            "Recovered %d abandoned webhook claim(s)", recovered
-                        )
-                    next_recovery_at = now + WORKER_HEARTBEAT_SECONDS
-                raw = self._queue.claim(self._worker_id, timeout=BRPOP_TIMEOUT)
-                self._record_progress()
+                raw = self._claim_next()
                 if raw is None:
                     continue
                 self._publish_health("running")
@@ -2112,15 +2197,143 @@ class QueueWorker:
             self._heartbeat_stop.set()
             heartbeat.join(timeout=REDIS_SOCKET_TIMEOUT_SECONDS + 1)
             self._publish_health("stopped")
-            self._queue.unregister_worker(self._worker_id)
+            self._unregister_worker()
             logger.info("Queue worker %s stopped", self._worker_id)
+
+    def _register_worker(self) -> bool:
+        """Register this worker, waiting out transient Redis errors."""
+        while self._running:
+            try:
+                self._queue.register_worker(self._worker_id)
+            except Exception as exc:  # noqa: BLE001 - only transient errors wait
+                transient = _transient_redis_error(exc)
+                if transient is None:
+                    raise
+                self._wait_after_redis_error("register", transient)
+                continue
+            self._redis_recovered()
+            return True
+        return False
+
+    def _claim_next(self) -> str | None:
+        """Renew the lease, recover orphans and claim the next raw item.
+
+        Returns None when idle, stopping, or after waiting out a transient
+        Redis error. Any other error still propagates and ends the process.
+        """
+        stage = "lease"
+        try:
+            if not self._queue.refresh_worker_lease(self._worker_id):
+                logger.error("Webhook worker lease expired; stopping consumer")
+                self._publish_health("error")
+                self._running = False
+                return None
+            self._record_progress()
+            if not self._running:
+                return None
+            if self._own_claims_unverified:
+                stage = "requeue"
+                requeued = self._queue.requeue_own_claims(self._worker_id)
+                self._own_claims_unverified = False
+                if requeued:
+                    logger.warning(
+                        "Requeued %d unverified webhook claim(s)", requeued
+                    )
+            now = time.monotonic()
+            if now >= self._next_recovery_at:
+                stage = "recovery"
+                recovered = self._queue.recover_pending(self._worker_id)
+                if recovered:
+                    logger.warning(
+                        "Recovered %d abandoned webhook claim(s)", recovered
+                    )
+                self._next_recovery_at = now + WORKER_HEARTBEAT_SECONDS
+            stage = "claim"
+            raw = self._queue.claim(self._worker_id, timeout=BRPOP_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001 - only transient errors wait
+            transient = _transient_redis_error(exc)
+            if transient is None:
+                raise
+            # The command may have run even though its reply was lost: an item
+            # can sit in the private list. Requeue it once the lease renews.
+            self._own_claims_unverified = True
+            self._wait_after_redis_error(stage, transient)
+            return None
+        self._redis_recovered()
+        self._record_progress()
+        return raw
+
+    def _wait_after_redis_error(self, stage: str, exc: BaseException) -> None:
+        """Log a transient Redis failure and wait a capped, growing delay."""
+        self._redis_failures += 1
+        now = self._progress_clock()
+        if self._redis_failing_since is None:
+            self._redis_failing_since = now
+        delay = _redis_retry_delay(self._redis_failures)
+        logger.warning(
+            "Queue worker Redis call failed stage=%s error_type=%s attempt=%d; "
+            "retrying in %.1fs",
+            stage,
+            type(exc).__name__,
+            self._redis_failures,
+            delay,
+        )
+        if (
+            not self._redis_degraded
+            and now - self._redis_failing_since >= REDIS_DEGRADED_AFTER_SECONDS
+        ):
+            # Alive but not consuming: fail the healthcheck and readiness
+            # instead of looking like a healthy idle worker.
+            self._redis_degraded = True
+            logger.error(
+                "Queue worker cannot use Redis for %ds; reporting error health",
+                REDIS_DEGRADED_AFTER_SECONDS,
+            )
+            self._publish_health("error")
+        # The loop is alive and holds no claim, so this is not a stall. The
+        # stall watchdog must not stop a worker that is only waiting for Redis.
+        self._record_progress()
+        # Sleep in short slices so a shutdown request stays responsive.
+        remaining = delay
+        while self._running and remaining > 0:
+            step = min(1.0, remaining)
+            self._sleeper(step)
+            remaining -= step
+
+    def _redis_recovered(self) -> None:
+        if not self._redis_failures:
+            return
+        logger.info(
+            "Queue worker Redis calls recovered after %d failure(s)",
+            self._redis_failures,
+        )
+        self._redis_failures = 0
+        self._redis_failing_since = None
+        if self._redis_degraded:
+            self._redis_degraded = False
+            self._publish_health("ready")
+
+    def _unregister_worker(self) -> None:
+        try:
+            self._queue.unregister_worker(self._worker_id)
+        except Exception as exc:  # noqa: BLE001 - only transient errors are tolerated
+            transient = _transient_redis_error(exc)
+            if transient is None:
+                raise
+            # The lease still expires, and the registry entry lets another
+            # worker recover anything left in the private list.
+            logger.warning(
+                "Queue worker unregister failed error_type=%s; lease expires in %ds",
+                type(transient).__name__,
+                WORKER_LEASE_SECONDS,
+            )
 
     def _handle_raw(self, raw: str) -> None:
         try:
             envelope = _Envelope.from_json(raw)
         except (ValueError, TypeError):
             logger.error("Discarding malformed envelope from queue")
-            self._queue.ack(self._worker_id, raw)
+            self._ack(raw)
             return
         ownership_guard = partial(self._assert_effect_ownership, raw)
         try:
@@ -2162,7 +2375,13 @@ class QueueWorker:
                 logger.warning("Webhook claim ownership lost during failure handling")
                 self._running = False
             return
-        self._queue.ack(self._worker_id, raw)
+        self._ack(raw)
+
+    def _ack(self, raw: str) -> None:
+        if not self._queue.ack(self._worker_id, raw):
+            # An unverified ACK can leave the raw in the private list. Requeue
+            # it after the next lease renewal; the re-claim deduplicates it.
+            self._own_claims_unverified = True
 
     def handle_envelope(
         self,

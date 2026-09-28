@@ -1,0 +1,244 @@
+migration,check_id,kind,ok,detail
+0001_extensions_and_enums.sql,c01_ext_pgcrypto,extension,t,extension pgcrypto installed (weak: Supabase preinstalls it) | observed: installed in schema extensions
+0001_extensions_and_enums.sql,c02_enum_types,enum,t,all 25 enum types of 0001 exist in public | observed: 25/25 enum types present; missing: none
+0001_extensions_and_enums.sql,c03_enum_igreja_status,enum,t,"igreja_status has ativa/suspensa/aguardando_aprovacao/inadimplente | observed: labels: ativa,suspensa,aguardando_aprovacao,inadimplente"
+0002_schema_tables.sql,c01_tables,table,t,all 26 tables of 0002 exist | observed: 26/26 tables ok; failing: none
+0002_schema_tables.sql,c02_cols,column,t,pessoas core columns with types/nullability | observed: 4/4 columns ok; failing: none
+0002_schema_tables.sql,c03_cols2,column,t,"celulas.cobertura_espiritual text not null, dia_reuniao text | observed: 2/2 columns ok; failing: none"
+0002_schema_tables.sql,c04_fk_pessoas_celula,fk,t,FK pessoas(celula_id) -> celulas (circular FK added last) | observed: 1 matching FK: pessoas_celula_id_fkey
+0002_schema_tables.sql,c05_indexes,index,t,all 26 idx_* indexes of 0002 exist on their tables | observed: 26/26 indexes ok; failing: none
+0003_rls_policies.sql,c01_fn_current_igreja_id,function,t,"current_igreja_id() SECURITY DEFINER returning uuid, reads the JWT sub claim (partial: 20260624_003030/090102 re-create the function) | observed: secdef=t config={""search_path=public, pg_temp""}"
+0003_rls_policies.sql,c02_tenant_policies,policy,t,tenant_isolation FOR ALL USING/WITH CHECK igreja_id = current_igreja_id() on the 25 tables | observed: 25/25 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+0003_rls_policies.sql,c03_rls_enabled,rls,t,RLS enabled on the 25 tenant tables + igrejas | observed: 26/26 tables ok; failing: none
+0003_rls_policies.sql,c04_pol_igrejas_select,policy,t,igrejas_self_select FOR SELECT USING (id = current_igreja_id()) | observed: cmd=SELECT PERMISSIVE roles={public}
+0004_triggers.sql,c01_functions,function,t,the 7 trigger functions of 0004 exist | observed: 7/7 functions ok; failing: none
+0004_triggers.sql,c02_triggers,trigger,t,the 7 triggers of 0004 exist on the right tables bound to the right functions | observed: 7/7 triggers ok; failing: none
+0005_seed.sql,d01_seed_rows,data_only,,"Seed of pilot igreja/subscription/agent_config/pessoas/app_user/roles/permissions; DML only, not object-provable (no row reads by design)"
+0006_harden_function_search_path.sql,c01_search_path,function,t,"the 7 functions of 0004 have proconfig search_path=public, pg_temp (0004 created them without SET) | observed: 7/7 functions ok; failing: none"
+0007_remove_demo_data.sql,d01_demo_delete,data_only,,"DELETE of demo messages/conversation/pessoas/celula; DML only, not object-provable"
+0008_add_operador_role.sql,c01_enum_user_role,enum,t,"user_role_papel contains 'operador' | observed: labels: admin,pastor,lider_g12,lider_consol,lider_celula,lider_mult,membro,operador"
+0008_add_operador_role.sql,c02_enum_role_perm,enum,t,"role_perm_papel contains 'operador' | observed: labels: pastor,lider_g12,lider_consol,lider_celula,lider_mult,membro,operador"
+0009_unify_system_managers.sql,d01_rbac_migration,data_only,,"INSERTs into role_permissions/app_users/user_roles from system_managers; DML only, not object-provable"
+0010_platform_admins.sql,c01_table,table,t,platform_admins exists with RLS enabled | observed: present rls=t force_rls=f
+0010_platform_admins.sql,c02_unique_app_user,constraint,t,UNIQUE(app_user_id) constraint platform_admins_app_user_id_key | observed: contype=u validated=t
+0010_platform_admins.sql,c03_fk_app_user,fk,t,FK platform_admins(app_user_id) -> app_users | observed: 1 matching FK: platform_admins_app_user_id_fkey
+0010_platform_admins.sql,c04_index,index,t,index idx_platform_admins_app_user | observed: on=platform_admins unique=f valid=t partial=f
+0010_platform_admins.sql,c05_revoked,privilege,t,authenticated/anon have no SELECT on platform_admins (revoke all) | observed: authenticated SELECT on platform_admins=false; anon SELECT on platform_admins=false
+0011_app_users_celula_pendente.sql,c01_col,column,t,app_users.celula_pendente_id uuid | observed: 1/1 columns ok; failing: none
+0011_app_users_celula_pendente.sql,c02_fk,fk,t,FK app_users(celula_pendente_id) -> celulas ON DELETE SET NULL | observed: 1 matching FK: app_users_celula_pendente_id_fkey
+0012_planos.sql,c01_table,table,t,planos exists with RLS enabled | observed: present rls=t force_rls=f
+0012_planos.sql,c02_cols,column,t,"planos.codigo text not null, preco_mensal numeric(10,2) not null, limite_pessoas integer | observed: 3/3 columns ok; failing: none"
+0012_planos.sql,c03_unique_codigo,constraint,t,UNIQUE(codigo) planos_codigo_key | observed: contype=u validated=t
+0012_planos.sql,c04_policy,policy,t,planos_select_ativos FOR SELECT USING (ativo = true) | observed: cmd=SELECT PERMISSIVE roles={public}
+0012_planos.sql,c05_revoked_dml,privilege,t,authenticated has no INSERT/UPDATE and anon no DELETE on planos | observed: authenticated INSERT on planos=false; authenticated UPDATE on planos=false; anon DELETE on planos=false
+0012_planos.sql,d06_seed,data_part_not_checked,,Seed of 3 planos rows (ON CONFLICT DO NOTHING) not checked: no application row reads by design
+0013_platform_audit_log.sql,c01_table,table,t,platform_audit_log exists with RLS enabled | observed: present rls=t force_rls=f
+0013_platform_audit_log.sql,c02_cols,column,t,"platform_audit_log.acao/alvo_tipo text not null, detalhe jsonb | observed: 3/3 columns ok; failing: none"
+0013_platform_audit_log.sql,c03_index,index,t,index idx_platform_audit_log_created | observed: on=platform_audit_log unique=f valid=t partial=f
+0013_platform_audit_log.sql,c04_revoked,privilege,t,authenticated/anon have no SELECT on platform_audit_log | observed: authenticated SELECT on platform_audit_log=false; anon SELECT on platform_audit_log=false
+0014_platform_orchestrator.sql,c01_table,table,t,platform_orchestrator exists with RLS enabled | observed: present rls=t force_rls=f
+0014_platform_orchestrator.sql,c02_cols,column,t,"platform_orchestrator.comportamento text not null, updated_at timestamptz not null | observed: 2/2 columns ok; failing: none"
+0014_platform_orchestrator.sql,c03_revoked,privilege,t,authenticated/anon have no SELECT on platform_orchestrator | observed: authenticated SELECT on platform_orchestrator=false; anon SELECT on platform_orchestrator=false
+0014_platform_orchestrator.sql,d04_seed,data_part_not_checked,,Seed of the single orchestrator template row not checked (no application row reads)
+0015_message_media.sql,c01_enum,enum,t,"enum message_tipo (texto,imagem,arquivo,audio) | observed: labels: texto,imagem,arquivo,audio"
+0015_message_media.sql,c02_cols,column,t,messages.tipo message_tipo not null + media_path/mime/nome text + media_tamanho integer | observed: 5/5 columns ok; failing: none
+0016_message_author.sql,c01_cols_app_users,column,t,app_users.chat_nome text | observed: 1/1 columns ok; failing: none
+0016_message_author.sql,c02_cols_messages,column,t,"messages.autor_nome text, enviado_por uuid | observed: 2/2 columns ok; failing: none"
+0016_message_author.sql,c03_fk_enviado_por,fk,t,FK messages(enviado_por) -> app_users ON DELETE SET NULL | observed: 1 matching FK: messages_enviado_por_fkey
+0017_app_user_status_revogado.sql,c01_enum,enum,t,"app_user_status contains 'revogado' | observed: labels: ativo,convidado,revogado"
+20260623_103319_pessoa_sem_interesse_csim.sql,c01_cols,column,t,"pessoas.sem_interesse boolean not null, sem_interesse_motivo text | observed: 2/2 columns ok; failing: none"
+20260623_122044_calendar_sync_oauth_por_igreja.sql,c01_table,table,t,calendar_sync exists with RLS enabled | observed: present rls=t force_rls=f
+20260623_122044_calendar_sync_oauth_por_igreja.sql,c02_cols,column,t,calendar_sync token columns | observed: 2/2 columns ok; failing: none
+20260623_122044_calendar_sync_oauth_por_igreja.sql,c03_unique_igreja,constraint,t,UNIQUE(igreja_id) calendar_sync_igreja_id_key | observed: contype=u validated=t
+20260623_122044_calendar_sync_oauth_por_igreja.sql,c04_policy,policy,t,tenant_isolation on calendar_sync | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260623_154500_pessoa_tipo_add_contato.sql,c01_enum_order,enum,t,"pessoa_tipo has 'contato' sorted before 'visitante' | observed: labels: contato,visitante,membro,lider,pastor,discipulo"
+20260623_170000_igreja_dono_assinatura.sql,c01_col,column,t,igrejas.dono_id uuid | observed: 1/1 columns ok; failing: none
+20260623_170000_igreja_dono_assinatura.sql,c02_fk,fk,t,FK igrejas(dono_id) -> app_users ON DELETE SET NULL | observed: 1 matching FK: igrejas_dono_id_fkey
+20260623_170000_igreja_dono_assinatura.sql,d03_backfill,data_part_not_checked,,UPDATE igrejas.dono_id backfill (oldest admin) not checked: no application row reads
+20260624_003030_current_igreja_id_guc_worker.sql,c01_fn_guc_branch,function,t,"current_igreja_id() body has the GUC branch nullif(current_setting('app.tenant_igreja_id', true), '')::uuid (partial: also satisfied by 20260624_090102, which re-issues the whole function) | observed: secdef=t config={""search_path=public, pg_temp""}"
+20260624_090102_current_igreja_id_guard_empty_claims.sql,c01_fn_nullif_claims,function,t,"current_igreja_id() casts nullif(current_setting('request.jwt.claims', true), '')::jsonb | observed: secdef=t config={""search_path=public, pg_temp""}"
+20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql,c01_table,table,t,agent_config_requests exists with RLS enabled | observed: present rls=t force_rls=f
+20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql,c02_check_status,constraint,t,CHECK agent_config_requests_status_chk (pendente/atendida/recusada) | observed: contype=c validated=t
+20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql,c03_index,index,t,index ix_agent_config_requests_igreja_status | observed: on=agent_config_requests unique=f valid=t partial=f
+20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql,c04_policy,policy,t,tenant_isolation on agent_config_requests | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql,c01_enums,enum,t,enum types event_status/event_tipo/event_origem/event_recorrencia exist | observed: 4/4 enum types present; missing: none
+20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql,c02_cols,column,t,events agenda columns with enum types/nullability | observed: 8/8 columns ok; failing: none
+20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql,c03_data_nullable,column,t,events.data is nullable (DROP NOT NULL) | observed: 1/1 columns ok; failing: none
+20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql,c04_checks,constraint,t,CHECK constraints events_recorrencia_chk/dia_semana_chk/antecedencia_chk/hora_formato_chk (NOT VALID one not required validated) | observed: 4/4 constraints ok; failing: none
+20260701_014654_evt6_google_event_dedup_index.sql,c01_uidx,index,t,"UNIQUE events_igreja_google_event_uidx (igreja_id, google_event_id) WHERE google_event_id IS NOT NULL | observed: on=events unique=t valid=t partial=t"
+20260701_164352_evt7_events_notificado_em_aviso_confirmacao.sql,c01_col,column,t,events.notificado_em timestamptz | observed: 1/1 columns ok; failing: none
+20260701_193000_evt7_pr2_agenda_alert_recipients.sql,c01_table,table,t,agenda_alert_recipients exists with RLS enabled | observed: present rls=t force_rls=f
+20260701_193000_evt7_pr2_agenda_alert_recipients.sql,c02_idx,index,t,index agenda_alert_recipients_igreja_idx | observed: on=agenda_alert_recipients unique=f valid=t partial=f
+20260701_193000_evt7_pr2_agenda_alert_recipients.sql,c03_uidx_ativo,index,t,"UNIQUE agenda_alert_recipients_igreja_tel_ativo_uq (igreja_id, telefone) WHERE ativo | observed: on=agenda_alert_recipients unique=t valid=t partial=t"
+20260701_193000_evt7_pr2_agenda_alert_recipients.sql,c04_policy,policy,t,tenant_isolation on agenda_alert_recipients | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260703_123803_celula_schema_base_pr1.sql,c01_celulas_cols,column,t,celulas.anfitriao_id/auxiliar_id/endereco/horario/link_grupo/link_localizacao/mensagem_convite | observed: 7/7 columns ok; failing: none
+20260703_123803_celula_schema_base_pr1.sql,c02_celulas_horario_chk,constraint,t,CHECK celulas_horario_chk | observed: contype=c validated=f
+20260703_123803_celula_schema_base_pr1.sql,c03_enum_papel,enum,t,"enum celula_membro_papel | observed: labels: membro,auxiliar,anfitriao"
+20260703_123803_celula_schema_base_pr1.sql,c04_table,table,t,celula_membro exists with RLS enabled | observed: present rls=t force_rls=f
+20260703_123803_celula_schema_base_pr1.sql,c05_uidx_ativa,index,t,"UNIQUE celula_membro_pessoa_ativa_uq (igreja_id, pessoa_id) WHERE ativo | observed: on=celula_membro unique=t valid=t partial=t"
+20260703_123803_celula_schema_base_pr1.sql,c06_policy,policy,t,tenant_isolation on celula_membro | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql,c01_tables,table,t,the 3 tables exist with RLS enabled | observed: 3/3 tables ok; failing: none
+20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql,c02_checks,constraint,t,"CHECK celula_reuniao_hora_chk/status_chk, celula_presenca_estado_chk | observed: 3/3 constraints ok; failing: none"
+20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql,c03_uidx,index,t,UNIQUE celula_reuniao_slot_uq and celula_presenca_pessoa_uq | observed: 2/2 indexes ok; failing: none
+20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql,c04_policies,policy,t,tenant_isolation on the 3 tables | observed: 3/3 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260705_120000_celula_pr3_reuniao_relatorio_campos.sql,c01_cols,column,t,"celula_reuniao relatorio_* / oferta_valor numeric(12,2) / observacoes / relatorio_snapshot jsonb | observed: 6/6 columns ok; failing: none"
+20260705_120000_celula_pr3_reuniao_relatorio_campos.sql,c02_check,constraint,t,CHECK celula_reuniao_relatorio_status_chk | observed: contype=c validated=t
+20260705_120000_celula_pr3_reuniao_relatorio_campos.sql,c03_index,index,t,index idx_celula_reuniao_relatorio_status | observed: on=celula_reuniao unique=f valid=t partial=f
+20260705_120100_celula_pr3_reuniao_registro.sql,c01_table,table,t,celula_reuniao_registro exists with RLS enabled | observed: present rls=t force_rls=f
+20260705_120100_celula_pr3_reuniao_registro.sql,c02_check,constraint,t,CHECK celula_reuniao_registro_tipo_chk | observed: contype=c validated=t
+20260705_120100_celula_pr3_reuniao_registro.sql,c03_indexes,index,t,its 2 indexes | observed: 2/2 indexes ok; failing: none
+20260705_120100_celula_pr3_reuniao_registro.sql,c04_policy,policy,t,tenant_isolation on celula_reuniao_registro | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260705_120200_celula_pr3_visitante.sql,c01_table,table,t,celula_visitante exists with RLS enabled | observed: present rls=t force_rls=f
+20260705_120200_celula_pr3_visitante.sql,c02_fk_expectativa,fk,t,FK celula_visitante(expectativa_id) -> celula_expectativa_visitante ON DELETE SET NULL | observed: 1 matching FK: celula_visitante_expectativa_id_fkey
+20260705_120200_celula_pr3_visitante.sql,c03_indexes,index,t,its 2 indexes | observed: 2/2 indexes ok; failing: none
+20260705_120200_celula_pr3_visitante.sql,c04_policy,policy,t,tenant_isolation on celula_visitante | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260705_120300_celula_pr3_solicitacao_evento.sql,c01_tables,table,t,both tables exist with RLS enabled | observed: 2/2 tables ok; failing: none
+20260705_120300_celula_pr3_solicitacao_evento.sql,c02_checks,constraint,t,CHECK tipo/status/acao constraints | observed: 3/3 constraints ok; failing: none
+20260705_120300_celula_pr3_solicitacao_evento.sql,c03_fn_append_only,function,t,"append-only trigger function (pg_trigger_depth carve-out, search_path pg_catalog, pg_temp) | observed: secdef=f config={""search_path=pg_catalog, pg_temp""}"
+20260705_120300_celula_pr3_solicitacao_evento.sql,c04_trigger,trigger,t,BEFORE UPDATE OR DELETE trigger trg_celula_solicitacao_evento_append_only | observed: tgtype=27 enabled=O function=trg_celula_solicitacao_evento_append_only
+20260705_120300_celula_pr3_solicitacao_evento.sql,c05_policies,policy,t,tenant_isolation on both tables | observed: 2/2 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260705_120400_celula_pr3_aviso.sql,c01_table,table,t,celula_aviso exists with RLS enabled | observed: present rls=t force_rls=f
+20260705_120400_celula_pr3_aviso.sql,c02_checks,constraint,t,CHECK celula_aviso_origem_chk/escopo_chk | observed: 2/2 constraints ok; failing: none
+20260705_120400_celula_pr3_aviso.sql,c03_indexes,index,t,idx_celula_aviso_feed / idx_celula_aviso_celula | observed: 2/2 indexes ok; failing: none
+20260705_120400_celula_pr3_aviso.sql,c04_policy,policy,t,tenant_isolation on celula_aviso | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260705_120500_celula_pr3_material.sql,c01_table,table,t,celula_material exists with RLS enabled | observed: present rls=t force_rls=f
+20260705_120500_celula_pr3_material.sql,c02_index,index,t,idx_celula_material_feed | observed: on=celula_material unique=f valid=t partial=f
+20260705_120500_celula_pr3_material.sql,c03_policy,policy,t,tenant_isolation on celula_material | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260705_120600_celula_pr3_multiplicacoes_evolucao.sql,c01_cols,column,t,multiplicacoes.solicitacao_id/idempotency_key/celula_nova_id/created_at not null/updated_at | observed: 5/5 columns ok; failing: none
+20260705_120600_celula_pr3_multiplicacoes_evolucao.sql,c02_constraints,constraint,t,"multiplicacoes_solicitacao_fk, multiplicacoes_solicitacao_nn (NOT VALID), multiplicacoes_celula_nova_fk | observed: 3/3 constraints ok; failing: none"
+20260705_120600_celula_pr3_multiplicacoes_evolucao.sql,c03_uidx,index,t,UNIQUE multiplicacoes_solicitacao_uq and partial multiplicacoes_idempotency_key_uq | observed: 2/2 indexes ok; failing: none
+20260705_120600_celula_pr3_multiplicacoes_evolucao.sql,c04_idx_celula_nova,index,t,idx_multiplicacoes_celula_nova | observed: on=multiplicacoes unique=f valid=t partial=f
+20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql,c01_col,column,t,pessoas.apto_lider boolean not null | observed: 1/1 columns ok; failing: none
+20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql,c02_default,default,t,pessoas.apto_lider default false | observed: default: false
+20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql,d03_backfill,data_part_not_checked,,"UPDATE pessoas (apto_lider=true, tipo 'lider'->'membro') not checked: no application row reads"
+20260706_230000_evt8_pr1_notify_config.sql,c01_cols,column,t,"events.notificar_em/notificacao_enviada_em timestamptz, canal text | observed: 3/3 columns ok; failing: none"
+20260706_230000_evt8_pr1_notify_config.sql,c02_canal_chk,constraint,t,CHECK events_canal_chk (canal in ('whatsapp')) | observed: contype=c validated=f
+20260706_230000_evt8_pr1_notify_config.sql,c03_table,table,t,event_notify_targets exists with RLS enabled | observed: present rls=t force_rls=f
+20260706_230000_evt8_pr1_notify_config.sql,c04_identity_chk,constraint,t,CHECK event_notify_targets_identity_chk | observed: contype=c validated=t
+20260706_230000_evt8_pr1_notify_config.sql,c05_uidx,index,t,partial UNIQUE indexes event_notify_targets_event_pessoa_uq / _event_tel_uq | observed: 2/2 indexes ok; failing: none
+20260706_230000_evt8_pr1_notify_config.sql,c06_policy,policy,t,tenant_isolation on event_notify_targets | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260707_011455_igreja_logo_branding.sql,c01_col,column,t,igrejas.logo_path text | observed: 1/1 columns ok; failing: none
+20260707_011455_igreja_logo_branding.sql,c02_policy,policy,t,igrejas_self_update FOR UPDATE USING/WITH CHECK (id = current_igreja_id()) | observed: cmd=UPDATE PERMISSIVE roles={public}
+20260707_011455_igreja_logo_branding.sql,c03_grants,privilege,t,authenticated lost table-level UPDATE on igrejas and has column-level UPDATE(logo_path) | observed: authenticated UPDATE on igrejas=false; column-level UPDATE grant to authenticated present=true
+20260707_011455_igreja_logo_branding.sql,c04_fn_secdef,function,t,"fn_subscription_autoupgrade() is SECURITY DEFINER (partial: also produced by 20260730/20260808_001059/20260810 redefinitions) | observed: secdef=t config={""search_path=public, pg_temp""}"
+20260708_160128_sec3a_app_users_password_changed_at.sql,c01_col,column,t,app_users.password_changed_at timestamptz | observed: 1/1 columns ok; failing: none
+20260708_164756_backfill_celula_membro_canonico.sql,d01_backfill,data_only,,"UPDATE/INSERT celula_membro backfill; DML only, not object-provable"
+20260708_172106_sec3b_password_reset_tokens_single_use.sql,c01_table,table,t,password_reset_tokens exists | observed: present rls=t force_rls=f
+20260708_172106_sec3b_password_reset_tokens_single_use.sql,c02_cols,column,t,password_reset_tokens columns | observed: 4/4 columns ok; failing: none
+20260708_172106_sec3b_password_reset_tokens_single_use.sql,c03_unique_jti,constraint,t,UNIQUE password_reset_tokens_jti_key | observed: contype=u validated=t
+20260708_172106_sec3b_password_reset_tokens_single_use.sql,c04_indexes,index,t,its 2 indexes | observed: 2/2 indexes ok; failing: none
+20260708_221808_igreja_dono_id_grant_update.sql,c01_colacl,column_acl,t,column-level UPDATE(dono_id) granted to authenticated | observed: column-level UPDATE grant to authenticated present=true
+20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql,c01_uidx,index,t,"UNIQUE agent_conversation_logs_idem_marker_uidx (igreja_id, evento) WHERE sla_/subscription_upgrade markers | observed: on=agent_conversation_logs unique=t valid=t partial=t"
+20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql,d01_backfill,data_only,,"UPDATE pessoas.tipo -> 'membro'; DML only, not object-provable"
+20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql,d01_reclassify,data_only,,"UPDATE pessoas.tipo -> 'contato' using a pg_temp helper; no persistent schema effect, not object-provable"
+20260711_224403_celula_solicitacao_e13_open_unique.sql,c01_uidx_tipo,index,t,UNIQUE uq_celula_solicitacao_aberta_tipo WHERE open status AND pessoa_id IS NULL | observed: on=celula_solicitacao unique=t valid=t partial=t
+20260711_224403_celula_solicitacao_e13_open_unique.sql,c02_uidx_membro,index,t,UNIQUE uq_celula_solicitacao_aberta_membro WHERE open status AND pessoa_id IS NOT NULL | observed: on=celula_solicitacao unique=t valid=t partial=t
+20260713_013054_pessoa_arquivamento_schema.sql,c01_cols,column,t,pessoas.arquivada_em/arquivada_por/arquivada_motivo | observed: 3/3 columns ok; failing: none
+20260713_013054_pessoa_arquivamento_schema.sql,c02_fk,fk,t,FK pessoas(arquivada_por) -> app_users ON DELETE SET NULL | observed: 1 matching FK: pessoas_arquivada_por_fkey
+20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql,c01_consol_cols,column,t,consolidacoes.abandonada_em/abandonada_motivo | observed: 2/2 columns ok; failing: none
+20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql,c02_consol_check,constraint,t,CHECK consolidacoes_concluida_abandonada_excl_chk | observed: contype=c validated=t
+20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql,c03_table,table,t,pessoa_arquivamento_evento exists with RLS enabled | observed: present rls=t force_rls=f
+20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql,c04_acao_chk,constraint,t,CHECK pessoa_arquivamento_evento_acao_chk | observed: contype=c validated=t
+20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql,c05_fn_trigger,trigger,t,append-only BEFORE UPDATE OR DELETE trigger bound to its function | observed: tgtype=27 enabled=O function=trg_pessoa_arquivamento_evento_append_only
+20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql,c06_policy,policy,t,tenant_isolation on pessoa_arquivamento_evento | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260715_204540_msg_idemp1_messages_inbound_provider_id_uidx.sql,c01_col,column,t,messages.provider_message_id text | observed: 1/1 columns ok; failing: none
+20260715_204540_msg_idemp1_messages_inbound_provider_id_uidx.sql,c02_uidx,index,t,UNIQUE messages_inbound_provider_id_uidx WHERE direcao = 'in' AND provider_message_id IS NOT NULL | observed: on=messages unique=t valid=t partial=t
+20260715_204541_consolidacao_aberta_unica_por_pessoa.sql,c01_uidx,index,t,UNIQUE uq_consolidacoes_pessoa_aberta (pessoa_id) WHERE concluida = false AND abandonada_em IS NULL | observed: on=consolidacoes unique=t valid=t partial=t
+20260720_014832_pessoa_telefone_unico_por_tenant_ativa.sql,c01_uidx,index,t,"UNIQUE uq_pessoas_telefone_ativa (igreja_id, telefone) WHERE arquivada_em IS NULL | observed: on=pessoas unique=t valid=t partial=t"
+20260720_191143_consent_records_ator_id_reoptin.sql,c01_col,column,t,consent_records.ator_id uuid | observed: 1/1 columns ok; failing: none
+20260720_191143_consent_records_ator_id_reoptin.sql,c02_fk,fk,t,FK consent_records(ator_id) -> app_users ON DELETE SET NULL | observed: 1 matching FK: consent_records_ator_id_fkey
+20260730_205332_billing_setup_configuration.sql,c01_igrejas_col,column,t,"igrejas.setup_fee_override numeric(10,2) | observed: 1/1 columns ok; failing: none"
+20260730_205332_billing_setup_configuration.sql,c02_subs_cols,column,t,the 7 new subscriptions billing columns | observed: 7/7 columns ok; failing: none
+20260730_205332_billing_setup_configuration.sql,c03_tables,table,t,billing_payment/subscription/plan_change_operations + billing_settings exist with RLS | observed: 4/4 tables ok; failing: none
+20260730_205332_billing_setup_configuration.sql,c04_indexes,index,t,the 6 partial UNIQUE indexes of the billing operations | observed: 6/6 indexes ok; failing: none
+20260730_205332_billing_setup_configuration.sql,c05_policies,policy,t,3 *_tenant policies scoped through subscriptions.igreja_id = current_igreja_id() | observed: 3/3 subscription-scoped tenant policies
+20260730_205332_billing_setup_configuration.sql,c06_settings_policy,policy,t,billing_settings_select FOR SELECT USING (true) | observed: cmd=SELECT PERMISSIVE roles={public}
+20260730_205332_billing_setup_configuration.sql,c07_fn_ops_queue,function,t,"fn_subscription_autoupgrade() reads planos and inserts into billing_plan_change_operations (partial: kept by 20260808_001059/20260810_042300) | observed: secdef=t config={""search_path=public, pg_temp""}"
+20260730_205332_billing_setup_configuration.sql,c08_settings_revoked,privilege,t,authenticated has no INSERT / anon no UPDATE on billing_settings | observed: authenticated INSERT on billing_settings=false; anon UPDATE on billing_settings=false
+20260730_205332_billing_setup_configuration.sql,d09_seed,data_part_not_checked,,billing_settings seed row (id=1) not checked: no application row reads
+20260731_120000_calendar_oauth_flows_pkce.sql,c01_table,table,t,calendar_oauth_flows exists with RLS enabled | observed: present rls=t force_rls=f
+20260731_120000_calendar_oauth_flows_pkce.sql,c02_uniques,constraint,t,UNIQUE state_hash / flow_secret_hash | observed: 2/2 constraints ok; failing: none
+20260731_120000_calendar_oauth_flows_pkce.sql,c03_policy,policy,t,tenant_isolation on calendar_oauth_flows | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260731_120000_calendar_oauth_flows_pkce.sql,c04_grants,privilege,t,authenticated SELECT/INSERT/UPDATE but no DELETE; anon nothing | observed: authenticated SELECT on calendar_oauth_flows=true; authenticated INSERT on calendar_oauth_flows=true; authenticated UPDATE on calendar_oauth_flows=true; authenticated DELETE on calendar_oauth_flows=false; anon SELECT on calendar_oauth_flows=false
+20260801_031500_calendar_account_identity_binding.sql,c01_flow_cols,column,t,calendar_oauth_flows.expected_email/finish_result/finished_at | observed: 3/3 columns ok; failing: none
+20260801_031500_calendar_account_identity_binding.sql,c02_finish_chk,constraint,t,CHECK ck_calendar_oauth_flows_finish_result | observed: contype=c validated=t
+20260801_031500_calendar_account_identity_binding.sql,c03_sync_cols,column,t,calendar_sync.google_account_email/sub/connected_by_app_user_id/connected_em | observed: 4/4 columns ok; failing: none
+20260801_031500_calendar_account_identity_binding.sql,c04_fk,fk,t,FK calendar_sync(connected_by_app_user_id) -> app_users ON DELETE SET NULL | observed: 1 matching FK: calendar_sync_connected_by_app_user_id_fkey
+20260805_105133_broadcast_delivery.sql,c01_cols,column,t,broadcasts.proxima_execucao/claim_ate/claim_por/idempotency_key | observed: 4/4 columns ok; failing: none
+20260805_105133_broadcast_delivery.sql,c02_broadcasts_objs,index,t,"broadcasts_igreja_idempotency_uq (partial unique), idx_broadcasts_agenda_ativa, CHECK broadcasts_hora_chk | observed: on=broadcasts unique=t valid=t partial=t; on=broadcasts unique=f valid=t partial=t; contype=c validated=f"
+20260805_105133_broadcast_delivery.sql,c03_tables,table,t,broadcast_execucoes/broadcast_entregas exist with RLS | observed: 2/2 tables ok; failing: none
+20260805_105133_broadcast_delivery.sql,c04_constraints,constraint,t,key constraints of the two new tables | observed: 4/4 constraints ok; failing: none
+20260805_105133_broadcast_delivery.sql,c05_indexes,index,t,6 representative indexes of the delivery ledger | observed: 6/6 indexes ok; failing: none
+20260805_105133_broadcast_delivery.sql,c06_policies,policy,t,tenant_isolation on both tables | observed: 2/2 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260805_105133_broadcast_delivery.sql,c07_grants,privilege,t,"authenticated has DML, anon has nothing on the ledger tables | observed: authenticated DELETE on broadcast_entregas=true; anon SELECT on broadcast_entregas=false; anon SELECT on broadcast_execucoes=false"
+20260805_120000_calendar_fk_indexes.sql,c01_indexes,index,t,"idx_calendar_oauth_flows_igreja/_app_user, idx_calendar_sync_connected_by_app_user | observed: 3/3 indexes ok; failing: none"
+20260805_153000_security_definer_execute_hardening.sql,c01_current_igreja_id_exec,privilege,t,"current_igreja_id(): anon has no EXECUTE, authenticated/service_role have it | observed: anon EXECUTE on current_igreja_id()=false; authenticated EXECUTE on current_igreja_id()=true; service_role EXECUTE on current_igreja_id()=true"
+20260805_153000_security_definer_execute_hardening.sql,c02_autoupgrade_exec,privilege,t,fn_subscription_autoupgrade(): only service_role keeps EXECUTE (partial: re-applied by 20260808_001059/20260810_042300) | observed: authenticated EXECUTE on fn_subscription_autoupgrade()=false; anon EXECUTE on fn_subscription_autoupgrade()=false; service_role EXECUTE on fn_subscription_autoupgrade()=true
+20260805_153000_security_definer_execute_hardening.sql,c03_rls_auto_enable_exec,conditional,t,"public.rls_auto_enable(): anon/authenticated without EXECUTE, service_role with it (NULL if the helper does not exist; if owned by another role the REVOKE may have been a silent no-op) | observed: owner=postgres; anon EXECUTE=false; authenticated EXECUTE=false; service_role EXECUTE=true"
+20260808_001059_billing_count_active_members.sql,c01_trigger_delete,trigger,t,trg_subscription_autoupgrade AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW (0004 had no DELETE) | observed: tgtype=29 enabled=O function=fn_subscription_autoupgrade
+20260808_001059_billing_count_active_members.sql,c02_fn_members,function,t,"fn_subscription_autoupgrade() handles DELETE and counts only active billable members (partial: kept by 20260810_042300) | observed: secdef=t config={""search_path=public, pg_temp""}"
+20260808_001059_billing_count_active_members.sql,c03_comments,comment,t,"column comments on subscriptions.pessoas and planos.limite_pessoas start with 'Nome legado' | observed: comment present, expected marker found=true (text not printed); comment present, expected marker found=true (text not printed)"
+20260808_001059_billing_count_active_members.sql,d04_data_fixes,data_part_not_checked,,"UPDATE subscriptions.pessoas mirror, planos labels and prepared-operation reconciliation not checked"
+20260808_011500_messages_outbound_provider_id_uidx.sql,c01_uidx,index,t,"UNIQUE messages_outbound_provider_id_uidx WHERE direcao = 'out', and VALID/READY/LIVE (CONCURRENTLY build) | observed: on=messages unique=t valid=t partial=t"
+20260808_014425_billing_member_plan_label_variants.sql,d01_labels,data_only,,"UPDATE planos.nome only; DML, not object-provable"
+20260808_023500_billing_reconcile_prepared_member_upgrades.sql,d01_reconcile,data_only,,"DO block updating/inserting billing_plan_change_operations rows; DML only, not object-provable"
+20260808_135841_llm_model_selection_per_tenant.sql,c01_col,column,t,llm_credentials.modelo text not null | observed: 1/1 columns ok; failing: none
+20260808_135841_llm_model_selection_per_tenant.sql,c02_default,default,t,llm_credentials.modelo default 'gpt-5.6-luna' | observed: default: 'gpt-5.6-luna'::text
+20260808_135841_llm_model_selection_per_tenant.sql,c03_check,constraint,t,CHECK llm_credentials_modelo_check | observed: contype=c validated=t
+20260808_135841_llm_model_selection_per_tenant.sql,d04_update,data_part_not_checked,,UPDATE llm_credentials.modelo to the default model not checked
+20260810_031050_explicit_deny_policies_for_closed_tables.sql,c01_deny_policies,policy,t,restrictive service_role_bypass_only (FOR ALL TO public USING false WITH CHECK false) on the 4 tables | observed: 4/4 tables with restrictive service_role_bypass_only (false/false); failing: none
+20260810_031050_explicit_deny_policies_for_closed_tables.sql,c02_rls,rls,t,RLS enabled on the 4 tables (weak in PROD: platform_* had RLS since 0010/0013/0014 and rls_auto_enable may have enabled password_reset_tokens) | observed: 4/4 tables ok; failing: none
+20260810_031050_explicit_deny_policies_for_closed_tables.sql,c03_prt_revoked,privilege,t,anon/authenticated lost all privileges on password_reset_tokens (discriminates only where Supabase default grants existed) | observed: authenticated SELECT on password_reset_tokens=false; anon SELECT on password_reset_tokens=false; authenticated TRUNCATE on password_reset_tokens=false
+20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql,c01_fn_paid_only,function,t,"fn_subscription_autoupgrade() version with v_igreja_preco, preco_mensal > 0 and igreja row lock | observed: secdef=t config={""search_path=public, pg_temp""}"
+20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql,d02_reconcile,data_part_not_checked,,DO block failing zero-price prepared operations not checked
+20260822_225752_celula_membro_evento_audit_table.sql,c01_table,table,t,celula_membro_evento exists with RLS enabled | observed: present rls=t force_rls=f
+20260822_225752_celula_membro_evento_audit_table.sql,c02_acao_chk,constraint,t,CHECK celula_membro_evento_acao_chk | observed: contype=c validated=t
+20260822_225752_celula_membro_evento_audit_table.sql,c03_indexes,index,t,its 3 indexes | observed: 3/3 indexes ok; failing: none
+20260822_225752_celula_membro_evento_audit_table.sql,c04_trigger,trigger,t,append-only BEFORE UPDATE OR DELETE trigger bound to its function | observed: tgtype=27 enabled=O function=trg_celula_membro_evento_append_only
+20260822_225752_celula_membro_evento_audit_table.sql,c05_policy,policy,t,tenant_isolation on celula_membro_evento | observed: 1/1 tables with tenant_isolation (igreja_id = current_igreja_id()); failing: none
+20260824_180000_asaas_formal_isolation.sql,c01_cols,column,t,subscriptions.asaas_*_external_reference columns | observed: 2/2 columns ok; failing: none
+20260824_180000_asaas_formal_isolation.sql,c02_checks,constraint,t,CHECK external references LIKE 'pastorai-%' | observed: 2/2 constraints ok; failing: none
+20260824_180000_asaas_formal_isolation.sql,c03_uidx,index,t,4 partial UNIQUE indexes on subscriptions Asaas ids/references | observed: 4/4 indexes ok; failing: none
+20260824_180000_asaas_formal_isolation.sql,c04_stale_idx,index,t,stale-operation expression indexes | observed: 2/2 indexes ok; failing: none
+20260824_180000_asaas_formal_isolation.sql,c05_receipts,table,t,asaas_webhook_receipts exists with RLS enabled | observed: present rls=t force_rls=f
+20260824_180000_asaas_formal_isolation.sql,c06_receipts_policy,policy,t,restrictive service_role_bypass_only (false/false) on asaas_webhook_receipts | observed: 1/1 tables with restrictive service_role_bypass_only (false/false); failing: none
+20260824_180000_asaas_formal_isolation.sql,c07_receipts_revoked,privilege,t,anon/authenticated have no SELECT on asaas_webhook_receipts | observed: authenticated SELECT on asaas_webhook_receipts=false; anon SELECT on asaas_webhook_receipts=false
+20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql,c01_col,column,t,messages.agent_reply_state text | observed: 1/1 columns ok; failing: none
+20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql,c02_check,constraint,t,"CHECK messages_agent_reply_state_check, VALIDATED | observed: contype=c validated=t"
+20260826_094317_harden_recovery_artifacts_retention.sql,c01_clerk_rollback,conditional,t,public._clerk_migration_rollback_20260823_032220 (if present): RLS + restrictive recovery_artifact_deny_all + retention comment | observed: artifact present rls=t deny_policy=t comment_marker=t
+20260826_094317_harden_recovery_artifacts_retention.sql,c02_credentials_backup,conditional,t,recovery.encrypted_credentials_backup_20260805 (if present): RLS + deny policy + comment + service_role without USAGE on schema recovery | observed: artifact present rls=t deny_policy=t comment_marker=t
+20260827_175634_d1a_tenant_runtime_integrity.sql,c01_tenant_keys,constraint,f,"UNIQUE (igreja_id, id) on pessoas/app_users/conversations | observed: 0/3 constraints ok; failing: pessoas_igreja_id_id_key(absent),app_users_igreja_id_id_key(absent),conversations_igreja_id_id_key(absent)"
+20260827_175634_d1a_tenant_runtime_integrity.sql,c02_tenant_fks,constraint,f,"the 10 composite tenant FKs exist and are VALIDATED | observed: 0/10 constraints ok; failing: pessoas_tenant_lider_fkey(absent),pessoas_tenant_arquivada_por_fkey(absent),app_users_tenant_pessoa_fkey(absent),user_roles_tenant_user_fkey(absent),conversations_tenant_pessoa_fkey(absent),conversations_tenant_assumido_por_fkey(absent),messages_tenant_conversation_fkey(absent),messages_tenant_enviado_por_fkey(absent),consent_records_tenant_pessoa_fkey(absent),consent_records_tenant_ator_fkey(absent)"
+20260827_175634_d1a_tenant_runtime_integrity.sql,c03_instance_uidx,index,f,"UNIQUE whatsapp_connections_instance_uidx (instance) WHERE instance IS NOT NULL, valid | observed: absent"
+20260827_175634_d1a_tenant_runtime_integrity.sql,c04_indexes,index,f,"the 10 tenant FK support indexes | observed: 0/10 indexes ok; failing: pessoas_igreja_id_lider_id_idx,pessoas_igreja_id_arquivada_por_idx,app_users_igreja_id_pessoa_id_idx,user_roles_igreja_id_user_id_idx,conversations_igreja_id_pessoa_id_idx,conversations_igreja_id_assumido_por_idx,messages_igreja_id_conversation_id_idx,messages_igreja_id_enviado_por_idx,consent_records_igreja_id_pessoa_id_idx,consent_records_igreja_id_ator_id_idx"
+20260827_175634_d1a_tenant_runtime_integrity.sql,c05_index_comment,comment,f,comment on index whatsapp_connections_instance_uidx starts with 'D1A:' | observed: relation absent
+20260827_230003_d2a_agent_runtime_private_context.sql,c01_role,role,f,"role agent_runtime exists, not superuser, no BYPASSRLS (migration creates it NOLOGIN; login shown in observed) | observed: absent"
+20260827_230003_d2a_agent_runtime_private_context.sql,c02_schema,schema,f,schema agent_private exists | observed: absent
+20260827_230003_d2a_agent_runtime_private_context.sql,c03_function,function,f,"agent_private.current_tenant_id() SECURITY INVOKER, search_path=pg_catalog, reads app.tenant_igreja_id | observed: absent"
+20260827_230003_d2a_agent_runtime_private_context.sql,c04_acl,privilege,,agent_runtime has USAGE on agent_private and EXECUTE on the helper; anon has neither | observed: role/schema/function absent: has_*_privilege not evaluated
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c01_table,table,f,consentimento_finalidade_evento exists with RLS enabled and FORCED | observed: absent
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c02_constraints,constraint,f,"representative constraints (tenant FK, idempotency/stream uniques, finalidade check) | observed: 0/5 constraints ok; failing: consentimento_finalidade_evento_tenant_pessoa_fkey(absent),consentimento_finalidade_evento_idempotencia_key(absent),consentimento_finalidade_evento_stream_seq_key(absent),consentimento_finalidade_evento_finalidade_check(absent),consentimento_finalidade_evento_tenant_registrado_por_fkey(absent)"
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c03_functions,function,f,"prepare_insert/append_only trigger functions (SECURITY INVOKER, search_path=pg_catalog) | observed: 0/2 functions ok; failing: consentimento_finalidade_evento_prepare_insert(),consentimento_finalidade_evento_append_only()"
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c04_triggers,trigger,f,"the 2 ledger triggers | observed: 0/2 triggers ok; failing: trg_consentimento_finalidade_evento_prepare_insert,trg_consentimento_finalidade_evento_append_only"
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c05_barrier_policy,policy,f,restrictive tenant_context_barrier policy bound to app.tenant_igreja_id | observed: absent
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c06_policies_count,policy,f,exactly 3 policies on the ledger | observed: table absent
+20260828_045213_d2b2_consentimento_finalidade_evento.sql,c07_acl,privilege,,authenticated SELECT + column INSERT only; anon and service_role no SELECT | observed: role or object absent: has_*_privilege not evaluated; column absent
+20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql,c01_table,table,f,purpose_consent_governance_envelope exists with RLS enabled and FORCED | observed: absent
+20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql,c02_validator,function,f,"validator purpose_consent_governance_draft_valid(jsonb) (immutable, invoker, search_path=pg_catalog) | observed: absent"
+20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql,c03_constraints,constraint,f,"unique igreja_id, drafts check (calls validator), status check | observed: 0/3 constraints ok; failing: purpose_consent_governance_envelope_igreja_key(absent),purpose_consent_governance_envelope_drafts_check(absent),purpose_consent_governance_envelope_status_check(absent)"
+20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql,c04_indexes,index,f,"created_by/updated_by partial indexes | observed: 0/2 indexes ok; failing: purpose_consent_governance_envelope_created_by_idx,purpose_consent_governance_envelope_updated_by_idx"
+20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql,c05_closed,privilege,,no policy and no ACL for anon/authenticated/service_role (table and validator) | observed: role or object absent: has_*_privilege not evaluated; table absent
+20260909_004005_consent_evidence_store_lab.sql,c01_tables,table,f,"the 3 lab tables exist with forced RLS | observed: 0/3 tables ok; failing: consentimento_desafio,consentimento_evidencia,consentimento_recibo"
+20260909_004005_consent_evidence_store_lab.sql,c02_functions,function,f,"the 5 lab trigger functions | observed: 0/5 functions ok; failing: consentimento_desafio_validate_write(),consentimento_evidencia_validate_insert(),consentimento_recibo_validate_insert(),consentimento_evidencia_append_only(),consentimento_recibo_append_only()"
+20260909_004005_consent_evidence_store_lab.sql,c03_barrier_policies,policy,f,restrictive *_tenant_context_barrier policy on each lab table | observed: 0/3 restrictive tenant_context_barrier policies
+20260910_142830_add_e4b_consent_persistence.sql,c01_tables,table,f,"the 6 e4b_consent_* tables exist with forced RLS | observed: 0/6 tables ok; failing: e4b_consent_operations,e4b_consent_streams,e4b_consent_receipts,e4b_consent_retentions,e4b_consent_holds,e4b_consent_hold_events"
+20260910_142830_add_e4b_consent_persistence.sql,c02_functions,function,f,"the 5 E4B guard functions | observed: 0/5 functions ok; failing: e4b_consent_immutable_guard_fn(),e4b_consent_historical_authority_guard_fn(),e4b_consent_stream_transition_guard_fn(),e4b_consent_hold_projection_guard_fn(),e4b_consent_chain_completeness_guard_fn()"
+20260910_142830_add_e4b_consent_persistence.sql,c03_policies,policy,f,the 12 e4b_*_tenant_permissive/restrictive policies | observed: 0/12 e4b tenant policies
+20260925_183811_preserve_platform_admins_on_tenant_deletion.sql,c01_igreja_nullable,column,f,app_users.igreja_id is nullable (DROP NOT NULL) | observed: 0/1 columns ok; failing: igreja_id=uuid not null
+20260925_183811_preserve_platform_admins_on_tenant_deletion.sql,c02_functions,function,f,"require_tenant_or_platform_admin() and preserve_detached_platform_admin(): SECURITY DEFINER, search_path=pg_catalog, EXECUTE revoked from PUBLIC | observed: absent; absent"
+20260925_183811_preserve_platform_admins_on_tenant_deletion.sql,c03_triggers,trigger,f,"the 3 guard triggers on app_users/platform_admins | observed: 0/3 triggers ok; failing: require_tenant_or_platform_admin,preserve_detached_platform_admin,preserve_detached_platform_admin_truncate"
+20260925_183811_preserve_platform_admins_on_tenant_deletion.sql,c04_anon_revoked,privilege,f,anon has no privileges on app_users (weak if PROD never granted anon on app_users) | observed: anon SELECT on app_users=true; anon UPDATE on app_users=true
+20260926_120446_platform_jev_settings.sql,c01_table,table,f,platform_jev_settings exists with RLS enabled | observed: absent
+20260926_120446_platform_jev_settings.sql,c02_constraints,constraint,f,"the 4 CHECK constraints | observed: 0/4 constraints ok; failing: platform_jev_settings_linha_unica(absent),platform_jev_settings_modelo_valido(absent),platform_jev_settings_timeout_valido(absent),platform_jev_settings_igrejas_exigem_dpa(absent)"
+20260926_120446_platform_jev_settings.sql,c03_policy,policy,f,restrictive service_role_bypass_only (false/false) | observed: 0/1 tables with restrictive service_role_bypass_only (false/false); failing: platform_jev_settings
+20260926_120446_platform_jev_settings.sql,c04_revoked,privilege,,anon/authenticated have no SELECT | observed: role or object absent: has_*_privilege not evaluated

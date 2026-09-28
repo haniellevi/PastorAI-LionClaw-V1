@@ -25,6 +25,7 @@ from app.db.tenant_session import (
 
 IGREJA_A = "0a0a0a0a-0000-0000-0000-00000000000a"
 IGREJA_B = "0b0b0b0b-0000-0000-0000-00000000000b"
+_ROLE_LOCAL = "set_config('role', 'authenticated', true)"
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +71,13 @@ def test_mark_tenant_scoped_writes_info_and_applies() -> None:
     assert meta["cross_tenant"] is False
     assert CROSS_TENANT_KEY not in s.info
 
-    # Aplicou o escopo imediatamente na transação atual (GUC + role).
-    sqls = " ".join(sql for sql, _ in s.executed)
-    assert "app.tenant_igreja_id" in sqls
-    assert "set local role authenticated" in sqls
-    bound = [p for _, p in s.executed if p]
-    assert bound and bound[0]["igreja_id"] == IGREJA_A
+    # Aplicou o escopo imediatamente na transação atual: GUC + papel numa só
+    # ida ao banco.
+    assert len(s.executed) == 1
+    sql, params = s.executed[0]
+    assert "app.tenant_igreja_id" in sql
+    assert _ROLE_LOCAL in sql
+    assert params == {"igreja_id": IGREJA_A}
 
 
 def test_mark_tenant_scoped_coerces_non_str_id() -> None:
@@ -92,8 +94,8 @@ def test_mark_tenant_scoped_same_igreja_is_idempotent() -> None:
     mark_tenant_scoped(s, IGREJA_A, actor_sub="second", source="worker")
     assert s.info[TENANT_IGREJA_KEY] == IGREJA_A
     assert s.info[TENANT_META_KEY] is first_meta  # meta não sobrescrita
-    # Reaplicou (mais SQL emitido na 2ª chamada).
-    assert len(s.executed) >= 4
+    # Reaplicou (mais SQL emitido na 2ª chamada), uma ida por marcação.
+    assert len(s.executed) == 2
 
 
 def test_mark_tenant_scoped_different_igreja_conflicts() -> None:
@@ -166,10 +168,10 @@ def test_promote_from_cross_tenant_succeeds() -> None:
     assert CROSS_TENANT_KEY not in s.info
     meta = s.info[TENANT_META_KEY]
     assert meta["promoted_from_cross_tenant"] is True
-    # Promoção aplica o escopo imediatamente.
-    sqls = " ".join(sql for sql, _ in s.executed)
-    assert "app.tenant_igreja_id" in sqls
-    assert "set local role authenticated" in sqls
+    # Promoção aplica o escopo imediatamente (GUC + papel numa só ida).
+    assert len(s.executed) == 1
+    assert "app.tenant_igreja_id" in s.executed[0][0]
+    assert _ROLE_LOCAL in s.executed[0][0]
 
 
 def test_promote_without_cross_tenant_phase_raises() -> None:
@@ -218,12 +220,13 @@ def test_listener_reapplies_when_marked() -> None:
     conn = _FakeConnection()
     _reapply_tenant_scope(s, transaction=None, connection=conn)
 
-    statements = [stmt for stmt, _ in conn.calls]
-    assert any("app.tenant_igreja_id" in s for s in statements)
-    assert any("set local role authenticated" in s for s in statements)
+    # GUC + papel numa única ida ao banco.
+    assert len(conn.calls) == 1
+    statement, parameters = conn.calls[0]
+    assert "set_config('app.tenant_igreja_id', %s, true)" in statement
+    assert _ROLE_LOCAL in statement
     # igreja_id vai como PARÂMETRO de bind (tupla), não interpolado na string.
-    guc_call = next(c for c in conn.calls if "set_config" in c[0])
-    assert guc_call[1] == (IGREJA_A,)
-    # Só formas transaction-local: is_local=true no set_config, SET LOCAL no role.
-    assert ", true)" in guc_call[0]
-    assert "set local role" in " ".join(statements)
+    assert parameters == (IGREJA_A,)
+    assert IGREJA_A not in statement
+    # Só formas transaction-local: is_local=true em ambos os set_config.
+    assert "false)" not in statement

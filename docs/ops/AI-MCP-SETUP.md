@@ -209,27 +209,15 @@ exceção de diagnóstico for necessária, use simultaneamente:
 - aprovação manual de toda ferramenta;
 - nenhuma consulta a linhas de fiéis se metadados/advisors bastarem.
 
-O ref DEV histórico `cxmjojnocigekgcxhubi` não aparece entre os projetos da
-conta Supabase atualmente conectada e retorna falta de permissão. As opções são:
+Desde 27/09 o desenvolvimento é local: o DEV na nuvem (`cxmjojnocigekgcxhubi`)
+está parado e não recebe mais migrations nem testes. Não crie outro projeto
+hospedado para desenvolver; use o ambiente local
+([`AMBIENTE-LOCAL.md`](AMBIENTE-LOCAL.md)).
 
-1. autenticar a conta/organização que ainda possui esse projeto;
-2. recuperar o projeto, caso pausado/transferido;
-3. criar um novo `PastorAI-DEV` em `sa-east-1`, depois aplicar migrations e seed
-   sintético conforme `deploy/STAGING.md`.
-
-Criar projeto pode ter custo recorrente. Confirme organização, região e custo no
-painel antes de qualquer criação.
-
-Uma stack local vazia foi inicializada deliberadamente para disponibilizar o MCP
-em `http://127.0.0.1:54321/mcp`. Ela usa a rede Docker
-`pastorai-supabase-local`, vinculada ao localhost, e não está ligada a nenhum
-projeto hospedado. Operação diária:
-
-```bash
-npm run supabase:start
-npm run supabase:status
-npm run supabase:stop
-```
+O `./dev.sh up` sobe o Supabase local com o MCP em
+`http://127.0.0.1:54321/mcp`, na rede Docker `pastorai-supabase-local`,
+vinculada ao localhost e sem ligação com projeto hospedado. O banco local tem o
+schema das migrations e dados fictícios (`./dev.sh reset` recria tudo).
 
 O GET de diagnóstico ao endpoint MCP local retorna `405 Method Not Allowed`, o
 que é esperado: o transporte MCP usa outro método HTTP. O `npm run doctor`
