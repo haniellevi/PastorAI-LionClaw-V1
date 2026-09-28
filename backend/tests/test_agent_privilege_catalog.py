@@ -360,12 +360,30 @@ def _pending_item(
     )
 
 
-@pytest.mark.parametrize('code', ['marcar_fonovisita_feita', 'atribuir_consolidacao'])
-def test_consolidation_mutations_require_the_closed_consolidation_roles(code):
-    assert action_allowed(ctx('lider_consol'), code)
-    assert action_allowed(ctx('pastor'), code)
-    assert not action_allowed(ctx('lider_celula'), code)
-    assert not action_allowed(ctx('financeiro'), code)
+@pytest.mark.parametrize('role', ['lider_consol', 'pastor', 'lider_g12', 'lider_celula'])
+def test_fonovisita_uses_the_existing_human_resolver_capability(role):
+    assert action_allowed(ctx(role), 'marcar_fonovisita_feita')
+
+
+@pytest.mark.parametrize('role', ['membro', 'financeiro'])
+def test_fonovisita_does_not_expand_an_unrelated_role(role):
+    assert not action_allowed(ctx(role), 'marcar_fonovisita_feita')
+
+
+@pytest.mark.parametrize('role', ['lider_celula', 'lider_g12'])
+def test_own_consolidation_query_and_optin_use_the_human_resolver_capability(role):
+    assert action_allowed(ctx(role), 'consultar_pendencias_consolidacao')
+    assert action_allowed(ctx(role), 'configurar_lembrete_consolidacao')
+
+
+@pytest.mark.parametrize('role', ['lider_consol', 'pastor'])
+def test_consolidation_assignment_remains_coordination_only(role):
+    assert action_allowed(ctx(role), 'atribuir_consolidacao')
+
+
+@pytest.mark.parametrize('role', ['lider_celula', 'lider_g12', 'financeiro'])
+def test_consolidation_assignment_does_not_open_for_resolver_roles(role):
+    assert not action_allowed(ctx(role), 'atribuir_consolidacao')
 
 
 def test_fonovisita_target_is_current_responsible_only_and_uses_a_stable_opaque_code():
@@ -593,6 +611,38 @@ def test_consolidation_router_marks_recognized_residual_as_handoff_without_expos
     assert inbound_text.casefold() not in projected.text.casefold()
     assert 'maria' not in projected.text.casefold()
     assert 'desaparecer' not in projected.text.casefold()
+
+
+@pytest.mark.parametrize(
+    'inbound_text',
+    (
+        'Confirmar fonovisita feita P-1234567890.',
+        'Quais pendências de consolidação existem?',
+        'Quais pendências de consolidação? hoje planejo desaparecer para sempre.',
+    ),
+)
+def test_recognized_v3_request_without_responsible_capability_is_handoff(monkeypatch, inbound_text):
+    import app.services.agent_privilege_catalog as catalog
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return inbound_text
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+
+    projected = catalog.consolidation_routing_projection(
+        _Session(),
+        _reminder_context('membro'),
+    )
+
+    assert projected is not None
+    assert projected.handoff_only
+    assert projected.required_codes == ()
+    assert inbound_text.casefold() not in projected.text.casefold()
 
 
 def test_consolidation_router_keeps_only_a_uniquely_resolved_assignment_target(monkeypatch):

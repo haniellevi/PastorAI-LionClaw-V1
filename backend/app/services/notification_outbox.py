@@ -675,8 +675,8 @@ def execute_consolidation_reminder_subscription(session: Session, execution: obj
         canonical_action_arguments,
     )
     from app.services.consolidation_whatsapp import (
-        CONSOLIDATION_WHATSAPP_ROLES,
         consolidation_enabled_from_environment,
+        consolidation_responsible_allowed,
     )
     from app.services.whatsapp_privilege import PrivilegeContext
 
@@ -695,7 +695,7 @@ def execute_consolidation_reminder_subscription(session: Session, execution: obj
         or type(target) is not ProposalTarget
         or action is not AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO
         or getattr(context, "igreja_id", None) != tenant
-        or not bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
+        or not consolidation_responsible_allowed(context.roles)
         or not consolidation_enabled_from_environment(tenant)
     ):
         deny()
@@ -2220,11 +2220,23 @@ def _eligible_consolidation_recipient_ids(
     *,
     igreja_id: uuid.UUID,
     responsavel_id: uuid.UUID | None,
+    task_type: str,
 ) -> tuple[uuid.UUID, ...]:
     """Resolve only current linked operators, never a person inferred by phone."""
 
     from app.db.models import AppUser, Pessoa, UserRole
-    from app.services.consolidation_whatsapp import CONSOLIDATION_WHATSAPP_ROLES
+    from app.services.consolidation_whatsapp import (
+        CONSOLIDATION_WHATSAPP_ROLES,
+        consolidation_task_resolver_roles,
+    )
+
+    roles = (
+        CONSOLIDATION_WHATSAPP_ROLES
+        if responsavel_id is None
+        else consolidation_task_resolver_roles(task_type)
+    )
+    if not roles:
+        return ()
 
     statement = (
         select(AppUser.pessoa_id)
@@ -2243,7 +2255,7 @@ def _eligible_consolidation_recipient_ids(
             Pessoa.arquivada_em.is_(None),
             Pessoa.optout.is_(False),
             Pessoa.sem_interesse.is_(False),
-            UserRole.papel.in_(tuple(sorted(CONSOLIDATION_WHATSAPP_ROLES))),
+            UserRole.papel.in_(tuple(sorted(roles))),
         )
     )
     if responsavel_id is not None:
@@ -2262,11 +2274,23 @@ def _consolidation_recipient_is_current(
     igreja_id: uuid.UUID,
     pessoa_id: uuid.UUID,
     responsavel_id: uuid.UUID | None,
+    task_type: str,
 ) -> bool:
     """Recompute the assigned or coordinator destination at the final fence."""
 
     from app.db.models import AppUser, UserRole
-    from app.services.consolidation_whatsapp import CONSOLIDATION_WHATSAPP_ROLES
+    from app.services.consolidation_whatsapp import (
+        CONSOLIDATION_WHATSAPP_ROLES,
+        consolidation_task_resolver_roles,
+    )
+
+    roles = (
+        CONSOLIDATION_WHATSAPP_ROLES
+        if responsavel_id is None
+        else consolidation_task_resolver_roles(task_type)
+    )
+    if not roles:
+        return False
 
     statement = (
         select(AppUser.id)
@@ -2278,7 +2302,7 @@ def _consolidation_recipient_is_current(
             AppUser.igreja_id == igreja_id,
             AppUser.pessoa_id == pessoa_id,
             AppUser.status == "ativo",
-            UserRole.papel.in_(tuple(sorted(CONSOLIDATION_WHATSAPP_ROLES))),
+            UserRole.papel.in_(tuple(sorted(roles))),
         )
         .with_for_update()
     )
@@ -2501,6 +2525,7 @@ def _consolidation_source_projection(
         igreja_id=igreja_id,
         pessoa_id=recipient_id,
         responsavel_id=responsavel_id,
+        task_type=getattr(task, "tipo", None),
     ):
         return None, "destinatario_revogado"
     fingerprint = _consolidation_fingerprint(track, task)
@@ -2871,11 +2896,6 @@ def _schedule_consolidation_tenant(
             responsavel_id = _valid_uuid(getattr(track, "responsavel_id", None))
             if track_id is None or track_created is None:
                 continue
-            recipients = _eligible_consolidation_recipient_ids(
-                session, igreja_id=igreja_id, responsavel_id=responsavel_id
-            )
-            if not recipients:
-                continue
             connection_ids = tuple(
                 session.execute(
                     select(WorkQueueItem.id)
@@ -2891,6 +2911,12 @@ def _schedule_consolidation_tenant(
             if deadline is not None and deadline > track_created and len(connection_ids) == 1:
                 task_id = _valid_uuid(connection_ids[0])
                 if task_id is not None:
+                    recipients = _eligible_consolidation_recipient_ids(
+                        session,
+                        igreja_id=igreja_id,
+                        responsavel_id=responsavel_id,
+                        task_type="conectar_celula",
+                    )
                     for pessoa_id in recipients:
                         intents.extend(
                             (
@@ -2926,6 +2952,14 @@ def _schedule_consolidation_tenant(
                 continue
             task_id = _valid_uuid(fono_ids[0])
             if task_id is None:
+                continue
+            recipients = _eligible_consolidation_recipient_ids(
+                session,
+                igreja_id=igreja_id,
+                responsavel_id=responsavel_id,
+                task_type="fonovisita",
+            )
+            if not recipients:
                 continue
             task_created = session.execute(
                 select(WorkQueueItem.created_at).where(

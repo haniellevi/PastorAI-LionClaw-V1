@@ -7,12 +7,55 @@ import uuid
 from urllib.parse import urlsplit
 
 from app.config import get_settings
+from app.domain.work_queue import ADMIN_ROLE, TIPO_RESOLVER_ROLES, can_resolve
 from app.services.whatsapp_privilege import privilege_enabled_from_environment
 
 
 CONSOLIDATION_WHATSAPP_APPROVED_RELEASE_ID: str | None = None
 CONSOLIDATION_PANEL_FRAGMENT = "consolidar"
+# Coordination remains intentionally narrower than human responsibility. It
+# is used for tenant-wide opaque queue access and assignment only.
 CONSOLIDATION_WHATSAPP_ROLES = frozenset({"admin", "pastor", "lider_consol"})
+_CONSOLIDATION_PENDING_TASK_TYPES = frozenset({"conectar_celula", "fonovisita"})
+
+
+def _role_set(roles: object) -> frozenset[str]:
+    if not isinstance(roles, (frozenset, set, tuple)) or not all(
+        type(role) is str for role in roles
+    ):
+        return frozenset()
+    return frozenset(roles)
+
+
+def consolidation_coordination_allowed(roles: object) -> bool:
+    """Whether roles can manage the tenant-wide opaque V3 queue."""
+
+    return bool(_role_set(roles) & CONSOLIDATION_WHATSAPP_ROLES)
+
+
+def consolidation_responsible_task_types(roles: object) -> frozenset[str]:
+    """Return V3 task types that the current human role may resolve."""
+
+    role_set = _role_set(roles)
+    return frozenset(
+        task_type
+        for task_type in _CONSOLIDATION_PENDING_TASK_TYPES
+        if can_resolve(role_set, task_type)
+    )
+
+
+def consolidation_responsible_allowed(roles: object) -> bool:
+    """Whether roles can access their own V3 work of at least one type."""
+
+    return bool(consolidation_responsible_task_types(roles))
+
+
+def consolidation_task_resolver_roles(task_type: object) -> frozenset[str]:
+    """Server-side SQL role predicate for one assigned V3 notification."""
+
+    if type(task_type) is not str or task_type not in _CONSOLIDATION_PENDING_TASK_TYPES:
+        return frozenset()
+    return frozenset({ADMIN_ROLE}) | TIPO_RESOLVER_ROLES.get(task_type, frozenset())
 
 
 def consolidation_enabled_from_environment(igreja_id: object) -> bool:
@@ -100,8 +143,12 @@ __all__ = [
     "CONSOLIDATION_PANEL_FRAGMENT",
     "CONSOLIDATION_WHATSAPP_APPROVED_RELEASE_ID",
     "CONSOLIDATION_WHATSAPP_ROLES",
+    "consolidation_coordination_allowed",
     "consolidation_delivery_enabled",
     "consolidation_enabled_from_environment",
     "consolidation_panel_link",
+    "consolidation_responsible_allowed",
+    "consolidation_responsible_task_types",
+    "consolidation_task_resolver_roles",
     "template_first_name",
 ]

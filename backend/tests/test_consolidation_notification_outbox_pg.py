@@ -553,11 +553,22 @@ def test_fonovisita_created_after_activation_reaches_common_dispatcher(delivery_
         assert row.state == "enviado" and row.sent_at == scheduled_at
 
 
-def test_connection_open_and_deadline_use_consolidacao_anchor_and_canonical_task(delivery_turn):
+@pytest.mark.parametrize("responsible_role", ("lider_consol", "lider_g12"))
+def test_connection_open_and_deadline_use_consolidacao_anchor_and_canonical_task(
+    delivery_turn, responsible_role: str
+):
     turn = delivery_turn
     assert notification_outbox.schedule_due_consolidation_notification_outbox(
         turn.factory, now=turn.now
     ) == 0
+    with turn.factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == turn.tenant,
+                UserRole.user_id == turn.responsible_user_id,
+            )
+        ).scalar_one()
+        role.papel = responsible_role
     created_at = turn.now + dt.timedelta(seconds=1)
     deadline = turn.now + dt.timedelta(seconds=5)
     task = _open_connection_track(turn, created_at=created_at, deadline=deadline)
@@ -594,6 +605,49 @@ def test_connection_open_and_deadline_use_consolidacao_anchor_and_canonical_task
     with turn.factory() as session:
         rows = session.execute(select(NotificationOutbox)).scalars().all()
         assert all(row.state == "enviado" for row in rows)
+
+
+def test_v3_lider_celula_receives_own_fonovisita_but_not_connection(delivery_turn):
+    turn = delivery_turn
+    assert notification_outbox.schedule_due_consolidation_notification_outbox(
+        turn.factory, now=turn.now
+    ) == 0
+    with turn.factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == turn.tenant,
+                UserRole.user_id == turn.responsible_user_id,
+            )
+        ).scalar_one()
+        role.papel = "lider_celula"
+    fono = _open_fonovisita(turn, created_at=turn.now + dt.timedelta(seconds=1))
+    scheduled_at = turn.now + dt.timedelta(seconds=2)
+    assert notification_outbox.schedule_due_consolidation_notification_outbox(
+        turn.factory, now=scheduled_at
+    ) == 1
+    provider = _Provider(turn)
+    assert notification_outbox.dispatch_notification_outbox(
+        turn.factory, provider, worker_id="v3-delivery-lider-celula-fono", now=scheduled_at
+    ) == 1
+    assert len(provider.calls) == 1
+    assert f"P-{fono.id.hex[:10].upper()}" in provider.calls[0][2]
+
+    with turn.factory.begin() as session:
+        prior = session.get(Consolidacao, fono.consolidacao_id)
+        assert prior is not None
+        prior.concluida = True
+
+    _open_connection_track(
+        turn,
+        created_at=scheduled_at + dt.timedelta(seconds=1),
+        deadline=scheduled_at + dt.timedelta(hours=1),
+    )
+    assert notification_outbox.schedule_due_consolidation_notification_outbox(
+        turn.factory, now=scheduled_at + dt.timedelta(seconds=2)
+    ) == 0
+    with turn.factory() as session:
+        rows = session.execute(select(NotificationOutbox)).scalars().all()
+        assert len(rows) == 1 and rows[0].purpose == "consolidation_fonovisita"
 
 
 @pytest.mark.parametrize("closed_by", ("allowlist", "agent_config"))
@@ -865,11 +919,22 @@ def test_v3_outside_transport_window_releases_without_provider_and_keeps_expiry(
         assert row.delivery_reservation_day is None
 
 
-def test_v3_role_revocation_between_schedule_and_fence_suppresses_transport(delivery_turn):
+@pytest.mark.parametrize("initial_role", ("lider_consol", "lider_celula", "lider_g12"))
+def test_v3_role_revocation_between_schedule_and_fence_suppresses_transport(
+    delivery_turn, initial_role: str
+):
     turn = delivery_turn
     assert notification_outbox.schedule_due_consolidation_notification_outbox(
         turn.factory, now=turn.now
     ) == 0
+    with turn.factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == turn.tenant,
+                UserRole.user_id == turn.responsible_user_id,
+            )
+        ).scalar_one()
+        role.papel = initial_role
     _open_fonovisita(turn, created_at=turn.now + dt.timedelta(seconds=1))
     scheduled_at = turn.now + dt.timedelta(seconds=2)
     assert notification_outbox.schedule_due_consolidation_notification_outbox(

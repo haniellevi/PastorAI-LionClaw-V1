@@ -161,7 +161,7 @@ def complete_fonovisita(
     consolidacao = _lock_consolidacao(db, tenant, consolidacao_id)
     _ensure_open(consolidacao)
     _require_expected_revision(consolidacao, expected_assignment_revision)
-    if whatsapp and not current_user.has_any_role(list(CONSOLIDATION_WHATSAPP_ROLES)):
+    if whatsapp and not can_resolve(current_user.roles, "fonovisita"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Você não tem permissão para confirmar fonovisita",
@@ -262,19 +262,33 @@ def advance_consolidacao_stage(
             None,
         )
         if canonical is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Pendência de fonovisita não encontrada",
+            # Legacy tracks predate the V3 canonical queue item. The human
+            # panel preserves its existing stage advancement without creating
+            # a queue row, alert or backfill. WhatsApp remains on
+            # complete_fonovisita, which requires the exact canonical row.
+            stage = _lock_stage(db, tenant, consolidacao.id, "fonovisita")
+            if stage is None:
+                stage = ConsolidacaoEtapa(
+                    igreja_id=tenant,
+                    consolidacao_id=consolidacao.id,
+                    etapa="fonovisita",
+                )
+                db.add(stage)
+            stage.concluida = True
+            stage.confirmada_por = uuid.UUID(current_user.app_user_id)
+            stage.confirmada_em = dt.datetime.now(dt.UTC)
+            db.flush()
+            _refresh_progress(db, consolidacao)
+        else:
+            completion = complete_fonovisita(
+                db,
+                current_user,
+                consolidacao_id=consolidacao.id,
+                work_queue_item_id=canonical.id,
+                expected_assignment_revision=None,
+                whatsapp=False,
             )
-        completion = complete_fonovisita(
-            db,
-            current_user,
-            consolidacao_id=consolidacao.id,
-            work_queue_item_id=canonical.id,
-            expected_assignment_revision=None,
-            whatsapp=False,
-        )
-        consolidacao = completion.consolidacao
+            consolidacao = completion.consolidacao
     else:
         consolidacao = _lock_consolidacao(db, tenant, consolidacao_id)
         _ensure_open(consolidacao)

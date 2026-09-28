@@ -545,6 +545,317 @@ def test_pending_query_uses_server_projection_and_aba_reassignment_fences_retry_
         assert session.get(Consolidacao, values.consolidation).assignment_revision == 2
 
 
+def test_lider_celula_turn_sees_own_fonovisita_and_confirms_only_that_task(
+    v3_turn_database: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cell leader gets no connection task and can confirm its own fono."""
+
+    factory = _factory(v3_turn_database)
+    values = _seed(factory)
+    fono_id = _linked_fonovisita_id(factory, values)
+    with factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == values.tenant,
+                UserRole.user_id == values.actor,
+            )
+        ).scalar_one()
+        role.papel = "lider_celula"
+    _install_v3_gates(monkeypatch, values.tenant)
+    query_stages = _route_to(monkeypatch, "consultar_pendencias_consolidacao")
+    evolution = _ClassifiedEvolution()
+
+    assert worker_module.run_agent_for_message(
+        factory, _outcome(values), evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    assert query_stages == ["s3_route", "s3_tool"]
+    assert len(evolution.calls) == 1
+    reply = evolution.calls[0][2]
+    assert f"P-{fono_id.hex[:10].upper()}" in reply
+    assert f"P-{values.item.hex[:10].upper()}" not in reply
+    assert "conexão com célula" not in reply
+
+    fono_request = _append_inbound(
+        factory,
+        values,
+        text_value=f"Confirmar fonovisita feita P-{fono_id.hex[:10].upper()}",
+        provider_message_id="V3-TURN-LIDER-CELULA-FONO",
+    )
+    fono_stages = _route_to(monkeypatch, "marcar_fonovisita_feita")
+    assert worker_module.run_agent_for_message(
+        factory, fono_request, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    assert fono_stages == ["s3_route", "s3_tool", "s3_handle"]
+    with factory() as session:
+        proposal = session.execute(
+            select(AgentActionProposal).where(
+                AgentActionProposal.igreja_id == values.tenant,
+                AgentActionProposal.action == "marcar_fonovisita_feita",
+            )
+        ).scalar_one()
+        assert proposal.arguments_json["work_queue_item_id"] == str(fono_id)
+
+    confirmation = _append_inbound(
+        factory,
+        values,
+        text_value="SIM",
+        provider_message_id="V3-TURN-LIDER-CELULA-SIM",
+    )
+    assert worker_module.run_agent_for_message(
+        factory, confirmation, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    with factory() as session:
+        fono = session.get(WorkQueueItem, fono_id)
+        connection = session.get(WorkQueueItem, values.item)
+        assert fono is not None and fono.status == "resolvido"
+        assert connection is not None and connection.status == "aberto"
+
+
+def test_lider_celula_turn_does_not_project_or_confirm_another_responsibles_work(
+    v3_turn_database: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An assigned cell leader has no V3 visibility after another assignment."""
+
+    factory = _factory(v3_turn_database)
+    values = _seed(factory)
+    fono_id = _linked_fonovisita_id(factory, values)
+    with factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == values.tenant,
+                UserRole.user_id == values.actor,
+            )
+        ).scalar_one()
+        role.papel = "lider_celula"
+        track = session.get(Consolidacao, values.consolidation)
+        assert track is not None
+        track.responsavel_id = values.other
+        for task in session.execute(
+            select(WorkQueueItem).where(
+                WorkQueueItem.igreja_id == values.tenant,
+                WorkQueueItem.consolidacao_id == values.consolidation,
+            )
+        ).scalars():
+            task.responsavel_id = values.other
+    _install_v3_gates(monkeypatch, values.tenant)
+    _route_to(monkeypatch, "consultar_pendencias_consolidacao")
+    evolution = _ClassifiedEvolution()
+
+    assert worker_module.run_agent_for_message(
+        factory, _outcome(values), evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    assert len(evolution.calls) == 1
+    reply = evolution.calls[0][2]
+    assert reply == "Não há pendências de consolidação no seu escopo. Abra o painel: https://app.igreja12.example/#consolidar"
+    assert "Marina" not in reply
+    assert "P-" not in reply
+
+    request = _append_inbound(
+        factory,
+        values,
+        text_value=f"Confirmar fonovisita feita P-{fono_id.hex[:10].upper()}",
+        provider_message_id="V3-TURN-LIDER-CELULA-OUTRO",
+    )
+    _route_to(monkeypatch, "consultar_pendencias_consolidacao")
+    assert worker_module.run_agent_for_message(
+        factory, request, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    with factory() as session:
+        assert session.execute(
+            select(AgentActionProposal.id).where(
+                AgentActionProposal.igreja_id == values.tenant,
+                AgentActionProposal.action == "marcar_fonovisita_feita",
+            )
+        ).all() == []
+
+
+@pytest.mark.parametrize(
+    ("role_state", "inbound_text"),
+    (
+        ("membro", "Confirmar fonovisita feita P-1234567890"),
+        ("membro", "Quais pendências de consolidação existem?"),
+        (
+            "membro",
+            "Quais pendências de consolidação? hoje planejo desaparecer para sempre.",
+        ),
+        ("revogado", "Confirmar fonovisita feita P-1234567890"),
+        ("revogado", "Quais pendências de consolidação existem?"),
+        (
+            "revogado",
+            "Quais pendências de consolidação? hoje planejo desaparecer para sempre.",
+        ),
+    ),
+)
+def test_recognized_v3_request_without_current_role_handoffs_before_router_or_transport(
+    v3_turn_database: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    role_state: str,
+    inbound_text: str,
+) -> None:
+    """A revoked or unrelated role cannot fall through to generic routing."""
+
+    from app.services import agent_privilege_catalog
+
+    factory = _factory(v3_turn_database)
+    values = _seed(factory, inbound_text=inbound_text)
+    with factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == values.tenant,
+                UserRole.user_id == values.actor,
+                UserRole.papel == "lider_consol",
+            )
+        ).scalar_one()
+        if role_state == "membro":
+            role.papel = "membro"
+        else:
+            session.delete(role)
+    _install_v3_gates(monkeypatch, values.tenant)
+    observed_roles: list[frozenset[str]] = []
+    original_projection = agent_privilege_catalog.consolidation_routing_projection
+
+    def observe_projection(session, context):
+        observed_roles.append(context.roles)
+        return original_projection(session, context)
+
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        "consolidation_routing_projection",
+        observe_projection,
+    )
+    monkeypatch.setattr(
+        LLMClient,
+        "generate_typed",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("V3 incapaz não pode chegar ao roteador")
+        ),
+    )
+    evolution = _ClassifiedEvolution()
+
+    assert worker_module.run_agent_for_message(
+        factory, _outcome(values), evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    assert observed_roles == [
+        frozenset({"membro"}) if role_state == "membro" else frozenset()
+    ]
+    assert evolution.calls == []
+    with factory() as session:
+        conversation = session.get(Conversation, values.conversation)
+        assert conversation is not None and conversation.estado == "humano"
+        assert session.execute(
+            select(AgentActionProposal.id).where(
+                AgentActionProposal.igreja_id == values.tenant
+            )
+        ).all() == []
+
+
+def test_lider_g12_turn_sees_its_own_connection_task(
+    v3_turn_database: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The G12 role retains the human resolver capability for connection."""
+
+    factory = _factory(v3_turn_database)
+    values = _seed(factory)
+    with factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == values.tenant,
+                UserRole.user_id == values.actor,
+            )
+        ).scalar_one()
+        role.papel = "lider_g12"
+    _install_v3_gates(monkeypatch, values.tenant)
+    _route_to(monkeypatch, "consultar_pendencias_consolidacao")
+    evolution = _ClassifiedEvolution()
+
+    assert worker_module.run_agent_for_message(
+        factory, _outcome(values), evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    assert len(evolution.calls) == 1
+    reply = evolution.calls[0][2]
+    assert f"P-{values.item.hex[:10].upper()}" in reply
+    assert "conexão com célula" in reply
+
+
+def test_lider_g12_turn_confirms_its_own_fonovisita(
+    v3_turn_database: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The G12 role uses the same canonical fono confirmation service."""
+
+    factory = _factory(v3_turn_database)
+    values = _seed(factory)
+    fono_id = _linked_fonovisita_id(factory, values)
+    _set_inbound_text(
+        factory,
+        values,
+        f"Confirmar fonovisita feita P-{fono_id.hex[:10].upper()}",
+    )
+    with factory.begin() as session:
+        role = session.execute(
+            select(UserRole).where(
+                UserRole.igreja_id == values.tenant,
+                UserRole.user_id == values.actor,
+            )
+        ).scalar_one()
+        role.papel = "lider_g12"
+    _install_v3_gates(monkeypatch, values.tenant)
+    _route_to(monkeypatch, "marcar_fonovisita_feita")
+    evolution = _ClassifiedEvolution()
+
+    assert worker_module.run_agent_for_message(
+        factory, _outcome(values), evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    with factory() as session:
+        proposal = session.execute(
+            select(AgentActionProposal).where(
+                AgentActionProposal.igreja_id == values.tenant,
+                AgentActionProposal.action == "marcar_fonovisita_feita",
+            )
+        ).scalar_one()
+        assert proposal.state == "pendente"
+        assert proposal.terminal_reason is None
+        assert proposal.delivered_at is not None
+        assert proposal.summary_message_id is not None
+        summary = session.get(Message, proposal.summary_message_id)
+        assert summary is not None
+        assert summary.agent_reply_state == worker_module._AGENT_REPLY_CONFIRMED
+    confirmation = _append_inbound(
+        factory,
+        values,
+        text_value="SIM",
+        provider_message_id="V3-TURN-LIDER-G12-SIM",
+    )
+    assert worker_module.run_agent_for_message(
+        factory, confirmation, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+    with factory() as session:
+        proposal = session.execute(
+            select(AgentActionProposal).where(
+                AgentActionProposal.igreja_id == values.tenant,
+                AgentActionProposal.action == "marcar_fonovisita_feita",
+            )
+        ).scalar_one()
+        receipt = session.execute(
+            select(AgentActionReceipt).where(
+                AgentActionReceipt.igreja_id == values.tenant,
+                AgentActionReceipt.proposal_id == proposal.id,
+            )
+        ).scalar_one()
+        assert proposal.state == "executada"
+        assert proposal.terminal_reason == "confirmed"
+        assert proposal.confirmation_message_id == confirmation.inbound_message_id
+        assert receipt.confirmation_message_id == confirmation.inbound_message_id
+        assert receipt.receipt_text == "Fonovisita confirmada."
+        fono = session.get(WorkQueueItem, fono_id)
+        connection = session.get(WorkQueueItem, values.item)
+        assert fono is not None and fono.status == "resolvido"
+        assert connection is not None and connection.status == "aberto"
+
+
 @pytest.mark.parametrize("change", ("role_revoked", "phone_ambiguous"))
 def test_pending_reply_retry_is_suppressed_before_second_http_when_identity_loses_scope(
     v3_turn_database: Engine,

@@ -27,6 +27,7 @@ from app.routers.pipeline import (
 )
 from app.routers.work_queue import ActionRequest, _get_item_in_scope, act_on_item
 from app.services.consolidation_workflow import (
+    advance_consolidacao_stage,
     assign_consolidacao,
     complete_fonovisita,
 )
@@ -706,6 +707,128 @@ def test_complete_fonovisita_is_atomic_and_binds_the_exact_track(workflow_databa
         assert historical_track != current_track
 
 
+@pytest.mark.parametrize("role", ("lider_celula", "lider_g12"))
+def test_whatsapp_fonovisita_allows_the_current_responsible_resolver(
+    workflow_database,
+    role: str,
+) -> None:
+    values = _seed(workflow_database)
+    track_id, queue_id = _insert_track(workflow_database, values)
+    with workflow_database.begin() as connection:
+        connection.execute(
+            text("delete from user_roles where igreja_id=:tenant and user_id=:user"),
+            {"tenant": values["tenant"], "user": values["actor"]},
+        )
+        connection.execute(
+            text(
+                "insert into user_roles(igreja_id,user_id,papel) "
+                "values(:tenant,:user,:role)"
+            ),
+            {"tenant": values["tenant"], "user": values["actor"], "role": role},
+        )
+
+    session = _scoped(_factory(workflow_database), values["tenant"])
+    try:
+        completion = complete_fonovisita(
+            session,
+            _queue_actor(values["tenant"], values["actor"], frozenset({role})),
+            consolidacao_id=track_id,
+            work_queue_item_id=queue_id,
+            expected_assignment_revision=0,
+            whatsapp=True,
+        )
+        assert completion.work_queue_item.id == queue_id
+        session.commit()
+    finally:
+        session.close()
+
+    with workflow_database.connect() as connection:
+        assert connection.execute(
+            text("select status from work_queue_items where id=:item"),
+            {"item": queue_id},
+        ).scalar_one() == "resolvido"
+
+
+def test_whatsapp_fonovisita_rejects_another_responsible_resolver(workflow_database) -> None:
+    values = _seed(workflow_database)
+    track_id, queue_id = _insert_track(workflow_database, values)
+    with workflow_database.begin() as connection:
+        connection.execute(
+            text("delete from user_roles where igreja_id=:tenant and user_id=:user"),
+            {"tenant": values["tenant"], "user": values["target_a"]},
+        )
+        connection.execute(
+            text(
+                "insert into user_roles(igreja_id,user_id,papel) "
+                "values(:tenant,:user,'lider_g12')"
+            ),
+            {"tenant": values["tenant"], "user": values["target_a"]},
+        )
+
+    session = _scoped(_factory(workflow_database), values["tenant"])
+    try:
+        with pytest.raises(HTTPException) as denied:
+            complete_fonovisita(
+                session,
+                _queue_actor(
+                    values["tenant"], values["target_a"], frozenset({"lider_g12"})
+                ),
+                consolidacao_id=track_id,
+                work_queue_item_id=queue_id,
+                expected_assignment_revision=0,
+                whatsapp=True,
+            )
+        assert denied.value.status_code == 403
+        session.rollback()
+    finally:
+        session.close()
+
+    with workflow_database.connect() as connection:
+        assert connection.execute(
+            text("select status from work_queue_items where id=:item"),
+            {"item": queue_id},
+        ).scalar_one() == "aberto"
+
+
+def test_whatsapp_fonovisita_rejects_a_current_responsible_member(workflow_database) -> None:
+    values = _seed(workflow_database)
+    track_id, queue_id = _insert_track(workflow_database, values)
+    with workflow_database.begin() as connection:
+        connection.execute(
+            text("delete from user_roles where igreja_id=:tenant and user_id=:user"),
+            {"tenant": values["tenant"], "user": values["actor"]},
+        )
+        connection.execute(
+            text(
+                "insert into user_roles(igreja_id,user_id,papel) "
+                "values(:tenant,:user,'membro')"
+            ),
+            {"tenant": values["tenant"], "user": values["actor"]},
+        )
+
+    session = _scoped(_factory(workflow_database), values["tenant"])
+    try:
+        with pytest.raises(HTTPException) as denied:
+            complete_fonovisita(
+                session,
+                _queue_actor(values["tenant"], values["actor"], frozenset({"membro"})),
+                consolidacao_id=track_id,
+                work_queue_item_id=queue_id,
+                expected_assignment_revision=0,
+                whatsapp=True,
+            )
+        assert denied.value.status_code == 403
+        session.rollback()
+    finally:
+        session.close()
+
+    with workflow_database.connect() as connection:
+        assert connection.execute(
+            text("select status from work_queue_items where id=:item"),
+            {"item": queue_id},
+        ).scalar_one() == "aberto"
+
+
 def test_whatsapp_target_is_stricter_than_existing_web_assignment(workflow_database) -> None:
     values = _seed(workflow_database, include_legacy_target=True)
     track_id, _ = _insert_track(workflow_database, values)
@@ -1113,3 +1236,104 @@ def test_queue_action_does_not_take_a_live_holder_after_candidate_read(
             text("select responsavel_id from consolidacoes where id=:track"),
             {"track": track_id},
         ).scalar_one() == values["target_a"]
+
+
+def test_panel_advances_legacy_fonovisita_without_creating_a_canonical_queue_item(
+    workflow_database,
+) -> None:
+    values = _seed(workflow_database)
+    track_id, canonical_id = _insert_track(workflow_database, values)
+    with workflow_database.begin() as connection:
+        connection.execute(
+            text("delete from work_queue_items where igreja_id=:tenant and id=:item"),
+            {"tenant": values["tenant"], "item": canonical_id},
+        )
+
+    session = _scoped(_factory(workflow_database), values["tenant"])
+    try:
+        result = advance_consolidacao_stage(
+            session,
+            _actor(values["tenant"], values["actor"]),
+            consolidacao_id=track_id,
+            etapa="fonovisita",
+            concluir=False,
+        )
+        session.commit()
+        assert "fonovisita" not in result.etapas_pendentes
+    finally:
+        session.close()
+
+    with workflow_database.connect() as connection:
+        assert connection.execute(
+            text(
+                "select concluida from consolidacao_etapas "
+                "where igreja_id=:tenant and consolidacao_id=:track and etapa='fonovisita'"
+            ),
+            {"tenant": values["tenant"], "track": track_id},
+        ).scalar_one() is True
+        assert connection.execute(
+            text(
+                "select count(*) from work_queue_items "
+                "where igreja_id=:tenant and consolidacao_id=:track and tipo='fonovisita'"
+            ),
+            {"tenant": values["tenant"], "track": track_id},
+        ).scalar_one() == 0
+
+
+def test_legacy_fonovisita_fallback_is_panel_only_and_keeps_authorization_closed(
+    workflow_database,
+) -> None:
+    values = _seed(workflow_database)
+    track_id, canonical_id = _insert_track(workflow_database, values)
+    with workflow_database.begin() as connection:
+        connection.execute(
+            text("delete from work_queue_items where igreja_id=:tenant and id=:item"),
+            {"tenant": values["tenant"], "item": canonical_id},
+        )
+
+    unauthorized = _scoped(_factory(workflow_database), values["tenant"])
+    try:
+        with pytest.raises(HTTPException) as denied:
+            advance_consolidacao_stage(
+                unauthorized,
+                _actor(values["tenant"], values["target_a"]),
+                consolidacao_id=track_id,
+                etapa="fonovisita",
+                concluir=False,
+            )
+        assert denied.value.status_code == 403
+        unauthorized.rollback()
+    finally:
+        unauthorized.close()
+
+    whatsapp = _scoped(_factory(workflow_database), values["tenant"])
+    try:
+        with pytest.raises(HTTPException) as denied:
+            complete_fonovisita(
+                whatsapp,
+                _actor(values["tenant"], values["actor"]),
+                consolidacao_id=track_id,
+                work_queue_item_id=uuid.uuid4(),
+                expected_assignment_revision=_assignment_revision(workflow_database, track_id),
+                whatsapp=True,
+            )
+        assert denied.value.status_code == 404
+        whatsapp.rollback()
+    finally:
+        whatsapp.close()
+
+    with workflow_database.connect() as connection:
+        assert connection.execute(
+            text(
+                "select count(*) from consolidacao_etapas "
+                "where igreja_id=:tenant and consolidacao_id=:track and etapa='fonovisita'"
+            ),
+            {"tenant": values["tenant"], "track": track_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text(
+                "select count(*) from work_queue_items "
+                "where igreja_id=:tenant and consolidacao_id=:track and tipo='fonovisita'"
+            ),
+            {"tenant": values["tenant"], "track": track_id},
+        ).scalar_one() == 0

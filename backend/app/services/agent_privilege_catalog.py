@@ -44,7 +44,10 @@ from app.services.whatsapp_agenda import (
 )
 from app.services.consolidation_whatsapp import (
     CONSOLIDATION_WHATSAPP_ROLES,
+    consolidation_coordination_allowed,
     consolidation_enabled_from_environment,
+    consolidation_responsible_allowed,
+    consolidation_responsible_task_types,
 )
 
 ACTIONS = frozenset({'registrar_decisao', 'marcar_presenca'})
@@ -119,11 +122,13 @@ def action_allowed(context, code: str) -> bool:
     if code == 'configurar_lembrete_agenda':
         return agenda_read_allowed(context)
     if code == 'configurar_lembrete_consolidacao':
-        return bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
+        return consolidation_responsible_allowed(context.roles)
     if code == 'consultar_pendencias_consolidacao':
-        return bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
-    if code in {'marcar_fonovisita_feita', 'atribuir_consolidacao'}:
-        return bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
+        return consolidation_responsible_allowed(context.roles)
+    if code == 'marcar_fonovisita_feita':
+        return 'fonovisita' in consolidation_responsible_task_types(context.roles)
+    if code == 'atribuir_consolidacao':
+        return consolidation_coordination_allowed(context.roles)
     return False
 
 
@@ -226,7 +231,7 @@ def _consolidation_reminder_target(
         type(context) is not PrivilegeContext
         or not _consolidation_reminder_requested(requested_text)
         or not consolidation_enabled_from_environment(context.igreja_id)
-        or not bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
+        or not action_allowed(context, 'configurar_lembrete_consolidacao')
         or type(context.pessoa_id) is not uuid.UUID
         or context.pessoa_id.int == 0
     ):
@@ -866,12 +871,22 @@ def _consolidation_pending_items(session: Session, context: object):
     if type(context) is not PrivilegeContext:
         return ()
     try:
+        coordinator = consolidation_coordination_allowed(context.roles)
+        responsible_types = consolidation_responsible_task_types(context.roles)
+        if not coordinator and not responsible_types:
+            return ()
         require_tenant_scope(
             session,
             expected_igreja_id=context.igreja_id,
             source='agent_privilege_catalog.consolidation_pending',
         )
-        rows = session.execute(_pending_statement(context.igreja_id)).all()
+        rows = session.execute(
+            _pending_statement(
+                context.igreja_id,
+                responsavel_id=None if coordinator else context.app_user_id,
+                task_types=None if coordinator else responsible_types,
+            )
+        ).all()
     except (TenantScopeError, TypeError, ValueError, AttributeError):
         return ()
     items = []
@@ -883,6 +898,11 @@ def _consolidation_pending_items(session: Session, context: object):
         item = _pending_item(work_item, consolidacao, igreja_id=context.igreja_id)
         if item is None:
             return ()
+        if not coordinator and (
+            item.responsavel_id != context.app_user_id
+            or item.task_type not in responsible_types
+        ):
+            continue
         items.append(item)
     return tuple(items)
 
@@ -978,7 +998,6 @@ def consolidation_routing_projection(
     if (
         type(context) is not PrivilegeContext
         or not consolidation_enabled_from_environment(context.igreja_id)
-        or not bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
     ):
         return None
     normalized = _normalized_consolidation_text(
@@ -994,6 +1013,8 @@ def consolidation_routing_projection(
     query = _CONSOLIDATION_QUERY_REQUEST.search(normalized) is not None
     if not (reminder or assignment or decision or fonovisita or query):
         return None
+    if not consolidation_responsible_allowed(context.roles):
+        return _unsafe_consolidation_projection()
 
     mutations = sum((reminder, assignment, decision, fonovisita))
     if mutations > 1:
@@ -1140,7 +1161,7 @@ def _consolidation_catalog_groups(
     if (
         type(context) is not PrivilegeContext
         or not consolidation_enabled_from_environment(context.igreja_id)
-        or not bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
+        or not consolidation_responsible_allowed(context.roles)
     ):
         return {}
     grouped: dict[str, list[CatalogTarget]] = {}

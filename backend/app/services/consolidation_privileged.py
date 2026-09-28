@@ -14,9 +14,10 @@ from sqlalchemy.orm import Session
 from app.db.models import Consolidacao, Pessoa, WorkQueueItem
 from app.db.rls_observability import TenantScopeError, require_tenant_scope
 from app.services.consolidation_whatsapp import (
-    CONSOLIDATION_WHATSAPP_ROLES,
+    consolidation_coordination_allowed,
     consolidation_enabled_from_environment,
     consolidation_panel_link,
+    consolidation_responsible_task_types,
 )
 
 
@@ -229,6 +230,8 @@ def _pending_statement(
     igreja_id: uuid.UUID,
     *,
     lock_sources: bool = False,
+    responsavel_id: uuid.UUID | None = None,
+    task_types: frozenset[str] | None = None,
 ):
     statement = (
         select(WorkQueueItem, Consolidacao)
@@ -248,6 +251,10 @@ def _pending_statement(
             Consolidacao.abandonada_em.is_(None),
         )
     )
+    if responsavel_id is not None:
+        statement = statement.where(WorkQueueItem.responsavel_id == responsavel_id)
+    if task_types is not None:
+        statement = statement.where(WorkQueueItem.tipo.in_(tuple(sorted(task_types))))
     if lock_sources:
         # The reply worker already owns Conversation -> Pessoa. Assignment owns
         # Consolidação before its destination Pessoa. Skip a contended source
@@ -351,11 +358,13 @@ def consolidation_pending_reply(
     from app.config import get_settings
     from app.services.whatsapp_privilege import PrivilegeContext
 
-    if (
-        type(context) is not PrivilegeContext
-        or not bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
-        or not consolidation_enabled_from_environment(context.igreja_id)
+    if type(context) is not PrivilegeContext or not consolidation_enabled_from_environment(
+        context.igreja_id
     ):
+        return None
+    coordinator = consolidation_coordination_allowed(context.roles)
+    responsible_types = consolidation_responsible_task_types(context.roles)
+    if not coordinator and not responsible_types:
         return None
     try:
         require_tenant_scope(
@@ -366,6 +375,8 @@ def consolidation_pending_reply(
         statement = _pending_statement(
             context.igreja_id,
             lock_sources=for_transport,
+            responsavel_id=None if coordinator else context.app_user_id,
+            task_types=None if coordinator else responsible_types,
         )
         rows = session.execute(
             statement.order_by(WorkQueueItem.created_at.asc(), WorkQueueItem.id.asc())
@@ -381,6 +392,11 @@ def consolidation_pending_reply(
         item = _pending_item(work_item, consolidacao, igreja_id=context.igreja_id)
         if item is None:
             return None
+        if not coordinator and (
+            item.responsavel_id != context.app_user_id
+            or item.task_type not in responsible_types
+        ):
+            continue
         items.append(item)
     ordered_items = tuple(sorted(items, key=lambda item: str(item.work_queue_item_id)))
     own_items = tuple(

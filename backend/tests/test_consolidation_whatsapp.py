@@ -86,3 +86,25 @@ def test_first_name_template_projection_rejects_phone_and_keeps_only_first_name(
     assert template_first_name("Joa\u0303o da Silva") == "João"
     assert template_first_name("+55 00 00000-0000") is None
     assert template_first_name("Maria\x00") is None
+
+
+def test_consolidation_responsibility_is_type_scoped_without_opening_coordination() -> None:
+    from app.services.consolidation_whatsapp import (
+        consolidation_coordination_allowed,
+        consolidation_responsible_task_types,
+        consolidation_task_resolver_roles,
+    )
+
+    assert not consolidation_coordination_allowed(frozenset({"lider_celula"}))
+    assert consolidation_responsible_task_types(frozenset({"lider_celula"})) == {
+        "fonovisita"
+    }
+    assert consolidation_responsible_task_types(frozenset({"lider_g12"})) == {
+        "conectar_celula",
+        "fonovisita",
+    }
+    assert "lider_celula" not in consolidation_task_resolver_roles(
+        "conectar_celula"
+    )
+    assert "lider_celula" in consolidation_task_resolver_roles("fonovisita")
+    assert consolidation_coordination_allowed(frozenset({"lider_consol"}))

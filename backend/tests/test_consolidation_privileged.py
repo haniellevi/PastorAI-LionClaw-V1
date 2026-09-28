@@ -449,6 +449,95 @@ def test_current_responsible_projection_keeps_other_scope_items_opaque(monkeypat
     assert str(assigned_elsewhere_consolidacao.id) not in reply.response
 
 
+def test_lider_celula_projection_is_limited_to_its_own_fonovisita(monkeypatch):
+    import app.services.consolidation_privileged as privileged
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    igreja_id = UUID('00000000-0000-0000-0000-0000000000a1')
+    own_person_id = UUID('00000000-0000-0000-0000-0000000000d1')
+    other_person_id = UUID('00000000-0000-0000-0000-0000000000d2')
+    own_track = SimpleNamespace(
+        id=_CONSOLIDACAO,
+        igreja_id=igreja_id,
+        pessoa_id=own_person_id,
+        responsavel_id=_RESPONSAVEL,
+        assignment_revision=3,
+        concluida=False,
+        abandonada_em=None,
+    )
+    other_track = SimpleNamespace(
+        id=UUID('00000000-0000-0000-0000-0000000000c2'),
+        igreja_id=igreja_id,
+        pessoa_id=other_person_id,
+        responsavel_id=UUID('00000000-0000-0000-0000-0000000000b2'),
+        assignment_revision=4,
+        concluida=False,
+        abandonada_em=None,
+    )
+
+    def task(item_id, track):
+        return SimpleNamespace(
+            id=item_id,
+            igreja_id=igreja_id,
+            consolidacao_id=track.id,
+            pessoa_id=track.pessoa_id,
+            responsavel_id=track.responsavel_id,
+            tipo='fonovisita',
+            status='aberto',
+            prazo=None,
+        )
+
+    own = task(UUID('12345678-90ab-cdef-0000-000000000001'), own_track)
+    other = task(UUID('abcdef12-3456-7890-0000-000000000002'), other_track)
+    context = PrivilegeContext(
+        igreja_id=igreja_id,
+        conversation_id=UUID('00000000-0000-0000-0000-0000000000a2'),
+        inbound_message_id=UUID('00000000-0000-0000-0000-0000000000a3'),
+        pessoa_id=UUID('00000000-0000-0000-0000-0000000000a4'),
+        app_user_id=_RESPONSAVEL,
+        roles=frozenset({'lider_celula'}),
+        role_snapshot=(),
+        owned_cell_ids=(),
+        credential_fingerprint='1' * 64,
+        phone_fingerprint='2' * 64,
+        authorization_fingerprint='3' * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint='4' * 64,
+        context_fingerprint='5' * 64,
+    )
+
+    class _Result:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self):
+            return self.rows
+
+    class _Session:
+        calls = 0
+
+        def execute(self, _statement):
+            self.calls += 1
+            if self.calls == 1:
+                return _Result([(own, own_track), (other, other_track)])
+            if self.calls == 2:
+                return _Result([(own_person_id, 'Maria Silva')])
+            raise AssertionError('consulta inesperada')
+
+    monkeypatch.setattr(privileged, 'require_tenant_scope', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(privileged, 'consolidation_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr('app.config.get_settings', lambda: SimpleNamespace(frontend_url=''))
+
+    reply = consolidation_pending_reply(_Session(), context=context)
+
+    assert reply is not None
+    assert 'Maria, fonovisita, prazo não definido, código P-1234567890' in reply.response
+    assert 'P-ABCDEF1234' not in reply.response
+    assert 'Há 2 pendências' not in reply.response
+
+
 def test_current_responsible_items_take_priority_over_the_opaque_projection_cap(monkeypatch):
     import app.services.consolidation_privileged as privileged
     from app.services.whatsapp_privilege import PrivilegeContext
