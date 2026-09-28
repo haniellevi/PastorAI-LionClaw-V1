@@ -10,7 +10,18 @@ import pytest
 
 from app.agent import runtime
 from app.agent.nodes import empty_turn_effects
-from app.db.models import AgentConfig, Celula, Conversation, Igreja, Message, Pessoa
+from app.db.models import (
+    AgendaReminderSubscription,
+    AgentConfig,
+    Celula,
+    ConsentRecord,
+    Conversation,
+    Igreja,
+    Message,
+    NotificationOutbox,
+    Pessoa,
+    WhatsappReminderPreference,
+)
 from app.services import semantic_triage
 from app.workers import queue_worker
 
@@ -1601,6 +1612,20 @@ class _Scalar:
     def one_or_none(self) -> object:
         return self.value
 
+    def scalars(self) -> "_Scalars":
+        return _Scalars([] if self.value is None else [self.value])
+
+
+class _Scalars:
+    def __init__(self, values: list[object]) -> None:
+        self.values = values
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def all(self) -> list[object]:
+        return list(self.values)
+
 
 class _SairSession:
     def __init__(self, conversation: object, pessoa: object) -> None:
@@ -1611,6 +1636,8 @@ class _SairSession:
         self.commits = 0
         self.fence_updates = 0
         self.proposal_updates = 0
+        self.reminder_proposal_updates = 0
+        self.outbox_updates = 0
         self.conversation_updates = 0
 
     def execute(self, statement: object, _params: object = None) -> _Scalar:
@@ -1619,17 +1646,28 @@ class _SairSession:
                 self.fence_updates += 1
             elif statement.table.name == "agent_action_proposals":
                 sql = str(statement)
-                assert "agent_action_proposals.igreja_id" in sql
-                assert "agent_action_proposals.conversation_id" in sql
-                assert "agent_action_proposals.state IN" in sql
                 values = list(statement.compile().params.values())
-                assert _IGREJA_ID in values and _CONVERSA_ID in values
-                assert "cancelada" in values and "handoff_or_optout" in values
-                assert any(isinstance(value, (list, tuple)) and
-                           set(value) == {"preparada", "pendente"} for value in values)
-                self.proposal_updates += 1
+                if "lembretes_recusados" in values:
+                    assert "agent_action_proposals.igreja_id" in sql
+                    assert "agent_action_proposals.actor_pessoa_id" in sql
+                    assert _IGREJA_ID in values and _PESSOA_ID in values
+                    assert "configurar_lembrete_agenda" in values
+                    self.reminder_proposal_updates += 1
+                else:
+                    assert "agent_action_proposals.igreja_id" in sql
+                    assert "agent_action_proposals.conversation_id" in sql
+                    assert "agent_action_proposals.state IN" in sql
+                    assert _IGREJA_ID in values and _CONVERSA_ID in values
+                    assert "cancelada" in values and "handoff_or_optout" in values
+                    assert any(isinstance(value, (list, tuple)) and
+                               set(value) == {"preparada", "pendente"} for value in values)
+                    self.proposal_updates += 1
             elif statement.table.name == Conversation.__tablename__:
                 self.conversation_updates += 1
+            elif statement.table.name == "notification_outbox":
+                values = list(statement.compile().params.values())
+                assert _IGREJA_ID in values and _PESSOA_ID in values
+                self.outbox_updates += 1
             else:
                 raise AssertionError("SAIR explícito tentou atualizar tabela inesperada")
             return _Scalar(None)
@@ -1640,6 +1678,12 @@ class _SairSession:
         if entity is Pessoa:
             self.pessoa_queries += 1
             return _Scalar(self.pessoa)
+        if entity in {
+            WhatsappReminderPreference,
+            AgendaReminderSubscription,
+            NotificationOutbox,
+        }:
+            return _Scalar(None)
         if entity is Message:
             return _Scalar((__import__("datetime").datetime.now(__import__("datetime").UTC), "SAIR"))
         raise AssertionError("SAIR explícito não pode chegar a config, credencial ou LLM")
@@ -1667,6 +1711,13 @@ def test_explicit_sair_persists_before_agent_config_or_tier_a(monkeypatch) -> No
     session = _SairSession(conversation, pessoa)
     monkeypatch.setattr(runtime, "require_tenant_scope", lambda *_a, **_k: None)
     monkeypatch.setattr(
+        "app.services.notification_outbox._scoped", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "app.services.cell_report_reminders.disable_cell_report_reminders",
+        lambda *_a, **_k: False,
+    )
+    monkeypatch.setattr(
         runtime,
         "get_settings",
         lambda: SimpleNamespace(
@@ -1688,8 +1739,15 @@ def test_explicit_sair_persists_before_agent_config_or_tier_a(monkeypatch) -> No
     assert result.suppressed is True
     assert result.reason == "optout_aplicado"
     assert pessoa.optout is True
-    assert len(session.added) == 1
+    assert sum(isinstance(value, ConsentRecord) for value in session.added) == 1
+    preferences = [
+        value for value in session.added if isinstance(value, WhatsappReminderPreference)
+    ]
+    assert {value.reminder_kind for value in preferences} == {"agenda", "cell_report"}
+    assert all(value.state == "disabled" for value in preferences)
     assert session.commits == 1
     assert session.fence_updates == 1
     assert session.proposal_updates == 1
+    assert session.reminder_proposal_updates == 1
+    assert session.outbox_updates == 2
     assert session.conversation_updates == 1

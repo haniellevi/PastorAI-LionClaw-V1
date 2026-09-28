@@ -23,6 +23,76 @@ def test_confirmation_is_exact_and_never_accepts_qualified_yes():
         assert confirmation_word(text) == 'other'
 
 
+def test_agenda_reminder_dispatches_only_to_the_dedicated_domain_service(monkeypatch):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_privilege_catalog, notification_outbox
+    from app.services.agent_action_proposals import ActionEffect
+
+    effect = ActionEffect('Lembrete confirmado.', UUID(int=91))
+    calls = []
+    monkeypatch.setattr(
+        notification_outbox,
+        'execute_agenda_reminder_subscription',
+        lambda session, execution: calls.append((session, execution)) or effect,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'execute_catalog_action',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('o adaptador legado não pode executar lembrete')
+        ),
+    )
+    session = SimpleNamespace()
+    execution = SimpleNamespace(action=SimpleNamespace(value='configurar_lembrete_agenda'))
+
+    assert privileged_turn._execute(session, execution) is effect
+    assert calls == [(session, execution)]
+
+
+def test_agenda_reminder_selection_stages_an_event_target(monkeypatch):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_action_proposals, agent_privilege_catalog
+
+    event_id = UUID('00000000-0000-0000-0000-0000000000e5')
+    selected = agent_privilege_catalog.CatalogTarget(
+        'configurar_lembrete_agenda',
+        MappingProxyType({
+            'event_id': str(event_id),
+            'occurrence_at': '2026-10-02T13:00:00.000000+00:00',
+            'term_version': 'lgpd-v2',
+        }),
+        'Ativar lembretes da Agenda para Culto em 02/10/2026 às 10:00',
+    )
+    context = SimpleNamespace(
+        igreja_id=UUID(int=1), conversation_id=UUID(int=2), inbound_message_id=UUID(int=3),
+    )
+    captured = {}
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'build_catalog',
+        lambda *_args, **_kwargs: ((), MappingProxyType({('configurar_lembrete_agenda', 'h1'): selected})),
+    )
+    monkeypatch.setattr(
+        agent_action_proposals,
+        'prepare_action_proposal',
+        lambda *_args, **kwargs: captured.update(kwargs) or SimpleNamespace(proposal_id=UUID(int=92)),
+    )
+    monkeypatch.setattr(privileged_turn, '_store_response', lambda *_args, **_kwargs: None)
+
+    assert privileged_turn._apply_selection(
+        SimpleNamespace(), context, selected, SimpleNamespace(id=UUID(int=4)),
+        current_text='Quero lembrete do culto.', conversation=SimpleNamespace(),
+    )
+    assert captured['target'].kind == 'evento'
+    assert captured['target'].id == event_id
+    assert captured['arguments'] == dict(selected.arguments)
+    assert captured['summary'] == (
+        'Ativar lembretes da Agenda para Culto em 02/10/2026 às 10:00. '
+        'Confirma esta ação? Responda SIM ou NÃO. A proposta vale por 10 minutos.'
+    )
+
+
 def test_agenda_reply_metadata_keeps_only_bounded_snapshot_controls():
     from app.agent.privileged_turn import reply_metadata
 

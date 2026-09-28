@@ -69,6 +69,7 @@ from app.db.models import (
     CalendarSync,
     Event,
     Igreja,
+    Pessoa,
 )
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
@@ -1101,6 +1102,46 @@ def _active_dup_exists(
     return any(rid != exclude_id for rid in rows)
 
 
+def _canonical_recipient_pessoa(
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    telefone: str,
+) -> Pessoa:
+    """Resolve the configured phone to exactly one active tenant Pessoa.
+
+    The client never supplies ``pessoa_id``.  Keeping this link server-managed
+    prevents a recipient configuration from becoming a second, weaker identity
+    system.  Normalize in Python because historical Pessoas may still hold an
+    alias form of the same phone.
+    """
+
+    people = tuple(
+        db.execute(
+            select(Pessoa)
+            .where(
+                Pessoa.igreja_id == igreja_id,
+                Pessoa.arquivada_em.is_(None),
+            )
+            .order_by(Pessoa.id.asc())
+        ).scalars().all()
+    )
+    matches = tuple(
+        person
+        for person in people
+        if getattr(person, "igreja_id", None) == igreja_id
+        and getattr(person, "arquivada_em", None) is None
+        and normalize_phone(getattr(person, "telefone", "") or "") == telefone
+        and isinstance(getattr(person, "id", None), uuid.UUID)
+    )
+    if len(matches) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="O telefone precisa corresponder a uma única pessoa ativa da igreja",
+        )
+    return matches[0]
+
+
 @router.get("/recipients", response_model=RecipientListOut)
 def list_recipients(
     db: Session = Depends(get_db),
@@ -1128,10 +1169,14 @@ def create_recipient(
             status_code=status.HTTP_409_CONFLICT,
             detail="Já existe um destinatário ativo com esse telefone",
         )
+    pessoa = _canonical_recipient_pessoa(
+        db, igreja_id=igreja_uuid, telefone=payload.telefone
+    )
     recipient = AgendaAlertRecipient(
         igreja_id=igreja_uuid,
         nome=payload.nome,
         telefone=payload.telefone,
+        pessoa_id=pessoa.id,
     )
     db.add(recipient)
     db.flush()
@@ -1160,12 +1205,20 @@ def update_recipient(
             detail="Já existe um destinatário ativo com esse telefone",
         )
 
+    pessoa = None
+    if novo_ativo or payload.telefone is not None:
+        pessoa = _canonical_recipient_pessoa(
+            db, igreja_id=recipient.igreja_id, telefone=novo_telefone
+        )
+
     if payload.nome is not None:
         recipient.nome = payload.nome
     if payload.telefone is not None:
         recipient.telefone = payload.telefone
     if payload.ativo is not None:
         recipient.ativo = payload.ativo
+    if pessoa is not None:
+        recipient.pessoa_id = pessoa.id
     recipient.updated_at = dt.datetime.now(dt.timezone.utc)
 
     db.flush()

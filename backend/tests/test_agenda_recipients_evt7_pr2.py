@@ -22,13 +22,15 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AgendaAlertRecipient, AppUser
+from app.db.models import AgendaAlertRecipient, AppUser, Pessoa
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
 _RID = "00000000-0000-0000-0000-0000000000c1"
+_PHONE_E164 = "+55 (11) " + "99999-0000"
+_PHONE_LOCAL = "11 " + "99999-0000"
 
 
 class _R:
@@ -51,11 +53,14 @@ class RecipientSession:
     papéis de ``recipients`` ao mesmo tempo, então cada cenário fixa o que usa.
     """
 
-    def __init__(self, *, app_user, roles, recipient=None, recipients=None) -> None:
+    def __init__(
+        self, *, app_user, roles, recipient=None, recipients=None, people=None
+    ) -> None:
         self.app_user = app_user
         self.roles = roles
         self.recipient = recipient
         self.recipients = recipients or []
+        self.people = people or []
         self.committed = False
         self.added = None
         self.deleted = None
@@ -67,6 +72,8 @@ class RecipientSession:
             return _R(scalar=self.app_user)
         if ent is AgendaAlertRecipient:
             return _R(scalar=self.recipient, scalars=self.recipients)
+        if ent is Pessoa:
+            return _R(scalars=self.people)
         return _R(scalars=self.roles)
 
     def add(self, obj) -> None:
@@ -102,18 +109,28 @@ def _recipient(*, rid=_RID, nome="Secretaria", telefone="11999990000", ativo=Tru
     )
 
 
+def _person(*, pessoa_id=None, igreja_id=_IGREJA, telefone="11999990000"):
+    return SimpleNamespace(
+        id=pessoa_id or uuid.UUID("00000000-0000-0000-0000-0000000000d1"),
+        igreja_id=uuid.UUID(str(igreja_id)),
+        telefone=telefone,
+        arquivada_em=None,
+    )
+
+
 def _wire(app, *, session) -> TestClient:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
     return TestClient(app)
 
 
-def _session(*, roles, recipient=None, recipients=None) -> RecipientSession:
+def _session(*, roles, recipient=None, recipients=None, people=None) -> RecipientSession:
     return RecipientSession(
         app_user=make_app_user(),
         roles=roles,
         recipient=recipient,
         recipients=recipients,
+        people=[_person()] if people is None else people,
     )
 
 
@@ -144,7 +161,7 @@ def test_create_admin_normalizes_phone(app) -> None:
     resp = _wire(app, session=session).post(
         "/calendar/recipients",
         headers=_AUTH,
-        json={"nome": "  Pastor  ", "telefone": "+55 (11) 99999-0000"},
+        json={"nome": "  Pastor  ", "telefone": _PHONE_E164},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -153,7 +170,48 @@ def test_create_admin_normalizes_phone(app) -> None:
     assert body["ativo"] is True
     assert session.added is not None
     assert session.added.telefone == "11999990000"
+    assert session.added.pessoa_id == uuid.UUID("00000000-0000-0000-0000-0000000000d1")
     assert session.committed is True
+
+
+def test_create_resolves_phone_alias_to_one_active_tenant_person(app) -> None:
+    pessoa_id = uuid.UUID("00000000-0000-0000-0000-0000000000d2")
+    session = _session(
+        roles=["admin"],
+        recipients=[],
+        people=[_person(pessoa_id=pessoa_id, telefone=_PHONE_E164)],
+    )
+
+    resp = _wire(app, session=session).post(
+        "/calendar/recipients",
+        headers=_AUTH,
+        json={"nome": "Pastor", "telefone": _PHONE_LOCAL},
+    )
+
+    assert resp.status_code == 200
+    assert session.added.pessoa_id == pessoa_id
+
+
+def test_create_rejects_ambiguous_or_foreign_person_phone(app) -> None:
+    other_tenant = "00000000-0000-0000-0000-000000000002"
+    session = _session(
+        roles=["admin"],
+        recipients=[],
+        people=[
+            _person(pessoa_id=uuid.uuid4()),
+            _person(pessoa_id=uuid.uuid4()),
+            _person(pessoa_id=uuid.uuid4(), igreja_id=other_tenant),
+        ],
+    )
+
+    resp = _wire(app, session=session).post(
+        "/calendar/recipients",
+        headers=_AUTH,
+        json={"nome": "Pastor", "telefone": "11999990000"},
+    )
+
+    assert resp.status_code == 422
+    assert session.added is None
 
 
 def test_create_rejects_phone_without_digits(app) -> None:

@@ -80,3 +80,33 @@ A migration usa `lock_timeout='2s'` e não altera os SQLs congelados 426/428/430
 Somente PostgreSQL17 descartável foi usado nesta missão. Aplicação compartilhada
 e deploy mantêm gates próprios; `CELL_REPORT_AUDIO_ENABLED_IGREJA_IDS` vazia e
 `CELL_REPORT_AUDIO_APPROVED_RELEASE_ID=None` ficam cumulativos a V1a/S3.
+
+## V2b: outbox comum para lembretes e EVT-7 (candidata)
+
+`20260927_220000_notification_outbox_v2b.sql` depende de S3 e V1a e amplia
+os checks S3 para a confirmação de lembrete de Agenda. Adiciona outbox,
+preferências por finalidade e inscrição por ocorrência, com RLS/FORCE RLS,
+FKs compostas por tenant e grants sem DELETE. `lock_timeout='2s'` limita
+espera por locks; se falhar, interromper e revisar a janela da release.
+
+O corte fica em `igrejas.notification_outbox_cutover_at`, preenchido uma vez
+para igrejas existentes e pelo DEFAULT para novas. A reaplicação não move
+essa fronteira. Fences preservam terminais e ambiguidades do legado e não
+convertem o marcador EVT-7 de corte em comprovante de envio.
+
+`agenda_alert_recipients.pessoa_id` é vínculo nullable preenchido pelo servidor.
+A configuração antiga sem vínculo fica inelegível até ser salva novamente;
+isso não cria consentimento nem permite replay. Telefone e Pessoa continuam
+sujeitos a resolução atual única antes do transporte. Exclusão da Pessoa
+anula o vínculo; exclusão de origem não apaga a reserva nem a ambiguidade.
+
+A futura release exige quiescência comprovada dos processos antigos antes
+da migration e publicação coordenada do consumidor novo. SQL não recolhe
+HTTP já iniciado. O [runbook V2b](../../docs/ops/v2b-agenda-20260927/README.md)
+detalha o corte e o rollback: fechar gates, preservar históricos e não
+reativar consumo legado automaticamente. Migration/deploy/ativação continuam
+com gates próprios; flags vazias e releases None não autorizam envio.
+
+SHA256 candidato: `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`.
+Prova SQL local: PostgreSQL17 sintético, reaplicação real e RLS sob
+`authenticated` sem BYPASSRLS. Isso não prova aplicação compartilhada.

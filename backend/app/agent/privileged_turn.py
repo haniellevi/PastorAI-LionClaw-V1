@@ -357,6 +357,9 @@ def _execute(session, execution):
     if execution.action.value == 'enviar_relatorio_celula':
         from app.services.cell_report_v1a_service import execute_v1a_cell_report_proposal
         return execute_v1a_cell_report_proposal(session, execution)
+    if execution.action.value == 'configurar_lembrete_agenda':
+        from app.services.notification_outbox import execute_agenda_reminder_subscription
+        return execute_agenda_reminder_subscription(session, execution)
     from app.services.agent_privilege_catalog import execute_catalog_action
     try:
         effect_id = execute_catalog_action(session, execution.privilege_context,
@@ -1146,7 +1149,11 @@ def _apply_selection(session, context, selected, message, *, current_text, conve
     from app.services.agent_action_proposals import (
         AgentAction, ProposalTarget, prepare_action_proposal,
     )
-    from app.services.agent_privilege_catalog import ACTIONS, build_catalog, read_sensitive_catalog
+    from app.services.agent_privilege_catalog import (
+        PROPOSAL_ACTIONS,
+        build_catalog,
+        read_sensitive_catalog,
+    )
     if selected.code == 'consultar_agenda':
         from app.services.whatsapp_agenda import (
             agenda_enabled_from_environment,
@@ -1225,7 +1232,7 @@ def _apply_selection(session, context, selected, message, *, current_text, conve
             ):
                 return False
         return True
-    if selected.code in ACTIONS:
+    if selected.code in PROPOSAL_ACTIONS:
         # A role snapshot alone cannot authorize a target whose membership or
         # cell leadership changed while the LLM was running.
         _, current_targets = build_catalog(session, context)
@@ -1233,9 +1240,22 @@ def _apply_selection(session, context, selected, message, *, current_text, conve
             return False
         summary = _action_summary(selected.summary)
         message.texto = summary
+        try:
+            if selected.code == 'configurar_lembrete_agenda':
+                target = ProposalTarget(
+                    kind='evento',
+                    id=uuid.UUID(selected.arguments['event_id']),
+                )
+            else:
+                target = ProposalTarget(
+                    kind='pessoa',
+                    id=uuid.UUID(selected.arguments['pessoa_id']),
+                )
+        except (KeyError, TypeError, ValueError):
+            return False
         proposal = prepare_action_proposal(session, context=context,
             inbound_message_id=context.inbound_message_id, action=AgentAction(selected.code),
-            target=ProposalTarget(kind='pessoa', id=uuid.UUID(selected.arguments['pessoa_id'])),
+            target=target,
             arguments=dict(selected.arguments), summary=summary, summary_message_id=message.id)
         _store_response(message, context, summary, kind='summary', proposal_id=proposal.proposal_id)
         return True

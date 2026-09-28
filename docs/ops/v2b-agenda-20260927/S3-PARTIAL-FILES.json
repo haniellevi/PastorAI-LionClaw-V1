@@ -1,0 +1,11 @@
+{
+  "backend/app/services/agent_action_proposals.py": "a6d8d2ad9689117ea8d158ffc76368b36de9d05e1cabd83e4183036ece01ffab",
+  "backend/app/services/agent_privilege_catalog.py": "bab4d64389b311f3b4d8a2fb0f90c41f21e8842a387cee2e9e0f0e0c46dad51f",
+  "backend/app/services/agent_privilege_routing.py": "b35cd149f84d09c146344839a5fdbd455056bf1d7e538f97f8d9379237fd739c",
+  "backend/app/agent/privileged_turn.py": "1971396ba079695eddd5162647f9ecaee50e683faa39fa337c8ce8c1384ceeaa",
+  "backend/tests/test_agent_action_proposals.py": "2cef6e083a29f821914bcdad36290b1b71c615da734e39632ee67d26d26a13e5",
+  "backend/tests/test_agent_action_proposals_lifecycle.py": "1133a354ddb0908cc758da585d563182d30ffe022a0b107475476b8769c2b77d",
+  "backend/tests/test_agent_privilege_catalog.py": "151e3763ca95d7c25370ebe050a30a31dff922da29637b0c5c0ee70da63b9033",
+  "backend/tests/test_agent_privilege_routing.py": "cc1cffee4f50232963e88a37c71e8e34891f8f2df9dfddb3156691a35ad49eb6",
+  "backend/tests/test_agent_privileged_turn.py": "4acb8b86e7254e44bef1acd9d11461d59b961e1a0f90f9955a711966073cd97f"
+}

@@ -1,323 +1,35 @@
-"""EVT-7 — aviso síncrono de confirmação de evento à equipe interna.
-
-Testa o helper `notify_event_confirmed` com fakes em memória (sem DB nem rede),
-espelhando o estilo dos testes do motor de SLA. Cobre o contrato da missão:
-
-  - flag OFF                        → não chama Evolution;
-  - flag ON, sem destinatário       → não envia e não quebra;
-  - flag ON, com destinatário ativo → envia UMA vez e marca notificado_em;
-  - destinatário inativo            → filtrado na query (WHERE ativo);
-  - já notificado (notificado_em)   → não reenvia (idempotência);
-  - evento ainda 'a_confirmar'      → não dispara envio;
-  - falha do Evolution              → não desfaz nada e deixa notificado_em NULL;
-  - outbound_guard NÃO é contornado (send_text guardado é o único caminho);
-  - modelo e migration espelham a coluna notificado_em.
-
-EVT-7 PR2: a fonte do telefone passou de papel→pessoa para a config explícita
-``agenda_alert_recipients`` (só destinatários ativos). O fake devolve os telefones
-já resolvidos (a tabela guarda o número normalizado).
-"""
+"""EVT-7 compatibility seam no longer owns a provider transport."""
 
 from __future__ import annotations
 
-import datetime as dt
-import pathlib
-import uuid
 from types import SimpleNamespace
 
-import httpx
-
-from app.config import Settings
-from app.db.models import AgendaAlertRecipient, Event, WhatsappConnection
-from app.services.event_notify import _alert_phones, notify_event_confirmed
-from app.services.evolution import EvolutionError
-
-_IGREJA = uuid.UUID("00000000-0000-0000-0000-000000000001")
+from app.services import event_notify
 
 
-# ---------------------------------------------------------------------------
-# Fakes
-# ---------------------------------------------------------------------------
-class _Scalars:
-    def __init__(self, items: list) -> None:
-        self._items = items
+def test_legacy_evt7_entrypoint_only_delegates_to_the_durable_enqueue(monkeypatch) -> None:
+    session = SimpleNamespace()
+    event = SimpleNamespace()
+    calls: list[tuple[object, object]] = []
 
-    def all(self) -> list:
-        return list(self._items)
+    def enqueue(received_session, received_event) -> int:
+        calls.append((received_session, received_event))
+        return 1
 
+    monkeypatch.setattr(event_notify, "enqueue_evt7_for_confirmed_event", enqueue)
 
-class _Result:
-    def __init__(self, items: list) -> None:
-        self._items = items
-
-    def scalars(self) -> _Scalars:
-        return _Scalars(self._items)
-
-    def scalar_one_or_none(self):
-        return self._items[0] if self._items else None
-
-
-class FakeNotifySession:
-    """Roteia execute() por entidade: destinatários ativos e número oficial."""
-
-    def __init__(self, *, recipient_phones=None, connection=None) -> None:
-        self.recipient_phones = recipient_phones or []
-        self.connection = connection
-        self.flushed = False
-        self.committed = False
-        self.last_recipient_stmt = None
-
-    def execute(self, statement, params=None) -> _Result:
-        descs = getattr(statement, "column_descriptions", None)
-        entity = descs[0].get("entity") if descs else None
-        if entity is AgendaAlertRecipient:
-            self.last_recipient_stmt = statement
-            return _Result(list(self.recipient_phones))
-        if entity is WhatsappConnection:
-            return _Result([self.connection] if self.connection else [])
-        return _Result([])
-
-    def flush(self) -> None:
-        self.flushed = True
-
-    def commit(self) -> None:
-        self.committed = True
-
-
-class SpyEvolution:
-    """Registra send_text; opcionalmente falha (simula erro de rede)."""
-
-    def __init__(self, *, fail: bool = False) -> None:
-        self.sent: list[tuple[str, str, str]] = []
-        self.fail = fail
-        self.close_calls = 0
-
-    def send_text(self, instance: str, telefone: str, texto: str) -> bool:
-        if self.fail:
-            raise EvolutionError("boom")
-        self.sent.append((instance, telefone, texto))
-        return True
-
-    def close(self) -> None:
-        self.close_calls += 1
-
-
-def _event(*, status: str = "confirmado", notificado_em=None):
-    return SimpleNamespace(
-        igreja_id=_IGREJA,
-        status=status,
-        notificado_em=notificado_em,
-        titulo="Culto",
-        data=dt.date(2026, 1, 1),
-        hora="19:30",
+    assert event_notify.notify_event_confirmed(
+        session,
+        event,
+        settings=object(),
+        evolution=object(),
     )
+    assert calls == [(session, event)]
 
 
-def _session_with_recipient() -> FakeNotifySession:
-    """Sessão com 1 destinatário ativo (com telefone) e número oficial."""
-    return FakeNotifySession(
-        recipient_phones=["5511999990000"],
-        connection=SimpleNamespace(instance="igreja-inst"),
-    )
-
-
-def _on() -> Settings:
-    return Settings(agenda_notify_enabled=True)
-
-
-def _off() -> Settings:
-    return Settings(agenda_notify_enabled=False)
-
-
-# ---------------------------------------------------------------------------
-# 1) flag OFF não chama Evolution
-# ---------------------------------------------------------------------------
-def test_flag_off_does_not_call_evolution() -> None:
-    spy = SpyEvolution()
-    event = _event()
-    session = _session_with_recipient()
-    assert notify_event_confirmed(session, event, settings=_off(), evolution=spy) is False
-    assert spy.sent == []
-    assert event.notificado_em is None
-    assert session.committed is False
-
-
-# ---------------------------------------------------------------------------
-# 2) flag ON sem destinatário: não envia, não quebra, notificado_em fica NULL
-# ---------------------------------------------------------------------------
-def test_flag_on_without_recipient_does_not_send() -> None:
-    spy = SpyEvolution()
-    event = _event()
-    # tem número oficial, mas nenhum destinatário configurado → sem destinatário.
-    session = FakeNotifySession(
-        recipient_phones=[], connection=SimpleNamespace(instance="igreja-inst")
-    )
-    assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
-    assert spy.sent == []
-    assert event.notificado_em is None
-    assert session.committed is False
-
-
-def test_flag_on_without_official_number_does_not_send() -> None:
-    spy = SpyEvolution()
-    event = _event()
-    # tem destinatário ativo, mas nenhum número oficial conectado.
-    session = FakeNotifySession(recipient_phones=["5511999990000"], connection=None)
-    assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
-    assert spy.sent == []
-    assert event.notificado_em is None
-
-
-# ---------------------------------------------------------------------------
-# 3) flag ON com destinatário: envia UMA vez e marca notificado_em
-# ---------------------------------------------------------------------------
-def test_flag_on_with_recipient_sends_once_and_marks() -> None:
-    spy = SpyEvolution()
-    event = _event()
-    session = _session_with_recipient()
-    assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is True
-    assert len(spy.sent) == 1
-    instance, phone, texto = spy.sent[0]
-    assert instance == "igreja-inst"
-    assert phone == "5511999990000"
-    assert texto == "Evento confirmado: Culto em 2026-01-01 19:30. Abra a Agenda para revisar."
-    assert event.notificado_em is not None
-    assert session.committed is True
-
-
-# ---------------------------------------------------------------------------
-# 3b) só destinatários ATIVOS entram na consulta (inativo nunca é notificado)
-# ---------------------------------------------------------------------------
-def test_alert_phones_queries_active_recipients_only() -> None:
-    session = _session_with_recipient()
-    phones = _alert_phones(session, _IGREJA)
-    assert phones == ["5511999990000"]
-    where_sql = str(session.last_recipient_stmt.whereclause)
-    # a query restringe a destinatários ativos e ao tenant → um destinatário
-    # inativo (ativo=false) fica de fora por construção, sem enviar.
-    assert "agenda_alert_recipients.ativo" in where_sql
-    assert "agenda_alert_recipients.igreja_id" in where_sql
-
-
-# ---------------------------------------------------------------------------
-# 4) idempotência: confirmar de novo não reenvia se notificado_em já preenchido
-# ---------------------------------------------------------------------------
-def test_does_not_resend_when_already_notified() -> None:
-    spy = SpyEvolution()
-    event = _event(notificado_em=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc))
-    session = _session_with_recipient()
-    assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
-    assert spy.sent == []
-
-
-# ---------------------------------------------------------------------------
-# 5) evento ainda 'a_confirmar' não dispara envio antes da confirmação
-# ---------------------------------------------------------------------------
-def test_a_confirmar_event_does_not_notify() -> None:
-    spy = SpyEvolution()
-    event = _event(status="a_confirmar")
-    session = _session_with_recipient()
-    assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
-    assert spy.sent == []
-    assert event.notificado_em is None
-
-
-# ---------------------------------------------------------------------------
-# 6) falha do Evolution não desfaz nada e deixa notificado_em NULL
-# ---------------------------------------------------------------------------
-def test_evolution_failure_does_not_break_and_leaves_notificado_em_null() -> None:
-    spy = SpyEvolution(fail=True)
-    event = _event()
-    session = _session_with_recipient()
-    # não levanta: a falha é engolida (logada) dentro do helper.
-    assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
-    assert event.notificado_em is None
-    assert session.committed is False
-
-
-def test_notify_closes_only_locally_created_evolution(monkeypatch) -> None:
-    import app.services.event_notify as notify_module
-
-    owned = SpyEvolution(fail=True)
-    monkeypatch.setattr(
-        notify_module,
-        "EvolutionClient",
-        lambda _settings: owned,
-    )
-    assert (
-        notify_event_confirmed(
-            _session_with_recipient(),
-            _event(),
-            settings=_on(),
-        )
-        is False
-    )
-
-    injected = SpyEvolution()
-    assert (
-        notify_event_confirmed(
-            _session_with_recipient(),
-            _event(),
-            settings=_on(),
-            evolution=injected,
-        )
-        is True
-    )
-
-    assert owned.close_calls == 1
-    assert injected.close_calls == 0
-
-
-# ---------------------------------------------------------------------------
-# 7) outbound_guard NÃO é contornado
-# ---------------------------------------------------------------------------
-def test_outbound_guard_not_bypassed(monkeypatch) -> None:
-    """Com um EvolutionClient REAL e ambiente não-produção, o envio é suprimido
-    pelo guard e retorna False. Se o guard fosse contornado, o
-    transport bloqueante abaixo levantaria — provando que o único caminho de envio
-    é o send_text guardado.
-    """
-
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError(f"guard contornado — tocou a rede: {request.url}")
-
-    transport = httpx.MockTransport(handler)
-    real = httpx.Client
-
-    def fake(*args, **kwargs):
-        kwargs.pop("transport", None)
-        return real(*args, transport=transport, **kwargs)
-
-    monkeypatch.setattr(httpx, "Client", fake)
-
-    # não-produção COM credenciais: se o guard falhasse, send_text iria à rede.
-    settings = Settings(
-        app_env="staging",
-        agenda_notify_enabled=True,
-        evolution_api_url="http://evo:8080",
-        evolution_api_key="SECRET_EVO_KEY",
-    )
-    event = _event()
-    session = _session_with_recipient()
-    # sem injetar evolution → usa EvolutionClient(settings) real (guardado).
-    assert notify_event_confirmed(session, event, settings=settings) is False
-    # Supressão não é entrega: o evento continua elegível para uma tentativa
-    # real quando o gate operacional for ativado.
-    assert event.notificado_em is None
-
-
-# ---------------------------------------------------------------------------
-# 8) modelo e migration espelham notificado_em
-# ---------------------------------------------------------------------------
-def test_model_and_migration_mirror_notificado_em() -> None:
-    assert "notificado_em" in Event.__table__.columns
-    col = Event.__table__.columns["notificado_em"]
-    assert col.nullable is True
-
-    mig = (
-        pathlib.Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "20260701_164352_evt7_events_notificado_em_aviso_confirmacao.sql"
-    )
-    sql = mig.read_text(encoding="utf-8").lower()
-    assert "add column if not exists notificado_em timestamptz" in sql
+def test_legacy_evt7_module_has_no_evolution_transport_reference() -> None:
+    source = event_notify.__file__
+    assert source is not None
+    contents = open(source, encoding="utf-8").read()
+    assert "send_text" not in contents
+    assert "EvolutionClient" not in contents

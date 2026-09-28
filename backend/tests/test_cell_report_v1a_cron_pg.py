@@ -7,12 +7,13 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text
 
-from app.db.models import CellReportDraft, CellReportReminder
+from app.db.models import CellReportDraft
 from app.services.evolution import EvolutionClient
 from app.workers import cron_worker
 from tests.test_cell_report_v1a_reminder_pg import (  # noqa: F401 - fixtures
     _NOW, _ReminderTransport, reminder_turn, report_turn, s3_turn,
     msg_engine_fx, rls_database_url, _rows, _run, _ClassifiedEvolution,
+    _v1a_outbox_rows,
 )
 
 pytestmark = pytest.mark.rls_integration
@@ -41,7 +42,7 @@ def test_cron_schedules_and_delivers_only_after_global_session_is_closed(reminde
     worker = _cron(turn, monkeypatch, provider)
     worker.tick(now=_NOW)
     assert len(provider.calls) == 1
-    rows = _rows(turn, CellReportReminder)
+    rows = _v1a_outbox_rows(turn)
     assert len(rows) == 1 and rows[0].state == 'enviado'
     worker.tick(now=_NOW + dt.timedelta(minutes=1))
     assert len(provider.calls) == 1

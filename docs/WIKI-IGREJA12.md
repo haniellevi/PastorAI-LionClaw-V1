@@ -296,6 +296,13 @@ permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
 merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`.
 
+## V2b em desenvolvimento local, 27/09/2026
+
+A [fatia V2b](ops/v2b-agenda-20260927/README.md) reúne lembretes de agenda,
+avisos internos EVT-7 e lembretes V1a em uma outbox comum, com cutover sem
+replay histórico. A implementação está autorizada sobre o PR434 congelado;
+isso não atesta migration aplicada, envio real ou Agenda concluída.
+
 ## Leitura de 30 segundos
 
 A V1 do Igreja 12 está encerrada como piloto controlado. Autenticação, tenant,

@@ -66,11 +66,19 @@ class EventSession:
         self.added_all: list = []  # confirm pode adicionar N EventNotifyTarget.
         self.last_event_stmt = None
         self.last_conversation_stmt = None
+        self.transaction_order: list[str] = []
 
     def execute(self, statement, params=None) -> _R:
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         if ent is AppUser:
+            whereclause = getattr(statement, "whereclause", None)
+            where = str(whereclause) if whereclause is not None else ""
+            if (
+                "app_users.status" in where
+                and getattr(self.app_user, "status", None) not in {None, "ativo"}
+            ):
+                return _R(scalar=None)
             return _R(scalar=self.app_user)
         if ent is Event:
             self.last_event_stmt = statement
@@ -88,12 +96,13 @@ class EventSession:
         self.deleted = obj
 
     def flush(self) -> None:
-        pass
+        self.transaction_order.append("flush")
 
     def refresh(self, obj) -> None:
         pass
 
     def commit(self) -> None:
+        self.transaction_order.append("commit")
         self.committed = True
 
     def close(self) -> None:  # pragma: no cover
@@ -318,6 +327,32 @@ def test_confirm_404_when_missing(app) -> None:
         f"/events/{_EID}/confirm", headers=_AUTH
     )
     assert resp.status_code == 404
+
+
+def test_confirm_rejects_invited_pastor_before_event_or_evt7_mutation(app, monkeypatch) -> None:
+    """A role on an invitation never bypasses the V2b human-policy status gate."""
+
+    event = make_event(status="a_confirmar")
+    session = EventSession(
+        app_user=make_app_user(status="convidado"),
+        roles=["pastor"],
+        event=event,
+    )
+    enqueued: list[object] = []
+    monkeypatch.setattr(
+        "app.routers.events.enqueue_evt7_for_confirmed_event",
+        lambda *_args: enqueued.append(object()),
+    )
+
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm", headers=_AUTH
+    )
+
+    assert resp.status_code == 403
+    assert event.status == "a_confirmar"
+    assert enqueued == []
+    assert session.committed is False
+    assert session.transaction_order == []
 
 
 # ---- POST /events — gate de papel (remove lider_g12) -----------------------
@@ -638,30 +673,26 @@ def test_get_legacy_event_null_communication_serializes(app) -> None:
     assert body["mensagemConfirmacao"] is None
 
 
-def test_confirm_with_body_makes_no_google_or_whatsapp_call(app, monkeypatch) -> None:
-    """Confirmar com body de comunicação NÃO introduz push Google/WhatsApp.
-
-    EVT-8a só persiste a intenção. O único caminho de comunicação segue sendo o
-    `notify_event_confirmed` (EVT-7, best-effort atrás de flag) — aqui espionado
-    para provar que continua sendo chamado exatamente uma vez e nada além dele.
-    Se alguém plugar um envio Google/WhatsApp no confirm, `google_calls` deixa de
-    ser vazio e o teste falha.
-    """
+def test_confirm_with_body_enqueues_evt7_before_commit_without_provider_call(app, monkeypatch) -> None:
+    """The event state and EVT-7 intent share one pre-provider transaction."""
     google_calls: list = []
-    notify_calls: list = []
+    enqueue_calls: list = []
 
     def _record_google(self, **kwargs):  # pragma: no cover - não deve ser chamado
         google_calls.append(kwargs)
         return "should-not-be-used"
 
-    def _spy_notify(db, event):
-        notify_calls.append(event)
+    def _spy_enqueue(db, event):
+        assert db.committed is False
+        enqueue_calls.append(event)
+        db.transaction_order.append("enqueue")
+        return 0
 
     monkeypatch.setattr(
         "app.services.google_calendar.GoogleCalendarClient.create_event",
         _record_google,
     )
-    monkeypatch.setattr("app.routers.events.notify_event_confirmed", _spy_notify)
+    monkeypatch.setattr("app.routers.events.enqueue_evt7_for_confirmed_event", _spy_enqueue)
 
     event = make_event(status="a_confirmar")
     session = _session(roles=["pastor"], event=event)
@@ -677,7 +708,8 @@ def test_confirm_with_body_makes_no_google_or_whatsapp_call(app, monkeypatch) ->
 
     assert resp.status_code == 200
     assert google_calls == []  # nenhum push Google novo
-    assert len(notify_calls) == 1  # caminho de aviso EVT-7 inalterado
+    assert len(enqueue_calls) == 1
+    assert session.transaction_order.index("enqueue") < session.transaction_order.index("commit")
 
 
 # ---- EVT-8 PR1 — seleção individual (contatos do WhatsApp, D3) --------------

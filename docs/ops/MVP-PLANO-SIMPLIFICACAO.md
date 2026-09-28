@@ -389,8 +389,10 @@ sem declarar as próximas verticais implementadas.
    `CELL_REPORT_APPROVED_RELEASE_ID=None` mantêm a entrega inerte.
 3. **V2: agenda**, [plano aprovado com ajustes](mvp-v2-agenda-whatsapp-plano.md).
    V2a entrega primeiro consulta por papel, título institucional validado e fallback
-   seguro; V2b terá PR própria para lembretes, outbox única e cutover V1a/EVT-7,
-   com unicidade por tenant/destinatário/ocorrência/finalidade e janela 08:00-21:00.
+   seguro; [V2b autorizada em implementação](v2b-agenda-20260927/README.md)
+   terá PR própria para lembretes, outbox única e cutover V1a/EVT-7, sem replay
+   histórico, com unicidade por tenant/destinatário/ocorrência/finalidade, janela
+   08:00 inclusive até 21:00 exclusive e teto agenda de dois/dia.
    [Registro V2a](../sprints/2026-09-27-whatsapp-agenda-v2a.md): implementação
    autorizada, sem merge/deploy/ativação presumidos. Desenvolvimento local e
    release em lote seguem a decisão de 27/09; PR432 ainda pendente no preflight.

@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 _TOOLS = frozenset({
     "registrar_decisao", "marcar_presenca", "consultar_vinculo", "consultar_celulas",
-    "consultar_agenda",
+    "consultar_agenda", "configurar_lembrete_agenda",
 })
 _NO_HANDLE_TOOLS = frozenset({"consultar_agenda"})
 _SYSTEM = (
