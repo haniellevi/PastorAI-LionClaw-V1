@@ -29,7 +29,7 @@ Status: APROVADO por Claude + Opencoded e autorizado por Raniel, com ajustes inc
 27. Testar UI: salvar/recarregar cadastro, publicação default off, autorização negada, Agente sem formulário antigo, troca de tenant, acessibilidade e mobile; sem provedores reais no CI.
 28. Entregar uma PR S2b com sprint, Wiki e roteiro atualizados; não reclassificar domínio no PRD-COVERAGE sem mudança efetiva de cobertura.
 29. S3 fica congelada nos arquivos compartilhados, preservando candidato e evidências; retomar/rebase após definir e integrar a fonte canônica da S2b.
-30. Código/PR/CI liberados agora. DEV reconciliado e validado condiciona somente migration/deploy PROD; estes exigem backup/gate nominal próprio. Avisar antes de merge com backend.
+30. Código/PR/CI liberados. Validação em ambiente local descartável e CI conforme [MVP §3.5](MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709); DEV na nuvem não é pré-requisito de merge ou migration. Migration/deploy PROD exigem backup e gate humano próprio de release. Avisar antes de merge com backend.
 31. Backend exige deploy manual com gate próprio; Vercel publica frontend no merge, então a UI usa feature-gate e esconde/desabilita campos novos enquanto a API não oferecer suporte, sem quebrar o backend anterior.
 32. Rollback: conter envios e reverter aplicação pelo gate operacional, preservando colunas/dados; não restaurar leitura do legado silenciosamente nem apagar dados migrados.
 33. Próximo gate humano: liberação nominal de merge da PR após revisão e CI; nenhuma aprovação de código autoriza migration/deploy. Sem PROD/VPS/banco real/provedores nesta missão.

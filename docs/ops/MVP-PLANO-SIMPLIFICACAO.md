@@ -412,9 +412,10 @@ sensíveis. Esta ordem substitui Clerk obrigatório para todo dado não público
 sem declarar as próximas verticais implementadas.
 
 0. **Agora: S2b aprovada**, Igreja/Celula como fonte pública, oferta determinística
-   de secretaria e UI protegida por suporte da API. Entregar imediatamente o
-   [roteiro DEV para Raniel](s2b-church-cell-20260927/RECONCILIAR-DEV-RANIEL.md).
-   DEV reconciliado condiciona migration/deploy PROD, não código/PR/CI.
+   de secretaria e UI protegida por suporte da API. Validar em ambiente local
+   descartável e no CI, conforme §3.5. O [roteiro DEV histórico](s2b-church-cell-20260927/RECONCILIAR-DEV-RANIEL.md)
+   foi supersedido; DEV na nuvem não é pré-requisito de merge ou migration.
+   Migration/deploy PROD continuam sujeitos ao gate humano próprio de release.
 1. **S3 revisada:** `PrivilegeContext` derivado no servidor por telefone único,
    vínculo ativo `app_users.pessoa_id -> user_roles` e `celulas.lider_id`;
    ambiguidade encaminha a humano. Ações ministeriais comuns por telefone

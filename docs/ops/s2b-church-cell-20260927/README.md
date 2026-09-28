@@ -65,11 +65,14 @@ de novas gravações. A API antiga fica em leitura canônica temporária.
 
 ## Operação futura e rollback
 
-O [roteiro DEV](RECONCILIAR-DEV-RANIEL.md) foi preparado para Raniel executar.
-DEV reconciliado condiciona migration/deploy PROD, sem bloquear código/PR/CI.
-Merge426 permanece retido na ordem DEV reconciliado -> migration PROD ->
-merge -> deploy. Esta missão não acessa DEV/PROD/VPS/provedores. Não executar a suíte RLS contra
-DEV: ela usa PostgreSQL descartável e fixtures sintéticas.
+Conforme [MVP §3.5](../MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709),
+a validação usa ambiente local descartável e CI no head exato. O
+[roteiro de reconciliação DEV](RECONCILIAR-DEV-RANIEL.md) é histórico e foi
+supersedido: DEV na nuvem não é pré-requisito de merge ou migration.
+Merge exige revisão e autorização nominal da PR; migration/deploy PROD
+dependem do gate humano próprio de release, com backup e rollback. Esta
+missão não acessa DEV/PROD/VPS/provedores. A suíte RLS usa exclusivamente
+PostgreSQL descartável e fixtures sintéticas.
 
 O assert de `igrejas_self_update` exige a policy existente de UPDATE. Não
 certifica predicados alterados nem policies adicionais em um banco real;
