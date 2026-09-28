@@ -80,6 +80,10 @@ _DRAFT_EXPIRED = "expirado"
 _DRAFT_ACTIVE = frozenset({_DRAFT_COLLECTING, _DRAFT_READY})
 _DRAFT_TTL = dt.timedelta(hours=24)
 _REPORT_ACTION = AgentAction.ENVIAR_RELATORIO_CELULA
+_V1A_CLARIFY_FORMAT = (
+    " Exemplo válido: presentes: 8, visitantes: 2, decisões: 1, "
+    "oferta: R$ 42,50. Separe os campos por vírgula ou quebra de linha."
+)
 
 
 class CellReportV1aServiceError(ValueError):
@@ -533,6 +537,10 @@ def _expire_draft(draft: CellReportDraft, *, now: dt.datetime) -> None:
     draft.content_purged_at = now
 
 
+def _clarify_v1a_response(instruction: str) -> str:
+    return instruction + _V1A_CLARIFY_FORMAT
+
+
 def _missing_response(candidate: CellReportCandidate) -> str:
     labels = {
         "presentes": "presentes",
@@ -543,7 +551,9 @@ def _missing_response(candidate: CellReportCandidate) -> str:
     missing = [labels[field] for field in candidate.missing_required_fields]
     if not missing:
         _reject()
-    return "Para preparar o relatório, informe também: " + ", ".join(missing) + "."
+    return _clarify_v1a_response(
+        "Para preparar o relatório, informe também: " + ", ".join(missing) + "."
+    )
 
 
 def _stage_from_draft_candidate(
@@ -641,7 +651,9 @@ def stage_v1a_cell_report_turn(
         if _looks_like_report(text):
             return CellReportTurnStage(
                 CellReportStageKind.CLARIFY,
-                "Envie apenas presentes, visitantes, decisões e oferta total.",
+                _clarify_v1a_response(
+                    "Envie apenas presentes, visitantes, decisões e oferta total."
+                ),
             )
         return CellReportTurnStage(CellReportStageKind.NOT_APPLICABLE, None)
     try:
@@ -743,7 +755,9 @@ def stage_v1a_cell_report_turn(
         except (CellReportV1aError, ValueError):
             return CellReportTurnStage(
                 CellReportStageKind.CLARIFY,
-                "Envie apenas a correção de presentes, visitantes, decisões ou oferta total.",
+                _clarify_v1a_response(
+                    "Envie apenas a correção de presentes, visitantes, decisões ou oferta total."
+                ),
             )
         session.flush()
         draft_id = getattr(active, "id", None)
@@ -796,7 +810,9 @@ def stage_v1a_cell_report_turn(
         except (CellReportV1aError, ValueError):
             return CellReportTurnStage(
                 CellReportStageKind.CLARIFY,
-                "Envie apenas a correção de presentes, visitantes, decisões ou oferta total.",
+                _clarify_v1a_response(
+                    "Envie apenas a correção de presentes, visitantes, decisões ou oferta total."
+                ),
             )
         payload = canonical_v1a_draft_payload(candidate)
         digest = _canonical_payload_sha256(payload)
