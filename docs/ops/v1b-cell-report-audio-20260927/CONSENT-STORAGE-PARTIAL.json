@@ -1,0 +1,45 @@
+{
+  "recorded_at": "2026-09-27T19:21:57.418042+00:00",
+  "base": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
+  "status": "partial_consent_storage",
+  "sha256": {
+    "backend/app/services/storage.py": "f7377513e6969bf8f51240df8fbdf11efca806bef985d400c82f7b207b424735",
+    "backend/app/services/cell_report_audio_service.py": "9bae2fe94ff4d647c2d2cabd09b7abf1294f9d6fe2c9f16779416c69266ffdfd",
+    "backend/app/workers/queue_worker.py": "a4c157bcb887b5bcfe78ebf714434cfa960170914dbd1693121d977d8d4b790b",
+    "backend/app/agent/privileged_turn.py": "d79d91a426ccd56c350df6c7c3b608ba5f560fd358f04ff2c4fd0822f3f0cc8f",
+    "backend/migrations/20260927_210000_cell_report_audio_v1b.sql": "1281c039cf0d9a5dd5f7496fd8eb5e139cf7b91720cc76870f0b297de9135862"
+  },
+  "tests": [
+    {
+      "artifact": "v1b-consent-gates-pg.xml",
+      "sha256": "a478bf9bdb7480a0f0e863b98232e72ec414e3937a66a9c265e09ba3af641657",
+      "tests": 28,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-migration-tombstone.xml",
+      "sha256": "99ecc3b239e8c3f0d6688735c18d5035a771023cf72959691c1627bb365a6ef7",
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-storage-regression.xml",
+      "sha256": "5f84e081038aa5350744083794690fd421b520a4419d718769da1369f2dbd90c",
+      "tests": 39,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "limitations": [
+    "Audio dispatcher/purge still incomplete",
+    "Notice retry must recheck V1b/V1a gates: three RED remain",
+    "Only synthetic local PG17 and mocked HTTP",
+    "No PR/CI candidate or shared migration applied",
+    "HTTPX timeout is per I/O phase; late upload result is rejected but wall-clock socket cancellation not guaranteed"
+  ]
+}

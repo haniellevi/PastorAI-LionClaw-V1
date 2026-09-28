@@ -1,0 +1,103 @@
+{
+  "status": "baseline_superseded_by_queue_turn_delta",
+  "base": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
+  "recorded_at": "2026-09-27T21:01:18.716854+00:00",
+  "environment": "Local PostgreSQL17.6 loopback, synthetic fixtures and mocked providers; Python3.13.14",
+  "source_sha256": {
+    ".github/workflows/backend-tests.yml": "cc64d6213d6ae2805ae0f4bf9a4be2302b729e30a9d526a645c879875b3cee7c",
+    ".github/workflows/rls-integration.yml": "52245b9aa17b655d0b9e3f754e776157b3e8ddac12b628ece430c8a7595c91bf",
+    "backend/Dockerfile": "11995dc9d5866083f042b354d3fd01a3cc26406772e15f357073babc65d157a3",
+    "backend/app/agent/privileged_turn.py": "a2a6d247e4441371bf11b92fbfdad7d3dd3a44b18769d83546ec3051cdec1bc1",
+    "backend/app/db/models.py": "cae1c83b2f06cf4ebc51261fd7859eec239266996bb18bcff3089033635daee6",
+    "backend/app/services/cell_report_audio.py": "fa8c2e054ea23cdaeccf457a6dbe463e39eeed299b6f976465e52f4b10c232b1",
+    "backend/app/services/cell_report_audio_service.py": "4a699cfa7fac3f2d12f36ddb57dc0c190084d1a1871679f96268dd8977e7636d",
+    "backend/app/services/cell_report_v1a_service.py": "81adba207c4ad601953a1bcf7d211bc4d9a0c4625265ed8ec0c6b000ea919f38",
+    "backend/app/services/cell_report_whatsapp.py": "85b87c92c4eb14b88fc3780ddeeb42fec2e2e758c14ca54af35555e81412852a",
+    "backend/app/services/conversation_handoff.py": "30cc543a1a5fa97baaaba2924c53ce457133c9b2469379de2f04112380dcfe25",
+    "backend/app/services/evolution.py": "4c477c50dfb6b12e0cee05e5fedeecf5979e6c0128f520668a12864de5c87877",
+    "backend/app/services/llm.py": "a1fcd0cc67edb2fa4f157c2ce1f9f7227aad649a3719fb7ffeaa93b958a2e26e",
+    "backend/app/services/storage.py": "f7377513e6969bf8f51240df8fbdf11efca806bef985d400c82f7b207b424735",
+    "backend/app/workers/cron_worker.py": "de4a0b2b3c8d998b81141e9bc8da39925c2653c01c8f17bf00b55c63e0449a4b",
+    "backend/app/workers/queue_worker.py": "a4c157bcb887b5bcfe78ebf714434cfa960170914dbd1693121d977d8d4b790b",
+    "backend/migrations/20260927_210000_cell_report_audio_v1b.sql": "1281c039cf0d9a5dd5f7496fd8eb5e139cf7b91720cc76870f0b297de9135862",
+    "backend/tests/cell_report_audio_samples.py": "544eedadab7a167ed5bec1107c3c43a6c98c3eeb072b2fbc0a22ecd515f4892a",
+    "backend/tests/test_calendar_oauth_flows.py": "8c47c7627cdc19facd68146332c0f44a63c567c8c35ade67c7544d40a554cabe",
+    "backend/tests/test_cell_report_audio_service_v1b.py": "a43d49c78799339eae942862b3ce64f7b792c7c50e00cdd65f6e2b52d01b0560",
+    "backend/tests/test_cell_report_audio_v1b.py": "b65ab65bb37fd523ee930c8884b8ccc4765c62b28b2d01e57a6d20e0eb5a58fd",
+    "backend/tests/test_cell_report_audio_v1b_models.py": "d8969341421c2fa8466566c34b2998e34b81581bf1ca698797a4bf6c12dcf98d",
+    "backend/tests/test_cell_report_v1a_worker_pg.py": "64dbe62188e33a748adf08e206d35bafefba18f442b0132f54d096b173c4582c",
+    "backend/tests/test_cell_report_v1b_decoder_boundary.py": "bd5990aee7094672a6d2304ed20338c2c40348f2f1b4817cfd5bab1b5acc1910",
+    "backend/tests/test_cell_report_v1b_dispatch_pg.py": "37e5ab7f673bf9dbbe78ee55dc48eaba4f6d5f5b14704cc6504bf3fb222227e6",
+    "backend/tests/test_cell_report_v1b_download_boundary.py": "1d39b24ef42c5597d4055970334927943acb114afd97b15d755777695f2ddf05",
+    "backend/tests/test_cell_report_v1b_migration_pg.py": "9ba41544a7eeea1d51590d2aad2902427919331d2e81bb89a71539e3ed4bfd96",
+    "backend/tests/test_cell_report_v1b_progress.py": "8ff5c487c8b811de553c4ee3fe4118d00373aedec516a1f48e04e9e12b51c8a6",
+    "backend/tests/test_cell_report_v1b_storage_boundary.py": "9f13dd7fca3a6c14b7c5db93e945bd581f7a43a5e08e0c0331719244811ea23f",
+    "backend/tests/test_cell_report_v1b_transcription_boundary.py": "ec4bac4f182913e8e5944d68248aa28b9845d161b0f1297ea7fae6488bb45e63",
+    "backend/tests/test_cell_report_v1b_worker_pg.py": "d3f55f452fa1d6795bf01655d4e0edea96a06ba028d84afcc62ff9b748eca5c4",
+    "backend/tests/test_cron_worker.py": "7899939f183bfed56d7fe9bfef297919a8b8c39056a013b2adbcd726a6136533",
+    "backend/tests/test_evolution_audio_v1b.py": "a2e6306f207dfdb33c3a999432ce5b5e6461623b39c44fad61b2c7336c278b17",
+    "backend/tests/test_llm_audio_v1b.py": "a49e4a1e885de010e387cb7699cfe05e32d8328ea2182fb72de794cac8466fed",
+    "backend/tests/test_whatsapp_worker.py": "298cff098a77839438ef5f6999b7272f9fdf29a53b2cac6a8cb6ff5022df9adc"
+  },
+  "frozen_sql_sha256": {
+    "backend/migrations/20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
+    "backend/migrations/20260927_170000_whatsapp_privilege_actions.sql": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f"
+  },
+  "tests": [
+    {
+      "name": "backend",
+      "artifact": "/tmp/v1b-backend-4a-final.xml",
+      "sha256": "95d05a4c01551798fffc43ea5441ec71c797a10e76c9b228e16b62fc756d94e7",
+      "timestamp": "2026-09-27T17:56:38.457334-03:00",
+      "seconds": 45.674,
+      "tests": 5858,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "rls_integration",
+      "artifact": "/tmp/v1b-rls-4a-final.xml",
+      "sha256": "526bc00e52f90e24ff0e8592a94969ae7350b1386e0f8f0d3ab8c84cf9cf1cbf",
+      "timestamp": "2026-09-27T17:56:51.235874-03:00",
+      "seconds": 223.134,
+      "tests": 632,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "critical_audio_races",
+      "artifact": "/tmp/v1b-deadline-4a.xml",
+      "sha256": "8cf7a0fa39093e7dd7488131f208d010fa455e46aac68054cfcf4d9ddfffb897",
+      "timestamp": "2026-09-27T17:56:21.619890-03:00",
+      "seconds": 14.554,
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "review": "REVIEW.md: independent source review of service4a699cfa/cron de4a0b2b; no remaining P1/P2; not Sarah approval",
+  "limits": [
+    "No DEV/PROD/VPS/provider execution or activation. No merge.",
+    "Physical deletion may lag during storage outage; durable retry and delayed-purge signal remain.",
+    "HTTPX timeout is per phase, not hard global socket cancellation; deadline and late-result fence required.",
+    "MP4/M4A requiring seek may be refused; text/human alternative.",
+    "Backend image build and repository checks belong to CI of committed head; result linked in PR."
+  ],
+  "fixture_corrections": [
+    "V1a inert test allows only exact catalog-only to_regclass discovery used by cleanup; all feature-table statements remain forbidden.",
+    "Deadline test advances monotonic and UTC together; earlier monotonic-only failure was not a valid durable-expiry proof.",
+    "Delete-ACK test performs the new required recovery phase before private purge claim."
+  ],
+  "next_human_gate": "Sarah review of final V1b PR head",
+  "commands": {
+    "backend": "PASTORAI_PYTHON=<Python3.13.14 runtime> bash test-local.sh backend",
+    "rls_integration": "RLS_TEST_DATABASE_URL=<PG17 loopback disposable> S3_MIGRATION_EXACT_DATABASE_URL=<separate loopback disposable> python -m pytest --strict-markers -m rls_integration -o addopts= -p no:cacheprovider -q --tb=short tests",
+    "critical_audio_races": "python -m pytest -m rls_integration -o addopts= -p no:cacheprovider tests/test_cell_report_v1b_dispatch_pg.py -k 'deadline_handoff_survives or late_upload_after_purge or old_delete_ack'"
+  },
+  "snapshot_head": "481f1cab5c3612093f372845d8db5f096e9b29c0",
+  "delta_record": "QUEUE-TURN-DELTA.json"
+}

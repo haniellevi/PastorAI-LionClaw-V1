@@ -239,7 +239,14 @@ def test_v1a_env_alone_is_inert_without_any_v1a_table(report_turn, monkeypatch):
         assert _rows(turn, AgentActionProposal) == []
         assert _rows(turn, AgentActionReceipt) == []
         assert evolution.calls == []
-        assert not any('cell_report_' in statement.lower() for statement in statements)
+        # Handoff cleanup must work after flags close. Its catalog-only V1b
+        # discovery is safe even before the migration; no feature-table access
+        # or feature execution is permitted while the release is unapproved.
+        safe_discovery = "select pg_catalog.to_regclass('public.cell_report_audio_inputs') is not null"
+        feature_queries = [statement for statement in statements
+                           if 'cell_report_' in statement.lower()
+                           and statement.strip().lower() != safe_discovery]
+        assert feature_queries == []
     finally:
         event.remove(turn.engine, 'before_cursor_execute', record)
 

@@ -153,6 +153,7 @@ def stub_tick(monkeypatch):
 
     monkeypatch.setattr(cw, "run_all_igrejas", _sla)
     monkeypatch.setattr(cw, "run_due_crons", _crons)
+    monkeypatch.setattr(cw.CronWorker, "_run_cell_report_audio_cycle", lambda self, *, now: (0, 0))
     monkeypatch.setattr(
         cw,
         "run_pending_plan_changes",
@@ -318,6 +319,8 @@ def test_tick_reports_purged_counter(stub_tick) -> None:
         "crons_run",
         "oauth_flows_purged",
         "plan_changes_completed",
+        "audio_purged",
+        "audio_dispatched",
     }
 
 

@@ -14,6 +14,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# V1b validates private audio by decoding actual samples before any external
+# transcription. The runtime image must carry the same bounded decoder used by
+# tests; host tools are never a production dependency.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes ffmpeg util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
 # psycopg2-binary já traz libpq embutida — sem necessidade de build-essential/libpq-dev.
 COPY requirements.lock ./
 RUN python -m pip install --require-hashes -r requirements.lock

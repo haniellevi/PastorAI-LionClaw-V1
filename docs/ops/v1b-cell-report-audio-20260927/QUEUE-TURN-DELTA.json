@@ -1,0 +1,43 @@
+{
+  "base_head": "481f1cab5c3612093f372845d8db5f096e9b29c0",
+  "recorded_at": "2026-09-27T21:14:54.072254+00:00",
+  "thread": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/433#discussion_r4116957064",
+  "finding": "Consented audio fell through into synchronous text routing before durable transcription.",
+  "change": "Complete the synchronous audio turn; preserve the pending audio job; no Tier A/S3/LLM call or reply from the empty audio text.",
+  "source_sha256": {
+    "backend/app/agent/privileged_turn.py": "5bfe649af157aa3ac5247bcd922a38d5c3af3c9812eea709754f3c52b5e8126a",
+    "backend/tests/test_agent_privileged_turn.py": "a502b964caf274ef07b941215fd0145b9a29561a89e03696912786d08f28bbe6",
+    "backend/tests/test_cell_report_v1b_dispatch_pg.py": "1977d182a82cf864653510667809d4e99ba66c34c19a58197fbc08ab9ec5b1b8"
+  },
+  "tests": [
+    {
+      "name": "backend",
+      "artifact": "/tmp/v1b-backend-queue-final.xml",
+      "sha256": "46c033d36604fa36d29aa9f8e75b8df8961627df40d3bc2fb3017e47d1ffdbe5",
+      "timestamp": "2026-09-27T18:12:25.771158-03:00",
+      "tests": 5859,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "v1a_v1b_pg",
+      "artifact": "/tmp/v1b-queue-turn-delta-pg.xml",
+      "sha256": "5f2a71bc826376afb6afcabe3f152ff861324b5185fd58e6429e0566d6eb0881",
+      "timestamp": "2026-09-27T18:12:24.319312-03:00",
+      "tests": 114,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "prior_full_rls": {
+    "head": "481f1cab5c3612093f372845d8db5f096e9b29c0",
+    "passed": 632,
+    "skipped": 0,
+    "ci": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/36350246034"
+  },
+  "ci": "Full RLS and all repository checks required again on the new committed head; final results linked in PR.",
+  "scope": "Only turn branch and regression tests; SQL, dispatcher, storage and frozen PR430 unchanged; no real provider.",
+  "next_human_gate": "Sarah review of final PR433 head"
+}

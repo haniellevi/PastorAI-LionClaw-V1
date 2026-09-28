@@ -1,0 +1,41 @@
+{
+  "phase": "ingestion_and_transport",
+  "at_utc": "2026-09-27T18:47:09.740478+00:00",
+  "base_sha": "a8bf21da8d57493564d59f9923eca3ffbbc90a9c",
+  "source_sha256": {
+    "backend/app/services/cell_report_audio_service.py": "4fae5f931d51018a7f2b356fa742d7c9fa60a20f9df71204944411bfcb7a5c80",
+    "backend/app/workers/queue_worker.py": "0a36fa6cf08a6209370eeb159af7cde724f9386ac814512dfedfa3f2b3814cb5",
+    "backend/app/services/cell_report_audio.py": "fa8c2e054ea23cdaeccf457a6dbe463e39eeed299b6f976465e52f4b10c232b1",
+    "backend/app/services/evolution.py": "4c477c50dfb6b12e0cee05e5fedeecf5979e6c0128f520668a12864de5c87877",
+    "backend/app/services/llm.py": "a1fcd0cc67edb2fa4f157c2ce1f9f7227aad649a3719fb7ffeaa93b958a2e26e"
+  },
+  "runs": [
+    {
+      "artifact": "v1b-inbound-green.xml",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-inbound-race.xml",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "artifact": "v1b-transport-independent-green.xml",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "test_boundary": "Worker executes real ORM in msg_idemp1; schema-discovery adapted only to this fixture. Exact migration and RLS proved separately in public.",
+  "review": "Transport APTO delimited in separate reviewer session; complete audio flow not yet ready.",
+  "limitations": [
+    "No complete consent/dispatch/purge integration yet",
+    "No real providers, DEV, PROD, deployment or activation"
+  ]
+}

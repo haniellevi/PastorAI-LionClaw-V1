@@ -1858,6 +1858,335 @@ class CellReportAiReservation(Base):
     settled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class CellReportAudioNotice(Base):
+    """A delivered, versioned warning required before V1b audio consent."""
+
+    __tablename__ = "cell_report_audio_notices"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="cell_report_audio_notices_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "notice_message_id",
+            name="cell_report_audio_notices_message_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_notices_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_notices_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "notice_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_notices_message_anchor_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('preparado', 'entregue', 'cancelado')",
+            name="cell_report_audio_notices_state_closed",
+        ),
+        CheckConstraint(
+            "length(version) > 0 AND length(version) <= 64",
+            name="cell_report_audio_notices_version_bounded",
+        ),
+        CheckConstraint(
+            "(state = 'entregue') = (delivered_at IS NOT NULL)",
+            name="cell_report_audio_notices_delivery_state_chk",
+        ),
+        Index(
+            "cell_report_audio_notices_pessoa_version_idx",
+            "igreja_id",
+            "pessoa_id",
+            "version",
+            "delivered_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    notice_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delivered_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    terminal_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CellReportAudioConsentEvent(Base):
+    """Append-only V1b acceptance or revocation, never inferred from ``SIM``."""
+
+    __tablename__ = "cell_report_audio_consent_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "id", name="cell_report_audio_consent_events_tenant_id_key"
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "source_message_id",
+            name="cell_report_audio_consent_events_source_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_consent_events_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_consent_events_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id", "source_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_consent_events_source_anchor_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "notice_id"),
+            ("cell_report_audio_notices.igreja_id", "cell_report_audio_notices.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_consent_events_notice_fkey",
+        ),
+        CheckConstraint(
+            "command IN ('aceito', 'revogado')",
+            name="cell_report_audio_consent_events_command_closed",
+        ),
+        CheckConstraint(
+            "length(version) > 0 AND length(version) <= 64",
+            name="cell_report_audio_consent_events_version_bounded",
+        ),
+        CheckConstraint(
+            "(command = 'aceito' AND notice_id IS NOT NULL) OR "
+            "(command = 'revogado' AND notice_id IS NULL)",
+            name="cell_report_audio_consent_events_notice_required",
+        ),
+        Index(
+            "cell_report_audio_consent_events_latest_idx",
+            "igreja_id",
+            "pessoa_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    notice_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CellReportAudioInput(Base):
+    """Durable V1b work record that survives normal message cleanup for purge."""
+
+    __tablename__ = "cell_report_audio_inputs"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="cell_report_audio_inputs_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "inbound_message_id",
+            name="cell_report_audio_inputs_inbound_once_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "provider_message_sha256",
+            name="cell_report_audio_inputs_provider_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id",),
+            ("igrejas.id",),
+            ondelete="CASCADE",
+            name="cell_report_audio_inputs_igreja_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "live_pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="SET NULL",
+            name="cell_report_audio_inputs_live_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "live_conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            ondelete="SET NULL",
+            name="cell_report_audio_inputs_live_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "live_conversation_id", "live_message_id"),
+            ("messages.igreja_id", "messages.conversation_id", "messages.id"),
+            ondelete="SET NULL (live_message_id)",
+            name="cell_report_audio_inputs_live_message_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('aguardando_aceite', 'pendente', 'processando', "
+            "'transcrita', 'ambigua', 'cancelada', 'purgada')",
+            name="cell_report_audio_inputs_state_closed",
+        ),
+        CheckConstraint(
+            "purge_state IN ('ativa', 'pendente', 'purgada')",
+            name="cell_report_audio_inputs_purge_state_closed",
+        ),
+        CheckConstraint(
+            "provider_message_sha256 ~ '^[0-9a-f]{64}$'",
+            name="cell_report_audio_inputs_provider_digest_shape",
+        ),
+        CheckConstraint(
+            "content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$'",
+            name="cell_report_audio_inputs_content_digest_shape",
+        ),
+        CheckConstraint(
+            "expires_at > received_at AND expires_at <= received_at + interval '24 hours'",
+            name="cell_report_audio_inputs_expiry_window",
+        ),
+        CheckConstraint(
+            "transcription_attempts >= 0 AND transcription_attempts <= 1",
+            name="cell_report_audio_inputs_one_transcription_chk",
+        ),
+        CheckConstraint(
+            "purge_attempts >= 0",
+            name="cell_report_audio_inputs_purge_attempts_nonnegative",
+        ),
+        Index(
+            "cell_report_audio_inputs_claim_idx",
+            "igreja_id",
+            "state",
+            "expires_at",
+            "received_at",
+        ),
+        Index(
+            "cell_report_audio_inputs_purge_idx",
+            "igreja_id",
+            "purge_state",
+            "expires_at",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # Immutable values retain the cleanup anchor after a normal privacy delete.
+    # The nullable live references below prove the original tenant binding while
+    # the source exists, then are detached by FK actions before the job itself
+    # can be lost.
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    inbound_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    live_conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    live_pessoa_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    live_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    provider_message_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    declared_mime: Mapped[str | None] = mapped_column(Text)
+    measured_mime: Mapped[str | None] = mapped_column(Text)
+    byte_size: Mapped[int | None] = mapped_column(Integer)
+    duration_seconds: Mapped[float | None] = mapped_column(Numeric(8, 3))
+    content_sha256: Mapped[str | None] = mapped_column(Text)
+    consent_version: Mapped[str | None] = mapped_column(Text)
+    consent_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    lease_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    transcription_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    external_started_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    transcript_text: Mapped[str | None] = mapped_column(Text)
+    transcript_sha256: Mapped[str | None] = mapped_column(Text)
+    transcribed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    terminal_reason: Mapped[str | None] = mapped_column(Text)
+    terminal_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    purge_state: Mapped[str] = mapped_column(Text, nullable=False)
+    purge_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    purge_error_code: Mapped[str | None] = mapped_column(Text)
+    content_purged_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    received_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CellReportAudioReservation(Base):
+    """One V1b transcription reservation in the existing report/day ceiling."""
+
+    __tablename__ = "cell_report_audio_reservations"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "id", name="cell_report_audio_reservations_tenant_id_key"
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "audio_input_id",
+            name="cell_report_audio_reservations_input_once_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "reuniao_id",
+            "audio_number",
+            name="cell_report_audio_reservations_meeting_audio_number_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "audio_input_id"),
+            ("cell_report_audio_inputs.igreja_id", "cell_report_audio_inputs.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_reservations_tenant_input_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "reuniao_id"),
+            ("celula_reuniao.igreja_id", "celula_reuniao.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_reservations_tenant_meeting_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "budget_id"),
+            ("cell_report_ai_daily_budgets.igreja_id", "cell_report_ai_daily_budgets.id"),
+            ondelete="CASCADE",
+            name="cell_report_audio_reservations_tenant_budget_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('reservada', 'liquidada', 'cancelada')",
+            name="cell_report_audio_reservations_state_closed",
+        ),
+        CheckConstraint(
+            "audio_number >= 1 AND audio_number <= 3",
+            name="cell_report_audio_reservations_audio_number_range",
+        ),
+        CheckConstraint(
+            "estimated_microusd > 0 AND (actual_microusd IS NULL OR actual_microusd >= 0)",
+            name="cell_report_audio_reservations_cost_nonnegative",
+        ),
+        Index(
+            "cell_report_audio_reservations_meeting_idx",
+            "igreja_id",
+            "reuniao_id",
+            "state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    audio_input_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    budget_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    audio_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget_day: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    cost_version: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    estimated_microusd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    actual_microusd: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    settled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class WorkQueueItem(Base):
     """Actionable item in the shared work queue (F5)."""
 

@@ -45,12 +45,20 @@ def _session(factory, outcome, *, dedicated=False):
         session.close()
 
 
-def reply_metadata(context, *, kind: str, proposal_id: uuid.UUID | None = None) -> dict:
+def reply_metadata(
+    context,
+    *,
+    kind: str,
+    proposal_id: uuid.UUID | None = None,
+    audio_input_id: uuid.UUID | None = None,
+) -> dict:
     result = dict(inbound_message_id=str(context.inbound_message_id),
                   context_fingerprint=context.context_fingerprint,
                   sensitive=context.sensitive, kind=kind)
     if proposal_id is not None:
         result['proposal_id'] = str(proposal_id)
+    if audio_input_id is not None:
+        result['audio_input_id'] = str(audio_input_id)
     if context.proof_id is not None:
         result['proof_id'] = str(context.proof_id)
     return result
@@ -79,9 +87,9 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
     required = {'inbound_message_id','context_fingerprint','sensitive','kind'}
     try:
         if (type(raw) is not dict or not required <= raw.keys()
-            or raw.keys() - required - {'proposal_id','proof_id'}
+            or raw.keys() - required - {'proposal_id','proof_id','audio_input_id'}
             or type(raw['sensitive']) is not bool
-            or raw['kind'] not in {'summary','receipt','readonly','challenge','clarify'}):
+            or raw['kind'] not in {'summary','receipt','readonly','challenge','clarify','audio_notice'}):
             return False
         context = resolve_whatsapp_privilege_context(session, igreja_id=message.igreja_id,
             conversation_id=message.conversation_id,
@@ -99,6 +107,31 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
             return (latest is not None and latest.pessoa_id == context.pessoa_id
                 and latest.issued_from_message_id == context.inbound_message_id
                 and latest.challenge_expires_at > session.execute(select(func.clock_timestamp())).scalar_one())
+        if valid and raw['kind'] == 'audio_notice':
+            from app.services.cell_report_audio_service import audio_notice_still_pending
+            return audio_notice_still_pending(
+                session,
+                igreja_id=message.igreja_id,
+                pessoa_id=context.pessoa_id,
+                conversation_id=message.conversation_id,
+                notice_message_id=message.id,
+            )
+        audio_input_id = raw.get('audio_input_id')
+        if audio_input_id is not None:
+            try:
+                parsed_audio_input_id = uuid.UUID(audio_input_id)
+            except (TypeError, ValueError, AttributeError):
+                return False
+            from app.services.cell_report_audio_service import audio_summary_still_authorized
+
+            if not audio_summary_still_authorized(
+                session,
+                igreja_id=message.igreja_id,
+                conversation_id=message.conversation_id,
+                pessoa_id=context.pessoa_id,
+                audio_input_id=parsed_audio_input_id,
+            ):
+                return False
         if not valid or raw['kind'] != 'summary':
             return valid
         # Revalidate the target as well as the actor before every summary send.
@@ -136,7 +169,34 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
 
 def promote_delivered_proposal(session, message) -> None:
     raw = message.agent_privilege_context
-    if type(raw) is not dict or raw.get('kind') != 'summary':
+    if type(raw) is not dict:
+        return
+    if raw.get('kind') == 'audio_notice':
+        from app.services.cell_report_audio_service import mark_audio_consent_notice_delivered
+        mark_audio_consent_notice_delivered(
+            session,
+            igreja_id=message.igreja_id,
+            conversation_id=message.conversation_id,
+            notice_message_id=message.id,
+        )
+        return
+    if raw.get('kind') == 'receipt':
+        try:
+            proposal_id = uuid.UUID(raw['proposal_id'])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return
+        from app.services.cell_report_audio_service import (
+            clear_audio_transcript_after_official_report,
+        )
+
+        clear_audio_transcript_after_official_report(
+            session,
+            igreja_id=message.igreja_id,
+            conversation_id=message.conversation_id,
+            proposal_id=proposal_id,
+        )
+        return
+    if raw.get('kind') != 'summary':
         return
     from app.services.agent_action_proposals import promote_action_proposal_after_delivery
     promote_action_proposal_after_delivery(session, igreja_id=message.igreja_id,
@@ -147,7 +207,33 @@ def promote_delivered_proposal(session, message) -> None:
 
 def invalidate_undelivered_proposal(session, message) -> None:
     raw = message.agent_privilege_context
-    if type(raw) is not dict or raw.get('kind') != 'summary':
+    if type(raw) is not dict:
+        return
+    if raw.get('kind') == 'audio_notice':
+        from app.services.cell_report_audio_service import invalidate_audio_consent_notice
+        invalidate_audio_consent_notice(
+            session,
+            igreja_id=message.igreja_id,
+            conversation_id=message.conversation_id,
+            notice_message_id=message.id,
+        )
+        return
+    audio_input_id = raw.get('audio_input_id')
+    if audio_input_id is not None:
+        try:
+            uuid.UUID(audio_input_id)
+        except (TypeError, ValueError, AttributeError):
+            return
+        from app.services.cell_report_audio_service import cancel_audio_inputs_for_conversation
+
+        cancel_audio_inputs_for_conversation(
+            session,
+            igreja_id=message.igreja_id,
+            conversation_id=message.conversation_id,
+            reason="audio_reply_suppressed",
+        )
+        return
+    if raw.get('kind') != 'summary':
         return
     from app.services.agent_action_proposals import invalidate_action_proposal_for_delivery
     invalidate_action_proposal_for_delivery(session, igreja_id=message.igreja_id,
@@ -157,6 +243,17 @@ def invalidate_undelivered_proposal(session, message) -> None:
 def run_privileged_turn(session_factory, runtime_session_factory, outcome, *,
         igreja_id, turn_identity, uses_dedicated_agent_session,
         ownership_guard, evolution_client):
+    audio_result = _run_audio_local_turn(
+        session_factory,
+        runtime_session_factory,
+        outcome,
+        igreja_id=igreja_id,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard,
+        evolution_client=evolution_client,
+    )
+    if audio_result is not None:
+        return audio_result
     if not _enabled(igreja_id):
         return None
     return _run_enabled_turn(session_factory, runtime_session_factory, outcome,
@@ -275,6 +372,331 @@ def _local_confirmation(session, context, outcome, message):
     return True
 
 
+def _local_audio_consent(session, context, outcome, message):
+    """Handle only V1b's explicit audio commands and delivered-notice staging.
+
+    This runs after the existing LGPD, opt-out and human gates have produced a
+    current server-resolved context.  It never treats ``SIM`` as audio consent
+    and never promotes an audio that arrived before an explicit acceptance.
+    """
+
+    from app.services.cell_report_audio import (
+        AudioConsentCommand,
+        cell_report_audio_enabled_from_environment,
+        parse_audio_consent_command,
+    )
+    from app.services.cell_report_audio_service import (
+        AUDIO_CONSENT_NOTICE_TEXT,
+        audio_schema_available,
+        prepare_audio_consent_notice,
+        record_audio_consent_command,
+    )
+
+    command = parse_audio_consent_command(outcome.texto)
+    enabled = cell_report_audio_enabled_from_environment(context.igreja_id)
+    if command is None and not enabled:
+        return False
+    schema_ready = audio_schema_available(session)
+    if command is AudioConsentCommand.REVOKE and schema_ready:
+        result = record_audio_consent_command(
+            session,
+            igreja_id=context.igreja_id,
+            pessoa_id=context.pessoa_id,
+            conversation_id=context.conversation_id,
+            source_message_id=context.inbound_message_id,
+            command=command,
+        )
+        if result.handled:
+            _store_response(message, context, None, kind='clarify')
+            return True
+    if (
+        command is AudioConsentCommand.ACCEPT
+        and schema_ready
+        and enabled
+    ):
+        result = record_audio_consent_command(
+            session,
+            igreja_id=context.igreja_id,
+            pessoa_id=context.pessoa_id,
+            conversation_id=context.conversation_id,
+            source_message_id=context.inbound_message_id,
+            command=command,
+        )
+        if result.handled:
+            _store_response(message, context, None, kind='clarify')
+            return True
+    if not (
+        schema_ready
+        and enabled
+    ):
+        return False
+    notice = prepare_audio_consent_notice(
+        session,
+        igreja_id=context.igreja_id,
+        pessoa_id=context.pessoa_id,
+        conversation_id=context.conversation_id,
+        inbound_message_id=context.inbound_message_id,
+        notice_message_id=message.id,
+    )
+    if notice is None:
+        return False
+    _store_response(message, context, AUDIO_CONSENT_NOTICE_TEXT, kind='audio_notice')
+    return True
+
+
+def _persist_rejected_audio_acceptance(session, outcome, provider_id) -> None:
+    """Fence one explicit but unauthorized ``ACEITO AUDIO`` inbound.
+
+    A reply-less ledger row is intentionally durable.  It prevents an old
+    inbound retried after a human release, config reactivation or relinked
+    AppUser from becoming an authorization grant it did not have when first
+    processed.  It never sends a response and never changes conversation
+    state, so ``PARAR AUDIO`` remains independently available.
+    """
+
+    from sqlalchemy import select
+    from app.db.models import Conversation, Message
+    from app.domain.agent_reply import AGENT_REPLY_NO_RESPONSE
+
+    conversation = session.execute(
+        select(Conversation)
+        .where(
+            Conversation.igreja_id == outcome.igreja_id,
+            Conversation.id == outcome.conversation_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if conversation is None:
+        return
+    existing = _lock_reply(session, outcome, provider_id)
+    if existing is not None:
+        return
+    session.add(
+        Message(
+            id=uuid.uuid4(),
+            igreja_id=conversation.igreja_id,
+            conversation_id=conversation.id,
+            direcao="out",
+            autor="ia",
+            tipo="texto",
+            texto="",
+            provider_message_id=provider_id,
+            agent_reply_state=AGENT_REPLY_NO_RESPONSE,
+            public_info_reply=False,
+        )
+    )
+
+
+def _run_audio_local_turn(session_factory, runtime_session_factory, outcome, *,
+        igreja_id, uses_dedicated_agent_session, ownership_guard, evolution_client):
+    """Handle V1b's typed notice and commands before text-only planning.
+
+    The audio inbound remains a real ``Message`` with no fabricated text.  Its
+    one deterministic result is a separately ledgered consent notice.  Explicit
+    commands are read again from the persisted inbound by the service before a
+    consent event can be written.
+    """
+    from sqlalchemy import select
+    from app.db.models import Conversation, Message
+    from app.domain.agent_reply import AGENT_REPLY_NO_RESPONSE, AGENT_REPLY_RESERVED
+    from app.services.cell_report_audio import (
+        AudioConsentCommand,
+        cell_report_audio_enabled_from_environment,
+        parse_audio_consent_command,
+    )
+    from app.services.cell_report_audio_service import (
+        audio_notice_required_for_inbound,
+        audio_schema_available,
+        record_audio_consent_command,
+    )
+    from app.services.whatsapp_privilege import (
+        PrivilegeContext,
+        resolve_whatsapp_privilege_context,
+    )
+    from app.workers import queue_worker as qw
+
+    # The V1b gate must short-circuit before touching optional fields of the
+    # legacy outcome.  Withdrawal is deliberately the sole exception: it is a
+    # durable refusal and remains available after V1b has been switched off.
+    command = parse_audio_consent_command(getattr(outcome, "texto", None))
+    enabled = cell_report_audio_enabled_from_environment(igreja_id)
+    if command is None and not enabled:
+        return None
+    if (uses_dedicated_agent_session
+            or getattr(outcome, "inbound_message_id", None) is None
+            or getattr(outcome, "conversation_id", None) is None):
+        return None
+    provider_id = qw._agent_reply_idempotency_key(outcome)
+    if provider_id is None:
+        return None
+    stage_notice = False
+    with _session(runtime_session_factory, outcome) as session:
+        conversation = session.execute(
+            select(Conversation).where(
+                Conversation.igreja_id == igreja_id,
+                Conversation.id == outcome.conversation_id,
+            ).with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        pessoa_id = getattr(conversation, 'pessoa_id', None)
+        if type(pessoa_id) is not uuid.UUID:
+            if command is AudioConsentCommand.ACCEPT:
+                _persist_rejected_audio_acceptance(session, outcome, provider_id)
+                if ownership_guard is not None:
+                    ownership_guard()
+                session.commit()
+                return qw.AgentRunDisposition.COMPLETED
+            return None
+        if command is None:
+            source_type = session.execute(
+                select(Message.tipo).where(
+                    Message.igreja_id == igreja_id,
+                    Message.conversation_id == outcome.conversation_id,
+                    Message.id == outcome.inbound_message_id,
+                    Message.direcao == 'in',
+                )
+            ).scalar_one_or_none()
+            if source_type != 'audio':
+                return None
+        if not audio_schema_available(session):
+            if command is AudioConsentCommand.ACCEPT:
+                _persist_rejected_audio_acceptance(session, outcome, provider_id)
+                if ownership_guard is not None:
+                    ownership_guard()
+                session.commit()
+                return qw.AgentRunDisposition.COMPLETED
+            return None
+        if command is not None:
+            # An explicit withdrawal remains available after the feature was
+            # disabled; acceptance needs the current V1b deployment gate.
+            if command is not AudioConsentCommand.REVOKE and not enabled:
+                _persist_rejected_audio_acceptance(session, outcome, provider_id)
+                if ownership_guard is not None:
+                    ownership_guard()
+                session.commit()
+                return qw.AgentRunDisposition.COMPLETED
+            if command is AudioConsentCommand.ACCEPT:
+                # A prior denial writes a durable no-response row keyed to this
+                # exact inbound.  Reopening the conversation or relinking an
+                # AppUser later must not turn the old command into consent.
+                prior = _lock_reply(session, outcome, provider_id)
+                if prior is not None:
+                    session.commit()
+                    return qw.AgentRunDisposition.COMPLETED
+                # Acceptance is an authorization grant.  Unlike withdrawal it
+                # requires the complete current server-resolved actor context,
+                # including active configuration, a live AppUser and a
+                # non-human conversation.
+                context = resolve_whatsapp_privilege_context(
+                    session,
+                    igreja_id=igreja_id,
+                    conversation_id=outcome.conversation_id,
+                    inbound_message_id=outcome.inbound_message_id,
+                )
+                if type(context) is not PrivilegeContext:
+                    _persist_rejected_audio_acceptance(session, outcome, provider_id)
+                    if ownership_guard is not None:
+                        ownership_guard()
+                    session.commit()
+                    return qw.AgentRunDisposition.COMPLETED
+                pessoa_id = context.pessoa_id
+            result = record_audio_consent_command(
+                session,
+                igreja_id=igreja_id,
+                pessoa_id=pessoa_id,
+                conversation_id=outcome.conversation_id,
+                source_message_id=outcome.inbound_message_id,
+                command=command,
+            )
+            if result.handled:
+                if ownership_guard is not None:
+                    ownership_guard()
+                session.commit()
+                return qw.AgentRunDisposition.COMPLETED
+            return None
+        context = resolve_whatsapp_privilege_context(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=outcome.conversation_id,
+            inbound_message_id=outcome.inbound_message_id,
+        )
+        if type(context) is not PrivilegeContext:
+            return None
+        stage_notice = audio_notice_required_for_inbound(
+            session,
+            igreja_id=igreja_id,
+            pessoa_id=context.pessoa_id,
+            conversation_id=outcome.conversation_id,
+            inbound_message_id=outcome.inbound_message_id,
+        )
+    if not stage_notice:
+        # This is a real V1b audio inbound whose consent is already current.
+        # It is queued for the durable audio worker, never textual input for
+        # Tier A, S3, or the LLM in this synchronous turn.
+        return qw.AgentRunDisposition.COMPLETED
+
+    intent = qw._reserve_agent_reply_intent(session_factory, outcome)
+    if intent is None:
+        return qw.AgentRunDisposition.COMPLETED
+    if intent.state != AGENT_REPLY_RESERVED:
+        qw._deliver_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            ownership_guard,
+            evolution_client=evolution_client,
+        )
+        return qw.AgentRunDisposition.COMPLETED
+
+    local = False
+    with _session(runtime_session_factory, outcome) as session:
+        current = resolve_whatsapp_privilege_context(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=outcome.conversation_id,
+            inbound_message_id=outcome.inbound_message_id,
+        )
+        message = _lock_reply(session, outcome, provider_id)
+        if (
+            type(current) is PrivilegeContext
+            and message is not None
+            and message.agent_reply_state == AGENT_REPLY_RESERVED
+            and audio_notice_required_for_inbound(
+                session,
+                igreja_id=igreja_id,
+                pessoa_id=current.pessoa_id,
+                conversation_id=outcome.conversation_id,
+                inbound_message_id=outcome.inbound_message_id,
+            )
+        ):
+            local = _local_audio_consent(
+                session,
+                current,
+                type('InboundAudio', (), {'texto': ''})(),
+                message,
+            )
+        if message is not None and message.agent_reply_state == AGENT_REPLY_RESERVED:
+            # A concurrent revocation, handoff, or deletion cannot leave a
+            # silent reservation recoverable as a model turn.
+            message.agent_reply_state = AGENT_REPLY_NO_RESPONSE
+            message.texto = ''
+        if ownership_guard is not None:
+            ownership_guard()
+        session.commit()
+    if not local:
+        return qw.AgentRunDisposition.COMPLETED
+    intent = qw._load_agent_reply_intent(session_factory, outcome)
+    if intent is not None:
+        qw._deliver_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            ownership_guard,
+            evolution_client=evolution_client,
+        )
+    return qw.AgentRunDisposition.COMPLETED
+
+
 def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igreja_id,
         turn_identity, uses_dedicated_agent_session, ownership_guard, evolution_client):
     from app.workers import queue_worker as qw
@@ -345,7 +767,9 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             invalid = False
             # Use the persisted inbound snapshot, never outcome.texto as authority.
             local_outcome = type('InboundText', (), {'texto': preflight.current_text})()
-            local = _local_confirmation(session, current, local_outcome, message)
+            local = _local_audio_consent(session, current, local_outcome, message)
+            if not local:
+                local = _local_confirmation(session, current, local_outcome, message)
         if not invalid:
             session.commit()
     if invalid:

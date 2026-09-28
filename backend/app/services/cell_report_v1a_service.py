@@ -476,6 +476,8 @@ def _eligible_meeting(
     context: PrivilegeContext,
     now: dt.datetime,
     meeting_id: uuid.UUID | None = None,
+    lock: bool = True,
+    skip_locked: bool = False,
 ) -> _Meeting | None:
     if meeting_id is not None:
         requested_ids = (meeting_id,)
@@ -498,9 +500,11 @@ def _eligible_meeting(
             CelulaReuniao.relatorio_status == "pendente",
             CelulaReuniao.status != "cancelada",
         )
-        .with_for_update()
-        .execution_options(populate_existing=True)
     )
+    if lock:
+        statement = statement.with_for_update(
+            skip_locked=skip_locked,
+        ).execution_options(populate_existing=True)
     if meeting_id is not None:
         statement = statement.where(CelulaReuniao.id == requested_ids[0])
     else:

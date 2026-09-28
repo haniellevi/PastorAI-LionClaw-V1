@@ -1,5 +1,19 @@
 # Wiki do projeto Igreja 12
 
+## V1b: candidato de áudio, 27/09/2026
+
+A [V1b](ops/v1b-cell-report-audio-20260927/README.md), sobre PR430 `a8bf21d`,
+implementa o contrato aprovado de áudio com aceite próprio versionado, além do
+LGPD atual. O áudio permanece uma mensagem real; transcrição não concede aceite
+nem confirma proposta. O relatório oficial usa o mesmo serviço humano da V1a.
+
+O [sprint](sprints/2026-09-27-v1b-relatorio-celula-audio.md) acompanha implementação
+e provas sintéticas. Retenção local de binário e conteúdo de trabalho é de 24 horas,
+com intenção durável de purga e recibo independente do áudio. Flag e release
+próprios continuam fechados, cumulativos à V1a/S3. Sem migration compartilhada,
+deploy, ativação ou egress real; a classificação do domínio permanece inalterada.
+
+
 ## V1a: candidato de relatório por texto, 27/09/2026
 
 O [plano V1 aprovado](ops/mvp-v1-relatorio-celula-whatsapp-plano.md) divide a

@@ -16,13 +16,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     CellReportAiDailyBudget,
     CellReportAiReservation,
+    CellReportAudioReservation,
     CellReportDraft,
     CelulaReuniao,
 )
@@ -45,6 +46,33 @@ CELL_REPORT_MAX_INPUT_TOKENS = 2_000
 CELL_REPORT_MAX_OUTPUT_TOKENS = 400
 CELL_REPORT_REPORT_LIMIT_MICROUSD = 100_000
 CELL_REPORT_DAILY_LIMIT_MICROUSD = 2_000_000
+
+
+def _audio_reservations_schema_available(session: Session) -> bool:
+    """Keep the V1a budget usable during the additive V1b rollout.
+
+    When V1b tables exist, their committed reservations count even with the
+    audio flag closed.  Before the additive migration, text-only V1a must not
+    query a relation that does not exist.
+    """
+
+    get_bind = getattr(session, "get_bind", None)
+    if not callable(get_bind):
+        return False
+    try:
+        bind = get_bind()
+        if bind.dialect.name == "postgresql":
+            return bool(
+                session.execute(
+                    text(
+                        "select pg_catalog.to_regclass("
+                        "current_schema() || '.cell_report_audio_reservations') is not null"
+                    )
+                ).scalar_one()
+            )
+        return bool(inspect(bind).has_table("cell_report_audio_reservations"))
+    except Exception:
+        return False
 
 _SAFE_NUMBER_WORDS = (
     "zero",
@@ -533,8 +561,25 @@ def reserve_v1a_extraction_budget(
             .execution_options(populate_existing=True)
         ).scalars()
     )
+    audio_existing = ()
+    if _audio_reservations_schema_available(session):
+        audio_existing = tuple(
+            session.execute(
+                select(CellReportAudioReservation)
+                .where(
+                    CellReportAudioReservation.igreja_id == tenant,
+                    CellReportAudioReservation.reuniao_id == meeting_id,
+                    CellReportAudioReservation.state != "cancelada",
+                )
+                .order_by(CellReportAudioReservation.audio_number.asc())
+                .with_for_update(of=CellReportAudioReservation)
+                .execution_options(populate_existing=True)
+            ).scalars()
+        )
     call_number = max((row.call_number for row in existing), default=0) + 1
-    report_reserved = sum(row.estimated_microusd for row in existing)
+    report_reserved = sum(row.estimated_microusd for row in existing) + sum(
+        row.estimated_microusd for row in audio_existing
+    )
     if (
         call_number > CELL_REPORT_MAX_EXTRACTION_CALLS
         or report_reserved + estimate > CELL_REPORT_REPORT_LIMIT_MICROUSD
