@@ -123,9 +123,9 @@ _SEED_SQL = f"""
 insert into igrejas (id, nome)
   values ('{IGREJA}', 'Igreja TOCTOU') on conflict (id) do nothing;
 
-insert into app_users (id, igreja_id, nome, email, clerk_user_id)
-  values ('{APP_USER}', '{IGREJA}', 'Pastor', 'pastor@toctou.test', 'clerk-confirm')
-  on conflict (id) do nothing;
+insert into app_users (id, igreja_id, nome, email, clerk_user_id, status)
+  values ('{APP_USER}', '{IGREJA}', 'Pastor', 'pastor@toctou.test', 'clerk-confirm', 'ativo')
+  on conflict (id) do update set status = excluded.status;
 
 insert into pessoas (id, igreja_id, nome, telefone)
   values ('{PESSOA}', '{IGREJA}', 'Contato TOCTOU', '5511999990000')

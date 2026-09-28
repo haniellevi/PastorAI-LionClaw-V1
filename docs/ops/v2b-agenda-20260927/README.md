@@ -8,6 +8,8 @@ A identidade e a autorização vêm do servidor. A intenção é única por igre
 
 Após PARAR LEMBRETES, uma nova proposta pode habilitar somente uma nova ocorrência futura. Intenções canceladas e demais terminais não são reabertos. Um evento único sem outra ocorrência não pode ser reativado nesta fatia; a preferência de relatório V1a também não é reativada pela confirmação de agenda.
 
+Eventos semanais usam a antecedência cadastrada para cada ocorrência selecionada. Sem antecedência válida, um horário absoluto só vale para a data original do evento; uma ocorrência posterior fica inelegível.
+
 Todo lembrete exige termo LGPD vigente com versão e timestamp e ausência de revogação. Configuração de público ou telefone não cria consentimento. PARAR LEMBRETES interrompe agenda e V1a; SAIR global prevalece. O aviso curto de parada é registrado. Dados de terceiros, endereços residenciais e texto livre do evento não entram na mensagem.
 
 A janela é 08:00 inclusive até 21:00 exclusive, America/Sao_Paulo. Agenda e EVT-7 compartilham teto de duas intenções de transporte por destinatário/dia local; fora da janela adia somente se o novo horário anteceder a ocorrência. Não há recuperação em rajada nem replay histórico.
@@ -19,6 +21,8 @@ O dispatcher persiste claim e lease e encerra a transação antes do HTTP. Reval
 ## Cutover e rollback
 
 Migration aditiva idempotente, RLS, FKs de tenant e grants mínimos sem DELETE. SQLs anteriores congelados permanecem intactos. O cutover precisa preservar recibos terminais/ambíguos e impedir escritores e consumidores antigos, sem duplicar intenções. Novos registros não podem reconstruir envios anteriores apenas porque o carimbo legado está vazio.
+
+O scheduler V1a consulta as duas gerações de histórico: qualquer linha legada da mesma reunião/líder impede uma nova intenção, independentemente do estado. O histórico legado recente também conserva o limite de um lembrete por líder em 24 horas.
 
 Rollback operacional: fechar gates e preservar histórico; suprimir ou reconciliar pendências antes de reverter o consumidor. Nunca reativar automaticamente o envio síncrono EVT-7 ou a outbox antiga V1a. Aplicação de migration e deploy compartilham release com autorização própria, fora desta missão.
 
@@ -42,7 +46,7 @@ A reserva diária usa o dia do transporte em America/Sao_Paulo, não a data do e
 
 AGENDA_WHATSAPP_ENABLED_IGREJA_IDS vazia e AGENDA_WHATSAPP_APPROVED_RELEASE_ID=None; agenda exige também AGENDA_NOTIFY_ENABLED. Os gates próprios S3/V1a, agente ativo, piloto e envio continuam cumulativos. Manutenção e purga não dependem da ativação do transporte.
 
-A evidência do [CI da PR434](PR434-CI-PG-NAMES.json) confirma nominalmente os E2E de membro e líder no job RLS do head congelado: 643 testes executados e zero skips. Ela se refere à V2a. Para esta V2b, o [plano de QA](QA-PLAN.md) orienta os testes; [arquivos do candidato](CANDIDATE-FILES.json) e [resultados locais](LOCAL-VALIDATION.json) registram a base e os hashes exatos. A validação local final executou 5.915 testes offline, 66 PG integrados e nove PG do SQL exato, sem falhas, erros ou skips. Os 33 arquivos de código, testes e CI permaneceram idênticos durante a execução. A [revisão independente final](FINAL-REVIEW.md) conferiu o candidato exato e o considerou apto para PR e revisão Sarah, sem autorização de merge.
+A evidência do [CI da PR434](PR434-CI-PG-NAMES.json) confirma nominalmente os E2E de membro e líder no job RLS do head congelado: 643 testes executados e zero skips. Ela se refere à V2a. Para esta V2b, o [plano de QA](QA-PLAN.md) orienta os testes; [arquivos do candidato](CANDIDATE-FILES.json) e [resultados locais](LOCAL-VALIDATION.json) registram a base e os hashes exatos. A validação local final executou 5.918 testes offline e toda a suíte RLS, com 683 testes PG, incluindo os nove do SQL exato, sem falhas, erros ou skips. Os 36 arquivos de código, testes e CI permaneceram idênticos durante a execução. A [revisão independente final](FINAL-REVIEW.md) conferiu o candidato exato e o considerou apto para PR e revisão Sarah, sem autorização de merge.
 
 Os testes cobrem o turno real de inscrição, entrega do resumo, SIM, efeito S3, outbox e transporte simulado; a confirmação EVT-7 via rota autenticada sob RLS; e o scheduler/dispatcher V1a. Casos negativos incluem PARAR/SAIR, consentimento revogado, quota concorrente, origem bloqueada, atraso além do prazo e ambiguidade. A prova SQL byte-exata é separada do E2E EVT-7, que adapta somente o nome do schema descartável.
 

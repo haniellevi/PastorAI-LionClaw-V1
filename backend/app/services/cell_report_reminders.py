@@ -349,12 +349,14 @@ def _lock_reminder_recipient_prefix(
             )
             .order_by(Conversation.id.asc())
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalars()
     )
     pessoa = session.execute(
         select(Pessoa)
         .where(Pessoa.igreja_id == igreja_id, Pessoa.id == pessoa_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     return pessoa, conversations
 

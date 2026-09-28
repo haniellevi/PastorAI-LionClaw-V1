@@ -8,10 +8,13 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db.models import (
     CellReportDraft,
+    CellReportReminder,
     CellReportReminderPreference,
+    Celula,
     CelulaReuniao,
     ConsentRecord,
     Conversation,
+    Igreja,
     NotificationOutbox,
     Pessoa,
     WhatsappConnection,
@@ -67,6 +70,25 @@ def _manual_v1a_outbox(*, meeting, pessoa_id, due_at, fingerprint='0' * 64):
     )
 
 
+def _legacy_v1a_reminder(*, igreja_id, meeting, pessoa_id, state, created_at):
+    return CellReportReminder(
+        igreja_id=igreja_id,
+        reuniao_id=meeting.id,
+        leader_pessoa_id=pessoa_id,
+        state=state,
+        due_at=created_at,
+        claim_token=None,
+        claimed_until=None,
+        attempts=0,
+        notice_recorded_at=None,
+        sent_at=None,
+        text_sha256='0' * 64,
+        terminal_reason=None,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
 @pytest.fixture
 def reminder_turn(report_turn, monkeypatch):
     from app.config import get_settings
@@ -116,6 +138,141 @@ def test_reminder_is_deduplicated_and_notice_recorded_before_or_after_delivery(r
     assert len(provider.calls) == 1 and 'PARAR LEMBRETES' in provider.calls[0][2]
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW + dt.timedelta(minutes=1))
     assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize(
+    'legacy_state',
+    ('pendente', 'em_envio', 'retry', 'enviado', 'ambiguo', 'cancelado', 'obsoleto'),
+)
+def test_legacy_v1a_row_blocks_the_same_meeting_in_every_state(reminder_turn, legacy_state):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        leader_id = session.get(Conversation, turn.conversation_id).pessoa_id
+        session.add(_legacy_v1a_reminder(
+            igreja_id=_IGREJA,
+            meeting=meeting,
+            pessoa_id=leader_id,
+            state=legacy_state,
+            # Outside the rolling quota makes the meeting identity fence the
+            # only reason this schedule is refused.
+            created_at=_NOW - dt.timedelta(hours=25),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 0
+    assert _v1a_outbox_rows(turn) == []
+
+
+@pytest.mark.parametrize(
+    'legacy_state',
+    ('pendente', 'em_envio', 'retry', 'enviado', 'ambiguo', 'cancelado', 'obsoleto'),
+)
+def test_recent_legacy_v1a_row_preserves_the_leader_daily_quota(reminder_turn, legacy_state):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        leader_id = session.get(Conversation, turn.conversation_id).pessoa_id
+        historical = CelulaReuniao(
+            igreja_id=_IGREJA,
+            celula_id=meeting.celula_id,
+            data=meeting.data - dt.timedelta(days=2),
+            hora='10:00',
+            status='cancelada',
+            relatorio_status='enviado',
+        )
+        session.add(historical)
+        session.flush()
+        session.add(_legacy_v1a_reminder(
+            igreja_id=_IGREJA,
+            meeting=historical,
+            pessoa_id=leader_id,
+            state=legacy_state,
+            created_at=_NOW - dt.timedelta(hours=1),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 0
+    assert _v1a_outbox_rows(turn) == []
+
+
+def test_expired_legacy_v1a_history_does_not_block_new_meeting(reminder_turn):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        leader_id = session.get(Conversation, turn.conversation_id).pessoa_id
+        historical = CelulaReuniao(
+            igreja_id=_IGREJA,
+            celula_id=meeting.celula_id,
+            data=meeting.data - dt.timedelta(days=2),
+            hora='10:00',
+            status='cancelada',
+            relatorio_status='enviado',
+        )
+        session.add(historical)
+        session.flush()
+        session.add(_legacy_v1a_reminder(
+            igreja_id=_IGREJA,
+            meeting=historical,
+            pessoa_id=leader_id,
+            state='enviado',
+            created_at=_NOW - dt.timedelta(hours=25),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    assert [row.reuniao_id for row in _v1a_outbox_rows(turn)] == [turn.meeting_id]
+
+
+def test_legacy_v1a_history_from_another_church_does_not_block_this_tenant(reminder_turn):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    other_igreja_id = uuid.uuid4()
+    other_pessoa_id = uuid.uuid4()
+    other_cell_id = uuid.uuid4()
+    with turn.factory.begin() as session:
+        session.add(Igreja(id=other_igreja_id, nome='Outra Igreja Sintética'))
+        session.add(Pessoa(
+            id=other_pessoa_id,
+            igreja_id=other_igreja_id,
+            nome='Líder Sintético Isolado',
+            telefone='not-a-phone',
+        ))
+        session.flush()
+        other_meeting = CelulaReuniao(
+            igreja_id=other_igreja_id,
+            celula_id=other_cell_id,
+            data=_NOW.date() - dt.timedelta(days=2),
+            hora='10:00',
+            status='cancelada',
+            relatorio_status='enviado',
+        )
+        session.add(Celula(
+            id=other_cell_id,
+            igreja_id=other_igreja_id,
+            nome='Célula Sintética Isolada',
+            lider_id=other_pessoa_id,
+            cobertura_espiritual='Cobertura sintética',
+            ativo=True,
+        ))
+        session.flush()
+        session.add(other_meeting)
+        session.flush()
+        session.add(_legacy_v1a_reminder(
+            igreja_id=other_igreja_id,
+            meeting=other_meeting,
+            pessoa_id=other_pessoa_id,
+            state='ambiguo',
+            created_at=_NOW - dt.timedelta(minutes=1),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    rows = _v1a_outbox_rows(turn)
+    assert len(rows) == 1 and rows[0].igreja_id == _IGREJA and rows[0].reuniao_id == turn.meeting_id
 
 
 def test_stop_reminders_is_scoped_and_global_sair_still_wins(reminder_turn):

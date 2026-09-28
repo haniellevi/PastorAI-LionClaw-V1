@@ -337,12 +337,31 @@ def _agenda_reminder_due_at(
 ) -> dt.datetime | None:
     """Use the approved Event schedule and never invent a catch-up deadline."""
 
-    due_at = _utc_datetime(getattr(event, "notificar_em", None))
+    antecedence = getattr(event, "antecedencia_horas", None)
+    valid_antecedence = (
+        type(antecedence) is int
+        and not isinstance(antecedence, bool)
+        and antecedence >= 0
+    )
+    if getattr(event, "recorrencia", None) == "semanal":
+        if valid_antecedence:
+            # ``notificar_em`` records the first materialized occurrence. A
+            # weekly subscription must instead retain its own relative slot.
+            due_at = occurrence_at - dt.timedelta(hours=antecedence)
+        else:
+            # With no reviewed relative interval, an absolute timestamp cannot
+            # establish a later weekly occurrence safely. It remains usable
+            # only for the source's dated first occurrence.
+            local_occurrence = occurrence_at.astimezone(SAO_PAULO_TZ).date()
+            if getattr(event, "data", None) != local_occurrence:
+                return None
+            due_at = _utc_datetime(getattr(event, "notificar_em", None))
+    else:
+        due_at = _utc_datetime(getattr(event, "notificar_em", None))
+        if due_at is None and valid_antecedence:
+            due_at = occurrence_at - dt.timedelta(hours=antecedence)
     if due_at is None:
-        antecedence = getattr(event, "antecedencia_horas", None)
-        if type(antecedence) is not int or isinstance(antecedence, bool) or antecedence < 0:
-            return None
-        due_at = occurrence_at - dt.timedelta(hours=antecedence)
+        return None
     if due_at < now or due_at >= occurrence_at:
         return None
     return due_at
@@ -1587,7 +1606,7 @@ def _schedule_cell_report_tenant(
 
     from sqlalchemy.exc import IntegrityError
 
-    from app.db.models import Celula, CelulaReuniao, NotificationOutbox
+    from app.db.models import CellReportReminder, Celula, CelulaReuniao, NotificationOutbox
     from app.services.cell_report_application import (
         CellReportApplicationError,
         revalidate_cell_report_leader,
@@ -1704,6 +1723,21 @@ def _schedule_cell_report_tenant(
             ).scalar_one_or_none()
             if existing is not None:
                 continue
+            # Cutover deliberately leaves the legacy V1a rows in place. Any
+            # row for this exact meeting/leader is terminal for scheduling,
+            # regardless of its state, so an old ambiguous or cancelled row
+            # can never turn an edited meeting into a new send intent.
+            legacy_existing = session.execute(
+                select(CellReportReminder.id)
+                .where(
+                    CellReportReminder.igreja_id == igreja_id,
+                    CellReportReminder.reuniao_id == meeting_id,
+                    CellReportReminder.leader_pessoa_id == pessoa_id,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if legacy_existing is not None:
+                continue
             # Preserve V1a's one-reminder-per-leader rolling day.  The
             # recipient prefix above serializes concurrent schedulers before
             # this query, so a second meeting cannot race into another row.
@@ -1717,7 +1751,16 @@ def _schedule_cell_report_tenant(
                 )
                 .limit(1)
             ).scalar_one_or_none()
-            if recent is not None:
+            legacy_recent = session.execute(
+                select(CellReportReminder.id)
+                .where(
+                    CellReportReminder.igreja_id == igreja_id,
+                    CellReportReminder.leader_pessoa_id == pessoa_id,
+                    CellReportReminder.created_at >= now - dt.timedelta(hours=24),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if recent is not None or legacy_recent is not None:
                 continue
             notification = NotificationOutbox(
                 igreja_id=igreja_id,

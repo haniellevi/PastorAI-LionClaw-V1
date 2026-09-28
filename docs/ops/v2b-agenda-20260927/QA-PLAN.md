@@ -181,3 +181,7 @@ intenção, retry ou recibo.
 
 Próximo gate humano único: Sarah revisar a PR candidata após a execução local
 deste plano e os checks obrigatórios verdes no SHA exato.
+
+## Regressão completa antes da entrega
+
+Mudanças compartilhadas no ORM e no lock de destinatário exigem executar toda a suíte `rls_integration` em PostgreSQL descartável, além dos E2E focais. As fixtures SQL manuais devem refletir as colunas consumidas pelo ORM, sem substituir as policies e os testes de isolamento. No cutover, a prova inclui o scheduler contra todos os estados legados, o limite de 24 horas e a seleção de ocorrência recorrente.

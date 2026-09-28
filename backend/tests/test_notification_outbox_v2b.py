@@ -4,6 +4,8 @@ import datetime as dt
 import uuid
 from types import SimpleNamespace
 
+import pytest
+
 from app.db import models
 from app.services.evolution import BroadcastSendResult
 from app.services import notification_outbox as outbox
@@ -66,6 +68,63 @@ def test_agenda_templates_always_include_the_global_stop_instruction() -> None:
 
     assert "PARAR LEMBRETES" in outbox._agenda_evt7_text(event)
     assert "PARAR LEMBRETES" in outbox._agenda_reminder_text(event)
+
+
+@pytest.mark.parametrize(
+    ("occurrence_at", "expected_due_at"),
+    (
+        (
+            dt.datetime(2026, 9, 28, 22, tzinfo=dt.timezone.utc),
+            dt.datetime(2026, 9, 27, 22, tzinfo=dt.timezone.utc),
+        ),
+        (
+            dt.datetime(2026, 10, 5, 22, tzinfo=dt.timezone.utc),
+            dt.datetime(2026, 10, 4, 22, tzinfo=dt.timezone.utc),
+        ),
+    ),
+)
+def test_agenda_reminder_due_at_derives_each_weekly_occurrence_from_antecedence(
+    occurrence_at: dt.datetime,
+    expected_due_at: dt.datetime,
+) -> None:
+    event = SimpleNamespace(
+        recorrencia="semanal",
+        data=dt.date(2026, 9, 28),
+        hora="19:00",
+        dia_semana=1,
+        # This is the persisted first-occurrence timestamp and must not pin
+        # later weekly subscriptions to the old absolute instant.
+        notificar_em=dt.datetime(2026, 9, 27, 22, tzinfo=dt.timezone.utc),
+        antecedencia_horas=24,
+    )
+
+    assert outbox._agenda_reminder_due_at(
+        event,
+        occurrence_at=occurrence_at,
+        now=dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc),
+    ) == expected_due_at
+
+
+def test_agenda_reminder_due_at_rejects_later_weekly_occurrence_without_antecedence() -> None:
+    event = SimpleNamespace(
+        recorrencia="semanal",
+        data=dt.date(2026, 9, 28),
+        hora="19:00",
+        dia_semana=1,
+        notificar_em=dt.datetime(2026, 9, 27, 22, tzinfo=dt.timezone.utc),
+        antecedencia_horas=None,
+    )
+
+    assert outbox._agenda_reminder_due_at(
+        event,
+        occurrence_at=dt.datetime(2026, 9, 28, 22, tzinfo=dt.timezone.utc),
+        now=dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc),
+    ) == dt.datetime(2026, 9, 27, 22, tzinfo=dt.timezone.utc)
+    assert outbox._agenda_reminder_due_at(
+        event,
+        occurrence_at=dt.datetime(2026, 10, 5, 22, tzinfo=dt.timezone.utc),
+        now=dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc),
+    ) is None
 
 
 def test_evt7_pre_send_deadline_starts_at_the_next_open_window() -> None:

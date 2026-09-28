@@ -12,7 +12,7 @@ Unicidade por tenant, destinatário, ocorrência e finalidade; janela 08:00-21:0
 
 ## Verificação
 
-PR434 congelada: nomes dos E2E de membro/líder conferidos no job RLS, 643 testes sem skips. V2b local: 5.915 testes offline, 66 PG integrados e nove PG do SQL byte-exato, todos verdes e sem skips. E2E por finalidade, RLS, quota concorrente, PARAR/SAIR, reativação só de nova ocorrência, lock de origem e expiração foram exercitados com transporte simulado. [Manifesto e resultados](../ops/v2b-agenda-20260927/LOCAL-VALIDATION.json).
+PR434 congelada: nomes dos E2E de membro/líder conferidos no job RLS, 643 testes sem skips. V2b local: 5.918 testes offline e 683 testes da suíte RLS completa, incluindo o SQL byte-exato, todos verdes e sem skips. E2E por finalidade, RLS, quota concorrente, PARAR/SAIR, reativação só de nova ocorrência, lock de origem e expiração foram exercitados com transporte simulado. A regressão completa também cobre SAIR concorrente e as fixtures históricas do ORM; o scheduler inclui os recibos legados e a quota de 24 horas após cutover. [Manifesto e resultados](../ops/v2b-agenda-20260927/LOCAL-VALIDATION.json).
 
 ## Próximo passo
 

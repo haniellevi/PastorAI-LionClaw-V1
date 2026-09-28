@@ -107,6 +107,7 @@ def _prepare_pre_s2_baseline(engine: Engine) -> _CatalogFingerprint:
             "id uuid primary key, nome text not null, status varchar not null default 'ativa', "
             "plano text, setup_fee_override numeric, dono_id uuid, logo_path text, "
             "endereco_institucional text, horarios_culto text, "
+            "notification_outbox_cutover_at timestamptz not null default transaction_timestamp(), "
             "created_at timestamptz not null default now())"
         )
         conn.exec_driver_sql(
@@ -123,6 +124,7 @@ def _prepare_pre_s2_baseline(engine: Engine) -> _CatalogFingerprint:
             "add column if not exists logo_path text",
             "add column if not exists endereco_institucional text",
             "add column if not exists horarios_culto text",
+            "add column if not exists notification_outbox_cutover_at timestamptz not null default transaction_timestamp()",
             "add column if not exists created_at timestamptz default now()",
         ):
             conn.exec_driver_sql(f"alter table public.igrejas {column_sql}")
