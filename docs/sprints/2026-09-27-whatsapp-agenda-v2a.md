@@ -1,0 +1,29 @@
+# Consulta da agenda pelo WhatsApp V2a, 2026-09-27
+
+**Branch:** `feat/whatsapp-agenda-readonly` · **Base:** `3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36` · **Deploy:** não.
+
+## O que foi feito
+
+Fatia V2a autorizada após parecer conjunto dos conselheiros sobre o [plano V2](../ops/mvp-v2-agenda-whatsapp-plano.md). A consulta usa identidade/papel do servidor, dados `Event` do próprio tenant e resposta determinística, sem ampliar o catálogo de ações mutantes S3.
+
+## Decisões
+
+- Separar consultas V2a de lembretes/outbox/cutover V2b, que terá PR própria. Sem migration ou frontend nesta fatia.
+- `publico_alvo` não é uma permissão pública. Sem vínculo ativo, manter somente o perfil público da S2b; rascunho exige pastor/admin e prova Clerk.
+- Não exibir título legado só porque origem/status parecem humanos. Exigir confirmação persistida por usuário autorizado e validação conservadora; ausência de prova ou conteúdo duvidoso usa tipo/data/hora.
+- Eventos e papéis podem mudar depois da escolha da ferramenta. Reconsultar antes do transporte e suprimir respostas pendentes incompatíveis, inclusive em retry.
+- Manter flags vazias/release `None` e PR433 intacta. PROD só por release em lote; novo modelo de desenvolvimento local não autoriza reset ou provider real nesta missão.
+
+Follow-up registrado após Sarah GO no head `3fbe5e3`: a allowlist de nove títulos é restritiva. Uma fatia futura pode adicionar a flag “divulgar título no WhatsApp” em Event, exclusiva pastor/admin, com a mesma validação S2b. Não implementar esse desenho agora.
+
+## Pendente / próximo passo
+
+Implementação e provas locais concluídas. O [README](../ops/v2a-agenda-20260927/README.md) registra limites da projeção e da operação. Próximo gate humano: revisão Sarah do candidato final. No preflight original, painel/simulador dependiam da #432; ela já foi integrada. A prova no painel/simulador continua pendente e depende do simulador local.
+
+## Verificação
+
+O [plano QA](../ops/v2a-agenda-20260927/QA-PLAN.md) cobre RLS/tenant, papéis/Clerk, títulos, recorrência, limites e retry pós-revogação. Passaram 5.881 testes offline e 117 PG17 (V2a, S3, V1a e V1b), sem skips, no patch backend `2397128ed04e53732a6d034a8c1836435e444965b7437b0eeb7f07b3fbd4c0bb`. [Recebimento técnico](../ops/v2a-agenda-20260927/TEST-RESULTS.json) liga resultados aos blobs exatos, sem inferir deploy ou ambiente real. As quatro migrations congeladas permanecem intactas.
+
+Delta após Sarah GO `3fbe5e3`: catálogo sem candidatos agora retorna handoff sem chamada externa; enum inválido continua handoff e `nenhuma`/`nenhum` explícitos preservam clarify em catálogo válido. Novo patch backend `34cfaf5e3ee5a46e07a1396ca6ccc6d20541cc58b0019d9b080df9f759921677`, com 5.882 offline + 35 PG17 V2a/S3 verdes, zero skips. [Evidência do delta](../ops/v2a-agenda-20260927/TEST-RESULTS-DELTA04.json). Próximo gate: Sarah conferir somente o delta.
+
+NO-GO posterior em `d4bf0f5`: o contrato de capacidade sem candidatos precisa ser preservado e selecionado sem estágio D. Controle do turno antigo com h1 genérico passou em PG17 (1/1, hashes do head conferidos), portanto a correção também muda o catálogo real de agenda para eliminar o alvo artificial. AGENTS.md passa a exigir E2E do turno completo para toda capacidade nova. Contrato corrigido no candidato05: agenda sem alvo com mapping servidor e seleção B/C; escrita sem alvo e catálogo vazio continuam negados. E2E novo de membro e líder: 2 falhas contra fonte antiga e 2 positivos na correção; suíte final 5.887 offline + 36 PG17, sem skips. Texto do transporte igual ao Message, ledger confirmado e estado IA. [Evidência RED/GREEN e hashes](../ops/v2a-agenda-20260927/TEST-RESULTS-DELTA05.json). Não reutilizar o GO anterior como aprovação deste novo contrato.

@@ -51,6 +51,7 @@ def reply_metadata(
     kind: str,
     proposal_id: uuid.UUID | None = None,
     audio_input_id: uuid.UUID | None = None,
+    agenda: dict[str, object] | None = None,
 ) -> dict:
     result = dict(inbound_message_id=str(context.inbound_message_id),
                   context_fingerprint=context.context_fingerprint,
@@ -59,6 +60,13 @@ def reply_metadata(
         result['proposal_id'] = str(proposal_id)
     if audio_input_id is not None:
         result['audio_input_id'] = str(audio_input_id)
+    if kind == 'agenda':
+        from app.services.whatsapp_agenda import valid_agenda_reply_metadata
+        if not valid_agenda_reply_metadata({'agenda': agenda}):
+            raise ValueError('agenda metadata')
+        result['agenda'] = dict(agenda)
+    elif agenda is not None:
+        raise ValueError('agenda metadata')
     if context.proof_id is not None:
         result['proof_id'] = str(context.proof_id)
     return result
@@ -86,10 +94,21 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
     from app.services.whatsapp_privilege import PrivilegeContext, resolve_whatsapp_privilege_context
     required = {'inbound_message_id','context_fingerprint','sensitive','kind'}
     try:
-        if (type(raw) is not dict or not required <= raw.keys()
-            or raw.keys() - required - {'proposal_id','proof_id','audio_input_id'}
+        if (
+            type(raw) is not dict
+            or not required <= raw.keys()
             or type(raw['sensitive']) is not bool
-            or raw['kind'] not in {'summary','receipt','readonly','challenge','clarify','audio_notice'}):
+            or raw['kind'] not in {'summary','receipt','readonly','challenge','clarify','audio_notice','agenda'}
+        ):
+            return False
+        if raw['kind'] == 'agenda':
+            from app.services.whatsapp_agenda import valid_agenda_reply_metadata
+            if (
+                raw.keys() - required - {'proof_id', 'agenda'}
+                or not valid_agenda_reply_metadata({'agenda': raw.get('agenda')})
+            ):
+                return False
+        elif raw.keys() - required - {'proposal_id','proof_id','audio_input_id'}:
             return False
         context = resolve_whatsapp_privilege_context(session, igreja_id=message.igreja_id,
             conversation_id=message.conversation_id,
@@ -115,6 +134,20 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
                 pessoa_id=context.pessoa_id,
                 conversation_id=message.conversation_id,
                 notice_message_id=message.id,
+            )
+        if valid and raw['kind'] == 'agenda':
+            from app.services.whatsapp_agenda import (
+                agenda_enabled_from_environment,
+                agenda_reply_still_authorized,
+            )
+            return (
+                agenda_enabled_from_environment(message.igreja_id)
+                and agenda_reply_still_authorized(
+                    session,
+                    message=message,
+                    conversation=conversation,
+                    context=context,
+                )
             )
         audio_input_id = raw.get('audio_input_id')
         if audio_input_id is not None:
@@ -218,6 +251,20 @@ def invalidate_undelivered_proposal(session, message) -> None:
             notice_message_id=message.id,
         )
         return
+    if raw.get('kind') == 'agenda':
+        from sqlalchemy import select
+        from app.db.models import Conversation
+        from app.services.secretaria_offer import cancel_secretaria_offer_for_delivery
+        conversation = session.execute(select(Conversation).where(
+            Conversation.id == message.conversation_id,
+            Conversation.igreja_id == message.igreja_id,
+        ).with_for_update()).scalar_one_or_none()
+        if conversation is not None:
+            cancel_secretaria_offer_for_delivery(
+                conversation,
+                outbound_message_id=message.id,
+            )
+        return
     audio_input_id = raw.get('audio_input_id')
     if audio_input_id is not None:
         try:
@@ -270,12 +317,17 @@ def _lock_reply(session, outcome, provider_id):
         Message.direcao == 'out', Message.autor == 'ia').with_for_update()).scalar_one_or_none()
 
 
-def _store_response(message, context, response, *, kind, proposal_id=None):
+def _store_response(message, context, response, *, kind, proposal_id=None, agenda=None):
     from app.domain.agent_reply import AGENT_REPLY_PENDING, AGENT_REPLY_NO_RESPONSE
     message.texto = response or ''
     message.agent_reply_state = AGENT_REPLY_PENDING if response else AGENT_REPLY_NO_RESPONSE
     message.public_info_reply = False
-    message.agent_privilege_context = reply_metadata(context, kind=kind, proposal_id=proposal_id)
+    message.agent_privilege_context = reply_metadata(
+        context,
+        kind=kind,
+        proposal_id=proposal_id,
+        agenda=agenda,
+    )
 
 
 def _stored_receipt_response(message, proposal_id) -> str | None:
@@ -1035,11 +1087,26 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             return handoff('privilege_general_handoff')
         general_response = generated.resposta
     with _session(runtime_session_factory, outcome) as session:
+        from sqlalchemy import select
+        from app.db.models import Conversation
+
+        # Keep the durable secretary-offer transition under the existing
+        # Conversation -> outbound Message order.
+        conversation = session.execute(
+            select(Conversation).where(
+                Conversation.id == outcome.conversation_id,
+                Conversation.igreja_id == igreja_id,
+            ).with_for_update()
+        ).scalar_one_or_none()
         _, _, error = _load_tier_a_plan_state(session, preflight)
         current = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
             conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
         message = _lock_reply(session, outcome, provider_id)
-        if message is None or message.agent_reply_state != AGENT_REPLY_RESERVED:
+        if (
+            conversation is None
+            or message is None
+            or message.agent_reply_state != AGENT_REPLY_RESERVED
+        ):
             return qw.AgentRunDisposition.COMPLETED
         invalid = error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint
         if not invalid:
@@ -1051,7 +1118,14 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
                     general_response or 'Não identifiquei uma ação ou alvo autorizado. Diga qual registro deseja consultar ou confirmar.',
                     kind='clarify')
             else:
-                invalid = not _apply_selection(session, current, selected, message)
+                invalid = not _apply_selection(
+                    session,
+                    current,
+                    selected,
+                    message,
+                    current_text=preflight.current_text,
+                    conversation=conversation,
+                )
             if not invalid:
                 from app.agent.masking import log_agent_event, log_ai_usage
                 for usage in routing_usage:
@@ -1068,15 +1142,92 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     return qw.AgentRunDisposition.COMPLETED
 
 
-def _apply_selection(session, context, selected, message) -> bool:
+def _apply_selection(session, context, selected, message, *, current_text, conversation) -> bool:
     from app.services.agent_action_proposals import (
         AgentAction, ProposalTarget, prepare_action_proposal,
     )
-    from app.services.agent_privilege_catalog import ACTIONS, read_sensitive_catalog
+    from app.services.agent_privilege_catalog import ACTIONS, build_catalog, read_sensitive_catalog
+    if selected.code == 'consultar_agenda':
+        from app.services.whatsapp_agenda import (
+            agenda_enabled_from_environment,
+            agenda_reply_metadata,
+            agenda_draft_role_allowed,
+            agenda_drafts_allowed,
+            parse_agenda_query,
+            resolve_agenda_reply,
+        )
+        # Rebuild the generic catalog after B/C/D. It contains no Event rows,
+        # but it closes a role or feature change while the model was running.
+        _, current_targets = build_catalog(session, context)
+        if (
+            not agenda_enabled_from_environment(context.igreja_id)
+            or not any(target == selected for target in current_targets.values())
+        ):
+            return False
+        query = parse_agenda_query(current_text)
+        if query is None:
+            return False
+        reply_context = context
+        if query.include_drafts:
+            # A member, operator or leader never receives a challenge for a
+            # capability their role cannot use. Only pastor/admin reach the
+            # separate Clerk proof flow.
+            if not agenda_draft_role_allowed(context):
+                return False
+            from app.services.whatsapp_privilege import PrivilegeContext, resolve_whatsapp_privilege_context
+            sensitive = resolve_whatsapp_privilege_context(
+                session,
+                igreja_id=context.igreja_id,
+                conversation_id=context.conversation_id,
+                inbound_message_id=context.inbound_message_id,
+                sensitive=True,
+            )
+            if type(sensitive) is not PrivilegeContext:
+                from app.services.agent_identity import issue_identity_challenge
+                challenge = issue_identity_challenge(
+                    session,
+                    igreja_id=context.igreja_id,
+                    conversation_id=context.conversation_id,
+                    inbound_message_id=context.inbound_message_id,
+                )
+                _store_response(
+                    message,
+                    context,
+                    ('Para consultar rascunhos, abra seu Perfil no painel e confirme o acesso ao WhatsApp '
+                     f'com o código {challenge.challenge}. Ele vale por 5 minutos. Depois repita seu pedido aqui.'),
+                    kind='challenge',
+                )
+                return True
+            if not agenda_drafts_allowed(sensitive):
+                return False
+            reply_context = sensitive
+        reply = resolve_agenda_reply(session, context=reply_context, text=current_text)
+        if reply is None:
+            return False
+        _store_response(
+            message,
+            reply_context,
+            reply.response,
+            kind='agenda',
+            agenda=agenda_reply_metadata(reply),
+        )
+        if reply.offers_secretary:
+            from app.services.secretaria_offer import prepare_secretaria_offer
+            prepare_secretaria_offer(
+                conversation,
+                outbound_message_id=message.id,
+                replace_terminal=True,
+            )
+            if (
+                getattr(conversation, 'secretaria_oferta_message_id', None) != message.id
+                or getattr(conversation, 'secretaria_oferta_estado', None)
+                not in {'preparada', 'aceite_aguardando_ancora', 'pendente'}
+            ):
+                return False
+        return True
     if selected.code in ACTIONS:
         # A role snapshot alone cannot authorize a target whose membership or
         # cell leadership changed while the LLM was running.
-        from app.services.agent_privilege_catalog import build_catalog
         _, current_targets = build_catalog(session, context)
         if not any(target == selected for target in current_targets.values()):
             return False

@@ -443,7 +443,14 @@ sem declarar as próximas verticais implementadas.
    por24h e relatório confirmado independente do áudio depois da purga.
    Flag `CELL_REPORT_ENABLED_IGREJA_IDS` vazia e release em código
    `CELL_REPORT_APPROVED_RELEASE_ID=None` mantêm a entrega inerte.
-3. **V2: agenda**, consultas e lembretes pela outbox única.
+3. **V2: agenda**, [plano aprovado com ajustes](mvp-v2-agenda-whatsapp-plano.md).
+   V2a entrega primeiro consulta por papel, título institucional validado e fallback
+   seguro; V2b terá PR própria para lembretes, outbox única e cutover V1a/EVT-7,
+   com unicidade por tenant/destinatário/ocorrência/finalidade e janela 08:00-21:00.
+   [Registro V2a](../sprints/2026-09-27-whatsapp-agenda-v2a.md): implementação
+   autorizada, ainda sem merge da PR434, deploy ou ativação presumidos.
+   Desenvolvimento local e release em lote seguem a decisão de 27/09;
+   #432 e #433 já estão na main, enquanto V2a aguarda a própria revisão.
 4. **V3: consolidação**, decisão para consolidação e alertas de 24h/fonovisita.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.

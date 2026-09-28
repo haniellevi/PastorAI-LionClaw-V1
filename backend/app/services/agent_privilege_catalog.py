@@ -197,11 +197,22 @@ def build_catalog(session: Session, context):
     grouped['consultar_vinculo'] = [CatalogTarget('consultar_vinculo', MappingProxyType({}), 'Consultar meu próprio vínculo cadastrado', True)]
     if context.roles & MINISTERIAL_ROLES:
         grouped['consultar_celulas'] = [CatalogTarget('consultar_celulas', MappingProxyType({}), 'Consultar células sob minha responsabilidade', True)]
+    # Event rows are deliberately not read into this catalog. The router gets
+    # only a generic capability; the selected server seam loads its bounded
+    # agenda projection after revalidating the context.
+    from app.services.whatsapp_agenda import agenda_enabled_from_environment, agenda_read_allowed
+    if agenda_enabled_from_environment(tenant) and agenda_read_allowed(context):
+        grouped['consultar_agenda'] = [CatalogTarget(
+            'consultar_agenda',
+            MappingProxyType({}),
+            'Consultar agenda autorizada da igreja',
+        )]
     descriptions = {
         'registrar_decisao': 'Registrar decisão de fé de uma pessoa, após confirmação explícita',
         'marcar_presenca': 'Confirmar presença prevista de terceiro em reunião de célula, após confirmação explícita',
         'consultar_vinculo': 'Consultar meu próprio vínculo cadastrado, com confirmação no painel',
         'consultar_celulas': 'Consultar dados das células autorizadas, com confirmação no painel',
+        'consultar_agenda': 'Consultar agenda autorizada da igreja sem dados de pessoas',
     }
     catalog = []
     mapping = {}
@@ -211,6 +222,17 @@ def build_catalog(session: Session, context):
         targets = [target for target in targets if summaries[
             ' '.join(unicodedata.normalize('NFKD', target.summary).casefold().split())] == 1]
         if not targets:
+            continue
+        if code == 'consultar_agenda':
+            target = targets[0]
+            if (
+                len(targets) != 1
+                or target.code != code
+                or dict(target.arguments)
+            ):
+                continue
+            catalog.append(ToolOption(code, RouteChoice.RESTRITA, descriptions[code], ()))
+            mapping[(code, None)] = target
             continue
         options = []
         for n, target in enumerate(targets, start=1):

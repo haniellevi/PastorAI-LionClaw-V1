@@ -1,0 +1,34 @@
+{
+  "observed_at_utc": "2026-09-27T22:42:07.498466+00:00",
+  "base": "3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36",
+  "delta_after": "3fbe5e3a8dd62352ea82edc871d983f192a4c34c",
+  "backend_patch_sha256": "34cfaf5e3ee5a46e07a1396ca6ccc6d20541cc58b0019d9b080df9f759921677",
+  "change": "Catálogo validado sem candidatos retorna handoff antes de qualquer chamada; nenhuma/nenhum explícitos continuam clarify em catálogo válido.",
+  "suites": [
+    {
+      "selection": "pytest -m \"not rls_integration\";642 PG deselected",
+      "junit_sha256": "aefaa8c99dfc7863aeb6cf3b6168ea0f93bad9e597f95480335db459c6de8ebd",
+      "result": {
+        "tests": "5882",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "time": "37.974",
+        "timestamp": "2026-09-27T19:40:52.767335-03:00"
+      }
+    },
+    {
+      "selection": "test_whatsapp_agenda_pg.py + test_agent_privileged_turn_pg.py",
+      "junit_sha256": "9f81dd4f0a96e04721de6b811fd16f63eadcb5e11c32b34f70d3a27af10e84b1",
+      "result": {
+        "tests": "35",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "time": "18.972",
+        "timestamp": "2026-09-27T19:40:54.669785-03:00"
+      }
+    }
+  ],
+  "limits": "Fixtures/mocks; PG17 descartável. Sem ativação, reset, painel/simulador, provider, banco real ou deploy."
+}

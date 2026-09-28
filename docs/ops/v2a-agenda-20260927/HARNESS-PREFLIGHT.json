@@ -1,0 +1,17 @@
+{
+  "phase": "test-harness-preflight",
+  "base": "3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36",
+  "scope": "existing S3 invalid-choice test, not V2a acceptance",
+  "postgres": "17.6 local disposable",
+  "database": "v2a_agenda_test",
+  "results": [
+    {
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-09-27T18:45:30.031109-03:00"
+    }
+  ],
+  "providers": "fakes only"
+}

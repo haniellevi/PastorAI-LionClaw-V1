@@ -1,0 +1,16 @@
+{
+  "head": "d4bf0f5ac6595ea914344a0b86d3c5f20691deda",
+  "test": "test_member_agenda_turn_uses_generic_choice_then_real_projection",
+  "junit_sha256": "443ddaf568d844cd80a7a06677a93d4cc480831131830b5414ce3736aa3a4d9c",
+  "result": {
+    "tests": "1",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "0.823",
+    "timestamp": "2026-09-27T19:54:30.632982-03:00"
+  },
+  "source_verification": "Oito hashes backend permaneceram iguais ao manifesto C04 após execução.",
+  "finding": "O catálogo antigo criava h1 genérico e esse turno era alcançável. A prova não cobre capacidade sem candidatos; o novo contrato exige B/C sem D.",
+  "environment": "PG17 local descartável, fixtures sintéticas, LLM/transporte simulados"
+}

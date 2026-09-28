@@ -1,0 +1,45 @@
+{
+  "observed_at_utc": "2026-09-27T22:29:25.185631+00:00",
+  "base": "3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36",
+  "backend_patch_sha256": "2397128ed04e53732a6d034a8c1836435e444965b7437b0eeb7f07b3fbd4c0bb",
+  "suites": [
+    {
+      "selection": "test_whatsapp_agenda_pg.py + test_agent_privileged_turn_pg.py + test_cell_report_v1a_worker_pg.py + test_cell_report_v1b_dispatch_pg.py",
+      "junit_sha256": "02bea8a4c996f86919fb47fb5c5db5c7bbb046c4caaaa1e1a601cfdb3c2db7a9",
+      "result": {
+        "tests": "117",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "time": "79.534",
+        "timestamp": "2026-09-27T19:25:26.506115-03:00"
+      }
+    },
+    {
+      "selection": "pytest -m \"not rls_integration\";642 deselected",
+      "junit_sha256": "17c2462ccea3e72512549d7ebb522608011a018780b61794649a91e9981f193e",
+      "result": {
+        "tests": "5881",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "time": "36.071",
+        "timestamp": "2026-09-27T19:27:43.054587-03:00"
+      }
+    }
+  ],
+  "environment": {
+    "python": "3.13.14",
+    "postgres": "17.6 descartável, banco sintético v2a_agenda_test",
+    "providers": "fakes/mocks; sem chamadas reais",
+    "shell": "env-i, sem credenciais herdadas"
+  },
+  "diagnostics": [
+    "Clerk: fixture emitia e validava prova com configurações distintas; alinhamento e confirmação real fecharam regressão sem alterar produto.",
+    "Offline: duas execuções sandbox bloqueadas em AnyIO/TestClient. Node sintético isolado passou em execução avaliada; comando completo recebeu avaliação própria e passou. Nenhuma permissão permanente alterada."
+  ],
+  "limits": [
+    "Sem prova de dev.sh reset ou painel/simulador; depende PR432 e disponibilidade do simulador.",
+    "Sem merge, ativação, deploy, banco real ou provider real."
+  ]
+}
