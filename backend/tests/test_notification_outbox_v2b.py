@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app import config
 from app.db import models
 from app.services.evolution import BroadcastSendResult
 from app.services import notification_outbox as outbox
@@ -53,14 +54,22 @@ def test_only_explicitly_pre_send_failure_can_retry() -> None:
     )
 
 
-def test_agenda_delivery_gate_reuses_the_canonical_s3_agenda_gate(monkeypatch) -> None:
+@pytest.mark.parametrize("notify_enabled", [True, False])
+@pytest.mark.parametrize("raw_env", ["true", "false"])
+def test_agenda_delivery_gate_uses_typed_settings_and_canonical_s3_gate(
+    monkeypatch, notify_enabled: bool, raw_env: str
+) -> None:
     igreja_id = uuid.UUID("00000000-0000-0000-0000-000000000091")
     monkeypatch.setattr(whatsapp_agenda, "AGENDA_WHATSAPP_APPROVED_RELEASE_ID", "v2b-test")
     monkeypatch.setattr(whatsapp_agenda, "privilege_enabled_from_environment", lambda _id: True)
     monkeypatch.setenv("AGENDA_WHATSAPP_ENABLED_IGREJA_IDS", str(igreja_id))
-    monkeypatch.setenv("AGENDA_NOTIFY_ENABLED", "true")
+    monkeypatch.setenv("AGENDA_NOTIFY_ENABLED", raw_env)
+    settings = config.Settings(_env_file=None, agenda_notify_enabled=notify_enabled)
+    monkeypatch.setattr(config, "get_settings", lambda: settings)
 
-    assert outbox.agenda_delivery_enabled(igreja_id)
+    assert outbox.agenda_delivery_enabled(igreja_id) is notify_enabled
+    monkeypatch.setattr(whatsapp_agenda, "AGENDA_WHATSAPP_APPROVED_RELEASE_ID", None)
+    assert not outbox.agenda_delivery_enabled(igreja_id)
 
 
 def test_agenda_templates_always_include_the_global_stop_instruction() -> None:

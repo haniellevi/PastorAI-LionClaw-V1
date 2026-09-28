@@ -10,7 +10,6 @@ import datetime as dt
 import hashlib
 import json
 import logging
-import os
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -171,10 +170,6 @@ def result_transition(
     return NotificationResultTransition("retry", next_attempt, current + delay, None)
 
 
-def _enabled_bool(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def agenda_delivery_enabled(igreja_id: object) -> bool:
     """Check only Agenda's release and autonomous-notification gates.
 
@@ -182,7 +177,9 @@ def agenda_delivery_enabled(igreja_id: object) -> bool:
     by the dispatcher while it owns a durable lease.
     """
 
-    if not _enabled_bool("AGENDA_NOTIFY_ENABLED"):
+    from app.config import get_settings
+
+    if not get_settings().agenda_notify_enabled:
         return False
     from app.services.whatsapp_agenda import agenda_enabled_from_environment
 
