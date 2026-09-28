@@ -1651,7 +1651,14 @@ class _SairSession:
                     assert "agent_action_proposals.igreja_id" in sql
                     assert "agent_action_proposals.actor_pessoa_id" in sql
                     assert _IGREJA_ID in values and _PESSOA_ID in values
-                    assert "configurar_lembrete_agenda" in values
+                    assert any(
+                        isinstance(value, (list, tuple))
+                        and set(value) == {
+                            "configurar_lembrete_agenda",
+                            "configurar_lembrete_consolidacao",
+                        }
+                        for value in values
+                    )
                     self.reminder_proposal_updates += 1
                 else:
                     assert "agent_action_proposals.igreja_id" in sql
@@ -1743,7 +1750,9 @@ def test_explicit_sair_persists_before_agent_config_or_tier_a(monkeypatch) -> No
     preferences = [
         value for value in session.added if isinstance(value, WhatsappReminderPreference)
     ]
-    assert {value.reminder_kind for value in preferences} == {"agenda", "cell_report"}
+    assert {value.reminder_kind for value in preferences} == {
+        "agenda", "cell_report", "consolidation"
+    }
     assert all(value.state == "disabled" for value in preferences)
     assert session.commits == 1
     assert session.fence_updates == 1

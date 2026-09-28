@@ -3,6 +3,8 @@ from types import MappingProxyType, SimpleNamespace
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
+import pytest
+
 
 def test_empty_privilege_flag_has_no_database_or_provider_calls(monkeypatch):
     monkeypatch.delenv('AGENT_PRIVILEGE_ENABLED_IGREJA_IDS', raising=False)
@@ -45,6 +47,33 @@ def test_agenda_reminder_dispatches_only_to_the_dedicated_domain_service(monkeyp
     )
     session = SimpleNamespace()
     execution = SimpleNamespace(action=SimpleNamespace(value='configurar_lembrete_agenda'))
+
+    assert privileged_turn._execute(session, execution) is effect
+    assert calls == [(session, execution)]
+
+
+def test_consolidation_reminder_dispatches_only_to_the_dedicated_domain_service(monkeypatch):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_privilege_catalog, notification_outbox
+    from app.services.agent_action_proposals import ActionEffect
+
+    effect = ActionEffect('Lembretes de consolidação ativados.', UUID(int=93))
+    calls = []
+    monkeypatch.setattr(
+        notification_outbox,
+        'execute_consolidation_reminder_subscription',
+        lambda session, execution: calls.append((session, execution)) or effect,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'execute_catalog_action',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('o adaptador legado não pode executar lembrete de consolidação')
+        ),
+    )
+    session = SimpleNamespace()
+    execution = SimpleNamespace(action=SimpleNamespace(value='configurar_lembrete_consolidacao'))
 
     assert privileged_turn._execute(session, execution) is effect
     assert calls == [(session, execution)]
@@ -93,6 +122,472 @@ def test_agenda_reminder_selection_stages_an_event_target(monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    ('code', 'arguments', 'target_kind', 'target_id'),
+    (
+        (
+            'marcar_fonovisita_feita',
+            {
+                'work_queue_item_id': str(UUID('00000000-0000-0000-0000-0000000000e5')),
+                'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+                'assignment_revision': 4,
+            },
+            'pendencia_consolidacao',
+            UUID('00000000-0000-0000-0000-0000000000e5'),
+        ),
+        (
+            'atribuir_consolidacao',
+            {
+                'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+                'responsavel_id': str(UUID('00000000-0000-0000-0000-0000000000b2')),
+                'assignment_revision': 4,
+            },
+            'consolidacao',
+            UUID('00000000-0000-0000-0000-0000000000c3'),
+        ),
+    ),
+)
+def test_consolidation_mutation_selection_stages_only_its_closed_target(
+    monkeypatch,
+    code,
+    arguments,
+    target_kind,
+    target_id,
+):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_action_proposals, agent_privilege_catalog
+
+    selected = agent_privilege_catalog.CatalogTarget(
+        code,
+        MappingProxyType(arguments),
+        'Resumo opaco da pendência',
+    )
+    context = SimpleNamespace(
+        igreja_id=UUID(int=1), conversation_id=UUID(int=2), inbound_message_id=UUID(int=3),
+    )
+    captured = {}
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'build_catalog',
+        lambda *_args, **_kwargs: ((), MappingProxyType({(code, 'h1'): selected})),
+    )
+    monkeypatch.setattr(
+        agent_action_proposals,
+        'prepare_action_proposal',
+        lambda *_args, **kwargs: captured.update(kwargs) or SimpleNamespace(proposal_id=UUID(int=92)),
+    )
+    monkeypatch.setattr(privileged_turn, '_store_response', lambda *_args, **_kwargs: None)
+
+    assert privileged_turn._apply_selection(
+        SimpleNamespace(),
+        context,
+        selected,
+        SimpleNamespace(id=UUID(int=4)),
+        current_text='Confirmar pendência.',
+        conversation=SimpleNamespace(),
+    )
+    assert captured['target'].kind == target_kind
+    assert captured['target'].id == target_id
+    assert captured['arguments'] == arguments
+
+
+@pytest.mark.parametrize(
+    ('action', 'arguments', 'receipt_text', 'result_field'),
+    (
+        (
+            'marcar_fonovisita_feita',
+            {
+                'work_queue_item_id': str(UUID('00000000-0000-0000-0000-0000000000e5')),
+                'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+                'assignment_revision': 4,
+            },
+            'Fonovisita confirmada.',
+            'work_queue_item',
+        ),
+        (
+            'atribuir_consolidacao',
+            {
+                'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+                'responsavel_id': str(UUID('00000000-0000-0000-0000-0000000000b2')),
+                'assignment_revision': 4,
+            },
+            'Consolidação atribuída.',
+            'consolidacao',
+        ),
+    ),
+)
+def test_consolidation_mutation_execution_reuses_the_shared_human_service(
+    monkeypatch,
+    action,
+    arguments,
+    receipt_text,
+    result_field,
+):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_privilege_catalog, consolidation_workflow
+
+    effect_id = UUID('00000000-0000-0000-0000-0000000000e5')
+    calls = []
+    result = SimpleNamespace(**{result_field: SimpleNamespace(id=effect_id)})
+    if action == 'marcar_fonovisita_feita':
+        monkeypatch.setattr(
+            consolidation_workflow,
+            'complete_fonovisita',
+            lambda *args, **kwargs: calls.append((args, kwargs)) or result,
+        )
+    else:
+        monkeypatch.setattr(
+            consolidation_workflow,
+            'assign_consolidacao',
+            lambda *args, **kwargs: calls.append((args, kwargs)) or result,
+        )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'execute_catalog_action',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('ação V3 não pode usar o adaptador legado')
+        ),
+    )
+    context = SimpleNamespace(
+        igreja_id=UUID(int=1),
+        app_user_id=UUID(int=2),
+        roles=frozenset({'pastor'}),
+    )
+    execution = SimpleNamespace(
+        action=SimpleNamespace(value=action),
+        arguments=arguments,
+        privilege_context=context,
+    )
+
+    effect = privileged_turn._execute(SimpleNamespace(), execution)
+
+    assert effect.receipt_text == receipt_text
+    assert effect.opaque_effect_id == effect_id
+    assert len(calls) == 1
+    assert calls[0][1]['whatsapp'] is True
+    assert calls[0][1]['expected_assignment_revision'] == 4
+
+
+def test_consolidation_pending_selection_uses_the_revalidated_projection(monkeypatch):
+    import app.agent.privileged_turn as privileged_turn
+    from app.services import agent_privilege_catalog, consolidation_privileged
+
+    selected = agent_privilege_catalog.CatalogTarget(
+        'consultar_pendencias_consolidacao',
+        MappingProxyType({}),
+        'Consultar pendências de consolidação autorizadas',
+    )
+    context = SimpleNamespace(
+        igreja_id=UUID(int=1), conversation_id=UUID(int=2), inbound_message_id=UUID(int=3),
+    )
+    reply = consolidation_privileged.PendingConsolidationReply(
+        'Há 1 pendência de consolidação no seu escopo.', 'a' * 64,
+    )
+    captured = {}
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'build_catalog',
+        lambda *_args, **_kwargs: (
+            (),
+            MappingProxyType({('consultar_pendencias_consolidacao', None): selected}),
+        ),
+    )
+    monkeypatch.setattr(
+        consolidation_privileged,
+        'consolidation_pending_reply',
+        lambda _session, *, context: reply,
+    )
+    monkeypatch.setattr(
+        privileged_turn,
+        '_store_response',
+        lambda _message, _context, response, **kwargs: captured.update(
+            response=response, **kwargs
+        ),
+    )
+
+    assert privileged_turn._apply_selection(
+        SimpleNamespace(), context, selected, SimpleNamespace(id=UUID(int=4)),
+        current_text='Quais pendências de consolidação existem?', conversation=SimpleNamespace(),
+    )
+    assert captured == {
+        'response': reply.response,
+        'kind': 'consolidation',
+        'consolidation': {'projection_sha256': 'a' * 64},
+    }
+
+
+@pytest.mark.parametrize(
+    ('inbound_text', 'selected_code', 'selected_handle', 'expect_handoff'),
+    (
+        (
+            'Quais pendências de consolidação existem?',
+            'consultar_pendencias_consolidacao',
+            None,
+            False,
+        ),
+        (
+            'Atribuir P-1234567890 para Mária Łucía.',
+            'atribuir_consolidacao',
+            'h1',
+            False,
+        ),
+        (
+            'Atribuir P-1234567890 para Mária Łucía.',
+            'consultar_pendencias_consolidacao',
+            None,
+            True,
+        ),
+        (
+            'Quais pendências de consolidação? hoje planejo desaparecer para sempre.',
+            'consultar_pendencias_consolidacao',
+            None,
+            True,
+        ),
+    ),
+)
+def test_v3_turn_routes_only_an_opaque_projection_without_inbound_person_names(
+    monkeypatch,
+    inbound_text,
+    selected_code,
+    selected_handle,
+    expect_handoff,
+):
+    """Tier A, V1a and S3 never receive a V3 inbound name or free text."""
+
+    import unicodedata
+
+    from app.agent import runtime
+    from app.agent import privileged_turn
+    from app.domain.agent_reply import AGENT_REPLY_RESERVED
+    from app.services import (
+        agent_privilege_catalog,
+        agent_privilege_routing,
+        cell_report_v1a_service,
+        cell_report_whatsapp,
+        crypto,
+        llm,
+        semantic_triage,
+        whatsapp_privilege,
+    )
+    from app.services.agent_privilege_routing import (
+        CandidateOption,
+        RoutingDecision,
+        ToolOption,
+    )
+    from app.services.agent_privilege_catalog import CatalogTarget
+    from app.services.semantic_routing import RouteChoice
+    from app.services.whatsapp_privilege import PrivilegeContext
+    from app.workers import queue_worker
+
+    tenant = UUID(int=101)
+    conversation_id = UUID(int=102)
+    inbound_id = UUID(int=103)
+    pessoa_id = UUID(int=104)
+    actor_id = UUID(int=105)
+    context = PrivilegeContext(
+        igreja_id=tenant,
+        conversation_id=conversation_id,
+        inbound_message_id=inbound_id,
+        pessoa_id=pessoa_id,
+        app_user_id=actor_id,
+        roles=frozenset({'pastor'}),
+        role_snapshot=(),
+        owned_cell_ids=(),
+        credential_fingerprint='1' * 64,
+        phone_fingerprint='2' * 64,
+        authorization_fingerprint='3' * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint='4' * 64,
+        context_fingerprint='5' * 64,
+    )
+    preflight = runtime.TierATurnPreflight(
+        igreja_id=tenant,
+        conversation_id=conversation_id,
+        pessoa_id=pessoa_id,
+        inbound_message_id=inbound_id,
+        provider_message_id='inbound-synthetic',
+        current_text=inbound_text,
+        tier_a_input_within_limit=True,
+        config_id=UUID(int=106),
+        config_comportamento='Sintético.',
+        credential_id=UUID(int=107),
+        credential_provedor='synthetic',
+        credential_model='synthetic',
+        credential_key_encrypted='synthetic',
+        accepted_consent_version='lgpd-v2',
+        term_version='lgpd-v2',
+    )
+    outcome = SimpleNamespace(
+        igreja_id=tenant,
+        conversation_id=conversation_id,
+        inbound_message_id=inbound_id,
+        provider_message_id='inbound-synthetic',
+        texto=inbound_text,
+    )
+    selected = CatalogTarget(
+        selected_code,
+        MappingProxyType({}),
+        'Resumo opaco de consolidação',
+    )
+    candidates = (
+        ()
+        if selected_handle is None
+        else (CandidateOption('h1', 'Resumo opaco de consolidação'),)
+    )
+    catalog = (
+        ToolOption(
+            selected_code,
+            RouteChoice.RESTRITA,
+            'Ação de consolidação autorizada',
+            candidates,
+        ),
+    )
+    mapping = MappingProxyType({(selected_code, selected_handle): selected})
+    message = SimpleNamespace(agent_reply_state=AGENT_REPLY_RESERVED)
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return inbound_text
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    @contextmanager
+    def fake_session(*_args, **_kwargs):
+        yield _Session()
+
+    captured = {}
+    handoff_result = object()
+    monkeypatch.setattr(privileged_turn, '_session', fake_session)
+    monkeypatch.setattr(
+        runtime,
+        'process_inbound_message',
+        lambda *_args, **_kwargs: SimpleNamespace(reason=None, preflight=preflight),
+    )
+    monkeypatch.setattr(runtime, '_load_tier_a_plan_state', lambda *_args, **_kwargs: (None, None, None))
+    monkeypatch.setattr(
+        whatsapp_privilege,
+        'resolve_whatsapp_privilege_context',
+        lambda *_args, **_kwargs: context,
+    )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'consolidation_enabled_from_environment',
+        lambda _tenant: True,
+    )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        '_eligible_consolidation_users',
+        lambda *_args, **_kwargs: {actor_id: 'Mária Łucía'},
+    )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'build_consolidation_catalog',
+        lambda *_args, **_kwargs: (catalog, mapping),
+    )
+    monkeypatch.setattr(
+        agent_privilege_catalog,
+        'build_catalog',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('pedido V3 não abre catálogo geral com nomes')
+        ),
+    )
+    monkeypatch.setattr(queue_worker, '_agent_reply_idempotency_key', lambda _outcome: 'reply-synthetic')
+    monkeypatch.setattr(queue_worker, '_load_agent_reply_intent', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(queue_worker, '_reserve_agent_reply_intent', lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        queue_worker,
+        '_run_tier_a_batch',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('Tier A não pode receber texto V3')
+        ),
+    )
+    monkeypatch.setattr(semantic_triage, 'tier_a_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(cell_report_whatsapp, 'cell_report_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(
+        cell_report_v1a_service,
+        'stage_v1a_cell_report_turn',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('V1a não pode receber texto V3')
+        ),
+    )
+    monkeypatch.setattr(
+        'app.agent.read_only_info.canonical_public_info_request',
+        lambda _text: (_ for _ in ()).throw(
+            AssertionError('consulta pública não processa texto V3')
+        ),
+    )
+    monkeypatch.setattr(privileged_turn, '_lock_reply', lambda *_args, **_kwargs: message)
+    monkeypatch.setattr(privileged_turn, '_local_audio_consent', lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(privileged_turn, '_local_confirmation', lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(privileged_turn, '_apply_selection', lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(llm, 'LLMClient', lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(crypto, 'decrypt_secret', lambda _value: 'synthetic')
+    monkeypatch.setattr(
+        agent_privilege_routing,
+        'route_privileged_message',
+        lambda _client, *, texto, catalog, deadline_monotonic: captured.update(
+            texto=texto,
+            catalog=catalog,
+            deadline_monotonic=deadline_monotonic,
+        ) or RoutingDecision(
+            'selected',
+            RouteChoice.RESTRITA,
+            selected_code,
+            selected_handle,
+            (),
+        ),
+    )
+    monkeypatch.setattr('app.agent.masking.log_agent_event', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr('app.agent.masking.log_ai_usage', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        queue_worker,
+        '_persist_tier_a_handoff',
+        (
+            lambda *_args, **_kwargs: handoff_result
+            if expect_handoff
+            else (_ for _ in ()).throw(AssertionError('não deve handoff'))
+        ),
+    )
+
+    result = privileged_turn._run_enabled_turn(
+        lambda: _Session(),
+        lambda: _Session(),
+        outcome,
+        igreja_id=tenant,
+        turn_identity=None,
+        uses_dedicated_agent_session=False,
+        ownership_guard=None,
+        evolution_client=Mock(),
+    )
+    if expect_handoff:
+        assert result is handoff_result
+        assert not captured
+        return
+    assert result is queue_worker.AgentRunDisposition.COMPLETED
+
+    rendered = unicodedata.normalize(
+        'NFKD',
+        repr((captured['texto'], captured['catalog'])).casefold(),
+    )
+    assert 'maria' not in rendered
+    assert 'lucia' not in rendered
+    assert inbound_text.casefold() not in captured['texto'].casefold()
+    assert {option.code for option in captured['catalog']} == {selected_code}
+
+
 def test_agenda_reply_metadata_keeps_only_bounded_snapshot_controls():
     from app.agent.privileged_turn import reply_metadata
 
@@ -120,6 +615,56 @@ def test_agenda_reply_metadata_keeps_only_bounded_snapshot_controls():
         'snapshot_sha256': 'a' * 64,
     }
     assert set(metadata) == {'inbound_message_id', 'context_fingerprint', 'sensitive', 'kind', 'agenda'}
+
+
+def test_consolidation_reply_metadata_keeps_only_a_technical_projection_fence():
+    from app.agent.privileged_turn import reply_metadata
+
+    context = SimpleNamespace(
+        inbound_message_id=UUID(int=4),
+        context_fingerprint='context',
+        sensitive=False,
+        proof_id=None,
+    )
+    metadata = reply_metadata(
+        context,
+        kind='consolidation',
+        consolidation={'projection_sha256': 'a' * 64},
+    )
+
+    assert metadata == {
+        'inbound_message_id': str(UUID(int=4)),
+        'context_fingerprint': 'context',
+        'sensitive': False,
+        'kind': 'consolidation',
+        'consolidation': {'projection_sha256': 'a' * 64},
+    }
+
+
+def test_store_consolidation_reply_persists_the_projection_fence():
+    from app.agent.privileged_turn import _store_response
+    from app.domain.agent_reply import AGENT_REPLY_PENDING
+
+    context = SimpleNamespace(
+        inbound_message_id=UUID(int=4),
+        context_fingerprint='context',
+        sensitive=False,
+        proof_id=None,
+    )
+    message = SimpleNamespace()
+
+    _store_response(
+        message,
+        context,
+        'Há 1 pendência de consolidação no seu escopo.',
+        kind='consolidation',
+        consolidation={'projection_sha256': 'a' * 64},
+    )
+
+    assert message.agent_reply_state == AGENT_REPLY_PENDING
+    assert message.agent_privilege_context['consolidation'] == {
+        'projection_sha256': 'a' * 64
+    }
 
 
 def test_non_pastoral_draft_request_does_not_issue_clerk_challenge(monkeypatch):

@@ -241,7 +241,9 @@ def test_cell_leader_can_still_assume_item_in_own_scope(app) -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["responsavelId"] == _ACTOR_ID
-    assert len(session.item_statements) == 1
+    assert len(session.item_statements) == 2
+    assert "for update" not in _compiled(session.item_statements[0])
+    assert "for update" in _compiled(session.item_statements[1])
     assert session.target_statements == []
     assert session.role_statements == []
     assert item.responsavel_id == uuid.UUID(_ACTOR_ID)

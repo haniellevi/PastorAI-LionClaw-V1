@@ -14,7 +14,6 @@ return the resulting state.
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 import uuid
 
@@ -24,23 +23,16 @@ from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AppUser,
     Celula,
     CelulaMembro,
-    Consolidacao,
-    ConsolidacaoEtapa,
     Conversation,
     Pessoa,
-    WorkQueueItem,
 )
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, resolve_actor_pessoa_id
 from app.domain.consolidation import (
     CONSOLIDATION_ROLES,
-    can_conclude,
-    compute_progresso,
     is_valid_etapa,
-    pending_mandatory,
 )
 from app.domain.pipeline import (
     PIPELINE_PROMOTE_ROLES,
@@ -51,6 +43,11 @@ from app.domain.pipeline import (
 )
 from app.routers._common import Page, PaginationParams
 from app.routers.contacts import ContactOut, _active_leader_ids
+from app.services.consolidation_workflow import (
+    advance_consolidacao_stage,
+    assign_consolidacao,
+    queue_manual_fonovisita,
+)
 
 logger = logging.getLogger("pastorai.pipeline")
 
@@ -382,38 +379,18 @@ def queue_fonovisita(
             status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
         )
 
-    contexto = payload.contexto or f"Fonovisita para {pessoa.nome}"
-
-    existing = db.execute(
-        select(WorkQueueItem).where(
-            WorkQueueItem.pessoa_id == pessoa.id,
-            WorkQueueItem.tipo == "fonovisita",
-            WorkQueueItem.status.in_(["aberto", "assumido"]),
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if existing is not None:
-        existing.contexto = contexto
-        db.flush()
-        db.refresh(existing)
-        db.commit()
-        return FonovisitaResponse(status="updated", itemId=str(existing.id))
-
-    item = WorkQueueItem(
-        igreja_id=uuid.UUID(current_user.igreja_id),
-        tipo="fonovisita",
-        titulo=f"Fonovisita: {pessoa.nome}",
-        contexto=contexto,
-        pessoa_id=pessoa.id,
-        status="aberto",
-        prioridade=2,
+    item, updated = queue_manual_fonovisita(
+        db,
+        current_user,
+        pessoa=pessoa,
+        contexto=payload.contexto,
     )
-    db.add(item)
-    db.flush()
     db.refresh(item)
     db.commit()
-    return FonovisitaResponse(status="created", itemId=str(item.id))
+    return FonovisitaResponse(
+        status="updated" if updated else "created",
+        itemId=str(item.id),
+    )
 
 
 @router.post("/pipeline/assign-consolidador", response_model=AssignConsolidadorResponse)
@@ -436,41 +413,20 @@ def assign_consolidador(
             detail="Você não tem permissão para atribuir consolidador",
         )
 
-    igreja_id = uuid.UUID(current_user.igreja_id)
-    consolidacao = db.execute(
-        select(Consolidacao).where(
-            Consolidacao.id == uuid.UUID(payload.consolidacaoId),
-            Consolidacao.igreja_id == igreja_id,
-        )
-    ).scalar_one_or_none()
-    if consolidacao is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Consolidação não encontrada",
-        )
-
-    responsavel = db.execute(
-        select(AppUser).where(
-            AppUser.id == uuid.UUID(payload.responsavelId),
-            AppUser.igreja_id == igreja_id,
-            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
-        )
-    ).scalar_one_or_none()
-    if responsavel is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Responsável não encontrado",
-        )
-
-    consolidacao.responsavel_id = responsavel.id
-    db.flush()
-    db.refresh(consolidacao)
+    result = assign_consolidacao(
+        db,
+        current_user,
+        consolidacao_id=uuid.UUID(payload.consolidacaoId),
+        responsavel_id=uuid.UUID(payload.responsavelId),
+        expected_assignment_revision=None,
+        whatsapp=False,
+    )
     db.commit()
 
     return AssignConsolidadorResponse(
         status="assigned",
-        consolidacaoId=str(consolidacao.id),
-        responsavelId=str(consolidacao.responsavel_id),
+        consolidacaoId=str(result.consolidacao.id),
+        responsavelId=str(result.consolidacao.responsavel_id),
     )
 
 
@@ -488,99 +444,20 @@ def advance_stage(
     confirmed mandatory stages.
     """
 
-    if payload.etapa is None and not payload.concluir:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Informe etapa para confirmar ou concluir=true",
-        )
-
-    consolidacao = db.execute(
-        select(Consolidacao)
-        .where(Consolidacao.id == uuid.UUID(payload.consolidacaoId))
-        .with_for_update()
-    ).scalar_one_or_none()
-    if consolidacao is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Consolidação não encontrada",
-        )
-
-    # Identity gate: only the assigned consolidador may act (delta-018).
-    if (
-        consolidacao.responsavel_id is None
-        or str(consolidacao.responsavel_id) != current_user.app_user_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas o consolidador responsável pode confirmar etapas",
-        )
-
-    if consolidacao.concluida:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Consolidação já concluída",
-        )
-
-    # W3.2A: consolidação ABANDONADA (Pessoa arquivada) não pode avançar nem
-    # ser concluída — revisão externa PR#163. A linha já está travada
-    # (with_for_update acima), serializando contra archive_pessoa.
-    if consolidacao.abandonada_em is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Consolidação abandonada (pessoa arquivada) não pode ser avançada",
-        )
-
-    # Confirm the requested stage (idempotent per stage name).
-    if payload.etapa is not None:
-        etapa_row = db.execute(
-            select(ConsolidacaoEtapa).where(
-                ConsolidacaoEtapa.consolidacao_id == consolidacao.id,
-                ConsolidacaoEtapa.etapa == payload.etapa,
-            )
-        ).scalar_one_or_none()
-        if etapa_row is None:
-            etapa_row = ConsolidacaoEtapa(
-                igreja_id=uuid.UUID(current_user.igreja_id),
-                consolidacao_id=consolidacao.id,
-                etapa=payload.etapa,
-            )
-            db.add(etapa_row)
-        etapa_row.concluida = True
-        etapa_row.confirmada_por = uuid.UUID(current_user.app_user_id)
-        etapa_row.confirmada_em = dt.datetime.now(dt.timezone.utc)
-        db.flush()
-
-    confirmed = db.execute(
-        select(ConsolidacaoEtapa.etapa).where(
-            ConsolidacaoEtapa.consolidacao_id == consolidacao.id,
-            ConsolidacaoEtapa.concluida.is_(True),
-        )
-    ).scalars().all()
-    confirmed_set = {e for e in confirmed if e}
-
-    consolidacao.progresso = compute_progresso(confirmed_set)
-
-    if payload.concluir:
-        if not can_conclude(confirmed_set):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "pending_stages",
-                    "message": "Há etapas obrigatórias pendentes",
-                    "etapasPendentes": sorted(pending_mandatory(confirmed_set)),
-                },
-            )
-        consolidacao.concluida = True
-        consolidacao.progresso = 100
-
-    db.flush()
-    db.refresh(consolidacao)
+    result = advance_consolidacao_stage(
+        db,
+        current_user,
+        consolidacao_id=uuid.UUID(payload.consolidacaoId),
+        etapa=payload.etapa,
+        concluir=payload.concluir,
+    )
     db.commit()
+    consolidacao = result.consolidacao
 
     return AdvanceStageResponse(
         status="concluded" if consolidacao.concluida else "advanced",
         consolidacaoId=str(consolidacao.id),
         progresso=consolidacao.progresso,
         concluida=consolidacao.concluida,
-        etapasPendentes=sorted(pending_mandatory(confirmed_set)),
+        etapasPendentes=list(result.etapas_pendentes),
     )

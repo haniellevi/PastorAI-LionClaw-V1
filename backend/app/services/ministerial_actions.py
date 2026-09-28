@@ -74,9 +74,10 @@ def register_decision(db: Session, current_user: CurrentUser, *, pessoa_id: uuid
 
     consolidacao = db.execute(
         select(Consolidacao)
-        .where(Consolidacao.pessoa_id == pessoa.id, Consolidacao.igreja_id == uuid.UUID(current_user.igreja_id))
-        .order_by(Consolidacao.created_at.desc())
-        .limit(1)
+        .where(
+            Consolidacao.igreja_id == uuid.UUID(current_user.igreja_id),
+            Consolidacao.origin_decision_id == decision.id,
+        )
     ).scalar_one_or_none()
     if consolidacao is None:
         # The trigger should always create one; fail loudly if it did not.

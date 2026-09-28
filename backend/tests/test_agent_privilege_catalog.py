@@ -240,3 +240,517 @@ def test_build_catalog_keeps_a_plain_agenda_query_out_of_the_reminder_path(monke
 
     assert any(option.code == 'consultar_agenda' for option in catalog_options)
     assert ('configurar_lembrete_agenda', 'h1') not in targets
+
+
+def test_consolidation_reminder_optin_is_self_targeted_and_requires_explicit_request(
+    monkeypatch,
+):
+    import app.services.agent_privilege_catalog as catalog
+
+    class _Result:
+        def __init__(self, value):
+            self.value = value
+
+        def scalar_one_or_none(self):
+            return self.value
+
+    class _Session:
+        def __init__(self, inbound_text):
+            self.inbound_text = inbound_text
+
+        def execute(self, _statement):
+            return _Result(self.inbound_text)
+
+    context = _reminder_context('lider_consol')
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(catalog, '_current_term_version', lambda: 'lgpd-v2')
+
+    assert catalog._consolidation_reminder_target(
+        context, requested_text='Quero ativar lembretes de consolidação.'
+    ) == catalog.CatalogTarget(
+        'configurar_lembrete_consolidacao',
+        MappingProxyType({'pessoa_id': str(_PERSON), 'term_version': 'lgpd-v2'}),
+        'Ativar lembretes de pendências de consolidação',
+    )
+    assert catalog._consolidation_reminder_target(
+        context, requested_text='Quais pendências de consolidação existem?'
+    ) is None
+    assert catalog._consolidation_reminder_target(
+        _reminder_context('membro'),
+        requested_text='Quero ativar lembretes de consolidação.',
+    ) is None
+
+    args = {'pessoa_id': str(_PERSON), 'term_version': 'lgpd-v2'}
+    assert not catalog.consolidation_reminder_arguments_authorized(
+        _Session('Quais pendências de consolidação existem?'),
+        context=context,
+        target=ProposalTarget(kind='pessoa', id=_PERSON),
+        arguments=args,
+    )
+    assert catalog.consolidation_reminder_arguments_authorized(
+        _Session('Quero ativar lembretes de consolidação.'),
+        context=context,
+        target=ProposalTarget(kind='pessoa', id=_PERSON),
+        arguments=args,
+        summary=(
+            'Ativar lembretes de pendências de consolidação. Confirma esta ação? '
+            'Responda SIM ou NÃO. A proposta vale por 10 minutos.'
+        ),
+    )
+    assert not catalog.consolidation_reminder_arguments_authorized(
+        _Session('Quero ativar lembretes de consolidação.'),
+        context=context,
+        target=ProposalTarget(kind='pessoa', id=UUID(int=99)),
+        arguments=args,
+    )
+
+
+def test_build_catalog_exposes_consolidation_pending_query_without_a_handle(monkeypatch):
+    import app.services.agent_privilege_catalog as catalog
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return 'Quais pendências de consolidação existem?'
+
+        def all(self):
+            return []
+
+        def scalars(self):
+            return self
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(catalog, 'agenda_enabled_from_environment', lambda _tenant: False)
+    monkeypatch.setattr(
+        catalog,
+        'action_allowed',
+        lambda _context, code: code == 'consultar_pendencias_consolidacao',
+    )
+
+    options, targets = catalog.build_catalog(_Session(), _reminder_context('lider_consol'))
+
+    pending = next(option for option in options if option.code == 'consultar_pendencias_consolidacao')
+    assert pending.candidates == ()
+    assert targets[('consultar_pendencias_consolidacao', None)].code == (
+        'consultar_pendencias_consolidacao'
+    )
+
+
+def _pending_item(
+    item_id: UUID,
+    *,
+    consolidacao_id: UUID,
+    responsavel_id: UUID | None,
+    task_type: str = 'fonovisita',
+    revision: int = 0,
+):
+    from app.services.consolidation_privileged import PendingConsolidationItem
+
+    return PendingConsolidationItem(
+        work_queue_item_id=item_id,
+        consolidacao_id=consolidacao_id,
+        pessoa_id=UUID('00000000-0000-0000-0000-0000000000d1'),
+        responsavel_id=responsavel_id,
+        assignment_revision=revision,
+        task_type=task_type,
+        due_at=None if task_type == 'fonovisita' else _NOW,
+    )
+
+
+@pytest.mark.parametrize('code', ['marcar_fonovisita_feita', 'atribuir_consolidacao'])
+def test_consolidation_mutations_require_the_closed_consolidation_roles(code):
+    assert action_allowed(ctx('lider_consol'), code)
+    assert action_allowed(ctx('pastor'), code)
+    assert not action_allowed(ctx('lider_celula'), code)
+    assert not action_allowed(ctx('financeiro'), code)
+
+
+def test_fonovisita_target_is_current_responsible_only_and_uses_a_stable_opaque_code():
+    import app.services.agent_privilege_catalog as catalog
+
+    own_consolidacao = UUID('00000000-0000-0000-0000-0000000000c3')
+    own_item = _pending_item(
+        UUID('12345678-90ab-cdef-0000-000000000001'),
+        consolidacao_id=own_consolidacao,
+        responsavel_id=_USER,
+        revision=4,
+    )
+    other_item = _pending_item(
+        UUID('abcdef12-3456-7890-0000-000000000002'),
+        consolidacao_id=UUID('00000000-0000-0000-0000-0000000000c4'),
+        responsavel_id=UUID('00000000-0000-0000-0000-0000000000b2'),
+    )
+
+    target = catalog._fonovisita_target_from_items(
+        _reminder_context('lider_consol'),
+        (own_item, other_item),
+        requested_text='Marcar fonovisita feita P-1234567890.',
+    )
+
+    assert target is not None
+    assert target.code == 'marcar_fonovisita_feita'
+    assert dict(target.arguments) == {
+        'work_queue_item_id': str(own_item.work_queue_item_id),
+        'consolidacao_id': str(own_consolidacao),
+        'assignment_revision': 4,
+    }
+    assert target.summary == 'Confirmar fonovisita pendente P-1234567890'
+    assert str(own_item.work_queue_item_id) not in target.summary
+    assert catalog._fonovisita_target_from_items(
+        _reminder_context('lider_consol'),
+        (own_item, other_item),
+        requested_text='Marcar fonovisita feita.',
+    ) == target
+    second_own = _pending_item(
+        UUID('98765432-10ab-cdef-0000-000000000003'),
+        consolidacao_id=UUID('00000000-0000-0000-0000-0000000000c5'),
+        responsavel_id=_USER,
+    )
+    assert catalog._fonovisita_target_from_items(
+        _reminder_context('lider_consol'),
+        (own_item, second_own),
+        requested_text='Marcar fonovisita feita.',
+    ) is None
+
+
+def test_assignment_target_requires_one_stable_pending_code_and_a_unique_eligible_user():
+    import app.services.agent_privilege_catalog as catalog
+
+    consolidacao_id = UUID('00000000-0000-0000-0000-0000000000c3')
+    item = _pending_item(
+        UUID('12345678-90ab-cdef-0000-000000000001'),
+        consolidacao_id=consolidacao_id,
+        responsavel_id=None,
+        task_type='conectar_celula',
+        revision=5,
+    )
+    third = UUID('00000000-0000-0000-0000-0000000000b2')
+    users = {_USER: 'Ana Líder', third: 'Maria Silva'}
+
+    target = catalog._assignment_target_from_items(
+        _reminder_context('pastor'),
+        (item,),
+        requested_text='Atribuir P-1234567890 para Maria Silva.',
+        eligible_users=users,
+    )
+
+    assert target is not None
+    assert target.code == 'atribuir_consolidacao'
+    assert dict(target.arguments) == {
+        'consolidacao_id': str(consolidacao_id),
+        'responsavel_id': str(third),
+        'assignment_revision': 5,
+    }
+    assert target.summary == (
+        'Atribuir consolidação da pendência P-1234567890 ao responsável indicado'
+    )
+    assert 'Maria' not in target.summary
+    assert catalog._assignment_target_from_items(
+        _reminder_context('pastor'),
+        (item,),
+        requested_text='Atribuir P-1234567890 para Maria Silva.',
+        eligible_users={_USER: 'Ana Líder'},
+    ) is None
+    assert catalog._assignment_target_from_items(
+        _reminder_context('pastor'),
+        (item,),
+        requested_text='Atribuir P-1234567890 para Ana Líder.',
+        eligible_users={_USER: 'Ana Líder', third: 'Ana Líder'},
+    ) is None
+
+
+def test_assignment_target_allows_only_an_eligible_self_shortcut():
+    import app.services.agent_privilege_catalog as catalog
+
+    item = _pending_item(
+        UUID('12345678-90ab-cdef-0000-000000000001'),
+        consolidacao_id=UUID('00000000-0000-0000-0000-0000000000c3'),
+        responsavel_id=None,
+    )
+    context = _reminder_context('lider_consol')
+
+    target = catalog._assignment_target_from_items(
+        context,
+        (item,),
+        requested_text='Atribuir P-1234567890 para mim.',
+        eligible_users={_USER: 'Ana Líder'},
+    )
+
+    assert target is not None
+    assert target.arguments['responsavel_id'] == str(_USER)
+    assert catalog._assignment_target_from_items(
+        context,
+        (item,),
+        requested_text='Atribuir P-1234567890 para mim.',
+        eligible_users={},
+    ) is None
+
+
+def test_consolidation_router_projection_is_opaque_and_skips_the_person_roster(monkeypatch):
+    import app.services.agent_privilege_catalog as catalog
+
+    context = _reminder_context('pastor')
+    assignment = catalog.CatalogTarget(
+        'atribuir_consolidacao',
+        MappingProxyType({
+            'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+            'responsavel_id': str(_USER),
+            'assignment_revision': 4,
+        }),
+        'Atribuir consolidação da pendência P-1234567890 ao responsável indicado',
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return 'Atribuir P-1234567890 para Ma\u0301ria Łucía.'
+
+    class _Session:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, statement):
+            self.statements.append(str(statement))
+            return _Result()
+
+    session = _Session()
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(
+        catalog,
+        'action_allowed',
+        lambda _context, code: code in {
+            'consultar_pendencias_consolidacao',
+            'atribuir_consolidacao',
+        },
+    )
+    monkeypatch.setattr(catalog, '_consolidation_reminder_target', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(catalog, '_consolidation_fonovisita_targets', lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(
+        catalog,
+        '_eligible_consolidation_users',
+        lambda *_args, **_kwargs: {_USER: 'Mária Łucía'},
+    )
+    monkeypatch.setattr(
+        catalog,
+        '_consolidation_assignment_targets',
+        lambda *_args, **_kwargs: (assignment,),
+    )
+
+    projected = catalog.consolidation_routing_projection(session, context)
+    options, targets = catalog.build_consolidation_catalog(session, context)
+
+    assert projected is not None
+    assert projected.text == (
+        'Solicitação de atribuição de consolidação. '
+        'Códigos opacos informados: P-1234567890.'
+    )
+    assert projected.required_codes == ('atribuir_consolidacao',)
+    assert not projected.handoff_only
+    assert {option.code for option in options} == {
+        'consultar_pendencias_consolidacao',
+        'atribuir_consolidacao',
+    }
+    assert targets[('atribuir_consolidacao', 'h1')] == assignment
+    rendered = repr((projected, options, targets)).casefold()
+    assert 'maria' not in rendered
+    assert 'lucia' not in rendered
+    assert not any(' from pessoas' in statement.casefold() for statement in session.statements)
+
+
+@pytest.mark.parametrize(
+    'inbound_text',
+    (
+        'Quais pendências de Maria Silva?',
+        'Quais pendências de consolidação? hoje planejo desaparecer para sempre.',
+    ),
+)
+def test_consolidation_router_marks_recognized_residual_as_handoff_without_exposing_it(
+    monkeypatch,
+    inbound_text,
+):
+    import app.services.agent_privilege_catalog as catalog
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return inbound_text
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+
+    projected = catalog.consolidation_routing_projection(
+        _Session(),
+        _reminder_context('pastor'),
+    )
+
+    assert projected is not None
+    assert projected.handoff_only
+    assert projected.required_codes == ()
+    assert inbound_text.casefold() not in projected.text.casefold()
+    assert 'maria' not in projected.text.casefold()
+    assert 'desaparecer' not in projected.text.casefold()
+
+
+def test_consolidation_router_keeps_only_a_uniquely_resolved_assignment_target(monkeypatch):
+    import app.services.agent_privilege_catalog as catalog
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return 'Atribuir P-1234567890 para Mária Łucía.'
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(
+        catalog,
+        '_eligible_consolidation_users',
+        lambda *_args, **_kwargs: {_USER: 'Mária Łucía'},
+    )
+
+    projected = catalog.consolidation_routing_projection(
+        _Session(),
+        _reminder_context('pastor'),
+    )
+
+    assert projected is not None
+    assert not projected.handoff_only
+    assert projected.text == (
+        'Solicitação de atribuição de consolidação. '
+        'Códigos opacos informados: P-1234567890.'
+    )
+    assert projected.required_codes == ('atribuir_consolidacao',)
+
+
+def test_build_catalog_exposes_only_server_revalidated_consolidation_mutations(monkeypatch):
+    import app.services.agent_privilege_catalog as catalog
+
+    fono = catalog.CatalogTarget(
+        'marcar_fonovisita_feita',
+        MappingProxyType({
+            'work_queue_item_id': str(UUID('12345678-90ab-cdef-0000-000000000001')),
+            'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+            'assignment_revision': 4,
+        }),
+        'Confirmar fonovisita pendente P-1234567890',
+    )
+    assignment = catalog.CatalogTarget(
+        'atribuir_consolidacao',
+        MappingProxyType({
+            'consolidacao_id': str(UUID('00000000-0000-0000-0000-0000000000c3')),
+            'responsavel_id': str(_USER),
+            'assignment_revision': 4,
+        }),
+        'Atribuir consolidação da pendência P-1234567890 ao responsável indicado',
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return 'Atribuir P-1234567890 para mim e confirmar fonovisita.'
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(catalog, 'consolidation_enabled_from_environment', lambda _tenant: True)
+    monkeypatch.setattr(catalog, 'agenda_enabled_from_environment', lambda _tenant: False)
+    monkeypatch.setattr(catalog, '_consolidation_reminder_target', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        catalog,
+        'action_allowed',
+        lambda _context, code: code in {'marcar_fonovisita_feita', 'atribuir_consolidacao'},
+    )
+    monkeypatch.setattr(catalog, '_consolidation_fonovisita_targets', lambda *_args, **_kwargs: (fono,))
+    monkeypatch.setattr(catalog, '_consolidation_assignment_targets', lambda *_args, **_kwargs: (assignment,))
+
+    options, targets = catalog.build_catalog(_Session(), _reminder_context('pastor'))
+
+    mutation_options = {
+        option.code
+        for option in options
+        if option.code in {'marcar_fonovisita_feita', 'atribuir_consolidacao'}
+    }
+    assert mutation_options == {'marcar_fonovisita_feita', 'atribuir_consolidacao'}
+    assert targets[('marcar_fonovisita_feita', 'h1')] == fono
+    assert targets[('atribuir_consolidacao', 'h1')] == assignment
+    assert all('Maria' not in candidate.summary for option in options for candidate in option.candidates)
+
+
+@pytest.mark.parametrize(
+    ('authorizer', 'target_kind', 'target_id', 'arguments', 'summary'),
+    (
+        (
+            'fonovisita_arguments_authorized',
+            'pendencia_consolidacao',
+            UUID('00000000-0000-0000-0000-0000000000e5'),
+            {
+                'work_queue_item_id': '00000000-0000-0000-0000-0000000000e5',
+                'consolidacao_id': '00000000-0000-0000-0000-0000000000c3',
+                'assignment_revision': 4,
+            },
+            'Confirmar fonovisita pendente P-0000000000',
+        ),
+        (
+            'assignment_arguments_authorized',
+            'consolidacao',
+            UUID('00000000-0000-0000-0000-0000000000c3'),
+            {
+                'consolidacao_id': '00000000-0000-0000-0000-0000000000c3',
+                'responsavel_id': str(_USER),
+                'assignment_revision': 4,
+            },
+            'Atribuir consolidação da pendência P-0000000000 ao responsável indicado',
+        ),
+    ),
+)
+def test_consolidation_proposal_authorizer_requires_the_current_server_target(
+    monkeypatch,
+    authorizer,
+    target_kind,
+    target_id,
+    arguments,
+    summary,
+):
+    import app.services.agent_privilege_catalog as catalog
+
+    code = (
+        'marcar_fonovisita_feita'
+        if authorizer == 'fonovisita_arguments_authorized'
+        else 'atribuir_consolidacao'
+    )
+    candidate = catalog.CatalogTarget(code, MappingProxyType(arguments), summary)
+    targets_name = (
+        '_consolidation_fonovisita_targets'
+        if authorizer == 'fonovisita_arguments_authorized'
+        else '_consolidation_assignment_targets'
+    )
+    monkeypatch.setattr(catalog, targets_name, lambda *_args, **_kwargs: (candidate,))
+    proposal_target = ProposalTarget(kind=target_kind, id=target_id)
+    confirmed_summary = f'{summary}. Confirma esta ação? Responda SIM ou NÃO. A proposta vale por 10 minutos.'
+
+    assert getattr(catalog, authorizer)(
+        SimpleNamespace(),
+        context=_reminder_context('pastor'),
+        target=proposal_target,
+        arguments=arguments,
+        summary=confirmed_summary,
+    )
+    assert not getattr(catalog, authorizer)(
+        SimpleNamespace(),
+        context=_reminder_context('pastor'),
+        target=proposal_target,
+        arguments=dict(arguments, assignment_revision=5),
+        summary=confirmed_summary,
+    )
+    assert not getattr(catalog, authorizer)(
+        SimpleNamespace(),
+        context=_reminder_context('pastor'),
+        target=proposal_target,
+        arguments=arguments,
+        summary='Resumo adulterado.',
+    )

@@ -13,6 +13,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
@@ -63,6 +64,27 @@ class NotificationTransport:
     instance: str
     phone: str
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ConsolidationIntent:
+    purpose: str
+    consolidacao_id: uuid.UUID
+    work_queue_item_id: uuid.UUID
+    occurrence_at: dt.datetime
+    pessoa_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class _ConsolidationSource:
+    purpose: str
+    consolidacao_id: uuid.UUID
+    work_queue_item_id: uuid.UUID
+    occurrence_at: dt.datetime
+    fingerprint: str
+    assigned: bool
+    deadline: dt.datetime | None
+    type_label: str
 
 
 def _utc_datetime(value: object) -> dt.datetime | None:
@@ -129,6 +151,9 @@ def _evt7_pre_send_expired(row: object, *, now: dt.datetime) -> bool:
 def _pre_send_retry_allowed(row: object, *, due_at: dt.datetime) -> bool:
     """Keep source/context deferrals inside durable purpose-specific bounds."""
 
+    if getattr(row, "purpose", None) in _CONSOLIDATION_PURPOSES:
+        expires_at = _consolidation_expiry(row)
+        return expires_at is not None and due_at < expires_at
     if getattr(row, "purpose", None) != "agenda_evt7":
         return True
     deadline = _evt7_pre_send_deadline(getattr(row, "created_at", None))
@@ -141,6 +166,24 @@ def _retry_is_proven_before_send(result: object) -> bool:
         and type(getattr(result, "error_class", None)) is str
         and getattr(result, "error_class") in _PROVEN_PRE_SEND_ERRORS
     )
+
+
+def _consolidation_expiry(row: object) -> dt.datetime | None:
+    """Return V3's fixed 24-hour bound from its immutable occurrence."""
+
+    if getattr(row, "purpose", None) not in _CONSOLIDATION_PURPOSES:
+        return None
+    occurrence = _utc_datetime(getattr(row, "occurrence_at", None))
+    if occurrence is None:
+        return None
+    return occurrence + dt.timedelta(hours=24)
+
+
+def _consolidation_expired(row: object, *, now: dt.datetime) -> bool:
+    if getattr(row, "purpose", None) not in _CONSOLIDATION_PURPOSES:
+        return False
+    expires_at = _consolidation_expiry(row)
+    return expires_at is None or now >= expires_at
 
 
 def result_transition(
@@ -287,6 +330,38 @@ def _agenda_preference_allows(
             WhatsappReminderPreference.igreja_id == igreja_id,
             WhatsappReminderPreference.pessoa_id == pessoa_id,
             WhatsappReminderPreference.reminder_kind == "agenda",
+        )
+    ).scalar_one_or_none()
+    term = getattr(get_settings(), "agent_term_version", None)
+    accepted_at = _utc_datetime(getattr(preference, "accepted_at", None))
+    return bool(
+        preference is not None
+        and preference.state == "active"
+        and type(term) is str
+        and bool(term)
+        and preference.term_version == term
+        and accepted_at is not None
+        and accepted_at <= now
+    )
+
+
+def _consolidation_preference_allows(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    pessoa_id: uuid.UUID,
+    now: dt.datetime,
+) -> bool:
+    """Require the explicit current-term V3 opt-in for one recipient."""
+
+    from app.config import get_settings
+    from app.db.models import WhatsappReminderPreference
+
+    preference = session.execute(
+        select(WhatsappReminderPreference).where(
+            WhatsappReminderPreference.igreja_id == igreja_id,
+            WhatsappReminderPreference.pessoa_id == pessoa_id,
+            WhatsappReminderPreference.reminder_kind == "consolidation",
         )
     ).scalar_one_or_none()
     term = getattr(get_settings(), "agent_term_version", None)
@@ -579,6 +654,135 @@ def execute_agenda_reminder_subscription(session: Session, execution: object):
     )
 
 
+def execute_consolidation_reminder_subscription(session: Session, execution: object):
+    """Persist a confirmed self opt-in for future V3 consolidation alerts.
+
+    The S3 resolver owns the encompassing transaction and receipt. This effect
+    never commits, constructs an outbound message, or creates notification
+    work. A later V3 scheduler can only create prospective work after the
+    worker-owned activation marker is open.
+    """
+
+    from app.config import get_settings
+    from app.db.models import WhatsappReminderPreference
+    from app.domain.phone import normalize_phone
+    from app.services.agent_action_proposals import (
+        ActionEffect,
+        AgentAction,
+        ProposalContractError,
+        ProposalExecutionDenied,
+        ProposalTarget,
+        canonical_action_arguments,
+    )
+    from app.services.consolidation_whatsapp import (
+        CONSOLIDATION_WHATSAPP_ROLES,
+        consolidation_enabled_from_environment,
+    )
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    def deny() -> None:
+        raise ProposalExecutionDenied("domain_denied")
+
+    tenant = _valid_uuid(getattr(execution, "igreja_id", None))
+    proposal_id = _valid_uuid(getattr(execution, "proposal_id", None))
+    context = getattr(execution, "privilege_context", None)
+    target = getattr(execution, "target", None)
+    action = getattr(execution, "action", None)
+    if (
+        tenant is None
+        or proposal_id is None
+        or type(context) is not PrivilegeContext
+        or type(target) is not ProposalTarget
+        or action is not AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO
+        or getattr(context, "igreja_id", None) != tenant
+        or not bool(context.roles & CONSOLIDATION_WHATSAPP_ROLES)
+        or not consolidation_enabled_from_environment(tenant)
+    ):
+        deny()
+    try:
+        arguments = canonical_action_arguments(
+            AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO,
+            target,
+            getattr(execution, "arguments", None),
+        )
+        pessoa_id = uuid.UUID(arguments["pessoa_id"])
+    except (ProposalContractError, TypeError, ValueError):
+        deny()
+    if target.id != pessoa_id or pessoa_id != getattr(context, "pessoa_id", None):
+        deny()
+    term_version = arguments["term_version"]
+    if term_version != getattr(get_settings(), "agent_term_version", None):
+        deny()
+
+    current = _worker_now(None)
+    _scoped(session, tenant, "consolidation_reminder_subscription")
+    pessoa, conversations = _lock_notification_recipient_prefix(
+        session, igreja_id=tenant, pessoa_id=pessoa_id
+    )
+    inbound_conversation = next(
+        (
+            conversation
+            for conversation in conversations
+            if getattr(conversation, "id", None) == context.conversation_id
+        ),
+        None,
+    )
+    pessoa_phone = normalize_phone(getattr(pessoa, "telefone", "") or "")
+    conversation_phone = normalize_phone(
+        getattr(inbound_conversation, "telefone", "") or ""
+    )
+    if (
+        pessoa is None
+        or getattr(pessoa, "igreja_id", None) != tenant
+        or getattr(pessoa, "id", None) != pessoa_id
+        or getattr(pessoa, "arquivada_em", None) is not None
+        or getattr(pessoa, "optout", None) is True
+        or getattr(pessoa, "sem_interesse", None) is True
+        or inbound_conversation is None
+        or getattr(inbound_conversation, "igreja_id", None) != tenant
+        or getattr(inbound_conversation, "pessoa_id", None) not in {None, pessoa_id}
+        or getattr(inbound_conversation, "estado", None) == "humano"
+        or getattr(inbound_conversation, "assumido_por", None) is not None
+        or not pessoa_phone
+        or pessoa_phone != conversation_phone
+        or not _current_consent_allows(
+            session, igreja_id=tenant, pessoa_id=pessoa_id, now=current
+        )
+    ):
+        deny()
+
+    preference = session.execute(
+        select(WhatsappReminderPreference)
+        .where(
+            WhatsappReminderPreference.igreja_id == tenant,
+            WhatsappReminderPreference.pessoa_id == pessoa_id,
+            WhatsappReminderPreference.reminder_kind == "consolidation",
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if preference is None:
+        session.add(
+            WhatsappReminderPreference(
+                igreja_id=tenant,
+                pessoa_id=pessoa_id,
+                reminder_kind="consolidation",
+                state="active",
+                term_version=term_version,
+                accepted_at=current,
+                changed_at=current,
+            )
+        )
+    else:
+        preference.state = "active"
+        preference.term_version = term_version
+        preference.accepted_at = current
+        preference.changed_at = current
+    return ActionEffect(
+        receipt_text="Lembretes de consolidação ativados.",
+        opaque_effect_id=pessoa_id,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _Evt7Recipient:
     id: uuid.UUID | None
@@ -744,6 +948,18 @@ def _worker_now(value: dt.datetime | None) -> dt.datetime:
     return current
 
 
+def _fresh_transport_now(not_before: dt.datetime) -> dt.datetime:
+    """Read the clock again after final locks without moving time backward.
+
+    A caller can provide a deterministic clock for a cycle, while real waits
+    under Conversation, Pessoa, Config, source and outbox locks must still be
+    able to cross a transport boundary before the provider commit.
+    """
+
+    observed = _worker_now(None)
+    return observed if observed >= not_before else not_before
+
+
 def _discover_notification_tenants(
     session_factory: Callable[[], Session],
 ) -> tuple[uuid.UUID, ...]:
@@ -872,7 +1088,15 @@ _PENDING_STATES = ("pendente", "retry")
 _QUOTA_RESERVING_STATES = frozenset(
     {"pendente", "retry", "em_envio", "enviado", "ambiguo", "obsoleto"}
 )
+_CONSOLIDATION_QUOTA_RESERVING_STATES = _QUOTA_RESERVING_STATES | {"cancelado"}
 _AGENDA_PURPOSES = frozenset({"agenda_reminder", "agenda_evt7"})
+_CONSOLIDATION_PURPOSES = frozenset(
+    {
+        "consolidation_connection_open",
+        "consolidation_connection_deadline",
+        "consolidation_fonovisita",
+    }
+)
 
 
 def _scoped(session: Session, igreja_id: uuid.UUID, source: str) -> None:
@@ -934,14 +1158,16 @@ def disable_whatsapp_reminders(
             .where(
                 WhatsappReminderPreference.igreja_id == tenant,
                 WhatsappReminderPreference.pessoa_id == person_id,
-                WhatsappReminderPreference.reminder_kind.in_(("agenda", "cell_report")),
+                WhatsappReminderPreference.reminder_kind.in_(
+                    ("agenda", "cell_report", "consolidation")
+                ),
             )
             .order_by(WhatsappReminderPreference.reminder_kind.asc())
             .with_for_update()
         ).scalars()
     }
     changed = False
-    for reminder_kind in ("agenda", "cell_report"):
+    for reminder_kind in ("agenda", "cell_report", "consolidation"):
         preference = existing.get(reminder_kind)
         if preference is None:
             session.add(
@@ -975,16 +1201,19 @@ def disable_whatsapp_reminders(
         changed = True
 
     # A delivered S3 reminder offer is still an unexecuted capability. Fence
-    # only this Agenda action for the same person, while the shared recipient
-    # lock is held, so a later SIM cannot recreate a preference, subscription
-    # or outbox row after PARAR LEMBRETES. Other sensitive S3 actions remain
-    # untouched because their user control has a different contract.
+    # only these reminder actions for the same person, while the shared
+    # recipient lock is held, so a later SIM cannot recreate a preference,
+    # subscription or outbox row after PARAR LEMBRETES. Other sensitive S3
+    # actions remain untouched because their user control has a different
+    # contract.
     cancelled_proposals = session.execute(
         update(AgentActionProposal)
         .where(
             AgentActionProposal.igreja_id == tenant,
             AgentActionProposal.actor_pessoa_id == person_id,
-            AgentActionProposal.action == "configurar_lembrete_agenda",
+            AgentActionProposal.action.in_(
+                ("configurar_lembrete_agenda", "configurar_lembrete_consolidacao")
+            ),
             AgentActionProposal.state.in_(("preparada", "pendente")),
         )
         .values(
@@ -1086,6 +1315,7 @@ def _terminalize(
 def _purpose_gate_allows(purpose: object, igreja_id: uuid.UUID) -> bool:
     from app.config import get_settings
     from app.services.cell_report_whatsapp import cell_report_enabled_from_environment
+    from app.services.consolidation_whatsapp import consolidation_delivery_enabled
     from app.services.outbound_guard import external_sends_allowed
 
     settings = get_settings()
@@ -1095,24 +1325,27 @@ def _purpose_gate_allows(purpose: object, igreja_id: uuid.UUID) -> bool:
         return agenda_delivery_enabled(igreja_id)
     if purpose == "cell_report_reminder":
         return cell_report_enabled_from_environment(igreja_id)
+    if purpose in _CONSOLIDATION_PURPOSES:
+        return consolidation_delivery_enabled(igreja_id)
     return False
 
 
-def _agenda_quota_rank(
+def _notification_quota_rank(
     session: Session,
     *,
     row: object,
     now: dt.datetime,
+    purposes: frozenset[str],
+    reserving_states: frozenset[str],
 ) -> tuple[int, dt.date] | None:
-    """Count one Agenda transport slot while Pessoa is locked.
+    """Count one purpose-family transport slot while Pessoa is locked.
 
     The cap is about the São Paulo day on which transport starts, never an
-    event's occurrence date or insertion order.  Every established reservation
-    on that day counts before a candidate, including a source that was later
-    removed and an ambiguous result.  Only a row already classified as a
-    proven pre-send retry may move to a later day.  The caller persists the
-    returned day with its final transition, after all source reads, so this
-    calculation never causes an intermediate autoflush.
+    occurrence date or insertion order. Every established reservation on that
+    day counts before a candidate, including a source that was later removed
+    and an ambiguous result. Only a proven pre-send retry may move to a later
+    day. The caller persists the returned day after source reads, avoiding an
+    intermediate autoflush while its source locks are held.
     """
 
     from app.db.models import NotificationOutbox
@@ -1137,9 +1370,9 @@ def _agenda_quota_rank(
             .where(
                 NotificationOutbox.igreja_id == row.igreja_id,
                 NotificationOutbox.pessoa_id == row.pessoa_id,
-                NotificationOutbox.purpose.in_(tuple(sorted(_AGENDA_PURPOSES))),
+                NotificationOutbox.purpose.in_(tuple(sorted(purposes))),
                 NotificationOutbox.delivery_reservation_day == target_day,
-                NotificationOutbox.state.in_(tuple(sorted(_QUOTA_RESERVING_STATES))),
+                NotificationOutbox.state.in_(tuple(sorted(reserving_states))),
             )
         ).scalars()
     )
@@ -1149,12 +1382,61 @@ def _agenda_quota_rank(
     return rank, target_day
 
 
+def _agenda_quota_rank(
+    session: Session,
+    *,
+    row: object,
+    now: dt.datetime,
+) -> tuple[int, dt.date] | None:
+    """Count one Agenda transport slot while Pessoa is locked."""
+
+    return _notification_quota_rank(
+        session,
+        row=row,
+        now=now,
+        purposes=_AGENDA_PURPOSES,
+        reserving_states=_QUOTA_RESERVING_STATES,
+    )
+
+
+def _consolidation_quota_rank(
+    session: Session,
+    *,
+    row: object,
+    now: dt.datetime,
+) -> tuple[int, dt.date] | None:
+    """Keep V3's two daily alerts separate from Agenda reservations."""
+
+    return _notification_quota_rank(
+        session,
+        row=row,
+        now=now,
+        purposes=_CONSOLIDATION_PURPOSES,
+        reserving_states=_CONSOLIDATION_QUOTA_RESERVING_STATES,
+    )
+
+
+def _next_consolidation_quota_window(now: dt.datetime) -> dt.datetime | None:
+    """Defer a V3 candidate to the next local opening without changing expiry."""
+
+    current = _utc_datetime(now)
+    if current is None:
+        return None
+    local = current.astimezone(SAO_PAULO_TZ) + dt.timedelta(days=1)
+    return local.replace(hour=8, minute=0, second=0, microsecond=0).astimezone(_UTC)
+
+
 def _reschedule_outside_window(row: object, *, now: dt.datetime) -> bool:
-    """Move a claim to the next opening, never past an Agenda occurrence."""
+    """Move a claim to the next opening inside each purpose's fixed bound."""
 
     due_at = next_transport_window(now)
     if due_at is None or not _pre_send_retry_allowed(row, due_at=due_at):
-        _terminalize(row, state="cancelado", reason="pre_envio_expirado", now=now)
+        reason = (
+            "expirado"
+            if getattr(row, "purpose", None) in _CONSOLIDATION_PURPOSES
+            else "pre_envio_expirado"
+        )
+        _terminalize(row, state="cancelado", reason=reason, now=now)
         return False
     occurrence = _utc_datetime(getattr(row, "occurrence_at", None))
     if getattr(row, "purpose", None) == "agenda_reminder" and (
@@ -1234,6 +1516,10 @@ def _maintain_notification_tenant(
                 row.updated_at = now
                 changed += 1
                 continue
+            if row.state in _PENDING_STATES and _consolidation_expired(row, now=now):
+                _terminalize(row, state="cancelado", reason="expirado", now=now)
+                changed += 1
+                continue
             if row.state in _PENDING_STATES and not _purpose_gate_allows(
                 row.purpose, igreja_id
             ):
@@ -1310,6 +1596,10 @@ def _claim_next_notification(
                 _terminalize(row, state="cancelado", reason="pre_envio_expirado", now=now)
                 session.commit()
                 continue
+            if _consolidation_expired(row, now=now):
+                _terminalize(row, state="cancelado", reason="expirado", now=now)
+                session.commit()
+                continue
             if not transport_window_open(now):
                 _reschedule_outside_window(row, now=now)
                 session.commit()
@@ -1325,6 +1615,25 @@ def _claim_next_notification(
                 if rank > 2:
                     row.delivery_reservation_day = reservation_day
                     _terminalize(row, state="cancelado", reason="limite_diario", now=now)
+                    session.commit()
+                    continue
+            elif row.purpose in _CONSOLIDATION_PURPOSES:
+                quota = _consolidation_quota_rank(session, row=row, now=now)
+                if quota is None:
+                    _terminalize(row, state="obsoleto", reason="quota_invalida", now=now)
+                    session.commit()
+                    continue
+                rank, reservation_day = quota
+                if rank > 2:
+                    due_at = _next_consolidation_quota_window(now)
+                    if due_at is None or not _pre_send_retry_allowed(row, due_at=due_at):
+                        _terminalize(row, state="cancelado", reason="expirado", now=now)
+                    else:
+                        row.state = "pendente"
+                        row.due_at = due_at
+                        row.terminal_reason = None
+                        _clear_claim(row)
+                        row.updated_at = now
                     session.commit()
                     continue
             destination, _destination_reason = _recipient_transport_context(
@@ -1451,6 +1760,10 @@ def _recipient_transport_context(
         return None, "contexto_revogado"
     if purpose in _AGENDA_PURPOSES:
         preference_ok = _agenda_preference_allows(
+            session, igreja_id=igreja_id, pessoa_id=pessoa_id, now=now
+        )
+    elif purpose in _CONSOLIDATION_PURPOSES:
+        preference_ok = _consolidation_preference_allows(
             session, igreja_id=igreja_id, pessoa_id=pessoa_id, now=now
         )
     elif purpose == "cell_report_reminder":
@@ -1824,6 +2137,863 @@ def schedule_due_cell_report_notification_outbox(
     return created
 
 
+def _consolidation_fingerprint(track: object, task: object) -> str | None:
+    """Hash only opaque V3 source facts that must remain current at send time."""
+
+    track_id = _valid_uuid(getattr(track, "id", None))
+    task_id = _valid_uuid(getattr(task, "id", None))
+    pessoa_id = _valid_uuid(getattr(track, "pessoa_id", None))
+    task_pessoa_id = _valid_uuid(getattr(task, "pessoa_id", None))
+    if (
+        track_id is None
+        or task_id is None
+        or pessoa_id is None
+        or task_pessoa_id is None
+        or pessoa_id != task_pessoa_id
+    ):
+        return None
+    revision = getattr(track, "assignment_revision", None)
+    if type(revision) is not int or isinstance(revision, bool) or revision < 0:
+        return None
+    payload = {
+        "track": str(track_id),
+        "task": str(task_id),
+        "pessoa": str(pessoa_id),
+        "track_responsavel": str(getattr(track, "responsavel_id", None)),
+        "task_responsavel": str(getattr(task, "responsavel_id", None)),
+        "assignment_revision": revision,
+        "tipo": getattr(track, "tipo", None),
+        "track_created": (
+            _utc_datetime(getattr(track, "created_at", None)).isoformat()
+            if _utc_datetime(getattr(track, "created_at", None)) is not None
+            else None
+        ),
+        "prazo_conexao": (
+            _utc_datetime(getattr(track, "prazo_conexao", None)).isoformat()
+            if _utc_datetime(getattr(track, "prazo_conexao", None)) is not None
+            else None
+        ),
+        "concluida": getattr(track, "concluida", None),
+        "abandonada_em": (
+            _utc_datetime(getattr(track, "abandonada_em", None)).isoformat()
+            if _utc_datetime(getattr(track, "abandonada_em", None)) is not None
+            else None
+        ),
+        "task_tipo": getattr(task, "tipo", None),
+        "task_status": getattr(task, "status", None),
+        "task_created": (
+            _utc_datetime(getattr(task, "created_at", None)).isoformat()
+            if _utc_datetime(getattr(task, "created_at", None)) is not None
+            else None
+        ),
+        "task_prazo": (
+            _utc_datetime(getattr(task, "prazo", None)).isoformat()
+            if _utc_datetime(getattr(task, "prazo", None)) is not None
+            else None
+        ),
+    }
+    try:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _consolidation_type_label(value: object) -> str:
+    """Never project a free-form domain type into a notification."""
+
+    return {"individual": "consolidação individual"}.get(value, "consolidação")
+
+
+def _consolidation_pending_code(task_id: uuid.UUID) -> str:
+    return f"P-{task_id.hex[:10].upper()}"
+
+
+def _eligible_consolidation_recipient_ids(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    responsavel_id: uuid.UUID | None,
+) -> tuple[uuid.UUID, ...]:
+    """Resolve only current linked operators, never a person inferred by phone."""
+
+    from app.db.models import AppUser, Pessoa, UserRole
+    from app.services.consolidation_whatsapp import CONSOLIDATION_WHATSAPP_ROLES
+
+    statement = (
+        select(AppUser.pessoa_id)
+        .join(
+            Pessoa,
+            (Pessoa.igreja_id == AppUser.igreja_id) & (Pessoa.id == AppUser.pessoa_id),
+        )
+        .join(
+            UserRole,
+            (UserRole.igreja_id == AppUser.igreja_id) & (UserRole.user_id == AppUser.id),
+        )
+        .where(
+            AppUser.igreja_id == igreja_id,
+            AppUser.status == "ativo",
+            AppUser.pessoa_id.is_not(None),
+            Pessoa.arquivada_em.is_(None),
+            Pessoa.optout.is_(False),
+            Pessoa.sem_interesse.is_(False),
+            UserRole.papel.in_(tuple(sorted(CONSOLIDATION_WHATSAPP_ROLES))),
+        )
+    )
+    if responsavel_id is not None:
+        statement = statement.where(AppUser.id == responsavel_id)
+    values = {
+        value
+        for value in session.execute(statement).scalars()
+        if _valid_uuid(value) is not None
+    }
+    return tuple(sorted(values, key=str))
+
+
+def _consolidation_recipient_is_current(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    pessoa_id: uuid.UUID,
+    responsavel_id: uuid.UUID | None,
+) -> bool:
+    """Recompute the assigned or coordinator destination at the final fence."""
+
+    from app.db.models import AppUser, UserRole
+    from app.services.consolidation_whatsapp import CONSOLIDATION_WHATSAPP_ROLES
+
+    statement = (
+        select(AppUser.id)
+        .join(
+            UserRole,
+            (UserRole.igreja_id == AppUser.igreja_id) & (UserRole.user_id == AppUser.id),
+        )
+        .where(
+            AppUser.igreja_id == igreja_id,
+            AppUser.pessoa_id == pessoa_id,
+            AppUser.status == "ativo",
+            UserRole.papel.in_(tuple(sorted(CONSOLIDATION_WHATSAPP_ROLES))),
+        )
+        .with_for_update()
+    )
+    if responsavel_id is not None:
+        statement = statement.where(AppUser.id == responsavel_id)
+    return session.execute(statement.limit(1)).scalar_one_or_none() is not None
+
+
+def _lock_consolidation_source(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    consolidacao_id: uuid.UUID,
+) -> tuple[object | None, str | None]:
+    from app.db.models import Consolidacao
+
+    track = session.execute(
+        select(Consolidacao)
+        .where(Consolidacao.igreja_id == igreja_id, Consolidacao.id == consolidacao_id)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if track is not None:
+        return track, None
+    exists = session.execute(
+        select(Consolidacao.id).where(
+            Consolidacao.igreja_id == igreja_id,
+            Consolidacao.id == consolidacao_id,
+        )
+    ).scalar_one_or_none()
+    return None, "consolidacao_ocupada" if exists is not None else "consolidacao_alterada"
+
+
+def _lock_consolidation_task(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    task_id: uuid.UUID,
+) -> tuple[object | None, str | None]:
+    from app.db.models import WorkQueueItem
+
+    task = session.execute(
+        select(WorkQueueItem)
+        .where(WorkQueueItem.igreja_id == igreja_id, WorkQueueItem.id == task_id)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if task is not None:
+        return task, None
+    exists = session.execute(
+        select(WorkQueueItem.id).where(
+            WorkQueueItem.igreja_id == igreja_id,
+            WorkQueueItem.id == task_id,
+        )
+    ).scalar_one_or_none()
+    return None, "pendencia_ocupada" if exists is not None else "pendencia_alterada"
+
+
+def _lock_consolidation_activation(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+) -> tuple[object | None, str | None]:
+    from app.db.models import ConsolidationWhatsappActivation
+
+    activation = session.execute(
+        select(ConsolidationWhatsappActivation)
+        .where(ConsolidationWhatsappActivation.igreja_id == igreja_id)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if activation is not None:
+        return activation, None
+    exists = session.execute(
+        select(ConsolidationWhatsappActivation.igreja_id).where(
+            ConsolidationWhatsappActivation.igreja_id == igreja_id
+        )
+    ).scalar_one_or_none()
+    return None, "ativacao_ocupada" if exists is not None else "ativacao_fechada"
+
+
+def _consolidation_source_projection(
+    session: Session,
+    *,
+    row: object,
+    pessoa: object | None,
+    require_fingerprint: bool,
+) -> tuple[_ConsolidationSource | None, str | None]:
+    """Lock the exact V3 parent and canonical task without rerouting a row.
+
+    The common dispatcher reaches this after its Conversation -> Pessoa prefix.
+    It therefore uses ``SKIP LOCKED`` for Consolidacao and WorkQueueItem rather
+    than wait behind human Conso -> task writers and invert their lock order.
+    """
+
+    from app.db.models import Consolidacao, WorkQueueItem
+
+    igreja_id = _valid_uuid(getattr(row, "igreja_id", None))
+    recipient_id = _valid_uuid(getattr(row, "pessoa_id", None))
+    origin_id = _valid_uuid(getattr(row, "origin_id", None))
+    purpose = getattr(row, "purpose", None)
+    if igreja_id is None or recipient_id is None or origin_id is None or pessoa is None:
+        return None, "origem_invalida"
+    if _valid_uuid(getattr(pessoa, "id", None)) != recipient_id:
+        return None, "destinatario_revogado"
+
+    task_id: uuid.UUID
+    if purpose in {"consolidation_connection_open", "consolidation_connection_deadline"}:
+        consolidacao_id = _valid_uuid(getattr(row, "consolidacao_id", None))
+        if (
+            getattr(row, "origin_kind", None) != "consolidacao"
+            or consolidacao_id is None
+            or consolidacao_id != origin_id
+            or getattr(row, "work_queue_item_id", None) is not None
+        ):
+            return None, "origem_invalida"
+        track, reason = _lock_consolidation_source(
+            session, igreja_id=igreja_id, consolidacao_id=consolidacao_id
+        )
+        if track is None:
+            return None, reason
+        candidates = tuple(
+            session.execute(
+                select(WorkQueueItem.id)
+                .where(
+                    WorkQueueItem.igreja_id == igreja_id,
+                    WorkQueueItem.consolidacao_id == consolidacao_id,
+                    WorkQueueItem.tipo == "conectar_celula",
+                    WorkQueueItem.status.in_(("aberto", "assumido")),
+                )
+                .order_by(WorkQueueItem.id.asc())
+            ).scalars()
+        )
+        if len(candidates) != 1 or _valid_uuid(candidates[0]) is None:
+            return None, "conexao_nao_canonica"
+        task_id = candidates[0]
+        task, reason = _lock_consolidation_task(
+            session, igreja_id=igreja_id, task_id=task_id
+        )
+        if task is None:
+            return None, reason
+    elif purpose == "consolidation_fonovisita":
+        task_id = _valid_uuid(getattr(row, "work_queue_item_id", None))
+        if (
+            getattr(row, "origin_kind", None) != "work_queue"
+            or task_id is None
+            or task_id != origin_id
+            or getattr(row, "consolidacao_id", None) is not None
+        ):
+            return None, "origem_invalida"
+        task_hint = session.execute(
+            select(WorkQueueItem)
+            .where(WorkQueueItem.igreja_id == igreja_id, WorkQueueItem.id == task_id)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        consolidacao_id = _valid_uuid(getattr(task_hint, "consolidacao_id", None))
+        if task_hint is None or consolidacao_id is None:
+            return None, "fonovisita_alterada"
+        track, reason = _lock_consolidation_source(
+            session, igreja_id=igreja_id, consolidacao_id=consolidacao_id
+        )
+        if track is None:
+            return None, reason
+        task, reason = _lock_consolidation_task(
+            session, igreja_id=igreja_id, task_id=task_id
+        )
+        if task is None:
+            return None, reason
+    else:
+        return None, "finalidade_invalida"
+
+    track_id = _valid_uuid(getattr(track, "id", None))
+    track_pessoa_id = _valid_uuid(getattr(track, "pessoa_id", None))
+    task_track_id = _valid_uuid(getattr(task, "consolidacao_id", None))
+    task_pessoa_id = _valid_uuid(getattr(task, "pessoa_id", None))
+    track_created = _utc_datetime(getattr(track, "created_at", None))
+    task_created = _utc_datetime(getattr(task, "created_at", None))
+    if (
+        track_id is None
+        or track_pessoa_id is None
+        or task_track_id != track_id
+        or task_pessoa_id != track_pessoa_id
+        or track_created is None
+        or task_created is None
+        or getattr(track, "concluida", None) is not False
+        or getattr(track, "abandonada_em", None) is not None
+        or getattr(task, "status", None) not in {"aberto", "assumido"}
+        or getattr(task, "responsavel_id", None) != getattr(track, "responsavel_id", None)
+    ):
+        return None, "origem_alterada"
+    if purpose in {"consolidation_connection_open", "consolidation_connection_deadline"}:
+        if getattr(task, "tipo", None) != "conectar_celula":
+            return None, "conexao_nao_canonica"
+        deadline = _utc_datetime(getattr(track, "prazo_conexao", None))
+        if deadline is None or deadline <= track_created:
+            return None, "prazo_conexao_invalido"
+        occurrence_at = track_created if purpose == "consolidation_connection_open" else deadline
+    else:
+        if getattr(task, "tipo", None) != "fonovisita":
+            return None, "fonovisita_alterada"
+        deadline = _utc_datetime(getattr(task, "prazo", None))
+        occurrence_at = task_created
+    if _utc_datetime(getattr(row, "occurrence_at", None)) != occurrence_at:
+        return None, "origem_alterada"
+
+    activation, reason = _lock_consolidation_activation(session, igreja_id=igreja_id)
+    activated_at = _utc_datetime(getattr(activation, "activated_at", None))
+    if (
+        activation is None
+        or reason is not None
+        or getattr(activation, "gate_open", None) is not True
+        or activated_at is None
+        or track_created < activated_at
+        or task_created < activated_at
+    ):
+        return None, reason or "ativacao_fechada"
+    responsavel_id = _valid_uuid(getattr(track, "responsavel_id", None))
+    if not _consolidation_recipient_is_current(
+        session,
+        igreja_id=igreja_id,
+        pessoa_id=recipient_id,
+        responsavel_id=responsavel_id,
+    ):
+        return None, "destinatario_revogado"
+    fingerprint = _consolidation_fingerprint(track, task)
+    if fingerprint is None:
+        return None, "origem_alterada"
+    if require_fingerprint and getattr(row, "origin_fingerprint", None) != fingerprint:
+        return None, "origem_alterada"
+    return (
+        _ConsolidationSource(
+            purpose=purpose,
+            consolidacao_id=track_id,
+            work_queue_item_id=task_id,
+            occurrence_at=occurrence_at,
+            fingerprint=fingerprint,
+            assigned=responsavel_id is not None,
+            deadline=deadline,
+            type_label=_consolidation_type_label(getattr(track, "tipo", None)),
+        ),
+        None,
+    )
+
+
+def _consolidation_source_text(
+    source: _ConsolidationSource,
+    *,
+    pessoa: object,
+) -> tuple[str | None, str | None]:
+    """Build the fixed V3 template only after its source and destination lock."""
+
+    from app.config import get_settings
+    from app.services.consolidation_whatsapp import consolidation_panel_link, template_first_name
+
+    link = consolidation_panel_link(getattr(get_settings(), "frontend_url", None))
+    if link is None:
+        return None, "link_invalido"
+    code = _consolidation_pending_code(source.work_queue_item_id)
+    if not source.assigned:
+        return (
+            f"Há 1 pendência de consolidação ({code}). Acesse {link}.{_STOP_REMINDERS_NOTICE}",
+            None,
+        )
+    first_name = template_first_name(getattr(pessoa, "nome", None))
+    if first_name is None:
+        return None, "nome_invalido"
+    if source.deadline is None:
+        deadline_text = "Prazo não definido."
+    else:
+        local = source.deadline.astimezone(SAO_PAULO_TZ)
+        deadline_text = f"Prazo: {local:%d/%m às %H:%M}."
+    return (
+        f"Olá, {first_name}. Pendência de {source.type_label} ({code}). "
+        f"{deadline_text} Acesse {link}.{_STOP_REMINDERS_NOTICE}",
+        None,
+    )
+
+
+def _consolidation_source_transport_text(
+    session: Session,
+    *,
+    row: object,
+    pessoa: object | None,
+) -> tuple[str | None, str | None]:
+    source, reason = _consolidation_source_projection(
+        session, row=row, pessoa=pessoa, require_fingerprint=True
+    )
+    if source is None:
+        return None, reason
+    return _consolidation_source_text(source, pessoa=pessoa)
+
+
+def _discover_consolidation_schedule_tenants(
+    session_factory: Callable[[], Session],
+) -> tuple[uuid.UUID, ...]:
+    """Discover markers and configurations even before a new source exists."""
+
+    from app.db.models import (
+        AgentConfig,
+        Consolidacao,
+        ConsolidationWhatsappActivation,
+        NotificationOutbox,
+    )
+    from app.db.tenant_session import mark_cross_tenant
+
+    session = session_factory()
+    try:
+        mark_cross_tenant(session, source="notification_outbox_consolidation_schedule_discovery")
+        values: set[uuid.UUID] = set()
+        statements = (
+            select(AgentConfig.igreja_id).distinct(),
+            select(ConsolidationWhatsappActivation.igreja_id).distinct(),
+            select(Consolidacao.igreja_id).distinct(),
+            select(NotificationOutbox.igreja_id)
+            .where(NotificationOutbox.purpose.in_(tuple(sorted(_CONSOLIDATION_PURPOSES))))
+            .distinct(),
+        )
+        for statement in statements:
+            values.update(
+                value for value in session.execute(statement).scalars() if _valid_uuid(value)
+            )
+        return tuple(sorted(values, key=str))
+    finally:
+        session.close()
+
+
+def _sync_consolidation_activation(
+    session_factory: Callable[[], Session],
+    *,
+    igreja_id: uuid.UUID,
+    now: dt.datetime,
+) -> dt.datetime | None:
+    """Record only observed open epochs, preserving each prior durable cutoff."""
+
+    from app.db.models import AgentConfig, ConsolidationWhatsappActivation
+    from app.services.consolidation_whatsapp import consolidation_delivery_enabled
+
+    session = session_factory()
+    try:
+        _scoped(session, igreja_id, "notification_outbox_consolidation_activation")
+        config = session.execute(
+            select(AgentConfig)
+            .where(AgentConfig.igreja_id == igreja_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        enabled = bool(
+            config is not None
+            and getattr(config, "ativo", None) is True
+            and consolidation_delivery_enabled(igreja_id)
+        )
+        marker = session.execute(
+            select(ConsolidationWhatsappActivation)
+            .where(ConsolidationWhatsappActivation.igreja_id == igreja_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not enabled:
+            if marker is not None and getattr(marker, "gate_open", None) is True:
+                marker.gate_open = False
+            session.commit()
+            return None
+        if marker is None:
+            marker = ConsolidationWhatsappActivation(
+                igreja_id=igreja_id,
+                activated_at=now,
+                gate_open=True,
+            )
+            session.add(marker)
+            session.commit()
+            return now
+        previous = _utc_datetime(getattr(marker, "activated_at", None))
+        if getattr(marker, "gate_open", None) is True:
+            session.commit()
+            return previous
+        if previous is None or now <= previous:
+            session.commit()
+            return None
+        marker.activated_at = now
+        marker.gate_open = True
+        session.commit()
+        return now
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _cancel_pending_consolidation_notifications(
+    session_factory: Callable[[], Session],
+    *,
+    igreja_id: uuid.UUID,
+    now: dt.datetime,
+    limit: int,
+) -> int:
+    """Close only nonterminal V3 work when its observed epoch is closed."""
+
+    from app.db.models import NotificationOutbox
+
+    if limit <= 0:
+        return 0
+    session = session_factory()
+    changed = 0
+    try:
+        _scoped(session, igreja_id, "notification_outbox_consolidation_cancel")
+        candidates = tuple(
+            session.execute(
+                select(NotificationOutbox.id, NotificationOutbox.pessoa_id)
+                .where(
+                    NotificationOutbox.igreja_id == igreja_id,
+                    NotificationOutbox.purpose.in_(tuple(sorted(_CONSOLIDATION_PURPOSES))),
+                    NotificationOutbox.state.in_(_PENDING_STATES),
+                )
+                .order_by(NotificationOutbox.due_at.asc(), NotificationOutbox.id.asc())
+                .limit(limit)
+            ).all()
+        )
+        for row_id, pessoa_id in candidates:
+            if _valid_uuid(row_id) is None or _valid_uuid(pessoa_id) is None:
+                continue
+            _lock_notification_recipient_prefix(
+                session, igreja_id=igreja_id, pessoa_id=pessoa_id
+            )
+            row = session.execute(
+                select(NotificationOutbox)
+                .where(
+                    NotificationOutbox.igreja_id == igreja_id,
+                    NotificationOutbox.id == row_id,
+                    NotificationOutbox.pessoa_id == pessoa_id,
+                    NotificationOutbox.purpose.in_(tuple(sorted(_CONSOLIDATION_PURPOSES))),
+                    NotificationOutbox.state.in_(_PENDING_STATES),
+                )
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            if row is None:
+                continue
+            _terminalize(row, state="cancelado", reason="gate_fechado", now=now)
+            changed += 1
+        session.commit()
+        return changed
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _materialize_consolidation_intent(
+    session: Session,
+    *,
+    igreja_id: uuid.UUID,
+    intent: _ConsolidationIntent,
+    now: dt.datetime,
+) -> bool:
+    """Append one verified V3 intent without retaining payload or a target cache."""
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.db.models import NotificationOutbox
+
+    if intent.occurrence_at + dt.timedelta(hours=24) <= now:
+        return False
+    pessoa, conversations = _lock_notification_recipient_prefix(
+        session, igreja_id=igreja_id, pessoa_id=intent.pessoa_id
+    )
+    # Keep the durable activation order Config -> Activation. The activation
+    # synchronizer holds AgentConfig before its marker; checking recipient
+    # context first makes this producer wait behind Config instead of holding
+    # Activation while it waits for Config.
+    context, _context_reason = _recipient_transport_context(
+        session,
+        igreja_id=igreja_id,
+        pessoa=pessoa,
+        conversations=conversations,
+        purpose=intent.purpose,
+        now=now,
+    )
+    if context is None:
+        return False
+    origin_kind = (
+        "consolidacao"
+        if intent.purpose in {"consolidation_connection_open", "consolidation_connection_deadline"}
+        else "work_queue"
+    )
+    origin_id = (
+        intent.consolidacao_id if origin_kind == "consolidacao" else intent.work_queue_item_id
+    )
+    candidate = SimpleNamespace(
+        igreja_id=igreja_id,
+        pessoa_id=intent.pessoa_id,
+        purpose=intent.purpose,
+        origin_kind=origin_kind,
+        origin_id=origin_id,
+        consolidacao_id=(
+            intent.consolidacao_id if origin_kind == "consolidacao" else None
+        ),
+        work_queue_item_id=(
+            intent.work_queue_item_id if origin_kind == "work_queue" else None
+        ),
+        occurrence_at=intent.occurrence_at,
+        origin_fingerprint=None,
+    )
+    source, _reason = _consolidation_source_projection(
+        session, row=candidate, pessoa=pessoa, require_fingerprint=False
+    )
+    if source is None:
+        return False
+    notification = NotificationOutbox(
+        igreja_id=igreja_id,
+        pessoa_id=intent.pessoa_id,
+        agenda_alert_recipient_id=None,
+        event_id=None,
+        reuniao_id=None,
+        agenda_subscription_id=None,
+        consolidacao_id=(
+            source.consolidacao_id
+            if source.purpose in {"consolidation_connection_open", "consolidation_connection_deadline"}
+            else None
+        ),
+        work_queue_item_id=(
+            source.work_queue_item_id if source.purpose == "consolidation_fonovisita" else None
+        ),
+        origin_kind=origin_kind,
+        origin_id=origin_id,
+        occurrence_at=source.occurrence_at,
+        origin_fingerprint=source.fingerprint,
+        purpose=source.purpose,
+        state="pendente",
+        due_at=source.occurrence_at,
+        delivery_reservation_day=None,
+        claim_token=None,
+        claimed_until=None,
+        claimed_by=None,
+        attempts=0,
+        transport_started_at=None,
+        sent_at=None,
+        terminal_reason=None,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        with session.begin_nested():
+            session.add(notification)
+            session.flush()
+    except IntegrityError:
+        return False
+    return True
+
+
+def _schedule_consolidation_tenant(
+    session_factory: Callable[[], Session],
+    *,
+    igreja_id: uuid.UUID,
+    activated_at: dt.datetime,
+    now: dt.datetime,
+    limit: int,
+) -> int:
+    """Materialize only post-cutoff canonical V3 sources for current targets."""
+
+    from app.db.models import Consolidacao, WorkQueueItem
+
+    if limit <= 0 or not _purpose_gate_allows("consolidation_fonovisita", igreja_id):
+        return 0
+    session = session_factory()
+    created = 0
+    try:
+        _scoped(session, igreja_id, "notification_outbox_consolidation_schedule")
+        tracks = tuple(
+            session.execute(
+                select(Consolidacao)
+                .where(
+                    Consolidacao.igreja_id == igreja_id,
+                    Consolidacao.concluida.is_(False),
+                    Consolidacao.abandonada_em.is_(None),
+                    Consolidacao.created_at >= activated_at,
+                )
+                .order_by(Consolidacao.created_at.asc(), Consolidacao.id.asc())
+                .limit(limit * 4)
+            ).scalars()
+        )
+        intents: list[_ConsolidationIntent] = []
+        for track in tracks:
+            if len(intents) >= limit * 6:
+                break
+            track_id = _valid_uuid(getattr(track, "id", None))
+            track_created = _utc_datetime(getattr(track, "created_at", None))
+            deadline = _utc_datetime(getattr(track, "prazo_conexao", None))
+            responsavel_id = _valid_uuid(getattr(track, "responsavel_id", None))
+            if track_id is None or track_created is None:
+                continue
+            recipients = _eligible_consolidation_recipient_ids(
+                session, igreja_id=igreja_id, responsavel_id=responsavel_id
+            )
+            if not recipients:
+                continue
+            connection_ids = tuple(
+                session.execute(
+                    select(WorkQueueItem.id)
+                    .where(
+                        WorkQueueItem.igreja_id == igreja_id,
+                        WorkQueueItem.consolidacao_id == track_id,
+                        WorkQueueItem.tipo == "conectar_celula",
+                        WorkQueueItem.status.in_(("aberto", "assumido")),
+                    )
+                    .order_by(WorkQueueItem.id.asc())
+                ).scalars()
+            )
+            if deadline is not None and deadline > track_created and len(connection_ids) == 1:
+                task_id = _valid_uuid(connection_ids[0])
+                if task_id is not None:
+                    for pessoa_id in recipients:
+                        intents.extend(
+                            (
+                                _ConsolidationIntent(
+                                    "consolidation_connection_open",
+                                    track_id,
+                                    task_id,
+                                    track_created,
+                                    pessoa_id,
+                                ),
+                                _ConsolidationIntent(
+                                    "consolidation_connection_deadline",
+                                    track_id,
+                                    task_id,
+                                    deadline,
+                                    pessoa_id,
+                                ),
+                            )
+                        )
+            fono_ids = tuple(
+                session.execute(
+                    select(WorkQueueItem.id)
+                    .where(
+                        WorkQueueItem.igreja_id == igreja_id,
+                        WorkQueueItem.consolidacao_id == track_id,
+                        WorkQueueItem.tipo == "fonovisita",
+                        WorkQueueItem.status.in_(("aberto", "assumido")),
+                    )
+                    .order_by(WorkQueueItem.id.asc())
+                ).scalars()
+            )
+            if len(fono_ids) != 1:
+                continue
+            task_id = _valid_uuid(fono_ids[0])
+            if task_id is None:
+                continue
+            task_created = session.execute(
+                select(WorkQueueItem.created_at).where(
+                    WorkQueueItem.igreja_id == igreja_id,
+                    WorkQueueItem.id == task_id,
+                )
+            ).scalar_one_or_none()
+            occurrence_at = _utc_datetime(task_created)
+            if occurrence_at is None:
+                continue
+            for pessoa_id in recipients:
+                intents.append(
+                    _ConsolidationIntent(
+                        "consolidation_fonovisita",
+                        track_id,
+                        task_id,
+                        occurrence_at,
+                        pessoa_id,
+                    )
+                )
+        for intent in intents:
+            if created >= limit:
+                break
+            if _materialize_consolidation_intent(
+                session, igreja_id=igreja_id, intent=intent, now=now
+            ):
+                created += 1
+        session.commit()
+        return created
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def schedule_due_consolidation_notification_outbox(
+    session_factory: Callable[[], Session],
+    *,
+    now: dt.datetime | None = None,
+    limit: int = 100,
+) -> int:
+    """Synchronize V3 epochs and append prospective canonical notification rows."""
+
+    current = _worker_now(now)
+    if type(limit) is not int or limit <= 0:
+        raise ValueError("limite de lembretes inválido")
+    created = 0
+    for igreja_id in _discover_consolidation_schedule_tenants(session_factory):
+        activated_at = _sync_consolidation_activation(
+            session_factory, igreja_id=igreja_id, now=current
+        )
+        if activated_at is None:
+            _cancel_pending_consolidation_notifications(
+                session_factory, igreja_id=igreja_id, now=current, limit=limit
+            )
+            continue
+        if created < limit:
+            created += _schedule_consolidation_tenant(
+                session_factory,
+                igreja_id=igreja_id,
+                activated_at=activated_at,
+                now=current,
+                limit=limit - created,
+            )
+    return created
+
+
 def _same_notification_intent(current: object, snapshot: object) -> bool:
     """Reject a row changed between its lock-free scan and final outbox lock."""
 
@@ -1834,6 +3004,8 @@ def _same_notification_intent(current: object, snapshot: object) -> bool:
         "event_id",
         "reuniao_id",
         "agenda_subscription_id",
+        "consolidacao_id",
+        "work_queue_item_id",
         "origin_kind",
         "origin_id",
         "occurrence_at",
@@ -1954,6 +3126,9 @@ def _source_transport_text(
             return None, "inscricao_alterada"
         return _agenda_reminder_text(event), None
 
+    if purpose in _CONSOLIDATION_PURPOSES:
+        return _consolidation_source_transport_text(session, row=row, pessoa=pessoa)
+
     if purpose != "cell_report_reminder":
         return None, "finalidade_invalida"
     reuniao_id = _valid_uuid(getattr(row, "reuniao_id", None))
@@ -2008,7 +3183,12 @@ def _release_claim_before_transport(
     due_at = next_transport_window(now + dt.timedelta(minutes=1))
     occurrence = _utc_datetime(getattr(row, "occurrence_at", None))
     if due_at is None or not _pre_send_retry_allowed(row, due_at=due_at):
-        _terminalize(row, state="cancelado", reason="pre_envio_expirado", now=now)
+        reason = (
+            "expirado"
+            if getattr(row, "purpose", None) in _CONSOLIDATION_PURPOSES
+            else "pre_envio_expirado"
+        )
+        _terminalize(row, state="cancelado", reason=reason, now=now)
         return
     if (
         (
@@ -2054,17 +3234,33 @@ def _renew_notification_transport_fence(
         pessoa, conversations = _lock_notification_recipient_prefix(
             session, igreja_id=claim.igreja_id, pessoa_id=claim.pessoa_id
         )
-        source_text, source_reason = _source_transport_text(
-            session, row=snapshot, pessoa=pessoa, now=now
-        )
-        context, context_reason = _recipient_transport_context(
-            session,
-            igreja_id=claim.igreja_id,
-            pessoa=pessoa,
-            conversations=conversations,
-            purpose=getattr(snapshot, "purpose", None),
-            now=now,
-        )
+        if getattr(snapshot, "purpose", None) in _CONSOLIDATION_PURPOSES:
+            # The activation synchronizer locks Config before Activation. V3
+            # follows that durable order while retaining the recipient prefix
+            # before its SKIP LOCKED Consolidacao and task reads.
+            context, context_reason = _recipient_transport_context(
+                session,
+                igreja_id=claim.igreja_id,
+                pessoa=pessoa,
+                conversations=conversations,
+                purpose=getattr(snapshot, "purpose", None),
+                now=now,
+            )
+            source_text, source_reason = _source_transport_text(
+                session, row=snapshot, pessoa=pessoa, now=now
+            )
+        else:
+            source_text, source_reason = _source_transport_text(
+                session, row=snapshot, pessoa=pessoa, now=now
+            )
+            context, context_reason = _recipient_transport_context(
+                session,
+                igreja_id=claim.igreja_id,
+                pessoa=pessoa,
+                conversations=conversations,
+                purpose=getattr(snapshot, "purpose", None),
+                now=now,
+            )
         row = session.execute(
             select(NotificationOutbox)
             .where(
@@ -2075,41 +3271,50 @@ def _renew_notification_transport_fence(
             .with_for_update(skip_locked=True)
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
+        fresh_now = _fresh_transport_now(now)
         if (
             row is None
             or row.state != "em_envio"
             or row.claim_token != claim.claim_token
             or row.claimed_until is None
-            or row.claimed_until <= now
+            or row.claimed_until <= fresh_now
             or not _same_notification_intent(row, snapshot)
         ):
             session.rollback()
             return None
         if not _purpose_gate_allows(row.purpose, claim.igreja_id):
-            _terminalize(row, state="cancelado", reason="gate_fechado", now=now)
+            _terminalize(row, state="cancelado", reason="gate_fechado", now=fresh_now)
             session.commit()
             return None
         if source_text is None:
-            if source_reason == "evento_ocupado":
-                _release_claim_before_transport(row, now=now, reason=source_reason)
+            if source_reason in {
+                "evento_ocupado",
+                "consolidacao_ocupada",
+                "pendencia_ocupada",
+                "ativacao_ocupada",
+            }:
+                _release_claim_before_transport(row, now=fresh_now, reason=source_reason)
                 session.commit()
                 return None
             _terminalize(
-                row, state="obsoleto", reason=source_reason or "origem_indisponivel", now=now
+                row,
+                state="obsoleto",
+                reason=source_reason or "origem_indisponivel",
+                now=fresh_now,
             )
             session.commit()
             return None
         if context is None:
             if context_reason == "instancia_indisponivel":
                 _release_claim_before_transport(
-                    row, now=now, reason=context_reason
+                    row, now=fresh_now, reason=context_reason
                 )
             else:
                 _terminalize(
                     row,
                     state="cancelado",
                     reason=context_reason or "contexto_revogado",
-                    now=now,
+                    now=fresh_now,
                 )
             session.commit()
             return None
@@ -2117,21 +3322,29 @@ def _renew_notification_transport_fence(
             claim.destination_fingerprint is not None
             and _destination_fingerprint(context) != claim.destination_fingerprint
         ):
-            _terminalize(row, state="cancelado", reason="destino_alterado", now=now)
+            _terminalize(
+                row, state="cancelado", reason="destino_alterado", now=fresh_now
+            )
             session.commit()
             return None
-        if not transport_window_open(now):
-            _release_claim_before_transport(row, now=now, reason="fora_da_janela")
+        if not transport_window_open(fresh_now):
+            _release_claim_before_transport(row, now=fresh_now, reason="fora_da_janela")
             session.commit()
             return None
-        if _evt7_pre_send_expired(row, now=now):
-            _terminalize(row, state="cancelado", reason="pre_envio_expirado", now=now)
+        if _evt7_pre_send_expired(row, now=fresh_now):
+            _terminalize(
+                row, state="cancelado", reason="pre_envio_expirado", now=fresh_now
+            )
+            session.commit()
+            return None
+        if _consolidation_expired(row, now=fresh_now):
+            _terminalize(row, state="cancelado", reason="expirado", now=fresh_now)
             session.commit()
             return None
         instance, phone = context
-        row.claimed_until = now + dt.timedelta(seconds=lease_seconds)
-        row.transport_started_at = now
-        row.updated_at = now
+        row.claimed_until = fresh_now + dt.timedelta(seconds=lease_seconds)
+        row.transport_started_at = fresh_now
+        row.updated_at = fresh_now
         session.commit()
         return NotificationTransport(
             claim=claim,
@@ -2188,6 +3401,14 @@ def _record_notification_result(
         if transition.due_at is not None:
             row.due_at = transition.due_at
         row.terminal_reason = transition.terminal_reason
+        if (
+            row.purpose in _CONSOLIDATION_PURPOSES
+            and transition.state == "retry"
+            and _consolidation_expired(row, now=transition.due_at or now)
+        ):
+            row.state = "cancelado"
+            row.due_at = now
+            row.terminal_reason = "expirado"
         _clear_claim(row)
         row.updated_at = now
         if transition.state == "enviado":
@@ -2214,6 +3435,7 @@ __all__ = [
     "enqueue_evt7_for_confirmed_event",
     "next_transport_window",
     "result_transition",
+    "schedule_due_consolidation_notification_outbox",
     "schedule_due_cell_report_notification_outbox",
     "transport_window_open",
 ]

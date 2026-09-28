@@ -373,7 +373,7 @@ class _StopSession:
         return _StopResult(rowcount=1)
 
 
-def test_global_stop_disables_both_kinds_and_fences_common_outbox(monkeypatch) -> None:
+def test_global_stop_disables_all_reminder_kinds_and_fences_common_outbox(monkeypatch) -> None:
     from app.services import cell_report_reminders
 
     igreja_id = uuid.UUID("00000000-0000-0000-0000-000000000099")
@@ -415,7 +415,7 @@ def test_global_stop_disables_both_kinds_and_fences_common_outbox(monkeypatch) -
         for row in session.added
         if isinstance(row, models.WhatsappReminderPreference)
     }
-    assert created_kinds == {"cell_report"}
+    assert created_kinds == {"cell_report", "consolidation"}
     assert subscription.state == "cancelled"
     assert subscription.updated_at == current
     assert len(session.updates) == 3
@@ -426,6 +426,7 @@ def test_global_stop_disables_both_kinds_and_fences_common_outbox(monkeypatch) -
     )
     compiled = str(proposal_update.compile(compile_kwargs={"literal_binds": True}))
     assert "configurar_lembrete_agenda" in compiled
+    assert "configurar_lembrete_consolidacao" in compiled
     assert "actor_pessoa_id" in compiled
     assert "preparada" in compiled and "pendente" in compiled
     assert "lembretes_recusados" in compiled
@@ -629,6 +630,110 @@ def test_s3_agenda_confirmation_creates_one_subscription_and_outbox_without_comm
     assert session.flushes == 1
 
 
+class _ConsolidationReminderExecutionSession:
+    def __init__(self, *, preference: object | None = None) -> None:
+        self.preference = preference
+        self.added: list[object] = []
+
+    def execute(self, statement):
+        descriptions = list(getattr(statement, "column_descriptions", []) or [])
+        entity = descriptions[0].get("entity") if descriptions else None
+        if entity is models.WhatsappReminderPreference:
+            return _SubscriptionExecutionResult(self.preference)
+        raise AssertionError(f"consulta inesperada: {entity!r}")
+
+    def add(self, value: object) -> None:
+        self.added.append(value)
+
+    def commit(self) -> None:
+        raise AssertionError("o efeito S3 não pode fazer commit")
+
+
+def test_s3_consolidation_optin_creates_only_the_versioned_preference_without_commit(
+    monkeypatch,
+) -> None:
+    from app.services.agent_action_proposals import AgentAction, ProposalTarget
+    from app.services.whatsapp_privilege import PrivilegeContext
+    from app.services import consolidation_whatsapp
+
+    igreja_id = uuid.UUID("00000000-0000-0000-0000-000000000141")
+    pessoa_id = uuid.UUID("00000000-0000-0000-0000-000000000142")
+    conversation_id = uuid.UUID("00000000-0000-0000-0000-000000000143")
+    current = dt.datetime(2026, 9, 28, 15, tzinfo=dt.timezone.utc)
+    context = PrivilegeContext(
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        inbound_message_id=uuid.UUID("00000000-0000-0000-0000-000000000144"),
+        pessoa_id=pessoa_id,
+        app_user_id=uuid.UUID("00000000-0000-0000-0000-000000000145"),
+        roles=frozenset({"pastor"}),
+        role_snapshot=(),
+        owned_cell_ids=(),
+        credential_fingerprint="1" * 64,
+        phone_fingerprint="2" * 64,
+        authorization_fingerprint="3" * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint="4" * 64,
+        context_fingerprint="5" * 64,
+    )
+    execution = SimpleNamespace(
+        proposal_id=uuid.UUID("00000000-0000-0000-0000-000000000146"),
+        igreja_id=igreja_id,
+        action=AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO,
+        target=ProposalTarget("pessoa", pessoa_id),
+        arguments={"pessoa_id": str(pessoa_id), "term_version": "lgpd-v2"},
+        privilege_context=context,
+    )
+    synthetic_phone = "55" + "11" + "9" + "9999" + "0001"
+    pessoa = SimpleNamespace(
+        id=pessoa_id,
+        igreja_id=igreja_id,
+        telefone=synthetic_phone,
+        arquivada_em=None,
+        optout=False,
+        sem_interesse=False,
+    )
+    conversation = SimpleNamespace(
+        id=conversation_id,
+        igreja_id=igreja_id,
+        pessoa_id=pessoa_id,
+        telefone=synthetic_phone,
+        estado=None,
+        assumido_por=None,
+    )
+    session = _ConsolidationReminderExecutionSession()
+    monkeypatch.setattr(outbox, "_scoped", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(outbox, "_worker_now", lambda _now: current)
+    monkeypatch.setattr(
+        outbox,
+        "_lock_notification_recipient_prefix",
+        lambda *_args, **_kwargs: (pessoa, (conversation,)),
+    )
+    monkeypatch.setattr(outbox, "_current_consent_allows", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        consolidation_whatsapp,
+        "consolidation_enabled_from_environment",
+        lambda _tenant: True,
+    )
+    monkeypatch.setattr(
+        "app.config.get_settings", lambda: SimpleNamespace(agent_term_version="lgpd-v2")
+    )
+
+    effect = outbox.execute_consolidation_reminder_subscription(session, execution)
+
+    assert effect.receipt_text == "Lembretes de consolidação ativados."
+    assert effect.opaque_effect_id == pessoa_id
+    assert len(session.added) == 1
+    preference = session.added[0]
+    assert isinstance(preference, models.WhatsappReminderPreference)
+    assert preference.reminder_kind == "consolidation"
+    assert preference.state == "active"
+    assert preference.term_version == "lgpd-v2"
+    assert preference.accepted_at == current
+
+
 class _AgendaSourceSession:
     def __init__(self, *, event: object, subscription: object) -> None:
         self.event = event
@@ -746,6 +851,7 @@ def test_evt7_source_lock_contention_releases_pre_send_lease_without_terminalizi
     releases: list[str] = []
     terminals: list[str] = []
     monkeypatch.setattr(outbox, "_scoped", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(outbox, "_fresh_transport_now", lambda _now: current)
     monkeypatch.setattr(
         outbox,
         "_lock_notification_recipient_prefix",

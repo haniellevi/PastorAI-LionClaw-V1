@@ -172,6 +172,28 @@ def test_agenda_catalog_code_is_closed_and_can_be_selected_without_event_data() 
     assert all("Encontro com Deus" not in call["user"] for call in client.calls)
 
 
+def test_consolidation_pending_query_is_readonly_and_skips_handle_selection() -> None:
+    client = FakeClient(["restrita", "consultar_pendencias_consolidacao"])
+
+    result = route_privileged_message(
+        client,
+        texto="Quais pendências de consolidação eu tenho?",
+        catalog=(_option("consultar_pendencias_consolidacao", candidates=()),),
+        deadline_monotonic=10,
+        clock=Clock(),
+    )
+
+    assert result == RoutingDecision(
+        "selected",
+        RouteChoice.RESTRITA,
+        "consultar_pendencias_consolidacao",
+        None,
+        (USAGE, USAGE),
+    )
+    assert [call["name"] for call in client.calls] == ["s3_route", "s3_tool"]
+    assert all("candidatos" not in call["user"] for call in client.calls)
+
+
 def test_agenda_reminder_requires_an_opaque_handle_before_a_proposal_can_be_staged() -> None:
     client = FakeClient(["restrita", "configurar_lembrete_agenda", "h1"])
     result = route_privileged_message(

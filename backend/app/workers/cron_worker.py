@@ -41,6 +41,7 @@ from app.services.cell_report_reminders import (
 from app.services.evolution import EvolutionClient
 from app.services.notification_outbox import (
     dispatch_notification_outbox,
+    schedule_due_consolidation_notification_outbox,
     schedule_due_cell_report_notification_outbox,
 )
 from app.services.sla_engine import SlaEngine, run_all_igrejas
@@ -343,6 +344,14 @@ class CronWorker:
             )
         except Exception:  # noqa: BLE001 - scheduling cannot stop dispatch/retry
             logger.exception("Cell-report reminder scheduling failed")
+        self._record_progress()
+        try:
+            schedule_due_consolidation_notification_outbox(
+                self._session_factory,
+                now=now,
+            )
+        except Exception:  # noqa: BLE001 - V3 scheduling cannot stop shared dispatch
+            logger.exception("Consolidation notification scheduling failed")
         self._record_progress()
         try:
             # The client opens its HTTP pool lazily.  All claims and transport

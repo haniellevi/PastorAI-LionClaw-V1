@@ -210,8 +210,13 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
         return None
 
     remote_jid = key.get("remoteJid") or ""
-    if not isinstance(remote_jid, str) or "@g.us" in remote_jid:
-        # Skip group chats; only 1:1 conversations are captured.
+    if (
+        not isinstance(remote_jid, str)
+        or remote_jid.count("@") != 1
+        or not remote_jid.endswith("@s.whatsapp.net")
+    ):
+        # Capture only the direct JID emitted by Evolution. Group and other
+        # provider suffixes never establish a WhatsApp identity.
         return None
 
     provider_message_id = key.get("id")
