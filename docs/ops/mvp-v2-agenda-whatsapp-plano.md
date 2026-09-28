@@ -1,6 +1,6 @@
 # V2: agenda pelo WhatsApp
-Status: APTO COM AJUSTES por Claude + Opencoded em 27/09; V2a autorizada, V2b em PR própria posterior.
-Base: `3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36`; PR433 e SQL congelados, sem alteração/rebase.
+Status histórico: plano APTO COM AJUSTES por Claude + Opencoded em 27/09. V2a (#434) já foi integrada à main; V2b está na PR #435 em revisão, sem migration aplicada ou ativação. Para estado operacional atual, ver MVP-PLANO-SIMPLIFICACAO.md e o runbook V2b.
+Base histórica do plano: `3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36`; o retarget posterior das PRs não altera a decisão original.
 Referências: PRD0611 delta-046/047/052, PRD-COVERAGE, MVP-PLANO e AMBIENTE-LOCAL da PR432; prevalece a decisão local/release de 27/09.
 ## V2a: consulta e autoridade (implementar agora, sem migration se possível)
 Reusar `Event`, serviços humanos de Agenda e PrivilegeContext S3; tenant/ator/papel derivados no servidor, RLS e predicado igreja_id em toda consulta.
@@ -36,4 +36,4 @@ Testes PG17: cross-tenant/papel/Clerk, PII em todos os campos livres, recorrênc
 Após #432 mesclada, atualizar base autorizada, `./dev.sh reset` e painel/simulador local com dados fictícios; simulador ainda pendente no head432 consultado, sua falta impede declarar aceite E2E.
 CI sem provedor real, fixtures/mocks e regressões S3/V1a/V1b; evidência do SHA exato, sprint e MVP-PLANO, sem reclassificar Agenda completa por esta fatia.
 Rollback: flags off, suprimir/reconciliar pendências antes de reverter consumidor; preservar histórico e não reativar envio legado. PROD só release em lote com backup/migrations/backend/frontend e Sarah por release.
-Próximo gate: Sarah revisar a PR V2a com CI do head; V2b fica para depois. Sem reset/merge/deploy nesta missão; frontend futuro depende da Vercel restrita à branch producao; ativação real exige Raniel.
+Próximo gate histórico deste plano: Sarah revisar a PR V2a; esse gate foi concluído. O gate atual da V2b é nova revisão Sarah do head final da PR #435 e, após GO, autorização nominal de merge. Sem reset/merge/deploy nesta missão; frontend futuro depende da Vercel restrita à branch producao; ativação real exige Raniel.

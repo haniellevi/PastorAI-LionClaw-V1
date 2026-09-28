@@ -112,6 +112,7 @@ detalha o corte e o rollback: fechar gates, preservar históricos e não
 reativar consumo legado automaticamente. Migration/deploy/ativação continuam
 com gates próprios; flags vazias e releases None não autorizam envio.
 
-SHA256 candidato: `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`.
-Prova SQL local: PostgreSQL17 sintético, reaplicação real e RLS sob
-`authenticated` sem BYPASSRLS. Isso não prova aplicação compartilhada.
+SHA256 do SQL atual: `a1f875032252262c77924ea18f2ad1fed7530f48cdc4d92644a4c629b6b887c3`.
+O SQL executável permanece igual ao snapshot `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`; apenas o comentário de rollback mudou.
+Prova SQL local histórica: PostgreSQL 17 sintético, reaplicação real e RLS sob
+`authenticated` sem BYPASSRLS no snapshot anterior. O head final requer CI PG/RLS próprio. Isso não prova aplicação compartilhada.

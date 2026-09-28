@@ -2,7 +2,7 @@
   "base": "58bcd1808aa511cdfafc7957d5c36a9c0f8ee348",
   "delta_base": "20a44e2396f24cc09292f8fa665019bcbbb358a5",
   "environment": "local PostgreSQL 17.6 disposable, synthetic fixtures and fake providers",
-  "status": "full_local_regression_passed",
+  "status": "historical_snapshot_only_not_current_candidate",
   "candidate_manifest_sha256": "19b3c24acfa2132e1e64e1112b8922d5f5e7e54473d3584c51a44ab1bb20312a",
   "delta_patch_sha256": "a544bc982d1b444291df4d46fad8e65750f2c4abae3a44ab5f4f9604a517016c",
   "suites": {
@@ -72,5 +72,7 @@
       ]
     }
   },
-  "independent_review_sha256": "ed10e5cf235544ee9df0904fd8f266551c17c378f3f0187e71fb420b34658153"
+  "independent_review_sha256": "ed10e5cf235544ee9df0904fd8f266551c17c378f3f0187e71fb420b34658153",
+  "validated_head": "4a3fd616d71081af1e551a30ddbab9dbf1ec8208",
+  "scope_note": "Counts and hashes belong to the 2026-09-27 local snapshot; later code/test edits, retarget and SQL comment require new exact-head CI PG/RLS evidence."
 }

@@ -1,5 +1,10 @@
 # Revisão do delta V2b após CI e threads
 
+> Parecer histórico do snapshot `4a3fd616d71081af1e551a30ddbab9dbf1ec8208`.
+> O candidato da PR #435 recebeu alterações posteriores; este parecer e os
+> resultados locais abaixo não atestam o head atual. O head final requer CI e
+> revisão próprios antes de qualquer merge.
+
 ## Artefato
 
 - Base destacada: `58bcd1808aa511cdfafc7957d5c36a9c0f8ee348`.

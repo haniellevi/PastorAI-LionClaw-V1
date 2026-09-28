@@ -1,5 +1,9 @@
 # Revisão estática SQL V2b, snapshot congelado
 
+Este parecer atesta somente o SQL de SHA-256 `1aff8b5`; o candidato atual
+acrescentou comentário de ordem de release e rollback. O SQL executável não
+foi alterado, mas o arquivo completo tem novo hash e requer CI do head final.
+
 ## Escopo e limite
 
 - Migration: `20260927_220000_notification_outbox_v2b.sql`, SHA-256

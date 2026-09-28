@@ -1,5 +1,5 @@
 {
-  "base": "58bcd1808aa511cdfafc7957d5c36a9c0f8ee348",
+  "base": "87e13da06eee047419b583d87545ee44326e1a28",
   "files": {
     ".github/workflows/rls-integration.yml": "71d5e9f647a537856375ac51d2ee0fb88d02ff30ddf8796bc15758b394fa9f3d",
     "backend/app/agent/privileged_turn.py": "1971396ba079695eddd5162647f9ecaee50e683faa39fa337c8ce8c1384ceeaa",
@@ -12,9 +12,9 @@
     "backend/app/services/agent_privilege_routing.py": "b35cd149f84d09c146344839a5fdbd455056bf1d7e538f97f8d9379237fd739c",
     "backend/app/services/cell_report_reminders.py": "d2386c990df8b1845d960fa9e704a19f6798a577ac694929a5865a6af57b1245",
     "backend/app/services/event_notify.py": "830a4b0440460c32c3a65fbe1002bc5901eb9f6edfc2f0591216814d33ba5f2b",
-    "backend/app/services/notification_outbox.py": "2a13a1777a1a954ea2edc1ea8a766f5361c23feefb10dacd1fb2b3ed05cfe367",
+    "backend/app/services/notification_outbox.py": "6f02790e46f28ede6efc0e320d4b2d80a5776887af449b4a309e7e3689ac8146",
     "backend/app/workers/cron_worker.py": "f9b38e86f00d9496b6fb3bd806923c40cdea7996a2b925e57af1110181332516",
-    "backend/migrations/20260927_220000_notification_outbox_v2b.sql": "1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01",
+    "backend/migrations/20260927_220000_notification_outbox_v2b.sql": "a1f875032252262c77924ea18f2ad1fed7530f48cdc4d92644a4c629b6b887c3",
     "backend/tests/test_agenda_recipients_evt7_pr2.py": "d483818f987996d1ab1a4b09a226caba9035b4c87a8e14df09d76305a4728884",
     "backend/tests/test_agenda_reminder_subscription_e2e_pg.py": "7ce5e03722354d6c2b00a721834b4a92bb09055de2ee373fd546678df7eb6fe9",
     "backend/tests/test_agent_action_proposals.py": "2cef6e083a29f821914bcdad36290b1b71c615da734e39632ee67d26d26a13e5",
@@ -34,8 +34,10 @@
     "backend/tests/test_jev_tier_a_runtime.py": "f780765afdd5a9ed576b49b553daafb385b41c6f5527712d9d23f191fb735d99",
     "backend/tests/test_notification_outbox_evt7_e2e_pg.py": "7e0da512473b0625e15f0abb9176e64113945d5f2ce0fba17b4196ae75932870",
     "backend/tests/test_notification_outbox_quota_pg.py": "7bd3c0c696b94c8dea76248bb7b90e037c8a7bcfa14f964e391ff95097bc8556",
-    "backend/tests/test_notification_outbox_v2b.py": "0f3d7e32f841f73e8c90bc84f90fc0b51449d4bd10654e84dd70bdcaf65845b9",
+    "backend/tests/test_notification_outbox_v2b.py": "504b65cdd597e2126ed887b86339258c87ab6dcaaab456c20d87d66e21ab5843",
     "backend/tests/test_notification_outbox_v2b_migration_pg.py": "32e78544e8b73b8521dae584a51915833b935b4ec6247825b30831452e52c0a8",
     "backend/tests/test_tenant_deletion_pg17.py": "dba703af9f10fd9cc910aee19c951a0964565959e442520262c3cb6e4855a7e9"
-  }
+  },
+  "scope": "current file bytes before final commit; verify against published head",
+  "algorithm": "SHA-256 of raw file bytes from repository root"
 }
