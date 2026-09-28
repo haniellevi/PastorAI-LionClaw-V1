@@ -28,6 +28,8 @@ from app.db.models import (
     CelulaMembro,
     CelulaPresenca,
     CelulaReuniao,
+    CelulaReuniaoRegistro,
+    CelulaVisitante,
     Pessoa,
 )
 from app.db.session import get_db
@@ -37,6 +39,7 @@ from app.domain.cell_meetings_schedule import (
     next_meeting_date,
     parse_weekday,
 )
+from app.routers import cell_meetings
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -50,6 +53,7 @@ _LP = "00000000-0000-0000-0000-0000000000b1"  # pessoa do líder-ator
 _OUTSIDER = "00000000-0000-0000-0000-0000000000c9"  # pessoa que não lidera
 _TARGET = "00000000-0000-0000-0000-0000000000d1"  # pessoa alvo (terceiro)
 _REU = "00000000-0000-0000-0000-0000000000f1"  # reunião
+_FIXED_ROUTE_NOW = dt.datetime(2026, 9, 28, 15, tzinfo=dt.timezone.utc)
 
 
 # ===========================================================================
@@ -169,6 +173,8 @@ class MeetingSession:
         membros=None,
         presencas=None,
         expectativas=None,
+        visitantes=None,
+        records=None,
         actor_pessoa_id=None,
     ) -> None:
         self.app_user = app_user
@@ -179,9 +185,14 @@ class MeetingSession:
         self.membros = membros or []
         self.presencas = presencas or []
         self.expectativas = expectativas or []
+        self.visitantes = visitantes or []
+        self.records = records or []
         self.actor_pessoa_id = actor_pessoa_id
         self.added: list = []
         self.committed = False
+        self.commits = 0
+        self.flushes = 0
+        self.locked_entities: list[object] = []
 
     @staticmethod
     def _eq_predicates(statement) -> dict[str, str]:
@@ -241,9 +252,28 @@ class MeetingSession:
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         name = descs[0].get("name") if descs else None
+        if getattr(statement, "_for_update_arg", None) is not None:
+            self.locked_entities.append(ent)
 
         if ent is AppUser and name == "pessoa_id":
             return _R(scalar=self.actor_pessoa_id)
+        if ent is AppUser and len(descs) > 1:
+            app_user = self.app_user
+            return _R(
+                rows=(
+                    [
+                        (
+                            app_user.id,
+                            app_user.igreja_id,
+                            self.actor_pessoa_id,
+                            app_user.clerk_user_id,
+                            app_user.status,
+                        )
+                    ]
+                    if app_user is not None
+                    else []
+                )
+            )
         if ent is AppUser:
             return _R(scalar=self.app_user)
         if ent is Celula:
@@ -261,6 +291,12 @@ class MeetingSession:
             return _R(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaPresenca:
             rows = self._filter(self.presencas, statement)
+            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+        if ent is CelulaVisitante:
+            rows = self._filter(self.visitantes, statement)
+            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+        if ent is CelulaReuniaoRegistro:
+            rows = self._filter(self.records, statement)
             return _R(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is Pessoa and len(descs) > 1:
             return _R(rows=[(p.id, p.lider_id) for p in self.pessoas])
@@ -286,13 +322,14 @@ class MeetingSession:
         return nullcontext()
 
     def flush(self) -> None:
-        pass
+        self.flushes += 1
 
     def refresh(self, obj) -> None:
         pass
 
     def commit(self) -> None:
         self.committed = True
+        self.commits += 1
 
     def rollback(self) -> None:  # pragma: no cover - sem corrida real nos testes
         pass
@@ -332,6 +369,9 @@ def make_reuniao(
     hora: str | None = "20:00",
     tema: str | None = None,
     status: str = "planejada",
+    relatorio_status: str = "pendente",
+    oferta_valor=None,
+    observacoes: str | None = None,
 ):
     return SimpleNamespace(
         id=reuniao_id,
@@ -341,6 +381,13 @@ def make_reuniao(
         hora=hora,
         tema=tema,
         status=status,
+        relatorio_status=relatorio_status,
+        relatorio_enviado_em=None,
+        relatorio_enviado_por=None,
+        relatorio_snapshot=None,
+        oferta_valor=oferta_valor,
+        observacoes=observacoes,
+        updated_at=None,
     )
 
 
@@ -387,6 +434,21 @@ def _wire(app, *, session, clerk=None) -> TestClient:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_clerk_client] = lambda: clerk or FakeClerk()
     return TestClient(app)
+
+
+def _freeze_submit_route_clock(monkeypatch) -> None:
+    class _RouteDateTime:
+        @staticmethod
+        def now(tz=None) -> dt.datetime:
+            if tz is None:
+                return _FIXED_ROUTE_NOW.replace(tzinfo=None)
+            return _FIXED_ROUTE_NOW.astimezone(tz)
+
+    monkeypatch.setattr(
+        cell_meetings,
+        "dt",
+        SimpleNamespace(datetime=_RouteDateTime, timezone=dt.timezone),
+    )
 
 
 # ===========================================================================
@@ -932,3 +994,55 @@ def test_expectativa_requires_auth(app) -> None:
         _EXPECT_PATH, json={"nomeVisitante": "Maria"}
     )
     assert resp.status_code == 401
+
+
+# ===========================================================================
+# US-11 — POST /cell-meetings/{id}/report/submit (finalização humana)
+# ===========================================================================
+@pytest.mark.parametrize("hora", [None, "23:59"])
+def test_submit_report_accepts_todays_human_meeting_without_waiting_for_schedule_clock(
+    app, monkeypatch, hora: str | None
+) -> None:
+    _freeze_submit_route_clock(monkeypatch)
+    tenant_id = uuid.UUID(_TENANT)
+    cell_id = uuid.UUID(_CELL)
+    meeting_id = uuid.UUID(_REU)
+    actor_id = uuid.UUID(_LP)
+    meeting = make_reuniao(
+        reuniao_id=meeting_id,
+        igreja_id=tenant_id,
+        celula_id=cell_id,
+        data=_FIXED_ROUTE_NOW.date(),
+        hora=hora,
+    )
+    session = MeetingSession(
+        app_user=make_app_user(),
+        roles=["lider_celula"],
+        cells=[make_cell(cell_id=cell_id, igreja_id=tenant_id, lider_id=actor_id)],
+        reunioes=[meeting],
+        actor_pessoa_id=actor_id,
+    )
+
+    response = _wire(app, session=session).post(
+        f"/cell-meetings/{_REU}/report/submit", headers=_AUTH
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["relatorio_status"] == "enviado"
+    assert response.json()["relatorio_enviado_em"] == _FIXED_ROUTE_NOW.isoformat()
+    assert response.json()["relatorio_enviado_por"] == str(actor_id)
+    assert meeting.relatorio_status == "enviado"
+    assert meeting.relatorio_enviado_em == _FIXED_ROUTE_NOW
+    assert meeting.relatorio_enviado_por == actor_id
+    assert meeting.relatorio_snapshot["relatorio_status"] == "enviado"
+    assert session.committed is True
+    assert session.flushes == 1
+    assert session.commits == 1
+    assert session.locked_entities == [CelulaReuniao, Celula, AppUser]
+
+    repeated = _wire(app, session=session).post(
+        f"/cell-meetings/{_REU}/report/submit", headers=_AUTH
+    )
+
+    assert repeated.status_code == 409
+    assert session.commits == 1

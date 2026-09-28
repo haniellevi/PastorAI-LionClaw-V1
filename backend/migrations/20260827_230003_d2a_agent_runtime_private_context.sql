@@ -1,4 +1,6 @@
 -- PastorAI D2A: fundacao privada e inativa do runtime do agente.
+-- OPERATIONAL_AUTHORIZATION=BLOCKED
+-- Pausada no MVP (sessao dedicada D2A, plano §3.3): fora de status/apply ate a Fase 5.
 --
 -- Esta fatia cria somente a identidade PostgreSQL sem LOGIN, o schema privado
 -- e o helper transacional de tenant. Ela nao cria tabelas, nao instala o

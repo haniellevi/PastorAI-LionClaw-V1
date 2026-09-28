@@ -20,7 +20,7 @@ Parser determinístico primeiro, sem LLM para valores numéricos reconhecidos. A
 
 ## Verificação e limite
 
-A [validação inicial](VALIDATION.json) registra os testes locais e hashes do head `7d98d0c`. O [delta de revisão](DELTA-VALIDATION.json) registra o candidato posterior, com [revisão independente](REVIEW-PR430-P2.md) e regressões próprias. Os demais relatórios deste diretório preservam etapas intermediárias; as conclusões de cada etapa valem somente para os hashes nela registrados. Revisão independente de fonte: [outbox](REVIEW-OUTBOX-DELTA.md), [orçamento/finalizador](REVIEW-BUDGET-FINAL.md) e [extração/cron](REVIEW-EXTRACTION.md).
+A [validação inicial](VALIDATION.json) registra os testes locais e hashes do head `7d98d0c`. O [delta histórico de 27/09](DELTA-VALIDATION-20260927.json) preserva a [revisão daquela etapa](REVIEW-PR430-P2.md). O [delta Sarah de 28/09](DELTA-VALIDATION.json), sobre `c3e8fb3171682b5f2bdfa36ae153414fe73bb47a`, registra a correção do submit humano, parser multilinha e CLARIFY, com [hashes próprios](SARAH-FIXES-CANDIDATE-HASHES.json) e [revisão independente do delta](REVIEW-SARAH-FIXES-20260928.md). Os demais relatórios deste diretório preservam etapas intermediárias; as conclusões de cada etapa valem somente para os hashes nela registrados. Revisão independente de fonte: [outbox](REVIEW-OUTBOX-DELTA.md), [orçamento/finalizador](REVIEW-BUDGET-FINAL.md) e [extração/cron](REVIEW-EXTRACTION.md).
 
 Mensagens distintas enviadas simultaneamente podem consumir duas reservas permitidas e produzir handoff por revisão desatualizada. A revisão do rascunho impede sobrescrita; não há serialização nova por rascunho nesta fatia.
 
@@ -30,7 +30,7 @@ Mensagens distintas enviadas simultaneamente podem consumir duas reservas permit
 
 Desligar a flag deve impedir novos efeitos e cancelar pendências, preservando o relatório oficial. A limpeza de dados transitórios continua ativa. Reversão de código/schema requer drenar pendências incompatíveis e seguir o rollback comentado da migration; esta missão não executa esse procedimento em ambiente compartilhado.
 
-PR426 e PR428 permanecem congeladas. Rebase/retarget, migration, deploy e ativação exigem conferências próprias. O próximo gate humano desta entrega é Sarah revisar o candidato completo, com testes e CI do mesmo SHA.
+PR426 e PR428 foram integradas à main; este candidato parte da atualização da PR430 sobre o merge `5f34b08695d148dc004d123d16f897da066cae5a`. Migration, deploy e ativação exigem conferências próprias. O próximo gate humano desta entrega é Sarah revisar o candidato completo, com testes e CI do mesmo SHA.
 
 ## Limite registrado na revisão Sarah
 
