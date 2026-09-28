@@ -95,28 +95,33 @@ def _guard_agent_runtime_checkout(
     _connection_record: Any,
     _connection_proxy: Any,
 ) -> None:
-    """Discard a pooled connection carrying tenant or search-path state."""
+    """Discard a pooled connection carrying tenant or search-path state.
+
+    The check runs in autocommit, like SQLAlchemy's ping, so it costs one round
+    trip with no BEGIN/ROLLBACK.  Any failure also means the connection is dead
+    and the pool retries on a fresh one, so the engine needs no pre-ping.
+    """
 
     cursor = None
     try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute(
-            "select nullif(current_setting('app.tenant_igreja_id', true), ''), "
-            "current_setting('search_path')"
-        )
-        persisted_tenant, search_path = cursor.fetchone()
-        dbapi_connection.rollback()
-    except BaseException as exc:
+        previous_autocommit = dbapi_connection.autocommit
+        dbapi_connection.autocommit = True
         try:
-            dbapi_connection.rollback()
-        except BaseException:
-            pass
+            cursor = dbapi_connection.cursor()
+            cursor.execute(
+                "select nullif(current_setting('app.tenant_igreja_id', true), ''), "
+                "current_setting('search_path')"
+            )
+            persisted_tenant, search_path = cursor.fetchone()
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if not previous_autocommit and not dbapi_connection.closed:
+                dbapi_connection.autocommit = previous_autocommit
+    except BaseException as exc:
         raise DisconnectionError(
             "agent runtime checkout verification failed"
         ) from exc
-    finally:
-        if cursor is not None:
-            cursor.close()
 
     if persisted_tenant is not None or search_path != AGENT_RUNTIME_SEARCH_PATH:
         raise DisconnectionError(
@@ -160,9 +165,10 @@ def get_agent_runtime_engine() -> Engine:
 
     global _agent_runtime_engine
     if _agent_runtime_engine is None:
+        # No pool_pre_ping: the checkout guard below already runs a query on
+        # every checkout and replaces a dead connection.
         engine = create_engine(
             _validated_runtime_url(),
-            pool_pre_ping=True,
             pool_size=2,
             max_overflow=3,
             pool_timeout=_POOL_CHECKOUT_TIMEOUT_SECONDS,

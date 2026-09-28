@@ -1,4 +1,12 @@
-# Reconciliar o DEV: roteiro para Raniel
+# Histórico supersedido: reconciliação do DEV
+
+**Não executar este roteiro.** Preservado somente como registro de 27/09/2026.
+Foi supersedido por [MVP §3.5](../MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709):
+a validação ocorre em ambiente local descartável e CI; DEV na nuvem está
+parado e não recebe migrations/testes. Não é pré-requisito de merge ou migration.
+Migration/deploy PROD continuam no gate humano próprio de release, com backup
+e rollback. Os comandos e as recomendações abaixo são históricos, sem autorização
+operacional vigente.
 
 Preparado em 27/09/2026 sobre a main `e6aafc296014770ceabc24d5ea6bd9572f33ace4`. Nenhum comando de banco deste roteiro foi executado pelo Orquestrador. A URL e o backup ficam somente com Raniel.
 
@@ -151,7 +159,7 @@ Falha de SQL: pare na primeira, preserve o nome e a classe do erro sanitizada. O
 
 Depois da sequência, conferir os objetos esperados, RLS e grants das migrations aplicadas com consultas de schema preparadas para esse conjunto exato. Fazer o smoke funcional do DEV com dados sintéticos e envios/provedores desligados. A suíte `rls_integration` cria e remove objetos: execute-a somente no PostgreSQL descartável local, nunca no DEV compartilhado.
 
-Registrar SHA da fonte, horário, nomes aplicados, pendências intencionalmente pausadas e resultado da conferência. Até essa evidência existir, DEV permanece não reconciliado para o gate de migration/deploy PROD da S2b.
+Registro histórico: o roteiro exigia SHA, horário, nomes aplicados, pendências e conferência do DEV. Esse gate foi supersedido pelo MVP §3.5; a orientação vigente é validação local descartável e CI, mantendo release/migration/deploy sob autorização própria.
 
 ```bash
 unset MIGRATION_DATABASE_URL DEV_MIGRATION DEV_SEQUENCIA DEV_INDICE
