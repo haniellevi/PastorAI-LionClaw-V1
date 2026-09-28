@@ -126,3 +126,10 @@ Os casos abaixo exigem turno real: entrada persistida, identidade real de teste,
 Este plano não afirma que o candidato implementa os contratos. Ele não autoriza migration, envio, alteração de papel do frontend, encurtador, acesso Clerk, provider, banco compartilhado ou produção. A revisão seguinte deve usar um manifest com hashes de cada pós-imagem, comparar o delta ao SHA congelado e executar os testes somente no ambiente descartável autorizado.
 
 O próximo gate humano permanece a revisão de Sarah do candidato e suas evidências depois de implementação, revisão independente e CI do SHA exato. Merge, release e qualquer envio real continuam fora deste gate.
+
+## Delta da revisão automática da PR436
+
+- Painel: confirmar fonovisita de consolidação anterior à migration sem criar tarefa retroativa ou alerta; manter negação por ator/tenant e exigência de tarefa canônica no WhatsApp.
+- Responsável líder: reutilizar permissão humana por tipo e atribuição atual para consulta, fonovisita e entrega. Líder de célula não recebe conexão em 24h; líder G12 mantém os tipos permitidos.
+- Negativas: líder sem atribuição não recebe códigos de terceiros nem poder gerencial; revogação de papel ou troca de responsável antes do transporte suprime a entrega.
+- Repetir E2E de turno/entrega, regressões do painel, suíte offline e RLS do candidato integrado; CI anterior não valida o delta.

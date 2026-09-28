@@ -1,28 +1,29 @@
 {
-  "recorded_at_utc": "2026-09-28 05:38:57 UTC",
-  "code_commit": "42cab69eaebceb425ac461493921c665d04769b4",
+  "recorded_at_utc": "2026-09-28T06:28:25.963636+00:00",
+  "code_commit": "db3a4b8f136c6ca9f802b4dd494e806027f485a4",
   "base_sha": "342f0ced7af53d2d7e708d99e3b92d54e7a3e22c",
+  "candidate_parent": "df94dc957732fcc2a8db17e0363c4497128a8d01",
   "environment": "local disposable PostgreSQL17 and Python3.13.14, synthetic data and providers",
-  "source_manifest_sha256": "b5b8ebc28a2b7afb169b6218c7caf32fa3b517f4193c38ebedf3546540028825",
+  "source_manifest_sha256": "f19f6de884691445e0218a287ff87e0f703d66c04c9d4eadc5c86434628f6bb0",
   "suites": {
     "offline": {
-      "tests": 5982,
+      "tests": 5998,
       "failures": 0,
       "errors": 0,
       "skipped": 0,
-      "seconds": 42.801
+      "seconds": 42.413
     },
     "rls_integration": {
-      "tests": 750,
+      "tests": 770,
       "failures": 0,
       "errors": 0,
       "skipped": 0,
-      "seconds": 302.86,
+      "seconds": 315.293,
       "v3_modules": {
-        "tests.test_consolidation_notification_outbox_pg": 21,
+        "tests.test_consolidation_notification_outbox_pg": 25,
         "tests.test_consolidation_privileged_pg": 1,
-        "tests.test_consolidation_turn_e2e_pg": 12,
-        "tests.test_consolidation_workflow_pg": 18,
+        "tests.test_consolidation_turn_e2e_pg": 22,
+        "tests.test_consolidation_workflow_pg": 24,
         "tests.test_whatsapp_consolidation_v3_migration_pg": 15
       }
     }

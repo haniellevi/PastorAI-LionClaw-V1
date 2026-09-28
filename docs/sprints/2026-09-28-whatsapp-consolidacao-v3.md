@@ -1,6 +1,6 @@
 # Consolidação pelo WhatsApp: V3, 2026-09-28
 
-**Branch:** `feat/whatsapp-consolidation-v3` · **Commits:** código `42cab69eaebceb425ac461493921c665d04769b4` · **Deploy:** não.
+**Branch:** `feat/whatsapp-consolidation-v3` · **Commits:** código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` · **Deploy:** não.
 
 ## O que foi feito
 
@@ -34,8 +34,17 @@ A base não contém o ambiente local do PR432; não houve teste de painel/simula
 
 ## Verificação
 
-5.982 testes offline e 750 RLS passaram, zero falhas/skips, em Python3.13.14
-e PostgreSQL17 sintético. A revisão independente repetiu 12 E2E de turno,
-21 de entrega e 15 de migration, além dos focais de modelo. O E2E começa no
+5.998 testes offline e 770 RLS passaram, zero falhas/skips, em Python3.13.14
+e PostgreSQL17 sintético. A revisão independente repetiu 22 E2E de turno,
+25 de entrega e 15 de migration, além dos focais de modelo. O E2E começa no
 inbound persistido e usa gates sintéticos/providers falsos.
 [Contrato, hashes, resultados e revisão](../ops/v3-consolidacao-20260928/README.md).
+
+## Delta da revisão automática
+
+Preservado o avanço humano legado sem tarefa canônica. Responsáveis líderes
+seguem a capacidade humana por tipo, com consulta/entrega restritas à própria
+atribuição; coordenação continua separada. Comando V3 sem capacidade provoca
+handoff antes do modelo. SQL inalterado. A falha G12 de uma repetição não foi
+reproduzida; o teste agora prova proposta entregue, execução e recibo.
+Histórico e limites estão no README da fatia.
