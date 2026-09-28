@@ -1,0 +1,15 @@
+{
+  "base": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "phase": "partial-foundation-not-final",
+  "files": {
+    "backend/app/db/models.py": "dd863a8fcd8cf05d72f49196fbcfd3e065f1f904f389a7dce1aa957a5ebe691f",
+    "backend/app/services/agent_action_proposals.py": "fc2164fa764652ec3ad447466e280a1b5d8afb096420f0ddc942da3dfd1c302f",
+    "backend/app/domain/cell_report_v1a.py": "d693e26d07920c3217d5e09909e739f01788235a7000cb6fba61d35a08521a15",
+    "backend/app/services/cell_report_whatsapp.py": "c814acd6289d36d56f30abf5d384c7eabcdf3ce810a6da0f2cf6e2b3dfac13bb",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "f09f5f3586740ad91d4bb73a970d31aab6880922e55f5d8504bbecb54ca3f72c",
+    "backend/tests/test_cell_report_v1a.py": "1f13858e3b1562ed3a218598cbfae14cc1ec9278e3a6136a90c2e17b412e0326",
+    "backend/tests/test_cell_report_v1a_models.py": "0a3d8dc42cf7c686426e9cbb7f863ad6d9cb3d986de6ca010db6f82f5c79b5bc",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "c8c85e28bccf292a332d71c43e7808e43d094c720516e078a5c24fb7512bbfe3",
+    "backend/tests/test_agent_action_proposals.py": "1113ee7f984109e7edf3ee6b8405d996c95a4f5f8c01e60c35ccdb67b2e475ae"
+  }
+}

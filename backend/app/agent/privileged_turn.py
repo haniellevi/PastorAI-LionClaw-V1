@@ -118,6 +118,14 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
             or canonical_arguments_sha256(proposal.arguments_json) != proposal.arguments_sha256
             or hashlib.sha256((message.texto or '').encode()).hexdigest() != proposal.summary_sha256):
             return False
+        if proposal.action == 'enviar_relatorio_celula':
+            from app.services.cell_report_v1a_service import v1a_summary_still_authorized
+            return v1a_summary_still_authorized(
+                session,
+                proposal=proposal,
+                context=context,
+                summary_message=message,
+            )
         _, targets = build_catalog(session, context)
         return any(target.code == proposal.action
             and dict(target.arguments) == proposal.arguments_json
@@ -173,6 +181,22 @@ def _store_response(message, context, response, *, kind, proposal_id=None):
     message.agent_privilege_context = reply_metadata(context, kind=kind, proposal_id=proposal_id)
 
 
+def _stored_receipt_response(message, proposal_id) -> str | None:
+    """Reuse the committed receipt text instead of rebuilding it on retry."""
+
+    response = getattr(message, 'texto', None)
+    metadata = getattr(message, 'agent_privilege_context', None)
+    if (
+        type(response) is str
+        and response
+        and type(metadata) is dict
+        and metadata.get('kind') == 'receipt'
+        and metadata.get('proposal_id') == str(proposal_id)
+    ):
+        return response
+    return None
+
+
 def _action_summary(summary: str) -> str:
     return f'{summary}. Confirma esta ação? Responda SIM ou NÃO. A proposta vale por 10 minutos.'
 
@@ -181,6 +205,9 @@ def _execute(session, execution):
     from app.services.agent_action_proposals import ActionEffect, ProposalExecutionDenied
     from fastapi import HTTPException
     from sqlalchemy.exc import IntegrityError
+    if execution.action.value == 'enviar_relatorio_celula':
+        from app.services.cell_report_v1a_service import execute_v1a_cell_report_proposal
+        return execute_v1a_cell_report_proposal(session, execution)
     from app.services.agent_privilege_catalog import execute_catalog_action
     try:
         effect_id = execute_catalog_action(session, execution.privilege_context,
@@ -219,7 +246,24 @@ def _local_confirmation(session, context, outcome, message):
         _store_response(message, context, None, kind='clarify', proposal_id=resolution.proposal_id)
         return True
     if resolution.status in {'executed', 'receipt'}:
-        response = f'Registro confirmado. Comprovante: {resolution.receipt_id}.'
+        receipt_text = (
+            resolution.receipt.receipt_text
+            if resolution.receipt is not None
+            else 'Registro confirmado.'
+        )
+        response = _stored_receipt_response(message, resolution.proposal_id)
+        if response is None:
+            if resolution.status == 'executed' and receipt_text == 'Relatório confirmado.':
+                from app.services.cell_report_v1a_service import v1a_receipt_text_after_execution
+
+                detailed_receipt = v1a_receipt_text_after_execution(
+                    session,
+                    context=context,
+                    proposal_id=resolution.proposal_id,
+                )
+                if detailed_receipt is not None:
+                    receipt_text = detailed_receipt
+            response = f'{receipt_text} Comprovante: {resolution.receipt_id}.'
         kind = 'receipt'
     elif resolution.status == 'delivery_uncertain':
         response = None
@@ -243,7 +287,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     from app.services.agent_privilege_catalog import build_catalog
     from app.services.agent_privilege_routing import route_privileged_message
     from app.services.crypto import decrypt_secret
-    from app.services.llm import LLMClient
+    from app.services.llm import LLMClient, LLMError, estimate_cost
 
     if (uses_dedicated_agent_session or outcome.inbound_message_id is None
         or outcome.conversation_id is None):
@@ -312,8 +356,6 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             qw._deliver_agent_reply_intent(session_factory, outcome, intent,
                 ownership_guard, evolution_client=evolution_client)
         return qw.AgentRunDisposition.COMPLETED
-    if canonical_public_info_request(preflight.current_text) is not None:
-        return None
     # Optional Tier A remains a suppression gate before routing. Local pending
     # confirmations above never call Jev. The default release is inert.
     from app.services.semantic_triage import (
@@ -331,6 +373,206 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
                 igreja_id=igreja_id, turn_identity=turn_identity,
                 uses_dedicated_agent_session=False, ownership_guard=ownership_guard,
                 evolution_client=evolution_client)
+    # V1a collection follows the optional suppression gate. Local pending
+    # confirmations above remain deterministic and never call Jev.
+    from app.services.cell_report_whatsapp import cell_report_enabled_from_environment
+    if cell_report_enabled_from_environment(igreja_id):
+        from app.services.cell_report_v1a_service import (
+            CellReportStageKind,
+            CellReportV1aServiceError,
+            stage_v1a_cell_report_turn,
+        )
+        v1a_invalid = False
+        v1a_handoff_reason = None
+        v1a_reservation = None
+        v1a_stage = None
+        with _session(runtime_session_factory, outcome) as session:
+            _, _, error = _load_tier_a_plan_state(session, preflight)
+            current = resolve_whatsapp_privilege_context(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=outcome.conversation_id,
+                inbound_message_id=outcome.inbound_message_id,
+            )
+            message = _lock_reply(session, outcome, provider_id)
+            if (
+                error
+                or type(current) is not PrivilegeContext
+                or current.context_fingerprint != context.context_fingerprint
+                or message is None
+                or message.agent_reply_state != AGENT_REPLY_RESERVED
+            ):
+                v1a_invalid = True
+                v1a_stage = None
+                v1a_handoff_reason = 'cell_report_context'
+            else:
+                v1a_stage = stage_v1a_cell_report_turn(
+                    session,
+                    context=current,
+                    inbound_message_id=outcome.inbound_message_id,
+                    text=preflight.current_text,
+                    summary_message=message,
+                )
+                if v1a_stage.kind is CellReportStageKind.SUMMARY:
+                    assert v1a_stage.proposal is not None
+                    _store_response(
+                        message,
+                        current,
+                        v1a_stage.response,
+                        kind='summary',
+                        proposal_id=v1a_stage.proposal.proposal_id,
+                    )
+                    session.commit()
+                elif v1a_stage.kind is CellReportStageKind.CLARIFY:
+                    _store_response(message, current, v1a_stage.response, kind='clarify')
+                    session.commit()
+                elif v1a_stage.kind is CellReportStageKind.EXTRACTION:
+                    from app.services.cell_report_whatsapp import (
+                        CellReportWhatsappError,
+                        reserve_v1a_extraction_budget,
+                    )
+                    try:
+                        if (
+                            v1a_stage.draft_id is None
+                            or v1a_stage.draft_revision is None
+                            or v1a_stage.extraction_projection is None
+                        ):
+                            raise CellReportWhatsappError('reserva de custo indisponível')
+                        v1a_reservation = reserve_v1a_extraction_budget(
+                            session,
+                            igreja_id=igreja_id,
+                            draft_id=v1a_stage.draft_id,
+                            model=preflight.credential_model,
+                            estimate_cost=estimate_cost,
+                        )
+                        session.commit()
+                    except (CellReportWhatsappError, ValueError):
+                        v1a_invalid = True
+                        v1a_handoff_reason = 'cell_report_budget'
+                elif v1a_stage.kind is CellReportStageKind.HUMAN_REQUIRED:
+                    if v1a_stage.persist_before_handoff:
+                        session.commit()
+                    v1a_invalid = True
+                    v1a_handoff_reason = 'cell_report_context'
+        if v1a_invalid:
+            return handoff(v1a_handoff_reason or 'cell_report_context')
+        if (
+            v1a_stage is not None
+            and v1a_stage.kind is CellReportStageKind.EXTRACTION
+        ):
+            if v1a_reservation is None:
+                return handoff('cell_report_budget')
+            remaining = started + 9 - time.monotonic()
+            if remaining <= 0:
+                return handoff('cell_report_timeout')
+            try:
+                if ownership_guard is not None:
+                    ownership_guard()
+                extraction = LLMClient(
+                    preflight.credential_provedor,
+                    decrypt_secret(preflight.credential_key_encrypted),
+                    preflight.credential_model,
+                ).extract_v1a_cell_report(
+                    v1a_stage.extraction_projection or {},
+                    timeout_seconds=min(4.0, remaining),
+                )
+                from app.services.cell_report_whatsapp import actual_v1a_extraction_microusd
+                actual_microusd = actual_v1a_extraction_microusd(
+                    extraction.usage,
+                    estimate_cost,
+                )
+                routing_usage = (extraction.usage,)
+            except (LLMError, ValueError, TypeError):
+                return handoff('cell_report_extraction')
+            with _session(runtime_session_factory, outcome) as session:
+                _, _, error = _load_tier_a_plan_state(session, preflight)
+                current = resolve_whatsapp_privilege_context(
+                    session,
+                    igreja_id=igreja_id,
+                    conversation_id=outcome.conversation_id,
+                    inbound_message_id=outcome.inbound_message_id,
+                )
+                message = _lock_reply(session, outcome, provider_id)
+                if (
+                    error
+                    or type(current) is not PrivilegeContext
+                    or current.context_fingerprint != context.context_fingerprint
+                    or message is None
+                    or message.agent_reply_state != AGENT_REPLY_RESERVED
+                ):
+                    v1a_invalid = True
+                    v1a_handoff_reason = 'cell_report_context_changed'
+                    v1a_stage = None
+                else:
+                    from app.services.cell_report_v1a_service import (
+                        complete_v1a_extraction_after_provider,
+                    )
+                    try:
+                        v1a_stage = complete_v1a_extraction_after_provider(
+                            session,
+                            context=current,
+                            inbound_message_id=outcome.inbound_message_id,
+                            summary_message=message,
+                            draft_id=v1a_stage.draft_id,
+                            expected_revision=v1a_stage.draft_revision,
+                            projection=v1a_stage.extraction_projection,
+                            extracted_payload=extraction.payload,
+                            reservation_id=v1a_reservation.reservation_id,
+                            actual_microusd=actual_microusd,
+                        )
+                    except (CellReportV1aServiceError, ValueError):
+                        v1a_invalid = True
+                        v1a_handoff_reason = 'cell_report_extraction_invalid'
+                        v1a_stage = None
+                    if v1a_stage is None:
+                        pass
+                    elif v1a_stage.kind is CellReportStageKind.SUMMARY:
+                        assert v1a_stage.proposal is not None
+                        _store_response(
+                            message,
+                            current,
+                            v1a_stage.response,
+                            kind='summary',
+                            proposal_id=v1a_stage.proposal.proposal_id,
+                        )
+                    elif v1a_stage.kind is CellReportStageKind.CLARIFY:
+                        _store_response(message, current, v1a_stage.response, kind='clarify')
+                    elif v1a_stage.kind is CellReportStageKind.HUMAN_REQUIRED:
+                        v1a_invalid = True
+                        v1a_handoff_reason = 'cell_report_context_changed'
+                    if not v1a_invalid or (
+                        v1a_stage is not None and v1a_stage.persist_before_handoff
+                    ):
+                        from app.agent.masking import log_ai_usage
+                        log_ai_usage(
+                            session,
+                            igreja_id=igreja_id,
+                            usage=extraction.usage,
+                            ferramenta='cell_report_extraction',
+                        )
+                        session.commit()
+                        # The durable extraction audit is now committed. A
+                        # following fail-safe handoff must not record it again
+                        # as generic S3 routing usage.
+                        routing_usage = ()
+            if v1a_invalid:
+                return handoff(v1a_handoff_reason or 'cell_report_context_changed')
+        if v1a_stage is not None and v1a_stage.kind in {
+            CellReportStageKind.SUMMARY,
+            CellReportStageKind.CLARIFY,
+        }:
+            intent = qw._load_agent_reply_intent(session_factory, outcome)
+            if intent is not None:
+                qw._deliver_agent_reply_intent(
+                    session_factory,
+                    outcome,
+                    intent,
+                    ownership_guard,
+                    evolution_client=evolution_client,
+                )
+            return qw.AgentRunDisposition.COMPLETED
+    if canonical_public_info_request(preflight.current_text) is not None:
+        return None
     with _session(runtime_session_factory, outcome) as session:
         _, _, error = _load_tier_a_plan_state(session, preflight)
         current = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,

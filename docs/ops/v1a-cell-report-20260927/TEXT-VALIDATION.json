@@ -1,0 +1,36 @@
+{
+  "base": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "scope": "partial_text_vertical_not_final_v1a",
+  "patch_sha256": "b31c066651452ac5b4093c31a5aed338477763758ab92b6676e03dd386491845",
+  "files": {
+    "backend/app/agent/privileged_turn.py": "710a23dc5f1faf3e573bd9634d0cb9b641607d059ab8a2184c803207755730e6",
+    "backend/app/db/models.py": "be2f6f7bfa01d2a7a7dc6a0c49be6e4ab2dd7ad751ae27e4f52a20a73a96ac53",
+    "backend/app/services/agent_action_proposals.py": "b742fe05473637e3342bf19609fee89fb6d4b03a522b23d8d8aba867bca64d28",
+    "backend/app/domain/cell_report_v1a.py": "fbaf1f6b881cecdee7b97306ea60778f5fb26a85d9683f0d9b1b55f9f714f007",
+    "backend/app/services/cell_report_whatsapp.py": "b5816383ebe4dbb50f40047fda8f2b84bf901d0cc1fd700cd340eb046abb2f6e",
+    "backend/app/services/cell_report_finalizer.py": "e222e204d92933e7d0078cfdb660ed8d03e2d5c23e39b060676dbbd4b5b9a537",
+    "backend/app/services/cell_report_v1a_service.py": "5957bf7bd2e09cd9f11872f73f921c27382383f01f788cde50be3a3fb1747740",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "d76ab1c6096d2c33781c5cd03a978c5a1cdd524c2a4bdc344b08c73df8abda50",
+    "backend/tests/test_cell_report_v1a_worker_pg.py": "0c20b36841b0f2378a9430f683631459a8c4ed8a6fdd4454d0cab07ce90a8d19",
+    "backend/tests/test_cell_report_v1a_migration_pg.py": "02562d7f74e0c37f4280c0979333f04b881084d075b3e342324d957b2c5bb21b"
+  },
+  "tests": {
+    "worker_pg_latest": {
+      "passed": 11,
+      "skipped": 0
+    },
+    "rls_prior_snapshot": {
+      "passed": 415,
+      "skipped": 0,
+      "seconds": 112.52
+    },
+    "sql_exact": {
+      "passed": 16,
+      "skipped": 0
+    }
+  },
+  "limits": [
+    "Reminders, paid extraction, budget, scheduled purge and shared human finalizer still in implementation",
+    "No provider calls, shared database, deployment, activation or merge"
+  ]
+}

@@ -459,7 +459,9 @@ def make_reuniao(
 ):
     return SimpleNamespace(
         id=reuniao_id,
-        igreja_id=igreja_id,
+        # ORM materializes the tenant column as UUID. Keep the fake aligned
+        # with the finalizer's strict cross-tenant predicate.
+        igreja_id=uuid.UUID(igreja_id),
         celula_id=celula_id,
         data=data or dt.date(2026, 3, 5),
         hora=hora,

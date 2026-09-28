@@ -1,5 +1,19 @@
 # Wiki do projeto Igreja 12
 
+## V1a: candidato de relatório por texto, 27/09/2026
+
+O [plano V1 aprovado](ops/mvp-v1-relatorio-celula-whatsapp-plano.md) divide a
+vertical delta-052 em texto (V1a) e áudio (V1b). A V1a reutiliza a confirmação
+S3, com quatro agregados declarados, correção de resumo e comprovante após
+commit. O consentimento vem do termo LGPD vigente e versionado; E4B permanece
+pausado no MVP. PARAR LEMBRETES desliga os lembretes; SAIR continua global.
+
+O [sprint](sprints/2026-09-27-v1a-relatorio-celula-texto.md) registra o candidato
+local implementado, com validação e revisão registradas. Allowlist vazia e release em código
+`None` mantêm a fatia inerte. Testes sintéticos não provam ativação, custo real
+do provedor, migration compartilhada ou deploy. A classificação do produto
+permanece inalterada; áudio pertence à PR posterior.
+
 ## S3 revisada: candidato WhatsApp-first, 27/09/2026
 
 O [plano aprovado](ops/mvp-s3-whatsapp-first-plano.md) define identidade operacional

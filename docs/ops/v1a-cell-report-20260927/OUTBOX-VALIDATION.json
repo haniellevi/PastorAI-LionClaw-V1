@@ -1,0 +1,35 @@
+{
+  "status": "INTERMEDIATE_REVIEW_PENDING_FINAL_CANDIDATE",
+  "base_sha": "f2a532a9cadba44a31e3d3067125a9e2b624c233",
+  "recorded_at_utc": "2026-09-27T16:18:09.848572+00:00",
+  "environment": "PostgreSQL 17.6 descartável em loopback; dados sintéticos; transporte falso",
+  "files_sha256": {
+    "backend/app/services/cell_report_reminders.py": "35e379e802ae6748894475315015bb36c33dd7866553268291a6464fa16bb593",
+    "backend/app/services/cell_report_application.py": "e408add357a570876bf5bcbf1f15b121a66cdd87da202ebd7385994b947d4311",
+    "backend/app/agent/runtime.py": "77ae4084feeceafc8baeb28339ffdff6879c0e23bf5054c230485d36e43e491b",
+    "backend/tests/test_cell_report_reminders_v1a.py": "cf4359c8e6c99edbb2541d31fb98fae3dc8cab985c5643a482e1d45a8d4ec739",
+    "backend/tests/test_agent_hygiene.py": "5f2d17971f9dcfa1fcc3aa14502dee7ae0bd3d7658ad036fccb6e7f6f074f51c",
+    "backend/tests/test_cell_report_v1a_reminder_pg.py": "59bc66e60269ef75a0b7f01098d4e4858f0c93430779a1e235b6e040ee2f8a82"
+  },
+  "patch_sha256": "b1adcd0a2f286d93bb601ab47b3bb8abdffd81829104de4dc03d006bf31cb11f",
+  "verification": [
+    {
+      "suite": "reminder_pg + worker_pg",
+      "passed": 57,
+      "failed": 1,
+      "reason": "Fixture global liberava piloto; os demais comportamentos passaram."
+    },
+    {
+      "suite": "gate real restaurado: dedup + oito revogações",
+      "passed": 9,
+      "failed": 0
+    }
+  ],
+  "limits": [
+    "Não é execução completa do candidato final.",
+    "Teste de corrida com endpoint humano acrescentado depois, ainda pendente.",
+    "Orçamento, extração paga, shared finalizer e cron ainda em implementação.",
+    "Nenhum provedor real, DEV, PROD, merge ou ativação."
+  ],
+  "next_human_gate": "Sarah sobre candidato completo, testes e CI do mesmo SHA"
+}

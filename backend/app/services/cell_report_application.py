@@ -1017,6 +1017,28 @@ def _revalidate_locked_leader(
     )
 
 
+def revalidate_cell_report_leader(
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    meeting: CelulaReuniao,
+    ator_pessoa_id: uuid.UUID,
+) -> None:
+    """Reuse the human report authority check from another short transaction.
+
+    Callers must already hold their tenant scope and any earlier locks.  The
+    function deliberately returns no identity data: it only confirms that the
+    current active cell leader still has one usable ministerial panel access.
+    """
+
+    _revalidate_locked_leader(
+        db,
+        igreja_id=igreja_id,
+        meeting=meeting,
+        ator_pessoa_id=ator_pessoa_id,
+    )
+
+
 def _validate_meeting_eligibility(
     meeting: CelulaReuniao,
     *,
@@ -1698,4 +1720,5 @@ __all__ = [
     "confirm_cell_report",
     "prepare_cell_report_proposal_cycle",
     "propose_cell_report_from_cycle",
+    "revalidate_cell_report_leader",
 ]

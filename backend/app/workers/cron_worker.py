@@ -35,6 +35,12 @@ from app.db.session import get_session_factory
 from app.db.tenant_session import mark_cross_tenant
 from app.services.billing_worker import run_pending_plan_changes
 from app.services.calendar_oauth_flows import purge_expired_flows
+from app.services.cell_report_reminders import (
+    dispatch_cell_report_reminders,
+    purge_expired_cell_report_state,
+    schedule_due_cell_report_reminders,
+)
+from app.services.evolution import EvolutionClient
 from app.services.sla_engine import SlaEngine, run_all_igrejas
 from app.services.worker_health import publish_worker_heartbeat
 
@@ -303,12 +309,61 @@ class CronWorker:
                 except Exception:  # noqa: BLE001
                     logger.exception("OAuth flow purge close failed")
 
+    def _run_cell_report_reminder_cycle(
+        self,
+        *,
+        now: dt.datetime | None,
+    ) -> tuple[int, int, int]:
+        """Run V1a maintenance after the legacy tick session has closed.
+
+        The V1a state purge is maintenance and deliberately runs even when the
+        release or tenant allowlist is closed.  Scheduling and transport retain
+        their own gates in the service layer.  Each phase is isolated so a
+        malformed V1a row, unavailable provider client, or transient database
+        error cannot suppress the other maintenance work in this tick.
+        """
+
+        purged = 0
+        scheduled = 0
+        dispatched = 0
+        try:
+            purged = purge_expired_cell_report_state(
+                self._session_factory,
+                now=now,
+            )
+        except Exception:  # noqa: BLE001 - V1a maintenance cannot stop cron
+            logger.exception("Cell-report state purge failed")
+        self._record_progress()
+        try:
+            scheduled = schedule_due_cell_report_reminders(
+                self._session_factory,
+                now=now,
+            )
+        except Exception:  # noqa: BLE001 - scheduling cannot stop dispatch/retry
+            logger.exception("Cell-report reminder scheduling failed")
+        self._record_progress()
+        try:
+            # The client opens its HTTP pool lazily.  All claims and transport
+            # fences still commit in the service before it can issue a request.
+            with EvolutionClient() as evolution_client:
+                dispatched = dispatch_cell_report_reminders(
+                    self._session_factory,
+                    evolution_client,
+                    worker_id="cron-worker",
+                    now=now,
+                )
+        except Exception:  # noqa: BLE001 - provider path cannot stop next tick
+            logger.exception("Cell-report reminder dispatch failed")
+        self._record_progress()
+        return purged, scheduled, dispatched
+
     def tick(self, now: dt.datetime | None = None) -> dict[str, int]:
         """Run one full cycle: purge + global SLA sweep + due crons.
 
         O purge vem PRIMEIRO e é totalmente contido, de modo que uma falha nele
         não atrasa nem impede o sweep de SLA e os crons deste mesmo tick.
         """
+        reminder_now = now
         now = now or _now()
         oauth_flows_purged = self._purge_oauth_flows(now)
         self._record_progress()
@@ -348,7 +403,14 @@ class CronWorker:
                 plan_changes = 0
             self._record_progress()
         finally:
-            session.close()
+            try:
+                session.close()
+            finally:
+                # This hook is maintenance.  It must run even when the legacy
+                # SLA or cron pass raises, but the original legacy exception
+                # still propagates after the hook has finished.
+                # With no injected clock, reminder fences read a fresh clock.
+                self._run_cell_report_reminder_cycle(now=reminder_now)
         return {
             "sla_handled": sla_handled,
             "crons_run": crons_run,

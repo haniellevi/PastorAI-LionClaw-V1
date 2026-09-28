@@ -33,6 +33,30 @@ def test_action_catalog_is_closed_to_the_two_approved_actions() -> None:
             parse_agent_action(value)
 
 
+def test_cell_report_action_uses_a_server_owned_meeting_target() -> None:
+    meeting_id = uuid.UUID("00000000-0000-0000-0000-0000000000e2")
+    draft_id = uuid.UUID("00000000-0000-0000-0000-0000000000d2")
+
+    assert parse_agent_action("enviar_relatorio_celula") is AgentAction.ENVIAR_RELATORIO_CELULA
+    target = ProposalTarget(kind="reuniao", id=meeting_id)
+    assert canonical_action_arguments(
+        AgentAction.ENVIAR_RELATORIO_CELULA,
+        target,
+        {"reuniao_id": str(meeting_id), "rascunho_id": str(draft_id), "revisao": 3},
+    ) == {
+        "rascunho_id": str(draft_id),
+        "reuniao_id": str(meeting_id),
+        "revisao": 3,
+    }
+
+    with pytest.raises(ProposalContractError):
+        canonical_action_arguments(
+            AgentAction.ENVIAR_RELATORIO_CELULA,
+            target,
+            {"reuniao_id": str(meeting_id), "rascunho_id": str(draft_id), "texto": "forjado"},
+        )
+
+
 def test_confirmation_disposition_is_closed_before_any_router_or_model_call() -> None:
     assert parse_proposal_disposition("confirm") is ProposalDisposition.CONFIRM
     assert parse_proposal_disposition("reject") is ProposalDisposition.REJECT
@@ -52,6 +76,14 @@ def test_action_enum_is_accepted_by_the_service_contract_and_receipt_is_generic(
     assert effect.receipt_text == "Registro confirmado."
     with pytest.raises(ProposalContractError):
         ActionEffect(receipt_text="detalhe privado", opaque_effect_id=uuid.uuid4())
+
+
+def test_cell_report_receipt_is_closed_and_distinct_from_other_actions() -> None:
+    effect = ActionEffect(
+        receipt_text="Relatório confirmado.",
+        opaque_effect_id=uuid.UUID("00000000-0000-0000-0000-0000000000e4"),
+    )
+    assert effect.receipt_text == "Relatório confirmado."
 
 
 def test_proposal_models_bind_one_tenant_conversation_actor_and_receipt() -> None:

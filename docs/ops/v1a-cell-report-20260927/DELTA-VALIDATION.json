@@ -1,0 +1,71 @@
+{
+  "base_sha": "c3e8fb3171682b5f2bdfa36ae153414fe73bb47a",
+  "base_main_sha": "5f34b08695d148dc004d123d16f897da066cae5a",
+  "recorded_at": "2026-09-28T16:26:18.517764+00:00",
+  "patch_sha256": "110bd532f2307baaf87ca0af0b23a47fbb4182571782b20fad1d6ecf29c21517",
+  "patch_format": "git diff --binary --full-index HEAD -- <seven source/test paths>",
+  "files": {
+    "backend/app/domain/cell_report_v1a.py": "f08c3acdf933e913e2269357e1cf06c99237d6f970e271c9b3617cbc9276e37e",
+    "backend/app/services/cell_report_finalizer.py": "82ccfcc3858b720c1b5e073e115abe5d6e8226db570ea3f4603496ac28bba34b",
+    "backend/app/services/cell_report_v1a_service.py": "df475519aeeb3c2bb5e0c0155084b0d11caa6c928dbd22486a93afca40cba11e",
+    "backend/tests/test_cell_meetings.py": "3032ebcb16c752f49f7dedbf9f9a238a362db042fc95ca8e3fff2a9c3ecfe1e9",
+    "backend/tests/test_cell_report_finalizer_v1a.py": "877ba09a49935259b6fefe3b62f9637f6dfaa4cc78dbd459e84ffa0e418cccb9",
+    "backend/tests/test_cell_report_v1a.py": "3f42790b58cab1296c456e5b26da851a499d8aacea0c0a16b82889b5d0040b37",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "6dbbda311d3a492366dd2b473fd30ae845f4cc5f18eeb1aaae1b033e27567c8a"
+  },
+  "historical_delta": {
+    "file": "DELTA-VALIDATION-20260927.json",
+    "sha256": "45fb296f0b1516c35b73d47487f23c0ceb29130976e14bf00fdf9c0e5a05a1aa"
+  },
+  "changes": [
+    "The human submit no longer applies the V1a-only meeting_has_passed predicate. The V1a finalizer still checks it after locking and before mutation.",
+    "The V1a wrapper accepts LF/CRLF and mixed separators while preserving BRL decimals, Unicode normalization and rejection of observations. It retains the existing projection to aggregate fields; the legacy parser is unchanged.",
+    "All four CLARIFY paths explain the four-field format with a valid example and comma/newline separators."
+  ],
+  "regressions_before_fix": {
+    "human_endpoint": "Both same-day cases, hora=None and hora=23:59, returned HTTP409 instead of200; 2 failed in1.95s with the real finalizer.",
+    "parser_and_clarify": "Three multiline cases and four CLARIFY cases failed before production changes; 7 failed,51 passed in0.73s."
+  },
+  "checks": [
+    {
+      "suite": "local_panel_and_v1a_regressions",
+      "command": "python -m pytest -o addopts='' -q -p no:cacheprovider tests/test_cell_meetings.py tests/test_cell_lider.py tests/test_cell_report_finalizer_v1a.py tests/test_cell_report_v1a.py tests/test_cell_report_whatsapp_v1a.py tests/test_cell_report_workflow.py",
+      "results": {
+        "tests": 470,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "seconds": 4.84,
+      "junit_sha256": "e3ee1cd43875807ffd7d66fb315316a32cb8ed6cb2dbf00fe68de79e4a37f945",
+      "environment": "Python 3.13.14; synthetic fixtures and real ASGI routes; no database or providers",
+      "candidate_source_patch_sha256": "110bd532f2307baaf87ca0af0b23a47fbb4182571782b20fad1d6ecf29c21517"
+    }
+  ],
+  "frozen_sql_sha256": {
+    "backend/migrations/20260927_120000_church_cell_public_data.sql": "3bfdecda8dd667de6af793c2ccb302b2b09bdec8a3fcefa3b79c410509b31c65",
+    "backend/migrations/20260927_170000_whatsapp_privilege_actions.sql": "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795",
+    "backend/migrations/20260927_190000_cell_report_whatsapp_v1a.sql": "b318e47a27204a2abba3490b7fbfee21b7029890ef329880277c59df7b02ee6f"
+  },
+  "status": "LOCAL_PASS; independent source and evidence review APTO (P0=0/P1=0/P2=0); GitHub CI and Sarah remain separate gates",
+  "limits": [
+    "No database replay was run locally in this delta; historical PostgreSQL results are not attributed to this candidate.",
+    "No merge, deploy, migration, activation, provider or production operation.",
+    "Sarah NO-GO on c3e8fb31 requires new review of the published head."
+  ],
+  "next_human_gate": "Sarah review of the exact updated PR head after green CI",
+  "compatibility": "NFC/NFD, legacy Relatório: prefix and ignored extra labels retain the baseline aggregate projection; observations remain rejected.",
+  "review": {
+    "file": "REVIEW-SARAH-FIXES-20260928.md",
+    "sha256": "9a0d89bb544cfe1752bdda637b002de51e0e36cf1871908ae12569b105ed665d",
+    "verdict": "APTO technical delta review; no open P0/P1/P2 in this patch; not Sarah approval",
+    "executed_tests": {
+      "tests": 65,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.8
+    },
+    "scope": "Frozen source/test patch and five evidence documents; expanded HTTP suite supplied by the orchestrator."
+  }
+}

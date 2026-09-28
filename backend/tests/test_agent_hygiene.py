@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from types import SimpleNamespace
 
@@ -229,6 +230,51 @@ def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff() -> None:
         getattr(o, "evento", None) == "optout_inbound_persisted"
         for o in session.added
     )
+
+
+def test_stop_reminders_persists_before_consent_credential_or_llm(monkeypatch) -> None:
+    from app.agent import runtime
+    from app.services import cell_report_reminders
+
+    cid, pid, gid, inbound_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
+    pessoa = SimpleNamespace(
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=False,
+        tipo="membro",
+    )
+    session = _FailOnCredentialSession(conv, pessoa)
+    disabled: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
+    monkeypatch.setattr(
+        runtime,
+        "_load_persisted_inbound_turn",
+        lambda *_args, **_kwargs: (dt.datetime.now(dt.timezone.utc), "PARAR LEMBRETES"),
+    )
+    monkeypatch.setattr(runtime, "_lock_tier_a_conversation", lambda *_args, **_kwargs: conv)
+    monkeypatch.setattr(
+        cell_report_reminders,
+        "disable_cell_report_reminders",
+        lambda _session, *, igreja_id, conversation_id, pessoa_id: disabled.append(
+            (igreja_id, conversation_id, pessoa_id)
+        )
+        or True,
+    )
+
+    result = runtime.process_inbound_message(
+        session,
+        igreja_id=gid,
+        conversation_id=cid,
+        texto="texto forjado",
+        inbound_message_id=inbound_id,
+    )
+
+    assert disabled == [(gid, cid, pid)]
+    assert result.suppressed is True
+    assert result.response is None
+    assert result.reason == "cell_report_reminders_disabled"
+    assert session.committed is True
 
 
 # ---- (d.3) CONV-AI-1: o worker NÃO envia auto-resposta p/ sem_interesse -----
