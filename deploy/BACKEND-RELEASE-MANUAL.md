@@ -21,50 +21,95 @@ O ledger nominal não prova o conteúdo aplicado, reconciliação de dados,
 gates por igreja nem autorização de envio.
 
 **Fechar `ALLOW_REAL_SENDS` não é uma pausa segura de fila.** O cron cancela
-definitivamente como `cancelado/gate_fechado` os itens pendentes do
-`notification_outbox` que alcançar enquanto o gate estiver fechado
-(`backend/app/services/notification_outbox.py:1523-1527`; `_terminalize` em
-`:1298-1307`). A manutenção trabalha em lotes limitados; itens que não forem
-alcançados continuam pendentes e **podem ser enviados após a reabertura**.
-Lembretes legados em `CellReportReminder` só têm varredura integral quando o
-gate específico V1a é fechado (`backend/app/services/cell_report_reminders.py:1543-1553`);
-fechar apenas `ALLOW_REAL_SENDS` pode deixar esses registros pendentes. Abrir
-o gate não ressuscita itens já cancelados, mas também não impede o envio dos
-que ficaram pendentes. Antes de fechar, o responsável deve aceitar essa
-mistura de estados e aprovar inventário read-only e plano separado para avisar,
-descartar ou reconstruir apenas o que for devido, com revisão contra
-duplicação e autorização de envio. Antes de reabrir, repetir o inventário e
-decidir o destino das pendências remanescentes. Se a mistura for inaceitável,
-**não execute este workflow**: um modo de pausa ou outra contenção precisa de
-desenho, teste e revisão próprios.
+como `cancelado/gate_fechado` somente as pendências de `notification_outbox`
+que alcançar; a manutenção geral percorre até 20 itens por igreja e ciclo de
+dispatch, inclusive itens com `due_at` futuro. Quando o gate V3 fecha, há
+também varredura de até 100 notificações V3 por igreja e ciclo. O ciclo do
+cron tem padrão de 300 segundos, sujeito à configuração viva. Esses números
+são tetos, não garantia de drenagem: o dispatch também tem limite global por
+ciclo e pode não alcançar todas as igrejas. Cancelamento é terminal e não se
+desfaz ao reabrir (`notification_outbox.py:982-1040`, `:1472-1527`,
+`:2696-2746`; `cron_worker.py:349-367`; `config.py:264`).
+
+| Finalidade em `notification_outbox` | Gate que fecha | Alcance por ciclo, por igreja | Destino do remanescente ao reabrir |
+| --- | --- | --- | --- |
+| `agenda_reminder` | `ALLOW_REAL_SENDS`, piloto ou agenda | Até 20 na manutenção geral | Pode enviar só se inscrição, evento e destinatário ainda forem válidos e a ocorrência ainda não tiver passado; senão fica obsoleto. |
+| `agenda_evt7` | `ALLOW_REAL_SENDS`, piloto ou agenda | Até 20 na manutenção geral | Um item ainda sem tentativa só pode iniciar transporte até 10 minutos após a primeira janela elegível; depois expira ou fica obsoleto. |
+| `consolidation_connection_open` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Fonte anterior à nova época V3 não volta ao agendador; pendência antiga é cercada como obsoleta ou cancelada. |
+| `consolidation_connection_deadline` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Mesmo reset de época; também vale prazo rígido de 24 horas da ocorrência. |
+| `consolidation_fonovisita` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Mesmo reset de época e prazo rígido de 24 horas; não há replay normal. |
+| `cell_report_reminder` | `ALLOW_REAL_SENDS`, piloto ou gate V1a | Até 20 na manutenção geral | Se não foi cancelado, pode enviar após reabrir enquanto reunião, líder e janela ainda forem válidos. |
+
+Ao fechar o gate global, V3 grava `gate_open=false`. A reabertura grava
+`activated_at` novo: consolidações e tarefas criadas antes dessa época não
+voltam ao agendamento (`notification_outbox.py:2650-2688`, `:2883`,
+`:2513-2521`, `:3333-3340`; `consolidation_whatsapp.py:93`). Reconstruir avisos V3
+pré-janela pelo agendador normal não funciona. Qualquer correção desses casos
+exige plano próprio, SQL versionado e revisado, verificação posterior e
+autorização de banco/envio separadas; este workflow não executa essa correção.
+O `agenda_evt7` tem prazo de dez minutos após a primeira janela elegível
+(`notification_outbox.py:129-148`) e V3 expira em 24 horas
+(`notification_outbox.py:171-186`).
+
+A tabela legada `CellReportReminder` **não tem despachante ativo** neste
+backend: `dispatch_cell_report_reminders` delega ao outbox. Sua varredura de
+pendentes ocorre em lotes de até 100 por igreja e ciclo somente quando o gate
+específico V1a está fechado; `ALLOW_REAL_SENDS=false` sozinho não dispara
+essa varredura (`cell_report_reminders.py:420-463,1494-1511,1536-1553,1640`).
+Antes de fechar e antes de reabrir, inventariar por finalidade, estado e
+origem com consultas read-only aprovadas. Não inferir que fila vazia significa
+ausência de consolidações pré-época. O plano humano deve tratar separadamente
+itens cancelados, pendentes, obsoletos e fontes V3 que deixaram de ser
+agendáveis, com revisão contra duplicação. Se a perda ou mistura de estados
+for inaceitável, **não execute este workflow**: modo de pausa sem
+terminalização ou outra contenção exige desenho, teste e revisão próprios.
+
+Decisão de projeto ainda aberta para Raniel: criar um modo de pausa que
+preserve a fila, com código e testes próprios, ou redesenhar o deploy para
+manter envio aberto com contenção equivalente durante build/restart. A segunda
+opção exige remover as travas atuais e provar a segurança dos envios durante
+build e restart; este workflow não a suporta. Nenhuma das duas opções é
+autorizada por este documento.
 
 Sequência obrigatória para um release futuro, sempre com autorizações próprias:
 
 1. Obter autorização nominal de Raniel para o fechamento e registrar o
    operador responsável. A reabertura exige nova decisão nominal de Raniel;
-   registrar horário de início e tempo máximo da janela, além do plano de aviso
-   ou tratamento das pendências canceladas e remanescentes. Sob gate read-only
-   próprio, comparar o ledger de PROD com as migrations ativas do SHA, inclusive
+   registrar horário de início e duração máxima numérica, em minutos, além do
+   plano de aviso ou tratamento das pendências canceladas e remanescentes.
+   Sob gate read-only próprio, comparar o ledger de PROD com as migrations
+   ativas do SHA, inclusive
    as antigas `0001` a `0017`, **antes** de iniciar a janela; divergência impede o
    fechamento dos envios. Conferir o estado vivo dos quatro serviços e dos
    gates. Em 27/09, PROD tinha `ALLOW_REAL_SENDS=true` para o piloto Filadélfia;
-   esse registro histórico
-   precisa ser reconfirmado no momento do release.
+   esse registro histórico precisa ser reconfirmado no momento do release.
 2. Com autorização específica para mudar o gate, fechar `ALLOW_REAL_SENDS` e
    qualquer outro gate aberto, atualizar os quatro serviços e comprovar que o
    Compose resolvido e os processos ativos têm os quatro valores fechados.
    Enquanto `ALLOW_REAL_SENDS=false`, a Filadélfia não envia mensagens reais;
-   registrar a interrupção e os itens efetivamente cancelados do piloto.
+   registrar a interrupção e os efeitos por finalidade da tabela acima.
 3. Concluir os gates de banco e dados do runbook único, obter autorização de
    deploy para o SHA exato e só então disparar o workflow manual. Falha no
    preflight interrompe o release antes de build ou restart.
 4. Conferir saúde e comportamento do backend após o deploy. Reabrir envio e
    outros gates apenas com autorização separada para cada efeito, validar a
    retomada do piloto e registrar o resultado. Antes de reabrir, inventariar
-   itens cancelados e ainda pendentes; reabrir não recupera os primeiros e pode
-   enviar os segundos. Executar o plano de tratamento somente sob autorização
+   itens cancelados, pendentes e fontes V3 anteriores à nova época. Reabrir
+   não recupera cancelados; somente algumas finalidades pendentes ainda podem
+   enviar, conforme a tabela. Executar o plano de tratamento sob autorização
    própria. Se a reabertura não ocorrer, manter o release como incompleto e
    avisar o responsável: o piloto seguirá sem envios reais.
+
+Se o deploy **falhar com o gate fechado**, registrar o ponto da falha e não
+reabrir automaticamente. Falha antes do restart deixa o código anterior em
+execução; falha depois aciona tentativa de rollback só de código. O rollback
+**não executa `check_backend_schema.py` no código anterior**: `/health` e
+`/ready` não provam compatibilidade com o schema novo. Em ambos os casos,
+conferir processos e inventariar cancelados, pendentes e fontes V3 pré-época
+antes de decidir qualquer reabertura. Se o rollback ou inventário falhar,
+manter envio fechado, registrar a janela ultrapassada e escalar para decisão
+nominal de Raniel sobre correção adiante revisada ou outra contenção. Nunca
+reconstruir avisos nem reabrir envio como parte automática deste script.
 
 Configure o GitHub Environment protegido `backend-production` apenas sob a
 autorização separada de release. Seus secrets são `BACKEND_DEPLOY_HOST`,

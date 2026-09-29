@@ -49,9 +49,13 @@ BROADCAST_ASYNC_ENABLED=false
 CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 ```
 
-- `ALLOW_REAL_SENDS=false` bloqueia os efeitos externos até os smokes de
-  saúde/login terminarem. Em produção, conexão Evolution e envios Brevo
-  retornam erro controlado em vez de simular sucesso.
+- `ALLOW_REAL_SENDS=false` bloqueia efeitos externos, mas o cron pode cancelar
+  definitivamente pendências de `notification_outbox` em lotes; ao reabrir,
+  V3 cria nova época e não reagenda consolidações anteriores. Em produção,
+  conexão Evolution e envios Brevo retornam erro controlado. Antes de fechar
+  o gate, seguir o inventário e a decisão nominal de
+  [BACKEND-RELEASE-MANUAL.md](../../deploy/BACKEND-RELEASE-MANUAL.md), inclusive
+  o destino de itens cancelados, remanescentes e fontes V3 pré-época.
 - `ASAAS_BILLING_ENABLED=false` mantém toda mutação financeira Asaas desligada
   mesmo depois de `ALLOW_REAL_SENDS=true`. Cobrança só é possível com os dois
   opt-ins; leituras de reconciliação e o webhook autenticado continuam ativos.
