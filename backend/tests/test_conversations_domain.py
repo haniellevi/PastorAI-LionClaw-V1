@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 
 import pytest
 
@@ -92,6 +93,35 @@ def test_parse_message_event_extracts_fields() -> None:
     assert parsed.texto == "Olá"
     assert parsed.push_name == "Maria"
     assert parsed.from_me is False
+
+
+def test_parse_message_event_uses_phone_alt_for_lid_sender() -> None:
+    payload = _message_payload()
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    payload["data"]["key"]["remoteJidAlt"] = "5500000000000@s.whatsapp.net"
+
+    parsed = parse_message_event(payload)
+
+    assert parsed is not None
+    assert parsed.telefone == "00000000000"
+    assert parsed.telefone_raw == "5500000000000"
+
+
+@pytest.mark.parametrize("alt", [None, "120363@g.us", "5500000000000@s.whatsapp.net.evil"])
+def test_parse_message_event_rejects_lid_without_valid_phone_alt_without_logging_jid(
+    alt: str | None, caplog: pytest.LogCaptureFixture
+) -> None:
+    payload = _message_payload()
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    if alt is not None:
+        payload["data"]["key"]["remoteJidAlt"] = alt
+
+    with caplog.at_level(logging.WARNING, logger="pastorai.conversations"):
+        assert parse_message_event(payload) is None
+
+    assert "120363000000000" not in caplog.text
+    assert "5500000000000" not in caplog.text
+    assert "lid" in caplog.text.lower()
 
 
 def test_parse_message_event_extended_text() -> None:

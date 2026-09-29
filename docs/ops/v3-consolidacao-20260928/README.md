@@ -43,6 +43,50 @@ Claim e lease são persistidos antes do HTTP. O envio revalida origem, responsá
 
 ## Ativação prospectiva e rollback
 
+### Ordem obrigatória da release futura
+
+Com os gates V3 fechados, drenar processos antigos e aplicar `20260928_080000_whatsapp_consolidation_v3.sql` antes de publicar ou reiniciar backend e workers V3. Após autorização específica de banco, executar a pré-verificação abaixo no destino. Somente com `preflight_ok = 1` iniciar os binários novos; abrir gates exige decisão separada. Falha ou resultado inconclusivo exige **PARAR** e manter os binários antigos. Este bloco não deve ser executado nesta missão de PR.
+
+A ordem importa mesmo com flags V3 fechadas: mapeamentos ORM e caminhos de `work_queue`, `contacts`, `sla_engine`, `offboarding` e `ministerial_actions` usam colunas novas sem guarda da flag. Invertê-la pode causar `undefined_column` (`42703`) ou `undefined_table` (`42P01`), HTTP 500 e falhas dos workers. São exigidas `consolidacoes.origin_decision_id`, `consolidacoes.assignment_revision`, `work_queue_items.consolidacao_id`, `notification_outbox.consolidacao_id`, `notification_outbox.work_queue_item_id` e `public.consolidation_whatsapp_activation` com RLS habilitada e forçada. A role `authenticated` precisa de SELECT, INSERT e UPDATE na tabela de ativação, sem DELETE.
+
+Pré-verificação literal para `psql`, somente de leitura. `ON_ERROR_STOP` bloqueia erro, ausência ou resultado falso. Conferir `preflight_ok = 1`; resultado desconhecido nunca libera o restart.
+
+```sql
+\set ON_ERROR_STOP on
+BEGIN TRANSACTION READ ONLY;
+WITH expected(table_name, column_name) AS (
+  VALUES
+    ('consolidacoes', 'origin_decision_id'),
+    ('consolidacoes', 'assignment_revision'),
+    ('work_queue_items', 'consolidacao_id'),
+    ('notification_outbox', 'consolidacao_id'),
+    ('notification_outbox', 'work_queue_item_id')
+), columns_present AS (
+  SELECT count(*) = 5 AS ok
+  FROM expected e
+  JOIN information_schema.columns c
+    ON c.table_schema = 'public'
+   AND c.table_name = e.table_name
+   AND c.column_name = e.column_name
+), activation AS (
+  SELECT oid, relrowsecurity, relforcerowsecurity
+  FROM pg_catalog.pg_class
+  WHERE oid = to_regclass('public.consolidation_whatsapp_activation')
+)
+SELECT 1 / CASE WHEN
+  (SELECT ok FROM columns_present) IS TRUE
+  AND (SELECT relrowsecurity AND relforcerowsecurity FROM activation) IS TRUE
+  AND (SELECT has_table_privilege('authenticated', oid, 'SELECT')
+       AND has_table_privilege('authenticated', oid, 'INSERT')
+       AND has_table_privilege('authenticated', oid, 'UPDATE')
+       AND NOT has_table_privilege('authenticated', oid, 'DELETE')
+       FROM activation) IS TRUE
+  THEN 1 ELSE 0 END AS preflight_ok;
+ROLLBACK;
+```
+
+No rollback de código, fechar gates e voltar aos binários anteriores, preservando schema e históricos até compensação aprovada. Não remover colunas enquanto houver processo V3.
+
 A migration não cria nem preenche marcos de ativação. O worker registra o corte durável quando observa todos os gates abertos; tarefas anteriores continuam consultáveis e não geram alertas retroativos. A abertura de uma nova época exige um ciclo anterior comprovado com gates fechados, que feche o marcador e cancele a elegibilidade pendente. Um ciclo posterior aberto registra um corte estritamente posterior. O banco rejeita alterações do corte enquanto a época estiver aberta ou sendo fechada e rejeita retrocesso na reabertura.
 
 Limite causal: se nenhum processo observou uma troca de flag de fechado para aberto, não há prova de uma nova época. Reiniciar ou editar a env não substitui a observação persistida exigida no runbook de ativação. Essa disciplina integra o gate futuro de release, fora desta missão local.
@@ -56,7 +100,7 @@ SHA-256: `267f619713f1e2c3ece030227ec387bcef3b76cfbba237f00568e1e347c5b82d`.
 Os 86 arquivos SQL da base foram comparados byte a byte e permanecem intactos.
 A prova local exercita aplicação e reaplicação do SQL candidato em PostgreSQL 17 descartável; não é evidência de aplicação em ambiente compartilhado.
 
-## Verificação local do candidato
+## Verificação histórica do candidato original
 
 | Prova | Resultado |
 | --- | --- |
@@ -66,7 +110,7 @@ A prova local exercita aplicação e reaplicação do SQL candidato em PostgreSQ
 | Entrega V3 pelo dispatcher comum, incluída na RLS | 25 passaram; repetidos na revisão independente |
 | Migration literal, incluída na RLS | 15 passaram; repetidos na revisão independente |
 
-[Resultados sanitizados](VALIDATION.json) registram a rodada histórica no commit `db3a4b8f`. O [manifesto de 39 pós-imagens](SOURCE-SNAPSHOT.json) identifica os arquivos de código, testes, migration e CI da composição atual; CI no head publicado ainda é necessário. O [parecer independente final anterior](REVIEW-FINAL-V3-INTEGRATED-ROUTING.md) foi emitido para o snapshot original. O parecer inicial está preservado em `REVIEW.md`; os manifests intermediários ficam em `review-inputs/`.
+[Resultados sanitizados](VALIDATION.json) registram a rodada histórica no commit `db3a4b8f`. O [manifesto de 39 pós-imagens](SOURCE-SNAPSHOT.json) identifica os arquivos de código, testes, migration e CI da composição atual; CI no head publicado ainda é necessário. O [parecer independente final anterior](REVIEW-FINAL-V3-INTEGRATED-ROUTING.md) foi emitido para o snapshot original. `REVIEW.md` e `review-inputs/` também são evidência histórica, sem atestar o head retargetado.
 
 O E2E começa na mensagem inbound persistida, atravessa worker, identidade, catálogo, roteador, confirmação e persistência reais. Gates usam configuração sintética e provedores são simulados. Essa prova não cobre HTTP de ingresso, parser ou piloto real; o parser/JID e os gates inertes têm testes focais separados. O CI do head publicado ainda precisa passar antes de encaminhar a Sarah.
 

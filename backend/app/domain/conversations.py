@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from app.domain.phone import normalize_phone
@@ -44,6 +45,7 @@ VALID_ESTADOS: frozenset[str] = frozenset({"ia", "humano", "aguardando"})
 
 # Provider event that carries a chat message.
 MESSAGE_EVENT = "messages.upsert"
+logger = logging.getLogger("pastorai.conversations")
 
 
 def media_snippet(kind: str | None) -> str:
@@ -182,7 +184,7 @@ def _extract_media(message: dict[str, Any]) -> tuple[str, str | None, str | None
 
 
 def _phone_from_jid(remote_jid: str) -> str:
-    """Strip the WhatsApp JID suffix (`@s.whatsapp.net` / `@g.us`)."""
+    """Strip the suffix from an Evolution phone JID."""
     if not remote_jid:
         return ""
     return remote_jid.split("@", 1)[0]
@@ -193,7 +195,8 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
 
     Returns None when the payload is not a single chat message (e.g. a status
     update, a group message or a malformed body), so callers can safely skip
-    it. Group messages (`@g.us`) are ignored — only direct chats are captured.
+    it. Group messages (`@g.us`) are ignored. LID direct chats use the
+    phone-bearing `remoteJidAlt` supplied by Evolution.
     """
     if not isinstance(payload, dict):
         return None
@@ -210,20 +213,23 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
         return None
 
     remote_jid = key.get("remoteJid") or ""
-    if (
-        not isinstance(remote_jid, str)
-        or remote_jid.count("@") != 1
-        or not remote_jid.endswith("@s.whatsapp.net")
-    ):
-        # Capture only the direct JID emitted by Evolution. Group and other
-        # provider suffixes never establish a WhatsApp identity.
+    if isinstance(remote_jid, str) and remote_jid.count("@") == 1 and remote_jid.endswith("@s.whatsapp.net"):
+        phone_jid = remote_jid
+    elif isinstance(remote_jid, str) and remote_jid.count("@") == 1 and remote_jid.endswith("@lid"):
+        phone_jid = key.get("remoteJidAlt")
+        if not isinstance(phone_jid, str) or phone_jid.count("@") != 1 or not phone_jid.endswith("@s.whatsapp.net"):
+            logger.warning("Ignoring WhatsApp LID message without a valid phone alternate")
+            return None
+    else:
+        # Never log a provider JID or phone number.
+        logger.warning("Ignoring WhatsApp message with unsupported remote JID")
         return None
 
     provider_message_id = key.get("id")
     if not isinstance(provider_message_id, str) or not provider_message_id:
         return None
 
-    telefone_raw = _phone_from_jid(remote_jid)
+    telefone_raw = _phone_from_jid(phone_jid)
     telefone = normalize_phone(telefone_raw)
     if not telefone:
         return None
