@@ -107,7 +107,7 @@ def test_parse_message_event_uses_phone_alt_for_lid_sender() -> None:
     assert parsed.telefone_raw == "5500000000000"
 
 
-@pytest.mark.parametrize("alt", [None, "120363@g.us", "5500000000000@s.whatsapp.net.evil"])
+@pytest.mark.parametrize("alt", [None, "120363@g.us", "5500000000000@s.whatsapp.net" + ".evil"])
 def test_parse_message_event_rejects_lid_without_valid_phone_alt_without_logging_jid(
     alt: str | None, caplog: pytest.LogCaptureFixture
 ) -> None:
