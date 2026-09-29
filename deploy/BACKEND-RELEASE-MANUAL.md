@@ -22,14 +22,16 @@ autorização separada de release. Seus secrets são `BACKEND_DEPLOY_HOST`,
 fora do workflow; a Action não descobre nem aceita uma chave nova por conta
 própria. Valores, URLs, chaves, credenciais do banco e acesso à VPS ficam
 fora do Git. A conta de deploy já precisa ter acesso ao Docker e aos
-diretórios de release existentes. A configuração privada do release ativo é
+diretórios de release existentes e a Python 3 no host para inspecionar o JSON
+resolvido do Compose sem imprimi-lo. A configuração privada do release ativo é
 copiada para o candidato sem ser impressa.
 
 Com o gate de PROD separado e concedido, dispare **Backend release (manual)**
 na `main` e informe o `release_sha` completo, de 40 caracteres. A Action
 recusa SHA fora da `main`, empacota o commit exato, transfere por SSH com
 chave de host fixada e chama `deploy/backend-release.sh` na VPS. O script
-confere primeiro os gates de efeitos externos nos quatro contêineres ativos e
+confere primeiro os gates de efeitos externos no Compose resolvido do candidato
+e do release anterior, antes de build ou `up`, e nos quatro contêineres ativos;
 depois executa `deploy/check_backend_schema.py` no backend, em transação
 somente leitura. Coluna ou tabela V2b/V3 ausente, RLS/ACL
 ou policy de tenant V3 incompleta, erro de banco ou ausência do contêiner fazem
@@ -42,8 +44,9 @@ recria `backend`, `queue-worker`, `cron-worker` e `broadcast-worker`, aguarda
 saúde no Compose, confere `/health` e `/ready` no loopback e só então aponta
 `/opt/pastorai-current` para o novo release.
 
-Se restart ou health falhar, o script reconstrói e recria os quatro serviços
-do release anterior. Falha também no rollback deixa o workflow vermelho e
+Se restart ou health falhar, o script pré-valida novamente o Compose anterior
+e tenta reconstruir e recriar seus quatro serviços somente com gates fechados.
+Falha também no rollback deixa o workflow vermelho e
 exige intervenção humana. **Rollback volta somente código e contêineres; ele
 nunca desfaz migration.** Se o código antigo não rodar com o schema novo,
 mantenha os gates de envio fechados, contenha os processos afetados, preserve

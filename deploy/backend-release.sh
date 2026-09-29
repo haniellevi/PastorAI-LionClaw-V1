@@ -37,10 +37,37 @@ export PASTORAI_ENV_FILE=.env
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
 
+check_compose_gates() {
+  docker compose config --format json | python3 -c '
+import json
+import sys
+
+try:
+    services = json.load(sys.stdin)["services"]
+except (KeyError, TypeError, ValueError):
+    print("effective Compose gates unverifiable", file=sys.stderr)
+    sys.exit(1)
+
+expected = {
+    "ALLOW_REAL_SENDS": "false",
+    "ASAAS_BILLING_ENABLED": "false",
+    "BREVO_SEND_MODE": "off",
+    "BROADCAST_ASYNC_ENABLED": "false",
+}
+for name in ("backend", "queue-worker", "cron-worker", "broadcast-worker"):
+    environment = services.get(name, {}).get("environment")
+    if not isinstance(environment, dict) or any(
+        environment.get(key) != value for key, value in expected.items()
+    ):
+        print(f"effective Compose gates open or unverifiable: {name}", file=sys.stderr)
+        sys.exit(1)
+'
+}
+
 check_external_gates() {
   local service
   for service in "${services[@]}"; do
-    if ! docker compose exec -T "$service" sh -lc '
+    if ! docker compose exec -T "$service" sh -c '
       [ "${ALLOW_REAL_SENDS+x}" = x ] && [ "$ALLOW_REAL_SENDS" = false ] &&
       [ "${ASAAS_BILLING_ENABLED+x}" = x ] && [ "$ASAAS_BILLING_ENABLED" = false ] &&
       [ "${BREVO_SEND_MODE+x}" = x ] && [ "$BREVO_SEND_MODE" = off ] &&
@@ -58,7 +85,8 @@ rollback() {
   if (( restart_started )); then
     echo "candidate unhealthy; restoring previous backend code" >&2
     cd -- "$active/deploy"
-    if ! docker compose build backend ||
+    if ! check_compose_gates ||
+       ! docker compose build backend ||
        ! docker compose up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 "${services[@]}" ||
        ! check_external_gates ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null ||
@@ -77,11 +105,13 @@ cp -p -- "$active/deploy/.env" "$candidate/deploy/.env"
 chmod 600 "$candidate/deploy/.env"
 cd -- "$candidate/deploy"
 docker compose config --quiet
+check_compose_gates
 
 # The current backend container has the database driver and live DATABASE_URL.
 # The candidate checker is piped in; it only queries catalog metadata inside a
 # read-only transaction. A failure exits before build or restart.
 cd -- "$active/deploy"
+check_compose_gates
 check_external_gates
 docker compose exec -T backend python - < "$candidate/deploy/check_backend_schema.py"
 

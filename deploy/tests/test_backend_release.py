@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -34,7 +35,13 @@ class BackendReleaseTest(unittest.TestCase):
         (bin_dir / "docker").write_text(
             """#!/bin/sh
 case "$*" in
-  *' sh -lc '*)
+  'compose config --format json')
+    printf 'config-json|%s\\n' "$PWD" >> "$TRACE"
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then printf '%s\\n' "$CANDIDATE_CONFIG_JSON";
+    elif [ -f "$TRACE.candidate_up" ]; then printf '%s\\n' "$ROLLBACK_CONFIG_JSON";
+    else printf '%s\\n' "$ACTIVE_CONFIG_JSON"; fi
+    exit 0 ;;
+  *' sh -c '*)
     printf 'gates|%s|%s\\n' "$PWD" "$4" >> "$TRACE"
     if [ "$PWD" = "$NEW_DEPLOY" ] && [ "${CANDIDATE_GATES_EXIT:-0}" = 1 ]; then exit 1; fi
     sh -lc "$7"; exit $? ;;
@@ -46,7 +53,7 @@ case "$*" in
     if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
   'compose up '*)
-    if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${RESTART_EXIT:-0}"; fi
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then touch "$TRACE.candidate_up"; exit "${RESTART_EXIT:-0}"; fi
     exit "${ROLLBACK_RESTART_EXIT:-0}" ;;
 esac
 exit 0
@@ -62,6 +69,16 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         for name in ("docker", "curl"):
             (bin_dir / name).chmod(0o755)
         self.trace = self.root / "trace"
+        closed = {
+            "ALLOW_REAL_SENDS": "false",
+            "ASAAS_BILLING_ENABLED": "false",
+            "BREVO_SEND_MODE": "off",
+            "BROADCAST_ASYNC_ENABLED": "false",
+        }
+        self.closed_config = {
+            "services": {service: {"environment": closed} for service in SERVICES.split()}
+        }
+        closed_json = json.dumps(self.closed_config)
         self.environment = {
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -69,6 +86,9 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
             "NEW_DEPLOY": str(self.new),
             "BACKEND_RELEASE_TEST_MODE": "1",
             "BACKEND_RELEASE_TEST_ROOT": str(self.root),
+            "ACTIVE_CONFIG_JSON": closed_json,
+            "CANDIDATE_CONFIG_JSON": closed_json,
+            "ROLLBACK_CONFIG_JSON": closed_json,
             "ALLOW_REAL_SENDS": "false",
             "ASAAS_BILLING_ENABLED": "false",
             "BREVO_SEND_MODE": "off",
@@ -87,13 +107,18 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
     def calls(self) -> list[str]:
         return self.trace.read_text().splitlines() if self.trace.exists() else []
 
+    def config_with_open_gate(self) -> str:
+        config = json.loads(json.dumps(self.closed_config))
+        config["services"]["queue-worker"]["environment"]["ALLOW_REAL_SENDS"] = "true"
+        return json.dumps(config)
+
     def test_schema_failure_stops_before_build_or_restart(self) -> None:
         result = self.run_release(PREFLIGHT_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("before restart", result.stderr)
-        self.assertEqual(len(self.calls()), 6)  # config, four gates, then schema
+        self.assertEqual(len(self.calls()), 8)  # three config calls, four gates, schema
         self.assertEqual(
-            [call.rsplit("|", 1)[-1] for call in self.calls()[1:5]],
+            [call.rsplit("|", 1)[-1] for call in self.calls()[3:7]],
             ["backend", "queue-worker", "cron-worker", "broadcast-worker"],
         )
         self.assertIn("compose exec -T backend python -", self.calls()[-1])
@@ -104,6 +129,14 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("external-effect gates open or unverifiable", result.stderr)
         self.assertFalse(any("python -" in call or "compose build" in call for call in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_candidate_effective_gate_stops_before_build_or_restart(self) -> None:
+        result = self.run_release(CANDIDATE_CONFIG_JSON=self.config_with_open_gate())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("effective Compose gates open or unverifiable", result.stderr)
+        self.assertFalse(any("compose build" in call or "compose up " in call for call in self.calls()))
+        self.assertFalse(any("python -" in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_build_failure_keeps_previous_containers(self) -> None:
@@ -140,6 +173,14 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_rollback_refuses_open_effective_config_before_old_restart(self) -> None:
+        result = self.run_release(
+            HEALTH_EXIT="1", ROLLBACK_CONFIG_JSON=self.config_with_open_gate()
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback of code is unhealthy", result.stderr)
+        self.assertFalse(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
 
     def test_rollback_failure_reports_incomplete_recovery(self) -> None:
         result = self.run_release(HEALTH_EXIT="1", ROLLBACK_BUILD_EXIT="1")
