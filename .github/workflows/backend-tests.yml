@@ -84,4 +84,5 @@ jobs:
           node --test ../deploy/monitoring/tests/maintain_incident.test.js
 
       - name: Validar cortes e rollback do deploy manual
-        run: "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
