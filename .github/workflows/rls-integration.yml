@@ -121,6 +121,13 @@ jobs:
             --junitxml=rls-results.xml \
             tests
 
+      - name: Exercitar preflight de deploy em PG17 descartável
+        env:
+          BACKEND_RELEASE_TEST_DATABASE_URL: ${{ env.RLS_TEST_DATABASE_URL }}
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -q \
+            ../deploy/tests/test_backend_schema_pg17.py
+
       - name: Verificar execucao integral da suite RLS
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" - <<'PY'

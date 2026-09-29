@@ -12,6 +12,7 @@ import unittest
 DEPLOY = Path(__file__).resolve().parents[1]
 SHA_OLD = "a" * 40
 SHA_NEW = "b" * 40
+SERVICES = "backend queue-worker cron-worker broadcast-worker"
 
 
 class BackendReleaseTest(unittest.TestCase):
@@ -97,13 +98,20 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         calls = self.calls()
         self.assertTrue(any(f"docker|{self.new}|compose up " in call for call in calls))
         self.assertTrue(any(f"docker|{self.old}|compose build backend" in call for call in calls))
-        self.assertTrue(any(f"docker|{self.old}|compose up " in call for call in calls))
+        self.assertTrue(
+            any(f"docker|{self.old}|compose up " in call and SERVICES in call for call in calls)
+        )
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_failed_candidate_restart_rolls_back(self) -> None:
         result = self.run_release(RESTART_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
+        self.assertTrue(
+            any(
+                f"docker|{self.old}|compose up " in call and SERVICES in call
+                for call in self.calls()
+            )
+        )
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_rollback_failure_reports_incomplete_recovery(self) -> None:
@@ -116,7 +124,9 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         result = self.run_release()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "current").resolve(), self.new.parent)
-        self.assertEqual(sum("compose up " in call for call in self.calls()), 1)
+        up_calls = [call for call in self.calls() if "compose up " in call]
+        self.assertEqual(len(up_calls), 1)
+        self.assertIn(SERVICES, up_calls[0])
 
 
 if __name__ == "__main__":
