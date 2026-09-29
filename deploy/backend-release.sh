@@ -37,6 +37,21 @@ export PASTORAI_ENV_FILE=.env
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
 
+check_external_gates() {
+  local service
+  for service in "${services[@]}"; do
+    if ! docker compose exec -T "$service" sh -lc '
+      [ "${ALLOW_REAL_SENDS+x}" = x ] && [ "$ALLOW_REAL_SENDS" = false ] &&
+      [ "${ASAAS_BILLING_ENABLED+x}" = x ] && [ "$ASAAS_BILLING_ENABLED" = false ] &&
+      [ "${BREVO_SEND_MODE+x}" = x ] && [ "$BREVO_SEND_MODE" = off ] &&
+      [ "${BROADCAST_ASYNC_ENABLED+x}" = x ] && [ "$BROADCAST_ASYNC_ENABLED" = false ]
+    ' >/dev/null; then
+      echo "external-effect gates open or unverifiable: $service" >&2
+      return 1
+    fi
+  done
+}
+
 rollback() {
   local original_status=$?
   trap - ERR
@@ -45,6 +60,7 @@ rollback() {
     cd -- "$active/deploy"
     if ! docker compose build backend ||
        ! docker compose up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 "${services[@]}" ||
+       ! check_external_gates ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null; then
       echo "rollback of code is unhealthy; keep gates closed and use a reviewed forward fix" >&2
@@ -66,12 +82,14 @@ docker compose config --quiet
 # The candidate checker is piped in; it only queries catalog metadata inside a
 # read-only transaction. A failure exits before build or restart.
 cd -- "$active/deploy"
+check_external_gates
 docker compose exec -T backend python - < "$candidate/deploy/check_backend_schema.py"
 
 cd -- "$candidate/deploy"
 docker compose build backend
 restart_started=1
 docker compose up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 "${services[@]}"
+check_external_gates
 curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null
 curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null
 

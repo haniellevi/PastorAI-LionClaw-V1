@@ -33,6 +33,12 @@ class BackendReleaseTest(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "docker").write_text(
             """#!/bin/sh
+case "$*" in
+  *' sh -lc '*)
+    printf 'gates|%s|%s\\n' "$PWD" "$4" >> "$TRACE"
+    if [ "$PWD" = "$NEW_DEPLOY" ] && [ "${CANDIDATE_GATES_EXIT:-0}" = 1 ]; then exit 1; fi
+    sh -lc "$7"; exit $? ;;
+esac
 printf 'docker|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
 case "$*" in
   'compose exec -T backend python -') exit "${PREFLIGHT_EXIT:-0}" ;;
@@ -63,6 +69,10 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
             "NEW_DEPLOY": str(self.new),
             "BACKEND_RELEASE_TEST_MODE": "1",
             "BACKEND_RELEASE_TEST_ROOT": str(self.root),
+            "ALLOW_REAL_SENDS": "false",
+            "ASAAS_BILLING_ENABLED": "false",
+            "BREVO_SEND_MODE": "off",
+            "BROADCAST_ASYNC_ENABLED": "false",
         }
 
     def run_release(self, **changes: str) -> subprocess.CompletedProcess[str]:
@@ -81,8 +91,19 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         result = self.run_release(PREFLIGHT_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("before restart", result.stderr)
-        self.assertEqual(len(self.calls()), 2)  # config, then schema preflight
+        self.assertEqual(len(self.calls()), 6)  # config, four gates, then schema
+        self.assertEqual(
+            [call.rsplit("|", 1)[-1] for call in self.calls()[1:5]],
+            ["backend", "queue-worker", "cron-worker", "broadcast-worker"],
+        )
         self.assertIn("compose exec -T backend python -", self.calls()[-1])
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_open_external_gate_stops_before_schema_or_build(self) -> None:
+        result = self.run_release(ALLOW_REAL_SENDS="true")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("external-effect gates open or unverifiable", result.stderr)
+        self.assertFalse(any("python -" in call or "compose build" in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_build_failure_keeps_previous_containers(self) -> None:
@@ -112,6 +133,12 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
                 for call in self.calls()
             )
         )
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_candidate_gate_change_rolls_back_code(self) -> None:
+        result = self.run_release(CANDIDATE_GATES_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_rollback_failure_reports_incomplete_recovery(self) -> None:

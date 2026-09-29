@@ -16,6 +16,13 @@ CHECKER = Path(__file__).resolve().parents[1] / "backend-release.sh"
 REQUIRED_COLUMNS = runpy.run_path(
     str(CHECKER.parent / "check_backend_schema.py")
 )["REQUIRED_COLUMNS"]
+TENANT_PREDICATE = """
+igreja_id = public.current_igreja_id()
+and nullif(coalesce(
+  nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub',
+  pg_catalog.current_setting('request.jwt.claim.sub', true)
+), '') is null
+"""
 
 
 def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
@@ -43,7 +50,16 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
                 columns_by_table.setdefault(table_name, []).append(column_name)
             with target.begin() as connection:
                 for table_name, columns in columns_by_table.items():
-                    definitions = ", ".join(f'"{column}" text' for column in columns)
+                    definitions = ", ".join(
+                        f'"{column}" '
+                        + (
+                            "uuid"
+                            if table_name == "consolidation_whatsapp_activation"
+                            and column == "igreja_id"
+                            else "text"
+                        )
+                        for column in columns
+                    )
                     connection.execute(text(f'CREATE TABLE public."{table_name}" ({definitions})'))
                 connection.execute(
                     text(
@@ -63,6 +79,31 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
                         "public.consolidation_whatsapp_activation TO authenticated"
                     )
                 )
+                connection.execute(
+                    text(
+                        "CREATE FUNCTION public.current_igreja_id() RETURNS uuid "
+                        "LANGUAGE sql STABLE AS $$ SELECT null::uuid $$"
+                    )
+                )
+                for name, command in (
+                    ("select", "SELECT"),
+                    ("insert", "INSERT"),
+                    ("update", "UPDATE"),
+                ):
+                    predicate = (
+                        f"WITH CHECK ({TENANT_PREDICATE})"
+                        if name == "insert"
+                        else f"USING ({TENANT_PREDICATE})"
+                    )
+                    if name == "update":
+                        predicate += f" WITH CHECK ({TENANT_PREDICATE})"
+                    connection.execute(
+                        text(
+                            "CREATE POLICY consolidation_whatsapp_activation_worker_"
+                            f"{name} ON public.consolidation_whatsapp_activation "
+                            f"FOR {command} TO authenticated {predicate}"
+                        )
+                    )
 
             def dry_run() -> subprocess.CompletedProcess[str]:
                 return subprocess.run(
@@ -108,6 +149,29 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
             unsafe_rls = dry_run()
             assert unsafe_rls.returncode != 0
             assert "V3 activation RLS/ACL contract" in unsafe_rls.stderr
+            with target.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE public.consolidation_whatsapp_activation "
+                        "FORCE ROW LEVEL SECURITY"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "DROP POLICY consolidation_whatsapp_activation_worker_select "
+                        "ON public.consolidation_whatsapp_activation"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE POLICY consolidation_whatsapp_activation_worker_select "
+                        "ON public.consolidation_whatsapp_activation "
+                        "FOR SELECT TO authenticated USING (true)"
+                    )
+                )
+            unsafe_policy = dry_run()
+            assert unsafe_policy.returncode != 0
+            assert "V3 activation policy contract" in unsafe_policy.stderr
 
             bad_connection = subprocess.run(
                 ["bash", str(CHECKER), "--dry-run"],

@@ -11,8 +11,9 @@ autorização para o SHA exato da `main` e comprovar, por gates próprios, que a
 migrations V2b e V3 foram aplicadas no banco correto, que o passo 0 da V2b e a
 reconciliação LID da V3 foram resolvidos, e que backup e rollback daquele
 release estão aprovados. O preflight deste script prova somente a presença de
-colunas e tabelas exigidas e RLS/ACL da ativação V3. Não prova ledger de
-migrations, reconciliação de dados, flags nem permissão de envio.
+colunas e tabelas exigidas e o contrato de RLS/ACL/policies da ativação V3
+na forma catalogada pelo PostgreSQL 17. Não prova ledger de
+migrations, reconciliação de dados, gates por igreja nem autorização de envio.
 
 Configure o GitHub Environment protegido `backend-production` apenas sob a
 autorização separada de release. Seus secrets são `BACKEND_DEPLOY_HOST`,
@@ -28,10 +29,15 @@ Com o gate de PROD separado e concedido, dispare **Backend release (manual)**
 na `main` e informe o `release_sha` completo, de 40 caracteres. A Action
 recusa SHA fora da `main`, empacota o commit exato, transfere por SSH com
 chave de host fixada e chama `deploy/backend-release.sh` na VPS. O script
-executa primeiro `deploy/check_backend_schema.py` dentro do contêiner backend
-ativo, em transação somente leitura. Coluna ou tabela V2b/V3 ausente, RLS/ACL
-incompleta, erro de banco ou ausência do contêiner fazem o comando sair com
-erro **antes de build ou restart**. Depois ele constrói a imagem candidata,
+confere primeiro os gates de efeitos externos nos quatro contêineres ativos e
+depois executa `deploy/check_backend_schema.py` no backend, em transação
+somente leitura. Coluna ou tabela V2b/V3 ausente, RLS/ACL
+ou policy de tenant V3 incompleta, erro de banco ou ausência do contêiner fazem
+o comando sair com erro **antes de build ou restart**. Antes do preflight e
+depois de cada restart, ele também exige em todos os quatro processos
+`ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
+`BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`; ausência ou outro
+valor aborta sem imprimir a configuração. Depois ele constrói a imagem candidata,
 recria `backend`, `queue-worker`, `cron-worker` e `broadcast-worker`, aguarda
 saúde no Compose, confere `/health` e `/ready` no loopback e só então aponta
 `/opt/pastorai-current` para o novo release.

@@ -65,6 +65,25 @@ REQUIRED_COLUMNS = (
     ("consolidation_whatsapp_activation", "gate_open"),
 )
 
+# PostgreSQL 17's pg_get_expr rendering of the tenant/JWT predicate in the
+# versioned V3 migration. Compare exact expressions and the complete policy set:
+# checking only RLS flags would also accept a missing or permissive policy.
+ACTIVATION_POLICY_EXPR = (
+    "((igreja_id = current_igreja_id()) AND "
+    "(NULLIF(COALESCE(((NULLIF(current_setting('request.jwt.claims'::text, true), "
+    "''::text))::jsonb ->> 'sub'::text), "
+    "current_setting('request.jwt.claim.sub'::text, true)), ''::text) IS NULL))"
+)
+ACTIVATION_POLICIES = {
+    "consolidation_whatsapp_activation_worker_select": ("r", ACTIVATION_POLICY_EXPR, None),
+    "consolidation_whatsapp_activation_worker_insert": ("a", None, ACTIVATION_POLICY_EXPR),
+    "consolidation_whatsapp_activation_worker_update": (
+        "w",
+        ACTIVATION_POLICY_EXPR,
+        ACTIVATION_POLICY_EXPR,
+    ),
+}
+
 
 def main() -> int:
     database_url = os.environ.get("DATABASE_URL")
@@ -111,6 +130,16 @@ def main() -> int:
                 WHERE oid = to_regclass('public.consolidation_whatsapp_activation')
                 """
             ).scalar_one_or_none()
+            policies = connection.exec_driver_sql(
+                """
+                SELECT polname, polcmd, polpermissive,
+                       polroles = ARRAY[pg_catalog.to_regrole('authenticated')::oid],
+                       pg_get_expr(polqual, polrelid),
+                       pg_get_expr(polwithcheck, polrelid)
+                FROM pg_catalog.pg_policy
+                WHERE polrelid = to_regclass('public.consolidation_whatsapp_activation')
+                """
+            ).all()
             connection.rollback()
     except Exception as exc:
         print(
@@ -132,7 +161,15 @@ def main() -> int:
     if activation_safe is not True:
         print("schema preflight failed: V3 activation RLS/ACL contract", file=sys.stderr)
         return 1
-    print("schema preflight OK: V2b/V3 columns and V3 activation RLS/ACL")
+    actual_policies = {
+        name: (command, using, with_check)
+        for name, command, permissive, exact_role, using, with_check in policies
+        if permissive is True and exact_role is True
+    }
+    if len(policies) != 3 or actual_policies != ACTIVATION_POLICIES:
+        print("schema preflight failed: V3 activation policy contract", file=sys.stderr)
+        return 1
+    print("schema preflight OK: V2b/V3 columns and V3 activation RLS/ACL/policies")
     return 0
 
 
