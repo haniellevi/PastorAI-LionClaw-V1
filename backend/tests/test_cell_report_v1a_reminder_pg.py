@@ -390,6 +390,49 @@ def test_reminder_obeys_send_identity_meeting_and_time_gates(reminder_turn, monk
     assert provider.calls == []
 
 
+def test_global_send_gate_close_leaves_unreached_cell_reminder_pending(
+    reminder_turn, monkeypatch
+):
+    from app.config import get_settings
+    from app.services import cell_report_reminders as reminders, notification_outbox
+
+    turn = reminder_turn
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    valid = _v1a_outbox_rows(turn)[0]
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        session.add(
+            _manual_v1a_outbox(
+                meeting=meeting,
+                pessoa_id=valid.pessoa_id,
+                due_at=valid.due_at - dt.timedelta(minutes=1),
+                fingerprint='1' * 64,
+            )
+        )
+
+    monkeypatch.setenv('ALLOW_REAL_SENDS', 'false')
+    get_settings.cache_clear()
+    assert notification_outbox.maintain_notification_outbox(
+        turn.factory, igreja_id=_IGREJA, now=_NOW, limit=1
+    ) == 1
+    closed_rows = _v1a_outbox_rows(turn)
+    assert [row.state for row in closed_rows] == ['cancelado', 'pendente']
+    assert closed_rows[0].terminal_reason == 'gate_fechado'
+
+    monkeypatch.setenv('ALLOW_REAL_SENDS', 'true')
+    get_settings.cache_clear()
+    assert notification_outbox.maintain_notification_outbox(
+        turn.factory, igreja_id=_IGREJA, now=_NOW, limit=2
+    ) == 0
+    assert [row.state for row in _v1a_outbox_rows(turn)] == ['cancelado', 'pendente']
+    provider = _ReminderTransport(turn)
+    assert reminders.dispatch_cell_report_reminders(
+        turn.factory, provider, worker_id='synthetic-reopen-worker', now=_NOW, limit=2
+    ) == 1
+    assert len(provider.calls) == 1
+    assert [row.state for row in _v1a_outbox_rows(turn)] == ['cancelado', 'enviado']
+
+
 @pytest.mark.parametrize('changed', ('phone', 'instance'))
 def test_reminder_fresh_fence_rejects_destination_changed_after_claim(reminder_turn, monkeypatch, changed):
     from app.services import cell_report_reminders as reminders

@@ -20,47 +20,51 @@ compatibilidade e mudança revisada do procedimento antes de outro disparo.
 O ledger nominal não prova o conteúdo aplicado, reconciliação de dados,
 gates por igreja nem autorização de envio.
 
-**Fechar `ALLOW_REAL_SENDS` cancela trabalho, não apenas pausa o envio.** Com
-o cron em execução, pendências do `notification_outbox` passam a
-`cancelado/gate_fechado` (`backend/app/services/notification_outbox.py:1523-1527`;
-`_terminalize` em `:1298-1307`) e lembretes de célula também são cancelados
-(`backend/app/services/cell_report_reminders.py:463`). A reabertura não os
-reenvia; o teste `backend/tests/test_consolidation_notification_outbox_pg.py`
-prova que reabrir o gate nunca reproduz trabalho anterior. Antes de fechar,
-o responsável deve aceitar a perda desse trabalho, inventariar pendências
-por consulta read-only autorizada e aprovar um plano separado para avisar os
-afetados ou reconstruir apenas o que for devido, com revisão contra duplicação
-e autorização de envio. Se essa perda for inaceitável, **não execute este
-workflow**: um modo de pausa sem terminalização ou outra contenção precisa
-de desenho, teste e revisão próprios.
+**Fechar `ALLOW_REAL_SENDS` não é uma pausa segura de fila.** O cron cancela
+definitivamente como `cancelado/gate_fechado` os itens pendentes do
+`notification_outbox` que alcançar enquanto o gate estiver fechado
+(`backend/app/services/notification_outbox.py:1523-1527`; `_terminalize` em
+`:1298-1307`). A manutenção trabalha em lotes limitados; itens que não forem
+alcançados continuam pendentes e **podem ser enviados após a reabertura**.
+Lembretes legados em `CellReportReminder` só têm varredura integral quando o
+gate específico V1a é fechado (`backend/app/services/cell_report_reminders.py:1543-1553`);
+fechar apenas `ALLOW_REAL_SENDS` pode deixar esses registros pendentes. Abrir
+o gate não ressuscita itens já cancelados, mas também não impede o envio dos
+que ficaram pendentes. Antes de fechar, o responsável deve aceitar essa
+mistura de estados e aprovar inventário read-only e plano separado para avisar,
+descartar ou reconstruir apenas o que for devido, com revisão contra
+duplicação e autorização de envio. Antes de reabrir, repetir o inventário e
+decidir o destino das pendências remanescentes. Se a mistura for inaceitável,
+**não execute este workflow**: um modo de pausa ou outra contenção precisa de
+desenho, teste e revisão próprios.
 
 Sequência obrigatória para um release futuro, sempre com autorizações próprias:
 
 1. Obter autorização nominal de Raniel para o fechamento e registrar o
    operador responsável. A reabertura exige nova decisão nominal de Raniel;
    registrar horário de início e tempo máximo da janela, além do plano de aviso
-   ou reconstrução das pendências canceladas. Sob gate read-only próprio, comparar
-   o ledger de PROD com as migrations ativas do SHA, inclusive as antigas
-   `0001` a `0017`, **antes** de iniciar a janela; divergência impede o
+   ou tratamento das pendências canceladas e remanescentes. Sob gate read-only
+   próprio, comparar o ledger de PROD com as migrations ativas do SHA, inclusive
+   as antigas `0001` a `0017`, **antes** de iniciar a janela; divergência impede o
    fechamento dos envios. Conferir o estado vivo dos quatro serviços e dos
-   gates. Em 27/09, PROD tinha
-   `ALLOW_REAL_SENDS=true` para o piloto Filadélfia; esse registro histórico
+   gates. Em 27/09, PROD tinha `ALLOW_REAL_SENDS=true` para o piloto Filadélfia;
+   esse registro histórico
    precisa ser reconfirmado no momento do release.
 2. Com autorização específica para mudar o gate, fechar `ALLOW_REAL_SENDS` e
    qualquer outro gate aberto, atualizar os quatro serviços e comprovar que o
    Compose resolvido e os processos ativos têm os quatro valores fechados.
    Enquanto `ALLOW_REAL_SENDS=false`, a Filadélfia não envia mensagens reais;
-   registrar a interrupção e os cancelamentos irreversíveis do piloto.
+   registrar a interrupção e os itens efetivamente cancelados do piloto.
 3. Concluir os gates de banco e dados do runbook único, obter autorização de
    deploy para o SHA exato e só então disparar o workflow manual. Falha no
    preflight interrompe o release antes de build ou restart.
 4. Conferir saúde e comportamento do backend após o deploy. Reabrir envio e
    outros gates apenas com autorização separada para cada efeito, validar a
-   retomada do piloto e registrar o resultado. Reabrir o gate não recupera
-   pendências canceladas; executar o plano de aviso/reconstrução somente sob
-   autorização própria. Se a reabertura não ocorrer,
-   manter o release como incompleto e avisar o responsável: o piloto seguirá
-   sem envios reais.
+   retomada do piloto e registrar o resultado. Antes de reabrir, inventariar
+   itens cancelados e ainda pendentes; reabrir não recupera os primeiros e pode
+   enviar os segundos. Executar o plano de tratamento somente sob autorização
+   própria. Se a reabertura não ocorrer, manter o release como incompleto e
+   avisar o responsável: o piloto seguirá sem envios reais.
 
 Configure o GitHub Environment protegido `backend-production` apenas sob a
 autorização separada de release. Seus secrets são `BACKEND_DEPLOY_HOST`,
