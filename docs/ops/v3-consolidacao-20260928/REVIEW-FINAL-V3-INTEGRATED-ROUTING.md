@@ -1,5 +1,7 @@
 # Parecer integrado V3, revisão final de roteamento
 
+> **Evidência histórica.** Este parecer cobre o snapshot antigo sobre `342f0ce`, não o head atual da PR #436 nem o estado de PROD. O GO abaixo não substitui a revisão Sarah do SHA final.
+
 ## Veredito
 
 **GO técnico integrado para as fontes congeladas revisadas.** Não há P0, P1 ou P2 de implementação aberto neste recorte. A RLS integral está em execução pelo root e a CI precisará confirmar o SHA publicado; nenhuma delas é declarada verde por este parecer.

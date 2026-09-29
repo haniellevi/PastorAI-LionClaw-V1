@@ -39,21 +39,49 @@ Toda escrita ainda exige o resumo entregue e uma mensagem separada `SIM` em até
 
 Os alertas de abertura e prazo de conexão e de fonovisita usam apenas a outbox e o dispatcher V2b. Respostas inbound e recibos S3 conservam o worker existente. Não há transporte paralelo. Cada aviso vence 24 horas após seu instante previsto; a janela é 08:00 inclusive até 21:00 exclusive, em São Paulo, com teto V3 de dois avisos por destinatário/dia.
 
-Claim e lease são persistidos antes do HTTP. O envio revalida origem, responsável, papel, consentimento, preferência, gates e prazo. A validação usa a barreira existente imediatamente antes da chamada ao provedor; o commit libera os locks antes do HTTP. Há um intervalo inevitável entre esse commit e o provedor, sem promessa de atomicidade entre PostgreSQL e a rede. Resultado ambíguo continua terminal; a reserva diária é preservada. A fonovisita identifica sua consolidação exclusivamente pela tarefa canônica; a outbox não aceita um segundo vínculo de pai. Nenhuma troca de responsável reabre uma intenção já terminalizada para aquele destinatário. Se A voltar a ser responsável, a pendência continua consultável, mas a mesma finalidade/ocorrência não é reenviada automaticamente para A.
+Claim e lease são persistidos antes do HTTP. O envio revalida origem, responsável, papel, consentimento, preferência, gates e prazo. A validação usa a barreira de revalidação imediatamente antes da chamada ao provedor; o commit libera os locks antes do HTTP. Há um intervalo inevitável entre esse commit e o provedor, sem promessa de atomicidade entre PostgreSQL e a rede. Resultado ambíguo continua terminal; a reserva diária é preservada. A fonovisita identifica sua consolidação exclusivamente pela tarefa canônica; a outbox não aceita um segundo vínculo de pai. Nenhuma troca de responsável reabre uma intenção já terminalizada para aquele destinatário. Se A voltar a ser responsável, a pendência continua consultável, mas a mesma finalidade/ocorrência não é reenviada automaticamente para A.
 
 ## Ativação prospectiva e rollback
 
 ### Ordem obrigatória da release futura
 
-Com os gates V3 fechados, drenar processos antigos e aplicar `20260928_080000_whatsapp_consolidation_v3.sql` antes de publicar ou reiniciar backend e workers V3. Após autorização específica de banco, executar a pré-verificação abaixo no destino. Somente com `preflight_ok = 1` iniciar os binários novos; abrir gates exige decisão separada. Falha ou resultado inconclusivo exige **PARAR** e manter os binários antigos. Este bloco não deve ser executado nesta missão de PR.
+Com os gates V3 fechados, drenar processos antigos e aplicar `20260928_080000_whatsapp_consolidation_v3.sql` antes de publicar ou reiniciar backend e workers V3. Após autorização específica de banco, executar o inventário LID e a pré-verificação de schema abaixo no destino. Somente com reconciliação LID decidida e verificada, quando necessária, e `preflight_ok = 1` iniciar os binários novos; abrir gates exige decisão separada. Falha ou resultado inconclusivo exige **PARAR** e manter os binários antigos. Estes blocos não devem ser executados nesta missão de PR.
 
 A ordem importa mesmo com flags V3 fechadas: mapeamentos ORM e caminhos de `work_queue`, `contacts`, `sla_engine`, `offboarding` e `ministerial_actions` usam colunas novas sem guarda da flag. Invertê-la pode causar `undefined_column` (`42703`) ou `undefined_table` (`42P01`), HTTP 500 e falhas dos workers. São exigidas `consolidacoes.origin_decision_id`, `consolidacoes.assignment_revision`, `work_queue_items.consolidacao_id`, `notification_outbox.consolidacao_id`, `notification_outbox.work_queue_item_id` e `public.consolidation_whatsapp_activation` com RLS habilitada e forçada. A role `authenticated` precisa de SELECT, INSERT e UPDATE na tabela de ativação, sem DELETE.
+
+Antes desse restart, há um gate independente para identidades LID legadas. O parser corrigido usa o telefone de `remoteJidAlt` como identidade canônica, mas mensagens antigas `@lid` podem ter criado uma `Pessoa` e uma `Conversation` sob o número LID. A nova identidade telefônica pode abrir outra linha com `optout = false` e `estado = 'ia'`, perdendo a recusa e o atendimento humano da linha antiga. O relato sanitizado histórico aponta cerca de cinco Pessoas com telefones de 14 ou 15 dígitos; essa contagem não é prova do estado atual.
+
+Com autorização de leitura própria no destino, executar o inventário literal abaixo **antes de iniciar backend ou workers novos**, usando acesso privado da role `postgres`. O resultado por identificador fica somente no registro privado da release; não copiar nomes, telefones, UUIDs, estados individuais ou outras informações pessoais para PR, notas, chat ou CI. Conferir `current_user`, endereço do servidor e visibilidade total contra inventário independente aprovado. Se role, alvo, contagem, linhas ou vínculo com telefone canônico forem desconhecidos, **PARAR**. O filtro é de triagem, não prova que todas as linhas são LID nem que não existem LIDs em outros formatos.
+
+```sql
+\set ON_ERROR_STOP on
+BEGIN TRANSACTION READ ONLY;
+SELECT current_user AS role_sql, inet_server_addr() AS servidor, inet_server_port() AS porta;
+SELECT count(*) AS total_pessoas_visiveis FROM public.pessoas;
+SELECT
+  p.igreja_id,
+  p.id AS pessoa_legada_id,
+  length(p.telefone) AS comprimento_telefone,
+  p.optout,
+  p.arquivada_em IS NOT NULL AS arquivada,
+  c.id AS conversa_legada_id,
+  c.estado AS estado_conversa
+FROM public.pessoas p
+LEFT JOIN public.conversations c
+  ON c.igreja_id = p.igreja_id AND c.pessoa_id = p.id
+WHERE p.telefone ~ '^[0-9]{14,15}$'
+ORDER BY p.igreja_id, p.id, c.id;
+ROLLBACK;
+```
+
+Para cada candidata, um responsável humano autorizado precisa registrar em artefato privado a correspondência confiável LID↔telefone canônico, a decisão de reconciliação (merge de registro ou transporte de `optout` e estado humano), o executor e a verificação posterior. Nenhuma reconciliação é automática nesta PR. Se uma candidata tiver `optout = true` ou conversa `estado = 'humano'`, a nova identidade precisa conservar a restrição antes de qualquer inbound ou envio pelo binário novo. Se a correspondência não puder ser provada ou houver qualquer restrição sem transporte verificado, **PARAR** e manter os binários antigos. O inventário e a decisão são gate adicional ao preflight de schema e não autorizam abrir flags ou enviar mensagens.
 
 Pré-verificação literal para `psql`, somente de leitura. `ON_ERROR_STOP` bloqueia erro, ausência ou resultado falso. Conferir `preflight_ok = 1`; resultado desconhecido nunca libera o restart.
 
 ```sql
 \set ON_ERROR_STOP on
 BEGIN TRANSACTION READ ONLY;
+SELECT current_user AS role_sql, inet_server_addr() AS servidor, inet_server_port() AS porta;
 WITH expected(table_name, column_name) AS (
   VALUES
     ('consolidacoes', 'origin_decision_id'),
@@ -110,7 +138,7 @@ A prova local exercita aplicação e reaplicação do SQL candidato em PostgreSQ
 | Entrega V3 pelo dispatcher comum, incluída na RLS | 25 passaram; repetidos na revisão independente |
 | Migration literal, incluída na RLS | 15 passaram; repetidos na revisão independente |
 
-[Resultados sanitizados](VALIDATION.json) registram a rodada histórica no commit `db3a4b8f`. O [manifesto de 39 pós-imagens](SOURCE-SNAPSHOT.json) identifica os arquivos de código, testes, migration e CI da composição atual; CI no head publicado ainda é necessário. O [parecer independente final anterior](REVIEW-FINAL-V3-INTEGRATED-ROUTING.md) foi emitido para o snapshot original. `REVIEW.md` e `review-inputs/` também são evidência histórica, sem atestar o head retargetado.
+[Resultados sanitizados](VALIDATION.json) registram a rodada histórica no commit `db3a4b8f`. O [manifesto de 39 pós-imagens](SOURCE-SNAPSHOT.json) identifica os arquivos de código, testes, migration e CI da composição atual; CI no head publicado ainda é necessário. O [parecer independente final anterior](REVIEW-FINAL-V3-INTEGRATED-ROUTING.md) foi emitido para o snapshot original. `REVIEW.md`, `REVIEW-FINAL-V3-INTEGRATED-ROUTING.md` e `review-inputs/` também são evidência histórica, sem atestar o head retargetado. O status `production sources frozen` do snapshot integrado se refere apenas ao recorte antigo, não ao estado de PROD nem ao head atual.
 
 O E2E começa na mensagem inbound persistida, atravessa worker, identidade, catálogo, roteador, confirmação e persistência reais. Gates usam configuração sintética e provedores são simulados. Essa prova não cobre HTTP de ingresso, parser ou piloto real; o parser/JID e os gates inertes têm testes focais separados. O CI do head publicado ainda precisa passar antes de encaminhar a Sarah.
 

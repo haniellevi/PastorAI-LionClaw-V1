@@ -1,5 +1,7 @@
 # Parecer integrado V3, fontes finais condicionais
 
+> **Evidência histórica.** Este parecer cobre o snapshot antigo sobre `342f0ce`, não o head atual da PR #436 nem o estado de PROD. O GO abaixo não substitui a revisão Sarah do SHA final.
+
 **Veredito:** GO técnico condicional para as fontes revisadas. Não há P0, P1 ou P2 aberto neste recorte. O encaminhamento humano permanece condicionado à RLS integral e ao CI do SHA final.
 
 ## Escopo e integridade

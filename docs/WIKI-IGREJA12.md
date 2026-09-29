@@ -4,7 +4,7 @@
 
 #435 foi integrada à main em `8c6cc3cdb0fda0938edd43dd6988763c79872f8d`, merge commit de dois pais `87e13da` e `2b9f938`; a branch-mãe foi preservada. #436 foi retargetada explicitamente para main. A mescla local da main encontrou dois conflitos documentais e exige nova revisão Sarah do head final após CI, além de autorização nominal própria para merge. Nenhuma migration, banco, deploy ou ativação foi executada nesta atualização.
 
-## V3: candidato de consolidação WhatsApp, 28/09/2026
+## V3: candidato de consolidação WhatsApp, atualizado em 29/09/2026
 
 O [plano aprovado](ops/mvp-v3-consolidacao-whatsapp-plano.md) parte do PR435
 `342f0ce` e reutiliza decisão, fila, etapas, S3 e outbox. [Contrato e limites](ops/v3-consolidacao-20260928/README.md): primeiro nome somente ao responsável atual em 1:1, códigos/contagens à coordenação, detalhes no painel autenticado.

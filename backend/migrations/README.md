@@ -134,7 +134,8 @@ observada pode avançá-lo. Nenhuma alteração autoriza alertas retroativos.
 `lock_timeout='2s'` limita espera por locks. O rollback comentado preserva
 recibos, terminais e ambiguidades. Na futura release, drenar processos antigos,
 aplicar a migration V3 e passar pela pré-verificação somente de leitura do
-[runbook V3](../../docs/ops/v3-consolidacao-20260928/README.md) **antes** de
+[runbook V3](../../docs/ops/v3-consolidacao-20260928/README.md), incluindo
+inventário e decisão humana registrada para identidades LID legadas, **antes** de
 publicar ou reiniciar backend e workers novos. As cinco colunas e a tabela de
 ativação são usadas por caminhos sem guarda V3; inverter a ordem pode causar
 erros 42703/42P01 mesmo com flags fechadas. Falha ou resultado inconclusivo exige

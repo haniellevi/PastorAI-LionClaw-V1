@@ -124,6 +124,30 @@ def test_parse_message_event_rejects_lid_without_valid_phone_alt_without_logging
     assert "lid" in caplog.text.lower()
 
 
+@pytest.mark.parametrize(
+    "alt",
+    ["120363000000000@lid", 123, "5500000000000@@s.whatsapp.net", "@s.whatsapp.net"],
+)
+def test_parse_message_event_rejects_other_invalid_lid_alternates(alt: object) -> None:
+    payload = _message_payload()
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    payload["data"]["key"]["remoteJidAlt"] = alt
+
+    assert parse_message_event(payload) is None
+
+
+def test_parse_message_event_marks_outbound_lid_with_phone_alt() -> None:
+    payload = _message_payload(from_me=True)
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    payload["data"]["key"]["remoteJidAlt"] = "5500000000000@s.whatsapp.net"
+
+    parsed = parse_message_event(payload)
+
+    assert parsed is not None
+    assert parsed.from_me is True
+    assert parsed.telefone == "00000000000"
+
+
 def test_parse_message_event_extended_text() -> None:
     payload = _message_payload()
     payload["data"]["message"] = {"extendedTextMessage": {"text": "mundo"}}

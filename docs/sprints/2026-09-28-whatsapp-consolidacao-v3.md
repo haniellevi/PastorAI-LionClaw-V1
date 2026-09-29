@@ -2,6 +2,8 @@
 
 **Branch:** `feat/whatsapp-consolidation-v3` · **Commits:** código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` · **Deploy:** não.
 
+Atualização de 29/09: depois do retarget à main, Sarah encontrou descarte de mensagens diretas `@lid`. O parser agora usa `remoteJidAlt` telefônico quando válido, rejeita alternativos inválidos sem registrar JID/telefone e possui testes sintéticos para entrada, saída e formatos malformados. A revisão seguinte encontrou um gate de release: Pessoas legadas criadas com número LID podem conservar `optout` ou conversa humana apenas na identidade antiga. O [runbook V3](../ops/v3-consolidacao-20260928/README.md) exige inventário read-only e decisão humana de reconciliação antes do restart; nenhuma reconciliação, migration ou leitura de PROD ocorreu nesta PR.
+
 ## O que foi feito
 
 A V3 reutiliza decisão, fila e etapas humanas com consulta de pendências,
