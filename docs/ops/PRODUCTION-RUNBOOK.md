@@ -377,44 +377,17 @@ deploys. Antes de ativar um release:
 - não remover volumes `redis_data`, `evolution_pg_data` ou
   `evolution_instances`.
 
-Validar e subir pelo caminho exato do candidato. Só depois do health local
-trocar o symlink estável:
-
-```bash
-PASTORAI_RELEASE_SHA=<sha-exato-de-main>
-cd "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}/deploy"
-chmod 600 .env
-docker compose config --quiet
-docker compose build backend
-docker compose up -d
-docker compose ps
-# Prova pós-restart sem imprimir o .env nem qualquer segredo. Todos os
-# processos capazes de enviar/faturar devem confirmar as travas fechadas.
-for service in backend queue-worker cron-worker; do
-  if ! docker compose exec -T "$service" sh -lc '
-      [ "${ALLOW_REAL_SENDS+x}" = "x" ] &&
-      [ "$ALLOW_REAL_SENDS" = "false" ] &&
-      [ "${ASAAS_BILLING_ENABLED+x}" = "x" ] &&
-      [ "$ASAAS_BILLING_ENABLED" = "false" ] &&
-      [ "${BREVO_SEND_MODE+x}" = "x" ] &&
-      [ "$BREVO_SEND_MODE" = "off" ] &&
-      echo "external-send gates: CLOSED"'; then
-    echo "external-send gates: OPEN or unverifiable for ${service}" >&2
-    exit 1
-  fi
-done
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS http://127.0.0.1:8000/ready
-ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
-```
-
-O esperado é uma linha `external-send gates: CLOSED` por serviço. Qualquer
-ausência ou valor diferente de `false`/`off` interrompe o deploy: mutações
-Asaas só podem existir quando `ALLOW_REAL_SENDS=true` **e**
-`ASAAS_BILLING_ENABLED=true`, em um gate financeiro posterior e explicitamente
-aprovado. Brevo permanece em `BREVO_SEND_MODE=off` até seu canário separado;
-`canary` e `live` não são estados aceitáveis antes dos smokes sem efeitos
-externos.
+O procedimento manual de build/up foi substituído pelo
+[`BACKEND-RELEASE-MANUAL.md`](../../deploy/BACKEND-RELEASE-MANUAL.md).
+Usar somente o workflow manual e o script revisado no SHA exato, depois dos
+gates nominais e do inventário read-only. O preflight registra banco, usuário,
+endereço e porta, valida ledger nos dois sentidos e schema/RLS; os quatro
+serviços são criados parados e têm seus gates inspecionados antes de start.
+Não executar `docker compose up` sem `--no-start` como atalho: isso iniciaria efeitos antes da
+comprovação dos gates. Allowlist e SHA mínimo seguros são configuração
+obrigatória; CI não comprova o estado de PROD. Os SQLs verbatim de ledger e
+inventário, definição do conjunto V3, prazo numérico e prova do cron estão no
+runbook acima. Ausência de marcador ou prova insuficiente exige PARE.
 
 Portas públicas proibidas:
 
@@ -721,9 +694,13 @@ correntes e não autorizados.
 
 ## 10. Rollback
 
-- Backend: apontar `/opt/pastorai-current` para o SHA anterior e recriar os
-  containers a partir desse release; nunca restaurar ou apagar `deploy/.env` e
-  volumes por engano.
+- Backend: parar os quatro serviços e executar o preflight do código anterior
+  com seu próprio manifesto e imagem antes de qualquer start, conforme
+  [`BACKEND-RELEASE-MANUAL.md`](../../deploy/BACKEND-RELEASE-MANUAL.md).
+  Ausência de checker, divergência do ledger ou incompatibilidade mantém gates
+  fechados e exige plano adiante revisado. Conferir Compose e gates dos
+  contêineres parados antes de iniciar; conferir novamente depois. Symlink só
+  muda após saúde comprovada; preservar configuração ativa e volumes.
 - Frontend: promover o deployment Vercel anterior.
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.

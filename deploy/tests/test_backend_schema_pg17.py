@@ -138,6 +138,9 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
             complete = dry_run()
             assert complete.returncode == 0, complete.stderr
             assert "dry-run OK" in complete.stdout
+            assert "database identity:" in complete.stdout
+            assert database_name in complete.stdout
+            assert "127.0.0.1" in complete.stdout
 
             with target.begin() as connection:
                 connection.execute(

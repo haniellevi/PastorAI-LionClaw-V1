@@ -30,16 +30,26 @@ class BackendReleaseTest(unittest.TestCase):
         self.new = self.root / "releases" / SHA_NEW / "deploy"
         self.old.mkdir(parents=True)
         self.new.mkdir(parents=True)
-        (self.old / ".env").write_text("SYNTHETIC=1\n")
+        (self.old / "configuration.fixture").write_text("SYNTHETIC=1\n")
         (self.new / "check_backend_schema.py").write_bytes(
             (DEPLOY / "check_backend_schema.py").read_bytes()
         )
+        (self.old / "check_backend_schema.py").write_bytes((DEPLOY / "check_backend_schema.py").read_bytes())
+        old_backend = self.old.parent / "backend"
+        (old_backend / "scripts").mkdir(parents=True)
+        (old_backend / "migrations").mkdir()
+        (old_backend / "scripts/migrate.py").write_text("def migration_files(path): return ['0001_synthetic.sql']\n")
         (self.root / "current").symlink_to(self.old.parent)
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         (bin_dir / "docker").write_text(
             """#!/bin/sh
 case "$*" in
+  'compose ps -aq '*) printf '%s\\n' "$4"; exit 0 ;;
+  'inspect '*)
+    if [ "${STOPPED_GATES_EXIT:-0}" = 1 ]; then printf '[]';
+    else printf '["ALLOW_REAL_SENDS=false","ASAAS_BILLING_ENABLED=false","BREVO_SEND_MODE=off","BROADCAST_ASYNC_ENABLED=false"]'; fi
+    exit 0 ;;
   'compose config --format json')
     printf 'config-json|%s\\n' "$PWD" >> "$TRACE"
     if [ "$PWD" = "$NEW_DEPLOY" ]; then printf '%s\\n' "$CANDIDATE_CONFIG_JSON";
@@ -57,7 +67,8 @@ case "$*" in
   'compose build backend')
     if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
-  'compose up '*)
+  'compose run '*) exit "${ROLLBACK_PREFLIGHT_EXIT:-0}" ;;
+  'compose start '*)
     if [ "$PWD" = "$NEW_DEPLOY" ]; then touch "$TRACE.candidate_up"; exit "${RESTART_EXIT:-0}"; fi
     exit "${ROLLBACK_RESTART_EXIT:-0}" ;;
 esac
@@ -91,6 +102,7 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
             "NEW_DEPLOY": str(self.new),
             "BACKEND_RELEASE_TEST_MODE": "1",
             "BACKEND_RELEASE_TEST_ROOT": str(self.root),
+            "BACKEND_RELEASE_TEST_CONFIG": "configuration.fixture",
             "ACTIVE_CONFIG_JSON": closed_json,
             "CANDIDATE_CONFIG_JSON": closed_json,
             "ROLLBACK_CONFIG_JSON": closed_json,
@@ -117,6 +129,71 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         config["services"]["queue-worker"]["environment"]["ALLOW_REAL_SENDS"] = "true"
         return json.dumps(config)
 
+    def test_failed_candidate_does_not_retain_private_configuration(self):
+        result = self.run_release(BUILD_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.new / "configuration.fixture").exists())
+        self.assertTrue((self.old / "configuration.fixture").exists())
+
+    def test_rollback_missing_checker_never_starts_previous_code(self):
+        (self.old / "check_backend_schema.py").unlink()
+        result = self.run_release(HEALTH_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(f"docker|{self.old}|compose start " in c for c in self.calls()))
+        self.assertIn("rollback schema compatibility", result.stderr)
+
+    def test_candidate_gates_verified_before_start(self):
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("compose up " in c and "--no-start" not in c for c in self.calls()))
+        calls = self.calls()
+        self.assertTrue(any("compose up --no-start " in c for c in calls))
+        self.assertTrue(any("compose start " in c for c in calls))
+
+    def test_rollback_incompatible_schema_never_starts_previous_code(self):
+        result = self.run_release(HEALTH_EXIT="1", ROLLBACK_PREFLIGHT_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(f"docker|{self.old}|compose start " in c for c in self.calls()))
+        self.assertTrue(any("compose stop " in c for c in self.calls()))
+
+    def test_stopped_container_open_gates_never_start(self):
+        result = self.run_release(STOPPED_GATES_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("compose start " in c for c in self.calls()))
+
+    def test_candidate_symlink_cannot_overwrite_active_configuration(self):
+        import shutil
+        shutil.rmtree(self.new.parent)
+        self.new.parent.symlink_to(self.old.parent)
+        result = self.run_release()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.old / "configuration.fixture").exists())
+        self.assertFalse(self.calls())
+
+    def test_existing_candidate_configuration_is_not_overwritten(self):
+        (self.new / "configuration.fixture").write_text("KEEP_SYNTHETIC\n")
+        result = self.run_release()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.new / "configuration.fixture").read_text(), "KEEP_SYNTHETIC\n")
+
+    def test_all_services_refuse_each_missing_or_open_compose_gate(self):
+        for service in SERVICES.split():
+            for gate in ("ALLOW_REAL_SENDS", "ASAAS_BILLING_ENABLED", "BREVO_SEND_MODE", "BROADCAST_ASYNC_ENABLED"):
+                for value in (None, "true"):
+                    with self.subTest(service=service, gate=gate, value=value):
+                        config = json.loads(json.dumps(self.closed_config))
+                        environment = config["services"][service]["environment"]
+                        if value is None:
+                            environment.pop(gate)
+                        else:
+                            environment[gate] = value
+                        if self.trace.exists():
+                            self.trace.unlink()
+                        result = self.run_release(CANDIDATE_CONFIG_JSON=json.dumps(config))
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse(any("compose start " in c for c in self.calls()))
+                        self.assertFalse((self.new / "configuration.fixture").exists())
+
     def test_schema_failure_stops_before_build_or_restart(self) -> None:
         result = self.run_release(PREFLIGHT_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
@@ -141,7 +218,7 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         result = self.run_release(CANDIDATE_CONFIG_JSON=self.config_with_open_gate())
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("effective Compose gates open or unverifiable", result.stderr)
-        self.assertFalse(any("compose build" in call or "compose up " in call for call in self.calls()))
+        self.assertFalse(any("compose build" in call or "compose start " in call for call in self.calls()))
         self.assertFalse(any("python -" in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
@@ -149,17 +226,17 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         result = self.run_release(BUILD_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(any("compose build backend" in call for call in self.calls()))
-        self.assertFalse(any("compose up " in call for call in self.calls()))
+        self.assertFalse(any("compose start " in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_health_failure_restarts_previous_code(self) -> None:
         result = self.run_release(HEALTH_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
         calls = self.calls()
-        self.assertTrue(any(f"docker|{self.new}|compose up " in call for call in calls))
+        self.assertTrue(any(f"docker|{self.new}|compose start " in call for call in calls))
         self.assertTrue(any(f"docker|{self.old}|compose build backend" in call for call in calls))
         self.assertTrue(
-            any(f"docker|{self.old}|compose up " in call and SERVICES in call for call in calls)
+            any(f"docker|{self.old}|compose start " in call and SERVICES in call for call in calls)
         )
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
@@ -168,7 +245,7 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(
             any(
-                f"docker|{self.old}|compose up " in call and SERVICES in call
+                f"docker|{self.old}|compose start " in call and SERVICES in call
                 for call in self.calls()
             )
         )
@@ -177,7 +254,7 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
     def test_candidate_gate_change_rolls_back_code(self) -> None:
         result = self.run_release(CANDIDATE_GATES_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
+        self.assertTrue(any(f"docker|{self.old}|compose start " in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_rollback_refuses_open_effective_config_before_old_restart(self) -> None:
@@ -186,7 +263,7 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rollback of code is unhealthy", result.stderr)
-        self.assertFalse(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
+        self.assertFalse(any(f"docker|{self.old}|compose start " in call for call in self.calls()))
 
     def test_rollback_failure_reports_incomplete_recovery(self) -> None:
         result = self.run_release(HEALTH_EXIT="1", ROLLBACK_BUILD_EXIT="1")
@@ -198,7 +275,7 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         result = self.run_release()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "current").resolve(), self.new.parent)
-        up_calls = [call for call in self.calls() if "compose up " in call]
+        up_calls = [call for call in self.calls() if "compose start " in call]
         self.assertEqual(len(up_calls), 1)
         self.assertIn(SERVICES, up_calls[0])
 
@@ -235,6 +312,8 @@ class MigrationLedgerContractTest(unittest.TestCase):
                 return None
 
             def exec_driver_sql(self, sql, *_):
+                if "SELECT current_database()" in sql:
+                    return Result(rows=[("synthetic", "reader", "127.0.0.1", 5432)])
                 if "SELECT name FROM public.schema_migrations" in sql:
                     return Result(rows=[(name,) for name in applied])
                 if "WITH required(table_name, column_name)" in sql:
@@ -302,6 +381,10 @@ class MigrationLedgerContractTest(unittest.TestCase):
             ]
         )
         self.assertEqual(status, 0, error)
+
+
+# The existing CI entrypoint also executes packaging and transport policy tests.
+from test_backend_workflow import WorkflowTest
 
 
 if __name__ == "__main__":

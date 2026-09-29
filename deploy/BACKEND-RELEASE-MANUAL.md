@@ -112,9 +112,11 @@ Sequência obrigatória para um release futuro, sempre com autorizações própr
 
 Se o deploy **falhar com o gate fechado**, registrar o ponto da falha e não
 reabrir automaticamente. Falha antes do restart deixa o código anterior em
-execução; falha depois aciona tentativa de rollback só de código. O rollback
-**não executa `check_backend_schema.py` no código anterior**: `/health` e
-`/ready` não provam compatibilidade com o schema novo. Em ambos os casos,
+execução; falha depois aciona tentativa de rollback só de código. O rollback para os quatro serviços e executa o verificador do código anterior
+com o manifesto de migrations daquele código, usando sua imagem construída e
+entrypoint limitado a Python, antes de qualquer `start`. Checker ou manifesto
+ausente, diferença de ledger em qualquer sentido ou schema incompatível
+bloqueiam a retomada; `/health` e `/ready` não substituem esse preflight. Em ambos os casos,
 conferir processos e inventariar cancelados, pendentes e fontes V3 pré-época
 antes de decidir qualquer reabertura. Se o rollback ou inventário falhar,
 manter envio fechado, registrar a janela ultrapassada e escalar para decisão
@@ -147,12 +149,14 @@ depois de cada restart, ele também exige em todos os quatro processos
 `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
 `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`; ausência ou outro
 valor aborta sem imprimir a configuração. Depois ele constrói a imagem candidata,
-recria `backend`, `queue-worker`, `cron-worker` e `broadcast-worker`, aguarda
-saúde no Compose, confere `/health` e `/ready` no loopback e só então aponta
+cria `backend`, `queue-worker`, `cron-worker` e `broadcast-worker` parados,
+inspeciona os quatro gates em cada contêiner e somente depois executa `start`
+com espera de saúde no Compose, confere `/health` e `/ready` no loopback e só então aponta
 `/opt/pastorai-current` para o novo release.
 
-Se restart ou health falhar, o script pré-valida novamente o Compose anterior
-e tenta reconstruir e recriar seus quatro serviços somente com gates fechados.
+Se restart ou health falhar, o script para os quatro serviços, pré-valida o
+Compose anterior, reconstrói sua imagem e executa o preflight daquele código.
+Só depois cria contêineres parados com `up --no-start --no-deps`, inspeciona seus gates e inicia os quatro serviços.
 Falha também no rollback deixa o workflow vermelho e
 exige intervenção humana. **Rollback volta somente código e contêineres; ele
 nunca desfaz migration.** Se o código antigo não rodar com o schema novo,
@@ -175,3 +179,106 @@ ou restart. Diferença em qualquer direção do ledger ou schema incompleto
 retorna código não zero; uma base descartável com todas as entradas nominais e
 schema completo retorna zero. O dry-run não prova schema de PROD nem concede
 autorização operacional.
+
+## Evidência read-only obrigatória, A/B/C/H e P2-2/12
+
+Somente Raniel executa estas consultas em PROD, sob gate read-only nominal.
+Nenhuma evidência de CI ou deste teste local prova o estado de PROD. O operador
+identifica ambiente, UTC, SHA candidato e anterior, identidade de banco e role,
+e mantém conexão e credenciais exclusivamente em seu canal privado. Os arquivos
+SQL abaixo são a consulta verbatim versionada; não adaptar cláusulas na janela.
+
+Antes da janela, Raniel define e aprova `target_igrejas`: UUIDs distintos de
+todas as igrejas com V3 habilitada ou marcador/pendência/fonte V3 anterior,
+conferidos contra a configuração efetiva dos quatro processos e o cadastro
+privado. União das listas atuais e anteriores, incluindo alvos removidos durante
+a janela. Uma lista vazia não prova ausência de V3: PARE e obtenha plano revisado.
+O agente nunca escolhe alvos. Registrar o conjunto aprovado em evidência sem PII;
+o inventário não descobre automaticamente igrejas fora desse conjunto.
+
+A role `inventory_role` é uma role existente, previamente revisada, NOLOGIN,
+NOSUPERUSER e BYPASSRLS, com SELECT nas cinco tabelas de inventário e no ledger,
+sem INSERT/UPDATE/DELETE/TRUNCATE. O script não cria role, não concede privilégios
+nem desabilita RLS. BYPASSRLS é exigido explicitamente para inventário agregado
+completo: role `authenticated` sem tenant/JWT pode esconder linhas e é recusada.
+Se essa role não existir, PARE; provisionamento tem gate próprio. Os SELECTs
+mostram role efetiva, flags RLS, owner e identidade. A conexão deve permitir
+`SET LOCAL ROLE` somente sob a autorização read-only do operador.
+
+Com conexão privada já configurada pelo operador, sem DSN em argumentos:
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -v inventory_role="$ROLE_REVISADA" \
+  -f deploy/backend-release-ledger.sql
+psql -X -v ON_ERROR_STOP=1 -v inventory_role="$ROLE_REVISADA" \
+  -v target_igrejas="$ALVOS_V3_APROVADOS" -v require_closed=false \
+  -f deploy/backend-release-inventory.sql
+```
+
+O primeiro arquivo lista nomes e contagens, inclusive cada prefixo 0001 a 0017;
+comparar com o conjunto ativo exato selecionado por `migration_files` no SHA.
+Contagem ou presença nominal não prova conteúdo aplicado. O segundo inventaria
+outbox por finalidade/estado/origem, legado V1a e fontes V3 por estado e época,
+sem IDs de pessoas, títulos, mensagens ou contatos. Erro, timeout, role insegura,
+alvos vazios/duplicados ou marcador ausente/época nula retornam não zero: PARE.
+A ausência não é convertida em marcador fechado, nem em autorização para criá-lo.
+
+Após fechar e antes de reabrir, repetir o mesmo inventário com
+`-v require_closed=true`, conservando o conjunto aprovado. Só `gate_open=false`
+com época conhecida para cada alvo satisfaz a consulta. Guardar os três snapshots
+(antes do fechamento, depois da observação e imediatamente antes da reabertura)
+e comparar cancelados, pendentes, obsoletos e fontes anteriores. Nunca deduzir
+que outbox vazia significa ausência de fontes antigas. Cancelados são terminais;
+tratamento ou reconstrução precisa de plano próprio revisado e gate nominal.
+
+Para C, registrar início do fechamento, intervalo efetivo `cron_tick_seconds`,
+ID do contêiner cron e prazo máximo numérico. Janela proposta: 900 segundos,
+consulta a cada 30 segundos, sem prorrogação automática. Se intervalo efetivo ou
+ciclo em andamento não permitir comprovação dentro de 900 segundos, PARE antes
+da janela e obtenha duração revisada. O padrão 300 segundos não é prova viva.
+Sob gate do operador, este comando lê somente o intervalo efetivo:
+
+```bash
+docker compose exec -T cron-worker python -c \
+  'from app.config import get_settings; print(get_settings().cron_tick_seconds)'
+docker compose ps -q cron-worker
+```
+
+Exigir ciclo iniciado após o fechamento, concluído, sem erro da etapa
+`Consolidation notification scheduling failed`, e prova por alvo da observação.
+Raniel confere os logs privadamente e devolve apenas horários, contêiner, contagem
+de ciclos e erros; não encaminha logs brutos. Heartbeat saudável ou `Cron tick
+done` geral não prova sucesso V3: a exceção V3 é capturada sem impedir o tick.
+A transição documentada de marcador aberto no snapshot anterior para fechado
+no posterior prova a observação por alvo. O schema atual não registra horário
+próprio de observação do fechamento; se o marcador já estava fechado e não houver
+outra prova revisada da etapa por alvo, PARE por evidência insuficiente. Esperar
+900 segundos ou encontrar `false` antigo não supre essa lacuna. Ao vencer o
+prazo, manter gates fechados, registrar interrupção e escalar a Raniel.
+
+## Configuração e retenção, P2-6/9/10/14
+
+No Environment protegido, configurar sob gate próprio
+`BACKEND_DEPLOY_ALLOWED_ACTORS` (logins exatos separados por espaços) e
+`BACKEND_DEPLOY_SAFE_BASE_SHA` (SHA completo do primeiro commit revisado que
+contém esta camada de segurança). Ausência ou má formação recusa empacotamento.
+Ator original e ator de rerun precisam pertencer à allowlist. O candidato deve
+ser descendente desse piso e ancestral da main; o piso e o candidato devem
+conter `BACKEND_RELEASE_SAFETY_VERSION=2`. A variável não pode apontar à base
+antiga. Isso não concede autorização de dispatch ou substitui revisão do SHA.
+
+Tarball do runner é removido mesmo com falha posterior; tarball remoto tem trap
+EXIT no comando de extração/release. Candidato existente é recusado. O script
+recusa alias/symlink de candidato e configuração candidata preexistente; limpa
+sua cópia privada em falha/INT/TERM e preserva a configuração do ativo. Em sucesso,
+a configuração do novo ativo e a do anterior necessário ao rollback permanecem
+restritas no host. Nenhum conteúdo privado é impresso. SIGKILL, crash de host ou
+falha de transporte antes da sessão SSH não garantem traps: o operador deve
+remover o tarball temporário e cópias de candidatos rejeitados sob gate próprio,
+conferindo o symlink ativo antes de qualquer remoção. Não apagar volumes.
+
+Deploy e rollback validam Compose antes de `up --no-start --no-deps` e inspecionam
+contêineres parados antes de `start`; conferem novamente os quatro processos
+após início. Rollback incompatível ou sem checker/manifesto para os serviços e
+exige correção adiante revisada. Nenhum caminho reabre gate, desfaz migration ou
+reconstrói avisos automaticamente.

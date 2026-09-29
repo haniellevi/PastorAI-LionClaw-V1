@@ -118,6 +118,10 @@ def main() -> int:
         with engine.connect() as connection:
             connection.exec_driver_sql("SET TRANSACTION READ ONLY")
             connection.exec_driver_sql("SET LOCAL statement_timeout = '5s'")
+            identity = connection.exec_driver_sql(
+                "SELECT current_database(), current_user, inet_server_addr()::text, inet_server_port()"
+            ).all()
+            print("database identity: " + json.dumps([tuple(row) for row in identity], default=str))
             applied_migrations = {
                 row[0]
                 for row in connection.exec_driver_sql(
