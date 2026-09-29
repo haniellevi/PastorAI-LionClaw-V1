@@ -1,0 +1,308 @@
+"""Local command doubles verify deploy stops and code-only rollback order."""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import os
+from pathlib import Path
+import runpy
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+
+DEPLOY = Path(__file__).resolve().parents[1]
+SHA_OLD = "a" * 40
+SHA_NEW = "b" * 40
+SERVICES = "backend queue-worker cron-worker broadcast-worker"
+SCHEMA = runpy.run_path(str(DEPLOY / "check_backend_schema.py"))
+
+
+class BackendReleaseTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="backend-release-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.old = self.root / "releases" / SHA_OLD / "deploy"
+        self.new = self.root / "releases" / SHA_NEW / "deploy"
+        self.old.mkdir(parents=True)
+        self.new.mkdir(parents=True)
+        (self.old / ".env").write_text("SYNTHETIC=1\n")
+        (self.new / "check_backend_schema.py").write_bytes(
+            (DEPLOY / "check_backend_schema.py").read_bytes()
+        )
+        (self.root / "current").symlink_to(self.old.parent)
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "docker").write_text(
+            """#!/bin/sh
+case "$*" in
+  'compose config --format json')
+    printf 'config-json|%s\\n' "$PWD" >> "$TRACE"
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then printf '%s\\n' "$CANDIDATE_CONFIG_JSON";
+    elif [ -f "$TRACE.candidate_up" ]; then printf '%s\\n' "$ROLLBACK_CONFIG_JSON";
+    else printf '%s\\n' "$ACTIVE_CONFIG_JSON"; fi
+    exit 0 ;;
+  *' sh -c '*)
+    printf 'gates|%s|%s\\n' "$PWD" "$4" >> "$TRACE"
+    if [ "$PWD" = "$NEW_DEPLOY" ] && [ "${CANDIDATE_GATES_EXIT:-0}" = 1 ]; then exit 1; fi
+    sh -lc "$7"; exit $? ;;
+esac
+printf 'docker|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
+case "$*" in
+  'compose exec -T -e EXPECTED_MIGRATIONS='*' backend python -') exit "${PREFLIGHT_EXIT:-0}" ;;
+  'compose build backend')
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
+    exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
+  'compose up '*)
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then touch "$TRACE.candidate_up"; exit "${RESTART_EXIT:-0}"; fi
+    exit "${ROLLBACK_RESTART_EXIT:-0}" ;;
+esac
+exit 0
+"""
+        )
+        (bin_dir / "curl").write_text(
+            """#!/bin/sh
+printf 'curl|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
+if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${HEALTH_EXIT:-0}"; fi
+exit "${ROLLBACK_HEALTH_EXIT:-0}"
+"""
+        )
+        for name in ("docker", "curl"):
+            (bin_dir / name).chmod(0o755)
+        self.trace = self.root / "trace"
+        closed = {
+            "ALLOW_REAL_SENDS": "false",
+            "ASAAS_BILLING_ENABLED": "false",
+            "BREVO_SEND_MODE": "off",
+            "BROADCAST_ASYNC_ENABLED": "false",
+        }
+        self.closed_config = {
+            "services": {service: {"environment": closed} for service in SERVICES.split()}
+        }
+        closed_json = json.dumps(self.closed_config)
+        self.environment = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "TRACE": str(self.trace),
+            "NEW_DEPLOY": str(self.new),
+            "BACKEND_RELEASE_TEST_MODE": "1",
+            "BACKEND_RELEASE_TEST_ROOT": str(self.root),
+            "ACTIVE_CONFIG_JSON": closed_json,
+            "CANDIDATE_CONFIG_JSON": closed_json,
+            "ROLLBACK_CONFIG_JSON": closed_json,
+            "ALLOW_REAL_SENDS": "false",
+            "ASAAS_BILLING_ENABLED": "false",
+            "BREVO_SEND_MODE": "off",
+            "BROADCAST_ASYNC_ENABLED": "false",
+        }
+
+    def run_release(self, **changes: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(DEPLOY / "backend-release.sh"), SHA_NEW],
+            env={**self.environment, **changes},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def calls(self) -> list[str]:
+        return self.trace.read_text().splitlines() if self.trace.exists() else []
+
+    def config_with_open_gate(self) -> str:
+        config = json.loads(json.dumps(self.closed_config))
+        config["services"]["queue-worker"]["environment"]["ALLOW_REAL_SENDS"] = "true"
+        return json.dumps(config)
+
+    def test_schema_failure_stops_before_build_or_restart(self) -> None:
+        result = self.run_release(PREFLIGHT_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("before restart", result.stderr)
+        self.assertEqual(len(self.calls()), 8)  # three config calls, four gates, schema
+        self.assertEqual(
+            [call.rsplit("|", 1)[-1] for call in self.calls()[3:7]],
+            ["backend", "queue-worker", "cron-worker", "broadcast-worker"],
+        )
+        self.assertIn("compose exec -T -e EXPECTED_MIGRATIONS=", self.calls()[-1])
+        self.assertIn(" backend python -", self.calls()[-1])
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_open_external_gate_stops_before_schema_or_build(self) -> None:
+        result = self.run_release(ALLOW_REAL_SENDS="true")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("external-effect gates open or unverifiable", result.stderr)
+        self.assertFalse(any("python -" in call or "compose build" in call for call in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_candidate_effective_gate_stops_before_build_or_restart(self) -> None:
+        result = self.run_release(CANDIDATE_CONFIG_JSON=self.config_with_open_gate())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("effective Compose gates open or unverifiable", result.stderr)
+        self.assertFalse(any("compose build" in call or "compose up " in call for call in self.calls()))
+        self.assertFalse(any("python -" in call for call in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_build_failure_keeps_previous_containers(self) -> None:
+        result = self.run_release(BUILD_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any("compose build backend" in call for call in self.calls()))
+        self.assertFalse(any("compose up " in call for call in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_health_failure_restarts_previous_code(self) -> None:
+        result = self.run_release(HEALTH_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.calls()
+        self.assertTrue(any(f"docker|{self.new}|compose up " in call for call in calls))
+        self.assertTrue(any(f"docker|{self.old}|compose build backend" in call for call in calls))
+        self.assertTrue(
+            any(f"docker|{self.old}|compose up " in call and SERVICES in call for call in calls)
+        )
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_failed_candidate_restart_rolls_back(self) -> None:
+        result = self.run_release(RESTART_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(
+            any(
+                f"docker|{self.old}|compose up " in call and SERVICES in call
+                for call in self.calls()
+            )
+        )
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_candidate_gate_change_rolls_back_code(self) -> None:
+        result = self.run_release(CANDIDATE_GATES_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_rollback_refuses_open_effective_config_before_old_restart(self) -> None:
+        result = self.run_release(
+            HEALTH_EXIT="1", ROLLBACK_CONFIG_JSON=self.config_with_open_gate()
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback of code is unhealthy", result.stderr)
+        self.assertFalse(any(f"docker|{self.old}|compose up " in call for call in self.calls()))
+
+    def test_rollback_failure_reports_incomplete_recovery(self) -> None:
+        result = self.run_release(HEALTH_EXIT="1", ROLLBACK_BUILD_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback of code is unhealthy", result.stderr)
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_healthy_candidate_becomes_current(self) -> None:
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "current").resolve(), self.new.parent)
+        up_calls = [call for call in self.calls() if "compose up " in call]
+        self.assertEqual(len(up_calls), 1)
+        self.assertIn(SERVICES, up_calls[0])
+
+
+class MigrationLedgerContractTest(unittest.TestCase):
+    """Drive the real checker with a literal manifest and synthetic DB results."""
+
+    def check_ledger(self, applied: list[str]) -> tuple[int, str]:
+        expected = [
+            "20260927_120000_church_cell_public_data.sql",
+            "20260927_170000_whatsapp_privilege_actions.sql",
+        ]
+        policy_rows = [
+            (name, command, True, True, using, with_check)
+            for name, (command, using, with_check) in SCHEMA["ACTIVATION_POLICIES"].items()
+        ]
+
+        class Result:
+            def __init__(self, rows=None, scalar=None):
+                self.rows = rows
+                self.scalar = scalar
+
+            def all(self):
+                return self.rows
+
+            def scalar_one_or_none(self):
+                return self.scalar
+
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return None
+
+            def exec_driver_sql(self, sql, *_):
+                if "SELECT name FROM public.schema_migrations" in sql:
+                    return Result(rows=[(name,) for name in applied])
+                if "WITH required(table_name, column_name)" in sql:
+                    return Result(rows=[])
+                if "SELECT relrowsecurity" in sql:
+                    return Result(scalar=True)
+                if "SELECT polname" in sql:
+                    return Result(rows=policy_rows)
+                return Result()
+
+            def rollback(self):
+                pass
+
+        class Engine:
+            def connect(self):
+                return Connection()
+
+            def dispose(self):
+                pass
+
+        stderr = io.StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DATABASE_URL": "postgresql://synthetic.invalid/local",
+                    "EXPECTED_MIGRATIONS": json.dumps(expected),
+                },
+            ),
+            patch.dict(SCHEMA["main"].__globals__, {"create_engine": lambda *_a, **_k: Engine()}),
+            contextlib.redirect_stderr(stderr),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            status = SCHEMA["main"]()
+        return status, stderr.getvalue()
+
+    def test_missing_migration_fails_closed(self) -> None:
+        status, error = self.check_ledger(
+            ["20260927_120000_church_cell_public_data.sql"]
+        )
+        self.assertEqual(status, 1)
+        self.assertIn("migration not applied: 20260927_170000", error)
+
+    def test_empty_ledger_fails_closed(self) -> None:
+        status, error = self.check_ledger([])
+        self.assertEqual(status, 1)
+        self.assertIn("migration not applied: 20260927_120000", error)
+
+    def test_future_migration_fails_closed(self) -> None:
+        status, error = self.check_ledger(
+            [
+                "20260927_120000_church_cell_public_data.sql",
+                "20260927_170000_whatsapp_privilege_actions.sql",
+                "20990101_000000_future_schema.sql",
+            ]
+        )
+        self.assertEqual(status, 1)
+        self.assertIn("database migration absent from candidate: 20990101", error)
+
+    def test_exact_ledger_passes(self) -> None:
+        status, error = self.check_ledger(
+            [
+                "20260927_120000_church_cell_public_data.sql",
+                "20260927_170000_whatsapp_privilege_actions.sql",
+            ]
+        )
+        self.assertEqual(status, 0, error)
+
+
+if __name__ == "__main__":
+    unittest.main()

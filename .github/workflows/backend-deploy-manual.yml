@@ -1,0 +1,63 @@
+name: Backend release (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact reviewed commit on main, after authorized V2b/V3 migrations
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-production-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: backend-production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Package exact main commit
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch origin main
+          git cat-file -e "$RELEASE_SHA^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          git archive --format=tar "$RELEASE_SHA" backend deploy |
+            gzip -9 > "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
+
+      - name: Deploy backend with schema gate and code rollback
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          DEPLOY_HOST: ${{ secrets.BACKEND_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.BACKEND_DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.BACKEND_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.BACKEND_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ -n "$DEPLOY_SSH_KEY" && -n "$DEPLOY_KNOWN_HOSTS" ]]
+          umask 077
+          key="$RUNNER_TEMP/backend-deploy-key"
+          hosts="$RUNNER_TEMP/backend-deploy-known-hosts"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$hosts"
+          trap 'rm -f -- "$key" "$hosts"' EXIT
+          ssh_opts=(-i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts")
+          scp "${ssh_opts[@]}" "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/pastorai-$RELEASE_SHA.tar.gz"
+          ssh "${ssh_opts[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -eu; umask 077; mkdir -p '/opt/pastorai-releases/$RELEASE_SHA'; tar -xzf '/tmp/pastorai-$RELEASE_SHA.tar.gz' -C '/opt/pastorai-releases/$RELEASE_SHA'; bash '/opt/pastorai-releases/$RELEASE_SHA/deploy/backend-release.sh' '$RELEASE_SHA'"
