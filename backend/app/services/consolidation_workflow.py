@@ -118,7 +118,7 @@ def assign_consolidacao(
             tenant,
             current_user,
             responsavel_id,
-            expected_item.tipo,
+            {item.tipo for item in work_items if _is_active_queue_item(item)},
             action=work_queue_action,
         )
         if _queue_action_is_idempotent_or_conflicts(
@@ -600,11 +600,16 @@ def _resolve_queue_target(
     tenant: uuid.UUID,
     current_user: CurrentUser,
     responsavel_id: uuid.UUID,
-    item_tipo: str,
+    item_tipos: set[str],
     *,
     action: Literal["assume", "assign"],
 ) -> uuid.UUID:
     if action == "assume":
+        if not all(can_resolve(current_user.roles, tipo) for tipo in item_tipos):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você não pode resolver itens deste tipo",
+            )
         return uuid.UUID(current_user.app_user_id)
 
     target_id = db.execute(
@@ -625,7 +630,7 @@ def _resolve_queue_target(
             UserRole.user_id == target_id,
         )
     ).scalars().all()
-    if not can_resolve(target_roles, item_tipo):
+    if not all(can_resolve(target_roles, tipo) for tipo in item_tipos):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Responsável não pode resolver itens deste tipo",

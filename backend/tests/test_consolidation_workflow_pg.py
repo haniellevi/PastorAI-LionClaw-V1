@@ -1108,6 +1108,117 @@ def test_linked_work_queue_assignment_uses_workflow_and_enforces_actor(
         ).all() == [(values["target_a"], "assumido")]
 
 
+@pytest.mark.parametrize(
+    ("action", "roles", "sibling_status", "candidate_assumed", "expected_status"),
+    (
+        ("assume", frozenset({"lider_celula"}), "aberto", False, 403),
+        ("assume", frozenset({"lider_celula"}), "aberto", True, 403),
+        ("assign", frozenset({"lider_celula"}), "aberto", False, 422),
+        ("assume", frozenset({"lider_g12"}), "aberto", False, None),
+        ("assume", frozenset({"lider_celula"}), "resolvido", False, None),
+    ),
+    ids=(
+        "cell_leader_cannot_assume_mixed_track",
+        "idempotent_candidate_cannot_hide_unauthorized_sibling",
+        "coordinator_cannot_assign_mixed_track_to_cell_leader",
+        "broad_role_assumes_both_active_items",
+        "resolved_sibling_does_not_block_cell_leader",
+    ),
+)
+def test_queue_assignment_checks_every_active_linked_type(
+    workflow_database,
+    action: str,
+    roles: frozenset[str],
+    sibling_status: str,
+    candidate_assumed: bool,
+    expected_status: int | None,
+) -> None:
+    values = _seed(workflow_database)
+    initial_holder = "actor" if action == "assign" or candidate_assumed else "target_b"
+    track_id, queue_id = _insert_track(
+        workflow_database, values, responsible_key=initial_holder
+    )
+    sibling_id = uuid.uuid4()
+    target_key = "target_a" if action == "assign" else "actor"
+    with workflow_database.begin() as connection:
+        connection.execute(
+            text("delete from user_roles where igreja_id=:tenant and user_id=:target"),
+            {"tenant": values["tenant"], "target": values[target_key]},
+        )
+        for role in roles:
+            connection.execute(
+                text("insert into user_roles(igreja_id,user_id,papel) values(:tenant,:target,:role)"),
+                {"tenant": values["tenant"], "target": values[target_key], "role": role},
+            )
+        connection.execute(
+            text(
+                "insert into work_queue_items("
+                "id,igreja_id,consolidacao_id,tipo,titulo,pessoa_id,responsavel_id,status,prioridade"
+                ") values(:id,:tenant,:track,'conectar_celula','Conectar',:person,:holder,:status,1)"
+            ),
+            {
+                "id": sibling_id, "tenant": values["tenant"], "track": track_id,
+                "person": values["person"], "holder": values[initial_holder],
+                "status": sibling_status,
+            },
+        )
+        if candidate_assumed:
+            connection.execute(
+                text("update work_queue_items set status='assumido', responsavel_id=:actor where id=:item"),
+                {"actor": values["actor"], "item": queue_id},
+            )
+
+    before_rows = _track_rows(workflow_database, track_id)
+    before_revision = _assignment_revision(workflow_database, track_id)
+    session = _scoped(_factory(workflow_database), values["tenant"])
+    actor = _queue_actor(
+        values["tenant"], values["actor"],
+        frozenset({"pastor"}) if action == "assign" else roles,
+    )
+    try:
+        if expected_status is not None:
+            with pytest.raises(HTTPException) as denied:
+                assign_consolidacao(
+                    session, actor, consolidacao_id=track_id,
+                    responsavel_id=values[target_key],
+                    expected_assignment_revision=None, whatsapp=False,
+                    expected_work_queue_item_id=queue_id, work_queue_action=action,
+                )
+            assert denied.value.status_code == expected_status
+            session.rollback()
+        else:
+            assign_consolidacao(
+                session, actor, consolidacao_id=track_id,
+                responsavel_id=values[target_key],
+                expected_assignment_revision=None, whatsapp=False,
+                expected_work_queue_item_id=queue_id, work_queue_action=action,
+            )
+            session.commit()
+    finally:
+        session.close()
+
+    rows = _track_rows(workflow_database, track_id)
+    with workflow_database.connect() as connection:
+        responsible = connection.execute(
+            text("select responsavel_id from consolidacoes where id=:track"),
+            {"track": track_id},
+        ).scalar_one()
+    if expected_status is not None:
+        assert responsible == values[initial_holder]
+        assert rows == before_rows
+        assert _assignment_revision(workflow_database, track_id) == before_revision
+    else:
+        assert responsible == values[target_key]
+        assert next(row for row in rows if row[0] == queue_id)[1:] == (
+            values[target_key], "assumido"
+        )
+        assert next(row for row in rows if row[0] == sibling_id)[1:] == (
+            (values[target_key], "assumido")
+            if sibling_status == "aberto"
+            else (values[initial_holder], "resolvido")
+        )
+
+
 @pytest.mark.parametrize(("action", "target_key"), [("assume", "actor"), ("assign", "target_b")])
 def test_queue_candidate_completed_after_read_cannot_reassign_linked_work(
     workflow_database,
