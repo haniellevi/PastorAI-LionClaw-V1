@@ -6,8 +6,20 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 from app.config import Settings
-from app.db.models import (CellReportDraft, CellReportReminder, CellReportReminderPreference,
-    CelulaReuniao, ConsentRecord, Conversation, Pessoa, WhatsappConnection)
+from app.db.models import (
+    CellReportDraft,
+    CellReportReminder,
+    CellReportReminderPreference,
+    Celula,
+    CelulaReuniao,
+    ConsentRecord,
+    Conversation,
+    Igreja,
+    NotificationOutbox,
+    Pessoa,
+    WhatsappConnection,
+    WhatsappReminderPreference,
+)
 from app.db.rls import set_tenant_context_for_igreja
 from app.services import cell_report_whatsapp
 from tests.test_cell_report_v1a_worker_pg import report_turn, _run, _REPORT  # noqa: F401
@@ -17,6 +29,64 @@ from tests.test_agent_privileged_turn_pg import (  # noqa: F401
 pytestmark = pytest.mark.rls_integration
 _NOW = dt.datetime(2026, 9, 27, 18, tzinfo=dt.timezone.utc)
 _REAL_PILOT_GATE = Settings.whatsapp_piloto
+
+
+def _v1a_outbox_rows(turn):
+    return sorted(
+        (
+            row
+            for row in _rows(turn, NotificationOutbox)
+            if row.purpose == 'cell_report_reminder'
+        ),
+        key=lambda row: (row.due_at, str(row.id)),
+    )
+
+
+def _manual_v1a_outbox(*, meeting, pessoa_id, due_at, fingerprint='0' * 64):
+    return NotificationOutbox(
+        igreja_id=_IGREJA,
+        pessoa_id=pessoa_id,
+        agenda_alert_recipient_id=None,
+        event_id=None,
+        reuniao_id=meeting.id,
+        agenda_subscription_id=None,
+        origin_kind='meeting',
+        origin_id=meeting.id,
+        occurrence_at=due_at,
+        origin_fingerprint=fingerprint,
+        purpose='cell_report_reminder',
+        state='pendente',
+        due_at=due_at,
+        delivery_reservation_day=None,
+        claim_token=None,
+        claimed_until=None,
+        claimed_by=None,
+        attempts=0,
+        transport_started_at=None,
+        sent_at=None,
+        terminal_reason=None,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+
+def _legacy_v1a_reminder(*, igreja_id, meeting, pessoa_id, state, created_at):
+    return CellReportReminder(
+        igreja_id=igreja_id,
+        reuniao_id=meeting.id,
+        leader_pessoa_id=pessoa_id,
+        state=state,
+        due_at=created_at,
+        claim_token=None,
+        claimed_until=None,
+        attempts=0,
+        notice_recorded_at=None,
+        sent_at=None,
+        text_sha256='0' * 64,
+        terminal_reason=None,
+        created_at=created_at,
+        updated_at=created_at,
+    )
 
 
 @pytest.fixture
@@ -49,7 +119,7 @@ class _ReminderTransport(_ClassifiedEvolution):
     def send_text_classificado(self, instance, telefone, texto):
         assert self.turn.engine.pool.checkedout() == 0
         # A separate DB session sees a committed claim before any provider I/O.
-        claims = [r for r in _rows(self.turn, CellReportReminder) if r.state == 'em_envio']
+        claims = [r for r in _v1a_outbox_rows(self.turn) if r.state == 'em_envio']
         assert len(claims) == 1 and claims[0].claim_token is not None
         assert claims[0].claimed_until is not None
         return super().send_text_classificado(instance, telefone, texto)
@@ -62,12 +132,147 @@ def test_reminder_is_deduplicated_and_notice_recorded_before_or_after_delivery(r
     assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 0
     provider = _ReminderTransport(turn)
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW)
-    rows = _rows(turn, CellReportReminder)
+    rows = _v1a_outbox_rows(turn)
     assert len(rows) == 1 and rows[0].state == 'enviado'
-    assert rows[0].notice_recorded_at is not None and rows[0].sent_at is not None
+    assert rows[0].terminal_reason == 'aviso_parada_incluido' and rows[0].sent_at is not None
     assert len(provider.calls) == 1 and 'PARAR LEMBRETES' in provider.calls[0][2]
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW + dt.timedelta(minutes=1))
     assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize(
+    'legacy_state',
+    ('pendente', 'em_envio', 'retry', 'enviado', 'ambiguo', 'cancelado', 'obsoleto'),
+)
+def test_legacy_v1a_row_blocks_the_same_meeting_in_every_state(reminder_turn, legacy_state):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        leader_id = session.get(Conversation, turn.conversation_id).pessoa_id
+        session.add(_legacy_v1a_reminder(
+            igreja_id=_IGREJA,
+            meeting=meeting,
+            pessoa_id=leader_id,
+            state=legacy_state,
+            # Outside the rolling quota makes the meeting identity fence the
+            # only reason this schedule is refused.
+            created_at=_NOW - dt.timedelta(hours=25),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 0
+    assert _v1a_outbox_rows(turn) == []
+
+
+@pytest.mark.parametrize(
+    'legacy_state',
+    ('pendente', 'em_envio', 'retry', 'enviado', 'ambiguo', 'cancelado', 'obsoleto'),
+)
+def test_recent_legacy_v1a_row_preserves_the_leader_daily_quota(reminder_turn, legacy_state):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        leader_id = session.get(Conversation, turn.conversation_id).pessoa_id
+        historical = CelulaReuniao(
+            igreja_id=_IGREJA,
+            celula_id=meeting.celula_id,
+            data=meeting.data - dt.timedelta(days=2),
+            hora='10:00',
+            status='cancelada',
+            relatorio_status='enviado',
+        )
+        session.add(historical)
+        session.flush()
+        session.add(_legacy_v1a_reminder(
+            igreja_id=_IGREJA,
+            meeting=historical,
+            pessoa_id=leader_id,
+            state=legacy_state,
+            created_at=_NOW - dt.timedelta(hours=1),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 0
+    assert _v1a_outbox_rows(turn) == []
+
+
+def test_expired_legacy_v1a_history_does_not_block_new_meeting(reminder_turn):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, turn.meeting_id)
+        leader_id = session.get(Conversation, turn.conversation_id).pessoa_id
+        historical = CelulaReuniao(
+            igreja_id=_IGREJA,
+            celula_id=meeting.celula_id,
+            data=meeting.data - dt.timedelta(days=2),
+            hora='10:00',
+            status='cancelada',
+            relatorio_status='enviado',
+        )
+        session.add(historical)
+        session.flush()
+        session.add(_legacy_v1a_reminder(
+            igreja_id=_IGREJA,
+            meeting=historical,
+            pessoa_id=leader_id,
+            state='enviado',
+            created_at=_NOW - dt.timedelta(hours=25),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    assert [row.reuniao_id for row in _v1a_outbox_rows(turn)] == [turn.meeting_id]
+
+
+def test_legacy_v1a_history_from_another_church_does_not_block_this_tenant(reminder_turn):
+    from app.services import cell_report_reminders as reminders
+
+    turn = reminder_turn
+    other_igreja_id = uuid.uuid4()
+    other_pessoa_id = uuid.uuid4()
+    other_cell_id = uuid.uuid4()
+    with turn.factory.begin() as session:
+        session.add(Igreja(id=other_igreja_id, nome='Outra Igreja Sintética'))
+        session.add(Pessoa(
+            id=other_pessoa_id,
+            igreja_id=other_igreja_id,
+            nome='Líder Sintético Isolado',
+            telefone='not-a-phone',
+        ))
+        session.flush()
+        other_meeting = CelulaReuniao(
+            igreja_id=other_igreja_id,
+            celula_id=other_cell_id,
+            data=_NOW.date() - dt.timedelta(days=2),
+            hora='10:00',
+            status='cancelada',
+            relatorio_status='enviado',
+        )
+        session.add(Celula(
+            id=other_cell_id,
+            igreja_id=other_igreja_id,
+            nome='Célula Sintética Isolada',
+            lider_id=other_pessoa_id,
+            cobertura_espiritual='Cobertura sintética',
+            ativo=True,
+        ))
+        session.flush()
+        session.add(other_meeting)
+        session.flush()
+        session.add(_legacy_v1a_reminder(
+            igreja_id=other_igreja_id,
+            meeting=other_meeting,
+            pessoa_id=other_pessoa_id,
+            state='ambiguo',
+            created_at=_NOW - dt.timedelta(minutes=1),
+        ))
+
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
+    rows = _v1a_outbox_rows(turn)
+    assert len(rows) == 1 and rows[0].igreja_id == _IGREJA and rows[0].reuniao_id == turn.meeting_id
 
 
 def test_stop_reminders_is_scoped_and_global_sair_still_wins(reminder_turn):
@@ -76,8 +281,11 @@ def test_stop_reminders_is_scoped_and_global_sair_still_wins(reminder_turn):
     reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW)
     reply = _ClassifiedEvolution()
     _run(turn, 'V1A-STOP-REMINDERS', 'PARAR LEMBRETES', reply)
-    preferences = _rows(turn, CellReportReminderPreference)
-    assert len(preferences) == 1 and preferences[0].disabled_at is not None
+    preferences = _rows(turn, WhatsappReminderPreference)
+    assert {(row.reminder_kind, row.state) for row in preferences} == {
+        ('agenda', 'disabled'), ('cell_report', 'disabled')
+    }
+    assert _rows(turn, CellReportReminderPreference)[0].disabled_at is not None
     with turn.factory() as session:
         actor = session.get(Conversation, turn.conversation_id).pessoa_id
         assert session.get(Pessoa, actor).optout is not True
@@ -105,7 +313,7 @@ def test_reminder_revalidates_authority_before_sending(reminder_turn, monkeypatc
     provider = _ReminderTransport(turn)
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW)
     assert provider.calls == []
-    assert _rows(turn, CellReportReminder)[0].state in {'cancelado', 'obsoleto'}
+    assert _v1a_outbox_rows(turn)[0].state in {'cancelado', 'obsoleto'}
 
 
 def test_ambiguous_reminder_is_not_resent(reminder_turn):
@@ -114,7 +322,7 @@ def test_ambiguous_reminder_is_not_resent(reminder_turn):
     reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW)
     provider = _ReminderTransport(turn, 'ambiguo')
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW)
-    assert _rows(turn, CellReportReminder)[0].state == 'ambiguo'
+    assert _v1a_outbox_rows(turn)[0].state == 'ambiguo'
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW + dt.timedelta(minutes=10))
     assert len(provider.calls) == 1
 
@@ -174,12 +382,14 @@ def test_reminder_obeys_send_identity_meeting_and_time_gates(reminder_turn, monk
 @pytest.mark.parametrize('changed', ('phone', 'instance'))
 def test_reminder_fresh_fence_rejects_destination_changed_after_claim(reminder_turn, monkeypatch, changed):
     from app.services import cell_report_reminders as reminders
+    from app.services import notification_outbox
     turn = reminder_turn
     reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW)
-    original_claim = reminders._claim_next_reminder
+    original_claim = notification_outbox._claim_next_notification
+
     def claim_then_change(*args, **kwargs):
         claim = original_claim(*args, **kwargs)
-        if claim.claim is not None:
+        if claim is not None:
             with turn.factory.begin() as session:
                 if changed == 'phone':
                     actor_id = session.get(Conversation, turn.conversation_id).pessoa_id
@@ -188,7 +398,7 @@ def test_reminder_fresh_fence_rejects_destination_changed_after_claim(reminder_t
                     connection = session.execute(select(WhatsappConnection).where(WhatsappConnection.igreja_id == _IGREJA)).scalar_one()
                     connection.instance = 'different-synthetic-instance'
         return claim
-    monkeypatch.setattr(reminders, '_claim_next_reminder', claim_then_change)
+    monkeypatch.setattr(notification_outbox, '_claim_next_notification', claim_then_change)
     provider = _ReminderTransport(turn)
     reminders.dispatch_cell_report_reminders(turn.factory, provider, worker_id='synthetic-reminder-worker', now=_NOW)
     assert provider.calls == []
@@ -210,26 +420,31 @@ def test_presend_failures_cannot_bypass_two_retry_limit(reminder_turn):
         reminders.dispatch_cell_report_reminders(turn.factory, provider,
             worker_id='synthetic-retry-worker', now=_NOW + dt.timedelta(minutes=minutes))
     assert len(provider.calls) == 3  # Initial attempt plus two pre-send retries.
-    assert _rows(turn, CellReportReminder)[0].state not in {'pendente', 'retry', 'em_envio'}
+    assert _v1a_outbox_rows(turn)[0].state not in {'pendente', 'retry', 'em_envio'}
 
 
 @pytest.mark.parametrize('boundary', ('lease', 'quiet_hours'))
 def test_real_clock_is_refreshed_between_claim_and_transport(reminder_turn, monkeypatch, boundary):
     from app.services import cell_report_reminders as reminders
+    from app.services import notification_outbox
     turn = reminder_turn
     assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
     current = [_NOW if boundary == 'lease' else _NOW.replace(hour=23, minute=59, second=50)]
     advance = dt.timedelta(seconds=60 if boundary == 'lease' else 20)
-    monkeypatch.setattr(reminders, '_now', lambda supplied: supplied if supplied is not None else current[0])
-    original_claim = reminders._claim_next_reminder
+    monkeypatch.setattr(
+        notification_outbox,
+        '_worker_now',
+        lambda supplied: supplied if supplied is not None else current[0],
+    )
+    original_claim = notification_outbox._claim_next_notification
 
     def delayed_claim(*args, **kwargs):
         claim = original_claim(*args, **kwargs)
-        if claim.claim is not None:
+        if claim is not None:
             current[0] += advance
         return claim
 
-    monkeypatch.setattr(reminders, '_claim_next_reminder', delayed_claim)
+    monkeypatch.setattr(notification_outbox, '_claim_next_notification', delayed_claim)
     provider = _ReminderTransport(turn)
     reminders.dispatch_cell_report_reminders(turn.factory, provider,
         worker_id='synthetic-clock-worker', now=None, lease_seconds=30)
@@ -295,7 +510,7 @@ def test_reminder_waits_for_conversation_before_claiming_domain_rows(reminder_tu
     finally:
         event.remove(turn.engine, 'before_cursor_execute', observe_lock)
     assert provider.calls == []
-    assert all(row.state not in {'pendente', 'retry', 'em_envio'} for row in _rows(turn, CellReportReminder))
+    assert all(row.state not in {'pendente', 'retry', 'em_envio'} for row in _v1a_outbox_rows(turn))
 
 
 def test_two_schedulers_share_one_daily_reminder_limit_per_leader(reminder_turn):
@@ -316,7 +531,7 @@ def test_two_schedulers_share_one_daily_reminder_limit_per_leader(reminder_turn)
     with ThreadPoolExecutor(max_workers=2) as workers:
         results = [workers.submit(schedule) for _ in range(2)]
         assert sum(result.result(timeout=15) for result in results) == 1
-    assert len(_rows(turn, CellReportReminder)) == 1
+    assert len(_v1a_outbox_rows(turn)) == 1
 
 
 @pytest.mark.parametrize('terminal', ('no', 'sair', 'expired', 'humano', 'release', 'term'))
@@ -542,7 +757,7 @@ def test_rejected_head_counts_toward_bound_but_does_not_end_batch(reminder_turn,
     from app.services import cell_report_reminders as reminders
     turn = reminder_turn
     assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
-    valid = _rows(turn, CellReportReminder)[0]
+    valid = _v1a_outbox_rows(turn)[0]
     rejected_id = uuid.uuid4()
     with turn.factory.begin() as session:
         meeting = session.get(CelulaReuniao, turn.meeting_id)
@@ -550,15 +765,18 @@ def test_rejected_head_counts_toward_bound_but_does_not_end_batch(reminder_turn,
             data=meeting.data - dt.timedelta(days=1), hora='10:00', status='cancelada')
         session.add(rejected_meeting)
         session.flush()
-        session.add(CellReportReminder(id=rejected_id, igreja_id=_IGREJA,
-            reuniao_id=rejected_meeting.id, leader_pessoa_id=valid.leader_pessoa_id,
-            state='pendente', due_at=valid.due_at - dt.timedelta(minutes=1),
-            text_sha256=valid.text_sha256, updated_at=_NOW))
+        rejected = _manual_v1a_outbox(
+            meeting=rejected_meeting,
+            pessoa_id=valid.pessoa_id,
+            due_at=valid.due_at - dt.timedelta(minutes=1),
+        )
+        rejected.id = rejected_id
+        session.add(rejected)
     provider = _ReminderTransport(turn)
     reminders.dispatch_cell_report_reminders(turn.factory, provider,
         worker_id='synthetic-batch-worker', now=_NOW, limit=batch_limit)
-    rows = {row.id: row for row in _rows(turn, CellReportReminder)}
-    assert rows[rejected_id].state == 'cancelado'
+    rows = {row.id: row for row in _v1a_outbox_rows(turn)}
+    assert rows[rejected_id].state in {'cancelado', 'obsoleto'}
     if batch_limit == 2:
         assert rows[valid.id].state == 'enviado'
         assert len(provider.calls) == 1
@@ -571,7 +789,7 @@ def test_locked_head_does_not_starve_next_due_reminder(reminder_turn):
     from app.services import cell_report_reminders as reminders
     turn = reminder_turn
     assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == 1
-    valid = _rows(turn, CellReportReminder)[0]
+    valid = _v1a_outbox_rows(turn)[0]
     locked_id = uuid.uuid4()
     with turn.factory.begin() as session:
         meeting = session.get(CelulaReuniao, turn.meeting_id)
@@ -579,17 +797,20 @@ def test_locked_head_does_not_starve_next_due_reminder(reminder_turn):
             data=meeting.data, hora='09:00', status='planejada')
         session.add(first_meeting)
         session.flush()
-        session.add(CellReportReminder(id=locked_id, igreja_id=_IGREJA,
-            reuniao_id=first_meeting.id, leader_pessoa_id=valid.leader_pessoa_id,
-            state='pendente', due_at=valid.due_at - dt.timedelta(minutes=1),
-            text_sha256=valid.text_sha256, updated_at=_NOW))
+        locked = _manual_v1a_outbox(
+            meeting=first_meeting,
+            pessoa_id=valid.pessoa_id,
+            due_at=valid.due_at - dt.timedelta(minutes=1),
+        )
+        locked.id = locked_id
+        session.add(locked)
     provider = _ClassifiedEvolution()
     with turn.factory.begin() as blocker:
-        blocker.execute(select(CellReportReminder).where(
-            CellReportReminder.id == locked_id).with_for_update()).scalar_one()
+        blocker.execute(select(NotificationOutbox).where(
+            NotificationOutbox.id == locked_id).with_for_update()).scalar_one()
         reminders.dispatch_cell_report_reminders(turn.factory, provider,
             worker_id='synthetic-skip-locked-worker', now=_NOW, limit=2)
-    rows = {row.id: row for row in _rows(turn, CellReportReminder)}
+    rows = {row.id: row for row in _v1a_outbox_rows(turn)}
     assert rows[locked_id].state == 'pendente'
     assert rows[valid.id].state == 'enviado'
     assert len(provider.calls) == 1

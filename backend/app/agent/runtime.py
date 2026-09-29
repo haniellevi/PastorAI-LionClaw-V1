@@ -1686,25 +1686,37 @@ def process_inbound_message(
             (tier_a_preflight or defer_onboarding_plan)
             and has_persisted_inbound_anchor
         )
-        locked_conversation = _lock_tier_a_conversation(
+        from app.services.cell_report_reminders import _lock_reminder_recipient_prefix
+        from app.services.notification_outbox import disable_whatsapp_reminders
+
+        # Take the shared sorted Conversation -> Pessoa prefix before any
+        # opt-out mutation.  Notification enqueue/claim/fence use the same
+        # order, so this does not invert a Pessoa lock with another thread's
+        # reminder work.
+        locked_pessoa, locked_conversations = _lock_reminder_recipient_prefix(
             session,
             igreja_id=igreja_id,
-            conversation_id=conv_uuid,
+            pessoa_id=pessoa.id,
+        )
+        locked_conversation = next(
+            (
+                item
+                for item in locked_conversations
+                if getattr(item, "id", None) == conv_uuid
+            ),
+            None,
         )
         if locked_conversation is None:
             return AgentTurnResult(handled=False, reason="conversation_not_found")
-        # Reload under a short row lock.  A second inbound ``SAIR`` that waited
-        # behind the first sees the persisted flag instead of the stale ORM
-        # identity-map value, so it never writes a second withdrawal record.
-        locked_pessoa = session.execute(
-            select(Pessoa)
-            .where(Pessoa.id == pessoa.id, Pessoa.igreja_id == igreja_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        ).scalar_one_or_none()
         if locked_pessoa is None:
             return AgentTurnResult(handled=False, reason="pessoa_not_found")
         if locked_pessoa.optout:
+            disable_whatsapp_reminders(
+                session,
+                igreja_id=igreja_id,
+                conversation_id=conv_uuid,
+                pessoa_id=locked_pessoa.id,
+            )
             if tier_a_ownership_guard is not None:
                 tier_a_ownership_guard()
             fence_agent_replies_for_handoff(
@@ -1728,6 +1740,12 @@ def process_inbound_message(
             )
         if tier_a_ownership_guard is not None:
             tier_a_ownership_guard()
+        disable_whatsapp_reminders(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=conv_uuid,
+            pessoa_id=locked_pessoa.id,
+        )
         _apply_optout(
             locked_pessoa,
             igreja_id,
@@ -1789,27 +1807,22 @@ def process_inbound_message(
         from app.domain.cell_report_v1a import is_stop_cell_report_reminders_request
 
         if is_stop_cell_report_reminders_request(current_text):
-            from app.services.cell_report_reminders import disable_cell_report_reminders
+            from app.services.notification_outbox import disable_whatsapp_reminders
 
-            locked_conversation = _lock_tier_a_conversation(
-                session,
-                igreja_id=igreja_id,
-                conversation_id=conv_uuid,
-            )
-            if locked_conversation is None:
-                return AgentTurnResult(handled=False, reason="conversation_not_found")
-            disable_cell_report_reminders(
+            stopped = disable_whatsapp_reminders(
                 session,
                 igreja_id=igreja_id,
                 conversation_id=conv_uuid,
                 pessoa_id=pessoa.id,
             )
+            if not stopped:
+                return AgentTurnResult(handled=False, reason="conversation_not_found")
             if not stage_tier_a_terminal(handoff=False):
                 return AgentTurnResult(handled=False, reason="conversation_not_found")
             log_agent_event(
                 session,
                 igreja_id=igreja_id,
-                evento="cell_report_reminders_disabled",
+                evento="whatsapp_reminders_disabled",
                 payload={},
                 conversation_id=conv_uuid,
             )
@@ -1819,7 +1832,7 @@ def process_inbound_message(
                 route=None,
                 response=None,
                 suppressed=True,
-                reason="cell_report_reminders_disabled",
+                reason="whatsapp_reminders_disabled",
             )
 
     # Uma conversa já entregue a uma pessoa nunca volta a invocar o grafo ou o
@@ -2181,6 +2194,14 @@ def process_inbound_message(
 
     # Consent / opt-out persistence.
     if effects["apply_optout"]:
+        from app.services.notification_outbox import disable_whatsapp_reminders
+
+        disable_whatsapp_reminders(
+            session,
+            igreja_id=igreja_id,
+            conversation_id=context.conversation_id,
+            pessoa_id=pessoa.id,
+        )
         _apply_optout(
             pessoa,
             igreja_id,

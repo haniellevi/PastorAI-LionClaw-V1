@@ -1,0 +1,78 @@
+{
+  "base": "58bcd1808aa511cdfafc7957d5c36a9c0f8ee348",
+  "delta_base": "20a44e2396f24cc09292f8fa665019bcbbb358a5",
+  "environment": "local PostgreSQL 17.6 disposable, synthetic fixtures and fake providers",
+  "status": "historical_snapshot_only_not_current_candidate",
+  "candidate_manifest_sha256": "19b3c24acfa2132e1e64e1112b8922d5f5e7e54473d3584c51a44ab1bb20312a",
+  "delta_patch_sha256": "a544bc982d1b444291df4d46fad8e65750f2c4abae3a44ab5f4f9604a517016c",
+  "suites": {
+    "offline": {
+      "summary": {
+        "tests": 5918,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "timestamp": "2026-09-27T23:29:32.892082-03:00",
+      "junit_sha256": "fb089119e7ea840f4794dc20905139d20ff2096159fb44be55224152c03e95a5"
+    },
+    "full_rls_integration": {
+      "summary": {
+        "tests": 683,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "timestamp": "2026-09-27T23:29:33.126276-03:00",
+      "junit_sha256": "9c195c8d93915f0c5a9816c57c286ff5e28ae4df782547b4ba70b97c9a78cdef",
+      "selected_test_names": [
+        "tests.test_agenda_reminder_subscription_e2e_pg::test_agenda_reminder_s3_confirmation_creates_and_dispatches_outbox",
+        "tests.test_agenda_reminder_subscription_e2e_pg::test_agenda_reminder_dispatch_fence_blocks_audience_revoked_after_sim",
+        "tests.test_agenda_reminder_subscription_e2e_pg::test_old_agenda_reminder_sim_cannot_reactivate_after_real_stop_command[PARAR LEMBRETES]",
+        "tests.test_agenda_reminder_subscription_e2e_pg::test_old_agenda_reminder_sim_cannot_reactivate_after_real_stop_command[SAIR]",
+        "tests.test_agenda_reminder_subscription_e2e_pg::test_parar_then_new_future_occurrence_can_reactivate_only_the_new_intent",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[pendente]",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[em_envio]",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[retry]",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[enviado]",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[ambiguo]",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[cancelado]",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_row_blocks_the_same_meeting_in_every_state[obsoleto]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[pendente]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[em_envio]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[retry]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[enviado]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[ambiguo]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[cancelado]",
+        "tests.test_cell_report_v1a_reminder_pg::test_recent_legacy_v1a_row_preserves_the_leader_daily_quota[obsoleto]",
+        "tests.test_cell_report_v1a_reminder_pg::test_expired_legacy_v1a_history_does_not_block_new_meeting",
+        "tests.test_cell_report_v1a_reminder_pg::test_legacy_v1a_history_from_another_church_does_not_block_this_tenant",
+        "tests.test_events_confirm_toctou::test_concurrent_confirm_first_wins_second_409",
+        "tests.test_events_confirm_toctou::test_without_lock_double_confirms_regression",
+        "tests.test_messages_inbound_idempotency::test_sair_is_atomic_without_agent_config_and_survives_ia_state",
+        "tests.test_notification_outbox_evt7_e2e_pg::test_confirm_route_atomically_enqueues_evt7_then_common_dispatcher_delivers",
+        "tests.test_notification_outbox_evt7_e2e_pg::test_pending_pastor_is_rejected_before_event_or_outbox_write",
+        "tests.test_notification_outbox_evt7_e2e_pg::test_evt7_pre_send_deferrals_expire_without_provider_attempts[source_locked]",
+        "tests.test_notification_outbox_evt7_e2e_pg::test_evt7_pre_send_deferrals_expire_without_provider_attempts[connection_unavailable]",
+        "tests.test_notification_outbox_evt7_e2e_pg::test_evt7_late_dispatch_expires_before_any_provider_call",
+        "tests.test_notification_outbox_quota_pg::test_agenda_reminder_and_evt7_share_two_slots_under_concurrent_dispatch",
+        "tests.test_notification_outbox_quota_pg::test_old_delayed_intent_cannot_displace_two_current_day_sends",
+        "tests.test_notification_outbox_quota_pg::test_proven_pre_send_retry_crossing_midnight_competes_for_new_day_quota",
+        "tests.test_notification_outbox_quota_pg::test_ambiguous_and_removed_origin_keep_their_daily_reservations",
+        "tests.test_notification_outbox_quota_pg::test_intent_identity_keeps_distinct_occurrence_recipient_purpose_and_tenant",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_migration_applies_real_sql_twice_and_reapplies_acl",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_cutover_fences_legacy_paths_without_replay",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_new_outbox_is_tenant_isolated_and_source_removal_keeps_receipt",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_new_tenant_has_creation_cutover_before_reapply_without_bypass",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_human_preference_requires_active_pastor_or_admin",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_human_evt7_allows_active_pastor_and_admin_only",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_human_evt7_rejects_missing_or_not_yet_effective_opt_in",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_human_evt7_rejects_adulterated_recipient_and_invalid_event",
+        "tests.test_notification_outbox_v2b_migration_pg::test_v2b_delivery_reservation_survives_retry_ambiguity_and_origin_removal"
+      ]
+    }
+  },
+  "independent_review_sha256": "ed10e5cf235544ee9df0904fd8f266551c17c378f3f0187e71fb420b34658153",
+  "validated_head": "4a3fd616d71081af1e551a30ddbab9dbf1ec8208",
+  "scope_note": "Counts and hashes belong to the 2026-09-27 local snapshot; later code/test edits, retarget and SQL comment require new exact-head CI PG/RLS evidence."
+}

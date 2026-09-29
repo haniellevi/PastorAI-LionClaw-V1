@@ -12,7 +12,16 @@ import pytest
 from app.agent import nodes, runtime
 from app.agent.nodes import ROUTE_HANDOFF
 from app.agent.read_only_info import CanonicalPublicChurchInfo
-from app.db.models import AgentConfig, Conversation, Igreja, Message, Pessoa
+from app.db.models import (
+    AgendaReminderSubscription,
+    AgentConfig,
+    Conversation,
+    Igreja,
+    Message,
+    NotificationOutbox,
+    Pessoa,
+    WhatsappReminderPreference,
+)
 from app.services.llm import LLMError
 
 
@@ -27,6 +36,20 @@ class _Scalar:
         if self.value is None:
             return None
         return (self.value, "mensagem atual persistida")
+
+    def scalars(self) -> "_Scalars":
+        return _Scalars([] if self.value is None else [self.value])
+
+
+class _Scalars:
+    def __init__(self, values: list[object]) -> None:
+        self.values = values
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def all(self) -> list[object]:
+        return list(self.values)
 
 
 class _Rows:
@@ -990,6 +1013,8 @@ class _HandoffSession:
         self.commits = 0
         self.statements: list[object] = []
         self.proposal_updates = 0
+        self.reminder_proposal_updates = 0
+        self.outbox_updates = 0
 
     def execute(self, statement: object, _params: object = None) -> _Scalar:
         self.statements.append(statement)
@@ -999,11 +1024,32 @@ class _HandoffSession:
             return _Scalar(self.conversation)
         if entity is Pessoa:
             return _Scalar(self.pessoa)
+        if entity in {
+            WhatsappReminderPreference,
+            AgendaReminderSubscription,
+            NotificationOutbox,
+        }:
+            return _Scalar(None)
         table = getattr(getattr(statement, "table", None), "name", None)
         if table == "agent_action_proposals":
-            _assert_proposal_handoff_update(statement, self.conversation.igreja_id,
-                                            self.conversation.id)
-            self.proposal_updates += 1
+            values = list(statement.compile().params.values())
+            if "lembretes_recusados" in values:
+                sql = str(statement)
+                assert "agent_action_proposals.igreja_id" in sql
+                assert "agent_action_proposals.actor_pessoa_id" in sql
+                assert self.conversation.igreja_id in values and self.pessoa.id in values
+                assert "configurar_lembrete_agenda" in values
+                self.reminder_proposal_updates += 1
+            else:
+                _assert_proposal_handoff_update(
+                    statement, self.conversation.igreja_id, self.conversation.id
+                )
+                self.proposal_updates += 1
+            return _Scalar(None)
+        if table == "notification_outbox":
+            values = list(statement.compile().params.values())
+            assert self.conversation.igreja_id in values and self.pessoa.id in values
+            self.outbox_updates += 1
             return _Scalar(None)
         if table in {"messages", "conversations"}:
             return _Scalar(None)
@@ -1096,6 +1142,13 @@ def test_handoff_keeps_existing_human_holder_and_optout_still_wins(monkeypatch) 
     )
     session = _HandoffSession(conversation, pessoa)
     monkeypatch.setattr(runtime, "require_tenant_scope", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.services.notification_outbox._scoped", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "app.services.cell_report_reminders.disable_cell_report_reminders",
+        lambda *_args, **_kwargs: False,
+    )
     monkeypatch.setattr(runtime, "get_settings", _handoff_settings)
     monkeypatch.setattr(
         runtime,
@@ -1115,6 +1168,8 @@ def test_handoff_keeps_existing_human_holder_and_optout_still_wins(monkeypatch) 
     assert conversation.assumido_por == holder_id
     assert conversation.espera_desde == waiting_since
     assert session.commits == 1
+    assert session.reminder_proposal_updates == 1
+    assert session.outbox_updates == 2
 
 
 def test_existing_handoff_keeps_holder_and_never_reaches_llm(monkeypatch) -> None:

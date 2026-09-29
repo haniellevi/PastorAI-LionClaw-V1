@@ -34,15 +34,15 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.db.models import Conversation, Event, EventNotifyTarget
+from app.db.models import AppUser, Conversation, Event, EventNotifyTarget
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone
 from app.routers._common import Page, PaginationParams
-from app.services.event_notify import notify_event_confirmed
+from app.services.notification_outbox import enqueue_evt7_for_confirmed_event
 
 logger = logging.getLogger("pastorai.events")
 
@@ -616,6 +616,30 @@ def confirm_event(
     interno). Com o lock, a primeira vence; a segunda bloqueia, relê o evento já
     `confirmado` e cai no 409 abaixo.
     """
+    # The V2b human outbox policy accepts only an active AppUser.  Role checks
+    # intentionally still accept a pending invite elsewhere, so reject here
+    # before loading or mutating the event instead of relying on a later RLS
+    # failure during the confirmation/enqueue transaction.
+    try:
+        actor_id = uuid.UUID(current_user.app_user_id)
+        igreja_id = uuid.UUID(current_user.igreja_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuário sem acesso ativo para confirmar eventos",
+        ) from None
+    active_actor = db.execute(
+        select(AppUser.id).where(
+            AppUser.id == actor_id,
+            AppUser.igreja_id == igreja_id,
+            AppUser.status == "ativo",
+        )
+    ).scalar_one_or_none()
+    if active_actor is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuário sem acesso ativo para confirmar eventos",
+        )
     event = _get_event(db, current_user, event_id, for_update=True)
 
     if event.status != STATUS_A_CONFIRMAR:
@@ -623,8 +647,6 @@ def confirm_event(
             status_code=status.HTTP_409_CONFLICT,
             detail="Evento não está aguardando confirmação",
         )
-
-    igreja_id = uuid.UUID(current_user.igreja_id)
 
     # EVT-8 PR1 — valida a intenção ANTES de confirmar: payload inválido (contato
     # de outro tenant, telefone livre, notificar_em depois do evento) não confirma
@@ -679,18 +701,16 @@ def confirm_event(
                 for p, t in contatos_resolvidos
             ]
 
+    # The compatibility trigger fences a legacy confirmation unless this
+    # transaction explicitly identifies the new enqueue path.  The marker is
+    # transaction-local and is set before the ORM flush that updates status.
+    db.execute(text("select set_config('app.notification_outbox_v2b', '1', true)"))
     db.flush()
     db.refresh(event)
+    # EVT-7 is a durable intent in this very transaction.  It has no provider
+    # call and failures must abort the confirmation rather than create a gap.
+    enqueue_evt7_for_confirmed_event(db, event)
+    db.flush()
     db.commit()
-
-    # EVT-7 PR1: aviso interno best-effort, atrás da flag AGENDA_NOTIFY_ENABLED.
-    # A confirmação já foi commitada acima; o aviso nunca pode 500 o confirm, então
-    # engolimos qualquer erro (o próprio notify já trata falha de envio). É outro
-    # fluxo (equipe interna via agenda_alert_recipients), não a notificação do
-    # evento do EVT-8.
-    try:
-        notify_event_confirmed(db, event)
-    except Exception:  # noqa: BLE001 - aviso é best-effort, não derruba a confirmação
-        logger.exception("Falha inesperada ao avisar confirmação de evento")
 
     return EventOut.from_model(event, contatos=contatos_out)

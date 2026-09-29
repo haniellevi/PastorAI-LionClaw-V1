@@ -36,11 +36,13 @@ from app.db.tenant_session import mark_cross_tenant
 from app.services.billing_worker import run_pending_plan_changes
 from app.services.calendar_oauth_flows import purge_expired_flows
 from app.services.cell_report_reminders import (
-    dispatch_cell_report_reminders,
     purge_expired_cell_report_state,
-    schedule_due_cell_report_reminders,
 )
 from app.services.evolution import EvolutionClient
+from app.services.notification_outbox import (
+    dispatch_notification_outbox,
+    schedule_due_cell_report_notification_outbox,
+)
 from app.services.sla_engine import SlaEngine, run_all_igrejas
 from app.services.worker_health import publish_worker_heartbeat
 
@@ -335,7 +337,7 @@ class CronWorker:
             logger.exception("Cell-report state purge failed")
         self._record_progress()
         try:
-            scheduled = schedule_due_cell_report_reminders(
+            scheduled = schedule_due_cell_report_notification_outbox(
                 self._session_factory,
                 now=now,
             )
@@ -346,7 +348,7 @@ class CronWorker:
             # The client opens its HTTP pool lazily.  All claims and transport
             # fences still commit in the service before it can issue a request.
             with EvolutionClient() as evolution_client:
-                dispatched = dispatch_cell_report_reminders(
+                dispatched = dispatch_notification_outbox(
                     self._session_factory,
                     evolution_client,
                     worker_id="cron-worker",

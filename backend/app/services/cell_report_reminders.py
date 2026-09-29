@@ -165,7 +165,7 @@ def cell_report_reminder_due_at(data: object, hora: object) -> dt.datetime | Non
     local_due = start + dt.timedelta(hours=2)
     if local_due.time() < _OPEN:
         local_due = local_due.replace(hour=8, minute=0, second=0, microsecond=0)
-    elif local_due.time() > _CLOSE:
+    elif local_due.time() >= _CLOSE:
         local_due = (local_due + dt.timedelta(days=1)).replace(
             hour=8,
             minute=0,
@@ -196,7 +196,7 @@ def cell_report_reminder_transport_window_open(now: object) -> bool:
     if current is None:
         return False
     local_time = current.astimezone(SAO_PAULO_TZ).timetz().replace(tzinfo=None)
-    return _OPEN <= local_time <= _CLOSE
+    return _OPEN <= local_time < _CLOSE
 
 
 def _next_transport_window(now: dt.datetime) -> dt.datetime:
@@ -204,7 +204,7 @@ def _next_transport_window(now: dt.datetime) -> dt.datetime:
     local_time = local.timetz().replace(tzinfo=None)
     if local_time < _OPEN:
         return local.replace(hour=8, minute=0, second=0, microsecond=0).astimezone(_UTC)
-    if local_time > _CLOSE:
+    if local_time >= _CLOSE:
         return (local + dt.timedelta(days=1)).replace(
             hour=8, minute=0, second=0, microsecond=0
         ).astimezone(_UTC)
@@ -349,12 +349,14 @@ def _lock_reminder_recipient_prefix(
             )
             .order_by(Conversation.id.asc())
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalars()
     )
     pessoa = session.execute(
         select(Pessoa)
         .where(Pessoa.igreja_id == igreja_id, Pessoa.id == pessoa_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     return pessoa, conversations
 
@@ -1216,19 +1218,15 @@ def schedule_due_cell_report_reminders(
     now: dt.datetime | None = None,
     limit: int = 100,
 ) -> int:
-    """Materialize bounded V1a reminder intentions; never call a provider."""
+    """Compatibility entry point for V1a's shared durable outbox scheduler."""
 
-    current = _now(now)
-    if type(limit) is not int or limit <= 0:
-        raise CellReportReminderError("limite de lembretes inválido")
-    created = 0
-    for igreja_id in _discover_tenants(session_factory, source="cell_report_reminder_discovery"):
-        if created >= limit:
-            break
-        created += _create_due_reminders_for_tenant(
-            session_factory, igreja_id, now=current, limit=limit - created
-        )
-    return created
+    from app.services.notification_outbox import (
+        schedule_due_cell_report_notification_outbox,
+    )
+
+    return schedule_due_cell_report_notification_outbox(
+        session_factory, now=now, limit=limit
+    )
 
 
 def _claim_next_reminder(
@@ -1502,69 +1500,18 @@ def dispatch_cell_report_reminders(
     limit: int = 20,
     lease_seconds: int = 30,
 ) -> int:
-    """Claim, revalidate, transport and record a bounded reminder batch.
+    """Compatibility entry point for the sole shared notification dispatcher."""
 
-    Every provider call happens after the claim and fresh transport-fence
-    transactions have committed and closed. A raised transport error is
-    ambiguous and therefore never retried automatically.
-    """
+    from app.services.notification_outbox import dispatch_notification_outbox
 
-    if type(worker_id) is not str or not worker_id.strip():
-        raise CellReportReminderError("worker de lembrete inválido")
-    if type(limit) is not int or limit <= 0 or type(lease_seconds) is not int or lease_seconds <= 0:
-        raise CellReportReminderError("limite de lembretes inválido")
-    fixed_now = _now(now) if now is not None else None
-
-    def current_time() -> dt.datetime:
-        return fixed_now if fixed_now is not None else _now(None)
-
-    dispatched = 0
-    scanned = 0
-    for igreja_id in _discover_tenants(session_factory, source="cell_report_reminder_dispatch_discovery"):
-        if scanned >= limit:
-            break
-        excluded_reminder_ids: set[uuid.UUID] = set()
-        while scanned < limit:
-            attempt = _claim_next_reminder(
-                session_factory,
-                igreja_id,
-                now=current_time(),
-                lease_seconds=lease_seconds,
-                excluded_reminder_ids=tuple(sorted(excluded_reminder_ids, key=str)),
-            )
-            if attempt.exhausted:
-                break
-            scanned += 1
-            if attempt.candidate_id is not None:
-                excluded_reminder_ids.add(attempt.candidate_id)
-            claim = attempt.claim
-            if claim is None:
-                continue
-            dispatched += 1
-            try:
-                can_send = _renew_reminder_transport_fence(
-                    session_factory,
-                    claim,
-                    now=current_time(),
-                    lease_seconds=lease_seconds,
-                )
-            except Exception:  # noqa: BLE001 - never send without a new fence
-                logger.exception("Cell-report reminder transport fence failed")
-                continue
-            if not can_send:
-                continue
-            try:
-                result = evolution_client.send_text_classificado(
-                    claim.instance,
-                    claim.phone,
-                    claim.text,
-                )
-            except Exception:  # noqa: BLE001 - uncertain provider boundary
-                result = BroadcastSendResult(
-                    status="desconhecido", error_class="erro_nao_classificado"
-                )
-            _record_reminder_result(session_factory, claim, result, now=current_time())
-    return dispatched
+    return dispatch_notification_outbox(
+        session_factory,
+        evolution_client,
+        worker_id=worker_id,
+        now=now,
+        limit=limit,
+        lease_seconds=lease_seconds,
+    )
 
 
 def _purge_tenant_state(

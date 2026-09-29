@@ -160,6 +160,42 @@ def test_confirm_executes_once_and_creates_generic_receipt_in_same_session(monke
     assert len(session.added) == 1
 
 
+def test_agenda_reminder_confirmation_keeps_the_distinct_receipt_and_one_effect(monkeypatch) -> None:
+    proposal = _proposal()
+    event_id = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+    proposal.action = "configurar_lembrete_agenda"
+    proposal.target_kind = "evento"
+    proposal.target_id = event_id
+    proposal.arguments_json = {
+        "event_id": str(event_id),
+        "occurrence_at": "2026-10-02T13:00:00.000000+00:00",
+        "term_version": "lgpd-v2",
+    }
+    proposal.arguments_sha256 = canonical_arguments_sha256(proposal.arguments_json)
+    _patch_resolution(monkeypatch, proposal)
+    calls = []
+
+    result = resolve_and_execute_action_proposal(
+        _Session(),
+        igreja_id=_IGREJA,
+        conversation_id=_CONVERSA,
+        confirmation_message_id=_CONFIRM,
+        disposition=ProposalDisposition.CONFIRM,
+        execute=lambda execution: (
+            calls.append(execution)
+            or ActionEffect(
+                receipt_text="Lembrete confirmado.",
+                opaque_effect_id=uuid.UUID("00000000-0000-0000-0000-0000000000e6"),
+            )
+        ),
+    )
+
+    assert result.status is ProposalResolutionStatus.EXECUTED
+    assert result.receipt is not None
+    assert result.receipt.receipt_text == "Lembrete confirmado."
+    assert len(calls) == 1
+
+
 def test_invalidated_context_never_calls_domain_executor(monkeypatch) -> None:
     proposal = _proposal()
     _patch_resolution(monkeypatch, proposal, context=None)

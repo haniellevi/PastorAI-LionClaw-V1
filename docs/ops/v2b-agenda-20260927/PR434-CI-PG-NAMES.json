@@ -1,0 +1,18 @@
+{
+  "head": "58bcd1808aa511cdfafc7957d5c36a9c0f8ee348",
+  "job_url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/36357672111/job/108728514908",
+  "observed_at_utc": "2026-09-27T23:22:34.112499+00:00",
+  "lines": [
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7438798Z PASSED tests/test_whatsapp_agenda_pg.py::test_confirmed_agenda_uses_rls_and_falls_back_for_legacy_title",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7439436Z PASSED tests/test_whatsapp_agenda_pg.py::test_other_tenant_cannot_read_or_project_event",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7440205Z PASSED tests/test_whatsapp_agenda_pg.py::test_member_agenda_turn_uses_generic_choice_then_real_projection",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7440907Z PASSED tests/test_whatsapp_agenda_pg.py::test_leader_agenda_turn_uses_generic_choice_then_real_projection",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7441627Z PASSED tests/test_whatsapp_agenda_pg.py::test_empty_agenda_prepares_existing_secretary_offer_then_sim_handoffs",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7442372Z PASSED tests/test_whatsapp_agenda_pg.py::test_pending_agenda_reply_is_suppressed_when_event_changes_before_retry",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7443091Z PASSED tests/test_whatsapp_agenda_pg.py::test_draft_agenda_requires_clerk_proof_then_projects_only_type",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7443903Z PASSED tests/test_whatsapp_agenda_pg.py::test_pending_agenda_reply_rechecks_role_and_feature_gate[role]",
+    "rls-integration\tRodar a suite marcada rls_integration fora dos guards de replay fresco\t2026-09-27T23:14:17.7444628Z PASSED tests/test_whatsapp_agenda_pg.py::test_pending_agenda_reply_rechecks_role_and_feature_gate[agenda_release]",
+    "rls-integration\tVerificar execucao integral da suite RLS\t2026-09-27T23:14:21.4839737Z total=643 skipped=0 executed=643 failed=0 errors=0"
+  ],
+  "log_sha256": "c2eb805e05ac2b3c2cf8ddbaf16034bccd6bbbfd645bd7e79815ab58b1ee6dc7"
+}

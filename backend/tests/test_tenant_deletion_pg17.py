@@ -45,6 +45,7 @@ create table igrejas (
   logo_path text,
   endereco_institucional text,
   horarios_culto text,
+  notification_outbox_cutover_at timestamptz not null default transaction_timestamp(),
   created_at timestamptz not null default now()
 );
 

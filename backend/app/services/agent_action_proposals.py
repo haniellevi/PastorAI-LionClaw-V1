@@ -11,6 +11,7 @@ import hashlib
 import json
 import uuid
 import datetime as dt
+import string
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -37,6 +38,7 @@ class AgentAction(StrEnum):
     REGISTRAR_DECISAO = "registrar_decisao"
     MARCAR_PRESENCA = "marcar_presenca"
     ENVIAR_RELATORIO_CELULA = "enviar_relatorio_celula"
+    CONFIGURAR_LEMBRETE_AGENDA = "configurar_lembrete_agenda"
 
 
 class ProposalDisposition(StrEnum):
@@ -86,7 +88,7 @@ class ProposalTarget:
     id: uuid.UUID
 
     def __post_init__(self) -> None:
-        if self.kind not in {"pessoa", "reuniao"} or type(self.id) is not uuid.UUID or self.id.int == 0:
+        if self.kind not in {"pessoa", "reuniao", "evento"} or type(self.id) is not uuid.UUID or self.id.int == 0:
             raise ProposalContractError("alvo inválido")
 
 
@@ -115,7 +117,11 @@ class ActionEffect:
     def __post_init__(self) -> None:
         if type(self.opaque_effect_id) is not uuid.UUID or self.opaque_effect_id.int == 0:
             raise ProposalContractError("resultado de ação inválido")
-        if self.receipt_text not in {"Registro confirmado.", "Relatório confirmado."}:
+        if self.receipt_text not in {
+            "Registro confirmado.",
+            "Relatório confirmado.",
+            "Lembrete confirmado.",
+        }:
             raise ProposalContractError("recibo inválido")
 
 
@@ -161,12 +167,39 @@ def _canonical_uuid(value: object, *, field: str) -> str:
     return value
 
 
+def _canonical_utc_occurrence(value: object) -> str:
+    if type(value) is not str or not 1 <= len(value) <= 40:
+        raise ProposalContractError("ocorrência inválida")
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ProposalContractError("ocorrência inválida") from exc
+    if parsed.tzinfo is None:
+        raise ProposalContractError("ocorrência inválida")
+    canonical = parsed.astimezone(dt.timezone.utc).isoformat(timespec="microseconds")
+    if value != canonical:
+        raise ProposalContractError("ocorrência inválida")
+    return value
+
+
+def _canonical_term_version(value: object) -> str:
+    allowed = frozenset(string.ascii_letters + string.digits + "._:/-")
+    if (
+        type(value) is not str
+        or not 1 <= len(value) <= 128
+        or value[0] not in string.ascii_letters + string.digits
+        or any(character not in allowed for character in value)
+    ):
+        raise ProposalContractError("termo inválido")
+    return value
+
+
 def canonical_action_arguments(
     action: AgentAction,
     target: ProposalTarget,
     arguments: Mapping[str, object],
 ) -> dict[str, object]:
-    """Accept only the two human-adapter payloads approved for S3."""
+    """Accept only closed, server-owned payloads approved for S3."""
 
     if type(action) is not AgentAction or type(arguments) is not dict:
         raise ProposalContractError("argumentos inválidos")
@@ -215,6 +248,21 @@ def canonical_action_arguments(
             "rascunho_id": rascunho_id,
             "reuniao_id": reuniao_id,
             "revisao": revisao,
+        }
+    if action is AgentAction.CONFIGURAR_LEMBRETE_AGENDA:
+        if target.kind != "evento" or set(arguments) != {
+            "event_id",
+            "occurrence_at",
+            "term_version",
+        }:
+            raise ProposalContractError("argumentos inválidos")
+        event_id = _canonical_uuid(arguments["event_id"], field="event_id")
+        if event_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
+        return {
+            "event_id": event_id,
+            "occurrence_at": _canonical_utc_occurrence(arguments["occurrence_at"]),
+            "term_version": _canonical_term_version(arguments["term_version"]),
         }
     raise ProposalContractError("ação inválida")
 
@@ -426,6 +474,19 @@ def prepare_action_proposal(
         message_id=inbound_message_id,
     ) is None:
         raise ProposalContractError("âncora inbound ausente")
+    if action is AgentAction.CONFIGURAR_LEMBRETE_AGENDA:
+        from app.services.agent_privilege_catalog import (
+            agenda_reminder_arguments_authorized,
+        )
+
+        if not agenda_reminder_arguments_authorized(
+            session,
+            context=context,
+            target=target,
+            arguments=canonical_arguments,
+            summary=summary,
+        ):
+            raise ProposalContractError("lembrete da agenda inelegível")
     if summary_message_id is not None:
         staged_summary = session.execute(
             select(Message)
@@ -614,7 +675,11 @@ def _receipt_from_row(value: AgentActionReceipt) -> ActionReceipt | None:
 
 
 def _require_receipt_text(value: object) -> str:
-    if value not in {"Registro confirmado.", "Relatório confirmado."}:
+    if value not in {
+        "Registro confirmado.",
+        "Relatório confirmado.",
+        "Lembrete confirmado.",
+    }:
         raise ProposalContractError("recibo inválido")
     return value
 
@@ -938,11 +1003,12 @@ def _new_receipt(
     if type(effect) is not ActionEffect:
         raise ProposalContractError("resultado de ação inválido")
     receipt_text = _require_receipt_text(effect.receipt_text)
-    expected_receipt = (
-        "Relatório confirmado."
-        if proposal.action == AgentAction.ENVIAR_RELATORIO_CELULA.value
-        else "Registro confirmado."
-    )
+    expected_receipt = {
+        AgentAction.REGISTRAR_DECISAO.value: "Registro confirmado.",
+        AgentAction.MARCAR_PRESENCA.value: "Registro confirmado.",
+        AgentAction.ENVIAR_RELATORIO_CELULA.value: "Relatório confirmado.",
+        AgentAction.CONFIGURAR_LEMBRETE_AGENDA.value: "Lembrete confirmado.",
+    }.get(proposal.action)
     if receipt_text != expected_receipt:
         raise ProposalContractError("recibo inválido")
     return AgentActionReceipt(

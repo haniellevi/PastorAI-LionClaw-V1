@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import pytest
 import uuid
 import hashlib
@@ -24,9 +25,13 @@ from app.services.agent_action_proposals import (
 )
 
 
-def test_action_catalog_is_closed_to_the_two_approved_actions() -> None:
+def test_action_catalog_is_closed_to_the_approved_actions() -> None:
     assert parse_agent_action("registrar_decisao") is AgentAction.REGISTRAR_DECISAO
     assert parse_agent_action("marcar_presenca") is AgentAction.MARCAR_PRESENCA
+    assert (
+        parse_agent_action("configurar_lembrete_agenda")
+        is AgentAction.CONFIGURAR_LEMBRETE_AGENDA
+    )
 
     for value in ("", "marcar_presencas", "financeiro", True, None):
         with pytest.raises(ProposalContractError):
@@ -57,6 +62,116 @@ def test_cell_report_action_uses_a_server_owned_meeting_target() -> None:
         )
 
 
+def test_agenda_reminder_uses_a_server_owned_event_and_exact_arguments() -> None:
+    event_id = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+    occurrence_at = "2026-10-02T13:00:00.000000+00:00"
+    target = ProposalTarget(kind="evento", id=event_id)
+
+    assert canonical_action_arguments(
+        AgentAction.CONFIGURAR_LEMBRETE_AGENDA,
+        target,
+        {
+            "event_id": str(event_id),
+            "occurrence_at": occurrence_at,
+            "term_version": "lgpd-v2",
+        },
+    ) == {
+        "event_id": str(event_id),
+        "occurrence_at": occurrence_at,
+        "term_version": "lgpd-v2",
+    }
+
+    for arguments in (
+        {
+            "event_id": str(event_id),
+            "occurrence_at": occurrence_at,
+        },
+        {
+            "event_id": str(event_id),
+            "occurrence_at": occurrence_at,
+            "term_version": "lgpd-v2",
+            "pessoa_id": str(uuid.uuid4()),
+        },
+        {
+            "event_id": str(uuid.uuid4()),
+            "occurrence_at": occurrence_at,
+            "term_version": "lgpd-v2",
+        },
+        {
+            "event_id": str(event_id),
+            "occurrence_at": "2026-10-02T10:00:00-03:00",
+            "term_version": "lgpd-v2",
+        },
+        {
+            "event_id": str(event_id),
+            "occurrence_at": dt.datetime(2026, 10, 2, 13, tzinfo=dt.timezone.utc),
+            "term_version": "lgpd-v2",
+        },
+        {
+            "event_id": str(event_id),
+            "occurrence_at": occurrence_at,
+            "term_version": " ",
+        },
+    ):
+        with pytest.raises(ProposalContractError):
+            canonical_action_arguments(
+                AgentAction.CONFIGURAR_LEMBRETE_AGENDA,
+                target,
+                arguments,
+            )
+
+
+def test_prepare_rejects_a_direct_agenda_reminder_caller_outside_the_catalog(monkeypatch) -> None:
+    import app.services.agent_action_proposals as proposals
+    import app.services.agent_privilege_catalog as catalog
+
+    igreja_id = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+    conversation_id = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
+    inbound_message_id = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
+    event_id = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+    context = PrivilegeContext(
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        inbound_message_id=inbound_message_id,
+        pessoa_id=uuid.UUID("00000000-0000-0000-0000-0000000000f1"),
+        app_user_id=uuid.UUID("00000000-0000-0000-0000-0000000000b1"),
+        roles=frozenset({"membro"}),
+        role_snapshot=(),
+        owned_cell_ids=(),
+        credential_fingerprint="1" * 64,
+        phone_fingerprint="2" * 64,
+        authorization_fingerprint="3" * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint="4" * 64,
+        context_fingerprint="5" * 64,
+    )
+    monkeypatch.setattr(proposals, "require_tenant_scope", lambda *args, **kwargs: None)
+    monkeypatch.setattr(proposals, "_lock_conversation", lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(proposals, "_inbound_exists", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        catalog,
+        "agenda_reminder_arguments_authorized",
+        lambda *args, **kwargs: False,
+    )
+
+    with pytest.raises(ProposalContractError, match="inelegível"):
+        prepare_action_proposal(
+            SimpleNamespace(),
+            context=context,
+            inbound_message_id=inbound_message_id,
+            action=AgentAction.CONFIGURAR_LEMBRETE_AGENDA,
+            target=ProposalTarget(kind="evento", id=event_id),
+            arguments={
+                "event_id": str(event_id),
+                "occurrence_at": "2026-10-02T13:00:00.000000+00:00",
+                "term_version": "lgpd-v2",
+            },
+            summary="Ativar lembretes da Agenda para Culto.",
+        )
+
+
 def test_confirmation_disposition_is_closed_before_any_router_or_model_call() -> None:
     assert parse_proposal_disposition("confirm") is ProposalDisposition.CONFIRM
     assert parse_proposal_disposition("reject") is ProposalDisposition.REJECT
@@ -84,6 +199,14 @@ def test_cell_report_receipt_is_closed_and_distinct_from_other_actions() -> None
         opaque_effect_id=uuid.UUID("00000000-0000-0000-0000-0000000000e4"),
     )
     assert effect.receipt_text == "Relatório confirmado."
+
+
+def test_agenda_reminder_receipt_is_closed_and_distinct_from_other_actions() -> None:
+    effect = ActionEffect(
+        receipt_text="Lembrete confirmado.",
+        opaque_effect_id=uuid.UUID("00000000-0000-0000-0000-0000000000e6"),
+    )
+    assert effect.receipt_text == "Lembrete confirmado."
 
 
 def test_proposal_models_bind_one_tenant_conversation_actor_and_receipt() -> None:

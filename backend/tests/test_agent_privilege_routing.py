@@ -114,7 +114,7 @@ def test_handle_choice_must_belong_to_offered_handles(answer, status) -> None:
     assert len(client.calls) == 3
 
 
-@pytest.mark.parametrize("code", ["registrar_decisao", "marcar_presenca"])
+@pytest.mark.parametrize("code", ["registrar_decisao", "marcar_presenca", "configurar_lembrete_agenda"])
 def test_catalog_without_candidates_handoffs_before_model(code: str) -> None:
     client = FakeClient([])
     result = route_privileged_message(
@@ -170,6 +170,25 @@ def test_agenda_catalog_code_is_closed_and_can_be_selected_without_event_data() 
     assert [call["name"] for call in client.calls] == ["s3_route", "s3_tool"]
     assert all("candidatos" not in call["user"] for call in client.calls)
     assert all("Encontro com Deus" not in call["user"] for call in client.calls)
+
+
+def test_agenda_reminder_requires_an_opaque_handle_before_a_proposal_can_be_staged() -> None:
+    client = FakeClient(["restrita", "configurar_lembrete_agenda", "h1"])
+    result = route_privileged_message(
+        client,
+        texto="Quero um lembrete do culto.",
+        catalog=(_option("configurar_lembrete_agenda", candidates=(
+            CandidateOption("h1", "Ativar lembretes da Agenda para Culto em 02/10/2026 às 10:00"),
+        )),),
+        deadline_monotonic=10,
+        clock=Clock(),
+    )
+
+    assert result == RoutingDecision(
+        "selected", RouteChoice.RESTRITA, "configurar_lembrete_agenda", "h1",
+        (USAGE, USAGE, USAGE),
+    )
+    assert all("event_id" not in call["user"] for call in client.calls)
 
 
 @pytest.mark.parametrize("answer,status", [

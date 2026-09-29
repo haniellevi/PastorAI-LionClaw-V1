@@ -200,8 +200,10 @@ def test_sem_interesse_legado_suprime_antes_de_avaliar_credencial() -> None:
     )
 
 
-def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff() -> None:
+def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff(monkeypatch) -> None:
     from app.agent.runtime import process_inbound_message
+    from app.services import cell_report_reminders
+    from app.services import notification_outbox
 
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="humano")
@@ -213,6 +215,20 @@ def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff() -> None:
         tipo="membro",
     )
     session = _FailOnCredentialSession(conv, pessoa)
+    disabled: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
+    monkeypatch.setattr(
+        notification_outbox,
+        "disable_whatsapp_reminders",
+        lambda _session, *, igreja_id, conversation_id, pessoa_id: disabled.append(
+            (igreja_id, conversation_id, pessoa_id)
+        )
+        or True,
+    )
+    monkeypatch.setattr(
+        cell_report_reminders,
+        "_lock_reminder_recipient_prefix",
+        lambda *_args, **_kwargs: (pessoa, (conv,)),
+    )
 
     result = process_inbound_message(
         session,
@@ -226,6 +242,7 @@ def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff() -> None:
     assert result.suppressed is True
     assert result.reason == "optout_aplicado"
     assert session.committed is True
+    assert disabled == [(gid, cid, pid)]
     assert any(
         getattr(o, "evento", None) == "optout_inbound_persisted"
         for o in session.added
@@ -234,7 +251,7 @@ def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff() -> None:
 
 def test_stop_reminders_persists_before_consent_credential_or_llm(monkeypatch) -> None:
     from app.agent import runtime
-    from app.services import cell_report_reminders
+    from app.services import notification_outbox
 
     cid, pid, gid, inbound_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
@@ -254,8 +271,8 @@ def test_stop_reminders_persists_before_consent_credential_or_llm(monkeypatch) -
     )
     monkeypatch.setattr(runtime, "_lock_tier_a_conversation", lambda *_args, **_kwargs: conv)
     monkeypatch.setattr(
-        cell_report_reminders,
-        "disable_cell_report_reminders",
+        notification_outbox,
+        "disable_whatsapp_reminders",
         lambda _session, *, igreja_id, conversation_id, pessoa_id: disabled.append(
             (igreja_id, conversation_id, pessoa_id)
         )
@@ -273,7 +290,7 @@ def test_stop_reminders_persists_before_consent_credential_or_llm(monkeypatch) -
     assert disabled == [(gid, cid, pid)]
     assert result.suppressed is True
     assert result.response is None
-    assert result.reason == "cell_report_reminders_disabled"
+    assert result.reason == "whatsapp_reminders_disabled"
     assert session.committed is True
 
 

@@ -31,6 +31,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -100,6 +101,16 @@ class Igreja(Base):
     # permanece apenas legado e não é fallback de execução.
     endereco_institucional: Mapped[str | None] = mapped_column(Text, nullable=True)
     horarios_culto: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # V2b cutover marker is populated by the database for every tenant,
+    # including onboarding. Application code never assigns or updates it.
+    notification_outbox_cutover_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        # PostgreSQL ``now()`` is transaction_timestamp(), while SQLAlchemy
+        # compiles func.now() to SQLite's portable CURRENT_TIMESTAMP for the
+        # metadata-only test harness.
+        server_default=func.now(),
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -1433,13 +1444,14 @@ class AgentActionProposal(Base):
         ),
         CheckConstraint(
             "action IN ('registrar_decisao', 'marcar_presenca', "
-            "'enviar_relatorio_celula')",
+            "'enviar_relatorio_celula', 'configurar_lembrete_agenda')",
             name="agent_action_proposals_action_closed",
         ),
         CheckConstraint(
             "(action IN ('registrar_decisao', 'marcar_presenca') "
             "AND target_kind = 'pessoa') OR "
-            "(action = 'enviar_relatorio_celula' AND target_kind = 'reuniao')",
+            "(action = 'enviar_relatorio_celula' AND target_kind = 'reuniao') OR "
+            "(action = 'configurar_lembrete_agenda' AND target_kind = 'evento')",
             name="agent_action_proposals_target_kind_closed",
         ),
         CheckConstraint(
@@ -1551,7 +1563,8 @@ class AgentActionReceipt(Base):
             name="agent_action_receipts_effect_reference_shape",
         ),
         CheckConstraint(
-            "receipt_text IN ('Registro confirmado.', 'Relatório confirmado.')",
+            "receipt_text IN ('Registro confirmado.', 'Relatório confirmado.', "
+            "'Lembrete confirmado.')",
             name="agent_action_receipts_receipt_text_closed",
         ),
         Index("agent_action_receipts_conversation_idx", "igreja_id", "conversation_id"),
@@ -1749,6 +1762,255 @@ class CellReportReminder(Base):
     notice_recorded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     text_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    terminal_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WhatsappReminderPreference(Base):
+    """One durable reminder preference per tenant, person, and purpose.
+
+    Absence is never treated as an Agenda opt-in.  A stop command can always
+    create a disabled row; activation is linked to a separately confirmed S3
+    agenda subscription and retains the consent term version used then.
+    """
+
+    __tablename__ = "whatsapp_reminder_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "id", name="whatsapp_reminder_preferences_tenant_id_key"
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "pessoa_id",
+            "reminder_kind",
+            name="whatsapp_reminder_preferences_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="whatsapp_reminder_preferences_tenant_pessoa_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('active', 'disabled')",
+            name="whatsapp_reminder_preferences_state_closed",
+        ),
+        CheckConstraint(
+            "reminder_kind IN ('agenda', 'cell_report')",
+            name="whatsapp_reminder_preferences_kind_closed",
+        ),
+        CheckConstraint(
+            "(state = 'active' AND term_version IS NOT NULL AND length(btrim(term_version)) > 0 "
+            "AND accepted_at IS NOT NULL) "
+            "OR state = 'disabled'",
+            name="whatsapp_reminder_preferences_active_term_chk",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reminder_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    term_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    changed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AgendaReminderSubscription(Base):
+    """A confirmed, one-occurrence Agenda reminder selection.
+
+    The row has no display content or phone number.  The dispatcher rebuilds
+    the recipient and event projection under current tenant and consent checks.
+    """
+
+    __tablename__ = "agenda_reminder_subscriptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "id", name="agenda_reminder_subscriptions_tenant_id_key"
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "pessoa_id",
+            "event_id",
+            "occurrence_at",
+            name="agenda_reminder_subscriptions_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="agenda_reminder_subscriptions_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "event_id"),
+            ("events.igreja_id", "events.id"),
+            ondelete="CASCADE",
+            name="agenda_reminder_subscriptions_tenant_event_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "proposal_id"),
+            ("agent_action_proposals.igreja_id", "agent_action_proposals.id"),
+            ondelete="CASCADE",
+            name="agenda_reminder_subscriptions_tenant_proposal_fkey",
+        ),
+        CheckConstraint(
+            "state IN ('active', 'cancelled')",
+            name="agenda_reminder_subscriptions_state_closed",
+        ),
+        CheckConstraint(
+            "length(btrim(term_version)) > 0",
+            name="agenda_reminder_subscriptions_term_version_chk",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    occurrence_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    proposal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    term_version: Mapped[str] = mapped_column(Text, nullable=False)
+    confirmed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class NotificationOutbox(Base):
+    """The sole durable queue for Agenda, EVT-7 and V1a reminders.
+
+    Payload is intentionally reconstructed immediately before transport.  This
+    relation keeps only opaque references, purpose, occurrence and technical
+    delivery state.
+    """
+
+    __tablename__ = "notification_outbox"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="notification_outbox_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "pessoa_id",
+            "origin_kind",
+            "origin_id",
+            "occurrence_at",
+            "purpose",
+            name="notification_outbox_recipient_origin_occurrence_purpose_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="CASCADE",
+            name="notification_outbox_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "event_id"),
+            ("events.igreja_id", "events.id"),
+            ondelete="SET NULL (event_id)",
+            name="notification_outbox_tenant_event_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "reuniao_id"),
+            ("celula_reuniao.igreja_id", "celula_reuniao.id"),
+            ondelete="SET NULL (reuniao_id)",
+            name="notification_outbox_tenant_reuniao_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "agenda_alert_recipient_id"),
+            ("agenda_alert_recipients.igreja_id", "agenda_alert_recipients.id"),
+            ondelete="SET NULL (agenda_alert_recipient_id)",
+            name="notification_outbox_tenant_alert_recipient_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "agenda_subscription_id"),
+            ("agenda_reminder_subscriptions.igreja_id", "agenda_reminder_subscriptions.id"),
+            ondelete="SET NULL (agenda_subscription_id)",
+            name="notification_outbox_tenant_subscription_fkey",
+        ),
+        CheckConstraint(
+            "purpose IN ('agenda_reminder', 'agenda_evt7', 'cell_report_reminder')",
+            name="notification_outbox_purpose_closed",
+        ),
+        CheckConstraint(
+            "state IN ('pendente', 'em_envio', 'retry', 'enviado', 'ambiguo', "
+            "'cancelado', 'obsoleto', 'fenced')",
+            name="notification_outbox_state_closed",
+        ),
+        CheckConstraint(
+            "attempts >= 0 AND attempts <= 2",
+            name="notification_outbox_attempts_range",
+        ),
+        CheckConstraint(
+            "(purpose = 'agenda_reminder' AND origin_kind = 'event' "
+            "AND reuniao_id IS NULL AND agenda_alert_recipient_id IS NULL) OR "
+            "(purpose = 'agenda_evt7' AND origin_kind = 'event' "
+            "AND reuniao_id IS NULL AND agenda_subscription_id IS NULL) OR "
+            "(purpose = 'cell_report_reminder' AND origin_kind = 'meeting' "
+            "AND event_id IS NULL AND agenda_subscription_id IS NULL "
+            "AND agenda_alert_recipient_id IS NULL)",
+            name="notification_outbox_reference_shape_chk",
+        ),
+        CheckConstraint(
+            "origin_kind IN ('event', 'meeting')",
+            name="notification_outbox_origin_kind_closed",
+        ),
+        CheckConstraint(
+            "(event_id IS NULL OR (origin_kind = 'event' AND origin_id = event_id)) "
+            "AND (reuniao_id IS NULL OR (origin_kind = 'meeting' AND origin_id = reuniao_id))",
+            name="notification_outbox_live_origin_identity_chk",
+        ),
+        CheckConstraint(
+            "origin_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="notification_outbox_origin_fingerprint_shape",
+        ),
+        Index(
+            "notification_outbox_due_idx",
+            "igreja_id",
+            "state",
+            "due_at",
+        ),
+        Index(
+            "notification_outbox_recipient_claim_idx",
+            "igreja_id",
+            "pessoa_id",
+            "state",
+        ),
+        Index(
+            "notification_outbox_delivery_reservation_idx",
+            "igreja_id",
+            "pessoa_id",
+            "delivery_reservation_day",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    agenda_alert_recipient_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reuniao_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    agenda_subscription_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Source identity survives source removal. Nullable live references are
+    # revalidated before transport and become fail-closed when absent.
+    origin_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    origin_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    occurrence_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    origin_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    due_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Set by the worker on the first Agenda transport claim.  A proven
+    # pre-send retry may move it to a later transport day under the Pessoa lock;
+    # terminal and ambiguous attempts retain their original reservation.
+    delivery_reservation_day: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    claim_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    claimed_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_by: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    transport_started_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     terminal_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
@@ -2928,6 +3190,9 @@ class Event(Base):
     """
 
     __tablename__ = "events"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="events_igreja_id_id_key"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -2982,6 +3247,14 @@ class Event(Base):
     # já despachado, não reenvia. Ver app/services/event_notify.py.
     notificado_em: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # The cutover fence is intentionally separate from the legacy delivery
+    # marker. It never proves that an external transport completed.
+    notification_outbox_fenced_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notification_outbox_fence_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
@@ -3155,6 +3428,23 @@ class AgendaAlertRecipient(Base):
     """
 
     __tablename__ = "agenda_alert_recipients"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "id", name="agenda_alert_recipients_tenant_id_key"
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            ondelete="SET NULL (pessoa_id)",
+            name="agenda_alert_recipients_tenant_pessoa_fkey",
+        ),
+        Index(
+            "agenda_alert_recipients_active_pessoa_idx",
+            "igreja_id",
+            "pessoa_id",
+            postgresql_where=text("ativo AND pessoa_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -3164,6 +3454,9 @@ class AgendaAlertRecipient(Base):
     )
     nome: Mapped[str] = mapped_column(Text, nullable=False)
     telefone: Mapped[str] = mapped_column(Text, nullable=False)
+    # Server-managed link resolved from the configured phone by the admin API.
+    # Legacy rows remain NULL and are ineligible until saved again.
+    pessoa_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     ativo: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )

@@ -74,11 +74,9 @@ class Settings(BaseSettings):
     # permitir canário sem abrir os demais provedores.
     allow_real_sends: bool = Field(default=False)
 
-    # ---- Agenda: aviso de confirmação (EVT-7 PR1) ---------------------------
-    # Liga o aviso síncrono à equipe interna quando um evento é confirmado
-    # (POST /events/{id}/confirm). Default OFF, inclusive em produção, até uma
-    # env explícita ligar. Ortogonal ao guard B2: mesmo ligado, o envio real só
-    # sai se external_sends_enabled também permitir (send_text respeita o guard).
+    # ---- Agenda: outbox de lembretes e avisos internos ---------------------
+    # Gate tipado do dispatcher comum, desligado por padrão. Não substitui os
+    # gates de release, igreja, consentimento e envio real.
     agenda_notify_enabled: bool = Field(default=False)
 
     # ---- Células: escrita sensível (Solicitações/Multiplicação, PR3-PR9) -----
