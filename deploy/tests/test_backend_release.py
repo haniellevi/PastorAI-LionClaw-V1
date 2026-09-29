@@ -47,6 +47,7 @@ class BackendReleaseTest(unittest.TestCase):
 case "$*" in
   'compose ps -aq '*) printf '%s\\n' "$4"; exit 0 ;;
   'inspect '*)
+    printf 'inspect|%s|%s\\n' "$PWD" "$4" >> "$TRACE"
     if [ "${STOPPED_GATES_EXIT:-0}" = 1 ]; then printf '[]';
     else printf '["ALLOW_REAL_SENDS=false","ASAAS_BILLING_ENABLED=false","BREVO_SEND_MODE=off","BROADCAST_ASYNC_ENABLED=false"]'; fi
     exit 0 ;;
@@ -149,6 +150,16 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         calls = self.calls()
         self.assertTrue(any("compose up --no-start " in c for c in calls))
         self.assertTrue(any("compose start " in c for c in calls))
+        self.assert_inspected_before_start(self.new)
+
+    def assert_inspected_before_start(self, directory):
+        calls = self.calls()
+        start = next(i for i, call in enumerate(calls)
+                     if call.startswith(f"docker|{directory}|compose start "))
+        self.assertEqual(
+            [call for call in calls[:start] if call.startswith(f"inspect|{directory}|")],
+            [f"inspect|{directory}|{service}" for service in SERVICES.split()],
+        )
 
     def test_rollback_incompatible_schema_never_starts_previous_code(self):
         result = self.run_release(HEALTH_EXIT="1", ROLLBACK_PREFLIGHT_EXIT="1")
@@ -239,6 +250,8 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
             any(f"docker|{self.old}|compose start " in call and SERVICES in call for call in calls)
         )
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assert_inspected_before_start(self.new)
+        self.assert_inspected_before_start(self.old)
 
     def test_failed_candidate_restart_rolls_back(self) -> None:
         result = self.run_release(RESTART_EXIT="1")
