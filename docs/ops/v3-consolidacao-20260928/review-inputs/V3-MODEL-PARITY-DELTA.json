@@ -1,0 +1,8 @@
+{
+  "base": "342f0ced7af53d2d7e708d99e3b92d54e7a3e22c",
+  "files": {
+    "backend/app/db/models.py": "8cc08a4e6d7f703f21e58b0117c159db359ec2696182b03b73e7f185e8555af7",
+    "backend/tests/test_consolidation_v3_models.py": "f45d7a8d67067ece1b0ea46b0b743b9c9c7814a853f0be259b70388123503fe4",
+    "backend/tests/test_whatsapp_consolidation_v3_migration_pg.py": "f43c6c356719fdebfec3ec33975e9a96f10c6c386c8b1c2b1ba066e3c3f03cce"
+  }
+}

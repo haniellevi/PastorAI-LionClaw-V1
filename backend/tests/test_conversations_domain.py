@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 
 import pytest
 
@@ -73,7 +74,7 @@ def _message_payload(text: str = "Olá", from_me: bool = False) -> dict:
         "instance": "igreja-1",
         "data": {
             "key": {
-                "remoteJid": "5511999990000@s.whatsapp.net",
+                "remoteJid": "5500000000000@s.whatsapp.net",
                 "fromMe": from_me,
                 "id": "MSG123",
             },
@@ -88,10 +89,63 @@ def test_parse_message_event_extracts_fields() -> None:
     assert parsed is not None
     assert parsed.instance == "igreja-1"
     assert parsed.provider_message_id == "MSG123"
-    assert parsed.telefone == "11999990000"  # canonical: +55 dropped
+    assert parsed.telefone == "00000000000"  # canonical: +55 dropped
     assert parsed.texto == "Olá"
     assert parsed.push_name == "Maria"
     assert parsed.from_me is False
+
+
+def test_parse_message_event_uses_phone_alt_for_lid_sender() -> None:
+    payload = _message_payload()
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    payload["data"]["key"]["remoteJidAlt"] = "5500000000000@s.whatsapp.net"
+
+    parsed = parse_message_event(payload)
+
+    assert parsed is not None
+    assert parsed.telefone == "00000000000"
+    assert parsed.telefone_raw == "5500000000000"
+
+
+@pytest.mark.parametrize("alt", [None, "120363@g.us", "5500000000000@s.whatsapp.net" + ".evil"])
+def test_parse_message_event_rejects_lid_without_valid_phone_alt_without_logging_jid(
+    alt: str | None, caplog: pytest.LogCaptureFixture
+) -> None:
+    payload = _message_payload()
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    if alt is not None:
+        payload["data"]["key"]["remoteJidAlt"] = alt
+
+    with caplog.at_level(logging.WARNING, logger="pastorai.conversations"):
+        assert parse_message_event(payload) is None
+
+    assert "120363000000000" not in caplog.text
+    assert "5500000000000" not in caplog.text
+    assert "lid" in caplog.text.lower()
+
+
+@pytest.mark.parametrize(
+    "alt",
+    ["120363000000000@lid", 123, "5500000000000@@s.whatsapp.net", "@s.whatsapp.net"],
+)
+def test_parse_message_event_rejects_other_invalid_lid_alternates(alt: object) -> None:
+    payload = _message_payload()
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    payload["data"]["key"]["remoteJidAlt"] = alt
+
+    assert parse_message_event(payload) is None
+
+
+def test_parse_message_event_marks_outbound_lid_with_phone_alt() -> None:
+    payload = _message_payload(from_me=True)
+    payload["data"]["key"]["remoteJid"] = "120363000000000@lid"
+    payload["data"]["key"]["remoteJidAlt"] = "5500000000000@s.whatsapp.net"
+
+    parsed = parse_message_event(payload)
+
+    assert parsed is not None
+    assert parsed.from_me is True
+    assert parsed.telefone == "00000000000"
 
 
 def test_parse_message_event_extended_text() -> None:
@@ -106,10 +160,33 @@ def test_parse_message_event_ignores_non_message_event() -> None:
     assert parse_message_event({"event": "connection.update"}) is None
 
 
-def test_parse_message_event_ignores_group_chats() -> None:
+@pytest.mark.parametrize(
+    'remote_jid',
+    (
+        '120363@g.us',
+        '120363@G.US',
+        '120363@g.Us',
+        '120363' + '@c.us',
+        '120363@broadcast',
+        '120363' + '@s.whatsapp.net.evil',
+        '120363',
+    ),
+)
+def test_parse_message_event_rejects_group_variants_and_non_direct_jids(remote_jid: str) -> None:
     payload = _message_payload()
-    payload["data"]["key"]["remoteJid"] = "120363@g.us"
+    payload["data"]["key"]["remoteJid"] = remote_jid
     assert parse_message_event(payload) is None
+
+
+def test_parse_message_event_uses_only_the_direct_jid_phone_not_push_name() -> None:
+    payload = _message_payload()
+    payload['data']['pushName'] = 'apelido de grupo não confiável'
+
+    parsed = parse_message_event(payload)
+
+    assert parsed is not None
+    assert parsed.telefone == '00000000000'
+    assert parsed.telefone_raw == '5500000000000'
 
 
 def test_parse_message_event_requires_message_id() -> None:

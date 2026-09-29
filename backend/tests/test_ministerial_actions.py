@@ -50,7 +50,10 @@ def test_decision_does_not_commit_proposal_before_receipt_intent():
     assert register_decision(db, actor(), pessoa_id=PERSON, vinculo='visitante') is consolidation
     assert person.aceitou_jesus
     db.commit.assert_not_called()
-    assert 'consolidacoes.igreja_id' in str(db.execute.call_args.args[0])
+    query = str(db.execute.call_args.args[0].whereclause)
+    assert 'consolidacoes.igreja_id' in query
+    assert 'consolidacoes.origin_decision_id' in query
+    assert 'consolidacoes.pessoa_id' not in query
 
 
 def test_presence_requires_membership_in_exact_meeting_cell():

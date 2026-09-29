@@ -172,6 +172,135 @@ def test_prepare_rejects_a_direct_agenda_reminder_caller_outside_the_catalog(mon
         )
 
 
+def test_prepare_rejects_a_direct_consolidation_optin_without_explicit_inbound(monkeypatch) -> None:
+    import app.services.agent_action_proposals as proposals
+    import app.services.agent_privilege_catalog as catalog
+
+    igreja_id = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+    conversation_id = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
+    inbound_message_id = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
+    pessoa_id = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+    context = PrivilegeContext(
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        inbound_message_id=inbound_message_id,
+        pessoa_id=pessoa_id,
+        app_user_id=uuid.UUID("00000000-0000-0000-0000-0000000000b1"),
+        roles=frozenset({"lider_consol"}),
+        role_snapshot=(),
+        owned_cell_ids=(),
+        credential_fingerprint="1" * 64,
+        phone_fingerprint="2" * 64,
+        authorization_fingerprint="3" * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint="4" * 64,
+        context_fingerprint="5" * 64,
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return "Quais pendências de consolidação existem?"
+
+    class _Session:
+        def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(proposals, "require_tenant_scope", lambda *args, **kwargs: None)
+    monkeypatch.setattr(proposals, "_lock_conversation", lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(proposals, "_inbound_exists", lambda *args, **kwargs: object())
+    monkeypatch.setattr(catalog, "consolidation_enabled_from_environment", lambda _tenant: True)
+    monkeypatch.setattr(catalog, "_current_term_version", lambda: "lgpd-v2")
+
+    with pytest.raises(ProposalContractError, match="lembrete de consolidação inelegível"):
+        prepare_action_proposal(
+            _Session(),
+            context=context,
+            inbound_message_id=inbound_message_id,
+            action=AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO,
+            target=ProposalTarget(kind="pessoa", id=pessoa_id),
+            arguments={"pessoa_id": str(pessoa_id), "term_version": "lgpd-v2"},
+            summary="Ativar lembretes de pendências de consolidação.",
+        )
+
+
+@pytest.mark.parametrize(
+    ('action', 'target_kind', 'target_id', 'arguments', 'authorizer'),
+    (
+        (
+            AgentAction.MARCAR_FONOVISITA_FEITA,
+            'pendencia_consolidacao',
+            uuid.UUID('00000000-0000-0000-0000-0000000000e5'),
+            {
+                'work_queue_item_id': '00000000-0000-0000-0000-0000000000e5',
+                'consolidacao_id': '00000000-0000-0000-0000-0000000000c3',
+                'assignment_revision': 4,
+            },
+            'fonovisita_arguments_authorized',
+        ),
+        (
+            AgentAction.ATRIBUIR_CONSOLIDACAO,
+            'consolidacao',
+            uuid.UUID('00000000-0000-0000-0000-0000000000c3'),
+            {
+                'consolidacao_id': '00000000-0000-0000-0000-0000000000c3',
+                'responsavel_id': '00000000-0000-0000-0000-0000000000b2',
+                'assignment_revision': 4,
+            },
+            'assignment_arguments_authorized',
+        ),
+    ),
+)
+def test_prepare_rejects_direct_consolidation_mutations_outside_the_catalog(
+    monkeypatch,
+    action,
+    target_kind,
+    target_id,
+    arguments,
+    authorizer,
+) -> None:
+    import app.services.agent_action_proposals as proposals
+    import app.services.agent_privilege_catalog as catalog
+
+    igreja_id = uuid.UUID('00000000-0000-0000-0000-0000000000a1')
+    conversation_id = uuid.UUID('00000000-0000-0000-0000-0000000000c1')
+    inbound_message_id = uuid.UUID('00000000-0000-0000-0000-0000000000d1')
+    context = PrivilegeContext(
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        inbound_message_id=inbound_message_id,
+        pessoa_id=uuid.UUID('00000000-0000-0000-0000-0000000000f1'),
+        app_user_id=uuid.UUID('00000000-0000-0000-0000-0000000000b1'),
+        roles=frozenset({'pastor'}),
+        role_snapshot=(),
+        owned_cell_ids=(),
+        credential_fingerprint='1' * 64,
+        phone_fingerprint='2' * 64,
+        authorization_fingerprint='3' * 64,
+        proof_id=None,
+        proof_until=None,
+        sensitive=False,
+        scope_fingerprint='4' * 64,
+        context_fingerprint='5' * 64,
+    )
+    monkeypatch.setattr(proposals, 'require_tenant_scope', lambda *args, **kwargs: None)
+    monkeypatch.setattr(proposals, '_lock_conversation', lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(proposals, '_inbound_exists', lambda *args, **kwargs: object())
+    monkeypatch.setattr(catalog, authorizer, lambda *args, **kwargs: False, raising=False)
+
+    with pytest.raises(ProposalContractError, match='consolidação inelegível'):
+        prepare_action_proposal(
+            SimpleNamespace(),
+            context=context,
+            inbound_message_id=inbound_message_id,
+            action=action,
+            target=ProposalTarget(kind=target_kind, id=target_id),
+            arguments=arguments,
+            summary='Resumo de consolidação.',
+        )
+
+
 def test_confirmation_disposition_is_closed_before_any_router_or_model_call() -> None:
     assert parse_proposal_disposition("confirm") is ProposalDisposition.CONFIRM
     assert parse_proposal_disposition("reject") is ProposalDisposition.REJECT
@@ -207,6 +336,89 @@ def test_agenda_reminder_receipt_is_closed_and_distinct_from_other_actions() -> 
         opaque_effect_id=uuid.UUID("00000000-0000-0000-0000-0000000000e6"),
     )
     assert effect.receipt_text == "Lembrete confirmado."
+
+
+def test_consolidation_actions_have_closed_targets_arguments_and_receipts() -> None:
+    pessoa_id = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+    consolidacao_id = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
+    pendencia_id = uuid.UUID("00000000-0000-0000-0000-0000000000w1".replace("w", "f"))
+    responsavel_id = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+
+    assert parse_agent_action("marcar_fonovisita_feita") is AgentAction.MARCAR_FONOVISITA_FEITA
+    assert parse_agent_action("atribuir_consolidacao") is AgentAction.ATRIBUIR_CONSOLIDACAO
+    assert (
+        parse_agent_action("configurar_lembrete_consolidacao")
+        is AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO
+    )
+
+    assert canonical_action_arguments(
+        AgentAction.MARCAR_FONOVISITA_FEITA,
+        ProposalTarget(kind="pendencia_consolidacao", id=pendencia_id),
+        {
+            "work_queue_item_id": str(pendencia_id),
+            "consolidacao_id": str(consolidacao_id),
+            "assignment_revision": 4,
+        },
+    ) == {
+        "assignment_revision": 4,
+        "consolidacao_id": str(consolidacao_id),
+        "work_queue_item_id": str(pendencia_id),
+    }
+    assert canonical_action_arguments(
+        AgentAction.ATRIBUIR_CONSOLIDACAO,
+        ProposalTarget(kind="consolidacao", id=consolidacao_id),
+        {
+            "consolidacao_id": str(consolidacao_id),
+            "responsavel_id": str(responsavel_id),
+            "assignment_revision": 4,
+        },
+    ) == {
+        "assignment_revision": 4,
+        "consolidacao_id": str(consolidacao_id),
+        "responsavel_id": str(responsavel_id),
+    }
+    assert canonical_action_arguments(
+        AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO,
+        ProposalTarget(kind="pessoa", id=pessoa_id),
+        {"pessoa_id": str(pessoa_id), "term_version": "lgpd-v2"},
+    ) == {"pessoa_id": str(pessoa_id), "term_version": "lgpd-v2"}
+
+    assert ActionEffect(
+        receipt_text="Fonovisita confirmada.", opaque_effect_id=pendencia_id
+    ).receipt_text == "Fonovisita confirmada."
+    assert ActionEffect(
+        receipt_text="Consolidação atribuída.", opaque_effect_id=consolidacao_id
+    ).receipt_text == "Consolidação atribuída."
+    assert ActionEffect(
+        receipt_text="Lembretes de consolidação ativados.", opaque_effect_id=pessoa_id
+    ).receipt_text == "Lembretes de consolidação ativados."
+
+    with pytest.raises(ProposalContractError):
+        canonical_action_arguments(
+            AgentAction.MARCAR_FONOVISITA_FEITA,
+            ProposalTarget(kind="pendencia_consolidacao", id=pendencia_id),
+            {
+                "work_queue_item_id": str(pendencia_id),
+                "consolidacao_id": str(consolidacao_id),
+            },
+        )
+    with pytest.raises(ProposalContractError):
+        canonical_action_arguments(
+            AgentAction.ATRIBUIR_CONSOLIDACAO,
+            ProposalTarget(kind="consolidacao", id=consolidacao_id),
+            {
+                "consolidacao_id": str(consolidacao_id),
+                "responsavel_id": str(responsavel_id),
+                "assignment_revision": 4,
+                "igreja_id": str(uuid.uuid4()),
+            },
+        )
+    with pytest.raises(ProposalContractError):
+        canonical_action_arguments(
+            AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO,
+            ProposalTarget(kind="pessoa", id=pessoa_id),
+            {"pessoa_id": str(uuid.uuid4()), "term_version": "lgpd-v2"},
+        )
 
 
 def test_proposal_models_bind_one_tenant_conversation_actor_and_receipt() -> None:

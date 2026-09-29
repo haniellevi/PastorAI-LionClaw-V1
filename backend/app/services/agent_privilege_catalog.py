@@ -11,11 +11,20 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Celula, CelulaMembro, CelulaReuniao, Message, Pessoa
+from app.db.models import (
+    AppUser,
+    Celula,
+    CelulaMembro,
+    CelulaReuniao,
+    Conversation,
+    Message,
+    Pessoa,
+    UserRole,
+)
 from app.db.rls_observability import require_tenant_scope
 from app.db.tenant_session import TenantScopeError
 from app.deps import CurrentUser
@@ -33,9 +42,21 @@ from app.services.whatsapp_agenda import (
     agenda_read_allowed,
     occurrences_for_event,
 )
+from app.services.consolidation_whatsapp import (
+    CONSOLIDATION_WHATSAPP_ROLES,
+    consolidation_coordination_allowed,
+    consolidation_enabled_from_environment,
+    consolidation_responsible_allowed,
+    consolidation_responsible_task_types,
+)
 
 ACTIONS = frozenset({'registrar_decisao', 'marcar_presenca'})
-PROPOSAL_ACTIONS = ACTIONS | frozenset({'configurar_lembrete_agenda'})
+PROPOSAL_ACTIONS = ACTIONS | frozenset({
+    'configurar_lembrete_agenda',
+    'configurar_lembrete_consolidacao',
+    'marcar_fonovisita_feita',
+    'atribuir_consolidacao',
+})
 _PERSON_ACTIONS = ACTIONS
 _REMINDER_REQUEST = re.compile(
     r'\b(?:lembrete(?:s)?|lembre[- ]?me|avise[- ]?me|me[ -](?:lembre|avise))\b'
@@ -43,6 +64,37 @@ _REMINDER_REQUEST = re.compile(
 _SAFE_HOUR = re.compile(r'^(?:[01][0-9]|2[0-3]):[0-5][0-9]$')
 _TERM_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-')
 _CONFIRMATION_SUFFIX = '. Confirma esta ação? Responda SIM ou NÃO. A proposta vale por 10 minutos.'
+_CONSOLIDATION_REMINDER_REQUESTS = frozenset({
+    'quero ativar lembretes de consolidacao',
+    'ativar lembretes de consolidacao',
+})
+_CONSOLIDATION_PENDING_TYPES = frozenset({'conectar_celula', 'fonovisita'})
+_CONSOLIDATION_SELF_ASSIGNMENT = re.compile(r'(?<!\w)(?:para|pra)\s+mim(?!\w)')
+_CONSOLIDATION_CODE = re.compile(r'(?<![\w-])P-[0-9A-F]{10}(?![\w-])', re.IGNORECASE)
+_FONOVISITA_REQUEST = re.compile(r'(?<!\w)fonovisita(?!\w)')
+_ASSIGNMENT_REQUEST = re.compile(r'(?<!\w)(?:atribuir|atribua|distribuir)(?!\w)')
+_DECISION_REQUEST = re.compile(r'(?<!\w)registrar\s+decisao(?!\w)')
+_CONSOLIDATION_QUERY_REQUEST = re.compile(r'(?<!\w)(?:pendencia(?:s)?|consolidacao)(?!\w)')
+_CONSOLIDATION_FONOVISITA_COMMAND = re.compile(
+    r'^(?:marcar|confirmar)\s+fonovisita(?:\s+feita)?(?:\s+P-[0-9A-F]{10})?$',
+    re.IGNORECASE,
+)
+_CONSOLIDATION_ASSIGNMENT_COMMAND = re.compile(
+    r'^(?:atribuir|atribua|distribuir)'
+    r'(?:\s+(?:a\s+)?(?:consolidacao|pendencia))?'
+    r'(?:\s+P-[0-9A-F]{10})?'
+    r'\s+(?:para|pra)\s+(?P<target>.+)$',
+    re.IGNORECASE,
+)
+_CONSOLIDATION_DECISION_COMMAND = re.compile(
+    r'^registrar\s+decisao\s+de\s+(?P<target>.+)$', re.IGNORECASE
+)
+_CONSOLIDATION_QUERY_COMMANDS = frozenset({
+    'pendencias de consolidacao',
+    'quais pendencias de consolidacao',
+    'quais pendencias de consolidacao existem',
+    'consultar pendencias de consolidacao',
+})
 
 
 @dataclass(frozen=True)
@@ -53,6 +105,15 @@ class CatalogTarget:
     sensitive: bool = False
 
 
+@dataclass(frozen=True)
+class ConsolidationRoutingProjection:
+    """Safe V3-only description sent to the external closed-catalog router."""
+
+    text: str
+    required_codes: tuple[str, ...]
+    handoff_only: bool = False
+
+
 def action_allowed(context, code: str) -> bool:
     if code == 'registrar_decisao':
         return bool(context.roles & CONSOLIDATION_TOOL_ROLES)
@@ -60,6 +121,14 @@ def action_allowed(context, code: str) -> bool:
         return bool(context.roles & MINISTERIAL_ROLES)
     if code == 'configurar_lembrete_agenda':
         return agenda_read_allowed(context)
+    if code == 'configurar_lembrete_consolidacao':
+        return consolidation_responsible_allowed(context.roles)
+    if code == 'consultar_pendencias_consolidacao':
+        return consolidation_responsible_allowed(context.roles)
+    if code == 'marcar_fonovisita_feita':
+        return 'fonovisita' in consolidation_responsible_task_types(context.roles)
+    if code == 'atribuir_consolidacao':
+        return consolidation_coordination_allowed(context.roles)
     return False
 
 
@@ -127,6 +196,57 @@ def _agenda_reminder_requested(value: object) -> bool:
         if not unicodedata.combining(character) and unicodedata.category(character) != 'Cf'
     )
     return _REMINDER_REQUEST.search(' '.join(normalized.split())) is not None
+
+
+def _consolidation_reminder_requested(value: object) -> bool:
+    """Allow only an explicit, fixed opt-in request to enter the catalog.
+
+    This is candidate admission only. The router still selects the closed
+    catalog capability and S3 revalidates it before creating a proposal.
+    """
+
+    if type(value) is not str or not value or len(value) > 1200:
+        return False
+    normalized = unicodedata.normalize('NFKD', value).casefold()
+    normalized = ''.join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+        and unicodedata.category(character) not in {'Cc', 'Cf'}
+    )
+    normalized = ' '.join(normalized.split()).strip(' .!?')
+    return normalized in _CONSOLIDATION_REMINDER_REQUESTS
+
+
+def _consolidation_reminder_target(
+    context: object,
+    *,
+    requested_text: object,
+) -> CatalogTarget | None:
+    """Produce the self-only, current-term opt-in target without PII."""
+
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not _consolidation_reminder_requested(requested_text)
+        or not consolidation_enabled_from_environment(context.igreja_id)
+        or not action_allowed(context, 'configurar_lembrete_consolidacao')
+        or type(context.pessoa_id) is not uuid.UUID
+        or context.pessoa_id.int == 0
+    ):
+        return None
+    term_version = _current_term_version()
+    if term_version is None:
+        return None
+    return CatalogTarget(
+        'configurar_lembrete_consolidacao',
+        MappingProxyType({
+            'pessoa_id': str(context.pessoa_id),
+            'term_version': term_version,
+        }),
+        'Ativar lembretes de pendências de consolidação',
+    )
 
 
 def _occurrence_at(occurrence: AgendaOccurrence) -> str | None:
@@ -324,6 +444,686 @@ def agenda_reminder_arguments_authorized(
     return False
 
 
+def consolidation_reminder_arguments_authorized(
+    session: Session,
+    *,
+    context: object,
+    target: object,
+    arguments: object,
+    summary: object | None = None,
+) -> bool:
+    """Revalidate a self-only consolidation opt-in before S3 persists it."""
+
+    from app.services.agent_action_proposals import (
+        AgentAction,
+        ProposalContractError,
+        ProposalTarget,
+        canonical_action_arguments,
+    )
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or type(target) is not ProposalTarget
+        or type(arguments) is not dict
+    ):
+        return False
+    candidate = _consolidation_reminder_target(
+        context,
+        requested_text=_current_consolidation_message_text(session, context),
+    )
+    if candidate is None:
+        return False
+    try:
+        canonical = canonical_action_arguments(
+            AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO,
+            target,
+            arguments,
+        )
+    except ProposalContractError:
+        return False
+    return bool(
+        target.kind == 'pessoa'
+        and target.id == context.pessoa_id
+        and canonical == dict(candidate.arguments)
+        and (
+            summary is None
+            or summary == f'{candidate.summary}{_CONFIRMATION_SUFFIX}'
+        )
+    )
+
+
+def _normalized_consolidation_text(value: object) -> str:
+    if type(value) is not str or not value or len(value) > 1200:
+        return ''
+    normalized = unicodedata.normalize('NFKD', value).casefold()
+    normalized = ''.join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+        and unicodedata.category(character) not in {'Cc', 'Cf'}
+    )
+    return ' '.join(normalized.split())
+
+
+def _consolidation_code(item_id: object) -> str | None:
+    if type(item_id) is not uuid.UUID or item_id.int == 0:
+        return None
+    return f'P-{item_id.hex[:10].upper()}'
+
+
+def _source_from_pending_items(
+    items: object,
+    *,
+    requested_text: object,
+    one_track: bool,
+):
+    """Select a source only by an unambiguous opaque code or one track."""
+
+    from app.services.consolidation_privileged import PendingConsolidationItem
+
+    if type(items) is not tuple:
+        return None
+    codes: dict[str, PendingConsolidationItem] = {}
+    tracks: dict[uuid.UUID, list[PendingConsolidationItem]] = {}
+    for item in items:
+        if type(item) is not PendingConsolidationItem:
+            return None
+        code = _consolidation_code(item.work_queue_item_id)
+        if code is None or code in codes:
+            return None
+        codes[code] = item
+        tracks.setdefault(item.consolidacao_id, []).append(item)
+    normalized = _normalized_consolidation_text(requested_text)
+    if not normalized:
+        return None
+    mentioned = tuple(
+        dict.fromkeys(_CONSOLIDATION_CODE.findall(normalized.upper()))
+    )
+    if mentioned:
+        if len(mentioned) != 1:
+            return None
+        return codes.get(mentioned[0])
+    if not one_track or len(tracks) != 1:
+        return None
+    only_items = next(iter(tracks.values()))
+    return min(only_items, key=lambda item: str(item.work_queue_item_id))
+
+
+def _fonovisita_target_from_items(
+    context: object,
+    items: object,
+    *,
+    requested_text: object,
+) -> CatalogTarget | None:
+    """Build one fono target for the current responsible only."""
+
+    from app.services.consolidation_privileged import PendingConsolidationItem
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not action_allowed(context, 'marcar_fonovisita_feita')
+        or type(items) is not tuple
+        or _FONOVISITA_REQUEST.search(_normalized_consolidation_text(requested_text)) is None
+    ):
+        return None
+    candidates = tuple(
+        item
+        for item in items
+        if type(item) is PendingConsolidationItem
+        and item.task_type == 'fonovisita'
+        and item.responsavel_id == context.app_user_id
+    )
+    item = _source_from_pending_items(
+        candidates,
+        requested_text=requested_text,
+        one_track=True,
+    )
+    if item is None:
+        return None
+    code = _consolidation_code(item.work_queue_item_id)
+    if code is None:
+        return None
+    return CatalogTarget(
+        'marcar_fonovisita_feita',
+        MappingProxyType({
+            'work_queue_item_id': str(item.work_queue_item_id),
+            'consolidacao_id': str(item.consolidacao_id),
+            'assignment_revision': item.assignment_revision,
+        }),
+        f'Confirmar fonovisita pendente {code}',
+    )
+
+
+def _eligible_consolidation_users(session: Session, context: object) -> dict[uuid.UUID, str]:
+    """Resolve eligible assignment targets server-side, without catalog PII."""
+
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not action_allowed(context, 'atribuir_consolidacao')
+    ):
+        return {}
+    try:
+        require_tenant_scope(
+            session,
+            expected_igreja_id=context.igreja_id,
+            source='agent_privilege_catalog.consolidation_assignment',
+        )
+        rows = session.execute(
+            select(AppUser.id, Pessoa.nome)
+            .join(
+                Pessoa,
+                and_(
+                    Pessoa.igreja_id == AppUser.igreja_id,
+                    Pessoa.id == AppUser.pessoa_id,
+                ),
+            )
+            .join(
+                UserRole,
+                and_(
+                    UserRole.igreja_id == AppUser.igreja_id,
+                    UserRole.user_id == AppUser.id,
+                ),
+            )
+            .where(
+                AppUser.igreja_id == context.igreja_id,
+                AppUser.status == 'ativo',
+                Pessoa.arquivada_em.is_(None),
+                UserRole.papel.in_(tuple(sorted(CONSOLIDATION_WHATSAPP_ROLES))),
+            )
+        ).all()
+    except (TenantScopeError, TypeError, ValueError, AttributeError):
+        return {}
+    users: dict[uuid.UUID, str] = {}
+    for app_user_id, nome in rows:
+        label = _label(nome)
+        if (
+            type(app_user_id) is not uuid.UUID
+            or app_user_id.int == 0
+            or not _label_key(label)
+        ):
+            return {}
+        prior = users.setdefault(app_user_id, label)
+        if prior != label:
+            return {}
+    return users
+
+
+def _assignment_target_from_items(
+    context: object,
+    items: object,
+    *,
+    requested_text: object,
+    eligible_users: object,
+) -> CatalogTarget | None:
+    """Select an open track and an eligible recipient without exposing names."""
+
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not action_allowed(context, 'atribuir_consolidacao')
+        or type(eligible_users) is not dict
+        or _ASSIGNMENT_REQUEST.search(_normalized_consolidation_text(requested_text)) is None
+    ):
+        return None
+    item = _source_from_pending_items(
+        items,
+        requested_text=requested_text,
+        one_track=True,
+    )
+    if item is None:
+        return None
+    users: dict[uuid.UUID, str] = {}
+    for app_user_id, name in eligible_users.items():
+        label = _label(name)
+        if (
+            type(app_user_id) is not uuid.UUID
+            or app_user_id.int == 0
+            or not _label_key(label)
+        ):
+            return None
+        users[app_user_id] = label
+    normalized = _normalized_consolidation_text(requested_text)
+    if not normalized:
+        return None
+    names = Counter(_label_key(name) for name in users.values())
+    mentioned = tuple(
+        app_user_id
+        for app_user_id, name in users.items()
+        if names[_label_key(name)] == 1 and _mentioned_name(normalized, name)
+    )
+    self_requested = _CONSOLIDATION_SELF_ASSIGNMENT.search(normalized) is not None
+    if self_requested:
+        if mentioned or context.app_user_id not in users:
+            return None
+        responsavel_id = context.app_user_id
+    elif len(mentioned) == 1:
+        responsavel_id = mentioned[0]
+    else:
+        return None
+    code = _consolidation_code(item.work_queue_item_id)
+    if code is None:
+        return None
+    return CatalogTarget(
+        'atribuir_consolidacao',
+        MappingProxyType({
+            'consolidacao_id': str(item.consolidacao_id),
+            'responsavel_id': str(responsavel_id),
+            'assignment_revision': item.assignment_revision,
+        }),
+        f'Atribuir consolidação da pendência {code} ao responsável indicado',
+    )
+
+
+def _decision_targets_for_requested_text(
+    session: Session,
+    context: object,
+    *,
+    requested_text: object,
+) -> tuple[CatalogTarget, ...]:
+    """Resolve existing decision candidates server-side from the anchored text."""
+
+    tenant = getattr(context, 'igreja_id', None)
+    if (
+        type(requested_text) is not str
+        or type(tenant) is not uuid.UUID
+        or not action_allowed(context, 'registrar_decisao')
+    ):
+        return ()
+    roster = session.execute(
+        select(Pessoa.id, Pessoa.nome).where(
+            Pessoa.igreja_id == tenant,
+            Pessoa.arquivada_em.is_(None),
+        )
+    ).all()
+    person_names = Counter(_label_key(name) for _, name in roster)
+    requested_ids = [
+        person_id
+        for person_id, name in roster
+        if person_names[_label_key(name)] == 1 and _mentioned_name(requested_text, name)
+    ]
+    if not requested_ids:
+        return ()
+    cell_names = Counter(
+        _label_key(name)
+        for name in session.execute(
+            select(Celula.nome).where(Celula.igreja_id == tenant, Celula.ativo.is_(True))
+        ).scalars()
+    )
+    people = session.execute(
+        select(Pessoa)
+        .where(
+            Pessoa.igreja_id == tenant,
+            Pessoa.id.in_(requested_ids),
+            Pessoa.arquivada_em.is_(None),
+        )
+        .order_by(Pessoa.nome, Pessoa.id)
+        .limit(8)
+    ).scalars().all()
+    targets: list[CatalogTarget] = []
+    for person in people:
+        if not _label_key(person.nome) or person_names[_label_key(person.nome)] != 1:
+            continue
+        name = _label(person.nome)
+        targets.append(CatalogTarget('registrar_decisao', MappingProxyType({
+            'pessoa_id': str(person.id), 'vinculo': 'visitante', 'celula_id': None,
+        }), f'Registrar decisão de {name}, vínculo visitante'))
+        cell = session.execute(
+            select(Celula)
+            .join(
+                CelulaMembro,
+                (CelulaMembro.celula_id == Celula.id)
+                & (CelulaMembro.igreja_id == Celula.igreja_id),
+            )
+            .where(
+                Celula.igreja_id == tenant,
+                Celula.ativo.is_(True),
+                CelulaMembro.pessoa_id == person.id,
+                CelulaMembro.ativo.is_(True),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if cell is not None and cell_names[_label_key(cell.nome)] == 1:
+            targets.append(CatalogTarget('registrar_decisao', MappingProxyType({
+                'pessoa_id': str(person.id), 'vinculo': 'celula', 'celula_id': str(cell.id),
+            }), f'Registrar decisão de {name}, vínculo célula {_label(cell.nome)}'))
+    return tuple(targets[:16])
+
+
+def _consolidation_decision_target(
+    session: Session,
+    context: object,
+    *,
+    requested_text: object,
+) -> CatalogTarget | None:
+    """Admit one exact V3 decision command without exposing its person label."""
+
+    command = _normalized_consolidation_text(requested_text).strip(' .!?')
+    match = _CONSOLIDATION_DECISION_COMMAND.fullmatch(command)
+    if match is None:
+        return None
+    candidates = _decision_targets_for_requested_text(
+        session,
+        context,
+        requested_text=requested_text,
+    )
+    if len(candidates) != 1:
+        return None
+    candidate = candidates[0]
+    try:
+        pessoa_id = uuid.UUID(candidate.arguments['pessoa_id'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    name = session.execute(
+        select(Pessoa.nome).where(
+            Pessoa.igreja_id == getattr(context, 'igreja_id', None),
+            Pessoa.id == pessoa_id,
+            Pessoa.arquivada_em.is_(None),
+        )
+    ).scalar_one_or_none()
+    if _label_key(match.group('target')) != _label_key(name):
+        return None
+    return CatalogTarget(
+        'registrar_decisao',
+        MappingProxyType(dict(candidate.arguments)),
+        'Registrar decisão da pessoa indicada',
+    )
+
+
+def _current_consolidation_message_text(session: Session, context: object) -> str | None:
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if type(context) is not PrivilegeContext:
+        return None
+    try:
+        text = session.execute(
+            select(Message.texto)
+            .join(
+                Conversation,
+                and_(
+                    Conversation.igreja_id == Message.igreja_id,
+                    Conversation.id == Message.conversation_id,
+                ),
+            )
+            .where(
+                Message.igreja_id == context.igreja_id,
+                Message.conversation_id == context.conversation_id,
+                Message.id == context.inbound_message_id,
+                Message.direcao == 'in',
+                Conversation.pessoa_id == context.pessoa_id,
+            )
+        ).scalar_one_or_none()
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return text if type(text) is str else None
+
+
+def _consolidation_pending_items(session: Session, context: object):
+    """Reuse the same current queue projection as the read-only V3 reply."""
+
+    from app.services.consolidation_privileged import _pending_item, _pending_statement
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if type(context) is not PrivilegeContext:
+        return ()
+    try:
+        coordinator = consolidation_coordination_allowed(context.roles)
+        responsible_types = consolidation_responsible_task_types(context.roles)
+        if not coordinator and not responsible_types:
+            return ()
+        require_tenant_scope(
+            session,
+            expected_igreja_id=context.igreja_id,
+            source='agent_privilege_catalog.consolidation_pending',
+        )
+        rows = session.execute(
+            _pending_statement(
+                context.igreja_id,
+                responsavel_id=None if coordinator else context.app_user_id,
+                task_types=None if coordinator else responsible_types,
+            )
+        ).all()
+    except (TenantScopeError, TypeError, ValueError, AttributeError):
+        return ()
+    items = []
+    for row in rows:
+        try:
+            work_item, consolidacao = row
+        except (TypeError, ValueError):
+            return ()
+        item = _pending_item(work_item, consolidacao, igreja_id=context.igreja_id)
+        if item is None:
+            return ()
+        if not coordinator and (
+            item.responsavel_id != context.app_user_id
+            or item.task_type not in responsible_types
+        ):
+            continue
+        items.append(item)
+    return tuple(items)
+
+
+def _consolidation_fonovisita_targets(
+    session: Session,
+    context: object,
+    *,
+    requested_text: object | None = None,
+) -> tuple[CatalogTarget, ...]:
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not consolidation_enabled_from_environment(context.igreja_id)
+        or not action_allowed(context, 'marcar_fonovisita_feita')
+    ):
+        return ()
+    text = requested_text if requested_text is not None else _current_consolidation_message_text(session, context)
+    target = _fonovisita_target_from_items(
+        context,
+        _consolidation_pending_items(session, context),
+        requested_text=text,
+    )
+    return (target,) if target is not None else ()
+
+
+def _consolidation_assignment_targets(
+    session: Session,
+    context: object,
+    *,
+    requested_text: object | None = None,
+) -> tuple[CatalogTarget, ...]:
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not consolidation_enabled_from_environment(context.igreja_id)
+        or not action_allowed(context, 'atribuir_consolidacao')
+    ):
+        return ()
+    text = requested_text if requested_text is not None else _current_consolidation_message_text(session, context)
+    target = _assignment_target_from_items(
+        context,
+        _consolidation_pending_items(session, context),
+        requested_text=text,
+        eligible_users=_eligible_consolidation_users(session, context),
+    )
+    return (target,) if target is not None else ()
+
+
+def _assignment_command_target_is_resolved(
+    session: Session,
+    context: object,
+    command: str,
+) -> bool:
+    """Accept one closed assignment command only after server target resolution."""
+
+    match = _CONSOLIDATION_ASSIGNMENT_COMMAND.fullmatch(command)
+    if match is None:
+        return False
+    target = ' '.join(match.group('target').split())
+    users = _eligible_consolidation_users(session, context)
+    if target == 'mim':
+        return getattr(context, 'app_user_id', None) in users
+    target_key = _label_key(target)
+    if not target_key:
+        return False
+    matches = tuple(
+        app_user_id
+        for app_user_id, name in users.items()
+        if _label_key(name) == target_key
+    )
+    return len(matches) == 1
+
+
+def _unsafe_consolidation_projection() -> ConsolidationRoutingProjection:
+    return ConsolidationRoutingProjection(
+        text='Solicitação de consolidação encaminhada para atendimento humano.',
+        required_codes=(),
+        handoff_only=True,
+    )
+
+
+def consolidation_routing_projection(
+    session: Session,
+    context: object,
+) -> ConsolidationRoutingProjection | None:
+    """Project a recognized V3 request without forwarding inbound free text."""
+
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not consolidation_enabled_from_environment(context.igreja_id)
+    ):
+        return None
+    normalized = _normalized_consolidation_text(
+        _current_consolidation_message_text(session, context)
+    )
+    if not normalized:
+        return None
+    command = normalized.strip(' .!?')
+    reminder = _consolidation_reminder_requested(command)
+    assignment = _ASSIGNMENT_REQUEST.search(normalized) is not None
+    decision = _DECISION_REQUEST.search(normalized) is not None
+    fonovisita = _FONOVISITA_REQUEST.search(normalized) is not None
+    query = _CONSOLIDATION_QUERY_REQUEST.search(normalized) is not None
+    if not (reminder or assignment or decision or fonovisita or query):
+        return None
+    if not consolidation_responsible_allowed(context.roles):
+        return _unsafe_consolidation_projection()
+
+    mutations = sum((reminder, assignment, decision, fonovisita))
+    if mutations > 1:
+        return _unsafe_consolidation_projection()
+    if reminder:
+        intents = ('ativação de lembretes de consolidação',)
+        required = ('configurar_lembrete_consolidacao',)
+        safe = command in _CONSOLIDATION_REMINDER_REQUESTS
+    elif assignment:
+        intents = ('atribuição de consolidação',)
+        required = ('atribuir_consolidacao',)
+        safe = _assignment_command_target_is_resolved(session, context, command)
+    elif decision:
+        intents = ('registro de decisão',)
+        required = ('registrar_decisao',)
+        safe = _consolidation_decision_target(
+            session,
+            context,
+            requested_text=command,
+        ) is not None
+    elif fonovisita:
+        intents = ('confirmação de fonovisita',)
+        required = ('marcar_fonovisita_feita',)
+        safe = _CONSOLIDATION_FONOVISITA_COMMAND.fullmatch(command) is not None
+    else:
+        intents = ('consulta de pendências de consolidação',)
+        required = ()
+        safe = command in _CONSOLIDATION_QUERY_COMMANDS
+    if not safe:
+        return _unsafe_consolidation_projection()
+
+    text = 'Solicitação de ' + '; '.join(intents) + '.'
+    codes = tuple(dict.fromkeys(code.upper() for code in _CONSOLIDATION_CODE.findall(normalized)))
+    if len(codes) > 1:
+        return _unsafe_consolidation_projection()
+    if codes:
+        text += f' Códigos opacos informados: {", ".join(codes)}.'
+    return ConsolidationRoutingProjection(
+        text=text,
+        required_codes=required,
+    )
+
+
+def fonovisita_arguments_authorized(
+    session: Session,
+    *,
+    context: object,
+    target: object,
+    arguments: object,
+    summary: object | None = None,
+) -> bool:
+    from app.services.agent_action_proposals import (
+        AgentAction,
+        ProposalContractError,
+        ProposalTarget,
+        canonical_action_arguments,
+    )
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if type(context) is not PrivilegeContext or type(target) is not ProposalTarget or type(arguments) is not dict:
+        return False
+    try:
+        canonical = canonical_action_arguments(AgentAction.MARCAR_FONOVISITA_FEITA, target, arguments)
+    except ProposalContractError:
+        return False
+    for candidate in _consolidation_fonovisita_targets(session, context):
+        if (
+            target.kind == 'pendencia_consolidacao'
+            and target.id == uuid.UUID(candidate.arguments['work_queue_item_id'])
+            and canonical == dict(candidate.arguments)
+            and (summary is None or summary == f'{candidate.summary}{_CONFIRMATION_SUFFIX}')
+        ):
+            return True
+    return False
+
+
+def assignment_arguments_authorized(
+    session: Session,
+    *,
+    context: object,
+    target: object,
+    arguments: object,
+    summary: object | None = None,
+) -> bool:
+    from app.services.agent_action_proposals import (
+        AgentAction,
+        ProposalContractError,
+        ProposalTarget,
+        canonical_action_arguments,
+    )
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if type(context) is not PrivilegeContext or type(target) is not ProposalTarget or type(arguments) is not dict:
+        return False
+    try:
+        canonical = canonical_action_arguments(AgentAction.ATRIBUIR_CONSOLIDACAO, target, arguments)
+    except ProposalContractError:
+        return False
+    for candidate in _consolidation_assignment_targets(session, context):
+        if (
+            target.kind == 'consolidacao'
+            and target.id == uuid.UUID(candidate.arguments['consolidacao_id'])
+            and canonical == dict(candidate.arguments)
+            and (summary is None or summary == f'{candidate.summary}{_CONFIRMATION_SUFFIX}')
+        ):
+            return True
+    return False
+
+
 def execute_catalog_action(session: Session, context, code: str, arguments: Mapping[str, Any]) -> str:
     from app.services.whatsapp_privilege import PrivilegeContext
     if (
@@ -350,15 +1150,137 @@ def execute_catalog_action(session: Session, context, code: str, arguments: Mapp
     return str(row.id)
 
 
+def _consolidation_catalog_groups(
+    session: Session,
+    context: object,
+    *,
+    requested_text: object,
+) -> dict[str, list[CatalogTarget]]:
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (
+        type(context) is not PrivilegeContext
+        or not consolidation_enabled_from_environment(context.igreja_id)
+        or not consolidation_responsible_allowed(context.roles)
+    ):
+        return {}
+    grouped: dict[str, list[CatalogTarget]] = {}
+    reminder = _consolidation_reminder_target(context, requested_text=requested_text)
+    if reminder is not None:
+        grouped['configurar_lembrete_consolidacao'] = [reminder]
+    if action_allowed(context, 'registrar_decisao'):
+        decision = _consolidation_decision_target(
+            session,
+            context,
+            requested_text=requested_text,
+        )
+        if decision is not None:
+            grouped['registrar_decisao'] = [decision]
+    if action_allowed(context, 'consultar_pendencias_consolidacao'):
+        grouped['consultar_pendencias_consolidacao'] = [CatalogTarget(
+            'consultar_pendencias_consolidacao',
+            MappingProxyType({}),
+            'Consultar pendências de consolidação autorizadas',
+        )]
+    if action_allowed(context, 'marcar_fonovisita_feita'):
+        targets = _consolidation_fonovisita_targets(
+            session,
+            context,
+            requested_text=requested_text,
+        )
+        if targets:
+            grouped['marcar_fonovisita_feita'] = list(targets)
+    if action_allowed(context, 'atribuir_consolidacao'):
+        targets = _consolidation_assignment_targets(
+            session,
+            context,
+            requested_text=requested_text,
+        )
+        if targets:
+            grouped['atribuir_consolidacao'] = list(targets)
+    return grouped
+
+
+_CATALOG_DESCRIPTIONS = {
+    'registrar_decisao': 'Registrar decisão de fé de uma pessoa, após confirmação explícita',
+    'marcar_presenca': 'Confirmar presença prevista de terceiro em reunião de célula, após confirmação explícita',
+    'consultar_vinculo': 'Consultar meu próprio vínculo cadastrado, com confirmação no painel',
+    'consultar_celulas': 'Consultar dados das células autorizadas, com confirmação no painel',
+    'consultar_agenda': 'Consultar agenda autorizada da igreja sem dados de pessoas',
+    'configurar_lembrete_agenda': 'Ativar lembretes da Agenda para uma ocorrência, após confirmação explícita',
+    'configurar_lembrete_consolidacao': (
+        'Ativar lembretes das próprias pendências de consolidação, após confirmação explícita'
+    ),
+    'consultar_pendencias_consolidacao': (
+        'Consultar pendências de consolidação autorizadas sem dados pessoais'
+    ),
+    'marcar_fonovisita_feita': (
+        'Confirmar fonovisita pendente, após confirmação explícita'
+    ),
+    'atribuir_consolidacao': (
+        'Atribuir uma consolidação a responsável elegível, após confirmação explícita'
+    ),
+}
+
+
+def _catalog_from_groups(grouped: Mapping[str, list[CatalogTarget]]):
+    from app.services.agent_privilege_routing import CandidateOption, ToolOption
+    from app.services.semantic_routing import RouteChoice
+
+    catalog = []
+    mapping = {}
+    for code, targets in grouped.items():
+        summaries = Counter(' '.join(unicodedata.normalize('NFKD', target.summary).casefold().split())
+                            for target in targets)
+        targets = [target for target in targets if summaries[
+            ' '.join(unicodedata.normalize('NFKD', target.summary).casefold().split())] == 1]
+        if not targets:
+            continue
+        if code in {'consultar_agenda', 'consultar_pendencias_consolidacao'}:
+            target = targets[0]
+            if (
+                len(targets) != 1
+                or target.code != code
+                or dict(target.arguments)
+            ):
+                continue
+            catalog.append(ToolOption(code, RouteChoice.RESTRITA, _CATALOG_DESCRIPTIONS[code], ()))
+            mapping[(code, None)] = target
+            continue
+        options = []
+        for n, target in enumerate(targets, start=1):
+            handle = f'h{n}'
+            options.append(CandidateOption(handle, target.summary))
+            mapping[(code, handle)] = target
+        catalog.append(ToolOption(code, RouteChoice.RESTRITA, _CATALOG_DESCRIPTIONS[code], tuple(options)))
+    return tuple(catalog), MappingProxyType(mapping)
+
+
+def build_consolidation_catalog(session: Session, context: object):
+    """Build only V3 options, never a general person or cell roster."""
+
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if type(context) is not PrivilegeContext:
+        return (), MappingProxyType({})
+    requested_text = _current_consolidation_message_text(session, context)
+    if requested_text is None:
+        return (), MappingProxyType({})
+    return _catalog_from_groups(
+        _consolidation_catalog_groups(
+            session,
+            context,
+            requested_text=requested_text,
+        )
+    )
+
+
 def build_catalog(session: Session, context):
     """Bounded authorized candidates. Every selected handle is revalidated later.
 
     Operational actions expose only the name needed to select their target;
     phone numbers, addresses, pastoral text and financial data are never projected.
     """
-    from app.services.agent_privilege_routing import CandidateOption, ToolOption
-    from app.services.semantic_routing import RouteChoice
-
     tenant = context.igreja_id
     grouped: dict[str, list[CatalogTarget]] = {}
     # Detect collisions before candidate limits: a homonym outside the first
@@ -378,28 +1300,13 @@ def build_catalog(session: Session, context):
     cell_names = Counter(_label_key(name) for name in session.execute(
         select(Celula.nome).where(Celula.igreja_id == tenant,
             Celula.ativo.is_(True))).scalars()) if requested_ids else Counter()
-    if requested_ids and action_allowed(context, 'registrar_decisao'):
-        people = session.execute(select(Pessoa).where(Pessoa.igreja_id == tenant,
-            Pessoa.id.in_(requested_ids),
-            Pessoa.arquivada_em.is_(None)).order_by(Pessoa.nome, Pessoa.id).limit(8)).scalars().all()
-        targets = []
-        for person in people:
-            if not _label_key(person.nome) or person_names[_label_key(person.nome)] != 1:
-                continue
-            name = _label(person.nome)
-            targets.append(CatalogTarget('registrar_decisao', MappingProxyType({
-                'pessoa_id': str(person.id), 'vinculo': 'visitante', 'celula_id': None,
-            }), f'Registrar decisão de {name}, vínculo visitante'))
-            cell = session.execute(select(Celula).join(CelulaMembro,
-                (CelulaMembro.celula_id == Celula.id) & (CelulaMembro.igreja_id == Celula.igreja_id))
-                .where(Celula.igreja_id == tenant, Celula.ativo.is_(True),
-                    CelulaMembro.pessoa_id == person.id, CelulaMembro.ativo.is_(True))
-                .limit(1)).scalar_one_or_none()
-            if cell is not None and cell_names[_label_key(cell.nome)] == 1:
-                targets.append(CatalogTarget('registrar_decisao', MappingProxyType({
-                    'pessoa_id': str(person.id), 'vinculo': 'celula', 'celula_id': str(cell.id),
-                }), f'Registrar decisão de {name}, vínculo célula {_label(cell.nome)}'))
-        grouped['registrar_decisao'] = targets[:16]
+    decision_targets = _decision_targets_for_requested_text(
+        session,
+        context,
+        requested_text=requested_text,
+    )
+    if decision_targets:
+        grouped['registrar_decisao'] = list(decision_targets)
     if requested_ids and action_allowed(context, 'marcar_presenca'):
         query = select(Celula).where(Celula.igreja_id == tenant, Celula.ativo.is_(True))
         # A superset is filtered by the same hierarchy rule used by the panel.
@@ -459,41 +1366,14 @@ def build_catalog(session: Session, context):
             )
             if reminders:
                 grouped['configurar_lembrete_agenda'] = list(reminders)
-    descriptions = {
-        'registrar_decisao': 'Registrar decisão de fé de uma pessoa, após confirmação explícita',
-        'marcar_presenca': 'Confirmar presença prevista de terceiro em reunião de célula, após confirmação explícita',
-        'consultar_vinculo': 'Consultar meu próprio vínculo cadastrado, com confirmação no painel',
-        'consultar_celulas': 'Consultar dados das células autorizadas, com confirmação no painel',
-        'consultar_agenda': 'Consultar agenda autorizada da igreja sem dados de pessoas',
-        'configurar_lembrete_agenda': 'Ativar lembretes da Agenda para uma ocorrência, após confirmação explícita',
-    }
-    catalog = []
-    mapping = {}
-    for code, targets in grouped.items():
-        summaries = Counter(' '.join(unicodedata.normalize('NFKD', target.summary).casefold().split())
-                            for target in targets)
-        targets = [target for target in targets if summaries[
-            ' '.join(unicodedata.normalize('NFKD', target.summary).casefold().split())] == 1]
-        if not targets:
-            continue
-        if code == 'consultar_agenda':
-            target = targets[0]
-            if (
-                len(targets) != 1
-                or target.code != code
-                or dict(target.arguments)
-            ):
-                continue
-            catalog.append(ToolOption(code, RouteChoice.RESTRITA, descriptions[code], ()))
-            mapping[(code, None)] = target
-            continue
-        options = []
-        for n, target in enumerate(targets, start=1):
-            handle = f'h{n}'
-            options.append(CandidateOption(handle, target.summary))
-            mapping[(code, handle)] = target
-        catalog.append(ToolOption(code, RouteChoice.RESTRITA, descriptions[code], tuple(options)))
-    return tuple(catalog), MappingProxyType(mapping)
+    grouped.update(
+        _consolidation_catalog_groups(
+            session,
+            context,
+            requested_text=requested_text,
+        )
+    )
+    return _catalog_from_groups(grouped)
 
 
 def read_sensitive_catalog(session: Session, context, code: str) -> str:

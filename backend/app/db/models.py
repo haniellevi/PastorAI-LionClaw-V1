@@ -1444,14 +1444,20 @@ class AgentActionProposal(Base):
         ),
         CheckConstraint(
             "action IN ('registrar_decisao', 'marcar_presenca', "
-            "'enviar_relatorio_celula', 'configurar_lembrete_agenda')",
+            "'enviar_relatorio_celula', 'configurar_lembrete_agenda', "
+            "'configurar_lembrete_consolidacao', 'marcar_fonovisita_feita', "
+            "'atribuir_consolidacao')",
             name="agent_action_proposals_action_closed",
         ),
         CheckConstraint(
-            "(action IN ('registrar_decisao', 'marcar_presenca') "
+            "(action IN ('registrar_decisao', 'marcar_presenca', "
+            "'configurar_lembrete_consolidacao') "
             "AND target_kind = 'pessoa') OR "
             "(action = 'enviar_relatorio_celula' AND target_kind = 'reuniao') OR "
-            "(action = 'configurar_lembrete_agenda' AND target_kind = 'evento')",
+            "(action = 'configurar_lembrete_agenda' AND target_kind = 'evento') OR "
+            "(action = 'marcar_fonovisita_feita' "
+            "AND target_kind = 'pendencia_consolidacao') OR "
+            "(action = 'atribuir_consolidacao' AND target_kind = 'consolidacao')",
             name="agent_action_proposals_target_kind_closed",
         ),
         CheckConstraint(
@@ -1564,7 +1570,8 @@ class AgentActionReceipt(Base):
         ),
         CheckConstraint(
             "receipt_text IN ('Registro confirmado.', 'Relatório confirmado.', "
-            "'Lembrete confirmado.')",
+            "'Lembrete confirmado.', 'Lembretes de consolidação ativados.', "
+            "'Fonovisita confirmada.', 'Consolidação atribuída.')",
             name="agent_action_receipts_receipt_text_closed",
         ),
         Index("agent_action_receipts_conversation_idx", "igreja_id", "conversation_id"),
@@ -1799,7 +1806,7 @@ class WhatsappReminderPreference(Base):
             name="whatsapp_reminder_preferences_state_closed",
         ),
         CheckConstraint(
-            "reminder_kind IN ('agenda', 'cell_report')",
+            "reminder_kind IN ('agenda', 'cell_report', 'consolidation')",
             name="whatsapp_reminder_preferences_kind_closed",
         ),
         CheckConstraint(
@@ -1818,6 +1825,32 @@ class WhatsappReminderPreference(Base):
     term_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     changed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ConsolidationWhatsappActivation(Base):
+    """Worker-owned prospective activation marker for V3 WhatsApp alerts."""
+
+    __tablename__ = "consolidation_whatsapp_activation"
+    __table_args__ = (
+        CheckConstraint(
+            "NOT gate_open OR activated_at IS NOT NULL",
+            name="consolidation_whatsapp_activation_gate_open_chk",
+        ),
+    )
+
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "igrejas.id",
+            ondelete="CASCADE",
+            name="consolidation_whatsapp_activation_igreja_fkey",
+        ),
+        primary_key=True,
+    )
+    activated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    gate_open: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
 
 class AgendaReminderSubscription(Base):
@@ -1929,8 +1962,22 @@ class NotificationOutbox(Base):
             ondelete="SET NULL (agenda_subscription_id)",
             name="notification_outbox_tenant_subscription_fkey",
         ),
+        ForeignKeyConstraint(
+            ("igreja_id", "consolidacao_id"),
+            ("consolidacoes.igreja_id", "consolidacoes.id"),
+            ondelete="SET NULL (consolidacao_id)",
+            name="notification_outbox_tenant_consolidacao_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "work_queue_item_id"),
+            ("work_queue_items.igreja_id", "work_queue_items.id"),
+            ondelete="SET NULL (work_queue_item_id)",
+            name="notification_outbox_tenant_work_queue_item_fkey",
+        ),
         CheckConstraint(
-            "purpose IN ('agenda_reminder', 'agenda_evt7', 'cell_report_reminder')",
+            "purpose IN ('agenda_reminder', 'agenda_evt7', 'cell_report_reminder', "
+            "'consolidation_connection_open', 'consolidation_connection_deadline', "
+            "'consolidation_fonovisita')",
             name="notification_outbox_purpose_closed",
         ),
         CheckConstraint(
@@ -1944,21 +1991,36 @@ class NotificationOutbox(Base):
         ),
         CheckConstraint(
             "(purpose = 'agenda_reminder' AND origin_kind = 'event' "
-            "AND reuniao_id IS NULL AND agenda_alert_recipient_id IS NULL) OR "
+            "AND reuniao_id IS NULL AND agenda_alert_recipient_id IS NULL "
+            "AND consolidacao_id IS NULL AND work_queue_item_id IS NULL) OR "
             "(purpose = 'agenda_evt7' AND origin_kind = 'event' "
-            "AND reuniao_id IS NULL AND agenda_subscription_id IS NULL) OR "
+            "AND reuniao_id IS NULL AND agenda_subscription_id IS NULL "
+            "AND consolidacao_id IS NULL AND work_queue_item_id IS NULL) OR "
             "(purpose = 'cell_report_reminder' AND origin_kind = 'meeting' "
             "AND event_id IS NULL AND agenda_subscription_id IS NULL "
-            "AND agenda_alert_recipient_id IS NULL)",
+            "AND agenda_alert_recipient_id IS NULL "
+            "AND consolidacao_id IS NULL AND work_queue_item_id IS NULL) OR "
+            "(purpose IN ('consolidation_connection_open', 'consolidation_connection_deadline') "
+            "AND origin_kind = 'consolidacao' AND event_id IS NULL "
+            "AND reuniao_id IS NULL AND agenda_alert_recipient_id IS NULL "
+            "AND agenda_subscription_id IS NULL AND work_queue_item_id IS NULL) OR "
+            "(purpose = 'consolidation_fonovisita' AND origin_kind = 'work_queue' "
+            "AND event_id IS NULL AND reuniao_id IS NULL "
+            "AND agenda_alert_recipient_id IS NULL AND agenda_subscription_id IS NULL "
+            "AND consolidacao_id IS NULL)",
             name="notification_outbox_reference_shape_chk",
         ),
         CheckConstraint(
-            "origin_kind IN ('event', 'meeting')",
+            "origin_kind IN ('event', 'meeting', 'consolidacao', 'work_queue')",
             name="notification_outbox_origin_kind_closed",
         ),
         CheckConstraint(
             "(event_id IS NULL OR (origin_kind = 'event' AND origin_id = event_id)) "
-            "AND (reuniao_id IS NULL OR (origin_kind = 'meeting' AND origin_id = reuniao_id))",
+            "AND (reuniao_id IS NULL OR (origin_kind = 'meeting' AND origin_id = reuniao_id)) "
+            "AND (consolidacao_id IS NULL OR (origin_kind = 'consolidacao' "
+            "AND origin_id = consolidacao_id)) "
+            "AND (work_queue_item_id IS NULL OR (origin_kind = 'work_queue' "
+            "AND origin_id = work_queue_item_id))",
             name="notification_outbox_live_origin_identity_chk",
         ),
         CheckConstraint(
@@ -1992,6 +2054,8 @@ class NotificationOutbox(Base):
     event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     reuniao_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     agenda_subscription_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    consolidacao_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    work_queue_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     # Source identity survives source removal. Nullable live references are
     # revalidated before transport and become fail-closed when absent.
     origin_kind: Mapped[str] = mapped_column(Text, nullable=False)
@@ -2453,6 +2517,26 @@ class WorkQueueItem(Base):
     """Actionable item in the shared work queue (F5)."""
 
     __tablename__ = "work_queue_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id", "id", name="work_queue_items_tenant_id_key"
+        ),
+        Index(
+            "work_queue_items_fonovisita_consolidacao_once_idx",
+            "igreja_id",
+            "consolidacao_id",
+            unique=True,
+            postgresql_where=text(
+                "tipo = 'fonovisita' AND consolidacao_id IS NOT NULL"
+            ),
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "consolidacao_id"),
+            ("consolidacoes.igreja_id", "consolidacoes.id"),
+            ondelete="CASCADE",
+            name="work_queue_items_tenant_consolidacao_fkey",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -2469,6 +2553,7 @@ class WorkQueueItem(Base):
     responsavel_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
     )
+    consolidacao_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     status: Mapped[str | None] = mapped_column(String, nullable=True)
     prazo: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -2483,6 +2568,9 @@ class Decision(Base):
     """Decision for Jesus (US-37). Inserting fires trg_decision_opens_consolidation."""
 
     __tablename__ = "decisions"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="decisions_tenant_id_key"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -2516,6 +2604,18 @@ class Consolidacao(Base):
 
     __tablename__ = "consolidacoes"
     __table_args__ = (
+        UniqueConstraint("igreja_id", "id", name="consolidacoes_tenant_id_key"),
+        UniqueConstraint(
+            "igreja_id",
+            "origin_decision_id",
+            name="consolidacoes_origin_decision_once_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "origin_decision_id"),
+            ("decisions.igreja_id", "decisions.id"),
+            ondelete="SET NULL (origin_decision_id)",
+            name="consolidacoes_tenant_origin_decision_fkey",
+        ),
         # W3.2A: uma consolidação não pode estar concluída E abandonada ao
         # mesmo tempo — mutuamente exclusivos (revisão externa PR#163).
         CheckConstraint(
@@ -2554,6 +2654,10 @@ class Consolidacao(Base):
     tipo: Mapped[str | None] = mapped_column(String, nullable=True)
     responsavel_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
+    )
+    origin_decision_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    assignment_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
     )
     progresso: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")

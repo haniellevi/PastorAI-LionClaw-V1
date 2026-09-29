@@ -92,6 +92,16 @@ def _legacy_v1a_reminder(*, igreja_id, meeting, pessoa_id, state, created_at):
 @pytest.fixture
 def reminder_turn(report_turn, monkeypatch):
     from app.config import get_settings
+    from app.services import notification_outbox
+
+    # Every transport clock read belongs to this synthetic timeline, including
+    # the fresh read after locks. Boundary tests advance their own clock below.
+    worker_now = notification_outbox._worker_now
+    monkeypatch.setattr(
+        notification_outbox,
+        '_worker_now',
+        lambda supplied: worker_now(_NOW if supplied is None else supplied),
+    )
     # The shared autouse fixture enables every church; restore the real gate.
     monkeypatch.setattr(Settings, 'whatsapp_piloto', _REAL_PILOT_GATE)
     monkeypatch.setenv('AGENT_TERM_VERSION', _TERM)
@@ -283,7 +293,8 @@ def test_stop_reminders_is_scoped_and_global_sair_still_wins(reminder_turn):
     _run(turn, 'V1A-STOP-REMINDERS', 'PARAR LEMBRETES', reply)
     preferences = _rows(turn, WhatsappReminderPreference)
     assert {(row.reminder_kind, row.state) for row in preferences} == {
-        ('agenda', 'disabled'), ('cell_report', 'disabled')
+        ('agenda', 'disabled'), ('cell_report', 'disabled'),
+        ('consolidation', 'disabled'),
     }
     assert _rows(turn, CellReportReminderPreference)[0].disabled_at is not None
     with turn.factory() as session:

@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # gates de release, igreja, consentimento e envio real.
     agenda_notify_enabled: bool = Field(default=False)
 
+    # Gate tipado da entrega automática de pendências de consolidação. A lista
+    # de release/igrejas, S3, piloto, LGPD, preferência e envio real continuam
+    # sendo verificados nos respectivos fences.
+    consolidation_notify_enabled: bool = Field(default=False)
+
     # ---- Células: escrita sensível (Solicitações/Multiplicação, PR3-PR9) -----
     # Gate de rollout do fluxo Solicitação→Aprovação (criação/decisão/reenvio/
     # cancelamento/multiplicação). Default OFF, inclusive em produção, até o fluxo

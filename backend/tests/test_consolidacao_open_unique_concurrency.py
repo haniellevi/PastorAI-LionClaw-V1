@@ -100,8 +100,11 @@ as $$
 declare
   v_consolidacao_id uuid;
 begin
-  insert into consolidacoes (igreja_id, pessoa_id, tipo, responsavel_id, progresso, concluida, prazo_conexao)
-  values (new.igreja_id, new.pessoa_id, 'individual', new.responsavel_id, 0, false, new.prazo_conexao)
+  insert into consolidacoes (
+    igreja_id, pessoa_id, origin_decision_id, tipo, responsavel_id, progresso, concluida, prazo_conexao
+  ) values (
+    new.igreja_id, new.pessoa_id, new.id, 'individual', new.responsavel_id, 0, false, new.prazo_conexao
+  )
   returning id into v_consolidacao_id;
 
   insert into consolidacao_etapas (igreja_id, consolidacao_id, etapa, concluida)

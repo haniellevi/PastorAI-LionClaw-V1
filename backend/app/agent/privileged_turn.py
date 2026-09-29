@@ -52,6 +52,7 @@ def reply_metadata(
     proposal_id: uuid.UUID | None = None,
     audio_input_id: uuid.UUID | None = None,
     agenda: dict[str, object] | None = None,
+    consolidation: dict[str, object] | None = None,
 ) -> dict:
     result = dict(inbound_message_id=str(context.inbound_message_id),
                   context_fingerprint=context.context_fingerprint,
@@ -67,6 +68,16 @@ def reply_metadata(
         result['agenda'] = dict(agenda)
     elif agenda is not None:
         raise ValueError('agenda metadata')
+    if kind == 'consolidation':
+        from app.services.consolidation_privileged import (
+            valid_pending_consolidation_reply_metadata,
+        )
+
+        if not valid_pending_consolidation_reply_metadata(consolidation):
+            raise ValueError('consolidation metadata')
+        result['consolidation'] = dict(consolidation)
+    elif consolidation is not None:
+        raise ValueError('consolidation metadata')
     if context.proof_id is not None:
         result['proof_id'] = str(context.proof_id)
     return result
@@ -98,7 +109,10 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
             type(raw) is not dict
             or not required <= raw.keys()
             or type(raw['sensitive']) is not bool
-            or raw['kind'] not in {'summary','receipt','readonly','challenge','clarify','audio_notice','agenda'}
+            or raw['kind'] not in {
+                'summary', 'receipt', 'readonly', 'challenge', 'clarify', 'audio_notice',
+                'agenda', 'consolidation',
+            }
         ):
             return False
         if raw['kind'] == 'agenda':
@@ -106,6 +120,16 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
             if (
                 raw.keys() - required - {'proof_id', 'agenda'}
                 or not valid_agenda_reply_metadata({'agenda': raw.get('agenda')})
+            ):
+                return False
+        elif raw['kind'] == 'consolidation':
+            from app.services.consolidation_privileged import (
+                valid_pending_consolidation_reply_metadata,
+            )
+
+            if (
+                raw.keys() - required - {'proof_id', 'consolidation'}
+                or not valid_pending_consolidation_reply_metadata(raw.get('consolidation'))
             ):
                 return False
         elif raw.keys() - required - {'proposal_id','proof_id','audio_input_id'}:
@@ -148,6 +172,17 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
                     conversation=conversation,
                     context=context,
                 )
+            )
+        if valid and raw['kind'] == 'consolidation':
+            from app.services.consolidation_privileged import (
+                consolidation_pending_reply_still_authorized,
+            )
+
+            return consolidation_pending_reply_still_authorized(
+                session,
+                context=context,
+                response=message.texto,
+                projection_sha256=raw['consolidation']['projection_sha256'],
             )
         audio_input_id = raw.get('audio_input_id')
         if audio_input_id is not None:
@@ -317,7 +352,16 @@ def _lock_reply(session, outcome, provider_id):
         Message.direcao == 'out', Message.autor == 'ia').with_for_update()).scalar_one_or_none()
 
 
-def _store_response(message, context, response, *, kind, proposal_id=None, agenda=None):
+def _store_response(
+    message,
+    context,
+    response,
+    *,
+    kind,
+    proposal_id=None,
+    agenda=None,
+    consolidation=None,
+):
     from app.domain.agent_reply import AGENT_REPLY_PENDING, AGENT_REPLY_NO_RESPONSE
     message.texto = response or ''
     message.agent_reply_state = AGENT_REPLY_PENDING if response else AGENT_REPLY_NO_RESPONSE
@@ -327,6 +371,7 @@ def _store_response(message, context, response, *, kind, proposal_id=None, agend
         kind=kind,
         proposal_id=proposal_id,
         agenda=agenda,
+        consolidation=consolidation,
     )
 
 
@@ -360,6 +405,55 @@ def _execute(session, execution):
     if execution.action.value == 'configurar_lembrete_agenda':
         from app.services.notification_outbox import execute_agenda_reminder_subscription
         return execute_agenda_reminder_subscription(session, execution)
+    if execution.action.value == 'configurar_lembrete_consolidacao':
+        from app.services.notification_outbox import execute_consolidation_reminder_subscription
+        return execute_consolidation_reminder_subscription(session, execution)
+    if execution.action.value == 'marcar_fonovisita_feita':
+        from app.services.agent_privilege_catalog import _user
+        from app.services.consolidation_workflow import complete_fonovisita
+
+        try:
+            result = complete_fonovisita(
+                session,
+                _user(execution.privilege_context),
+                consolidacao_id=uuid.UUID(execution.arguments['consolidacao_id']),
+                work_queue_item_id=uuid.UUID(execution.arguments['work_queue_item_id']),
+                expected_assignment_revision=execution.arguments['assignment_revision'],
+                whatsapp=True,
+            )
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise
+            raise ProposalExecutionDenied('domain_denied') from None
+        except (KeyError, TypeError, ValueError):
+            raise ProposalExecutionDenied('domain_denied') from None
+        return ActionEffect(
+            receipt_text='Fonovisita confirmada.',
+            opaque_effect_id=result.work_queue_item.id,
+        )
+    if execution.action.value == 'atribuir_consolidacao':
+        from app.services.agent_privilege_catalog import _user
+        from app.services.consolidation_workflow import assign_consolidacao
+
+        try:
+            result = assign_consolidacao(
+                session,
+                _user(execution.privilege_context),
+                consolidacao_id=uuid.UUID(execution.arguments['consolidacao_id']),
+                responsavel_id=uuid.UUID(execution.arguments['responsavel_id']),
+                expected_assignment_revision=execution.arguments['assignment_revision'],
+                whatsapp=True,
+            )
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise
+            raise ProposalExecutionDenied('domain_denied') from None
+        except (KeyError, TypeError, ValueError):
+            raise ProposalExecutionDenied('domain_denied') from None
+        return ActionEffect(
+            receipt_text='Consolidação atribuída.',
+            opaque_effect_id=result.consolidacao.id,
+        )
     from app.services.agent_privilege_catalog import execute_catalog_action
     try:
         effect_id = execute_catalog_action(session, execution.privilege_context,
@@ -761,7 +855,11 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     from app.services.whatsapp_privilege import (
         PrivilegeContext, PublicWhatsappContext, resolve_whatsapp_privilege_context,
     )
-    from app.services.agent_privilege_catalog import build_catalog
+    from app.services.agent_privilege_catalog import (
+        build_catalog,
+        build_consolidation_catalog,
+        consolidation_routing_projection,
+    )
     from app.services.agent_privilege_routing import route_privileged_message
     from app.services.crypto import decrypt_secret
     from app.services.llm import LLMClient, LLMError, estimate_cost
@@ -799,9 +897,13 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             uses_dedicated_agent_session=False, plan=preflight,
             decision_payload={'erro': reason}, usage=routing_usage or None, ownership_guard=ownership_guard)
 
+    v3_projection = None
     with _session(runtime_session_factory, outcome) as session:
         context = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
             conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
+        if type(context) is PrivilegeContext:
+            v3_projection = consolidation_routing_projection(session, context)
+    v3_recognized = v3_projection is not None
     if type(context) is PublicWhatsappContext:
         return None
     if type(context) is not PrivilegeContext:
@@ -835,13 +937,15 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             qw._deliver_agent_reply_intent(session_factory, outcome, intent,
                 ownership_guard, evolution_client=evolution_client)
         return qw.AgentRunDisposition.COMPLETED
+    if v3_projection is not None and v3_projection.handoff_only:
+        return handoff('privilege_v3_unsafe')
     # Optional Tier A remains a suppression gate before routing. Local pending
     # confirmations above never call Jev. The default release is inert.
     from app.services.semantic_triage import (
         tier_a_enabled_from_environment, get_triage_settings, TIER_A_APPROVED_RELEASE_ID,
     )
     effective = None
-    if tier_a_enabled_from_environment(igreja_id):
+    if v3_projection is None and tier_a_enabled_from_environment(igreja_id):
         effective = qw._tier_a_effective_settings(session_factory, get_triage_settings())
         decision = qw._run_tier_a_batch(effective, igreja_id, preflight.current_text,
             min(1.2, max(0.01, started + 9 - time.monotonic())), TIER_A_APPROVED_RELEASE_ID)
@@ -855,7 +959,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     # V1a collection follows the optional suppression gate. Local pending
     # confirmations above remain deterministic and never call Jev.
     from app.services.cell_report_whatsapp import cell_report_enabled_from_environment
-    if cell_report_enabled_from_environment(igreja_id):
+    if v3_projection is None and cell_report_enabled_from_environment(igreja_id):
         from app.services.cell_report_v1a_service import (
             CellReportStageKind,
             CellReportV1aServiceError,
@@ -1050,8 +1154,9 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
                     evolution_client=evolution_client,
                 )
             return qw.AgentRunDisposition.COMPLETED
-    if canonical_public_info_request(preflight.current_text) is not None:
+    if v3_projection is None and canonical_public_info_request(preflight.current_text) is not None:
         return None
+    routing_text = preflight.current_text
     with _session(runtime_session_factory, outcome) as session:
         _, _, error = _load_tier_a_plan_state(session, preflight)
         current = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
@@ -1059,7 +1164,19 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
         if error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint:
             catalog, mapping = (), {}
         else:
-            catalog, mapping = build_catalog(session, current)
+            current_v3_projection = consolidation_routing_projection(session, current)
+            if v3_recognized and (
+                current_v3_projection is None or current_v3_projection.handoff_only
+            ):
+                catalog, mapping = (), {}
+            elif current_v3_projection is None:
+                catalog, mapping = build_catalog(session, current)
+            else:
+                v3_projection = current_v3_projection
+                catalog, mapping = build_consolidation_catalog(session, current)
+                if not set(v3_projection.required_codes) <= {option.code for option in catalog}:
+                    catalog, mapping = (), {}
+                routing_text = v3_projection.text
     if not catalog:
         return handoff('privilege_catalog')
     if ownership_guard is not None:
@@ -1072,7 +1189,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             from app.services.agent_privilege_routing import JevChoiceAdapter
             client = JevChoiceAdapter(effective, igreja_id,
                 tier_a_release_id=TIER_A_APPROVED_RELEASE_ID, s3_release_id=S3_ROUTING_APPROVED_RELEASE_ID)
-        routed = route_privileged_message(client, texto=preflight.current_text,
+        routed = route_privileged_message(client, texto=routing_text,
             catalog=catalog, deadline_monotonic=started + 10)
     except Exception:
         return handoff('privilege_router_error')
@@ -1082,6 +1199,8 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     if routed.status == 'handoff' or time.monotonic() >= started + 9:
         return handoff('privilege_router_handoff')
     general_response = None
+    if v3_projection is not None and routed.status == 'clarify':
+        return handoff('privilege_router_handoff')
     if routed.status == 'clarify' and routed.route is None:
         generated = _general_answer(runtime_session_factory, outcome, preflight, context, started + 9)
         if generated is not None:
@@ -1232,6 +1351,23 @@ def _apply_selection(session, context, selected, message, *, current_text, conve
             ):
                 return False
         return True
+    if selected.code == 'consultar_pendencias_consolidacao':
+        _, current_targets = build_catalog(session, context)
+        if not any(target == selected for target in current_targets.values()):
+            return False
+        from app.services.consolidation_privileged import consolidation_pending_reply
+
+        reply = consolidation_pending_reply(session, context=context)
+        if reply is None:
+            return False
+        _store_response(
+            message,
+            context,
+            reply.response,
+            kind='consolidation',
+            consolidation={'projection_sha256': reply.projection_sha256},
+        )
+        return True
     if selected.code in PROPOSAL_ACTIONS:
         # A role snapshot alone cannot authorize a target whose membership or
         # cell leadership changed while the LLM was running.
@@ -1245,6 +1381,16 @@ def _apply_selection(session, context, selected, message, *, current_text, conve
                 target = ProposalTarget(
                     kind='evento',
                     id=uuid.UUID(selected.arguments['event_id']),
+                )
+            elif selected.code == 'marcar_fonovisita_feita':
+                target = ProposalTarget(
+                    kind='pendencia_consolidacao',
+                    id=uuid.UUID(selected.arguments['work_queue_item_id']),
+                )
+            elif selected.code == 'atribuir_consolidacao':
+                target = ProposalTarget(
+                    kind='consolidacao',
+                    id=uuid.UUID(selected.arguments['consolidacao_id']),
                 )
             else:
                 target = ProposalTarget(

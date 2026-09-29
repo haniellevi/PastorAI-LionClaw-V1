@@ -53,6 +53,10 @@ jobs:
       # Postgres descartavel efemero (loopback literal do runner). Nunca DEV/PROD.
       RLS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/rls_disposable
       S3_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/s3_migration_exact_test
+      V3_TURN_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_consolidation_test
+      V3_DELIVERY_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_delivery_test
+      V3_WORKFLOW_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_workflow_test
+      V3_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_migration_exact_test
       V2B_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v2b_migration_exact_test
 
     defaults:
@@ -103,6 +107,10 @@ jobs:
           with engine.connect() as connection:
               connection.exec_driver_sql("CREATE DATABASE s3_migration_exact_test")
               connection.exec_driver_sql("CREATE DATABASE v2b_migration_exact_test")
+              connection.exec_driver_sql("CREATE DATABASE v3_migration_exact_test")
+              connection.exec_driver_sql("CREATE DATABASE v3_workflow_test")
+              connection.exec_driver_sql("CREATE DATABASE v3_delivery_test")
+              connection.exec_driver_sql("CREATE DATABASE v3_consolidation_test")
           engine.dispose()
           PY
 

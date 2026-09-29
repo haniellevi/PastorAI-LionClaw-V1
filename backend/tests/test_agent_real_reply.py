@@ -1038,7 +1038,14 @@ class _HandoffSession:
                 assert "agent_action_proposals.igreja_id" in sql
                 assert "agent_action_proposals.actor_pessoa_id" in sql
                 assert self.conversation.igreja_id in values and self.pessoa.id in values
-                assert "configurar_lembrete_agenda" in values
+                assert any(
+                    isinstance(value, (list, tuple))
+                    and set(value) == {
+                        "configurar_lembrete_agenda",
+                        "configurar_lembrete_consolidacao",
+                    }
+                    for value in values
+                )
                 self.reminder_proposal_updates += 1
             else:
                 _assert_proposal_handoff_update(

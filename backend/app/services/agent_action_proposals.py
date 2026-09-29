@@ -39,6 +39,9 @@ class AgentAction(StrEnum):
     MARCAR_PRESENCA = "marcar_presenca"
     ENVIAR_RELATORIO_CELULA = "enviar_relatorio_celula"
     CONFIGURAR_LEMBRETE_AGENDA = "configurar_lembrete_agenda"
+    MARCAR_FONOVISITA_FEITA = "marcar_fonovisita_feita"
+    ATRIBUIR_CONSOLIDACAO = "atribuir_consolidacao"
+    CONFIGURAR_LEMBRETE_CONSOLIDACAO = "configurar_lembrete_consolidacao"
 
 
 class ProposalDisposition(StrEnum):
@@ -88,7 +91,13 @@ class ProposalTarget:
     id: uuid.UUID
 
     def __post_init__(self) -> None:
-        if self.kind not in {"pessoa", "reuniao", "evento"} or type(self.id) is not uuid.UUID or self.id.int == 0:
+        if self.kind not in {
+            "pessoa",
+            "reuniao",
+            "evento",
+            "consolidacao",
+            "pendencia_consolidacao",
+        } or type(self.id) is not uuid.UUID or self.id.int == 0:
             raise ProposalContractError("alvo inválido")
 
 
@@ -121,6 +130,9 @@ class ActionEffect:
             "Registro confirmado.",
             "Relatório confirmado.",
             "Lembrete confirmado.",
+            "Fonovisita confirmada.",
+            "Consolidação atribuída.",
+            "Lembretes de consolidação ativados.",
         }:
             raise ProposalContractError("recibo inválido")
 
@@ -194,6 +206,12 @@ def _canonical_term_version(value: object) -> str:
     return value
 
 
+def _canonical_assignment_revision(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= 9_223_372_036_854_775_807:
+        raise ProposalContractError("revisão de atribuição inválida")
+    return value
+
+
 def canonical_action_arguments(
     action: AgentAction,
     target: ProposalTarget,
@@ -262,6 +280,58 @@ def canonical_action_arguments(
         return {
             "event_id": event_id,
             "occurrence_at": _canonical_utc_occurrence(arguments["occurrence_at"]),
+            "term_version": _canonical_term_version(arguments["term_version"]),
+        }
+    if action is AgentAction.MARCAR_FONOVISITA_FEITA:
+        if target.kind != "pendencia_consolidacao" or set(arguments) != {
+            "work_queue_item_id",
+            "consolidacao_id",
+            "assignment_revision",
+        }:
+            raise ProposalContractError("argumentos inválidos")
+        work_queue_item_id = _canonical_uuid(
+            arguments["work_queue_item_id"], field="work_queue_item_id"
+        )
+        if work_queue_item_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
+        return {
+            "assignment_revision": _canonical_assignment_revision(
+                arguments["assignment_revision"]
+            ),
+            "consolidacao_id": _canonical_uuid(
+                arguments["consolidacao_id"], field="consolidacao_id"
+            ),
+            "work_queue_item_id": work_queue_item_id,
+        }
+    if action is AgentAction.ATRIBUIR_CONSOLIDACAO:
+        if target.kind != "consolidacao" or set(arguments) != {
+            "consolidacao_id",
+            "responsavel_id",
+            "assignment_revision",
+        }:
+            raise ProposalContractError("argumentos inválidos")
+        consolidacao_id = _canonical_uuid(
+            arguments["consolidacao_id"], field="consolidacao_id"
+        )
+        if consolidacao_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
+        return {
+            "assignment_revision": _canonical_assignment_revision(
+                arguments["assignment_revision"]
+            ),
+            "consolidacao_id": consolidacao_id,
+            "responsavel_id": _canonical_uuid(
+                arguments["responsavel_id"], field="responsavel_id"
+            ),
+        }
+    if action is AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO:
+        if target.kind != "pessoa" or set(arguments) != {"pessoa_id", "term_version"}:
+            raise ProposalContractError("argumentos inválidos")
+        pessoa_id = _canonical_uuid(arguments["pessoa_id"], field="pessoa_id")
+        if pessoa_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
+        return {
+            "pessoa_id": pessoa_id,
             "term_version": _canonical_term_version(arguments["term_version"]),
         }
     raise ProposalContractError("ação inválida")
@@ -487,6 +557,41 @@ def prepare_action_proposal(
             summary=summary,
         ):
             raise ProposalContractError("lembrete da agenda inelegível")
+    if action is AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO:
+        from app.services.agent_privilege_catalog import (
+            consolidation_reminder_arguments_authorized,
+        )
+
+        if not consolidation_reminder_arguments_authorized(
+            session,
+            context=context,
+            target=target,
+            arguments=canonical_arguments,
+            summary=summary,
+        ):
+            raise ProposalContractError("lembrete de consolidação inelegível")
+    if action is AgentAction.MARCAR_FONOVISITA_FEITA:
+        from app.services.agent_privilege_catalog import fonovisita_arguments_authorized
+
+        if not fonovisita_arguments_authorized(
+            session,
+            context=context,
+            target=target,
+            arguments=canonical_arguments,
+            summary=summary,
+        ):
+            raise ProposalContractError("ação de consolidação inelegível")
+    if action is AgentAction.ATRIBUIR_CONSOLIDACAO:
+        from app.services.agent_privilege_catalog import assignment_arguments_authorized
+
+        if not assignment_arguments_authorized(
+            session,
+            context=context,
+            target=target,
+            arguments=canonical_arguments,
+            summary=summary,
+        ):
+            raise ProposalContractError("ação de consolidação inelegível")
     if summary_message_id is not None:
         staged_summary = session.execute(
             select(Message)
@@ -679,6 +784,9 @@ def _require_receipt_text(value: object) -> str:
         "Registro confirmado.",
         "Relatório confirmado.",
         "Lembrete confirmado.",
+        "Fonovisita confirmada.",
+        "Consolidação atribuída.",
+        "Lembretes de consolidação ativados.",
     }:
         raise ProposalContractError("recibo inválido")
     return value
@@ -1008,6 +1116,11 @@ def _new_receipt(
         AgentAction.MARCAR_PRESENCA.value: "Registro confirmado.",
         AgentAction.ENVIAR_RELATORIO_CELULA.value: "Relatório confirmado.",
         AgentAction.CONFIGURAR_LEMBRETE_AGENDA.value: "Lembrete confirmado.",
+        AgentAction.MARCAR_FONOVISITA_FEITA.value: "Fonovisita confirmada.",
+        AgentAction.ATRIBUIR_CONSOLIDACAO.value: "Consolidação atribuída.",
+        AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO.value: (
+            "Lembretes de consolidação ativados."
+        ),
     }.get(proposal.action)
     if receipt_text != expected_receipt:
         raise ProposalContractError("recibo inválido")

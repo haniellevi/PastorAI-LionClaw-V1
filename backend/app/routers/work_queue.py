@@ -42,6 +42,7 @@ from app.domain.work_queue import (
     resolvable_tipos,
 )
 from app.routers._common import Page, PaginationParams
+from app.services.consolidation_workflow import assign_consolidacao
 
 logger = logging.getLogger("pastorai.work_queue")
 
@@ -202,6 +203,41 @@ def act_on_item(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="responsavelId é obrigatório para assign",
             )
+
+    candidate = _get_item_in_scope(db, item_id, current_user)
+    if getattr(candidate, "consolidacao_id", None) is not None:
+        if not can_resolve(current_user.roles, candidate.tipo):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você não pode resolver itens deste tipo",
+            )
+        target_id = (
+            uuid.UUID(payload.responsavelId)
+            if payload.action == "assign"
+            else uuid.UUID(current_user.app_user_id)
+        )
+        result = assign_consolidacao(
+            db,
+            current_user,
+            consolidacao_id=candidate.consolidacao_id,
+            responsavel_id=target_id,
+            expected_assignment_revision=None,
+            whatsapp=False,
+            expected_work_queue_item_id=candidate.id,
+            work_queue_action=payload.action,
+        )
+        item = next((row for row in result.work_items if row.id == candidate.id), None)
+        if item is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item não encontrado",
+            )
+        db.commit()
+        return ActionResponse(
+            status=item.status or "aberto",
+            itemId=str(item.id),
+            responsavelId=str(item.responsavel_id) if item.responsavel_id else None,
+        )
 
     item = _get_item_for_update(db, item_id, current_user)
 
@@ -589,6 +625,24 @@ def _get_item_for_update(
             _work_item_scope_condition(db, current_user),
         )
         .with_for_update()
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item não encontrado"
+        )
+    return item
+
+
+def _get_item_in_scope(
+    db: Session, item_id: str, current_user: CurrentUser
+) -> WorkQueueItem:
+    """Read a candidate before the workflow takes its canonical lock order."""
+
+    item = db.execute(
+        select(WorkQueueItem).where(
+            WorkQueueItem.id == _parse_uuid(item_id),
+            _work_item_scope_condition(db, current_user),
+        )
     ).scalar_one_or_none()
     if item is None:
         raise HTTPException(

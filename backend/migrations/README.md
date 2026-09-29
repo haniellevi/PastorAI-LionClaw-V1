@@ -112,7 +112,34 @@ detalha o corte e o rollback: fechar gates, preservar históricos e não
 reativar consumo legado automaticamente. Migration/deploy/ativação continuam
 com gates próprios; flags vazias e releases None não autorizam envio.
 
-SHA256 do SQL atual: `a1f875032252262c77924ea18f2ad1fed7530f48cdc4d92644a4c629b6b887c3`.
-O SQL executável permanece igual ao snapshot `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`; apenas o comentário de rollback mudou.
+SHA256 do SQL V2b atual: `a1f875032252262c77924ea18f2ad1fed7530f48cdc4d92644a4c629b6b887c3`.
+O SQL executável é igual ao snapshot `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`; apenas o comentário de rollback mudou.
 Prova SQL local histórica: PostgreSQL 17 sintético, reaplicação real e RLS sob
-`authenticated` sem BYPASSRLS no snapshot anterior. O head final requer CI PG/RLS próprio. Isso não prova aplicação compartilhada.
+`authenticated` sem BYPASSRLS no snapshot anterior. A prova histórica não atesta aplicação compartilhada.
+
+## V3: consolidação pelo WhatsApp (candidata)
+
+`20260928_080000_whatsapp_consolidation_v3.sql` depende de S3 e V2b.
+Acrescenta origem exata da decisão, revisão de atribuição e vínculo canônico
+entre consolidação e tarefa; cada nova consolidação recebe uma fonovisita,
+sem backfill das anteriores. A outbox ganha três finalidades V3, mantendo
+unicidade por tenant, destinatário, ocorrência e finalidade. Para fonovisita,
+o pai é derivado exclusivamente da tarefa, sem referência redundante na outbox.
+
+A nova `consolidation_whatsapp_activation` tem RLS/FORCE RLS e acesso somente
+worker SELECT/INSERT/UPDATE, sem DELETE ou linhas inseridas pela migration.
+O corte permanece durante a época aberta e no fechamento; somente a reabertura
+observada pode avançá-lo. Nenhuma alteração autoriza alertas retroativos.
+
+`lock_timeout='2s'` limita espera por locks. O rollback comentado preserva
+recibos, terminais e ambiguidades. Na futura release, drenar processos antigos,
+aplicar a migration V3 e passar pela pré-verificação somente de leitura do
+[runbook V3](../../docs/ops/v3-consolidacao-20260928/README.md), incluindo
+inventário e decisão humana registrada para identidades LID legadas, **antes** de
+publicar ou reiniciar backend e workers novos. As cinco colunas e a tabela de
+ativação são usadas por caminhos sem guarda V3; inverter a ordem pode causar
+erros 42703/42P01 mesmo com flags fechadas. Falha ou resultado inconclusivo exige
+PARAR e manter os binários antigos. Aplicação, deploy e ativação conservam gates
+próprios. Flags vazias e release `None` continuam inertes.
+A evidência e o hash do candidato constam no
+[registro V3](../../docs/ops/v3-consolidacao-20260928/README.md).

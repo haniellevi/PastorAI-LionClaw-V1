@@ -480,3 +480,88 @@ def test_tick_threads_progress_callback_through_all_long_phases(monkeypatch) -> 
     worker.tick(now=_T0)
 
     assert callbacks == [worker._record_progress, worker._record_progress]  # noqa: SLF001
+
+
+def test_reminder_cycle_runs_v3_producer_before_the_shared_dispatch(monkeypatch) -> None:
+    import app.workers.cron_worker as worker_module
+
+    calls: list[str] = []
+
+    class _Evolution:
+        def __enter__(self):
+            calls.append("provider_enter")
+            return object()
+
+        def __exit__(self, *_args):
+            calls.append("provider_exit")
+
+    monkeypatch.setattr(
+        worker_module,
+        "purge_expired_cell_report_state",
+        lambda *_args, **_kwargs: calls.append("purge") or 2,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "schedule_due_cell_report_notification_outbox",
+        lambda *_args, **_kwargs: calls.append("cell_schedule") or 3,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "schedule_due_consolidation_notification_outbox",
+        lambda *_args, **_kwargs: calls.append("v3_schedule") or 4,
+    )
+    monkeypatch.setattr(worker_module, "EvolutionClient", _Evolution)
+    monkeypatch.setattr(
+        worker_module,
+        "dispatch_notification_outbox",
+        lambda *_args, **_kwargs: calls.append("dispatch") or 5,
+    )
+    worker = CronWorker(
+        session_factory=lambda: object(), engine=FakeEngine(), tick_seconds=300
+    )
+
+    assert worker._run_cell_report_reminder_cycle(now=_T0) == (2, 3, 5)  # noqa: SLF001
+    assert calls == [
+        "purge",
+        "cell_schedule",
+        "v3_schedule",
+        "provider_enter",
+        "dispatch",
+        "provider_exit",
+    ]
+
+
+def test_reminder_cycle_keeps_shared_dispatch_after_a_v3_producer_failure(monkeypatch) -> None:
+    import app.workers.cron_worker as worker_module
+
+    calls: list[str] = []
+
+    class _Evolution:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(worker_module, "purge_expired_cell_report_state", lambda *_a, **_k: 0)
+    monkeypatch.setattr(
+        worker_module, "schedule_due_cell_report_notification_outbox", lambda *_a, **_k: 0
+    )
+
+    def fail_v3(*_args, **_kwargs):
+        calls.append("v3_schedule")
+        raise RuntimeError("synthetic V3 producer failure")
+
+    monkeypatch.setattr(worker_module, "schedule_due_consolidation_notification_outbox", fail_v3)
+    monkeypatch.setattr(worker_module, "EvolutionClient", _Evolution)
+    monkeypatch.setattr(
+        worker_module,
+        "dispatch_notification_outbox",
+        lambda *_args, **_kwargs: calls.append("dispatch") or 1,
+    )
+    worker = CronWorker(
+        session_factory=lambda: object(), engine=FakeEngine(), tick_seconds=300
+    )
+
+    assert worker._run_cell_report_reminder_cycle(now=_T0) == (0, 0, 1)  # noqa: SLF001
+    assert calls == ["v3_schedule", "dispatch"]

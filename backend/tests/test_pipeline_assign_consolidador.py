@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Consolidacao
+from app.db.models import AppUser, Consolidacao, WorkQueueItem
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 
@@ -22,11 +22,15 @@ _CONSOLIDACAO_ID = "00000000-0000-0000-0000-0000000000c1"
 
 
 class _Result:
-    def __init__(self, scalar=None) -> None:
+    def __init__(self, scalar=None, scalars=()) -> None:
         self._scalar = scalar
+        self._scalars = list(scalars)
 
     def scalar_one_or_none(self):
         return self._scalar
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: list(self._scalars))
 
 
 def _compiled(statement) -> str:
@@ -75,7 +79,10 @@ class AssignSession:
                 and row.status not in (None, "ativo")
             ):
                 row = None
-            return _Result(row)
+            return _Result(row.id if row is not None else None)
+
+        if entity is WorkQueueItem:
+            return _Result(scalars=())
 
         raise AssertionError(f"consulta inesperada: {sql}")
 
@@ -97,6 +104,9 @@ def _consolidacao(*, igreja_id=_IGREJA_ID):
         id=uuid.UUID(_CONSOLIDACAO_ID),
         igreja_id=uuid.UUID(igreja_id),
         responsavel_id=None,
+        assignment_revision=0,
+        concluida=False,
+        abandonada_em=None,
     )
 
 
