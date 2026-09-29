@@ -65,6 +65,7 @@ fi
 export PASTORAI_ENV_FILE="$configuration"
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
+candidate_configuration_needed=0
 
 check_compose_gates() {
   docker compose config --format json | python3 -c '
@@ -133,22 +134,28 @@ except Exception:
 
 cleanup() {
   local status=$?
-  if [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
+  if (( ! candidate_configuration_needed )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
     rm -f -- "$candidate/deploy/$configuration"
   fi
   rm -f -- "$active_link.next.$$"
   exit "$status"
 }
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
 rollback() {
-  local original_status=$? previous_migrations
+  local original_status=${1:-$?} previous_migrations
   trap - ERR
+  trap '' INT TERM
+  if [[ "$(readlink -f -- "$active_link")" == "$candidate" ]]; then
+    echo "release already activated; preserve healthy active containers and configuration" >&2
+    exit "$original_status"
+  fi
   if (( restart_started )); then
     # Stop first: a rejected rollback must never leave candidate workers running.
-    docker compose stop "${services[@]}" || { echo "containment failed; human intervention required" >&2; exit "$original_status"; }
+    docker compose stop "${services[@]}" || {
+      candidate_configuration_needed=1
+      echo "containment failed; preserve candidate configuration for human recovery" >&2
+      exit "$original_status"
+    }
     cd -- "$active/deploy"
     if [[ ! -f check_backend_schema.py ]] ||
        ! previous_migrations=$(migration_manifest "$active/backend"); then
@@ -171,6 +178,8 @@ rollback() {
   exit "$original_status"
 }
 trap rollback ERR
+trap 'rollback 130' INT
+trap 'rollback 143' TERM
 
 # Keep secrets on the VPS; never include them in the Git archive or logs.
 cp -p -- "$active/deploy/$configuration" "$candidate/deploy/$configuration"

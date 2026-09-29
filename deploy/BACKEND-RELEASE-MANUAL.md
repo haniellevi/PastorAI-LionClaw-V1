@@ -270,7 +270,12 @@ antiga. Isso não concede autorização de dispatch ou substitui revisão do SHA
 Tarball do runner é removido mesmo com falha posterior; tarball remoto tem trap
 EXIT no comando de extração/release. Candidato existente é recusado. O script
 recusa alias/symlink de candidato e configuração candidata preexistente; limpa
-sua cópia privada em falha/INT/TERM e preserva a configuração do ativo. Em sucesso,
+sua cópia privada após contenção confirmada e preserva a configuração do ativo.
+INT/TERM durante o restart passam pela contenção e pelo rollback, preservando
+o código de saída do sinal. Se a parada dos serviços falhar, a configuração
+candidata permanece restrita para recuperação humana; não removê-la enquanto
+os processos puderem estar ativos. Sinal posterior à promoção do symlink
+preserva o release já verificado e sua configuração. Em sucesso,
 a configuração do novo ativo e a do anterior necessário ao rollback permanecem
 restritas no host. Nenhum conteúdo privado é impresso. SIGKILL, crash de host ou
 falha de transporte antes da sessão SSH não garantem traps: o operador deve

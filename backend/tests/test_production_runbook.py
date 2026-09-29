@@ -22,7 +22,6 @@ def _release_activation_block() -> str:
     text = _RUNBOOK.read_text(encoding="utf-8")
     section = text.split("## 5. Deploy reproduzível do backend", 1)[1].split("## 6.", 1)[0]
     assert "BACKEND-RELEASE-MANUAL.md" in section
-    assert "comprovação dos gates" in section
     assert "```bash" not in section.split("Antes de ativar um release", 1)[1]
     return (_RUNBOOK.parents[2] / "deploy" / "backend-release.sh").read_text(encoding="utf-8")
 

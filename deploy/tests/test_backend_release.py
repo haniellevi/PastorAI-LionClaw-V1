@@ -69,8 +69,13 @@ case "$*" in
     if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
   'compose run '*) exit "${ROLLBACK_PREFLIGHT_EXIT:-0}" ;;
+  'compose stop '*) exit "${STOP_EXIT:-0}" ;;
   'compose start '*)
-    if [ "$PWD" = "$NEW_DEPLOY" ]; then touch "$TRACE.candidate_up"; exit "${RESTART_EXIT:-0}"; fi
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then
+      touch "$TRACE.candidate_up"
+      if [ -n "${SIGNAL_ON_START:-}" ]; then kill -"$SIGNAL_ON_START" "$PPID"; fi
+      exit "${RESTART_EXIT:-0}"
+    fi
     exit "${ROLLBACK_RESTART_EXIT:-0}" ;;
 esac
 exit 0
@@ -151,6 +156,26 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         self.assertTrue(any("compose up --no-start " in c for c in calls))
         self.assertTrue(any("compose start " in c for c in calls))
         self.assert_inspected_before_start(self.new)
+
+    def test_interrupt_and_termination_contain_candidate_and_rollback(self):
+        for signal_name, status in (("INT", 130), ("TERM", 143)):
+            with self.subTest(signal=signal_name):
+                self.trace.write_text("")
+                result = self.run_release(SIGNAL_ON_START=signal_name)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertTrue(any(f"docker|{self.new}|compose stop " in c for c in self.calls()))
+                self.assert_inspected_before_start(self.old)
+                self.assertEqual((self.root / "current").resolve(), self.old.parent)
+                self.assertFalse((self.new / "configuration.fixture").exists())
+                self.assertTrue((self.old / "configuration.fixture").exists())
+
+    def test_failed_containment_preserves_configuration_for_recovery(self):
+        result = self.run_release(HEALTH_EXIT="1", STOP_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("containment failed", result.stderr)
+        self.assertTrue((self.new / "configuration.fixture").exists())
+        self.assertTrue((self.old / "configuration.fixture").exists())
+        self.assertFalse(any(f"docker|{self.old}|compose start " in c for c in self.calls()))
 
     def assert_inspected_before_start(self, directory):
         calls = self.calls()
