@@ -50,8 +50,10 @@ CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 ```
 
 - `ALLOW_REAL_SENDS=false` bloqueia efeitos externos, mas o cron pode cancelar
-  definitivamente pendências de `notification_outbox` em lotes; ao reabrir,
-  V3 cria nova época e não reagenda consolidações anteriores. Em produção,
+  definitivamente pendências de `notification_outbox` em lotes. Somente após
+  o agendador V3 observar o fechamento ele grava `gate_open=false`; a
+  reabertura observada cria nova época e não reagenda consolidações anteriores.
+  Sem essa observação, pendências antigas podem voltar a ficar elegíveis. Em produção,
   conexão Evolution e envios Brevo retornam erro controlado. Antes de fechar
   o gate, seguir o inventário e a decisão nominal de
   [BACKEND-RELEASE-MANUAL.md](../../deploy/BACKEND-RELEASE-MANUAL.md), inclusive

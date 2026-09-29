@@ -35,16 +35,19 @@ desfaz ao reabrir (`notification_outbox.py:982-1040`, `:1472-1527`,
 | --- | --- | --- | --- |
 | `agenda_reminder` | `ALLOW_REAL_SENDS`, piloto ou agenda | Até 20 na manutenção geral | Pode enviar só se inscrição, evento e destinatário ainda forem válidos e a ocorrência ainda não tiver passado; senão fica obsoleto. |
 | `agenda_evt7` | `ALLOW_REAL_SENDS`, piloto ou agenda | Até 20 na manutenção geral | Um item ainda sem tentativa só pode iniciar transporte até 10 minutos após a primeira janela elegível; depois expira ou fica obsoleto. |
-| `consolidation_connection_open` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Fonte anterior à nova época V3 não volta ao agendador; pendência antiga é cercada como obsoleta ou cancelada. |
-| `consolidation_connection_deadline` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Mesmo reset de época; também vale prazo rígido de 24 horas da ocorrência. |
-| `consolidation_fonovisita` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Mesmo reset de época e prazo rígido de 24 horas; não há replay normal. |
+| `consolidation_connection_open` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Se o agendador observou o fechamento, fonte anterior à nova época V3 não volta ao agendador; pendência antiga é cercada como obsoleta ou cancelada. |
+| `consolidation_connection_deadline` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Sob a mesma observação, vale o reset de época e o prazo rígido de 24 horas da ocorrência. |
+| `consolidation_fonovisita` | `ALLOW_REAL_SENDS`, piloto ou gate V3 | Até 20 na manutenção geral, mais até 100 na varredura V3 | Sob a mesma observação, valem o reset de época e o prazo rígido de 24 horas; não há replay normal. |
 | `cell_report_reminder` | `ALLOW_REAL_SENDS`, piloto ou gate V1a | Até 20 na manutenção geral | Se não foi cancelado, pode enviar após reabrir enquanto reunião, líder e janela ainda forem válidos. |
 
-Ao fechar o gate global, V3 grava `gate_open=false`. A reabertura grava
-`activated_at` novo: consolidações e tarefas criadas antes dessa época não
-voltam ao agendamento (`notification_outbox.py:2650-2688`, `:2883`,
-`:2513-2521`, `:3333-3340`; `consolidation_whatsapp.py:93`). Reconstruir avisos V3
-pré-janela pelo agendador normal não funciona. Qualquer correção desses casos
+O agendador V3 grava `gate_open=false` somente quando observa o gate fechado
+com sucesso. Após observar a reabertura, grava `activated_at` novo:
+consolidações e tarefas criadas antes dessa época não voltam ao agendamento
+(`notification_outbox.py:2633-2688`, `:2883`, `:2513-2521`, `:2999-3028`,
+`:3333-3340`; `consolidation_whatsapp.py:93`). Se o agendador não observar o
+fechamento, a época anterior permanece e pendências V3 podem voltar a ficar
+elegíveis. Reconstruir avisos V3 pré-janela pelo agendador normal não funciona
+quando houve reset de época. Qualquer correção desses casos
 exige plano próprio, SQL versionado e revisado, verificação posterior e
 autorização de banco/envio separadas; este workflow não executa essa correção.
 O `agenda_evt7` tem prazo de dez minutos após a primeira janela elegível
@@ -87,7 +90,12 @@ Sequência obrigatória para um release futuro, sempre com autorizações própr
    qualquer outro gate aberto, atualizar os quatro serviços e comprovar que o
    Compose resolvido e os processos ativos têm os quatro valores fechados.
    Enquanto `ALLOW_REAL_SENDS=false`, a Filadélfia não envia mensagens reais;
-   registrar a interrupção e os efeitos por finalidade da tabela acima.
+   registrar a interrupção e os efeitos por finalidade da tabela acima. Após o
+   cron executar, exigir consulta read-only aprovada, posterior ao fechamento,
+   que comprove `consolidation_whatsapp_activation.gate_open=false` para cada
+   igreja V3 alvo. Registrar horário, igreja e resultado. Ausência de linha,
+   erro do agendador ou marcador ainda aberto não comprovam fechamento:
+   manter os gates fechados e escalar, sem avançar ao deploy ou à reabertura.
 3. Concluir os gates de banco e dados do runbook único, obter autorização de
    deploy para o SHA exato e só então disparar o workflow manual. Falha no
    preflight interrompe o release antes de build ou restart.
@@ -96,7 +104,9 @@ Sequência obrigatória para um release futuro, sempre com autorizações própr
    retomada do piloto e registrar o resultado. Antes de reabrir, inventariar
    itens cancelados, pendentes e fontes V3 anteriores à nova época. Reabrir
    não recupera cancelados; somente algumas finalidades pendentes ainda podem
-   enviar, conforme a tabela. Executar o plano de tratamento sob autorização
+   enviar, conforme a tabela. Reconfirmar a prova read-only de
+   `gate_open=false` por igreja V3 alvo; inventário de outbox não substitui
+   esse marcador. Executar o plano de tratamento sob autorização
    própria. Se a reabertura não ocorrer, manter o release como incompleto e
    avisar o responsável: o piloto seguirá sem envios reais.
 
