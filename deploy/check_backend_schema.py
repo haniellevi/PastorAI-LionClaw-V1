@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import json
+import re
 import sys
 
 from sqlalchemy import create_engine
@@ -91,6 +93,23 @@ def main() -> int:
         print("schema preflight failed: DATABASE_URL unavailable", file=sys.stderr)
         return 1
 
+    try:
+        expected_migrations = json.loads(os.environ["EXPECTED_MIGRATIONS"])
+        if (
+            not isinstance(expected_migrations, list)
+            or not expected_migrations
+            or len(expected_migrations) != len(set(expected_migrations))
+            or not all(
+                isinstance(name, str)
+                and re.fullmatch(r"[A-Za-z0-9_]+\.sql", name)
+                for name in expected_migrations
+            )
+        ):
+            raise ValueError("invalid migration manifest")
+    except (KeyError, TypeError, ValueError):
+        print("schema preflight failed: candidate migration manifest unavailable", file=sys.stderr)
+        return 1
+
     engine = None
     try:
         engine = create_engine(
@@ -99,6 +118,12 @@ def main() -> int:
         with engine.connect() as connection:
             connection.exec_driver_sql("SET TRANSACTION READ ONLY")
             connection.exec_driver_sql("SET LOCAL statement_timeout = '5s'")
+            applied_migrations = {
+                row[0]
+                for row in connection.exec_driver_sql(
+                    "SELECT name FROM public.schema_migrations"
+                ).all()
+            }
             missing = connection.exec_driver_sql(
                 """
                 WITH required(table_name, column_name) AS (
@@ -158,6 +183,11 @@ def main() -> int:
                 file=sys.stderr,
             )
         return 1
+    missing_migrations = sorted(set(expected_migrations) - applied_migrations)
+    if missing_migrations:
+        for name in missing_migrations:
+            print(f"schema preflight failed: migration not applied: {name}", file=sys.stderr)
+        return 1
     if activation_safe is not True:
         print("schema preflight failed: V3 activation RLS/ACL contract", file=sys.stderr)
         return 1
@@ -169,7 +199,10 @@ def main() -> int:
     if len(policies) != 3 or actual_policies != ACTIVATION_POLICIES:
         print("schema preflight failed: V3 activation policy contract", file=sys.stderr)
         return 1
-    print("schema preflight OK: V2b/V3 columns and V3 activation RLS/ACL/policies")
+    print(
+        "schema preflight OK: candidate migration ledger, V2b/V3 columns "
+        "and V3 activation RLS/ACL/policies"
+    )
     return 0
 
 

@@ -3,8 +3,26 @@
 set -Eeuo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Use the candidate's own migration selection rule. A missing ledger entry
+# blocks the release even when /health and /ready would still answer 200.
+expected_migrations=$(python3 - "$script_dir/../backend" <<'PY'
+import json
+from pathlib import Path
+import runpy
+import sys
+
+backend = Path(sys.argv[1]).resolve()
+files = runpy.run_path(str(backend / "scripts/migrate.py"))["migration_files"](
+    backend / "migrations"
+)
+if not files:
+    raise SystemExit("candidate has no active migration files")
+print(json.dumps(files, separators=(",", ":")))
+PY
+)
 if [[ "${1:-}" == "--dry-run" ]]; then
-  "${BACKEND_RELEASE_PYTHON:-python3}" "$script_dir/check_backend_schema.py"
+  EXPECTED_MIGRATIONS="$expected_migrations" \
+    "${BACKEND_RELEASE_PYTHON:-python3}" "$script_dir/check_backend_schema.py"
   echo "dry-run OK: schema ready; build and restart were not run"
   exit 0
 fi
@@ -108,12 +126,13 @@ docker compose config --quiet
 check_compose_gates
 
 # The current backend container has the database driver and live DATABASE_URL.
-# The candidate checker is piped in; it only queries catalog metadata inside a
-# read-only transaction. A failure exits before build or restart.
+# The candidate checker is piped in; it queries only catalog metadata and the
+# migration ledger inside a read-only transaction. A failure exits before build.
 cd -- "$active/deploy"
 check_compose_gates
 check_external_gates
-docker compose exec -T backend python - < "$candidate/deploy/check_backend_schema.py"
+docker compose exec -T -e "EXPECTED_MIGRATIONS=$expected_migrations" backend python - \
+  < "$candidate/deploy/check_backend_schema.py"
 
 cd -- "$candidate/deploy"
 docker compose build backend

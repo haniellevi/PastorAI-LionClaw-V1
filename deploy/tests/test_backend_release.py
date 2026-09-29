@@ -48,7 +48,7 @@ case "$*" in
 esac
 printf 'docker|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
 case "$*" in
-  'compose exec -T backend python -') exit "${PREFLIGHT_EXIT:-0}" ;;
+  'compose exec -T -e EXPECTED_MIGRATIONS='*' backend python -') exit "${PREFLIGHT_EXIT:-0}" ;;
   'compose build backend')
     if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
@@ -121,7 +121,8 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
             [call.rsplit("|", 1)[-1] for call in self.calls()[3:7]],
             ["backend", "queue-worker", "cron-worker", "broadcast-worker"],
         )
-        self.assertIn("compose exec -T backend python -", self.calls()[-1])
+        self.assertIn("compose exec -T -e EXPECTED_MIGRATIONS=", self.calls()[-1])
+        self.assertIn(" backend python -", self.calls()[-1])
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
 
     def test_open_external_gate_stops_before_schema_or_build(self) -> None:

@@ -16,6 +16,9 @@ CHECKER = Path(__file__).resolve().parents[1] / "backend-release.sh"
 REQUIRED_COLUMNS = runpy.run_path(
     str(CHECKER.parent / "check_backend_schema.py")
 )["REQUIRED_COLUMNS"]
+MIGRATIONS = runpy.run_path(
+    str(CHECKER.parent.parent / "backend/scripts/migrate.py")
+)["migration_files"](CHECKER.parent.parent / "backend/migrations")
 TENANT_PREDICATE = """
 igreja_id = public.current_igreja_id()
 and nullif(coalesce(
@@ -26,6 +29,10 @@ and nullif(coalesce(
 
 
 def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
+    # Independent sentinels catch a removed REQUIRED_COLUMNS entry.
+    assert ("igrejas", "notification_outbox_cutover_at") in REQUIRED_COLUMNS
+    assert ("consolidacoes", "assignment_revision") in REQUIRED_COLUMNS
+    assert "20260927_120000_church_cell_public_data.sql" in MIGRATIONS
     source = make_url(os.environ["BACKEND_RELEASE_TEST_DATABASE_URL"])
     if source.host not in ("127.0.0.1", "localhost") or source.database != "rls_disposable":
         raise AssertionError("PG17 release test requires the disposable CI database")
@@ -49,6 +56,13 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
             for table_name, column_name in REQUIRED_COLUMNS:
                 columns_by_table.setdefault(table_name, []).append(column_name)
             with target.begin() as connection:
+                connection.execute(
+                    text("CREATE TABLE public.schema_migrations (name text PRIMARY KEY)")
+                )
+                connection.execute(
+                    text("INSERT INTO public.schema_migrations (name) VALUES (:name)"),
+                    [{"name": name} for name in MIGRATIONS],
+                )
                 for table_name, columns in columns_by_table.items():
                     definitions = ", ".join(
                         f'"{column}" '
@@ -121,6 +135,23 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
             complete = dry_run()
             assert complete.returncode == 0, complete.stderr
             assert "dry-run OK" in complete.stdout
+
+            with target.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM public.schema_migrations WHERE name = :name"),
+                    {"name": "20260927_120000_church_cell_public_data.sql"},
+                )
+            missing_migration = dry_run()
+            assert missing_migration.returncode != 0
+            assert (
+                "migration not applied: 20260927_120000_church_cell_public_data.sql"
+                in missing_migration.stderr
+            )
+            with target.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO public.schema_migrations (name) VALUES (:name)"),
+                    {"name": "20260927_120000_church_cell_public_data.sql"},
+                )
 
             for table_name, column_name in (
                 ("igrejas", "notification_outbox_cutover_at"),
