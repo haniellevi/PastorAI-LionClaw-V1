@@ -1,6 +1,6 @@
 # V1b: relatório de célula por áudio
 
-Candidato implementado e validado localmente sobre `a8bf21da8d57493564d59f9923eca3ffbbc90a9c`, em `feat/whatsapp-cell-report-audio`. PR430 permanece congelado. [Plano aprovado](../mvp-v1-relatorio-celula-whatsapp-plano.md) e [matriz de aceite](ACCEPTANCE.md).
+Implementação inicial validada sobre `a8bf21da8d57493564d59f9923eca3ffbbc90a9c`, em `feat/whatsapp-cell-report-audio`. Em 28/09, a PR foi retargetada para `main` e atualizada sobre o merge da PR430, `a2b4d19e7d2ad37f3191624371a839f59bd4680f`; as provas históricas abaixo continuam vinculadas aos respectivos candidatos. [Plano aprovado](../mvp-v1-relatorio-celula-whatsapp-plano.md) e [matriz de aceite](ACCEPTANCE.md).
 
 ## Contrato aprovado
 
@@ -24,7 +24,7 @@ O timeout HTTPX do upload é por fase, sem garantia de interrupção física glo
 
 ## Entrega e gates
 
-`CELL_REPORT_AUDIO_APPROVED_RELEASE_ID=None` e `CELL_REPORT_AUDIO_ENABLED_IGREJA_IDS` vazia mantêm áudio inerte, cumulativamente com os gates da V1a e S3. Colocar somente uma igreja na variável de ambiente não ativa o fluxo. Migration nova, deploy, ativação e merge exigem gates próprios. A PR é empilhada sobre a V1a; uma mudança de base exige nova conferência dos hashes e testes.
+`CELL_REPORT_AUDIO_APPROVED_RELEASE_ID=None` e `CELL_REPORT_AUDIO_ENABLED_IGREJA_IDS` vazia mantêm áudio inerte, cumulativamente com os gates da V1a e S3. Colocar somente uma igreja na variável de ambiente não ativa o fluxo. Migration nova, deploy, ativação e merge exigem gates próprios. A PR agora tem base `main`, que contém a V1a; a atualização exige nova conferência dos hashes, testes e revisão Sarah após resolução documental manual.
 
 A [observação Sarah sobre `pg_get_expr`](../v1a-cell-report-20260927/README.md) foi registrada somente nesta branch: o SQL430 foi preservado. A comparação textual foi exercitada em PG17; outra representação pode abortar de forma segura e requer replay antes de adoção.
 

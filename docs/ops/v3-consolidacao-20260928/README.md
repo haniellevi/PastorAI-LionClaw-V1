@@ -1,6 +1,6 @@
 # V3: consolidação pelo WhatsApp
 
-Fatia autorizada sobre PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`, preservado congelado. O [plano aprovado](../mvp-v3-consolidacao-whatsapp-plano.md) e a [matriz de QA](QA-PLAN.md) definem o contrato. O candidato foi validado localmente no commit de código `db3a4b8f136c6ca9f802b4dd494e806027f485a4`; CI e revisão humana continuam gates separados.
+Fatia originalmente autorizada sobre PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`. Após o merge #435, a PR #436 foi retargetada para `main@8c6cc3cdb0fda0938edd43dd6988763c79872f8d`; a composição exige CI e nova revisão Sarah. O [plano aprovado](../mvp-v3-consolidacao-whatsapp-plano.md) e a [matriz de QA](QA-PLAN.md) definem o contrato. A validação local no commit de código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` é histórica e não atesta a composição atual.
 
 ## Domínio e confirmação
 
@@ -66,13 +66,13 @@ A prova local exercita aplicação e reaplicação do SQL candidato em PostgreSQ
 | Entrega V3 pelo dispatcher comum, incluída na RLS | 25 passaram; repetidos na revisão independente |
 | Migration literal, incluída na RLS | 15 passaram; repetidos na revisão independente |
 
-[Resultados sanitizados](VALIDATION.json) e [39 pós-imagens verificadas](SOURCE-SNAPSHOT.json) vinculam a rodada ao commit de código. O [parecer independente final](REVIEW-FINAL-V3-INTEGRATED-ROUTING.md) foi emitido durante a rodada RLS, concluída depois com o resultado acima. O parecer inicial está preservado em `REVIEW.md`; os manifests intermediários estão em `review-inputs/` e o manifesto final reúne as pós-imagens após os deltas.
+[Resultados sanitizados](VALIDATION.json) registram a rodada histórica no commit `db3a4b8f`. O [manifesto de 39 pós-imagens](SOURCE-SNAPSHOT.json) identifica os arquivos de código, testes, migration e CI da composição atual; CI no head publicado ainda é necessário. O [parecer independente final anterior](REVIEW-FINAL-V3-INTEGRATED-ROUTING.md) foi emitido para o snapshot original. O parecer inicial está preservado em `REVIEW.md`; os manifests intermediários ficam em `review-inputs/`.
 
 O E2E começa na mensagem inbound persistida, atravessa worker, identidade, catálogo, roteador, confirmação e persistência reais. Gates usam configuração sintética e provedores são simulados. Essa prova não cobre HTTP de ingresso, parser ou piloto real; o parser/JID e os gates inertes têm testes focais separados. O CI do head publicado ainda precisa passar antes de encaminhar a Sarah.
 
 ## Limites de entrega
 
-Gates de V3 e notificações ficam desligados; allowlist vazia e release aprovada `None`. S3, agente ativo, piloto e envio real são cumulativos. Nenhuma execução local autoriza ativação, aplicação compartilhada, merge ou deploy. A base ainda não contém o ambiente local do PR432; não se afirma execução de `dev.sh reset` nem prova de painel/simulador nesta missão.
+Gates de V3 e notificações ficam desligados; allowlist vazia e release aprovada `None`. S3, agente ativo, piloto e envio real são cumulativos. Nenhuma execução local autoriza ativação, aplicação compartilhada, merge ou deploy. A main agora contém o ambiente local do PR432; não se afirma execução de `dev.sh reset` nem prova de painel/simulador nesta missão.
 
 Próximo gate humano: Sarah revisar código, migration e evidências do candidato exato após CI verde.
 

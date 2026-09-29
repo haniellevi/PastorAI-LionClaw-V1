@@ -1,0 +1,16 @@
+{
+  "base_sha": "c3e8fb3171682b5f2bdfa36ae153414fe73bb47a",
+  "patch_sha256": "110bd532f2307baaf87ca0af0b23a47fbb4182571782b20fad1d6ecf29c21517",
+  "recorded_at": "2026-09-28T16:25:48.691962+00:00",
+  "files": {
+    "backend/app/domain/cell_report_v1a.py": "f08c3acdf933e913e2269357e1cf06c99237d6f970e271c9b3617cbc9276e37e",
+    "backend/app/services/cell_report_finalizer.py": "82ccfcc3858b720c1b5e073e115abe5d6e8226db570ea3f4603496ac28bba34b",
+    "backend/app/services/cell_report_v1a_service.py": "df475519aeeb3c2bb5e0c0155084b0d11caa6c928dbd22486a93afca40cba11e",
+    "backend/tests/test_cell_meetings.py": "3032ebcb16c752f49f7dedbf9f9a238a362db042fc95ca8e3fff2a9c3ecfe1e9",
+    "backend/tests/test_cell_report_finalizer_v1a.py": "877ba09a49935259b6fefe3b62f9637f6dfaa4cc78dbd459e84ffa0e418cccb9",
+    "backend/tests/test_cell_report_v1a.py": "3f42790b58cab1296c456e5b26da851a499d8aacea0c0a16b82889b5d0040b37",
+    "backend/tests/test_cell_report_whatsapp_v1a.py": "6dbbda311d3a492366dd2b473fd30ae845f4cc5f18eeb1aaae1b033e27567c8a"
+  },
+  "patch_format": "git diff --binary --full-index HEAD -- <seven source/test paths>",
+  "scope": "Source and tests only; documentation excluded to avoid self-referential hashes."
+}

@@ -1,5 +1,9 @@
 # Wiki do projeto Igreja 12
 
+## Integração #435 e atualização #436, 29/09/2026
+
+#435 foi integrada à main em `8c6cc3cdb0fda0938edd43dd6988763c79872f8d`, merge commit de dois pais `87e13da` e `2b9f938`; a branch-mãe foi preservada. #436 foi retargetada explicitamente para main. A mescla local da main encontrou dois conflitos documentais e exige nova revisão Sarah do head final após CI, além de autorização nominal própria para merge. Nenhuma migration, banco, deploy ou ativação foi executada nesta atualização.
+
 ## V3: candidato de consolidação WhatsApp, 28/09/2026
 
 O [plano aprovado](ops/mvp-v3-consolidacao-whatsapp-plano.md) parte do PR435
@@ -307,8 +311,9 @@ merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`.
 
 A [fatia V2b](ops/v2b-agenda-20260927/README.md) reúne lembretes de agenda,
 avisos internos EVT-7 e lembretes V1a em uma outbox comum, com cutover sem
-replay histórico. A implementação está autorizada sobre o PR434 congelado;
-isso não atesta migration aplicada, envio real ou Agenda concluída.
+replay histórico. A implementação nasceu sobre o head V2a `58bcd1808`; #434
+já foi integrada à main e a #435 foi retargetada para `main@87e13da06`.
+Isso não atesta migration aplicada, envio real ou Agenda concluída.
 
 ## Leitura de 30 segundos
 

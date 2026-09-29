@@ -24,17 +24,18 @@ destinatário/dia, expiração fixa de 24h e locks liberados antes do HTTP.
 
 A migration aditiva/idempotente mantém RLS e grants mínimos sem DELETE;
 `lock_timeout=2s`, compensação comentada, hash `267f6197…`. Os 86 SQLs da base
-PR435 `342f0ce` seguem intactos. A classificação do domínio permanece PARCIAL.
+original PR435 `342f0ce` seguem intactos; a composição com main exige CI novo.
+A classificação do domínio permanece PARCIAL.
 
 ## Pendente / próximo passo
 
-CI do head publicado e revisão Sarah. Flags/release permanecem inertes.
+CI do head atualizado após retarget e nova revisão Sarah. Flags/release permanecem inertes.
 Sem autorização de merge, banco compartilhado, deploy ou envio real.
-A base não contém o ambiente local do PR432; não houve teste de painel/simulador.
+A main contém o ambiente local do PR432; não houve teste de painel/simulador.
 
 ## Verificação
 
-5.998 testes offline e 770 RLS passaram, zero falhas/skips, em Python3.13.14
+No snapshot histórico `db3a4b8f`, 5.998 testes offline e 770 RLS passaram, zero falhas/skips, em Python3.13.14
 e PostgreSQL17 sintético. A revisão independente repetiu 22 E2E de turno,
 25 de entrega e 15 de migration, além dos focais de modelo. O E2E começa no
 inbound persistido e usa gates sintéticos/providers falsos.

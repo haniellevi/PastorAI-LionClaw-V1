@@ -1,5 +1,5 @@
 # V3: consolidação pelo WhatsApp, proposta para aprovação
-Base: PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`; aprovado pelos conselheiros com ajuste de privacidade; implementação local autorizada.
+Base histórica do plano: PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`; aprovado pelos conselheiros com ajuste de privacidade. A PR436 foi retargetada para main após o merge #435; CI e revisão Sarah da composição continuam gates separados.
 Fontes: PRD0611 delta-052/RF-D6/RF-43/RF-46, plano MVP, S3 e outbox V2b.
 1. Objetivo: decisão confirmada abre consolidação; equipe acompanha pendências e confirma ações pelo WhatsApp.
 2. Reusar `register_decision` e o trigger canônico: visitante gera conexão em 24h; pessoa já vinculada conserva o fluxo sem esse prazo.

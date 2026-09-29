@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     supabase_anon_key: str = Field(default="")
     supabase_service_role_key: str = Field(default="")
     database_url: str = Field(default="")
+    # A pooled connection idle for at least this many seconds is pinged
+    # (SELECT 1) before reuse; a recently used one skips the ~185 ms round trip.
+    # 0 pings on every checkout (the previous pool_pre_ping=True behavior).
+    db_pool_ping_idle_seconds: float = Field(default=60.0, ge=0)
     # Dedicated, least-privilege database login used only by the agent runtime.
     # It is intentionally optional until the D2A operational gate provisions the
     # credential.  Runtime code must fail closed when it is absent and must never

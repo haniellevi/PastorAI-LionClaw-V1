@@ -18,7 +18,7 @@ Follow-up registrado após Sarah GO no head `3fbe5e3`: a allowlist de nove títu
 
 ## Pendente / próximo passo
 
-Implementação e provas locais concluídas. O [README](../ops/v2a-agenda-20260927/README.md) registra limites da projeção e da operação. Próximo gate humano: revisão Sarah do candidato final. Teste painel/simulador depende da PR432 e da disponibilidade do simulador, ainda pendente no guia consultado.
+Implementação e provas locais concluídas. O [README](../ops/v2a-agenda-20260927/README.md) registra limites da projeção e da operação. Próximo gate humano: revisão Sarah do candidato final. No preflight original, painel/simulador dependiam da #432; ela já foi integrada. A prova no painel/simulador continua pendente e depende do simulador local.
 
 ## Verificação
 

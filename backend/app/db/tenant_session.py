@@ -39,7 +39,7 @@ from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, SessionTransaction
 
-from app.db.rls import set_tenant_context_for_igreja
+from app.db.rls import ROLE_AUTHENTICATED_SQL, set_tenant_context_for_igreja
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +96,10 @@ def _apply_scope_now(session: Session, igreja_id: str) -> None:
     """Aplica o escopo na transação ATUAL, imediatamente.
 
     Reusa o primitivo low-level `set_tenant_context_for_igreja` (mesmo GUC +
-    `SET LOCAL ROLE authenticated`, com bind param). Isto cobre a transação em
-    andamento — cujo `after_begin` já pode ter disparado ANTES da marcação (logo
-    o listener não a reaplicaria). O listener cobre as transações FUTURAS
-    (leituras pós-commit).
+    papel `authenticated` numa só ida ao banco, com bind param). Isto cobre a
+    transação em andamento — cujo `after_begin` já pode ter disparado ANTES da
+    marcação (logo o listener não a reaplicaria). O listener cobre as
+    transações FUTURAS (leituras pós-commit).
     """
     set_tenant_context_for_igreja(session, igreja_id)
 
@@ -241,8 +241,9 @@ def _reapply_tenant_scope(
 
     No-op quando `session.info` não tem `TENANT_IGREJA_KEY` (sessão não-marcada
     ou cross-tenant explícito). Quando marcado, reafirma o GUC
-    `app.tenant_igreja_id` + `set local role authenticated`, ambos
-    transaction-local (`set_config is_local=true` / `SET LOCAL`).
+    `app.tenant_igreja_id` + o papel `authenticated`, ambos transaction-local
+    (`set_config(..., true)`, equivalente a `SET LOCAL ROLE`), numa única ida
+    ao banco.
 
     Usa `connection.exec_driver_sql` (NÃO `session.execute`) de propósito: emitir
     via ORM aqui reentraria no ciclo de transação (o próprio `after_begin`). O
@@ -258,10 +259,10 @@ def _reapply_tenant_scope(
         return  # no-op: sessão não-marcada ou cross-tenant explícito
 
     connection.exec_driver_sql(
-        "select set_config('app.tenant_igreja_id', %s, true)",
+        "select set_config('app.tenant_igreja_id', %s, true), "
+        f"{ROLE_AUTHENTICATED_SQL}",
         (str(igreja_id),),
     )
-    connection.exec_driver_sql("set local role authenticated")
 
 
 def register_after_begin_listener(target: Any = Session) -> None:

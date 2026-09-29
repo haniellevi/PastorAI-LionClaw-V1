@@ -553,6 +553,11 @@ begin
 end
 $rls$;
 
+-- Ordem obrigatória: aplicar esta migration ANTES de iniciar qualquer
+-- binário V2b. O binário novo lê igrejas.notification_outbox_cutover_at e
+-- events.notification_outbox_fenced_at; sem essas colunas, a confirmação de
+-- evento e o dispatcher falham. Não remover estas colunas enquanto qualquer
+-- processo com o binário V2b puder executar, inclusive no rollback de código.
 -- Rollback manual somente após fechar gates, drenar claims e preservar os
 -- recibos. Revogue grants antes de remover as relações e remova primeiro as
 -- referências da outbox; não transforme estados ambíguos em nova tentativa.

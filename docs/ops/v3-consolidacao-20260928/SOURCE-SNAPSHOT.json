@@ -1,10 +1,10 @@
 {
-  "base_sha": "342f0ced7af53d2d7e708d99e3b92d54e7a3e22c",
-  "scope": "V3 final production, migration, tests and CI postimages validated after PR436 review",
+  "base_sha": "8c6cc3cdb0fda0938edd43dd6988763c79872f8d",
+  "scope": "current V3 code, migration, tests and CI postimages after merge with main; historical local validation does not attest this composition",
   "files": {
     ".github/workflows/rls-integration.yml": "d45f2a766f83c7c5f4877553db2b5f838066835eb488f0338d5b374b8c6ce2ff",
     "backend/app/agent/privileged_turn.py": "03049ea93ed8335f6b27acc5734b78509d85dceafaa2ab3db223fc6c94b38581",
-    "backend/app/config.py": "f0ead0a4426f66d7d93c70efe054da15ffe35c78e06ac7baa2e25d3e088f6d43",
+    "backend/app/config.py": "057b528e083e16eb549a22ea9440236b85f11f38a698d68c9336c03067205037",
     "backend/app/db/models.py": "8cc08a4e6d7f703f21e58b0117c159db359ec2696182b03b73e7f185e8555af7",
     "backend/app/domain/conversations.py": "301bb8717fc636ad42fb13c89a0ec99e6f278a658045239e6fc500abaf61475e",
     "backend/app/routers/pipeline.py": "1d06d5bfadc3ec48c2537e3b217e8179cbb5ee7aa89b09e9281710fb7e7c550a",
@@ -42,6 +42,6 @@
     "backend/tests/test_whatsapp_consolidation_v3_migration_pg.py": "f43c6c356719fdebfec3ec33975e9a96f10c6c386c8b1c2b1ba066e3c3f03cce",
     "backend/tests/test_work_queue_assign.py": "94f64fab33f81af2586004e34e2d0dacda38bfba2d8a2df2eca08981f86435d6"
   },
-  "candidate_parent": "df94dc957732fcc2a8db17e0363c4497128a8d01",
-  "code_commit": "db3a4b8f136c6ca9f802b4dd494e806027f485a4"
+  "original_candidate_parent": "df94dc957732fcc2a8db17e0363c4497128a8d01",
+  "original_code_commit": "db3a4b8f136c6ca9f802b4dd494e806027f485a4"
 }

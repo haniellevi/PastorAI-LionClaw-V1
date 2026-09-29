@@ -27,5 +27,7 @@
         "tests.test_whatsapp_consolidation_v3_migration_pg": 15
       }
     }
-  }
+  },
+  "status": "historical_snapshot_only_not_current_composition",
+  "scope_note": "Local 5998 offline and 770 RLS belong to db3a4b8f before retarget; exact new head requires CI PG/RLS and Sarah review."
 }
