@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 DEPLOY = Path(__file__).resolve().parents[1]
 SHA_OLD = "a" * 40
 SHA_NEW = "b" * 40
 SERVICES = "backend queue-worker cron-worker broadcast-worker"
+SCHEMA = runpy.run_path(str(DEPLOY / "check_backend_schema.py"))
 
 
 class BackendReleaseTest(unittest.TestCase):
@@ -196,6 +201,107 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         up_calls = [call for call in self.calls() if "compose up " in call]
         self.assertEqual(len(up_calls), 1)
         self.assertIn(SERVICES, up_calls[0])
+
+
+class MigrationLedgerContractTest(unittest.TestCase):
+    """Drive the real checker with a literal manifest and synthetic DB results."""
+
+    def check_ledger(self, applied: list[str]) -> tuple[int, str]:
+        expected = [
+            "20260927_120000_church_cell_public_data.sql",
+            "20260927_170000_whatsapp_privilege_actions.sql",
+        ]
+        policy_rows = [
+            (name, command, True, True, using, with_check)
+            for name, (command, using, with_check) in SCHEMA["ACTIVATION_POLICIES"].items()
+        ]
+
+        class Result:
+            def __init__(self, rows=None, scalar=None):
+                self.rows = rows
+                self.scalar = scalar
+
+            def all(self):
+                return self.rows
+
+            def scalar_one_or_none(self):
+                return self.scalar
+
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return None
+
+            def exec_driver_sql(self, sql, *_):
+                if "SELECT name FROM public.schema_migrations" in sql:
+                    return Result(rows=[(name,) for name in applied])
+                if "WITH required(table_name, column_name)" in sql:
+                    return Result(rows=[])
+                if "SELECT relrowsecurity" in sql:
+                    return Result(scalar=True)
+                if "SELECT polname" in sql:
+                    return Result(rows=policy_rows)
+                return Result()
+
+            def rollback(self):
+                pass
+
+        class Engine:
+            def connect(self):
+                return Connection()
+
+            def dispose(self):
+                pass
+
+        stderr = io.StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DATABASE_URL": "postgresql://synthetic.invalid/local",
+                    "EXPECTED_MIGRATIONS": json.dumps(expected),
+                },
+            ),
+            patch.dict(SCHEMA["main"].__globals__, {"create_engine": lambda *_a, **_k: Engine()}),
+            contextlib.redirect_stderr(stderr),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            status = SCHEMA["main"]()
+        return status, stderr.getvalue()
+
+    def test_missing_migration_fails_closed(self) -> None:
+        status, error = self.check_ledger(
+            ["20260927_120000_church_cell_public_data.sql"]
+        )
+        self.assertEqual(status, 1)
+        self.assertIn("migration not applied: 20260927_170000", error)
+
+    def test_empty_ledger_fails_closed(self) -> None:
+        status, error = self.check_ledger([])
+        self.assertEqual(status, 1)
+        self.assertIn("migration not applied: 20260927_120000", error)
+
+    def test_future_migration_fails_closed(self) -> None:
+        status, error = self.check_ledger(
+            [
+                "20260927_120000_church_cell_public_data.sql",
+                "20260927_170000_whatsapp_privilege_actions.sql",
+                "20990101_000000_future_schema.sql",
+            ]
+        )
+        self.assertEqual(status, 1)
+        self.assertIn("database migration absent from candidate: 20990101", error)
+
+    def test_exact_ledger_passes(self) -> None:
+        status, error = self.check_ledger(
+            [
+                "20260927_120000_church_cell_public_data.sql",
+                "20260927_170000_whatsapp_privilege_actions.sql",
+            ]
+        )
+        self.assertEqual(status, 0, error)
 
 
 if __name__ == "__main__":

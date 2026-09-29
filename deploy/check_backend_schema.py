@@ -188,6 +188,19 @@ def main() -> int:
         for name in missing_migrations:
             print(f"schema preflight failed: migration not applied: {name}", file=sys.stderr)
         return 1
+    unrecognized_migrations = sorted(applied_migrations - set(expected_migrations))
+    if unrecognized_migrations:
+        for name in unrecognized_migrations:
+            safe_name = (
+                name
+                if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_]+\.sql", name)
+                else "<invalid name>"
+            )
+            print(
+                f"schema preflight failed: database migration absent from candidate: {safe_name}",
+                file=sys.stderr,
+            )
+        return 1
     if activation_safe is not True:
         print("schema preflight failed: V3 activation RLS/ACL contract", file=sys.stderr)
         return 1
@@ -200,7 +213,7 @@ def main() -> int:
         print("schema preflight failed: V3 activation policy contract", file=sys.stderr)
         return 1
     print(
-        "schema preflight OK: candidate migration ledger, V2b/V3 columns "
+        "schema preflight OK: exact candidate migration ledger, V2b/V3 columns "
         "and V3 activation RLS/ACL/policies"
     )
     return 0

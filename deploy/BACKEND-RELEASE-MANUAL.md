@@ -11,28 +11,54 @@ autorização para o SHA exato da `main` e comprovar, por gates próprios, que a
 migrations V2b e V3 foram aplicadas no banco correto, que o passo 0 da V2b e a
 reconciliação LID da V3 foram resolvidos, e que backup e rollback daquele
 release estão aprovados. O preflight exige no ledger `public.schema_migrations`
-o nome de cada migration ativa do candidato, usando a seleção do
+o conjunto exato de migrations ativas do candidato, usando a seleção do
 `backend/scripts/migrate.py`, além das colunas V2b/V3 e do contrato de
 RLS/ACL/policies da ativação V3 na forma catalogada pelo PostgreSQL 17.
+Migration no banco sem arquivo ativo no candidato também aborta. Não há
+override automático: uma exceção exige decisão nominal registrada, análise de
+compatibilidade e mudança revisada do procedimento antes de outro disparo.
 O ledger nominal não prova o conteúdo aplicado, reconciliação de dados,
 gates por igreja nem autorização de envio.
 
+**Fechar `ALLOW_REAL_SENDS` cancela trabalho, não apenas pausa o envio.** Com
+o cron em execução, pendências do `notification_outbox` passam a
+`cancelado/gate_fechado` (`backend/app/services/notification_outbox.py:1523-1527`;
+`_terminalize` em `:1298-1307`) e lembretes de célula também são cancelados
+(`backend/app/services/cell_report_reminders.py:463`). A reabertura não os
+reenvia; o teste `backend/tests/test_consolidation_notification_outbox_pg.py`
+prova que reabrir o gate nunca reproduz trabalho anterior. Antes de fechar,
+o responsável deve aceitar a perda desse trabalho, inventariar pendências
+por consulta read-only autorizada e aprovar um plano separado para avisar os
+afetados ou reconstruir apenas o que for devido, com revisão contra duplicação
+e autorização de envio. Se essa perda for inaceitável, **não execute este
+workflow**: um modo de pausa sem terminalização ou outra contenção precisa
+de desenho, teste e revisão próprios.
+
 Sequência obrigatória para um release futuro, sempre com autorizações próprias:
 
-1. Conferir o estado vivo dos quatro serviços e dos gates. Em 27/09, PROD tinha
+1. Obter autorização nominal de Raniel para o fechamento e registrar o
+   operador responsável. A reabertura exige nova decisão nominal de Raniel;
+   registrar horário de início e tempo máximo da janela, além do plano de aviso
+   ou reconstrução das pendências canceladas. Sob gate read-only próprio, comparar
+   o ledger de PROD com as migrations ativas do SHA, inclusive as antigas
+   `0001` a `0017`, **antes** de iniciar a janela; divergência impede o
+   fechamento dos envios. Conferir o estado vivo dos quatro serviços e dos
+   gates. Em 27/09, PROD tinha
    `ALLOW_REAL_SENDS=true` para o piloto Filadélfia; esse registro histórico
    precisa ser reconfirmado no momento do release.
 2. Com autorização específica para mudar o gate, fechar `ALLOW_REAL_SENDS` e
    qualquer outro gate aberto, atualizar os quatro serviços e comprovar que o
    Compose resolvido e os processos ativos têm os quatro valores fechados.
    Enquanto `ALLOW_REAL_SENDS=false`, a Filadélfia não envia mensagens reais;
-   registrar a janela de interrupção do piloto.
+   registrar a interrupção e os cancelamentos irreversíveis do piloto.
 3. Concluir os gates de banco e dados do runbook único, obter autorização de
    deploy para o SHA exato e só então disparar o workflow manual. Falha no
    preflight interrompe o release antes de build ou restart.
 4. Conferir saúde e comportamento do backend após o deploy. Reabrir envio e
    outros gates apenas com autorização separada para cada efeito, validar a
-   retomada do piloto e registrar o resultado. Se a reabertura não ocorrer,
+   retomada do piloto e registrar o resultado. Reabrir o gate não recupera
+   pendências canceladas; executar o plano de aviso/reconstrução somente sob
+   autorização própria. Se a reabertura não ocorrer,
    manter o release como incompleto e avisar o responsável: o piloto seguirá
    sem envios reais.
 
@@ -54,9 +80,9 @@ chave de host fixada e chama `deploy/backend-release.sh` na VPS. O script
 confere primeiro os gates de efeitos externos no Compose resolvido do candidato
 e do release anterior, antes de build ou `up`, e nos quatro contêineres ativos;
 depois executa `deploy/check_backend_schema.py` no backend, em transação
-somente leitura. Migration ativa ausente do ledger, coluna ou tabela V2b/V3
-ausente, RLS/ACL
-ou policy de tenant V3 incompleta, erro de banco ou ausência do contêiner fazem
+somente leitura. Migration ativa ausente do ledger, migration no banco sem
+arquivo ativo no candidato, coluna ou tabela V2b/V3 ausente, RLS/ACL ou policy
+de tenant V3 incompleta, erro de banco ou ausência do contêiner fazem
 o comando sair com erro **antes de build ou restart**. Antes do preflight e
 depois de cada restart, ele também exige em todos os quatro processos
 `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
@@ -86,6 +112,7 @@ DATABASE_URL='<URL_LOCAL_PG17_DESCARTAVEL>' \
 ```
 
 Esse modo usa o mesmo verificador de schema e ledger, sem Docker, SSH, build
-ou restart. Migration ausente ou schema incompleto retorna código não zero;
-uma base descartável com todas as entradas nominais e schema completo retorna
-zero. O dry-run não prova schema de PROD nem concede autorização operacional.
+ou restart. Diferença em qualquer direção do ledger ou schema incompleto
+retorna código não zero; uma base descartável com todas as entradas nominais e
+schema completo retorna zero. O dry-run não prova schema de PROD nem concede
+autorização operacional.

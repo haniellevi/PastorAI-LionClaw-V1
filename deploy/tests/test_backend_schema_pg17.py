@@ -32,7 +32,10 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
     # Independent sentinels catch a removed REQUIRED_COLUMNS entry.
     assert ("igrejas", "notification_outbox_cutover_at") in REQUIRED_COLUMNS
     assert ("consolidacoes", "assignment_revision") in REQUIRED_COLUMNS
+    assert ("notification_outbox", "claim_token") in REQUIRED_COLUMNS
     assert "20260927_120000_church_cell_public_data.sql" in MIGRATIONS
+    assert "20260927_170000_whatsapp_privilege_actions.sql" in MIGRATIONS
+    assert len(MIGRATIONS) == 81
     source = make_url(os.environ["BACKEND_RELEASE_TEST_DATABASE_URL"])
     if source.host not in ("127.0.0.1", "localhost") or source.database != "rls_disposable":
         raise AssertionError("PG17 release test requires the disposable CI database")
@@ -151,6 +154,23 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
                 connection.execute(
                     text("INSERT INTO public.schema_migrations (name) VALUES (:name)"),
                     {"name": "20260927_120000_church_cell_public_data.sql"},
+                )
+
+            with target.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO public.schema_migrations (name) VALUES (:name)"),
+                    {"name": "20990101_000000_future_schema.sql"},
+                )
+            future_schema = dry_run()
+            assert future_schema.returncode != 0
+            assert (
+                "database migration absent from candidate: "
+                "20990101_000000_future_schema.sql"
+            ) in future_schema.stderr
+            with target.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM public.schema_migrations WHERE name = :name"),
+                    {"name": "20990101_000000_future_schema.sql"},
                 )
 
             for table_name, column_name in (
