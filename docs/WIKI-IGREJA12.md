@@ -395,6 +395,9 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   conclusão da paginação e erro/retry de histórico inclusive em timeout.
   [PR #445](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/445) e
   [registro com limites de QA](sprints/2026-09-30-ux-hoje-atendimento-v1.md).
+  Frontend publicado em 30/09/2026, 19:27 UTC, merge `363ecb5`, Vercel READY
+  no mesmo SHA e domínios app/admin/painel com HTTP 200. Smoke público sem cookies;
+  atendimento autenticado e provedor real não exercitados nesta publicação.
   Código/testes locais não comprovam operação com backend/provedores reais.
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
