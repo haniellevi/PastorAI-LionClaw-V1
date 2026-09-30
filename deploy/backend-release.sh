@@ -175,6 +175,10 @@ check_compose_capabilities() {
     echo "timeout command required for bounded rollback schema check" >&2
     return 1
   }
+  timeout --signal=TERM --kill-after=5s 1s true >/dev/null 2>&1 || {
+    echo "timeout options unavailable; release blocked before effects" >&2
+    return 1
+  }
   version=$(docker compose version --short) || return 1
   if [[ ! "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
      (( 10#${BASH_REMATCH[1]} < 5 )); then

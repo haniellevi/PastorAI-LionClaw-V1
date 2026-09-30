@@ -310,10 +310,16 @@ docker compose version --short
 docker compose start --help | grep -E -- '(^|[[:space:]])--wait([[:space:]]|$)'
 docker compose start --help | grep -E -- '(^|[[:space:]])--wait-timeout([[:space:]]|$)'
 command -v timeout
+timeout --signal=TERM --kill-after=5s 1s true
 ```
 
 Qualquer erro, versão inferior a 5.0.0, versão não numérica estável ou opção
-ausente bloqueia a janela. O script faz essa validação antes de copiar a
+ausente ou probe de timeout com status diferente de zero bloqueia a janela.
+O probe executa somente true, sem Docker ou acesso ao ambiente, e valida
+as opções reais --signal=TERM e --kill-after=5s com duração de 1s.
+Presença do executável sozinha não prova suporte. A espera real do checker
+permanece em 180s, com kill-after de 5s.
+O script faz essas validações antes de copiar a
 configuração, construir ou interromper serviços; cada pipeline acima deve
 ter status conferido pelo operador, sem inferir sucesso da última linha.
 Esta seção não concede autorização para executar esses comandos em ambiente.

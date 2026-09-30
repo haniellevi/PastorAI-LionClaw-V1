@@ -45,6 +45,8 @@ class BackendReleaseTest(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "docker").write_text(
             """#!/bin/sh
+overlay=0
+state_file="$TRACE.$(basename "$(dirname "$PWD")").state"
 if [ "$1" = compose ] && [ "$2" = -f ]; then
   python3 - "$5" <<'OVERRIDE'
 import json, os, sys
@@ -59,6 +61,7 @@ with open(os.environ["TRACE"], "a") as out:
     out.write("checker-manifest|" + service["environment"]["EXPECTED_MIGRATIONS"] + "\\n")
 OVERRIDE
   [ $? = 0 ] || exit 1
+  overlay=1
   shift 5
   set -- compose "$@"
 fi
@@ -75,6 +78,7 @@ case "$*" in
     sha256sum "$2" | cut -d' ' -f1 >> "$TRACE"
     exit "${COPY_EXIT:-0}" ;;
   'compose start backend')
+    [ "$overlay" = 1 ] && [ "$(cat "$state_file")" = checker ] || exit 1
     printf 'checker-start|%s\\n' "$PWD" >> "$TRACE"
     exit "${CHECKER_START_EXIT:-0}" ;;
   'wait '*)
@@ -111,11 +115,27 @@ case "$*" in
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
   'compose run '*) exit "${ROLLBACK_PREFLIGHT_EXIT:-0}" ;;
   'compose up --no-start '*)
-    if [ "$PWD" != "$NEW_DEPLOY" ]; then exit "${ROLLBACK_CREATE_EXIT:-0}"; fi ;;
+    if [ "$PWD" != "$NEW_DEPLOY" ] && [ "${ROLLBACK_CREATE_EXIT:-0}" != 0 ]; then
+      exit "$ROLLBACK_CREATE_EXIT"
+    fi
+    if [ "$overlay" = 1 ]; then
+      [ "$*" = 'compose up --no-start --no-build --no-deps --pull never --force-recreate backend' ] || exit 1
+      printf 'checker' > "$state_file"
+      printf 'created|%s|checker|backend\\n' "$PWD" >> "$TRACE"
+    else
+      [ "$*" = 'compose up --no-start --no-build --no-deps --pull never --force-recreate backend queue-worker cron-worker broadcast-worker' ] || exit 1
+      printf 'normal' > "$state_file"
+      printf 'created|%s|normal|backend queue-worker cron-worker broadcast-worker\\n' "$PWD" >> "$TRACE"
+    fi ;;
+
   'compose stop '*)
     if [ "$PWD" != "$NEW_DEPLOY" ] && [ "${ROLLBACK_STOP_EXIT:-0}" = 1 ]; then exit 1; fi
     exit "${STOP_EXIT:-0}" ;;
   'compose start '*)
+    if [ "$overlay" != 0 ] || [ "$(cat "$state_file")" != normal ]; then
+      printf 'rejected-app-start|%s\\n' "$PWD" >> "$TRACE"
+      exit 1
+    fi
     if [ "$PWD" = "$NEW_DEPLOY" ]; then
       touch "$TRACE.candidate_up"
       if [ -n "${SIGNAL_ON_START:-}" ]; then kill -"$SIGNAL_ON_START" "$PPID"; fi
@@ -136,8 +156,15 @@ exit "${ROLLBACK_HEALTH_EXIT:-0}"
         (bin_dir / "timeout").write_text(
             """#!/bin/sh
 printf 'timeout|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
-[ "$1" = --signal=TERM ] && [ "$2" = --kill-after=5s ] && [ "$3" = 180s ] || exit 2
-[ "${CHECKER_TIMEOUT_EXIT:-0}" = 0 ] || exit "$CHECKER_TIMEOUT_EXIT"
+[ "${TIMEOUT_OPTIONS_EXIT:-0}" = 0 ] || exit "$TIMEOUT_OPTIONS_EXIT"
+[ "$1" = --signal=TERM ] && [ "$2" = --kill-after=5s ] || exit 2
+case "$3 $4" in
+  '1s true')
+    [ ! -f "$NEW_DEPLOY/configuration.fixture" ] || exit 1
+    printf 'timeout-probe|configuration-absent\\n' >> "$TRACE" ;;
+  '180s docker') [ "${CHECKER_TIMEOUT_EXIT:-0}" = 0 ] || exit "$CHECKER_TIMEOUT_EXIT" ;;
+  *) exit 2 ;;
+esac
 shift 3
 exec "$@"
 """
@@ -193,6 +220,34 @@ exec "$@"
         config = json.loads(json.dumps(self.closed_config))
         config["services"]["queue-worker"]["environment"]["ALLOW_REAL_SENDS"] = "true"
         return json.dumps(config)
+
+    def test_incompatible_timeout_blocks_before_configuration_or_services(self):
+        result = self.run_release(TIMEOUT_OPTIONS_EXIT="125")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("timeout options unavailable", result.stderr)
+        self.assertTrue(any("--signal=TERM --kill-after=5s 1s true" in c for c in self.calls()))
+        self.assertFalse(any("compose build " in c or "compose up " in c
+                             or "compose stop " in c or "compose start --wait " in c
+                             for c in self.calls()))
+        self.assertFalse((self.new / "configuration.fixture").exists())
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_rollback_recreates_all_normal_services_after_checker_zero(self):
+        result = self.run_release(HEALTH_EXIT="17")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        calls = self.calls()
+        wait = calls.index(f"checker-wait|{self.old}")
+        self.assertIn(f"created|{self.old}|normal|{SERVICES}", calls)
+        normal = calls.index(f"created|{self.old}|normal|{SERVICES}")
+        start = next(i for i, c in enumerate(calls)
+                     if c.startswith(f"docker|{self.old}|compose start --wait "))
+        self.assertLess(wait, normal)
+        self.assertLess(normal, start)
+        self.assertEqual(
+            calls[normal + 1:start],
+            [f"inspect|{self.old}|{service}" for service in SERVICES.split()],
+        )
+        self.assertFalse(any("rejected-app-start|" in c for c in calls))
 
     def test_compose_capabilities_block_before_any_effect(self):
         for changes in (
@@ -277,6 +332,7 @@ exec "$@"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("compose up " in c and "--no-start" not in c for c in self.calls()))
         calls = self.calls()
+        self.assertIn("timeout-probe|configuration-absent", calls)
         self.assertTrue(any("compose up --no-start " in c for c in calls))
         self.assertTrue(any("compose start --wait " in c for c in calls))
         self.assert_inspected_before_start(self.new)
