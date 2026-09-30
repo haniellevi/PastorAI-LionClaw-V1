@@ -36,13 +36,19 @@ regressão foram adicionados localmente nesta rodada.
 
 Para a contagem histórica, a suíte limpa de `7c9b404` registrada por Sarah é
 `984/984` em 104 arquivos. A evidência recebida do Root relata a mesma execução
-limpa com Node 24 e `npm exec --offline -- vitest run src`. Ela documenta a
-base limpa, não é arquivo versionado deste candidato e não prova o patch
-pré-commit atual. A referência a `946a3b7` é `983/983` em 104 arquivos,
-derivada de contagem anterior e não uma execução observada nesta rodada. A
-contagem `986/986` anterior corresponde a execução local em snapshot externo
-ao commit; sem vínculo documentado, ela não deve ser atribuída a um SHA. Também
-não há prova para atribuir um oráculo LENTE posterior a logs antigos.
+limpa com Node 24 e `npm exec --offline -- vitest run src`; ela é a origem
+histórica dessa contagem, não uma descrição do estado atual da PR. O Root também
+informou que `frontend/next.config.test.mjs` já existia em `7c9b404` e que o
+diff de `946a3b7..7c9b404` nesse arquivo e na configuração do Vitest era zero.
+
+A referência a `946a3b7` é `983/983` em 104 arquivos de `src`, derivada de
+contagem anterior e não uma reexecução histórica desta rodada. Sem reexecutar
+os snapshots históricos, `985/985` em 105 arquivos corresponde aritmeticamente
+a `983` em `src` mais os 2 testes versionados de `next.config.test.mjs`; do
+mesmo modo, `986/986` em 105 arquivos corresponde a `984` em `src` mais esses
+2 testes. Essas são inferências de contagem, não atribuições de execução a um
+SHA. Também não há prova para atribuir um oráculo LENTE posterior a logs
+antigos.
 
 ## Correção
 
@@ -73,30 +79,33 @@ Executado localmente com Node `v24.19.0`, sem instalação ou rede:
 - caso de legenda inalterada sob `StrictMode`: 1 teste verde;
 - typecheck sem emissão e lint dos cinco arquivos frontend alterados: verdes.
 
-O `npm exec --offline -- vitest run src` pós-correção não fecha a suíte local:
+Uma execução local anterior de `npm exec --offline -- vitest run src` registrou
 `1000/1003` testes verdes em 103 de 104 arquivos, com três asserts em
 `src/lib/m09-loopback-url.test.ts` recebendo stdout e stderr vazios. Nenhum
-arquivo M09 foi alterado e a causa não foi estabelecida. O relato histórico de
-`EPERM` de M09 está superado pelo comprovante limpo de `7c9b404`; ele não deve
-ser usado para explicar esta observação atual sem nova evidência.
+arquivo M09 foi alterado. Essa observação é restrita ao ambiente que a produziu
+e não permite inferir causa nem reaproveitar o relato histórico de `EPERM`.
 
-Essa execução local é restrita ao ambiente que a produziu. Em
-`2026-09-30T22:40:30Z`, o Root reexecutou na fonte congelada o comando exato
-`env PATH=/home/raniel-linux/.nvm/versions/node/v24.19.0/bin:/usr/bin:/bin npm exec --offline -- vitest run src`,
-submetido à avaliação automática e aprovado com `1003/1003` testes em 104
-arquivos, exit 0. A diferença entre as execuções não permite inferir causa.
+No SHA `77e52922736f189985af2a665ff06d80a4923589`, Sarah mediu `1003/1003`
+em 104 arquivos para `vitest run src` e `1005/1005` em 105 arquivos para
+`vitest run` sem escopo. Os 2 testes adicionais vêm de
+`frontend/next.config.test.mjs`, arquivo versionado, não de arquivo temporário
+de auditoria.
 
 Os testes não provam RLS, isolamento backend, provedor, deploy, flag, banco ou
 dados reais.
 
+Risco residual aceito neste recorte source-only: a perda de posse da conversa
+ou um estado `degraded` descarta gravação e anexo por falha fechada; permissão
+negada e gravação vazia não exibem feedback ao usuário. Melhorias de UX ficam
+para fatias próprias e não abrem gate nesta rodada.
+
 ## Estado e próximo gate
 
-O candidato permanece sem commit, push, CI remoto ou merge. Este é o snapshot
-pré-commit desta rodada, não o estado permanente da PR. A fonte fica quiescente
-para revisão independente. Após um novo head, CI obrigatório e as revisões
-requeridas, o próximo gate humano é a autorização nominal para merge da PR
-#446. Esta rodada não concede esse gate.
+A rodada 3 foi commitada e publicada por push normal no head
+`77e52922736f189985af2a665ff06d80a4923589` da PR #446. Segundo evidência
+recebida do Root nesse SHA, CI está `7/7 SUCCESS`, o estado é `CLEAN` e há
+0 threads abertas. Não houve merge. Este delta documental exige novo head, CI
+e revisões no SHA exato antes de qualquer gate humano de merge.
 
-Rollback permanece reversível enquanto o patch não tem commit: descartar as
-mudanças somente sob direção autorizada. Após eventual integração, qualquer
-reversão exige branch e gate próprios.
+Se autorizado, rollback é feito por `revert` em branch própria sob gate nominal.
+`reset` e descarte de mudanças não são rotas de rollback desta PR.
