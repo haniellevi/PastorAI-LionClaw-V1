@@ -26,6 +26,15 @@ público. Dependências foram reinstaladas pelo lockfile dessa nova base. Os
 860 testes abaixo pertencem à revisão original; no candidato atualizado
 passaram 947 testes em 104 arquivos, com Node v24.19.0 e Next 15.5.25.
 
+Na mesma data, Raniel autorizou produção com `pode colocar em produção, mas
+veja se consegue melhorar usando Sites`. As orientações de superfície de
+trabalho e acessibilidade do Sites foram aplicadas à avaliação, preservando
+a hospedagem e a autenticação existentes. O ajuste adicional conserva um
+destino de teclado quando o botão da última página desaparece e anuncia a
+conclusão numa região de status; não rouba foco de outro campo. Não houve
+redesign, migração para Sites ou alteração de identidade. Um teste negativo
+falhou antes do ajuste; depois, passaram 949 testes em 104 arquivos e o build.
+
 ## Resultado e limites do contrato
 
 A fila de cuidados permanece como entrada de Hoje. O título passa a explicitar
@@ -105,7 +114,9 @@ Rollback: reverter somente o commit desta branch, preservando o checkout
 original. Não há migração ou estado de banco a compensar. Pare os dois
 processos locais para encerrar a prévia.
 
-Próximo gate humano: autorizar especificamente push da branch e abertura do
-PR. A skill de revisão UX exige pedido específico para push/publicação. O
-avanço da formalização local não executa publicação, merge, deploy, ativação
-ou envio externo.
+A ordem de produção autoriza push, PR, integração e publicação do frontend
+desta fatia. A execução depende dos cinco checks exigidos pela main e da
+verificação do SHA publicado. Rollback frontend: deployment anterior
+`dpl_BDsG4TXaEM19J6BFPnSAYQi1gN4a`, SHA
+`226fa6b85dad3f30e400f8ecf8396412571d6c2a`, conferido READY antes da ação.
+Essa ordem não altera backend, banco, ativação ou gates de envio.

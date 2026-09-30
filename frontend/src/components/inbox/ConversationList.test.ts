@@ -143,4 +143,32 @@ describe("ConversationList — Gate 8", () => {
     render({ conversations: [conv({ estado: "humano", assumidoPor: "outro", assumidoPorNome: null })] });
     expect(container.textContent).toContain("Responsável não informado");
   });
+
+  it("última página anuncia a conclusão e conserva um destino de teclado", () => {
+    render({ partialList: true, loadedCount: 100, total: 103, hasMore: true, onLoadMore: () => {} });
+    const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Carregar mais conversas'))!;
+    button.focus();
+    act(() => button.click());
+    render({ partialList: true, loadedCount: 100, total: 103, hasMore: true, loadingMore: true, onLoadMore: () => {} });
+    render({ loadedCount: 103, total: 103, hasMore: false });
+    expect(document.activeElement).toBe(container.querySelector('input[type="search"]'));
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Todas as 103 conversas foram carregadas.');
+  });
+
+  it("conclusão da página não rouba foco de quem mudou para outro campo", () => {
+    const composer = document.createElement('input');
+    document.body.appendChild(composer);
+    try {
+      render({ hasMore: true, onLoadMore: () => {} });
+      const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Carregar mais conversas'))!;
+      button.focus();
+      act(() => button.click());
+      render({ hasMore: true, loadingMore: true, onLoadMore: () => {} });
+      composer.focus();
+      render({ loadedCount: 103, total: 103, hasMore: false });
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      composer.remove();
+    }
+  });
 });

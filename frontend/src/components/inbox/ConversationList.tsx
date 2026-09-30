@@ -9,7 +9,7 @@
  * selection-soft + aria-current; "aguardando" comunicado por ÍCONE + TEXTO
  * (nunca só cor). Nenhum filtro, busca, dado ou callback mudou.
  */
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
@@ -68,6 +68,15 @@ export function ConversationList({
   selfId?: string;
 }) {
   const searchId = useId();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const loadMoreHadFocus = useRef(false);
+  useEffect(() => {
+    if (loadingMore) return;
+    if (!hasMore && loadMoreHadFocus.current && document.activeElement === document.body) {
+      searchRef.current?.focus();
+    }
+    loadMoreHadFocus.current = false;
+  }, [hasMore, loadingMore]);
   return (
     <div className="conv-list">
       <div className="ib-filter" role="group" aria-label="Filtrar conversas">
@@ -102,6 +111,7 @@ export function ConversationList({
         <label htmlFor={searchId}>Buscar conversa</label>
         <input
           id={searchId}
+          ref={searchRef}
           type="search"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
@@ -110,11 +120,11 @@ export function ConversationList({
         />
       </div>
 
-      {partialList ? (
-        <p className="ib-coverage">
-          {loadedCount} de {total} conversas carregadas. A busca e os filtros abrangem as conversas carregadas.
-        </p>
-      ) : null}
+      <p className={partialList ? "ib-coverage" : "sr-only"} role="status" aria-atomic="true">
+        {partialList
+          ? `${loadedCount} de ${total} conversas carregadas. A busca e os filtros abrangem as conversas carregadas.`
+          : `Todas as ${loadedCount} conversas foram carregadas.`}
+      </p>
       {conversations.length === 0 ? (
         <DsEmptyState
           title={hasConversations || partialList ? "Nenhuma conversa neste filtro." : "Ainda não há conversas."}
@@ -173,7 +183,10 @@ export function ConversationList({
       )}
       {hasMore && onLoadMore ? (
         <div className="ib-load-more">
-          <DsButton variant="secondary" loading={loadingMore} onClick={onLoadMore}>
+          <DsButton variant="secondary" loading={loadingMore} onClick={(event) => {
+            loadMoreHadFocus.current = document.activeElement === event.currentTarget;
+            onLoadMore();
+          }}>
             Carregar mais conversas
           </DsButton>
         </div>
