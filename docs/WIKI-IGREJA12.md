@@ -399,6 +399,11 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   no mesmo SHA e domínios app/admin/painel com HTTP 200. Smoke público sem cookies;
   atendimento autenticado e provedor real não exercitados nesta publicação.
   Código/testes locais não comprovam operação com backend/provedores reais.
+- UX contraste e clareza v2: implementação local aprovada em 30/09, com textos
+  secundários mais escuros, foco mais visível, uma ação principal por cuidado e
+  detalhes secundários recolhidos. Conversas mostra Transferir e Ver pessoa com
+  texto, mantendo rascunho e busca no retorno mobile. Sem novo estado de produção.
+  [Recorte e limites](sprints/2026-09-30-ux-contraste-fluxo-v2.md).
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
 ### Fundação do agente

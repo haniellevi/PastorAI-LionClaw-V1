@@ -126,8 +126,8 @@ describe("Agenda e Conversas — composição operacional", () => {
   });
 
   it("explica o propósito das conversas antes da lista de atendimento", () => {
-    expect(inbox).toContain("Atendimentos pelo WhatsApp");
-    expect(inbox).toContain("Converse, assuma ou encaminhe cada cuidado no momento certo.");
+    expect(inbox).toContain("Conversas");
+    expect(inbox).toContain("Selecione uma pessoa. Assuma o atendimento para responder.");
     expect(bodyFor(".ib .ib-head", "align-items: flex-end")).toContain(
       "align-items: flex-end",
     );

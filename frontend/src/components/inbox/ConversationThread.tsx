@@ -447,9 +447,14 @@ export function ConversationThread({
               ? maskPhone(conversation.telefone)
               : "Contato do WhatsApp oficial"}
           </span>
+          <span className="ib-thread-state">
+            <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
+            {estado === "humano" ? (
+              <span>{isMine ? "Responsável: você" : `Responsável: ${holderName ?? "não informado"}`}</span>
+            ) : null}
+          </span>
         </div>
         <div className="ctrl">
-          <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
           {isMine ? (
             // Nunca promete devolver para uma IA indisponível por contato,
             // igreja ou falha na leitura do estado global.
@@ -503,27 +508,40 @@ export function ConversationThread({
             </DsButton>
           )}
           {isMine || isAdmin ? (
-            <DsIconButton label="Transferir conversa" onClick={() => onTransfer(conversation)}>
+            <DsButton
+              variant="tertiary"
+              aria-label="Transferir conversa"
+              onClick={() => onTransfer(conversation)}
+            >
               <Icon name="transfer" />
-            </DsIconButton>
+              <span>Transferir</span>
+            </DsButton>
           ) : null}
-          <DsIconButton
-            label="Dados do contato"
+          <DsButton
+            variant="secondary"
+            aria-label="Ver pessoa"
             onClick={onTogglePanel}
             aria-pressed={panelOpen}
-            className={panelOpen ? "ib-tool-active" : undefined}
+            className={panelOpen ? "ib-person-active" : undefined}
           >
             <Icon name="info" />
-          </DsIconButton>
+            <span>Ver pessoa</span>
+          </DsButton>
           {isAdmin ? (
-            // Excluir: restrita (admin), perigosa — coral, nunca compete com a principal.
-            <DsIconButton
-              label="Excluir conversa"
-              onClick={() => onDelete(conversation)}
-              className="ib-tool-danger"
-            >
-              <Icon name="trash" />
-            </DsIconButton>
+            <details className="action-disclosure ib-more-actions">
+              <summary>Mais ações</summary>
+              <div className="action-disclosure-body">
+                <DsButton
+                  variant="danger"
+                  aria-label="Excluir conversa"
+                  onClick={() => onDelete(conversation)}
+                  className="ib-tool-danger"
+                >
+                  <Icon name="trash" />
+                  <span>Excluir conversa</span>
+                </DsButton>
+              </div>
+            </details>
           ) : null}
         </div>
       </div>
@@ -656,7 +674,7 @@ export function ConversationThread({
                 degraded
                   ? "Envio desabilitado — WhatsApp indisponível"
                   : !isMine
-                    ? "Assuma o atendimento para responder"
+                    ? "Assuma primeiro"
                     : pendingFile
                       ? "Adicione uma legenda (opcional)…"
                       : "Escreva uma resposta…"

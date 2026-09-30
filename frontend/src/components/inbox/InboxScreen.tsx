@@ -829,8 +829,8 @@ function InboxSession() {
     <div className={`screen screen-chat ib${selected ? " thread-open" : ""}`} key="inbox">
       <div className="screen-head ib-head">
         <div className="titles">
-          <h2>Atendimentos pelo WhatsApp</h2>
-          <p>Converse, assuma ou encaminhe cada cuidado no momento certo.</p>
+          <h2>Conversas</h2>
+          <p>Selecione uma pessoa. Assuma o atendimento para responder.</p>
         </div>
         <div className="actions">
           <DsButton

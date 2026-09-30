@@ -137,38 +137,56 @@ export function WorkQueueItem({
           </DsButton>
         ) : null}
 
-        <DsButton
-          variant={assumeIsPrimary ? "primary" : "tertiary"}
-          disabled={busy || assumido}
-          aria-busy={busy || undefined}
-          aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
-          onClick={() => onAssume(item)}
-        >
-          {assumido ? "Assumido" : "Assumir"}
-        </DsButton>
-
-        {canAssignQueue ? (
+        {assumeIsPrimary ? (
           <DsButton
-            variant="tertiary"
-            disabled={busy}
+            disabled={busy || assumido}
             aria-busy={busy || undefined}
-            aria-label={`Atribuir responsável: ${item.titulo}`}
-            onClick={() => onAssign(item)}
+            aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
+            onClick={() => onAssume(item)}
           >
-            Atribuir
+            {assumido ? "Assumido" : "Assumir"}
           </DsButton>
         ) : null}
 
-        {item.canMessage ? (
-          <DsButton
-            variant="tertiary"
-            disabled={busy}
-            aria-busy={busy || undefined}
-            aria-label={`Enviar mensagem: ${item.titulo}`}
-            onClick={() => onMessage(item)}
-          >
-            Mensagem
-          </DsButton>
+        {!assumeIsPrimary || canAssignQueue || item.canMessage ? (
+          <details className="action-disclosure dh-item-more">
+            <summary>Mais ações<span className="sr-only">: {item.titulo}</span></summary>
+            <div className="action-disclosure-body">
+              {!assumeIsPrimary ? (
+                <DsButton
+                  variant="tertiary"
+                  disabled={busy || assumido}
+                  aria-busy={busy || undefined}
+                  aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
+                  onClick={() => onAssume(item)}
+                >
+                  {assumido ? "Assumido" : "Assumir"}
+                </DsButton>
+              ) : null}
+              {canAssignQueue ? (
+                <DsButton
+                  variant="tertiary"
+                  disabled={busy}
+                  aria-busy={busy || undefined}
+                  aria-label={`Atribuir responsável: ${item.titulo}`}
+                  onClick={() => onAssign(item)}
+                >
+                  Atribuir
+                </DsButton>
+              ) : null}
+              {item.canMessage ? (
+                <DsButton
+                  variant="tertiary"
+                  disabled={busy}
+                  aria-busy={busy || undefined}
+                  aria-label={`Enviar mensagem: ${item.titulo}`}
+                  onClick={() => onMessage(item)}
+                >
+                  Mensagem
+                </DsButton>
+              ) : null}
+            </div>
+          </details>
         ) : null}
       </div>
     </div>

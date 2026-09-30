@@ -466,6 +466,10 @@ sem declarar as próximas verticais implementadas.
      [Registro e limites](../sprints/2026-09-30-ux-hoje-atendimento-v1.md).
      PR #445, merge `363ecb5`, frontend Vercel READY e domínios públicos HTTP 200.
      Atendimento autenticado e provedor real não exercitados na publicação.
+   - [ ] Contraste e clareza v2: implementação local de tokens, Hoje e Conversas
+     após aprovação em 30/09. Ações secundárias sob demanda e rótulos visíveis.
+     [Recorte, aceite e evidências](../sprints/2026-09-30-ux-contraste-fluxo-v2.md).
+     A evolução global de 42 telas segue em fatias; este recorte não conclui a trilha.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;

@@ -115,7 +115,7 @@ export function ConversationList({
           type="search"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
-          placeholder="Buscar por nome, telefone ou mensagem…"
+          placeholder="Nome, telefone ou mensagem"
           aria-label="Buscar conversa"
         />
       </div>

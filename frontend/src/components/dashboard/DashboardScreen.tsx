@@ -940,7 +940,7 @@ export function DashboardScreen() {
         <DiamondMark className="dh-hero-mark" size={42} title="" />
         <div className="dh-greet">
           <p className="dh-date">
-            <span>Seu dia em foco</span>
+            <span>Hoje</span>
             <span aria-hidden="true">·</span>
             <span>{todayLabel}</span>
           </p>
@@ -968,13 +968,15 @@ export function DashboardScreen() {
           )}
         </div>
         <div className="dh-hero-actions">
-          {hasWorkQueue && !showSkeleton && operationError?.key !== operationsKey ? (
-            <span className="dh-focus-state" aria-hidden="true">
-              <span className="dh-focus-dot" />
-              {acoesAbertas > 0
-                ? `${acoesAbertas} ${acoesAbertas === 1 ? "cuidado" : "cuidados"}`
-                : "Tudo em ordem"}
-            </span>
+          {user && canSee("inbox", user.roles, matrix) ? (
+            <a
+              href="#inbox"
+              className="ds-btn ds-btn--secondary"
+              onClick={(event) => activateDashboardLink(event, "inbox", navigate)}
+            >
+              <Icon name="chat" />
+              <span>Abrir conversas</span>
+            </a>
           ) : null}
           <DsButton
             variant="secondary"
@@ -1259,18 +1261,26 @@ export function DashboardScreen() {
                 noticesUnavailable={contextUnavailable.notices}
                 onNavigate={navigate}
               />
-              {operationsReady && supplementsReady && showOverview && !overviewUnavailable ? (
-                <JourneyCard
-                  overview={overview}
-                  canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
-                  canNavigate={(target) =>
-                    user ? canSee(target, user.roles, matrix) : false
-                  }
-                  onNavigate={navigate}
-                />
-              ) : null}
-              {operationsReady && supplementsReady && showTeamWorkload ? (
-                <NextActions items={openItems} members={members} />
+              {operationsReady && supplementsReady &&
+              ((showOverview && !overviewUnavailable) || showTeamWorkload) ? (
+                <details className="dh-support-more">
+                  <summary>Jornada e responsáveis</summary>
+                  <div className="dh-support-secondary">
+                    {showOverview && !overviewUnavailable ? (
+                      <JourneyCard
+                        overview={overview}
+                        canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
+                        canNavigate={(target) =>
+                          user ? canSee(target, user.roles, matrix) : false
+                        }
+                        onNavigate={navigate}
+                      />
+                    ) : null}
+                    {showTeamWorkload ? (
+                      <NextActions items={openItems} members={members} />
+                    ) : null}
+                  </div>
+                </details>
               ) : null}
             </>
           )}

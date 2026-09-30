@@ -35,7 +35,7 @@ Cena física orientadora: um pastor ou líder consulta o sistema entre conversas
   --ice-50: oklch(98.5% 0.008 230);
   --ink-950: oklch(24% 0.035 245);
   --ink-700: oklch(39% 0.030 245);
-  --ink-600: oklch(52% 0.025 245);
+  --ink-600: oklch(46% 0.025 245);
   --line-200: oklch(88% 0.018 235);
 
   --surface-canvas: var(--ice-50);
@@ -44,10 +44,11 @@ Cena física orientadora: um pastor ou líder consulta o sistema entre conversas
   --text-primary: var(--ink-950);
   --text-secondary: var(--ink-600);
   --border-subtle: var(--line-200);
+  --border-emphasis: oklch(63% 0.024 238);
   --action-primary: var(--diamond-700);
   --action-primary-hover: var(--diamond-900);
   --selection-soft: var(--diamond-100);
-  --focus-ring: var(--diamond-500);
+  --focus-ring: var(--diamond-600);
 }
 ```
 
@@ -69,9 +70,9 @@ Cena física orientadora: um pastor ou líder consulta o sistema entre conversas
 | H1 produto | Sora | 26 | 700 | 1.2 |
 | H2 | Sora | 20 | 650 | 1.25 |
 | H3 | Plus Jakarta Sans | 16 | 700 | 1.35 |
-| Corpo | Plus Jakarta Sans | 14–16 | 450–550 | 1.5 |
-| Label | Plus Jakarta Sans | 13 | 650 | 1.35 |
-| Metadado | Plus Jakarta Sans | 12 | 500 | 1.4 |
+| Corpo | Plus Jakarta Sans | 15 | 450 | 1.5 |
+| Label | Plus Jakarta Sans | 14 | 650 | 1.4 |
+| Metadado | Plus Jakarta Sans | 13 | 500 | 1.45 |
 
 Nenhum texto operacional abaixo de 12 px. Eyebrows em caixa alta são reservados a orientação excepcional, não aparecem em todas as seções.
 
@@ -206,6 +207,10 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Saudação e pessoas recebem calor de Pastoral Editorial.
 - Sem rail persistente de Precision Workspace.
 - Resumo semanal vem depois da fila e pode ser recolhido.
+- Cada cuidado apresenta pessoa, motivo e uma ação principal. Atribuição e outras
+  ações ficam em um disclosure nativo "Mais ações", com nome acessível por cuidado.
+- Agenda imediata permanece visível; Jornada e distribuição por responsável
+  aparecem sob demanda. "Abrir conversas" respeita a capacidade existente.
 
 ### Conversas
 
@@ -213,6 +218,8 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Lista e thread separadas no mobile.
 - Avatares, nome e estado da IA são explícitos.
 - Contexto adicional aparece sob demanda ou depois da seleção.
+- Assumir ou encerrar atendimento mantém posição de destaque. "Transferir" e
+  "Ver pessoa" têm texto visível; exclusão fica em "Mais ações" e conserva confirmação.
 
 ### Minha Célula
 

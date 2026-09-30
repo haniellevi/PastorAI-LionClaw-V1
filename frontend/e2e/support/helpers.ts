@@ -99,7 +99,7 @@ export function expectCleanBrowser(safety: BrowserSafety): void {
 }
 
 export async function expectDashboardContextReady(page: Page): Promise<void> {
-  await expect(page.getByText("Acompanhar visitante E2E")).toBeVisible();
+  await expect(page.getByText("Acompanhar visitante E2E", { exact: true })).toBeVisible();
   await expect(page.getByText("Nenhum evento futuro publicado.")).toBeVisible();
   await expect(page.getByText("Nenhum aviso novo.")).toBeVisible();
 }
