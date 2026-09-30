@@ -128,7 +128,12 @@ interface Toast {
 }
 
 export function InboxScreen() {
-  const { user, token, expireSession } = useAuth();
+  const { user, token, status, expireSession } = useAuth();
+  // An opaque identity avoids passing session credentials to the thread.
+  const recordingContext = useMemo(
+    () => status === "authenticated" && token && user?.churchId && user.appUserId ? {} : null,
+    [status, token, user?.churchId, user?.appUserId],
+  );
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -840,6 +845,7 @@ export function InboxScreen() {
           <ConversationThread
             conversation={selected}
             selfId={user?.appUserId ?? ""}
+            recordingContext={recordingContext}
             holderName={selected.assumidoPorNome}
             degraded={degraded}
             agentAvailability={agentAvailability}

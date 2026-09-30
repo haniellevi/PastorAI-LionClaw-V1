@@ -24,9 +24,10 @@ import type { ChatMessage, Conversation } from "@/lib/conversations-api";
 // useCallback e o efeito de troca de conversa entraria em laço infinito.
 const auth = vi.hoisted(() => ({
   token: "tok-1",
+  status: "authenticated",
   // pastor: acessa o inbox, não é admin e não lê a conexão do WhatsApp
   // (canManageWhatsapp) — mantém o teste no caminho de mensagens.
-  user: { roles: ["pastor"] as string[], appUserId: "u-1" },
+  user: { roles: ["pastor"] as string[], appUserId: "u-1", churchId: "igreja-sintetica-a" },
   expireSession: vi.fn(),
 }));
 
@@ -161,6 +162,10 @@ let root: Root;
 beforeEach(() => {
   pending = [];
   auth.user.roles = ["pastor"];
+  auth.user.churchId = "igreja-sintetica-a";
+  auth.user.appUserId = "u-1";
+  auth.status = "authenticated";
+  auth.token = "tok-1";
 
   // jsdom não implementa matchMedia; o inbox usa para o master-detail mobile.
   // matches=false ⇒ desktop (lista + thread lado a lado, seleção automática).
@@ -222,6 +227,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   // Só um caso usa timers falsos (o do polling); restaura sempre.
   vi.useRealTimers();
 });
@@ -689,4 +695,46 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     await resolveRequestAt(0, SNAPSHOT_M2);
     expect(threadBody().textContent).toContain("snapshot mais novo M2");
   });
+});
+
+describe("AUD02 authorized parent context", () => {
+  it.each(["church", "session", "status", "identity", "missingChurch", "missingToken"])(
+    "invalidates pending microphone when %s changes with the same conversation ID",
+    async (change) => {
+      apiMock.fetchConversations.mockResolvedValue({
+        items: [{ ...CONV_A, estado: "humano", assumidoPor: "u-1" }],
+        page: 1, pageSize: 100, total: 1,
+      });
+      let resolve!: (stream: MediaStream) => void;
+      const getUserMedia = vi.fn(() => new Promise<MediaStream>((yes) => { resolve = yes; }));
+      const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }];
+      vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+      vi.stubGlobal("MediaRecorder", class {
+        static isTypeSupported() { return true; }
+        state = "inactive";
+        start() { this.state = "recording"; }
+        stop() { this.state = "inactive"; }
+      });
+      await renderInbox();
+      const mic = container.querySelector<HTMLButtonElement>('[aria-label="Gravar áudio"]')!;
+      expect(mic.disabled).toBe(false);
+      act(() => mic.click());
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      if (change === "church") auth.user.churchId = "igreja-sintetica-b";
+      if (change === "session") auth.token = "sessao-sintetica-b";
+      if (change === "status") auth.status = "unauthenticated";
+      if (change === "identity") auth.user.appUserId = "outro-operador-sintetico";
+      if (change === "missingChurch") auth.user.churchId = "";
+      if (change === "missingToken") auth.token = "";
+      await renderInbox();
+      await act(async () => resolve({ getTracks: () => tracks } as unknown as MediaStream));
+      for (const track of tracks) expect(track.stop).toHaveBeenCalled();
+      expect(container.querySelector(".attach-chip")).toBeNull();
+      expect(container.querySelector(".rec-bar")).toBeNull();
+      expect(apiMock.sendMessage).not.toHaveBeenCalled();
+      if (["status", "missingChurch", "missingToken"].includes(change)) {
+        expect(container.querySelector<HTMLButtonElement>('[aria-label="Gravar áudio"]')!.disabled).toBe(true);
+      }
+    },
+  );
 });
