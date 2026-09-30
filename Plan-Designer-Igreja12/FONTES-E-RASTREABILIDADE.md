@@ -1,6 +1,16 @@
 # Fontes e rastreabilidade
 
-## 1. Preflight
+## Atualização do designer, 30/09/2026
+
+- Aprovação de Raniel: "ficou excelente, pode atualizar o designer do projeto", após a prévia de Hoje e Conversas v2.
+- Fonte de implementação: `66a56cc0b601bf14f8e3036e9cede11f54b32087`, branch `codex/ux-contraste-fluxo-v2`, worktree `/tmp/igreja12-ux-contraste-v2-20260930`.
+- Contrato visual: [DESIGN.md](../DESIGN.md), reconciliado com [tokens](../frontend/src/app/design-tokens.css) e [estilos](../frontend/src/app/globals.css).
+- Evidência: [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) e [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447). Quatro checks de produto concluídos com sucesso nesse SHA; a atualização documental posterior exige sua própria verificação.
+- Escopo desta atualização: padrões, composição aprovada e separação entre recorte implementado e propostas históricas. A matriz de cobertura de produto não mudou.
+
+As seções abaixo preservam as fontes e o preflight da missão original de agosto.
+
+## 1. Preflight histórico, 10/08/2026
 
 - Horário local do prompt: 2026-08-10 11:03:32, America/Sao_Paulo.
 - Worktree: `C:\Users\hanie\.codex\worktrees\fd55\PastorAi-1.0`.

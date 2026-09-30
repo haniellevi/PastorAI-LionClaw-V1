@@ -64,6 +64,12 @@ Nenhum envio real, banco, migration, provedor, deploy ou ativação foi realizad
 O rollback deste recorte é reverter o patch de frontend e os registros associados,
 sem compensação de dados. A versão anterior continua na base citada.
 
-Próximo gate da entrega: CI de produto e revisão do PR no SHA candidato,
-antes de merge/publicação. A autorização de desenvolver
-este recorte não atesta o funcionamento com backend ou provedores reais.
+## Aceite visual e atualização do designer
+
+Após a prévia, Raniel confirmou: "ficou excelente, pode atualizar o designer do projeto". Em 30/09, o [design system](../../DESIGN.md) e o [Plan Designer](../../Plan-Designer-Igreja12/README.md) foram reconciliados com os tokens e a composição de Hoje e Conversas. A escala de títulos passou a documentar 28/22/18 px; contraste, foco, disclosure e hierarquia de ações agora orientam as próximas fatias. Wireframes de agosto permanecem identificados como intenção histórica.
+
+O candidato de implementação `66a56cc0b601bf14f8e3036e9cede11f54b32087` está na [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447), em rascunho. Os checks `backend-tests`, `frontend-ci`, `e2e-critical` e `rls-integration` concluíram com sucesso nesse SHA; o E2E de CI passou os dez cenários. Essa evidência pertence ao candidato citado, sem atribuí-la antecipadamente à atualização documental posterior.
+
+A verificação local desta atualização documental confirmou 31 links relativos novos, sete papéis tipográficos e 36 declarações de tokens em concordância com o CSS. Duas revisões por leitura direta reconciliaram a ordem do wireframe e o estado histórico do plano mestre. `git diff --check` passou. Nenhum arquivo de produto ou teste mudou nesta etapa.
+
+Próximo gate da entrega: autorização nominal para liberar a PR #447 do rascunho para revisão. A aprovação visual e a atualização do designer não atestam funcionamento com backend ou provedores reais, nem registram merge ou publicação.

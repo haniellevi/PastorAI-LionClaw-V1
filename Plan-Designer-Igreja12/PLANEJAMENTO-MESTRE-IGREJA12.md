@@ -1,5 +1,7 @@
 # Planejamento Mestre PastorAI / Igreja 12
 
+**Referência visual atual, 30/09/2026:** o refinamento de contraste e clareza aprovado está em [DESIGN.md](../DESIGN.md), com aplicação comprovada no candidato de [Hoje e Conversas v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md). A [referência do programa](README.md) distingue esse recorte do histórico de agosto e das demais telas ainda planejadas. Este plano continua expressando metas; sua atualização não declara o produto amplo concluído nem um novo estado de produção.
+
 ## 1. Resultado esperado
 
 Este plano integra o produto atual, os documentos históricos, as correções já realizadas e as novas necessidades do usuário. Ele não propõe voltar à versão antiga.
@@ -435,7 +437,9 @@ Detalhes em [08-ROADMAP-PRIORIZADO.md](08-ROADMAP-PRIORIZADO.md).
 - nenhuma mensagem real sem gate;
 - nenhuma mudança de produção inferida por aprovação visual.
 
-## 19. Estado desta entrega
+## 19. Estado da entrega original, agosto de 2026
+
+Este bloco preserva o resultado da missão de planejamento inicial. O estado corrente do refinamento visual está na [referência do programa](README.md) e no [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md).
 
 - planejamento integrado: concluído;
 - pasta e acervo: concluídos;

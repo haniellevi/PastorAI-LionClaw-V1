@@ -1,8 +1,16 @@
 # Igreja 12 Design System, Diamante Lapidado
 
-**Register:** product  
-**Status:** direção aprovada nos Gates 4/4.1; fundação visual aprovada no Gate 5.2.  
-**Fonte conceitual:** `docs/design/IDENTIDADE-VISUAL-DIAMANTE-LAPIDADO-IGREJA12.md`.
+**Register:** product
+
+**Status:** direção aprovada nos Gates 4/4.1; fundação visual aprovada no Gate 5.2; refinamento de contraste e clareza v2 aprovado em 30/09/2026.
+
+**Fonte conceitual:** [Identidade Diamante Lapidado](docs/design/IDENTIDADE-VISUAL-DIAMANTE-LAPIDADO-IGREJA12.md).
+
+**Implementação:** [tokens](frontend/src/app/design-tokens.css) e [estilos do produto](frontend/src/app/globals.css).
+
+**Recorte validado e limites:** [Hoje e Conversas v2](docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md).
+
+Este documento orienta todas as superfícies. A aprovação da prévia de Hoje e Conversas não declara concluída a aplicação às demais telas.
 
 ## 1. Norte
 
@@ -43,11 +51,13 @@ Cena física orientadora: um pastor ou líder consulta o sistema entre conversas
   --surface-raised: oklch(99% 0.006 232);
   --text-primary: var(--ink-950);
   --text-secondary: var(--ink-600);
+  --text-on-action: oklch(99% 0.005 240);
   --border-subtle: var(--line-200);
   --border-emphasis: oklch(63% 0.024 238);
   --action-primary: var(--diamond-700);
   --action-primary-hover: var(--diamond-900);
   --selection-soft: var(--diamond-100);
+  --selection-strong: var(--diamond-600);
   --focus-ring: var(--diamond-600);
 }
 ```
@@ -61,14 +71,16 @@ Cena física orientadora: um pastor ou líder consulta o sistema entre conversas
 - Sem gradiente em texto.
 - A marca principal não usa gradiente, brilho ou clarão.
 - Contraste mínimo WCAG AA.
+- Texto operacional secundário usa `text-secondary`; o alias legado `faint` tem o mesmo valor. Não reduzir sua legibilidade com transparência adicional.
+- `border-emphasis` distingue controles; `border-subtle` fica nas divisórias. Foco e seleção têm indicadores próprios.
 
 ## 4. Tipografia
 
 | Papel | Família | Tamanho | Peso | Linha |
 |---|---|---:|---:|---:|
-| Display institucional | Sora | 32 | 700 | 1.15 |
-| H1 produto | Sora | 26 | 700 | 1.2 |
-| H2 | Sora | 20 | 650 | 1.25 |
+| Display institucional | Sora | 28 | 700 | 1.15 |
+| H1 produto | Sora | 22 | 700 | 1.22 |
+| H2 | Sora | 18 | 650 | 1.32 |
 | H3 | Plus Jakarta Sans | 16 | 700 | 1.35 |
 | Corpo | Plus Jakarta Sans | 15 | 450 | 1.5 |
 | Label | Plus Jakarta Sans | 14 | 650 | 1.4 |
@@ -126,18 +138,20 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Destrutivo coral, nunca azul.
 - Altura 40 px desktop, 44–48 px mobile.
 - Estados: default, hover, focus-visible, active, disabled e loading.
+- O nome acessível contém o rótulo visível. Ícones complementam a ação sem exigir que a pessoa descubra seu significado.
 
 ### Field
 
 - Label sempre visível.
 - Ajuda e erro próximos do campo.
-- Focus ring azul de 2 px com offset.
+- Focus ring `diamond-600` de 2 px com offset.
 - Não depender de placeholder como label.
 
 ### Row e Table
 
 - Linha é a unidade padrão para fila, conversa, célula e usuário.
 - Seleção usa `selection-soft`, indicador textual e foco.
+- Filtros ativos podem usar `action-primary` com `text-on-action`. Seleção não substitui o contorno de foco por teclado.
 - Tabelas usam números tabulares quando comparáveis.
 - Densidade compacta somente em desktop e sem texto abaixo de 12 px.
 
@@ -147,6 +161,14 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Dialog central no desktop, sheet ancorada embaixo no mobile.
 - Esc fecha, foco fica contido e retorna ao gatilho.
 - Ação principal próxima do final do fluxo.
+
+### Disclosure
+
+- Usar `<details>` e `<summary>` nativos para expandir conteúdo no fluxo da página.
+- O título permanece visível, recebe foco e funciona por teclado. Não aplicar semântica de menu a uma expansão inline.
+- Pessoa, estado, motivo e ação principal permanecem à vista; ações secundárias ficam em "Mais ações", com contexto acessível por item.
+- "Jornada e responsáveis" e "Visão geral do seu cuidado" começam recolhidos. Não ocultar erro ou decisão necessária para concluir a tarefa.
+- Ações destrutivas mantêm a confirmação correspondente ao impacto.
 
 ### Toast e Banner
 
@@ -176,7 +198,8 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 
 ### Produtivo
 
-- Hover, seleção, disclosure, dialog e feedback: 140–220 ms.
+- Hover, seleção, dialog e feedback: 140–220 ms.
+- Disclosure nativo abre imediatamente; a expansão não exige animação de altura.
 - Animar opacity e transform.
 - Não animar width, height, top, left ou propriedades de layout.
 
@@ -206,7 +229,7 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Estrutura Quiet Operations.
 - Saudação e pessoas recebem calor de Pastoral Editorial.
 - Sem rail persistente de Precision Workspace.
-- Resumo semanal vem depois da fila e pode ser recolhido.
+- Totais do escopo aparecem depois da fila, em "Visão geral do seu cuidado", recolhidos por padrão.
 - Cada cuidado apresenta pessoa, motivo e uma ação principal. Atribuição e outras
   ações ficam em um disclosure nativo "Mais ações", com nome acessível por cuidado.
 - Agenda imediata permanece visível; Jornada e distribuição por responsável
@@ -218,8 +241,8 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Lista e thread separadas no mobile.
 - Avatares, nome e estado da IA são explícitos.
 - Contexto adicional aparece sob demanda ou depois da seleção.
-- Assumir ou encerrar atendimento mantém posição de destaque. "Transferir" e
-  "Ver pessoa" têm texto visível; exclusão fica em "Mais ações" e conserva confirmação.
+- Assumir ou encerrar atendimento mantém posição de destaque, conforme estado e responsável. "Transferir" é textual e "Ver pessoa" usa borda; ambos têm rótulo visível. Exclusão fica em "Mais ações" e conserva confirmação.
+- No mobile, retornar à lista preserva a busca e o rascunho da conversa. O contexto da pessoa abre sob demanda.
 
 ### Minha Célula
 
@@ -246,6 +269,7 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Controles mobile: mínimo 44 × 44 px.
 - Zoom 200% sem perda de conteúdo.
 - Foco visível em todo controle.
+- Contorno de foco de 2 px com contraste mínimo de 3:1 contra o fundo adjacente.
 - Estado nunca depende apenas de cor ou movimento.
 - `prefers-reduced-motion` obrigatório.
 - Ilustrações decorativas têm alt vazio; imagens informativas recebem descrição curta.
@@ -267,12 +291,14 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Cena de discipulado individual entre homem e mulher.
 - Símbolos religiosos genéricos usados para preencher espaço.
 
-## 13. Gate antes da implementação
+## 13. Validação por fatia
 
-1. Escolher e aprovar o símbolo.
-2. Criar protótipo consolidado com a identidade aplicada.
-3. Medir contraste e touch targets.
-4. Validar 390, 768, 1024 e 1440.
-5. Comparar visualmente com Quiet Pastoral Operations.
-6. Confirmar zero funcionalidade nova.
-7. Só então migrar tokens e primitives em PR próprio.
+A escolha do símbolo e a fundação visual foram aprovadas nos gates registrados acima. O refinamento v2 mantém essa identidade. Cada próxima fatia deve:
+
+1. Fixar a tarefa, as capacidades existentes e o comportamento esperado.
+2. Aplicar os tokens e a hierarquia deste documento à composição da tela.
+3. Medir contraste, alvos de toque e foco; exercitar teclado, estados de erro e reduced motion.
+4. Validar 390, 768, 1024 e 1440 px, além de 360 px quando previsto no plano da fatia.
+5. Verificar zoom de 200% e leitor de tela; registrar explicitamente o que não foi exercitado.
+6. Validar mudanças de composição na prévia antes de ampliar o recorte, preservando contratos e autorização.
+7. Registrar SHA, ambiente, resultado e rollback. Aprovação visual não comprova publicação ou operação real.

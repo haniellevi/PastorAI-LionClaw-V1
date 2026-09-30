@@ -404,6 +404,9 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   detalhes secundários recolhidos. Conversas mostra Transferir e Ver pessoa com
   texto, mantendo rascunho e busca no retorno mobile. Sem novo estado de produção.
   [Recorte e limites](sprints/2026-09-30-ux-contraste-fluxo-v2.md).
+  A prévia aprovada passou a orientar o [design system](../DESIGN.md) e o
+  [Plan Designer](../Plan-Designer-Igreja12/README.md), atualizados em 30/09.
+  A aplicação às demais telas continua parcial.
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
 ### Fundação do agente

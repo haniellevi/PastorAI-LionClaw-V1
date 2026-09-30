@@ -11,7 +11,17 @@ Este diretório é o centro de planejamento integrado de UX, produto e experiên
 
 Um requisito antigo nunca deve apagar uma evolução já existente. Quando houver conflito, registrar a divergência, validar a operação atual e decidir conscientemente se há algo melhor a incorporar.
 
-## Estado do programa
+## Referência atual, 30/09/2026
+
+O [design system canônico](../DESIGN.md) incorpora a prévia v2 aprovada por Raniel: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
+
+O primeiro recorte de Hoje e Conversas está implementado no candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`, na [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447), ainda em rascunho. Os quatro checks de produto passaram nesse SHA. A aplicação global permanece parcial; login, gestão da igreja e plataforma continuam sujeitos às suas fatias de implementação e validação.
+
+O [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) contém evidência e limites. O estado geral do produto permanece na [Wiki](../docs/WIKI-IGREJA12.md) e na [matriz de cobertura](../docs/ai/PRD-COVERAGE.md). Esta atualização do designer não registra um novo estado de produção.
+
+## Histórico do programa, snapshot de 11/08/2026
+
+Os estados abaixo pertencem ao registro de agosto e não são uma consulta atual às respectivas PRs ou ao ambiente.
 
 - Planejamento inicial: concluído em 2026-08-10 sobre a base `3f085ec7228d770649b0d9041f0e16154fe37629`.
 - Fatias 01, 02 e 03: integradas à `main` pelos PRs [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247), [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248) e [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250).
@@ -60,7 +70,4 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 ## Gate permanente
 
-O dono do produto aprovou a implementação e a publicação do PR da Fatia 04, e
-autorizou preparar a Fatia 05 em PR separado. Isso não autoriza merge,
-migration, alteração de banco, configuração externa, envio real, deploy ou
-produção. Cada passo permanece um gate humano separado.
+As aprovações de cada fatia ficam no seu registro. Em 30/09, a prévia de Hoje e Conversas v2 e a atualização do designer foram aprovadas. Próximo gate deste recorte: autorização nominal para liberar a PR #447 do rascunho para revisão. Merge e publicação seguem o runbook e a autorização da entrega; aprovação visual não abre gates de banco, provedores, envio ou ativação do agente.
