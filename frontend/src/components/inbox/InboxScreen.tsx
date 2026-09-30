@@ -405,6 +405,12 @@ function InboxSession() {
               setMessagesError(null);
             }
           } catch (err) {
+            if (err instanceof RequestTimeoutError) {
+              if (mode === "initial" && atual()) {
+                setMessagesError("O carregamento do histórico demorou mais que o esperado. Tente novamente.");
+              }
+              break;
+            }
             if (controller.signal.aborted) break;
             if (handleSessionError(err)) return;
             if (mode === "initial" && atual()) {

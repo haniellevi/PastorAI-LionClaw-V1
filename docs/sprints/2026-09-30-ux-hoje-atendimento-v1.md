@@ -9,7 +9,7 @@ scroll conservado durante leitura, histórico com erro explícito, lista paginad
 com cobertura parcial e responsabilidade humana visível. Hoje explicita suas
 pendências. Tokens/rotas/capacidades e contratos backend permanecem intactos.
 
-949 testes frontend passaram em 104 arquivos, sob Node 24.19.0. Build local
+951 testes frontend passaram em 104 arquivos, sob Node 24.19.0. Build local
 Next 15.5.25 passou. QA visual usa apenas mock em loopback; zoom de 200%, leitor
 de tela e integração com backend/provedor não foram verificados.
 
@@ -20,3 +20,7 @@ quando o botão da última página desaparece, sem roubar foco de outro campo.
 O teste negativo falhou antes da correção. Aparência e hospedagem preservadas.
 Publicação frontend autorizada, condicionada ao CI e ao SHA exato. Sem banco
 compartilhado, deploy backend, alteração de gates ou envio real.
+
+PR #445: timeout inicial do histórico também mostra erro e retry, conforme
+achado P2 da revisão automática. Teste negativo falhou antes do patch; teste
+de troca de conversa confirma que cancelamento não vira timeout da visita nova.

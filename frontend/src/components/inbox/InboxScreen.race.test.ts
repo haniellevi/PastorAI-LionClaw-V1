@@ -593,6 +593,31 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
   }
 
+  it("timeout inicial mostra erro e permite nova tentativa sem afirmar histórico vazio", async () => {
+    await cargaInicialPendente();
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(container.textContent).toContain("O carregamento do histórico demorou mais que o esperado.");
+    expect(threadBody().textContent).not.toContain("Ainda não há mensagens nesta conversa.");
+    const retry = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Tentar novamente'))!;
+    expect(retry).toBeDefined();
+    await act(async () => retry.click());
+    expect(activeRequests('conv-a')).toHaveLength(1);
+    await resolveActiveMessages('conv-a', MSGS_A);
+    expect(threadBody().textContent).toContain('mensagem antiga da Ana');
+    expect(container.textContent).not.toContain('O carregamento do histórico demorou');
+  });
+
+  it("cancelamento ao trocar de conversa não vira erro de timeout na conversa atual", async () => {
+    await cargaInicialPendente();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    await act(async () => selectConversation('Bruno Lima'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+    expect(threadBody().textContent).toContain('Carregando conversa…');
+    expect(container.textContent).not.toContain('O carregamento do histórico demorou');
+    await resolveActiveMessages('conv-b', MSGS_B);
+    expect(threadBody().textContent).toContain('mensagem atual do Bruno');
+  });
+
   it("uma requisição que nunca resolve expira e o próximo tick tenta novamente", async () => {
     await cargaInicialPendente();
     const firstSignal = firstPendingRequest().signal;

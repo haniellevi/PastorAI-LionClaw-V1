@@ -35,6 +35,12 @@ conclusão numa região de status; não rouba foco de outro campo. Não houve
 redesign, migração para Sites ou alteração de identidade. Um teste negativo
 falhou antes do ajuste; depois, passaram 949 testes em 104 arquivos e o build.
 
+A revisão automática da PR #445 apontou timeout inicial de histórico tratado
+como cancelamento. A correção distingue os casos antes de consultar o sinal
+abortado: timeout da visita atual mostra erro e retry; troca de conversa não
+contamina a visita nova. Um teste negativo reproduziu o achado. A árvore final
+passou em 951 testes, em 104 arquivos, e no build local.
+
 ## Resultado e limites do contrato
 
 A fila de cuidados permanece como entrada de Hoje. O título passa a explicitar
