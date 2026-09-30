@@ -51,6 +51,7 @@ function render(
       h(ConversationThread, {
         conversation,
         selfId: "me",
+        recordingContext: {},
         holderName: null,
         degraded: false,
         agentAvailability,

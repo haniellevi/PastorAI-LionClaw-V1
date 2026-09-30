@@ -197,7 +197,7 @@ function MessageBody({ m }: { m: ChatMessage }) {
 interface AudioRecordingCycle {
   generation: number;
   conversationId: string;
-  context: object | null | undefined;
+  context: object | null;
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
   timer: number | null;
@@ -244,8 +244,8 @@ export function ConversationThread({
 }: {
   conversation: Conversation;
   selfId: string;
-  /** Stable authorized session/church identity from the parent; null denies recording. */
-  recordingContext?: object | null;
+  /** Stable authorized session/church identity from the parent; null or absence denies composition. */
+  recordingContext: object | null;
   holderName: string | null;
   degraded: boolean;
   agentAvailability: AgentAvailability;
@@ -292,6 +292,7 @@ export function ConversationThread({
     if (cycle) releaseRecording(cycle);
   }, []);
   const submittingTextRef = useRef(false);
+  const submittingMediaRef = useRef(false);
   const followLatestRef = useRef(true);
 
   const estado = effectiveEstado(conversation);
@@ -305,7 +306,7 @@ export function ConversationThread({
   const holder = conversation.assumidoPor;
   const isMine = estado === "humano" && holder === selfId;
   const heldByOther = estado === "humano" && holder !== null && holder !== selfId;
-  const canCompose = isMine && !degraded && !sendingText && recordingContext !== null;
+  const canCompose = isMine && !degraded && !sendingText && recordingContext != null;
 
   // Invalidate before painting another conversation or authorization context.
   useLayoutEffect(() => {
@@ -412,15 +413,17 @@ export function ConversationThread({
 
     // Anexo pendente: envia a mídia (com a legenda atual, se houver).
     if (pendingFile) {
+      if (submittingMediaRef.current) return;
+      submittingMediaRef.current = true;
       const submissionGeneration = recordingGenerationRef.current;
       setSending(true);
       try {
         const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
         if (ok && recordingGenerationRef.current === submissionGeneration) {
           clearAttachment();
-          onDraftChange("");
         }
       } finally {
+        submittingMediaRef.current = false;
         setSending(false);
       }
       return;

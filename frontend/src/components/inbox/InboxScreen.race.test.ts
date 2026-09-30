@@ -13,7 +13,7 @@
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
-import { act, createElement as h } from "react";
+import { act, createElement as h, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -107,6 +107,18 @@ const MSGS_A_2A_VISITA = [msg("m-a-v2", "resposta da 2a visita a Ana")];
 // Snapshots sequenciais da mesma visita, usados para provar o single-flight.
 const SNAPSHOT_M1 = [msg("m-s1", "snapshot antigo M1")];
 const SNAPSHOT_M2 = [msg("m-s2", "snapshot mais novo M2")];
+const scopeChanges = ["roles", "church", "session", "status", "identity", "missingChurch", "missingToken"] as const;
+type ScopeChange = (typeof scopeChanges)[number];
+
+function changeScope(change: ScopeChange) {
+  if (change === "roles") auth.user.roles = ["lider_celula"];
+  if (change === "church") auth.user.churchId = "igreja-sintetica-b";
+  if (change === "session") auth.token = "sessao-sintetica-b";
+  if (change === "status") auth.status = "unauthenticated";
+  if (change === "identity") auth.user.appUserId = "outro-operador-sintetico";
+  if (change === "missingChurch") auth.user.churchId = "";
+  if (change === "missingToken") auth.token = "";
+}
 
 // ---- promessas controladas -------------------------------------------------
 /** Requisições de mensagens em voo, na ordem em que foram disparadas. */
@@ -237,9 +249,9 @@ afterEach(() => {
 });
 
 /** Renderiza o inbox; no desktop a 1ª conversa (A) já abre sozinha. */
-async function renderInbox() {
+async function renderInbox({ strict = false }: { strict?: boolean } = {}) {
   await act(async () => {
-    root.render(h(InboxScreen, {}));
+    root.render(strict ? h(StrictMode, {}, h(InboxScreen, {})) : h(InboxScreen, {}));
   });
 }
 
@@ -261,6 +273,17 @@ function selectConversation(nome: string) {
   act(() => {
     convButton(nome).dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+}
+
+function attachFile(name = "anexo-sintetico.txt") {
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error("campo de anexo não encontrado");
+  const file = new File(["conteúdo sintético"], name, { type: "text/plain" });
+  act(() => {
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  return file;
 }
 
 describe("InboxScreen — destinos de transferência por capacidade", () => {
@@ -727,7 +750,7 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
 });
 
 describe("AUD02 authorized parent context", () => {
-  it.each(["church", "session", "status", "identity", "missingChurch", "missingToken"])(
+  it.each(scopeChanges)(
     "invalidates pending microphone when %s changes with the same conversation ID",
     async (change) => {
       apiMock.fetchConversations.mockResolvedValue({
@@ -749,24 +772,74 @@ describe("AUD02 authorized parent context", () => {
       expect(mic.disabled).toBe(false);
       act(() => mic.click());
       expect(getUserMedia).toHaveBeenCalledTimes(1);
-      if (change === "church") auth.user.churchId = "igreja-sintetica-b";
-      if (change === "session") auth.token = "sessao-sintetica-b";
-      if (change === "status") auth.status = "unauthenticated";
-      if (change === "identity") auth.user.appUserId = "outro-operador-sintetico";
-      if (change === "missingChurch") auth.user.churchId = "";
-      if (change === "missingToken") auth.token = "";
+      changeScope(change);
       await renderInbox();
       await act(async () => resolve({ getTracks: () => tracks } as unknown as MediaStream));
       for (const track of tracks) expect(track.stop).toHaveBeenCalled();
       expect(container.querySelector(".attach-chip")).toBeNull();
       expect(container.querySelector(".rec-bar")).toBeNull();
       expect(apiMock.sendMessage).not.toHaveBeenCalled();
-      if (["status", "missingChurch", "missingToken"].includes(change)) {
+      if (["status", "missingChurch"].includes(change)) {
         const nextMic = container.querySelector<HTMLButtonElement>('[aria-label="Gravar áudio"]');
-        expect(nextMic?.disabled ?? true).toBe(true);
+        expect(nextMic).not.toBeNull();
+        expect(nextMic!.disabled).toBe(true);
+      }
+      if (change === "missingToken") {
+        expect(container.querySelector(".conv-thread")).toBeNull();
       }
     },
   );
+});
+
+describe("AUD02 parent scope while recording or with an attachment ready", () => {
+  function ownConversation() {
+    apiMock.fetchConversations.mockResolvedValue({
+      items: [{ ...CONV_A, estado: "humano", assumidoPor: "u-1" }],
+      page: 1, pageSize: 100, total: 1,
+    });
+  }
+
+  it.each(scopeChanges)("invalidates active recording when %s changes", async (change) => {
+    ownConversation();
+    const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }];
+    const mediaStream = { getTracks: () => tracks } as unknown as MediaStream;
+    class Recorder {
+      static isTypeSupported() { return true; }
+      state = "inactive";
+      start() { this.state = "recording"; }
+      stop = vi.fn(() => { this.state = "inactive"; });
+    }
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => mediaStream) } });
+    vi.stubGlobal("MediaRecorder", Recorder);
+
+    await renderInbox();
+    const mic = container.querySelector<HTMLButtonElement>('[aria-label="Gravar áudio"]');
+    if (!mic) throw new Error("botão de áudio não encontrado");
+    await act(async () => {
+      mic.click();
+      await Promise.resolve();
+    });
+    expect(container.querySelector(".rec-bar")).not.toBeNull();
+
+    changeScope(change);
+    await renderInbox();
+
+    for (const track of tracks) expect(track.stop).toHaveBeenCalled();
+    expect(container.querySelector(".rec-bar")).toBeNull();
+    expect(container.querySelector(".attach-chip")).toBeNull();
+  });
+
+  it.each(scopeChanges)("drops the ready attachment when %s changes", async (change) => {
+    ownConversation();
+    await renderInbox();
+    attachFile();
+    expect(container.querySelector(".attach-chip")).not.toBeNull();
+
+    changeScope(change);
+    await renderInbox();
+
+    expect(container.querySelector(".attach-chip")).toBeNull();
+  });
 });
 
 describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
@@ -797,6 +870,71 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
       );
     });
   }
+
+  it("submits media once when two activations happen before the blocking render", async () => {
+    ownConversations();
+    let finishSend!: () => void;
+    apiMock.sendMedia.mockImplementation(
+      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+    );
+    await renderInbox();
+    attachFile();
+    typeDraft("legenda sintética");
+    const send = container.querySelector<HTMLButtonElement>('[aria-label="Enviar mensagem"]');
+    if (!send) throw new Error("botão de envio não encontrado");
+
+    act(() => { send.click(); send.click(); });
+    expect(apiMock.sendMedia).toHaveBeenCalledTimes(1);
+
+    await act(async () => { finishSend(); });
+  });
+
+  it("clears an unchanged old caption after A->B->A under StrictMode", async () => {
+    ownConversations();
+    let finishSend!: () => void;
+    apiMock.sendMedia.mockImplementation(
+      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+    );
+    await renderInbox({ strict: true });
+    attachFile();
+    typeDraft("legenda antiga");
+    const send = container.querySelector<HTMLButtonElement>('[aria-label="Enviar mensagem"]');
+    if (!send) throw new Error("botão de envio não encontrado");
+    act(() => send.click());
+
+    selectConversation("Bruno Lima");
+    selectConversation("Ana Souza");
+    expect(composer().value).toBe("legenda antiga");
+
+    await act(async () => { finishSend(); });
+    expect(composer().value).toBe("");
+  });
+
+  it("preserves a new draft restored to the same text and its attachment", async () => {
+    ownConversations();
+    let finishSend!: () => void;
+    apiMock.sendMedia.mockImplementation(
+      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+    );
+    await renderInbox();
+    attachFile("anexo-antigo.txt");
+    typeDraft("legenda antiga");
+    const send = container.querySelector<HTMLButtonElement>('[aria-label="Enviar mensagem"]');
+    if (!send) throw new Error("botão de envio não encontrado");
+    act(() => send.click());
+
+    selectConversation("Bruno Lima");
+    selectConversation("Ana Souza");
+    attachFile("anexo-novo.txt");
+    typeDraft("legenda transitória");
+    typeDraft("legenda antiga");
+    expect(composer().value).toBe("legenda antiga");
+    expect(container.querySelector(".attach-name")?.textContent).toBe("anexo-novo.txt");
+
+    await act(async () => { finishSend(); });
+    expect(composer().value).toBe("legenda antiga");
+    expect(container.querySelector(".attach-name")?.textContent).toBe("anexo-novo.txt");
+  });
 
   it("falha no envio preserva o texto e nunca tenta reenviar automaticamente", async () => {
     ownConversations();

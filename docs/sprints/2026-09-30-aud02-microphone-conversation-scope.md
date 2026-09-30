@@ -1,92 +1,102 @@
 # AUD-02: microfone no escopo da conversa
 
-## Origem e recorte
+## Recorte e fonte
 
-Continuidade local de AUD-02 após a integração da PR #445, Hoje e atendimento
-humano v1. A composição parte de `origin/main`
-`363ecb5fecb2fb81a52a14577555b9f281eef7ca` sobre o candidato AUD-02 anterior
-`0965b963a9196883762a61ba605d690c24830a25`, em
-`fix/aud02-microphone-scope-20260930`. Esse estado descreve o snapshot de implementação antes do commit de composição.
+O candidato local parte de `origin/main`
+`363ecb5fecb2fb81a52a14577555b9f281eef7ca`, na branch
+`fix/aud02-microphone-scope-20260930`, com base de implementação
+`7c9b404f87e9229db9b1bccd2fd2c3db78111759`.
 
-O recorte preserva rascunhos privados por conversa da #445, a exclusão de
-submits concorrentes, polling sem deslocamento, paginação com cobertura
-explícita e erros/retry. Não altera backend, RLS, banco, dependências, gates,
-provedores ou ambiente externo.
+O recorte é somente frontend: delimita a gravação por conversa e por contexto
+autenticado, impede reentrada de envio de mídia e preserva o rascunho correto
+quando a confirmação chega tarde. Não altera dependências, backend, banco, RLS,
+payload de API, provedores, gates ou ambiente externo.
 
-## RED histórico
+Além dos seis arquivos já presentes no candidato, `ConversationThread.test.ts`
+foi adaptado para o contrato obrigatório de contexto de gravação. Não houve
+outra ampliação de allowlist ou de escopo.
 
-A ficha `M-2026-09-30-aud02-microphone-conversation-scope.md` registra a
-regressão DOM negativa criada e observada antes do patch AUD-02. Essa evidência
-histórica cobre a permissão tardia e não foi reexecutada contra a composição,
-pois o candidato já contém a correção.
+## RED e proveniência
 
-## GREEN da composição
+Antes da alteração de produção desta rodada, os casos de regressão locais foram
+executados com Node `v24.19.0` no diretório `frontend`:
 
-A composição mantém o ciclo de gravação vinculado à geração, à conversa e a um
-contexto autenticado opaco. Troca de conversa, desmontagem ou alteração de
-status, token, igreja, identidade ou papéis invalida gravação e anexo; stream
-tardio encerra tracks sem iniciar recorder, cronômetro ou arquivo. A mudança de
-contexto remonta a sessão do inbox e descarta seus rascunhos, enquanto a troca
-de conversa na mesma sessão conserva cada rascunho.
+```text
+node node_modules/vitest/vitest.mjs run \
+  src/components/inbox/ConversationThread.recording.test.ts \
+  src/components/inbox/InboxScreen.race.test.ts \
+  src/components/inbox/ConversationThread.test.ts
+```
 
-## Testes e limites
+O resultado foi 3 falhas e 86 testes verdes em 3 arquivos: contexto de gravação
+ausente ainda habilitava o microfone, duas ativações pré-render enviavam duas
+mídias e a confirmação antiga em A, B, A mantinha a legenda que deveria ser
+limpa. A fonte de produção desse RED era a base `7c9b404`; os testes de
+regressão foram adicionados localmente nesta rodada.
 
-Ambiente local, Node `v24.19.0`, com `PATH` pinado para o binário Node 24 em
-npm e subprocessos:
+Para a contagem histórica, a suíte limpa de `7c9b404` registrada por Sarah é
+`984/984` em 104 arquivos. A evidência recebida do Root relata a mesma execução
+limpa com Node 24 e `npm exec --offline -- vitest run src`. Ela documenta a
+base limpa, não é arquivo versionado deste candidato e não prova o patch
+pré-commit atual. A referência a `946a3b7` é `983/983` em 104 arquivos,
+derivada de contagem anterior e não uma execução observada nesta rodada. A
+contagem `986/986` anterior corresponde a execução local em snapshot externo
+ao commit; sem vínculo documentado, ela não deve ser atribuída a um SHA. Também
+não há prova para atribuir um oráculo LENTE posterior a logs antigos.
 
-- focais de gravação, thread e corrida do inbox: 69 testes verdes em 3 arquivos;
-- inbox completo: 98 testes verdes em 6 arquivos;
-- `npm run typecheck` e lint focal: verdes;
-- suíte frontend completa: 982 testes verdes em 104 arquivos; 3 falhas M09 em
-  `src/lib/m09-loopback-url.test.ts`. O subprocesso local do Playwright retorna
-  `EPERM` ao tentar iniciar o Node 24, com stdout e stderr vazios, antes de
-  carregar a configuração. A falha se repete com `PATH` pinado e fica fora do
-  recorte AUD-02/#445.
+## Correção
 
-Os testes usam apenas DOM, streams, tracks e conversas sintéticas. Eles não
-provam RLS, isolamento backend, integração com provedor, deploy, flag, banco ou
+O submit de mídia em `ConversationThread` usa uma trava síncrona em ref antes
+do primeiro `await`, liberada em `finally`. O `InboxScreen` real tem uma
+regressão que aciona duas vezes o botão antes do render bloqueante e verifica
+exatamente uma chamada a `sendMedia`.
+
+`recordingContext` é obrigatório no contrato e falha fechada para `null` ou
+ausência em tempo de execução. Sem contexto, o compositor de áudio fica
+desabilitado e não chama `getUserMedia`. A chave de sessão do pai cobre papéis,
+igreja, token, status e identidade; a matriz de testes cobre cada troca durante
+gravação ativa e com anexo pronto. Ao desmontar a sessão, a limpeza interrompe
+tracks tardias e descarta ciclo de gravação e anexo, sem enviar mídia.
+
+O rascunho agora guarda valor e versão no mesmo estado do pai. Quando uma mídia
+antiga conclui, a limpeza só ocorre se ambos ainda correspondem ao snapshot de
+submissão. O updater de React é puro e não escreve ref. O caso A, B, A de
+legenda inalterada passa sob `StrictMode`; o caso de rascunho novo que volta ao
+mesmo texto e anexo novo preserva os dois valores após a conclusão antiga.
+
+## Verificação local
+
+Executado localmente com Node `v24.19.0`, sem instalação ou rede:
+
+- regressões focais de gravação, thread e corrida: `89/89` em 3 arquivos;
+- inbox completo: `118/118` em 6 arquivos;
+- caso de legenda inalterada sob `StrictMode`: 1 teste verde;
+- typecheck sem emissão e lint dos cinco arquivos frontend alterados: verdes.
+
+O `npm exec --offline -- vitest run src` pós-correção não fecha a suíte local:
+`1000/1003` testes verdes em 103 de 104 arquivos, com três asserts em
+`src/lib/m09-loopback-url.test.ts` recebendo stdout e stderr vazios. Nenhum
+arquivo M09 foi alterado e a causa não foi estabelecida. O relato histórico de
+`EPERM` de M09 está superado pelo comprovante limpo de `7c9b404`; ele não deve
+ser usado para explicar esta observação atual sem nova evidência.
+
+Essa execução local é restrita ao ambiente que a produziu. Em
+`2026-09-30T22:40:30Z`, o Root reexecutou na fonte congelada o comando exato
+`env PATH=/home/raniel-linux/.nvm/versions/node/v24.19.0/bin:/usr/bin:/bin npm exec --offline -- vitest run src`,
+submetido à avaliação automática e aprovado com `1003/1003` testes em 104
+arquivos, exit 0. A diferença entre as execuções não permite inferir causa.
+
+Os testes não provam RLS, isolamento backend, provedor, deploy, flag, banco ou
 dados reais.
 
-## Gate e rollback
+## Estado e próximo gate
 
-Gate pendente: autorização nominal de Raniel para merge da PR #446 no head
-exato, após CI obrigatório e revisões requeridas. Rollback local: abortar o
-merge pendente antes de commit, ou reverter em branch própria após autorização.
-Nenhuma operação externa ocorreu.
+O candidato permanece sem commit, push, CI remoto ou merge. Este é o snapshot
+pré-commit desta rodada, não o estado permanente da PR. A fonte fica quiescente
+para revisão independente. Após um novo head, CI obrigatório e as revisões
+requeridas, o próximo gate humano é a autorização nominal para merge da PR
+#446. Esta rodada não concede esse gate.
 
-## Verificação independente da composição
-
-Em 2026-09-30T20:55Z, Orquestrador verificou a composição com Node24.19.0 e
-PATH fixado: suíte frontend completa 985/985 em105 arquivos, typecheck e
-diff-check PASS; implementador registrou inbox98/98 e lint focal PASS. Os
-guards M09 locais (51/51) e a suíte completa passaram em execução do comando
-exato submetido à avaliação automática; no sandbox os três subprocessos
-Playwright falham EPERM antes de carregar configuração. Nenhum teste externo
-à allowlist foi alterado. RED original permanece histórico, separado do GREEN.
-
-Origem de #445 conferida no GitHub: autor e integrador haniellevi, branch
-codex/ux-hoje-atendimento-v1, head76df51fe6db6ba29e22dda71d6783a459f9e738b,
-merge363ecb5fecb2fb81a52a14577555b9f281eef7ca em2026-09-30T19:25:27Z.
-O corpo registra autorização de publicação por Raniel; a ordem original não
-foi verificada independentemente nesta sessão. Isso não concede gate adicional.
-
-CI remoto e LENTE/Sarah devem ser vinculados ao novo head exato; nenhuma
-aprovação anterior é transportada para esta composição. Classificação de
-domínio na matriz PRD permanece igual. Gate humano único: autorização nominal
-Raniel para merge #446 após evidências e revisões; sem merge nesta missão.
-
-## P1 detectado e corrigido na revisão de composição
-
-LENTE reprovou946a3b745d35b1fe560cfb648046ce32cfacaa46: após enviar mídia emA
-e navegarA->B->A, a confirmação antiga apagava o novo rascunhoA. Uma
-regressão permanente noInboxScreen real falhou antes dofix (33PASS/1FAIL),
-com origemconv-a e legenda sintéticas. O retorno do submit agora captura
-a geração e só limpa rascunho/anexo se ela continuar válida, aproveitando
-a invalidação de ciclo já existente. Sem alteração de payload/backend ou
-transferência da gestão de mídia ao pai.
-
-GREEN em30/09 21:07Z: inbox99/99, gravação28/28, typecheck/lint/diffPASS;
-Orquestrador reexecutou a suíte frontend completa986/986 em105arquivos com
-Node24.19.0 ePATH fixado. Evidência986 é do snapshot P1, enquanto985 acima
-permanece histórico do candidato946a3b7. CI e revisões devem ser renovados
-no head que incorpora esta correção; nenhumGO anterior é reaproveitado.
+Rollback permanece reversível enquanto o patch não tem commit: descartar as
+mudanças somente sob direção autorizada. Após eventual integração, qualquer
+reversão exige branch e gate próprios.

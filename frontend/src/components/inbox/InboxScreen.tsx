@@ -127,6 +127,11 @@ interface Toast {
   text: string;
 }
 
+interface ConversationDraft {
+  value: string;
+  version: number;
+}
+
 export function InboxScreen() {
   const { user, token, status } = useAuth();
   const scope = JSON.stringify([
@@ -154,10 +159,20 @@ function InboxSession() {
   const [listTotal, setListTotal] = useState(0);
   const [hasMorePages, setHasMorePages] = useState(false);
   const pagesLoadedRef = useRef(1);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, ConversationDraft>>({});
   const sendingTextRef = useRef(new Set<string>());
   const [sendingTextIds, setSendingTextIds] = useState(new Set<string>());
   const [now, setNow] = useState(() => Date.now());
+
+  const updateDraft = useCallback((conversationId: string, value: string) => {
+    setDrafts((current) => ({
+      ...current,
+      [conversationId]: {
+        value,
+        version: (current[conversationId]?.version ?? 0) + 1,
+      },
+    }));
+  }, []);
 
   const [filter, setFilter] = useState<ConvFilter>("todas");
   const [search, setSearch] = useState("");
@@ -650,9 +665,11 @@ function InboxSession() {
       try {
         await sendMessage(token, c.id, text);
         setDrafts((current) => {
-          const next = { ...current };
-          delete next[c.id];
-          return next;
+          const currentDraft = current[c.id] ?? { value: "", version: 0 };
+          return {
+            ...current,
+            [c.id]: { value: "", version: currentDraft.version + 1 },
+          };
         });
         // Bump da última mensagem na lista + recarrega o histórico (a mensagem
         // enviada é persistida no backend e aparece na thread).
@@ -681,8 +698,20 @@ function InboxSession() {
   const handleSendMedia = useCallback(
     async (c: Conversation, file: File, caption?: string): Promise<boolean> => {
       if (!token) return false;
+      const draftAtSubmission = drafts[c.id] ?? { value: "", version: 0 };
       try {
         await sendMedia(token, c.id, file, caption);
+        setDrafts((current) => {
+          const currentDraft = current[c.id] ?? { value: "", version: 0 };
+          if (
+            currentDraft.version !== draftAtSubmission.version ||
+            currentDraft.value !== draftAtSubmission.value
+          ) return current;
+          return {
+            ...current,
+            [c.id]: { value: "", version: currentDraft.version + 1 },
+          };
+        });
         // Bump da lista + recarrega o histórico (a mídia enviada é persistida).
         const label = caption?.trim()
           ? caption.trim()
@@ -707,7 +736,7 @@ function InboxSession() {
         return false;
       }
     },
-    [token, patch, flashToast, handleSessionError, loadMessages],
+    [token, drafts, patch, flashToast, handleSessionError, loadMessages],
   );
 
   // ---- exclusão de conversa (hard delete, admin) --------------------------
@@ -935,9 +964,9 @@ function InboxSession() {
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}
-            draft={drafts[selected.id] ?? ""}
+            draft={drafts[selected.id]?.value ?? ""}
             sendingText={sendingTextIds.has(selected.id)}
-            onDraftChange={(value) => setDrafts((current) => ({ ...current, [selected.id]: value }))}
+            onDraftChange={(value) => updateDraft(selected.id, value)}
             outsideFilter={selectedOutsideFilter}
             onSendMedia={handleSendMedia}
             onTogglePanel={() => setPanelOpen((v) => !v)}

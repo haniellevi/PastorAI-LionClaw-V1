@@ -465,12 +465,14 @@ sem declarar as próximas verticais implementadas.
      merge `363ecb5f`, com preservação de rascunhos, lista paginada e estados explícitos.
      [Registro e limites](../sprints/2026-09-30-ux-hoje-atendimento-v1.md).
      Integração Git observada; sem validação com provedor real nesta missão.
-   - [x] AUD-02: implementação source-only do escopo de microfone por geração, conversa
-     e contexto autenticado após #445. Troca de conversa ou de autenticação
-     invalida áudio e anexo; rascunhos por conversa, exclusão de submits
-     concorrentes, polling, paginação e erros permanecem. [Registro, testes e
+   - [x] AUD-02: candidato source-only do escopo de microfone por geração,
+     conversa e contexto obrigatório, com falha fechada quando o contexto falta.
+     Mudança de conversa ou de escopo autenticado descarta áudio e anexo;
+     reentrada de mídia tem trava síncrona e a confirmação antiga só limpa a
+     legenda cuja versão e conteúdo não mudaram. Rascunhos por conversa,
+     polling, paginação e erros permanecem. [Registro, testes e
      limites](../sprints/2026-09-30-aud02-microphone-conversation-scope.md).
-     Merge continua sujeito a gate nominal, CI e revisões requeridas.
+     Merge continua sujeito a novo head, CI, revisões e gate nominal.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;

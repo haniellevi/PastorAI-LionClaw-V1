@@ -202,6 +202,13 @@ describe("AUD02 microphone ownership", () => {
     expect(Recorder.instances).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(1);
   });
+  it("fails closed when the recording context is absent at runtime", () => {
+    render(A, contextA, { recordingContext: undefined as unknown as object });
+    const mic = button("Gravar áudio");
+    expect(mic.disabled).toBe(true);
+    click("Gravar áudio");
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
   it.each([false, true])("old callbacks cannot affect new recording, return to A=%s", async (returnToA) => {
     render(); click("Gravar áudio");
     const old = stream(); await grant(0, old);
