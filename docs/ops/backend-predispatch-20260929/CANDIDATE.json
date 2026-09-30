@@ -1,0 +1,74 @@
+{
+  "base_sha": "702c8353e8f76b629d857b0637046bf2a78b88b8",
+  "head_sha": "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1",
+  "patch_sha256": "9a886365bbdc2f936751e934f8a824008425da325d830a8fcbd30ebf2958b860",
+  "pr": 440,
+  "environment": "local + GitHub CI",
+  "review_lente": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 0,
+    "head_sha": "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1",
+    "scope": "incremental source-only; previous functional evidence preserved"
+  },
+  "backend_ci": {
+    "offline_passed": 6107,
+    "deploy_passed": 38,
+    "inventory_pg17_passed": 11,
+    "inventory_pg17_skipped": 0,
+    "audit": "no known vulnerabilities",
+    "head_sha": "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1",
+    "run": 36654313484,
+    "monitor_passed": 62,
+    "monitor_skipped": 3
+  },
+  "limitations": [
+    "Sarah GO only for merge; P1=1 and P2=5 remain for pre-deploy; no operational authorization",
+    "No merge, dispatch, environment changes, VPS, PROD, shared database, migration or sends operated",
+    "Existing CI monitor: 62 passed, 3 skips; synthetic PG17 runs only in CI during this resumption"
+  ],
+  "open_threads": 0,
+  "observed_at_utc": "2026-09-30T01:25:40.942682+00:00",
+  "ci": {
+    "head_sha": "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1",
+    "checks_success": 7,
+    "rls_run": 36654313487,
+    "rls_passed": 781,
+    "rls_skipped": 0,
+    "rls_failed": 0,
+    "rls_errors": 0,
+    "preflight_pg17_passed": 1
+  },
+  "review_sarah": {
+    "via": "Conselheiro Claude / Maestri return",
+    "head_sha": "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1",
+    "merge": "GO",
+    "dispatch": "NO-GO",
+    "P0": 0,
+    "P1": 1,
+    "P2": 5,
+    "P1_gate": "future deploy; real Compose compatibility not proven",
+    "artifact": "REVIEW-SARAH-5e3643f.md",
+    "findings_source_sha256": "534466deb144e01a9cd48c4b98cf5b24fd8e7a0a3b91f6d5832c10ec640a6865",
+    "P2_titles": [
+      "Unversioned evidence and mission",
+      "Database identity in deploy log",
+      "Text-based document/source tests",
+      "PyJWT validation relies on CI rather than offline Sarah review",
+      "Runbook lacks own human recovery procedure"
+    ],
+    "finding_status": "transcribed and open; no operational authorization"
+  },
+  "publication_note": "Sanitized operational receipt. Original local artifacts are preserved; original hash labels refer to original bytes, not sanitized copies. No production data or operational authorization.",
+  "original_local_artifacts_sha256": {
+    "REVIEW-ddd82e6.md": "f32b72ccc8a1e86c8deb35c18b92e46b5cbbb8d3f1ba224dc64c95540e822d0d",
+    "REVIEW-9480407.md": "c79de1c6b24f1331700ea509ec270f8bd5f4be01af06cdefdf99aca5daf3cfca",
+    "QA-PLAN.md": "4bf3c85d92db0a2c216401ba0604fb6314885d56efb0e4fea1ef209bdaf7be57",
+    "REVIEW-2f00814.md": "fe103b46bba136cae7bc1ca2b2b8e484511d7f26b926481b60b8ca858acce78a",
+    "IMPLEMENTATION.md": "daaf2e41b71f8399aed45931236ed9c10368a156943aa2bcd66fc0d9cab9c647",
+    "REVIEW-4283bde.md": "2c03439b9c5a962b6675de6eb35811451d635207666cfee17feb82d9faf02c85",
+    "REVIEW-5e3643f.md": "c75f700e09d7d65f4cff7306e071465df5585280b073301ea3624f5a7bb3c986",
+    "REVIEW-SARAH-5e3643f.md": "6c2793268e5553e4d44b8d3e3d26c22143de6b13b8c896d05bbbb715492eca35"
+  },
+  "snapshot_stage": "candidate validation before merge; final state is recorded separately in MERGE-RECEIPT.json"
+}
