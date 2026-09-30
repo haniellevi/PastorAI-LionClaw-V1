@@ -461,6 +461,16 @@ sem declarar as próximas verticais implementadas.
    sem ativação, migration compartilhada ou conclusão do domínio presumida.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
+   - [x] Hoje e atendimento humano v1: integrada em 30/09 pela PR #445,
+     merge `363ecb5f`, com preservação de rascunhos, lista paginada e estados explícitos.
+     [Registro e limites](../sprints/2026-09-30-ux-hoje-atendimento-v1.md).
+     Integração Git observada; sem validação com provedor real nesta missão.
+   - [x] AUD-02: implementação source-only do escopo de microfone por geração, conversa
+     e contexto autenticado após #445. Troca de conversa ou de autenticação
+     invalida áudio e anexo; rascunhos por conversa, exclusão de submits
+     concorrentes, polling, paginação e erros permanecem. [Registro, testes e
+     limites](../sprints/2026-09-30-aud02-microphone-conversation-scope.md).
+     Merge continua sujeito a gate nominal, CI e revisões requeridas.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;

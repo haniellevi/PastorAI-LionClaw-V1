@@ -954,11 +954,10 @@ export function DashboardScreen() {
             <p className="dh-lead">Não foi possível confirmar suas ações agora.</p>
           ) : hasWorkQueue && acoesAbertas > 0 ? (
             <p className="dh-lead">
-              Você tem{" "}
+              Cuidados que precisam de você:{" "}
               <strong>
-                {acoesAbertas} {acoesAbertas === 1 ? "ação" : "ações"}
-              </strong>{" "}
-              que {acoesAbertas === 1 ? "precisa" : "precisam"} de atenção.
+                {acoesAbertas} {acoesAbertas === 1 ? "pendência" : "pendências"}
+              </strong>.
             </p>
           ) : hasWorkQueue ? (
             <p className="dh-lead">{responsibilities.emptyQueueText}</p>
@@ -1352,7 +1351,7 @@ function ActionModal({
         : "Conectar à célula";
 
   return (
-    <DsDialog open onClose={onClose} title={title} description={item.titulo}>
+    <DsDialog open className="dh-action-dialog" onClose={onClose} title={title} description={item.titulo}>
       {kind === "assign" ? (
         <div className="dh-picker">
           {eligibleMembers.length === 0 ? (

@@ -28,6 +28,30 @@ let publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
 let churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
 let identityChallengeConsumed = false;
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
+// Opt-in, loopback-only synthetic inbox for visual UX verification.
+const uxFixture = process.env.M09_UX_FIXTURE === "1";
+let uxConversations = [];
+let uxMessages = new Map();
+function resetUxInbox() {
+  if (!uxFixture) return;
+  whatsapp = { numero: "00000000000", status: "online", ultimaSync: null };
+  uxConversations = Array.from({ length: 103 }, (_, index) => ({
+    id: `ux-conversation-${index}`, telefone: `550000000${String(index).padStart(3, "0")}`,
+    pessoaId: null, nome: index < 3 ? ["Contato A", "Contato B", "Contato C"][index] : `Contato sintético ${index + 1}`,
+    estado: index === 0 ? "aguardando" : index === 1 ? "humano" : "ia",
+    ultimaMensagem: "Olá, gostaria de conhecer a igreja.", naoLidas: index === 0 ? 1 : 0,
+    assumidoPor: index === 1 ? profile.appUserId : null,
+    assumidoPorNome: index === 1 ? "Admin E2E" : null,
+    assumidoEm: null, esperaDesde: index === 0 ? "2026-09-30T16:00:00Z" : null,
+    atualizadoEm: "2026-09-30T16:05:00Z", tipo: "contato", semInteresse: false,
+  }));
+  uxMessages = new Map(uxConversations.map((c) => [c.id, [{
+    id: `${c.id}-message`, direcao: "in", autor: "contato", autorNome: null,
+    tipo: "texto", texto: c.ultimaMensagem, mediaUrl: null, mediaMime: null, mediaNome: null,
+    criadoEm: "2026-09-30T16:05:00Z",
+  }]]));
+}
+resetUxInbox();
 
 function resetState() {
   requests = [];
@@ -37,6 +61,7 @@ function resetState() {
   churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
   identityChallengeConsumed = false;
   whatsapp = { numero: null, status: "offline", ultimaSync: null };
+  resetUxInbox();
 }
 
 function delayFor(pathname) {
@@ -287,7 +312,50 @@ const server = createServer(async (request, response) => {
     }
     if (method === "GET" && pathname === "/conversations") {
       record.status = 200;
-      sendJson(response, 200, page([]));
+      const number = Math.max(1, Number(url.searchParams.get("page")) || 1);
+      const size = Math.min(100, Math.max(1, Number(url.searchParams.get("pageSize")) || 100));
+      sendJson(response, 200, uxFixture ? {
+        items: uxConversations.slice((number - 1) * size, number * size),
+        page: number, pageSize: size, total: uxConversations.length,
+      } : page([]));
+      return;
+    }
+    if (uxFixture && method === "GET" && pathname === "/conversations/agent-status") {
+      record.status = 200;
+      sendJson(response, 200, { configured: true, ativo: true, pausedByChurch: false });
+      return;
+    }
+    if (uxFixture && method === "GET" && pathname === "/team/inbox-lookup") {
+      record.status = 200;
+      sendJson(response, 200, page([{ usuarioId: "ux-responsible", nome: "Responsável de exemplo", papeis: ["operador"] }]));
+      return;
+    }
+    const uxMatch = uxFixture && pathname.match(/^\/conversations\/([^/]+)\/(messages|handoff|read|photo)$/);
+    if (uxMatch) {
+      const conversation = uxConversations.find((c) => c.id === uxMatch[1]);
+      if (!conversation) { record.status = 404; sendJson(response, 404, { detail: "Conversa sintética ausente." }); return; }
+      record.status = 200;
+      const action = uxMatch[2];
+      if (action === "handoff" && method === "POST") {
+        conversation.estado = body.to === "human" ? "humano" : "ia";
+        conversation.assumidoPor = body.to === "human" ? profile.appUserId : null;
+        conversation.assumidoPorNome = body.to === "human" ? profile.chatNome : null;
+        conversation.esperaDesde = null;
+        sendJson(response, 200, conversation);
+      } else if (action === "messages" && method === "GET") {
+        sendJson(response, 200, page(uxMessages.get(conversation.id)));
+      } else if (action === "messages" && method === "POST") {
+        uxMessages.get(conversation.id).push({
+          id: `ux-message-${nextRequestId}`, direcao: "out", autor: "humano", autorNome: profile.chatNome,
+          tipo: "texto", texto: body.texto, criadoEm: "2026-09-30T17:00:00Z",
+          mediaUrl: null, mediaMime: null, mediaNome: null,
+        });
+        sendJson(response, 200, { status: "synthetic-only" });
+      } else if (action === "photo" && method === "GET") {
+        sendJson(response, 200, { url: null });
+      } else {
+        sendJson(response, 200, { status: "synthetic-only" });
+      }
       return;
     }
     if (method === "GET" && pathname === "/pipeline") {

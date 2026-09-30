@@ -83,7 +83,7 @@ describe("conversation-format — IA pausada por sem interesse (CONV-AI-1)", () 
     const c = conv({ semInteresse: false, estado: "aguardando" });
     expect(iaPausadaSemInteresse(c)).toBe(false);
     expect(conversationPill(c)).toEqual(estadoPill("aguardando"));
-    expect(conversationPill(c).label).toBe("Aguardando humano");
+    expect(conversationPill(c).label).toBe("Em espera");
   });
 
   it("configuração global inativa substitui 'IA ativa' por 'IA pausada pela igreja'", () => {
@@ -112,6 +112,6 @@ describe("conversation-format — IA pausada por sem interesse (CONV-AI-1)", () 
     ).toBe("Em atendimento");
     expect(
       conversationPill(conv({ estado: "aguardando" }), "paused_by_church").label,
-    ).toBe("Aguardando humano");
+    ).toBe("Em espera");
   });
 });

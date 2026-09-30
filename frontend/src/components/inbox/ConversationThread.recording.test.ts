@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement as h, StrictMode, type ComponentProps } from "react";
+import { act, createElement as h, StrictMode, type ComponentProps, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,6 +17,28 @@ const A = conversation("conversa-a");
 const B = conversation("conversa-b");
 const contextA = {};
 const contextB = {};
+type TestThreadProps = Omit<
+  ComponentProps<typeof ConversationThread>,
+  "draft" | "onDraftChange" | "sendingText"
+> & Partial<Pick<ComponentProps<typeof ConversationThread>, "draft" | "onDraftChange" | "sendingText">>;
+
+function ControlledThread({
+  draft: initialDraft,
+  onDraftChange: parentOnDraftChange,
+  sendingText = false,
+  ...props
+}: TestThreadProps) {
+  const [draft, setDraft] = useState(initialDraft ?? "");
+  return h(ConversationThread, {
+    ...props,
+    draft,
+    onDraftChange: (value: string) => {
+      setDraft(value);
+      parentOnDraftChange?.(value);
+    },
+    sendingText,
+  });
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,14 +79,15 @@ let onSendMedia: ReturnType<typeof vi.fn<(c: Conversation, file: File, caption?:
 let requests: ReturnType<typeof deferred<MediaStream>>[];
 
 function render(c = A, context = contextA, overrides: Partial<ComponentProps<typeof ConversationThread>> = {}) {
-  act(() => root.render(h(ConversationThread, {
+  const props: TestThreadProps = {
     conversation: c, selfId: "operador-sintetico", recordingContext: context,
     holderName: null, degraded: false, agentAvailability: "active", busy: false,
     conflict: null, messages: [], messagesLoading: false, panelOpen: false,
     isAdmin: false, avatarUrl: null, onAssume: vi.fn(), onReturn: vi.fn(),
-    onSend: vi.fn(), onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
+    onSend: async () => true, onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
     onTransfer: vi.fn(), ...overrides,
-  })));
+  };
+  act(() => root.render(h(ControlledThread, props)));
 }
 function button(label: string) {
   const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -291,7 +314,8 @@ describe("AUD02 microphone ownership", () => {
       holderName: null, degraded: false, agentAvailability: "active", busy: false,
       conflict: null, messages: [], messagesLoading: false, panelOpen: false,
       isAdmin: false, avatarUrl: null, onAssume: vi.fn(), onReturn: vi.fn(),
-      onSend: vi.fn(), onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(), onTransfer: vi.fn(),
+      onSend: async () => true, onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
+      onTransfer: vi.fn(), draft: "", onDraftChange: vi.fn(), sendingText: false,
     }))));
     click("Gravar áudio");
     render(); click("Gravar áudio");

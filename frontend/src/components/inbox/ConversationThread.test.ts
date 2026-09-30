@@ -63,7 +63,10 @@ function render(
         avatarUrl: null,
         onAssume: () => {},
         onReturn: () => {},
-        onSend: () => {},
+        onSend: async () => true,
+        draft: "",
+        sendingText: false,
+        onDraftChange: () => {},
         onSendMedia: async () => true,
         onTogglePanel: () => {},
         onDelete: () => {},
@@ -89,7 +92,7 @@ describe("ConversationThread — sem interesse ⇒ IA pausada (CONV-AI-1)", () =
     render(conv({ semInteresse: false, estado: "ia" }));
     const text = container.textContent ?? "";
     expect(text).toContain("IA ativa");
-    expect(text).toContain("Assumir (pausar IA)");
+    expect(text).toContain("Assumir atendimento");
     expect(text).toContain("conduzindo este atendimento automaticamente");
   });
 

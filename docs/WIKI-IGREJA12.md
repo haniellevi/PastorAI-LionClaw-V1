@@ -390,6 +390,12 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
 - Minha Célula, Central, solicitações, transferência e remoção de membros.
 - Conversas, histórico, handoff, transferência humana e mídia privada.
 - Painel de Hoje e fila central por responsabilidades existentes.
+- UX Hoje/atendimento humano v1: rascunhos por conversa, cobertura parcial e
+  paginação explícitas, responsabilidade humana visível, foco de teclado na
+  conclusão da paginação e erro/retry de histórico inclusive em timeout.
+  [PR #445](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/445) e
+  [registro com limites de QA](sprints/2026-09-30-ux-hoje-atendimento-v1.md).
+  Código/testes locais não comprovam operação com backend/provedores reais.
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
 ### Fundação do agente

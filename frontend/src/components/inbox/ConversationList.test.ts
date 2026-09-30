@@ -89,7 +89,7 @@ describe("ConversationList — Gate 8", () => {
     render();
     const rows = [...container.querySelectorAll(".conv")];
     const waiting = rows.find((r) => r.textContent!.includes("Marcos Lima"))!;
-    expect(waiting.textContent).toContain("Aguardando atendimento");
+    expect(waiting.textContent).toContain("Em espera");
     const other = rows.find((r) => r.textContent!.includes("Ana Souza"))!;
     expect(other.textContent).not.toContain("Aguardando atendimento");
   });
@@ -105,7 +105,7 @@ describe("ConversationList — Gate 8", () => {
     const onFilter = vi.fn();
     render({ filter: "aguardando", onFilter });
     const pressed = container.querySelector('.ib-filter-btn[aria-pressed="true"]')!;
-    expect(pressed.textContent).toContain("Aguardando");
+    expect(pressed.textContent).toContain("Em espera");
     expect(pressed.textContent).toContain("1"); // contador real
     act(() => {
       [...container.querySelectorAll(".ib-filter-btn")]
@@ -130,7 +130,45 @@ describe("ConversationList — Gate 8", () => {
   it("lista vazia mostra o estado vazio da fundação", () => {
     render({ conversations: [] });
     expect(container.querySelector(".ds-empty-title")?.textContent).toContain(
-      "Nenhuma conversa encontrada.",
+      "Ainda não há conversas.",
     );
+  });
+
+  it("responsável próprio fica explícito mesmo antes de carregar o nome", () => {
+    render({ selfId: "eu", conversations: [conv({ estado: "humano", assumidoPor: "eu", assumidoPorNome: null })] });
+    expect(container.textContent).toContain("Em atendimento por você");
+  });
+
+  it("estado humano sem nome nunca inventa um responsável", () => {
+    render({ conversations: [conv({ estado: "humano", assumidoPor: "outro", assumidoPorNome: null })] });
+    expect(container.textContent).toContain("Responsável não informado");
+  });
+
+  it("última página anuncia a conclusão e conserva um destino de teclado", () => {
+    render({ partialList: true, loadedCount: 100, total: 103, hasMore: true, onLoadMore: () => {} });
+    const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Carregar mais conversas'))!;
+    button.focus();
+    act(() => button.click());
+    render({ partialList: true, loadedCount: 100, total: 103, hasMore: true, loadingMore: true, onLoadMore: () => {} });
+    render({ loadedCount: 103, total: 103, hasMore: false });
+    expect(document.activeElement).toBe(container.querySelector('input[type="search"]'));
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Todas as 103 conversas foram carregadas.');
+  });
+
+  it("conclusão da página não rouba foco de quem mudou para outro campo", () => {
+    const composer = document.createElement('input');
+    document.body.appendChild(composer);
+    try {
+      render({ hasMore: true, onLoadMore: () => {} });
+      const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Carregar mais conversas'))!;
+      button.focus();
+      act(() => button.click());
+      render({ hasMore: true, loadingMore: true, onLoadMore: () => {} });
+      composer.focus();
+      render({ loadedCount: 103, total: 103, hasMore: false });
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      composer.remove();
+    }
   });
 });
