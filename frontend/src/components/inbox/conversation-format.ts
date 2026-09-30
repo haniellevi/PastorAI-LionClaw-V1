@@ -20,7 +20,7 @@ export function estadoPill(estado: ConversationEstado): {
   label: string;
 } {
   if (estado === "humano") return { tone: "ok", label: "Em atendimento" };
-  if (estado === "aguardando") return { tone: "warn", label: "Aguardando humano" };
+  if (estado === "aguardando") return { tone: "warn", label: "Em espera" };
   return { tone: "accent", label: "IA ativa" };
 }
 

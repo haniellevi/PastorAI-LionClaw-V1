@@ -110,8 +110,9 @@ export async function fetchConversations(
   token: string,
   pageSize = 100,
   signal?: AbortSignal,
+  page = 1,
 ): Promise<Page<Conversation>> {
-  const res = await authedFetch(token, `/conversations?page=1&pageSize=${pageSize}`, { signal });
+  const res = await authedFetch(token, `/conversations?page=${page}&pageSize=${pageSize}`, { signal });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
   }
