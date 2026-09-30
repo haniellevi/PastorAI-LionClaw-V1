@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import runpy
@@ -140,7 +141,13 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
             assert "dry-run OK" in complete.stdout
             assert "database identity:" in complete.stdout
             assert database_name in complete.stdout
-            assert "127.0.0.1" in complete.stdout
+            with target.connect() as connection:
+                expected_identity = list(connection.exec_driver_sql(
+                    "SELECT current_database(), current_user, inet_server_addr()::text, inet_server_port()"
+                ).one())
+            identity_line = next(line for line in complete.stdout.splitlines()
+                                 if line.startswith("database identity: "))
+            assert json.loads(identity_line.removeprefix("database identity: ")) == [expected_identity]
 
             with target.begin() as connection:
                 connection.execute(
