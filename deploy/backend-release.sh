@@ -1,25 +1,31 @@
 #!/usr/bin/env bash
 # Run on the VPS only after a separately authorized database release.
 set -Eeuo pipefail
+BACKEND_RELEASE_SAFETY_VERSION=2
+
+configuration=.env
+if [[ "${BACKEND_RELEASE_TEST_MODE:-}" == 1 ]]; then
+  configuration=${BACKEND_RELEASE_TEST_CONFIG:?}
+  [[ "$configuration" == *.fixture && "$configuration" != */* ]] || exit 2
+fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # Use the candidate's own migration selection rule. A missing ledger entry
 # blocks the release even when /health and /ready would still answer 200.
-expected_migrations=$(python3 - "$script_dir/../backend" <<'PY'
+migration_manifest() {
+  python3 - "$1" <<'MANIFEST'
 import json
 from pathlib import Path
 import runpy
 import sys
-
 backend = Path(sys.argv[1]).resolve()
-files = runpy.run_path(str(backend / "scripts/migrate.py"))["migration_files"](
-    backend / "migrations"
-)
+files = runpy.run_path(str(backend / "scripts/migrate.py"))["migration_files"](backend / "migrations")
 if not files:
-    raise SystemExit("candidate has no active migration files")
+    raise SystemExit("release has no active migration files")
 print(json.dumps(files, separators=(",", ":")))
-PY
-)
+MANIFEST
+}
+expected_migrations=$(migration_manifest "$script_dir/../backend")
 if [[ "${1:-}" == "--dry-run" ]]; then
   EXPECTED_MIGRATIONS="$expected_migrations" \
     "${BACKEND_RELEASE_PYTHON:-python3}" "$script_dir/check_backend_schema.py"
@@ -42,18 +48,24 @@ else
 fi
 candidate="$release_root/$release_sha"
 active=$(readlink -f -- "$active_link")
+if [[ "$(readlink -f -- "$candidate")" != "$candidate" || -L "$candidate/deploy" ||
+      -e "$candidate/deploy/$configuration" || -L "$candidate/deploy/$configuration" ]]; then
+  echo "candidate path is aliased or contains an existing private configuration" >&2
+  exit 1
+fi
 if [[ "$active" != "$release_root/"* || ! -d "$active/deploy" || ! -d "$candidate/deploy" || "$active" == "$candidate" ]]; then
   echo "release paths are missing, outside the release root, or already active" >&2
   exit 1
 fi
-if [[ ! -f "$active/deploy/.env" || ! -f "$candidate/deploy/check_backend_schema.py" ]]; then
+if [[ ! -f "$active/deploy/$configuration" || ! -f "$candidate/deploy/check_backend_schema.py" ]]; then
   echo "active configuration or candidate schema check is missing" >&2
   exit 1
 fi
 
-export PASTORAI_ENV_FILE=.env
+export PASTORAI_ENV_FILE="$configuration"
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
+candidate_configuration_needed=0
 
 check_compose_gates() {
   docker compose config --format json | python3 -c '
@@ -97,19 +109,68 @@ check_external_gates() {
   done
 }
 
+# Containers are inspected while stopped, before any application entrypoint.
+create_and_start() {
+  local service container
+  docker compose up --no-start --no-build --no-deps --pull never --force-recreate "${services[@]}" || return 1
+  for service in "${services[@]}"; do
+    container=$(docker compose ps -aq "$service")
+    [[ -n "$container" && "$container" != *$'\n'* ]] || return 1
+    docker inspect --format '{{json .Config.Env}}' "$container" | python3 -c '
+import json, sys
+try:
+    entries = json.load(sys.stdin)
+    env = dict(item.split("=", 1) for item in entries)
+    expected = {"ALLOW_REAL_SENDS": "false", "ASAAS_BILLING_ENABLED": "false",
+                "BREVO_SEND_MODE": "off", "BROADCAST_ASYNC_ENABLED": "false"}
+    if len(env) != len(entries) or not all(env.get(k) == v for k, v in expected.items()):
+        raise ValueError("invalid gates")
+except Exception:
+    sys.exit("stopped container gates open or unverifiable")
+' || return 1
+  done
+  docker compose start --wait --wait-timeout 180 "${services[@]}"
+}
+
+cleanup() {
+  local status=$?
+  if (( ! candidate_configuration_needed )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
+    rm -f -- "$candidate/deploy/$configuration"
+  fi
+  rm -f -- "$active_link.next.$$"
+  exit "$status"
+}
+trap cleanup EXIT
 rollback() {
-  local original_status=$?
+  local original_status=${1:-$?} previous_migrations
   trap - ERR
+  trap '' INT TERM
+  if [[ "$(readlink -f -- "$active_link")" == "$candidate" ]]; then
+    echo "release already activated; preserve healthy active containers and configuration" >&2
+    exit "$original_status"
+  fi
   if (( restart_started )); then
-    echo "candidate unhealthy; restoring previous backend code" >&2
+    # Stop first: a rejected rollback must never leave candidate workers running.
+    docker compose stop "${services[@]}" || {
+      candidate_configuration_needed=1
+      echo "containment failed; preserve candidate configuration for human recovery" >&2
+      exit "$original_status"
+    }
     cd -- "$active/deploy"
+    if [[ ! -f check_backend_schema.py ]] ||
+       ! previous_migrations=$(migration_manifest "$active/backend"); then
+      echo "rollback schema compatibility unverifiable; keep gates closed and use a reviewed forward fix" >&2
+      exit "$original_status"
+    fi
     if ! check_compose_gates ||
        ! docker compose build backend ||
-       ! docker compose up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 "${services[@]}" ||
+       ! docker compose run --rm --no-deps -T -e "EXPECTED_MIGRATIONS=$previous_migrations" --entrypoint python backend - < check_backend_schema.py ||
+       ! create_and_start ||
        ! check_external_gates ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null; then
-      echo "rollback of code is unhealthy; keep gates closed and use a reviewed forward fix" >&2
+      docker compose stop "${services[@]}" || true
+      echo "rollback of code is unhealthy or schema incompatible; keep gates closed and use a reviewed forward fix" >&2
     fi
   else
     echo "deploy stopped before restart; previous containers remain active" >&2
@@ -117,10 +178,12 @@ rollback() {
   exit "$original_status"
 }
 trap rollback ERR
+trap 'rollback 130' INT
+trap 'rollback 143' TERM
 
 # Keep secrets on the VPS; never include them in the Git archive or logs.
-cp -p -- "$active/deploy/.env" "$candidate/deploy/.env"
-chmod 600 "$candidate/deploy/.env"
+cp -p -- "$active/deploy/$configuration" "$candidate/deploy/$configuration"
+chmod 600 "$candidate/deploy/$configuration"
 cd -- "$candidate/deploy"
 docker compose config --quiet
 check_compose_gates
@@ -137,7 +200,7 @@ docker compose exec -T -e "EXPECTED_MIGRATIONS=$expected_migrations" backend pyt
 cd -- "$candidate/deploy"
 docker compose build backend
 restart_started=1
-docker compose up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 "${services[@]}"
+create_and_start
 check_external_gates
 curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null
 curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null

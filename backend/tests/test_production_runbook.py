@@ -20,17 +20,17 @@ _RUNBOOK = (
 
 def _release_activation_block() -> str:
     text = _RUNBOOK.read_text(encoding="utf-8")
-    section = text.index("Antes de ativar um release")
-    start = text.index("```bash", section) + len("```bash")
-    end = text.index("```", start)
-    return text[start:end]
+    section = text.split("## 5. Deploy reproduzível do backend", 1)[1].split("## 6.", 1)[0]
+    assert "BACKEND-RELEASE-MANUAL.md" in section
+    assert "```bash" not in section.split("Antes de ativar um release", 1)[1]
+    return (_RUNBOOK.parents[2] / "deploy" / "backend-release.sh").read_text(encoding="utf-8")
 
 
 def _external_send_gate_script() -> str:
     block = _release_activation_block()
-    gate = block.index("for service in backend queue-worker cron-worker")
-    start = block.index("sh -lc '", gate) + len("sh -lc '")
-    end = block.index("'; then", start)
+    gate = block.index("check_external_gates()")
+    start = block.index("sh -c '", gate) + len("sh -c '")
+    end = block.index("' >/dev/null; then", start)
     return block[start:end]
 
 
@@ -53,39 +53,14 @@ def _posix_shell() -> str:
 def test_external_send_gate_exits_before_health_and_symlink() -> None:
     block = _release_activation_block()
 
-    gate = block.index("for service in backend queue-worker cron-worker")
-    guarded_exec = block.index("if ! docker compose exec", gate)
-    allow_present = block.index(
-        '[ "${ALLOW_REAL_SENDS+x}" = "x" ]', guarded_exec
-    )
-    allow_closed = block.index('[ "$ALLOW_REAL_SENDS" = "false" ]', allow_present)
-    billing_present = block.index(
-        '[ "${ASAAS_BILLING_ENABLED+x}" = "x" ]', allow_closed
-    )
-    billing_closed = block.index(
-        '[ "$ASAAS_BILLING_ENABLED" = "false" ]', billing_present
-    )
-    brevo_present = block.index(
-        '[ "${BREVO_SEND_MODE+x}" = "x" ]', billing_closed
-    )
-    brevo_closed = block.index('[ "$BREVO_SEND_MODE" = "off" ]', brevo_present)
-    hard_stop = block.index("exit 1", brevo_closed)
-    guard_end = block.index("fi", hard_stop)
-    loop_end = block.index("done", guard_end)
-    health = block.index("curl -fsS", loop_end)
-    symlink = block.index("ln -sfn", health)
-
-    assert (
-        guarded_exec
-        < allow_present
-        < allow_closed
-        < billing_present
-        < billing_closed
-        < brevo_present
-        < brevo_closed
-        < hard_stop
-    )
-    assert hard_stop < guard_end < loop_end < health < symlink
+    assert "services=(backend queue-worker cron-worker broadcast-worker)" in block
+    start = block.index("# Keep secrets")
+    gate = block.index("\ncheck_external_gates\n", start)
+    build = block.index("\ndocker compose build backend\n", gate)
+    activate = block.index("\ncreate_and_start\n", build)
+    health = block.index("curl -fsS", activate)
+    symlink = block.index("ln -s --", health)
+    assert gate < build < activate < health < symlink
     assert ":-false" not in block
     assert "cat .env" not in block
     assert "printenv" not in block
@@ -96,41 +71,49 @@ def test_external_send_gate_exits_before_health_and_symlink() -> None:
         "allow_real_sends",
         "asaas_billing_enabled",
         "brevo_send_mode",
+        "broadcast_async_enabled",
         "expected_closed",
     ),
     (
-        ("false", "false", "off", True),
-        (None, "false", "off", False),
-        ("", "false", "off", False),
-        ("true", "false", "off", False),
-        ("FALSE", "false", "off", False),
-        ("false", None, "off", False),
-        ("false", "", "off", False),
-        ("false", "true", "off", False),
-        ("false", "disabled", "off", False),
-        ("false", "false", None, False),
-        ("false", "false", "", False),
-        ("false", "false", "canary", False),
-        ("false", "false", "live", False),
-        ("false", "false", "OFF", False),
+        ("false", "false", "off", "false", True),
+        (None, "false", "off", "false", False),
+        ("", "false", "off", "false", False),
+        ("true", "false", "off", "false", False),
+        ("FALSE", "false", "off", "false", False),
+        ("false", None, "off", "false", False),
+        ("false", "", "off", "false", False),
+        ("false", "true", "off", "false", False),
+        ("false", "disabled", "off", "false", False),
+        ("false", "false", None, "false", False),
+        ("false", "false", "", "false", False),
+        ("false", "false", "canary", "false", False),
+        ("false", "false", "live", "false", False),
+        ("false", "false", "OFF", "false", False),
+        ("false", "false", "off", None, False),
+        ("false", "false", "off", "", False),
+        ("false", "false", "off", "true", False),
     ),
 )
 def test_external_send_gate_shell_accepts_only_explicit_closed_values(
     allow_real_sends: str | None,
     asaas_billing_enabled: str | None,
     brevo_send_mode: str | None,
+    broadcast_async_enabled: str | None,
     expected_closed: bool,
 ) -> None:
     env = os.environ.copy()
     env.pop("ALLOW_REAL_SENDS", None)
     env.pop("ASAAS_BILLING_ENABLED", None)
     env.pop("BREVO_SEND_MODE", None)
+    env.pop("BROADCAST_ASYNC_ENABLED", None)
     if allow_real_sends is not None:
         env["ALLOW_REAL_SENDS"] = allow_real_sends
     if asaas_billing_enabled is not None:
         env["ASAAS_BILLING_ENABLED"] = asaas_billing_enabled
     if brevo_send_mode is not None:
         env["BREVO_SEND_MODE"] = brevo_send_mode
+    if broadcast_async_enabled is not None:
+        env["BROADCAST_ASYNC_ENABLED"] = broadcast_async_enabled
 
     result = subprocess.run(
         [_posix_shell(), "-c", _external_send_gate_script()],
@@ -141,4 +124,4 @@ def test_external_send_gate_shell_accepts_only_explicit_closed_values(
     )
 
     assert (result.returncode == 0) is expected_closed
-    assert ("external-send gates: CLOSED" in result.stdout) is expected_closed
+    assert result.stdout == ""

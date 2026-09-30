@@ -29,12 +29,34 @@ jobs:
       - name: Package exact main commit
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          ALLOWED_ACTORS: ${{ vars.BACKEND_DEPLOY_ALLOWED_ACTORS }}
+          SAFE_BASE_SHA: ${{ vars.BACKEND_DEPLOY_SAFE_BASE_SHA }}
         run: |
           set -euo pipefail
+          set -f
+          [[ -n "$ALLOWED_ACTORS" && "$SAFE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          for actor in "$RELEASE_ACTOR" "$TRIGGERING_ACTOR"; do
+            [[ "$actor" =~ ^[A-Za-z0-9-]+$ ]]
+            allowed=false
+            for entry in $ALLOWED_ACTORS; do
+              [[ "$entry" =~ ^[A-Za-z0-9-]+$ ]]
+              if [[ "$entry" == "$actor" ]]; then allowed=true; fi
+            done
+            [[ "$allowed" == true ]]
+          done
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git fetch origin main
           git cat-file -e "$RELEASE_SHA^{commit}"
           git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          git cat-file -e "$SAFE_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$SAFE_BASE_SHA" "$RELEASE_SHA"
+          # A configured historical SHA cannot accidentally reopen the old path.
+          for sha in "$SAFE_BASE_SHA" "$RELEASE_SHA"; do
+            git show "$sha:deploy/backend-release.sh" |
+              grep -qx 'BACKEND_RELEASE_SAFETY_VERSION=2'
+          done
           git archive --format=tar "$RELEASE_SHA" backend deploy |
             gzip -9 > "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
 
@@ -55,9 +77,18 @@ jobs:
           hosts="$RUNNER_TEMP/backend-deploy-known-hosts"
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$hosts"
-          trap 'rm -f -- "$key" "$hosts"' EXIT
+          trap 'rm -f -- "$key" "$hosts" "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"' EXIT
           ssh_opts=(-i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts")
           scp "${ssh_opts[@]}" "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz" \
             "$DEPLOY_USER@$DEPLOY_HOST:/tmp/pastorai-$RELEASE_SHA.tar.gz"
           ssh "${ssh_opts[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "set -eu; umask 077; mkdir -p '/opt/pastorai-releases/$RELEASE_SHA'; tar -xzf '/tmp/pastorai-$RELEASE_SHA.tar.gz' -C '/opt/pastorai-releases/$RELEASE_SHA'; bash '/opt/pastorai-releases/$RELEASE_SHA/deploy/backend-release.sh' '$RELEASE_SHA'"
+            "set -eu; umask 077; trap \"rm -f -- '/tmp/pastorai-$RELEASE_SHA.tar.gz'\" EXIT; test ! -e '/opt/pastorai-releases/$RELEASE_SHA'; mkdir '/opt/pastorai-releases/$RELEASE_SHA'; tar -xzf '/tmp/pastorai-$RELEASE_SHA.tar.gz' -C '/opt/pastorai-releases/$RELEASE_SHA'; bash '/opt/pastorai-releases/$RELEASE_SHA/deploy/backend-release.sh' '$RELEASE_SHA'"
+
+      - name: Remove runner tarball
+        if: always()
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          if [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            rm -f -- "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
+          fi
