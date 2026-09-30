@@ -52,6 +52,7 @@ export function TransferConversationModal({
   return (
     <DsDialog
       open
+      className="ib-dialog"
       onClose={() => {
         if (!busy) onCancel();
       }}

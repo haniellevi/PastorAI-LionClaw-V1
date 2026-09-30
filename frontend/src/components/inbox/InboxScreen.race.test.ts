@@ -690,3 +690,154 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     expect(threadBody().textContent).toContain("snapshot mais novo M2");
   });
 });
+
+describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
+  function ownConversations() {
+    apiMock.fetchConversations.mockResolvedValue({
+      items: [CONV_A, CONV_B].map((c) => ({ ...c, estado: "humano", assumidoPor: "u-1" })),
+      page: 1, pageSize: 100, total: 2,
+    });
+  }
+
+  function composer() {
+    const input = container.querySelector<HTMLInputElement>('.thread-foot input[type="text"]');
+    if (!input) throw new Error("composer ausente");
+    return input;
+  }
+
+  function typeDraft(value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(composer(), value);
+      composer().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  async function submitText() {
+    await act(async () => {
+      container.querySelector("form.thread-foot")!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("falha no envio preserva o texto e nunca tenta reenviar automaticamente", async () => {
+    ownConversations();
+    apiMock.sendMessage.mockRejectedValue(new Error("rede indisponível"));
+    await renderInbox();
+    typeDraft("Resposta sintética preservada");
+    await submitText();
+    expect(composer().value).toBe("Resposta sintética preservada");
+    expect(container.textContent).toContain("Não foi possível confirmar o envio");
+    expect(apiMock.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("rascunhos A/B persistem na visita; conclusão tardia de A não limpa B nem permite dupla submissão", async () => {
+    ownConversations();
+    let finish!: () => void;
+    apiMock.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    await renderInbox();
+    typeDraft("Resposta A");
+    await submitText();
+    await submitText();
+    expect(apiMock.sendMessage).toHaveBeenCalledTimes(1);
+    await act(async () => { selectConversation("Bruno Lima"); });
+    typeDraft("Rascunho B");
+    await act(async () => { selectConversation("Ana Souza"); });
+    expect(composer().value).toBe("Resposta A");
+    expect(composer().disabled).toBe(true);
+    await act(async () => { selectConversation("Bruno Lima"); });
+    await act(async () => { finish(); });
+    expect(composer().value).toBe("Rascunho B");
+    await act(async () => { selectConversation("Ana Souza"); });
+    expect(composer().value).toBe("");
+  });
+
+  it("troca de sessão descarta rascunho privado e uma resposta da sessão anterior", async () => {
+    ownConversations();
+    let finish!: () => void;
+    apiMock.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    await renderInbox();
+    typeDraft("Texto da sessão A");
+    await submitText();
+    const originalToken = auth.token;
+    auth.token = "tok-outra-igreja";
+    try {
+      await renderInbox();
+      expect(composer().value).toBe("");
+      typeDraft("Texto da nova sessão");
+      await act(async () => { finish(); });
+      expect(composer().value).toBe("Texto da nova sessão");
+    } finally { auth.token = originalToken; }
+  });
+
+  it("alcança conversa 101 com a paginação existente e identifica a busca parcial", async () => {
+    const first = Array.from({ length: 100 }, (_, i) => conv("c-" + i, "Contato sintético " + i));
+    const last = conv("c-101", "Contato da página dois");
+    apiMock.fetchConversations.mockImplementation((_t, _size, _signal, page = 1) =>
+      Promise.resolve({ items: page === 1 ? first : [last], page, pageSize: 100, total: 101 }),
+    );
+    await renderInbox();
+    expect(container.textContent).toContain("100 de 101 conversas carregadas");
+    expect(container.textContent).toContain("A busca e os filtros abrangem as conversas carregadas");
+    const more = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.includes("Carregar mais conversas"));
+    expect(more).toBeDefined();
+    await act(async () => { more!.click(); });
+    expect(convButton("Contato da página dois")).toBeDefined();
+    expect(apiMock.fetchConversations).toHaveBeenCalledWith("tok-1", 100, expect.any(AbortSignal), 2);
+    expect(container.textContent).not.toContain("100 de 101 conversas carregadas");
+  });
+
+  it("filtro que esconde a seleção mantém conversa e rascunho com aviso explícito", async () => {
+    ownConversations();
+    await renderInbox();
+    typeDraft("Rascunho no filtro");
+    act(() => {
+      [...container.querySelectorAll<HTMLButtonElement>(".ib-filter-btn")]
+        .find((b) => b.textContent?.includes("IA"))!.click();
+    });
+    expect(container.textContent).toContain("Conversa aberta fora deste filtro");
+    expect(composer().value).toBe("Rascunho no filtro");
+    expect(container.querySelector(".thread-head")?.textContent).toContain("Ana Souza");
+    expect(container.textContent).toContain("Nenhuma conversa neste filtro");
+  });
+
+  it("polling que acrescenta mensagem não desloca quem lê o histórico", async () => {
+    vi.useFakeTimers();
+    await renderInbox();
+    await resolveActiveMessages("conv-a", MSGS_A);
+    const body = threadBody();
+    Object.defineProperties(body, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+    });
+    body.scrollTop = 100;
+    act(() => body.dispatchEvent(new Event("scroll", { bubbles: true })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await resolveActiveMessages("conv-a", [...MSGS_A, msg("m-new", "Nova mensagem sintética")]);
+    expect(body.scrollTop).toBe(100);
+  });
+
+  it("falha do histórico mostra erro e retry, sem afirmar ausência de mensagens", async () => {
+    apiMock.fetchMessages.mockRejectedValue(new Error("rede indisponível"));
+    await renderInbox();
+    expect(container.textContent).toContain("Não foi possível carregar o histórico");
+    expect(container.textContent).not.toContain("Ainda não há mensagens nesta conversa");
+    expect([...container.querySelectorAll("button")].some((b) => b.textContent?.includes("Tentar novamente"))).toBe(true);
+  });
+
+  it("falha na página seguinte mantém a lista existente e a cobertura parcial", async () => {
+    apiMock.fetchConversations.mockImplementation((_t, _size, _signal, page = 1) =>
+      page === 1
+        ? Promise.resolve({ items: [CONV_A], page: 1, pageSize: 100, total: 101 })
+        : Promise.reject(new Error("falha página dois")),
+    );
+    await renderInbox();
+    const more = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.includes("Carregar mais conversas"))!;
+    await act(async () => { more.click(); });
+    expect(convButton("Ana Souza")).toBeDefined();
+    expect(container.textContent).toContain("1 de 101 conversas carregadas");
+    expect(container.textContent).toContain("Não foi possível carregar as conversas");
+  });
+});

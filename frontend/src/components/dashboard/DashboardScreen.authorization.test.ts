@@ -779,7 +779,7 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     expect(buttonWithText("Assumir")).toBeDefined();
     expect(container.querySelectorAll(".dh-item")).toHaveLength(3);
     expect(container.textContent).toContain("5 de 8 ações carregadas");
-    expect(container.textContent).toContain("Você tem 8 ações");
+    expect(container.textContent).toContain("Cuidados que precisam de você: 8 pendências");
     const expand = buttonWithText("Ver 5 ações já carregadas");
     expect(expand).toBeDefined();
 

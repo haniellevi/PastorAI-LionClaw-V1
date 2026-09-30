@@ -9,6 +9,9 @@
  * selection-soft + aria-current; "aguardando" comunicado por ÍCONE + TEXTO
  * (nunca só cor). Nenhum filtro, busca, dado ou callback mudou.
  */
+import { useId } from "react";
+import { StatusPill } from "@/components/dashboard/StatusPill";
+import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
 import type { Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
@@ -19,6 +22,8 @@ import {
   effectiveEstado,
   shortTime,
   tipoMarker,
+  conversationPill,
+  type AgentAvailability,
 } from "./conversation-format";
 
 export type ConvFilter = "todas" | "aguardando" | "ia";
@@ -33,6 +38,15 @@ export function ConversationList({
   onSelect,
   onFilter,
   onSearch,
+  agentAvailability = "unknown",
+  hasConversations = conversations.length > 0,
+  partialList = false,
+  loadedCount = conversations.length,
+  total = conversations.length,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  selfId,
 }: {
   conversations: Conversation[];
   selectedId: string | null;
@@ -43,7 +57,17 @@ export function ConversationList({
   onSelect: (id: string) => void;
   onFilter: (filter: ConvFilter) => void;
   onSearch: (value: string) => void;
+  agentAvailability?: AgentAvailability;
+  hasConversations?: boolean;
+  partialList?: boolean;
+  loadedCount?: number;
+  total?: number;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  selfId?: string;
 }) {
+  const searchId = useId();
   return (
     <div className="conv-list">
       <div className="ib-filter" role="group" aria-label="Filtrar conversas">
@@ -61,7 +85,7 @@ export function ConversationList({
           aria-pressed={filter === "aguardando"}
           onClick={() => onFilter("aguardando")}
         >
-          Aguardando
+          Em espera
           {waitingCount > 0 ? <span className="ib-filter-num">{waitingCount}</span> : null}
         </button>
         <button
@@ -75,7 +99,9 @@ export function ConversationList({
       </div>
 
       <div className="ib-search">
+        <label htmlFor={searchId}>Buscar conversa</label>
         <input
+          id={searchId}
           type="search"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
@@ -84,14 +110,20 @@ export function ConversationList({
         />
       </div>
 
+      {partialList ? (
+        <p className="ib-coverage">
+          {loadedCount} de {total} conversas carregadas. A busca e os filtros abrangem as conversas carregadas.
+        </p>
+      ) : null}
       {conversations.length === 0 ? (
         <DsEmptyState
-          title="Nenhuma conversa encontrada."
-          hint="Ajuste o filtro ou a busca para ver outras conversas."
+          title={hasConversations || partialList ? "Nenhuma conversa neste filtro." : "Ainda não há conversas."}
+          hint={hasConversations || partialList ? "Ajuste a busca ou escolha Todas." : "As conversas recebidas pelo número oficial aparecerão aqui."}
         />
       ) : (
         conversations.map((c) => {
           const estado = effectiveEstado(c);
+          const pill = conversationPill(c, agentAvailability);
           const marker = tipoMarker(c);
           const active = c.id === selectedId;
           return (
@@ -125,18 +157,27 @@ export function ConversationList({
                     </span>
                   ) : null}
                 </div>
-                {estado === "aguardando" ? (
-                  // Gate 8: aguardando por ÍCONE + TEXTO (nunca só cor).
-                  <span className="ib-wait">
-                    <Icon name="clock" />
-                    Aguardando atendimento
-                  </span>
-                ) : null}
+                <div className="ib-row-state">
+                  {estado === "aguardando" ? <Icon name="clock" /> : null}
+                  <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
+                  {estado === "humano" ? (
+                    <span className="ib-holder">
+                      {c.assumidoPor === selfId ? "Em atendimento por você" : c.assumidoPorNome ? `Responsável: ${c.assumidoPorNome}` : "Responsável não informado"}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </button>
           );
         })
       )}
+      {hasMore && onLoadMore ? (
+        <div className="ib-load-more">
+          <DsButton variant="secondary" loading={loadingMore} onClick={onLoadMore}>
+            Carregar mais conversas
+          </DsButton>
+        </div>
+      ) : null}
     </div>
   );
 }

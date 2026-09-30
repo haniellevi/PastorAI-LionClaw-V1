@@ -128,12 +128,24 @@ interface Toast {
 }
 
 export function InboxScreen() {
+  const { user, token } = useAuth();
+  const scope = JSON.stringify([token, user?.churchId, user?.appUserId, [...(user?.roles ?? [])].sort()]);
+  return <InboxSession key={scope} />;
+}
+
+function InboxSession() {
   const { user, token, expireSession } = useAuth();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listTotal, setListTotal] = useState(0);
+  const [hasMorePages, setHasMorePages] = useState(false);
+  const pagesLoadedRef = useRef(1);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const sendingTextRef = useRef(new Set<string>());
+  const [sendingTextIds, setSendingTextIds] = useState(new Set<string>());
   const [now, setNow] = useState(() => Date.now());
 
   const [filter, setFilter] = useState<ConvFilter>("todas");
@@ -143,6 +155,7 @@ export function InboxScreen() {
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
 
   // Painel de dados do contato (Parte B) e exclusão de conversa.
@@ -208,7 +221,7 @@ export function InboxScreen() {
 
   // ---- carga + polling ----------------------------------------------------
   const load = useCallback(
-    async (mode: "initial" | "poll" | "retry") => {
+    async (mode: "initial" | "poll" | "retry" | "more") => {
       if (!token) return;
       if (conversationsRequestRef.current) return;
       const controller = new AbortController();
@@ -219,10 +232,28 @@ export function InboxScreen() {
       }
       if (mode !== "poll") setError(null);
       try {
-        const page = await runTimedRequest(controller, (signal) =>
-          fetchConversations(token, 100, signal),
-        );
-        setConversations(page.items);
+        // Re-read the loaded prefix: offset pages can move between refreshes.
+        // Only a user request expands that prefix; polling never loads the whole tenant.
+        const targetPages = pagesLoadedRef.current + (mode === "more" ? 1 : 0);
+        const snapshot = await runTimedRequest(controller, async (signal) => {
+          const rows = new Map<string, Conversation>();
+          let total = 0;
+          let page = 0;
+          let more = true;
+          while (page < targetPages && more) {
+            const result = await fetchConversations(token, 100, signal, ++page);
+            if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+            for (const conversation of result.items) rows.set(conversation.id, conversation);
+            total = result.total;
+            more = result.items.length > 0 && page * result.pageSize < total;
+          }
+          return { items: [...rows.values()], total, page, more };
+        });
+        if (controller.signal.aborted) return;
+        pagesLoadedRef.current = snapshot.page;
+        setConversations(snapshot.items);
+        setListTotal(snapshot.total);
+        setHasMorePages(snapshot.more);
         setLoaded(true);
       } catch (err) {
         if (err instanceof RequestTimeoutError) {
@@ -352,7 +383,10 @@ export function InboxScreen() {
       // A requisição só continua valendo se, na volta, a conversa aberta for a
       // mesma E ainda for a mesma visita a ela.
       const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
-      if (mode === "initial") setMessagesLoading(true);
+      if (mode === "initial") {
+        setMessagesLoading(true);
+        setMessagesError(null);
+      }
       try {
         while (true) {
           const seq = (reqSeqRef.current += 1);
@@ -368,11 +402,14 @@ export function InboxScreen() {
             if (seq >= appliedSeqRef.current) {
               appliedSeqRef.current = seq;
               setMessages(items);
+              setMessagesError(null);
             }
           } catch (err) {
             if (controller.signal.aborted) break;
             if (handleSessionError(err)) return;
-            // No poll/refresh a falha é silenciosa; no initial a thread mostra vazio.
+            if (mode === "initial" && atual()) {
+              setMessagesError("Não foi possível carregar o histórico desta conversa.");
+            }
           }
 
           // Coalesce any number of sends completed during this request into one
@@ -402,6 +439,7 @@ export function InboxScreen() {
     selectionGenRef.current += 1;
     const requestKey = `${selectionGenRef.current}:${selectedId ?? ""}`;
     setMessages([]);
+    setMessagesError(null);
     if (!selectedId) {
       // Sem conversa aberta não há requisição para encerrar o carregamento: a
       // que estava em voo já não conta como atual e seu `finally` é descartado.
@@ -519,6 +557,8 @@ export function InboxScreen() {
     () => conversations.find((c) => c.id === selectedId) ?? null,
     [conversations, selectedId],
   );
+  const selectedOutsideFilter = selected != null && !visible.some((c) => c.id === selected.id);
+  const partialList = conversations.length < listTotal;
 
   const degraded = connStatus === "offline" || connStatus === "reconectando";
 
@@ -586,24 +626,36 @@ export function InboxScreen() {
   const handleReturn = useCallback((c: Conversation) => void doHandoff(c, "ia"), [doHandoff]);
 
   const handleSend = useCallback(
-    async (c: Conversation, text: string) => {
-      if (!token) return;
+    async (c: Conversation, text: string): Promise<boolean> => {
+      if (!token || sendingTextRef.current.has(c.id)) return false;
+      sendingTextRef.current.add(c.id);
+      setSendingTextIds(new Set(sendingTextRef.current));
       try {
         await sendMessage(token, c.id, text);
+        setDrafts((current) => {
+          const next = { ...current };
+          delete next[c.id];
+          return next;
+        });
         // Bump da última mensagem na lista + recarrega o histórico (a mensagem
         // enviada é persistida no backend e aparece na thread).
         patch(c.id, { ultimaMensagem: text });
         void loadMessages(c.id, "refresh");
         flashToast({ kind: "ok", text: "Resposta enviada pelo número oficial." });
+        return true;
       } catch (err) {
-        if (handleSessionError(err)) return;
+        if (handleSessionError(err)) return false;
+        const rejected = err instanceof ApiError && [400, 403, 409, 413, 422, 429].includes(err.status);
         flashToast({
           kind: "err",
-          text:
-            err instanceof ApiError
-              ? err.message
-              : "Não foi possível enviar a resposta. Tente novamente.",
+          text: rejected
+            ? `${err.message} Seu texto foi preservado.`
+            : "Não foi possível confirmar o envio. Seu texto foi preservado. Verifique a conversa antes de tentar novamente.",
         });
+        return false;
+      } finally {
+        sendingTextRef.current.delete(c.id);
+        setSendingTextIds(new Set(sendingTextRef.current));
       }
     },
     [token, patch, flashToast, handleSessionError, loadMessages],
@@ -833,11 +885,21 @@ export function InboxScreen() {
             onSelect={setSelectedId}
             onFilter={setFilter}
             onSearch={setSearch}
+            agentAvailability={agentAvailability}
+            selfId={user?.appUserId}
+            hasConversations={conversations.length > 0}
+            partialList={partialList}
+            loadedCount={conversations.length}
+            total={listTotal}
+            hasMore={hasMorePages}
+            loadingMore={loading}
+            onLoadMore={() => void load("more")}
           />
         )}
 
         {showSkeleton || showInitialFailure ? null : selected ? (
           <ConversationThread
+            key={selected.id}
             conversation={selected}
             selfId={user?.appUserId ?? ""}
             holderName={selected.assumidoPorNome}
@@ -847,12 +909,18 @@ export function InboxScreen() {
             conflict={conflicts[selected.id] ?? null}
             messages={messages}
             messagesLoading={messagesLoading}
+            messagesError={messagesError}
+            onRetryMessages={() => void loadMessages(selected.id, "initial")}
             panelOpen={panelOpen}
             isAdmin={isAdminUser}
             avatarUrl={photoUrl}
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}
+            draft={drafts[selected.id] ?? ""}
+            sendingText={sendingTextIds.has(selected.id)}
+            onDraftChange={(value) => setDrafts((current) => ({ ...current, [selected.id]: value }))}
+            outsideFilter={selectedOutsideFilter}
             onSendMedia={handleSendMedia}
             onTogglePanel={() => setPanelOpen((v) => !v)}
             onDelete={(c) => {
@@ -866,8 +934,8 @@ export function InboxScreen() {
         ) : (
           <div className="empty-pane">
             <DsEmptyState
-              title="Nenhuma conversa por aqui ainda."
-              hint="Assim que alguém falar com o número oficial da igreja, a conversa aparece nesta lista."
+              title={conversations.length > 0 ? "Selecione uma conversa para ver o atendimento." : "Ainda não há conversas."}
+              hint={conversations.length > 0 ? undefined : "As conversas recebidas pelo número oficial aparecerão aqui."}
             />
           </div>
         )}

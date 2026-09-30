@@ -89,7 +89,7 @@ describe("ConversationList — Gate 8", () => {
     render();
     const rows = [...container.querySelectorAll(".conv")];
     const waiting = rows.find((r) => r.textContent!.includes("Marcos Lima"))!;
-    expect(waiting.textContent).toContain("Aguardando atendimento");
+    expect(waiting.textContent).toContain("Em espera");
     const other = rows.find((r) => r.textContent!.includes("Ana Souza"))!;
     expect(other.textContent).not.toContain("Aguardando atendimento");
   });
@@ -105,7 +105,7 @@ describe("ConversationList — Gate 8", () => {
     const onFilter = vi.fn();
     render({ filter: "aguardando", onFilter });
     const pressed = container.querySelector('.ib-filter-btn[aria-pressed="true"]')!;
-    expect(pressed.textContent).toContain("Aguardando");
+    expect(pressed.textContent).toContain("Em espera");
     expect(pressed.textContent).toContain("1"); // contador real
     act(() => {
       [...container.querySelectorAll(".ib-filter-btn")]
@@ -130,7 +130,17 @@ describe("ConversationList — Gate 8", () => {
   it("lista vazia mostra o estado vazio da fundação", () => {
     render({ conversations: [] });
     expect(container.querySelector(".ds-empty-title")?.textContent).toContain(
-      "Nenhuma conversa encontrada.",
+      "Ainda não há conversas.",
     );
+  });
+
+  it("responsável próprio fica explícito mesmo antes de carregar o nome", () => {
+    render({ selfId: "eu", conversations: [conv({ estado: "humano", assumidoPor: "eu", assumidoPorNome: null })] });
+    expect(container.textContent).toContain("Em atendimento por você");
+  });
+
+  it("estado humano sem nome nunca inventa um responsável", () => {
+    render({ conversations: [conv({ estado: "humano", assumidoPor: "outro", assumidoPorNome: null })] });
+    expect(container.textContent).toContain("Responsável não informado");
   });
 });

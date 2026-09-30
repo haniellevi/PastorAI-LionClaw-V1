@@ -204,6 +204,8 @@ export function ConversationThread({
   conflict,
   messages,
   messagesLoading,
+  messagesError,
+  onRetryMessages,
   panelOpen,
   isAdmin,
   avatarUrl,
@@ -216,6 +218,10 @@ export function ConversationThread({
   onTransfer,
   onBack,
   showBack,
+  draft,
+  onDraftChange,
+  sendingText,
+  outsideFilter,
 }: {
   conversation: Conversation;
   selfId: string;
@@ -226,12 +232,14 @@ export function ConversationThread({
   conflict: string | null;
   messages: ChatMessage[];
   messagesLoading: boolean;
+  messagesError?: string | null;
+  onRetryMessages?: () => void;
   panelOpen: boolean;
   isAdmin: boolean;
   avatarUrl: string | null;
   onAssume: (c: Conversation) => void;
   onReturn: (c: Conversation) => void;
-  onSend: (c: Conversation, text: string) => void;
+  onSend: (c: Conversation, text: string) => Promise<boolean>;
   onSendMedia: (c: Conversation, file: File, caption?: string) => Promise<boolean>;
   onTogglePanel: () => void;
   onDelete: (c: Conversation) => void;
@@ -239,8 +247,11 @@ export function ConversationThread({
   /** Mobile (master-detail): volta da thread para a lista. */
   onBack?: () => void;
   showBack?: boolean;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  sendingText: boolean;
+  outsideFilter?: boolean;
 }) {
-  const [draft, setDraft] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -252,6 +263,8 @@ export function ConversationThread({
   const audioStreamRef = useRef<MediaStream | null>(null);
   const recTimerRef = useRef<number | null>(null);
   const recCancelRef = useRef(false);
+  const submittingTextRef = useRef(false);
+  const followLatestRef = useRef(true);
 
   const estado = effectiveEstado(conversation);
   const paused = iaPausadaSemInteresse(conversation);
@@ -264,11 +277,10 @@ export function ConversationThread({
   const holder = conversation.assumidoPor;
   const isMine = estado === "humano" && holder === selfId;
   const heldByOther = estado === "humano" && holder !== null && holder !== selfId;
-  const canCompose = isMine && !degraded;
+  const canCompose = isMine && !degraded && !sendingText;
 
   // Auto-scroll ao trocar de conversa / ao ecoar uma resposta.
   useEffect(() => {
-    setDraft("");
     setPendingFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     // Descarta qualquer gravação em curso ao trocar de conversa.
@@ -287,7 +299,7 @@ export function ConversationThread({
   }, [conversation.id]);
   useEffect(() => {
     const el = bodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && followLatestRef.current) el.scrollTop = el.scrollHeight;
   }, [conversation.id, messages.length]);
   // Garante o encerramento do microfone ao desmontar.
   useEffect(
@@ -380,7 +392,7 @@ export function ConversationThread({
         const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
         if (ok) {
           clearAttachment();
-          setDraft("");
+          onDraftChange("");
         }
       } finally {
         setSending(false);
@@ -390,8 +402,17 @@ export function ConversationThread({
 
     const value = draft.trim();
     if (!value) return;
-    onSend(conversation, value);
-    setDraft("");
+    if (submittingTextRef.current) return;
+    submittingTextRef.current = true;
+    try {
+      if (await onSend(conversation, value)) {
+        followLatestRef.current = true;
+        const el = bodyRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      }
+    } finally {
+      submittingTextRef.current = false;
+    }
   }
 
   return (
@@ -461,7 +482,7 @@ export function ConversationThread({
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
               aria-label={
-                automaticAgentUnavailable ? "Assumir atendimento" : "Assumir (pausar IA)"
+                "Assumir atendimento"
               }
               title={
                 heldByOther
@@ -477,9 +498,7 @@ export function ConversationThread({
             >
               <Icon name="user" />
               <span>
-                {automaticAgentUnavailable
-                  ? "Assumir atendimento"
-                  : "Assumir (pausar IA)"}
+                Assumir atendimento
               </span>
             </DsButton>
           )}
@@ -512,7 +531,15 @@ export function ConversationThread({
       {/* Banners informam sem dominar a conversa (Gate 8): compactos, borda
           1px completa, texto no tom do estado. Mesmos textos e condições. */}
       <div className="ib-banners">
-        <DsBanner kind="info">{copy.bannerText}</DsBanner>
+        {messagesError ? (
+          <DsBanner kind="error" action={
+            <DsButton variant="secondary" onClick={onRetryMessages} disabled={messagesLoading}>
+              Tentar novamente
+            </DsButton>
+          }>{messagesError}</DsBanner>
+        ) : null}
+        {outsideFilter ? <DsBanner kind="info">Conversa aberta fora deste filtro.</DsBanner> : null}
+        <DsBanner kind="info">{isMine ? "Em atendimento por você. A IA está pausada nesta conversa." : copy.bannerText}</DsBanner>
         {heldByOther ? (
           <DsBanner kind="warning">
             {conflict ??
@@ -527,7 +554,10 @@ export function ConversationThread({
         ) : null}
       </div>
 
-      <div className="thread-body" ref={bodyRef}>
+      <div className="thread-body" ref={bodyRef} onScroll={(event) => {
+        const el = event.currentTarget;
+        followLatestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+      }}>
         {messagesLoading && messages.length === 0 ? (
           <p
             className="sub"
@@ -535,7 +565,7 @@ export function ConversationThread({
           >
             Carregando conversa…
           </p>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !messagesError ? (
           <div className="empty-pane" style={{ padding: "var(--s5)" }}>
             <Icon name="chat" />
             <p className="sub">Ainda não há mensagens nesta conversa.</p>
@@ -620,7 +650,8 @@ export function ConversationThread({
             <input
               type="text"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => onDraftChange(e.target.value)}
+              aria-label="Resposta ao contato"
               placeholder={
                 degraded
                   ? "Envio desabilitado — WhatsApp indisponível"
@@ -641,7 +672,7 @@ export function ConversationThread({
               }
             >
               <Icon name="send" />
-              <span>{sending ? "Enviando…" : "Enviar"}</span>
+              <span>{sending || sendingText ? "Enviando…" : "Enviar"}</span>
             </DsButton>
           </>
         )}

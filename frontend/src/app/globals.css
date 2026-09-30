@@ -8457,6 +8457,57 @@ table.data-table {
   padding: var(--s2) var(--s3) var(--s2);
   border-bottom: 1px solid var(--border-subtle);
 }
+.ib-search label {
+  display: block;
+  font: var(--type-label);
+  color: var(--text-primary);
+  margin-bottom: var(--s1);
+}
+.ib-coverage {
+  padding: var(--s2) var(--s3);
+  font: var(--type-meta);
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+}
+.ib-row-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  margin-top: var(--s2);
+}
+.ib-row-state > svg { width: 14px; height: 14px; }
+.ib-holder { font: var(--type-meta); color: var(--text-secondary); }
+.ib-load-more { padding: var(--s3); }
+.ib-load-more .ds-btn { width: 100%; }
+.ib .conv, .ib .ib-filter-btn {
+  position: relative;
+  isolation: isolate;
+}
+.ib .conv::before, .ib .ib-filter-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--selection-soft);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out-productive);
+}
+.ib .ib-filter-btn::before { border-radius: var(--radius-control); }
+.ib .conv.active, .ib .ib-filter-btn.active { background: transparent; }
+.ib .conv.active::before, .ib .ib-filter-btn.active::before { opacity: 1; }
+.ib-dialog, .dh-action-dialog {
+  animation: ib-dialog-enter var(--motion-standard) var(--ease-out-productive);
+}
+@keyframes ib-dialog-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ib-dialog, .dh-action-dialog { animation: none; }
+  .ib .conv::before, .ib .ib-filter-btn::before { transition: none; }
+}
 .ib-search input {
   width: 100%;
   min-height: 40px;
@@ -8488,7 +8539,7 @@ table.data-table {
   outline-offset: -2px;
 }
 .ib .conv.active {
-  background: var(--selection-soft);
+  background: transparent;
   outline: 2px solid var(--selection-strong);
   outline-offset: -2px;
 }
