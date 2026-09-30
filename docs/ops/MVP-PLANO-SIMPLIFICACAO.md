@@ -537,6 +537,17 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
 - [ ] Deploy automatizado: é o release do item 4 da §3.5 (Vercel só na branch
       `producao` e um script único com backup, migrations, backend, frontend,
       health check e rollback).
+- [x] Preparação source-only do checker de rollback do backend (PR #443):
+      criação parada, inspeção dos gates, checker/manifesto da release anterior,
+      espera limitada e recriação normal dos quatro serviços somente após status
+      zero. Piso suportado Compose 5.0.0, pré-checagens bloqueantes e recuperação
+      humana documentados. 45 testes sintéticos e 18 de runbook passaram no
+      candidato; a PR permanece sem merge até autorização direta de Raniel.
+      [Registro](../sprints/2026-09-30-compose-rollback-source.md).
+- [ ] Validar operacionalmente a compatibilidade Compose do P1 Sarah e o
+      procedimento de recuperação P2-5 no alvo, sob missão e autorização
+      específicas. Fonte/testes sintéticos não fecham esses achados nem o item
+      de deploy automatizado; P2-1/2/3/4 históricos permanecem pendentes.
 - [ ] Backup diário verificado e restauração testada uma vez.
 
 ### Fase 5 — Endurecimento (só com o MVP rodando e usado)
