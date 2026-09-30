@@ -114,7 +114,9 @@ Se o deploy **falhar com o gate fechado**, registrar o ponto da falha e não
 reabrir automaticamente. Falha antes do restart deixa o código anterior em
 execução; falha depois aciona tentativa de rollback só de código. O rollback para os quatro serviços e executa o verificador do código anterior
 com o manifesto de migrations daquele código, usando sua imagem construída e
-entrypoint limitado a Python, antes de qualquer `start`. Checker ou manifesto
+entrypoint limitado a Python. O `start backend` temporário executa somente o
+checker, sem aplicação ou workers; a retomada dos comandos normais depende de
+saída zero comprovada. Checker ou manifesto
 ausente, diferença de ledger em qualquer sentido ou schema incompatível
 bloqueiam a retomada; `/health` e `/ready` não substituem esse preflight. Em ambos os casos,
 conferir processos e inventariar cancelados, pendentes e fontes V3 pré-época
@@ -287,3 +289,79 @@ contêineres parados antes de `start`; conferem novamente os quatro processos
 após início. Rollback incompatível ou sem checker/manifesto para os serviços e
 exige correção adiante revisada. Nenhum caminho reabre gate, desfaz migration ou
 reconstrói avisos automaticamente.
+
+
+## Compose suportado e preflight futuro
+
+O piso suportado deste procedimento é **Docker Compose 5.0.0**, com versão
+numérica estável e comando `timeout` do GNU coreutils disponível no host.
+Esse piso não afirma qual foi a primeira versão histórica das opções.
+A [fonte oficial da tag v5.0.0](https://github.com/docker/compose/blob/v5.0.0/cmd/compose/start.go#L44-L46)
+declara `start --wait` e `--wait-timeout`; a
+[referência oficial do comando](https://docs.docker.com/reference/cli/docker/compose/start/)
+descreve essas opções. Um cliente local recente não prova compatibilidade do
+host, engine, banco ou recuperação.
+
+Somente em uma **janela futura nominalmente autorizada**, o operador deverá
+conferir versão e as duas opções antes de parar candidato ou serviços:
+
+```bash
+docker compose version --short
+docker compose start --help | grep -E -- '(^|[[:space:]])--wait([[:space:]]|$)'
+docker compose start --help | grep -E -- '(^|[[:space:]])--wait-timeout([[:space:]]|$)'
+command -v timeout
+```
+
+Qualquer erro, versão inferior a 5.0.0, versão não numérica estável ou opção
+ausente bloqueia a janela. O script faz essa validação antes de copiar a
+configuração, construir ou interromper serviços; cada pipeline acima deve
+ter status conferido pelo operador, sem inferir sucesso da última linha.
+Esta seção não concede autorização para executar esses comandos em ambiente.
+
+## Transporte do checker e recuperação humana, P2-5
+
+Após conter o candidato, o rollback seleciona o manifesto
+`EXPECTED_MIGRATIONS` pelo `backend/scripts/migrate.py` da release anterior
+e constrói sua imagem. Um override JSON temporário, restrito e sem credenciais,
+substitui somente o backend: entrypoint Python, comando vazio, healthcheck
+desativado e política `restart: no`. Valida o Compose resolvido e cria esse
+backend com `up --no-start --no-build --no-deps --pull never --force-recreate`.
+Inspeciona seus gates ainda parado e copia o checker da árvore anterior por
+`docker cp`, sem usar o arquivo candidato.
+
+Com os mesmos arquivos Compose, `start backend` inicia exclusivamente esse
+checker. `timeout --signal=TERM --kill-after=5s 180s docker wait` limita a
+espera pelo código de saída. Falha de criação, inspeção, cópia, início,
+espera, timeout ou status diferente de zero bloqueia a aplicação anterior e
+aciona a parada dos quatro serviços. Encerrar a espera não encerra o checker:
+a parada explícita é a contenção necessária. Após status zero, os quatro
+contêineres são recriados parados com os comandos originais, inspecionados,
+iniciados com `start --wait --wait-timeout 180` e verificados novamente.
+O código de saída original do release permanece, inclusive INT=130 e TERM=143.
+O override temporário é removido pelo trap; não há rollback de schema.
+
+O procedimento humano abaixo é material para revisão da janela futura,
+condicionado a autorização nominal própria de Raniel para ambiente, SHA e
+recuperação. Sua publicação não autoriza operação nem fecha P2-5 operacional.
+
+1. Registrar ambiente, horário, SHA candidato/anterior, symlink ativo, etapa
+   da falha e status, usando apenas evidência sanitizada. Manter os gates
+   fechados e não reutilizar automaticamente um comando de início.
+2. Sob o gate de contenção da janela, confirmar que os quatro serviços e o
+   checker estão parados. Se qualquer parada falhar, preservar configuração
+   restrita e artefatos necessários, registrar a contenção incompleta e
+   escalar a Raniel. Não apagar arquivos enquanto processos puderem usá-los.
+3. Conferir privadamente qual release fornece imagem, checker e manifesto.
+   Recusar ausência, diferença de ledger ou schema incompatível; submeter
+   correção adiante revisada, com gate de banco separado se necessário.
+   Não contornar o checker por saúde HTTP nem desfazer migrations neste fluxo.
+4. Retomar código somente por procedimento revisado que repita preflight,
+   gates do Compose e contêiner parado, checker anterior com espera limitada
+   e saída zero, recriação dos comandos normais e verificação dos quatro
+   processos e saúde. Um backend residual dedicado ao checker precisa ser
+   recriado, pois seu comando temporário não serve para retomar a aplicação.
+5. Conferir symlink e processos antes da limpeza autorizada de tarball,
+   override órfão e configuração de candidato rejeitado. SIGKILL/crash não
+   garante traps; preservar configuração do ativo e do anterior e volumes.
+   Inventariar cancelados, pendentes e fontes V3 pré-época conforme as seções
+   anteriores. Reabertura, reconstrução de avisos e envio exigem gates próprios.

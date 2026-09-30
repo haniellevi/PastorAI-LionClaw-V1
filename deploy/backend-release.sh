@@ -66,9 +66,10 @@ export PASTORAI_ENV_FILE="$configuration"
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
 candidate_configuration_needed=0
+checker_override=
 
 check_compose_gates() {
-  docker compose config --format json | python3 -c '
+  docker compose "$@" config --format json | python3 -c '
 import json
 import sys
 
@@ -110,11 +111,10 @@ check_external_gates() {
 }
 
 # Containers are inspected while stopped, before any application entrypoint.
-create_and_start() {
+inspect_stopped_gates() {
   local service container
-  docker compose up --no-start --no-build --no-deps --pull never --force-recreate "${services[@]}" || return 1
-  for service in "${services[@]}"; do
-    container=$(docker compose ps -aq "$service")
+  for service in "$@"; do
+    container=$(docker compose ps -aq "$service") || return 1
     [[ -n "$container" && "$container" != *$'\n'* ]] || return 1
     docker inspect --format '{{json .Config.Env}}' "$container" | python3 -c '
 import json, sys
@@ -129,7 +129,64 @@ except Exception:
     sys.exit("stopped container gates open or unverifiable")
 ' || return 1
   done
+}
+
+create_and_start() {
+  docker compose up --no-start --no-build --no-deps --pull never --force-recreate "${services[@]}" || return 1
+  inspect_stopped_gates "${services[@]}" || return 1
   docker compose start --wait --wait-timeout 180 "${services[@]}"
+}
+
+# A stopped backend is temporarily dedicated to the previous release's checker.
+# No application command or restart policy may run until its exit is verified.
+check_previous_schema() {
+  local container checker_status
+  checker_override=$(mktemp /tmp/backend-rollback-compose.XXXXXXXX.json) || return 1
+  python3 - "$checker_override" "$1" <<'OVERRIDE'
+import json, sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({"services": {"backend": {
+    "entrypoint": ["python", "/tmp/backend-rollback-schema.py"],
+    "command": [],
+    "restart": "no",
+    "healthcheck": {"disable": True},
+    "environment": {"EXPECTED_MIGRATIONS": sys.argv[2]},
+}}}))
+OVERRIDE
+  [[ $? == 0 ]] || return 1
+  local -a checker_compose=(-f docker-compose.yml -f "$checker_override")
+  check_compose_gates "${checker_compose[@]}" || return 1
+  docker compose "${checker_compose[@]}" up --no-start --no-build --no-deps --pull never --force-recreate backend || return 1
+  inspect_stopped_gates backend || return 1
+  container=$(docker compose ps -aq backend) || return 1
+  [[ -n "$container" && "$container" != *$'\n'* ]] || return 1
+  docker cp check_backend_schema.py "$container:/tmp/backend-rollback-schema.py" || return 1
+  docker compose "${checker_compose[@]}" start backend || return 1
+  checker_status=$(timeout --signal=TERM --kill-after=5s 180s docker wait "$container") || return 1
+  [[ "$checker_status" == 0 ]] || return 1
+  rm -f -- "$checker_override"
+  checker_override=
+}
+
+# Supported floor, not a claim about the first historical flag implementation.
+check_compose_capabilities() {
+  local version help
+  command -v timeout >/dev/null || {
+    echo "timeout command required for bounded rollback schema check" >&2
+    return 1
+  }
+  version=$(docker compose version --short) || return 1
+  if [[ ! "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
+     (( 10#${BASH_REMATCH[1]} < 5 )); then
+    echo "Docker Compose >= 5.0.0 required" >&2
+    return 1
+  fi
+  help=$(docker compose start --help) || return 1
+  grep -Eq -- '(^|[[:space:]])--wait([[:space:]]|$)' <<< "$help" &&
+    grep -Eq -- '(^|[[:space:]])--wait-timeout([[:space:]]|$)' <<< "$help" || {
+      echo "Compose start wait capabilities unavailable" >&2
+      return 1
+    }
 }
 
 cleanup() {
@@ -137,6 +194,7 @@ cleanup() {
   if (( ! candidate_configuration_needed )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
     rm -f -- "$candidate/deploy/$configuration"
   fi
+  [[ -z "$checker_override" ]] || rm -f -- "$checker_override"
   rm -f -- "$active_link.next.$$"
   exit "$status"
 }
@@ -164,12 +222,14 @@ rollback() {
     fi
     if ! check_compose_gates ||
        ! docker compose build backend ||
-       ! docker compose run --rm --no-deps -T -e "EXPECTED_MIGRATIONS=$previous_migrations" --entrypoint python backend - < check_backend_schema.py ||
+       ! check_previous_schema "$previous_migrations" ||
        ! create_and_start ||
        ! check_external_gates ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null; then
-      docker compose stop "${services[@]}" || true
+      docker compose stop "${services[@]}" || {
+        echo "rollback containment failed; preserve previous configuration and require human recovery" >&2
+      }
       echo "rollback of code is unhealthy or schema incompatible; keep gates closed and use a reviewed forward fix" >&2
     fi
   else
@@ -180,6 +240,9 @@ rollback() {
 trap rollback ERR
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
+
+# Capability failure must leave the active services and configuration untouched.
+check_compose_capabilities
 
 # Keep secrets on the VPS; never include them in the Git archive or logs.
 cp -p -- "$active/deploy/$configuration" "$candidate/deploy/$configuration"
