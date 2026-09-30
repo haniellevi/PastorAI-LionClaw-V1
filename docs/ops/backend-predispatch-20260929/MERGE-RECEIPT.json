@@ -1,0 +1,50 @@
+{
+  "observed_at_utc": "2026-09-30T02:26:22.474791+00:00",
+  "authorization": "operador humano nominal authorization transmitted by Conselheiro Opencoded, PR440, exact head5e3643f, merge only",
+  "pr": 440,
+  "state": "MERGED",
+  "merged_at_utc": "2026-09-30T02:06:03Z",
+  "base_sha": "702c8353e8f76b629d857b0637046bf2a78b88b8",
+  "head_sha": "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1",
+  "merge_sha": "a7b575f15553bbe7960591282cac8fbee5abec00",
+  "parents": [
+    "702c8353e8f76b629d857b0637046bf2a78b88b8",
+    "5e3643f7eb7ba97267af6c0aff60d1bda43a67f1"
+  ],
+  "preflight": {
+    "required_checks": [
+      "Vercel",
+      "backend-tests",
+      "e2e-critical",
+      "frontend-ci",
+      "rls-integration"
+    ],
+    "checks_success": 7,
+    "strict": true,
+    "enforce_admins": true,
+    "required_approving_review_count": 0,
+    "require_conversation_resolution": true,
+    "open_threads": 0,
+    "behind_main": 0,
+    "main_force_push": false,
+    "main_deletions": false,
+    "sarah": "GO merge only; P0=0/P1=1/P2=5",
+    "lente": "P0=0/P1=0/P2=0"
+  },
+  "branch_preserved": true,
+  "post_merge_ci": "success",
+  "post_merge_runs": {
+    "frontend": 36658256590,
+    "rls": 36658256664,
+    "backend": 36658256557,
+    "e2e": 36658256481,
+    "tooling": 36658256500
+  },
+  "operational_authorization": "BLOCKED",
+  "next_human_gate": "nominal authorization for a separate pre-dispatch compatibility verification mission; no deploy or dispatch authorization",
+  "post_merge_workflows_success": 5,
+  "merge_tree_sha": "b6f63a42cdd14644343be968e5f563f5162bd628",
+  "head_tree_sha": "b6f63a42cdd14644343be968e5f563f5162bd628",
+  "same_reviewed_tree": true,
+  "publication_note": "Sanitized operational receipt. Original local artifacts are preserved; original hash labels refer to original bytes, not sanitized copies. No production data or operational authorization."
+}
