@@ -407,6 +407,11 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   A prévia aprovada passou a orientar o [design system](../DESIGN.md) e o
   [Plan Designer](../Plan-Designer-Igreja12/README.md), atualizados em 30/09.
   A aplicação às demais telas continua parcial.
+- UX acesso v2 (F02): candidato local com marca e formulário compartilhados na
+  entrada da igreja e do console, recuperação neutra e estados explícitos de
+  senha e convite. Campos preservados nas falhas e isolamento entre links.
+  [Implementação e limites de validação](sprints/2026-09-30-ux-acesso-v2.md).
+  Sem novo estado de produção ou conclusão da evolução global.
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
 ### Fundação do agente

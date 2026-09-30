@@ -224,6 +224,16 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 
 ## 10. Aplicação por superfície
 
+### Acesso
+
+- Marca do produto acima de um formulário único, em superfície clara de até 440 px.
+- Título nomeia o passo atual; ajuda curta fica junto ao campo. Conteúdo institucional não disputa atenção com a entrada.
+- Igreja e console compartilham a composição, mantendo suas sessões e contratos separados.
+- Campos de 16 px e 48 px de altura; foco de 2 px. Recuperação e links legais permanecem identificáveis por texto.
+- Erro preserva preenchimento e destaca a próxima ação. Recuperação confirma sem revelar existência da conta; sucesso recebe foco no título.
+- Links de senha e convite começam com estado próprio; respostas anteriores não alteram o novo contexto.
+- [Implementação local F02 e limites](docs/sprints/2026-09-30-ux-acesso-v2.md).
+
 ### Painel de Hoje
 
 - Estrutura Quiet Operations.

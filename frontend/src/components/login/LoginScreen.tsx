@@ -9,10 +9,9 @@
  * O fluxo de reset roda PRÉ-login (o usuário não está autenticado), por isso vive
  * aqui dentro da LoginScreen, que é o que a raiz renderiza quando não há sessão.
  */
-import Link from "next/link";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { BrandSignature } from "@/components/brand/BrandSignature";
+import { AuthLayout } from "@/components/auth/AuthLayout";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import {
@@ -35,45 +34,23 @@ interface AuthMessage {
   block: boolean;
 }
 
-const ASIDE_POINTS = [
-  "Trilha de crescimento G12, do visitante ao líder",
-  "Consolidação e discipulado conduzidos pelo agente",
-  "Gestão de células e líderes saudáveis na palma da mão",
-  "Decisões pastorais sem trocar de tela — tudo via mensagem",
-];
-
-function BrandLockup({
-  className = "",
-  tone = "#F7FAFD",
-}: {
-  className?: string;
-  tone?: string;
-}) {
-  return (
-    <BrandSignature
-      className={`brand ${className}`.trim()}
-      size={32}
-      tone={tone}
-    />
-  );
-}
-
 function AuthCardHeading({
-  eyebrow,
   title,
   children,
+  focus = false,
 }: {
-  eyebrow: string;
   title: string;
   children?: ReactNode;
+  focus?: boolean;
 }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (focus) heading.current?.focus();
+  }, [focus, title]);
+
   return (
     <header className="login-card-head">
-      <span className="login-card-eyebrow">
-        <span aria-hidden="true" />
-        {eyebrow}
-      </span>
-      <h1>{title}</h1>
+      <h1 ref={heading} tabIndex={-1}>{title}</h1>
       {children ? <p className="sub">{children}</p> : null}
     </header>
   );
@@ -89,8 +66,19 @@ function AuthSecurityNote() {
 }
 
 export function LoginScreen() {
-  const { login, logout, consumeReturnTo, accessMessage } = useAuth();
   const [route, navigate] = useHashRoute();
+  return <LoginForm key={route} route={route} navigate={navigate} />;
+}
+
+function LoginForm({ route, navigate }: { route: string; navigate: (route: string) => void }) {
+  const { login, logout, consumeReturnTo, accessMessage } = useAuth();
+  // Um link novo começa com estados próprios. Respostas do link anterior não
+  // podem encerrar a sessão ou anunciar sucesso no contexto recém-aberto.
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
 
   // Modo derivado da hash. Tokens vêm como #redefinir-senha/<token> e #ativar/<token>.
   const resetToken = route.startsWith("redefinir-senha/")
@@ -117,7 +105,7 @@ export function LoginScreen() {
   const [authMessage, setAuthMessage] = useState<AuthMessage | null>(null);
   const loading = status === "loading";
 
-  function validate(): boolean {
+  function validate(form: HTMLFormElement): boolean {
     let ok = true;
     if (!email.includes("@")) {
       setEmailError("Informe um e-mail válido.");
@@ -131,6 +119,10 @@ export function LoginScreen() {
     } else {
       setPasswordError(undefined);
     }
+    if (!ok) {
+      const name = !email.includes("@") ? "email" : "password";
+      (form.elements.namedItem(name) as HTMLInputElement | null)?.focus();
+    }
     return ok;
   }
 
@@ -138,15 +130,18 @@ export function LoginScreen() {
     event.preventDefault();
     if (loading) return;
     setAuthMessage(null);
-    if (!validate()) return;
+    if (!validate(event.currentTarget)) return;
 
     setStatus("loading");
     try {
       await login(email.trim(), password);
+      // O provider pode desmontar este formulário ao autenticar. O destino
+      // ainda precisa ser consumido e restaurado depois desse handoff.
       setStatus("success");
       const returnTo = consumeReturnTo();
       navigate(returnTo ?? "dashboard");
     } catch (err) {
+      if (!active.current) return;
       const block = err instanceof LoginError && (err.kind === "billing_blocked" || err.kind === "no_church");
       const text =
         err instanceof LoginError
@@ -167,11 +162,13 @@ export function LoginScreen() {
     if (fStatus === "loading") return;
     if (!fEmail.includes("@")) {
       setFEmailError("Informe um e-mail válido.");
+      (event.currentTarget.elements.namedItem("forgot-email") as HTMLInputElement | null)?.focus();
       return;
     }
     setFEmailError(undefined);
     setFStatus("loading");
     await requestPasswordReset(fEmail.trim());
+    if (!active.current) return;
     setFStatus("sent");
   }
 
@@ -186,19 +183,23 @@ export function LoginScreen() {
     if (rStatus === "loading") return;
     if (rPass.length < 8) {
       setRError("A senha precisa ter ao menos 8 caracteres.");
+      (event.currentTarget.elements.namedItem("new-password") as HTMLInputElement | null)?.focus();
       return;
     }
     if (rPass !== rPass2) {
       setRError("As senhas não conferem.");
+      (event.currentTarget.elements.namedItem("confirm-password") as HTMLInputElement | null)?.focus();
       return;
     }
     setRError(undefined);
     setRStatus("loading");
     try {
       await resetPassword(resetToken, rPass);
+      if (!active.current) return;
       logout();
       setRStatus("done");
     } catch (err) {
+      if (!active.current) return;
       setRError(
         err instanceof LoginError ? err.message : "Não foi possível redefinir. Tente novamente.",
       );
@@ -251,14 +252,17 @@ export function LoginScreen() {
     if (aStatus === "loading") return;
     if (aPass.length < 8) {
       setAError("A senha precisa ter ao menos 8 caracteres.");
+      (event.currentTarget.elements.namedItem("activate-password") as HTMLInputElement | null)?.focus();
       return;
     }
     if (aPass !== aPass2) {
       setAError("As senhas não conferem.");
+      (event.currentTarget.elements.namedItem("activate-confirm") as HTMLInputElement | null)?.focus();
       return;
     }
     if (aInfo?.precisaCadastro && aTel.trim().length < 8) {
       setAError("Informe seu telefone/WhatsApp para concluir o cadastro.");
+      (event.currentTarget.elements.namedItem("activate-phone") as HTMLInputElement | null)?.focus();
       return;
     }
     setAError(undefined);
@@ -269,9 +273,11 @@ export function LoginScreen() {
         aPass,
         aInfo?.precisaCadastro ? aTel.trim() : undefined,
       );
+      if (!active.current) return;
       logout();
       setAStatus("done");
     } catch (err) {
+      if (!active.current) return;
       setAError(
         err instanceof LoginError ? err.message : "Não foi possível ativar. Tente novamente.",
       );
@@ -280,54 +286,11 @@ export function LoginScreen() {
   }
 
   return (
-    <section id="login">
-      <div className="login-wrap">
-        <aside className="login-aside">
-          <div
-            style={{
-              position: "relative",
-              zIndex: 1,
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-            }}
-          >
-            <BrandLockup />
-            <span className="aside-kicker">Visão G12 · Agentes de IA · WhatsApp</span>
-            <h2>O primeiro sistema de gestão para igreja na Visão&nbsp;G12.</h2>
-            <p className="lead">
-              Agentes de IA orquestram consolidação, discipulado e células — e tudo
-              acontece conversando no WhatsApp da sua igreja.
-            </p>
-            <div className="aside-list">
-              {ASIDE_POINTS.map((point) => (
-                <div className="aside-item" key={point}>
-                  <Icon name="check" />
-                  {point}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="aside-foot">
-            <span>
-              Igreja 12 © 2026 · Sistema Agêntico Especialista na Gestão de Igrejas
-              na Visão&nbsp;G12.
-            </span>
-            <nav aria-label="Informações legais">
-              <Link href="/privacidade">Privacidade</Link>
-              <span aria-hidden="true">·</span>
-              <Link href="/termos">Termos</Link>
-            </nav>
-          </div>
-        </aside>
-
-        <main className="login-main">
-          <BrandLockup className="login-mobile-brand" tone="#1B3B6F" />
+    <AuthLayout purpose="Cuide das pessoas e organize os próximos passos.">
           {mode === "login" ? (
             <form className="login-card" onSubmit={handleSubmit} noValidate>
-              <AuthCardHeading eyebrow="Acesso seguro" title="Entrar no painel">
-                Use as credenciais da sua igreja para acessar o dashboard.
+              <AuthCardHeading title="Entre na sua igreja">
+                Acesse com o e-mail cadastrado pela sua igreja.
               </AuthCardHeading>
 
               {authMessage || accessMessage ? (
@@ -346,6 +309,9 @@ export function LoginScreen() {
                 name="email"
                 placeholder="usuario@example.com"
                 autoComplete="username"
+                spellCheck={false}
+                autoCapitalize="none"
+                inputMode="email"
                 value={email}
                 disabled={loading}
                 error={emailError}
@@ -360,7 +326,6 @@ export function LoginScreen() {
                 autoComplete="current-password"
                 value={password}
                 disabled={loading}
-                helper="Autenticação via Clerk. Demais métodos habilitados pela igreja."
                 error={passwordError}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -375,16 +340,15 @@ export function LoginScreen() {
                 Entrar
               </Button>
 
-              <button type="button" className="auth-link-button" onClick={() => navigate("esqueci-senha")}>
+              <a className="auth-link-button" href="#esqueci-senha">
                 Esqueci minha senha
-              </button>
+              </a>
               <AuthSecurityNote />
             </form>
           ) : mode === "forgot" ? (
             <form className="login-card" onSubmit={handleForgot} noValidate>
-              <AuthCardHeading eyebrow="Segurança da conta" title="Recuperar acesso">
-                Informe o e-mail da sua conta. Se houver um cadastro, enviaremos um link
-                para você criar uma nova senha.
+              <AuthCardHeading title={fStatus === "sent" ? "Confira seu e-mail" : "Recuperar acesso"} focus>
+                {fStatus === "sent" ? "Confira também a pasta de spam." : "Informe o e-mail cadastrado pela sua igreja."}
               </AuthCardHeading>
 
               {fStatus === "sent" ? (
@@ -392,13 +356,12 @@ export function LoginScreen() {
                   <div className="auth-error success" role="status">
                     <Icon name="check" />
                     <span>
-                      Se existir uma conta com esse e-mail, enviamos o link de
-                      redefinição. Confira sua caixa de entrada (e o spam).
+                      Se houver uma conta com esse e-mail, você receberá um link para criar uma nova senha.
                     </span>
                   </div>
-                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
+                  <a className="auth-link-button" href="#login">
                     Voltar ao login
-                  </button>
+                  </a>
                 </>
               ) : (
                 <>
@@ -408,6 +371,9 @@ export function LoginScreen() {
                     name="forgot-email"
                     placeholder="usuario@example.com"
                     autoComplete="username"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    inputMode="email"
                     value={fEmail}
                     disabled={fStatus === "loading"}
                     error={fEmailError}
@@ -420,30 +386,30 @@ export function LoginScreen() {
                     loading={fStatus === "loading"}
                     loadingText="Enviando…"
                   >
-                    Enviar link de redefinição
+                    Pedir novo link
                   </Button>
-                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
+                  <a className="auth-link-button" href="#login">
                     Voltar ao login
-                  </button>
+                  </a>
                 </>
               )}
               <AuthSecurityNote />
             </form>
           ) : mode === "activate" ? (
             <form className="login-card" onSubmit={handleActivate} noValidate>
-              <AuthCardHeading eyebrow="Boas-vindas" title="Ativar acesso" />
+              <AuthCardHeading title={aStatus === "done" ? "Acesso ativado" : "Ativar acesso"} focus />
 
               {aLoading ? (
-                <p className="sub">Validando convite…</p>
+                <p className="sub" role="status">Validando convite…</p>
               ) : aInfoError ? (
                 <>
                   <div className="auth-error" role="alert">
                     <Icon name="alert" />
                     <span>{aInfoError}</span>
                   </div>
-                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
+                  <a className="auth-link-button" href="#login">
                     Ir para o login
-                  </button>
+                  </a>
                 </>
               ) : aStatus === "done" ? (
                 <>
@@ -463,7 +429,7 @@ export function LoginScreen() {
                   <p className="sub">
                     {aInfo ? (
                       <>
-                        Olá, <strong>{aInfo.nome}</strong> —{" "}
+                        Olá, <strong>{aInfo.nome}</strong>.{" "}
                         {aInfo.precisaCadastro
                           ? "complete seu cadastro e defina sua senha para acessar "
                           : "defina sua senha para acessar "}
@@ -498,6 +464,7 @@ export function LoginScreen() {
                     name="activate-password"
                     placeholder="••••••••"
                     autoComplete="new-password"
+                    helper="Ao menos 8 caracteres."
                     value={aPass}
                     disabled={aStatus === "loading"}
                     onChange={(e) => setAPass(e.target.value)}
@@ -523,21 +490,20 @@ export function LoginScreen() {
                   </Button>
                 </>
               )}
+              {!aInfoError && aStatus !== "done" ? <a className="auth-link-button" href="#login">Voltar ao login</a> : null}
               <AuthSecurityNote />
             </form>
           ) : (
             <form className="login-card" onSubmit={handleReset} noValidate>
-              <AuthCardHeading eyebrow="Segurança da conta" title="Criar nova senha" />
+              <AuthCardHeading title={rStatus === "done" ? "Senha atualizada" : "Criar nova senha"} focus />
 
               {!resetToken ? (
                 <>
                   <div className="auth-error" role="alert">
                     <Icon name="alert" />
-                    <span>Link inválido ou incompleto. Peça um novo na tela de login.</span>
+                    <span>Link inválido ou incompleto. Peça um novo para criar sua senha.</span>
                   </div>
-                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
-                    Voltar ao login
-                  </button>
+                  <a className="auth-link-button" href="#esqueci-senha">Pedir novo link</a>
                 </>
               ) : rStatus === "done" ? (
                 <>
@@ -551,7 +517,7 @@ export function LoginScreen() {
                 </>
               ) : (
                 <>
-                  <p className="sub">Escolha uma nova senha para sua conta (mínimo 8 caracteres).</p>
+                  <p className="sub">Escolha e confirme sua nova senha.</p>
                   {rError ? (
                     <div className="auth-error" role="alert">
                       <Icon name="alert" />
@@ -564,6 +530,7 @@ export function LoginScreen() {
                     name="new-password"
                     placeholder="••••••••"
                     autoComplete="new-password"
+                    helper="Ao menos 8 caracteres."
                     value={rPass}
                     disabled={rStatus === "loading"}
                     onChange={(e) => setRPass(e.target.value)}
@@ -589,16 +556,10 @@ export function LoginScreen() {
                   </Button>
                 </>
               )}
+              {rStatus !== "done" ? <a className="auth-link-button" href="#login">Voltar ao login</a> : null}
               <AuthSecurityNote />
             </form>
           )}
-          <nav className="login-legal-links" aria-label="Informações legais">
-            <Link href="/privacidade">Privacidade</Link>
-            <span aria-hidden="true">·</span>
-            <Link href="/termos">Termos de Uso</Link>
-          </nav>
-        </main>
-      </div>
-    </section>
+    </AuthLayout>
   );
 }

@@ -15,7 +15,7 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 O [design system canônico](../DESIGN.md) incorpora a prévia v2 aprovada por Raniel: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
 
-O primeiro recorte de Hoje e Conversas está implementado no candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`, na [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447), ainda em rascunho. Os quatro checks de produto passaram nesse SHA. A aplicação global permanece parcial; login, gestão da igreja e plataforma continuam sujeitos às suas fatias de implementação e validação.
+O primeiro recorte de Hoje e Conversas está implementado no candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`, na [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447), ainda em rascunho. Os quatro checks de produto passaram nesse SHA. A [F02 de acesso](../docs/sprints/2026-09-30-ux-acesso-v2.md) aplica a direção a login, recuperação, senha, convite e entrada do console, em candidato local próprio. A aplicação global permanece parcial; navegação, gestão da igreja e operação da plataforma continuam nas suas fatias de implementação e validação.
 
 O [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) contém evidência e limites. O estado geral do produto permanece na [Wiki](../docs/WIKI-IGREJA12.md) e na [matriz de cobertura](../docs/ai/PRD-COVERAGE.md). Esta atualização do designer não registra um novo estado de produção.
 

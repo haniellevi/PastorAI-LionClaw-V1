@@ -106,7 +106,7 @@ export async function expectDashboardContextReady(page: Page): Promise<void> {
 
 export async function loginThroughUi(page: Page): Promise<LoginMetrics> {
   await page.goto("/#login", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: "Entrar no painel" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Entre na sua igreja" })).toBeVisible();
   await page.getByLabel("E-mail").fill(E2E_USER.email);
   await page.getByRole("textbox", { name: "Senha", exact: true }).fill(E2E_USER.password);
 

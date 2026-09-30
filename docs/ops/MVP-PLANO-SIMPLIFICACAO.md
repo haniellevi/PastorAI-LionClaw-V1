@@ -470,6 +470,10 @@ sem declarar as próximas verticais implementadas.
      após aprovação em 30/09. Ações secundárias sob demanda e rótulos visíveis.
      [Recorte, aceite e evidências](../sprints/2026-09-30-ux-contraste-fluxo-v2.md).
      A evolução global de 42 telas segue em fatias; este recorte não conclui a trilha.
+   - [ ] Acesso v2 (F02): candidato local de login da igreja, recuperação,
+     redefinição, convite e entrada do console, autorizado em 30/09.
+     [Recorte, testes e limites](../sprints/2026-09-30-ux-acesso-v2.md).
+     Checkbox permanece aberto até a entrega; demais superfícies seguem em fatias.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;
