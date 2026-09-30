@@ -40,6 +40,7 @@ const apiMock = vi.hoisted(() => ({
   fetchConversationPhoto: vi.fn(),
   fetchInboxTransferTargets: vi.fn(),
   sendMessage: vi.fn(),
+  sendMedia: vi.fn(),
 }));
 
 vi.mock("@/lib/conversations-api", async (importOriginal) => {
@@ -52,6 +53,7 @@ vi.mock("@/lib/conversations-api", async (importOriginal) => {
     fetchConversationPhoto: apiMock.fetchConversationPhoto,
     fetchInboxTransferTargets: apiMock.fetchInboxTransferTargets,
     sendMessage: apiMock.sendMessage,
+    sendMedia: apiMock.sendMedia,
   };
 });
 
@@ -210,6 +212,8 @@ beforeEach(() => {
   });
   apiMock.sendMessage.mockReset();
   apiMock.sendMessage.mockResolvedValue(undefined);
+  apiMock.sendMedia.mockReset();
+  apiMock.sendMedia.mockResolvedValue(undefined);
   apiMock.fetchMessages.mockReset();
   apiMock.fetchMessages.mockImplementation(
     (_token: string, convId: string, _pageSize: number, signal: AbortSignal) =>
@@ -824,6 +828,67 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     expect(composer().value).toBe("Rascunho B");
     await act(async () => { selectConversation("Ana Souza"); });
     expect(composer().value).toBe("");
+  });
+
+  it("A->B->A preserva rascunho novo após confirmação tardia da mídia antiga", async () => {
+    ownConversations();
+    let finishSend!: () => void;
+    apiMock.sendMedia.mockImplementation(
+      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+    );
+    class Recorder {
+      static instances: Recorder[] = [];
+      static isTypeSupported() { return true; }
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor(_stream: MediaStream) { Recorder.instances.push(this); }
+      start() { this.state = "recording"; }
+      stop() { this.state = "inactive"; }
+      data() { this.ondataavailable?.({ data: new Blob(["audio-sintetico"]) }); }
+      stopped() { this.onstop?.(); }
+    }
+    vi.stubGlobal("MediaRecorder", Recorder);
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn(async () => ({
+          getTracks: () => [{ stop: vi.fn() }],
+        } as unknown as MediaStream)),
+      },
+    });
+
+    await renderInbox();
+    const mic = container.querySelector<HTMLButtonElement>('[aria-label="Gravar áudio"]');
+    if (!mic) throw new Error("botão de áudio não encontrado");
+    await act(async () => {
+      mic.click();
+      await Promise.resolve();
+    });
+    const recorder = Recorder.instances[0];
+    if (!recorder) throw new Error("gravador não criado");
+    act(() => recorder.data());
+    act(() => {
+      [...container.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.trim() === "Pronto")!.click();
+    });
+    act(() => recorder.stopped());
+    typeDraft("legenda antiga");
+
+    const send = container.querySelector<HTMLButtonElement>('[aria-label="Enviar mensagem"]');
+    if (!send) throw new Error("botão de envio não encontrado");
+    act(() => send.click());
+    expect(apiMock.sendMedia).toHaveBeenCalledWith(
+      "tok-1", "conv-a", expect.any(File), "legenda antiga",
+    );
+
+    selectConversation("Bruno Lima");
+    selectConversation("Ana Souza");
+    typeDraft("rascunho novo A");
+    expect(composer().value).toBe("rascunho novo A");
+
+    await act(async () => { finishSend(); });
+    expect(composer().value).toBe("rascunho novo A");
   });
 
   it("troca de sessão descarta rascunho privado e uma resposta da sessão anterior", async () => {

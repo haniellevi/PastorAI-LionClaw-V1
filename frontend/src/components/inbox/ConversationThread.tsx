@@ -412,10 +412,11 @@ export function ConversationThread({
 
     // Anexo pendente: envia a mídia (com a legenda atual, se houver).
     if (pendingFile) {
+      const submissionGeneration = recordingGenerationRef.current;
       setSending(true);
       try {
         const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
-        if (ok) {
+        if (ok && recordingGenerationRef.current === submissionGeneration) {
           clearAttachment();
           onDraftChange("");
         }

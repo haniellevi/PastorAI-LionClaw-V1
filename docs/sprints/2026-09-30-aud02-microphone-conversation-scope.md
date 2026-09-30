@@ -74,3 +74,19 @@ CI remoto e LENTE/Sarah devem ser vinculados ao novo head exato; nenhuma
 aprovação anterior é transportada para esta composição. Classificação de
 domínio na matriz PRD permanece igual. Gate humano único: autorização nominal
 Raniel para merge #446 após evidências e revisões; sem merge nesta missão.
+
+## P1 detectado e corrigido na revisão de composição
+
+LENTE reprovou946a3b745d35b1fe560cfb648046ce32cfacaa46: após enviar mídia emA
+e navegarA->B->A, a confirmação antiga apagava o novo rascunhoA. Uma
+regressão permanente noInboxScreen real falhou antes dofix (33PASS/1FAIL),
+com origemconv-a e legenda sintéticas. O retorno do submit agora captura
+a geração e só limpa rascunho/anexo se ela continuar válida, aproveitando
+a invalidação de ciclo já existente. Sem alteração de payload/backend ou
+transferência da gestão de mídia ao pai.
+
+GREEN em30/09 21:07Z: inbox99/99, gravação28/28, typecheck/lint/diffPASS;
+Orquestrador reexecutou a suíte frontend completa986/986 em105arquivos com
+Node24.19.0 ePATH fixado. Evidência986 é do snapshot P1, enquanto985 acima
+permanece histórico do candidato946a3b7. CI e revisões devem ser renovados
+no head que incorpora esta correção; nenhumGO anterior é reaproveitado.
