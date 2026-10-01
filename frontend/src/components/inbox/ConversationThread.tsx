@@ -15,7 +15,7 @@
  * O histórico completo é carregado do backend (GET /conversations/{id}/messages)
  * e cada mensagem exibe data/hora (dia da semana, data e hora).
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsBanner } from "@/components/ds/Banner";
@@ -194,9 +194,28 @@ function MessageBody({ m }: { m: ChatMessage }) {
   return <>{m.texto ?? ""}</>;
 }
 
+interface AudioRecordingCycle {
+  generation: number;
+  conversationId: string;
+  context: object | null;
+  stream: MediaStream | null;
+  recorder: MediaRecorder | null;
+  timer: number | null;
+  chunks: Blob[];
+}
+
+function releaseRecording(cycle: AudioRecordingCycle) {
+  cycle.stream?.getTracks().forEach((track) => track.stop());
+  cycle.stream = null;
+  if (cycle.timer !== null) window.clearInterval(cycle.timer);
+  cycle.timer = null;
+  if (cycle.recorder?.state === "recording") cycle.recorder.stop();
+}
+
 export function ConversationThread({
   conversation,
   selfId,
+  recordingContext,
   holderName,
   degraded,
   agentAvailability,
@@ -225,6 +244,8 @@ export function ConversationThread({
 }: {
   conversation: Conversation;
   selfId: string;
+  /** Stable authorized session/church identity from the parent; null or absence denies composition. */
+  recordingContext: object | null;
   holderName: string | null;
   degraded: boolean;
   agentAvailability: AgentAvailability;
@@ -258,12 +279,20 @@ export function ConversationThread({
   const [recSecs, setRecSecs] = useState(0);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const recTimerRef = useRef<number | null>(null);
-  const recCancelRef = useRef(false);
+  const recordingGenerationRef = useRef(0);
+  const recordingCycleRef = useRef<AudioRecordingCycle | null>(null);
+  const recordingScopeRef = useRef({
+    conversationId: conversation.id, context: recordingContext, canCompose: false,
+  });
+
+  const invalidateRecording = useCallback(() => {
+    recordingGenerationRef.current += 1;
+    const cycle = recordingCycleRef.current;
+    recordingCycleRef.current = null;
+    if (cycle) releaseRecording(cycle);
+  }, []);
   const submittingTextRef = useRef(false);
+  const submittingMediaRef = useRef(false);
   const followLatestRef = useRef(true);
 
   const estado = effectiveEstado(conversation);
@@ -277,38 +306,23 @@ export function ConversationThread({
   const holder = conversation.assumidoPor;
   const isMine = estado === "humano" && holder === selfId;
   const heldByOther = estado === "humano" && holder !== null && holder !== selfId;
-  const canCompose = isMine && !degraded && !sendingText;
+  const canCompose = isMine && !degraded && !sendingText && recordingContext != null;
 
-  // Auto-scroll ao trocar de conversa / ao ecoar uma resposta.
-  useEffect(() => {
+  // Invalidate before painting another conversation or authorization context.
+  useLayoutEffect(() => {
+    recordingScopeRef.current = {
+      conversationId: conversation.id, context: recordingContext, canCompose,
+    };
     setPendingFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    // Descarta qualquer gravação em curso ao trocar de conversa.
-    recCancelRef.current = true;
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-    audioStreamRef.current = null;
-    if (recTimerRef.current) {
-      window.clearInterval(recTimerRef.current);
-      recTimerRef.current = null;
-    }
     setRecording(false);
     setRecSecs(0);
-  }, [conversation.id]);
+    return invalidateRecording;
+  }, [conversation.id, selfId, recordingContext, canCompose, invalidateRecording]);
   useEffect(() => {
     const el = bodyRef.current;
     if (el && followLatestRef.current) el.scrollTop = el.scrollHeight;
   }, [conversation.id, messages.length]);
-  // Garante o encerramento do microfone ao desmontar.
-  useEffect(
-    () => () => {
-      audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-      if (recTimerRef.current) window.clearInterval(recTimerRef.current);
-    },
-    [],
-  );
 
   function clearAttachment() {
     setPendingFile(null);
@@ -316,69 +330,81 @@ export function ConversationThread({
   }
 
   // ---- gravação de áudio (Etapa 3) --------------------------------------
-  function teardownRecording() {
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-    audioStreamRef.current = null;
-    if (recTimerRef.current) {
-      window.clearInterval(recTimerRef.current);
-      recTimerRef.current = null;
-    }
+  function isCurrentRecording(cycle: AudioRecordingCycle) {
+    const scope = recordingScopeRef.current;
+    return recordingCycleRef.current === cycle &&
+      recordingGenerationRef.current === cycle.generation &&
+      scope.conversationId === cycle.conversationId &&
+      scope.context === cycle.context && scope.canCompose;
   }
 
+
   async function startRecording() {
-    if (!canCompose || sending || recording || pendingFile) return;
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      return; // navegador sem suporte à gravação
-    }
+    if (!canCompose || sending || recording || pendingFile || recordingCycleRef.current) return;
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+    const cycle: AudioRecordingCycle = {
+      generation: ++recordingGenerationRef.current,
+      conversationId: conversation.id, context: recordingContext,
+      stream: null, recorder: null, timer: null, chunks: [],
+    };
+    recordingCycleRef.current = cycle;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
+      if (!isCurrentRecording(cycle)) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      cycle.stream = stream;
       const mime = pickAudioMime();
       const rec = mime
         ? new MediaRecorder(stream, { mimeType: mime })
         : new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      recCancelRef.current = false;
+      cycle.recorder = rec;
       rec.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        if (isCurrentRecording(cycle) && e.data.size > 0) cycle.chunks.push(e.data);
       };
       rec.onstop = () => {
-        const cancelled = recCancelRef.current;
-        const type = rec.mimeType || mime || "audio/webm";
-        const chunks = audioChunksRef.current;
-        audioChunksRef.current = [];
-        teardownRecording();
+        if (!isCurrentRecording(cycle)) {
+          releaseRecording(cycle);
+          return;
+        }
+        recordingCycleRef.current = null;
+        releaseRecording(cycle);
         setRecording(false);
         setRecSecs(0);
-        if (cancelled) return;
-        const blob = new Blob(chunks, { type });
+        const type = rec.mimeType || mime || "audio/webm";
+        const blob = new Blob(cycle.chunks, { type });
         if (blob.size === 0) return;
-        const file = new File([blob], `mensagem-de-voz.${audioExt(type)}`, { type });
-        setPendingFile(file);
+        setPendingFile(new File([blob], `mensagem-de-voz.${audioExt(type)}`, { type }));
       };
-      mediaRecorderRef.current = rec;
       rec.start();
       setRecording(true);
       setRecSecs(0);
-      recTimerRef.current = window.setInterval(() => setRecSecs((s) => s + 1), 1000);
+      cycle.timer = window.setInterval(() => {
+        if (isCurrentRecording(cycle)) setRecSecs((s) => s + 1);
+      }, 1000);
     } catch {
-      teardownRecording();
-      setRecording(false);
+      if (isCurrentRecording(cycle)) {
+        invalidateRecording();
+        setRecording(false);
+        setRecSecs(0);
+      } else {
+        releaseRecording(cycle);
+      }
     }
   }
 
   function finishRecording() {
-    if (mediaRecorderRef.current?.state === "recording") {
-      recCancelRef.current = false;
-      mediaRecorderRef.current.stop();
+    const cycle = recordingCycleRef.current;
+    if (cycle && isCurrentRecording(cycle) && cycle.recorder?.state === "recording") {
+      cycle.recorder.stop();
     }
   }
 
   function cancelRecording() {
-    if (mediaRecorderRef.current?.state === "recording") {
-      recCancelRef.current = true;
-      mediaRecorderRef.current.stop();
-    }
+    invalidateRecording();
+    setRecording(false);
+    setRecSecs(0);
   }
 
   async function submit(e: React.FormEvent) {
@@ -387,14 +413,17 @@ export function ConversationThread({
 
     // Anexo pendente: envia a mídia (com a legenda atual, se houver).
     if (pendingFile) {
+      if (submittingMediaRef.current) return;
+      submittingMediaRef.current = true;
+      const submissionGeneration = recordingGenerationRef.current;
       setSending(true);
       try {
         const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
-        if (ok) {
+        if (ok && recordingGenerationRef.current === submissionGeneration) {
           clearAttachment();
-          onDraftChange("");
         }
       } finally {
+        submittingMediaRef.current = false;
         setSending(false);
       }
       return;
