@@ -212,6 +212,7 @@ function InboxSession() {
   const conversationsRequestRef = useRef<AbortController | null>(null);
   const connectionRequestRef = useRef<AbortController | null>(null);
   const agentStatusRequestRef = useRef<AbortController | null>(null);
+  const agentStatusRefreshPendingRef = useRef(false);
 
   // Master-detail mobile (PR2): em ≤860px o inbox é tela única (lista OU thread).
   // selectedId null = lista; tocar uma conversa abre a thread; "voltar" volta à
@@ -329,15 +330,22 @@ function InboxSession() {
     }
   }, [token, canReadConnection, handleSessionError]);
 
-  const loadAgentStatus = useCallback(async () => {
+  const loadAgentStatus = useCallback(async function readAgentStatus(refresh = false) {
     if (!token) return;
-    if (agentStatusRequestRef.current) return;
+    if (refresh) setAgentAvailability("unknown");
+    if (agentStatusRequestRef.current) {
+      // Preserve an explicit retry behind the current single-flight request.
+      // Its pre-retry snapshot must no longer authorize an active indicator.
+      if (refresh) agentStatusRefreshPendingRef.current = true;
+      return;
+    }
     const controller = new AbortController();
     agentStatusRequestRef.current = controller;
     try {
       const info = await runTimedRequest(controller, (signal) =>
         fetchInboxAgentStatus(token, signal),
       );
+      if (agentStatusRefreshPendingRef.current) return;
       setAgentAvailability(
         info.configured && info.ativo && !info.pausedByChurch
           ? "active"
@@ -348,10 +356,17 @@ function InboxSession() {
     } catch (err) {
       if (controller.signal.aborted && !(err instanceof RequestTimeoutError)) return;
       setAgentAvailability("unknown");
-      if (handleSessionError(err)) return;
+      if (handleSessionError(err)) {
+        agentStatusRefreshPendingRef.current = false;
+        return;
+      }
     } finally {
       if (agentStatusRequestRef.current === controller) {
         agentStatusRequestRef.current = null;
+        if (agentStatusRefreshPendingRef.current) {
+          agentStatusRefreshPendingRef.current = false;
+          void readAgentStatus();
+        }
       }
     }
   }, [token, handleSessionError]);
@@ -359,7 +374,7 @@ function InboxSession() {
   const refreshInbox = useCallback(() => {
     void load("retry");
     void loadConnection();
-    void loadAgentStatus();
+    void loadAgentStatus(true);
   }, [load, loadConnection, loadAgentStatus]);
 
   // ---- histórico de mensagens da conversa selecionada ---------------------
@@ -519,6 +534,7 @@ function InboxSession() {
       conversationsRequestRef.current = null;
       connectionRequestRef.current = null;
       agentStatusRequestRef.current = null;
+      agentStatusRefreshPendingRef.current = false;
       conversationsController?.abort();
       connectionController?.abort();
       agentStatusController?.abort();
