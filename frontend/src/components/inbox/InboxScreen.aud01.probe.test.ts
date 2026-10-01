@@ -32,7 +32,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const active: InboxAgentStatus = { configured: true, ativo: true, pausedByChurch: false };
 const paused: InboxAgentStatus = { configured: true, ativo: false, pausedByChurch: true };
 const conversation = (id: string): Conversation => ({
-  id, nome: `Contato sintético ${id}`, telefone: "5511900000000", pessoaId: null,
+  id, nome: `Contato sintético ${id}`, telefone: `55119000000${id.slice(-1)}`, pessoaId: null,
   estado: "ia", ultimaMensagem: "Texto sintético", naoLidas: 0,
   assumidoPor: null, assumidoPorNome: null, assumidoEm: null, esperaDesde: null,
   atualizadoEm: null, tipo: null, semInteresse: false,
