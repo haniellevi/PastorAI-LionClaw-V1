@@ -461,10 +461,18 @@ sem declarar as próximas verticais implementadas.
    sem ativação, migration compartilhada ou conclusão do domínio presumida.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
-   - [ ] Hoje e atendimento humano v1: candidato local aprovado visualmente em
-     30/09, com preservação de rascunhos, lista paginada e estados explícitos.
+   - [x] Hoje e atendimento humano v1: integrada em 30/09 pela PR #445,
+     merge `363ecb5f`, com preservação de rascunhos, lista paginada e estados explícitos.
      [Registro e limites](../sprints/2026-09-30-ux-hoje-atendimento-v1.md).
-     Sem merge, deploy ou validação com provedor real.
+     Integração Git observada; sem validação com provedor real nesta missão.
+   - [x] AUD-02: candidato source-only do escopo de microfone por geração,
+     conversa e contexto obrigatório, com falha fechada quando o contexto falta.
+     Mudança de conversa ou de escopo autenticado descarta áudio e anexo;
+     reentrada de mídia tem trava síncrona e a confirmação antiga só limpa a
+     legenda cuja versão e conteúdo não mudaram. Rascunhos por conversa,
+     polling, paginação e erros permanecem. [Registro, testes e
+     limites](../sprints/2026-09-30-aud02-microphone-conversation-scope.md).
+     Merge continua sujeito a novo head, CI, revisões e gate nominal.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;
