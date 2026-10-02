@@ -324,8 +324,8 @@
     "app/services/permissions.py"
   ],
   "legacy_build_manifest": {
-    "Dockerfile": "baccc2585d0ec3ff0284f5a7c3e3d6e9c194e9fb6ab7a0517bd32f5445dbb22c",
     ".dockerignore": "6006b63f111911b155aa7736a6dd0143cb4a9c6a915022ddb00fb4a84e271c8d",
+    "Dockerfile": "baccc2585d0ec3ff0284f5a7c3e3d6e9c194e9fb6ab7a0517bd32f5445dbb22c",
     "migrations/0001_extensions_and_enums.sql": "5e9f7219577df7586d99168b76a898f790326058bb6891f7be667c249fe9e095",
     "migrations/0002_schema_tables.sql": "05da2aed2fa7de8fd1d08cc73be8a9b1be8769eda0b7012c2d9af3ef7b496aa1",
     "migrations/0003_rls_policies.sql": "76c3729b12aa31aeb6fcb6d4dd5177f4c92dbfe6067a5ad3ea68508c2cebb523",
@@ -405,7 +405,8 @@
     "migrations/20260910_142830_add_e4b_consent_persistence.sql": "64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd",
     "migrations/20260925_183811_preserve_platform_admins_on_tenant_deletion.sql": "0b624edab2816c66229e088e8f5c77aec04785f78d32b0ce9dfb50892b6052bf",
     "migrations/20260926_120446_platform_jev_settings.sql": "6796891807363115fbda3041340ed20a7717f70b560e715b79b6972e19b9b35a",
-    "migrations/20260926_191500_agent_public_profile.sql": "3d891a54bf97949c4073df753ee22f852219d2329cef498e979abffed77bf5a4"
+    "migrations/20260926_191500_agent_public_profile.sql": "3d891a54bf97949c4073df753ee22f852219d2329cef498e979abffed77bf5a4",
+    "migrations/private_runtime/20260905_035815_load_private_runtime_turn_context.sql": "af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc"
   },
   "candidate_build_manifest": {
     ".dockerignore": "6006b63f111911b155aa7736a6dd0143cb4a9c6a915022ddb00fb4a84e271c8d",
@@ -489,7 +490,8 @@
     "migrations/20260910_142830_add_e4b_consent_persistence.sql": "64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd",
     "migrations/20260925_183811_preserve_platform_admins_on_tenant_deletion.sql": "0b624edab2816c66229e088e8f5c77aec04785f78d32b0ce9dfb50892b6052bf",
     "migrations/20260926_120446_platform_jev_settings.sql": "6796891807363115fbda3041340ed20a7717f70b560e715b79b6972e19b9b35a",
-    "migrations/20260926_191500_agent_public_profile.sql": "3d891a54bf97949c4073df753ee22f852219d2329cef498e979abffed77bf5a4"
+    "migrations/20260926_191500_agent_public_profile.sql": "3d891a54bf97949c4073df753ee22f852219d2329cef498e979abffed77bf5a4",
+    "migrations/private_runtime/20260905_035815_load_private_runtime_turn_context.sql": "af8f8f88fef3a0db8db7453294dab8cdd948df7922fb55b51b2d8caefaf630fc"
   },
   "schema": {
     "database": {

@@ -37,7 +37,7 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 IMAGE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 SOURCE = re.compile(r"app/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.py\Z")
-MIGRATION = re.compile(r"migrations/[A-Za-z0-9_]+\.sql\Z")
+MIGRATION = re.compile(r"migrations/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.sql\Z")
 
 
 class Refused(RuntimeError):
@@ -429,7 +429,7 @@ if actual != expected:
             self.source_proof(container["id"], self.profile["legacy_manifest"])
         build_root = self.legacy_deploy.parent / "backend"
         actual_build = {"Dockerfile"} | {str(path.relative_to(build_root))
-                                      for path in (build_root / "migrations").glob("*.sql")}
+                                      for path in (build_root / "migrations").rglob("*.sql")}
         if (build_root / ".dockerignore").exists():
             actual_build.add(".dockerignore")
         require(actual_build == self.profile["legacy_build_manifest"].keys(),

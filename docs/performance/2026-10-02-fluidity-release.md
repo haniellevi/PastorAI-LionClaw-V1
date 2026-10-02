@@ -193,7 +193,8 @@ billing ou agente foi alterado. O lock do envio humano permanece. As decisões
 condicionadas e o bug preexistente de código opaco estão no
 [plano e seus limites](2026-10-02-fluidity-plan.md).
 
-Próximo gate operacional único: autorização específica de Raniel para o
+Registro histórico anterior à autorização deste turno e ao perfil de manutenção:
+naquele momento, o próximo gate era autorização específica de Raniel para o
 preflight privado da configuração ativa e consultas somente leitura de schema
 e inventário agregado no Supabase PROD, incluindo a delegação excepcional das
 consultas reservadas ao operador. Esse gate não autoriza fechamento de envios,

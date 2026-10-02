@@ -178,7 +178,9 @@ class Fixture:
         }
         self.build = {"Dockerfile": b"# synthetic Dockerfile\n",
                       ".dockerignore": b"# synthetic ignore\n",
-                      "migrations/0001_fixture.sql": b"-- synthetic migration, never executed\n"}
+                      "migrations/0001_fixture.sql": b"-- synthetic migration, never executed\n",
+                      "migrations/private_runtime/20260905_035815_load_private_runtime_turn_context.sql":
+                          b"-- synthetic nested migration, never executed\n"}
         for path, content in self.build.items():
             target = self.legacy.parent / "backend" / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -385,6 +387,8 @@ class MaintenanceReleaseTests(unittest.TestCase):
             (prefix + "/backend/../../escape", b"x", tarfile.REGTYPE),
             (prefix + "/backend/app/extra.py", b"x", tarfile.REGTYPE),
             (prefix + "/backend/migrations/0002_unreviewed.sql", b"x", tarfile.REGTYPE),
+            (prefix + "/backend/migrations/private_runtime/0002_unreviewed.sql", b"x", tarfile.REGTYPE),
+            (prefix + "/backend/migrations/private_runtime/../escape.sql", b"x", tarfile.REGTYPE),
             (prefix + "/backend/app/main.py", b"duplicate", tarfile.REGTYPE),
             (prefix + "/unrelated-link", b"", tarfile.SYMTYPE),
         ]
@@ -404,11 +408,36 @@ class MaintenanceReleaseTests(unittest.TestCase):
         self.assertNotIn("graceful API stop", self.fixture.labels())
         self.assert_preserved()
 
+    def test_nested_migration_payload_is_preserved(self):
+        try:
+            result = self.release.run()
+        except driver.Refused as error:
+            self.fail("reviewed nested migration refused: " + str(error))
+        self.assertEqual(result, "complete")
+        path = "migrations/private_runtime/20260905_035815_load_private_runtime_turn_context.sql"
+        extracted = self.release.candidate / "backend" / path
+        self.assertEqual(extracted.read_bytes(), self.fixture.build[path])
+        self.assertEqual(driver.digest(extracted), self.fixture.profile["candidate_build_manifest"][path])
+        self.assert_preserved()
+
+    def test_unsafe_nested_manifest_paths_are_rejected(self):
+        for path in ("migrations/private_runtime/../escape.sql", "migrations//extra.sql",
+                     "migrations/private_runtime/.hidden.sql", "migrations/private_runtime/link\\extra.sql"):
+            with self.subTest(path=path):
+                profile = copy.deepcopy(self.fixture.profile)
+                profile["legacy_build_manifest"][path] = "f" * 64
+                profile["candidate_build_manifest"][path] = "f" * 64
+                with self.assertRaisesRegex(driver.Refused, "build manifest incomplete"):
+                    driver.validate_profile(profile)
+
     def test_extra_legacy_migration_refuses_before_build_or_stop(self):
-        extra = self.fixture.legacy.parent / "backend/migrations/0002_unreviewed.sql"
-        extra.write_text("-- synthetic unreviewed\n")
-        with self.assertRaisesRegex(driver.Refused, "build source set mismatch"):
-            self.release.run()
+        for path in ("migrations/0002_unreviewed.sql", "migrations/private_runtime/0002_unreviewed.sql"):
+            with self.subTest(path=path):
+                extra = self.fixture.legacy.parent / "backend" / path
+                extra.write_text("-- synthetic unreviewed\n")
+                with self.assertRaisesRegex(driver.Refused, "build source set mismatch"):
+                    self.release.run()
+                extra.unlink()
         self.assertNotIn("candidate API image build", self.fixture.labels())
         self.assertNotIn("graceful API stop", self.fixture.labels())
 

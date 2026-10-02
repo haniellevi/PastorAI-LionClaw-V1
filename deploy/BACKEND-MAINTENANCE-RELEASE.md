@@ -103,6 +103,6 @@ adicionados ao recibo de desempenho somente após execução confirmada.
 Candidato fixado: `07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02` (PR #455).
 Validação local: 5.494 testes offline, 373 PostgreSQL 17 sem skips e 97 testes
 focais independentes. Locks de runtime e auditoria sem vulnerabilidades
-conhecidas na consulta de 02/10. Driver: 24 testes; contrato de schema:
+conhecidas na consulta de 02/10. Driver: 26 testes; contrato de schema:
 16 unitários e 8 PostgreSQL 17. Os 153 tipos também coincidiram na inspeção
 read-only de produção às 16:10Z. Publicação ainda pendente neste registro.
