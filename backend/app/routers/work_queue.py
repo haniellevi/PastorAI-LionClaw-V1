@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import Text, and_, cast, func, or_, select, true
+from sqlalchemy.dialects.postgresql import aggregate_order_by
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
     AppUser,
@@ -83,6 +84,10 @@ class WorkItemOut(BaseModel):
             canMessage=can_message,
             prazo=i.prazo.isoformat() if i.prazo else None,
         )
+
+
+class WorkSnapshot(Page[WorkItemOut]):
+    revision: str
 
 
 class ActionRequest(BaseModel):
@@ -153,7 +158,7 @@ def list_items(
         select(WorkQueueItem)
         .where(cond)
         .order_by(WorkQueueItem.prioridade.asc().nulls_last(),
-                  WorkQueueItem.created_at.asc())
+                  WorkQueueItem.created_at.asc(), WorkQueueItem.id.asc())
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).scalars().all()
@@ -173,6 +178,54 @@ def list_items(
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
+    )
+
+
+@router.get("/snapshot", response_model=WorkSnapshot)
+def list_snapshot(
+    revision: Annotated[str | None, Query(pattern=r"^[0-9a-f]{32}$", max_length=32)] = None,
+    pagination: PaginationParams = Depends(),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> WorkSnapshot:
+    """Read count, content revision and one page in one database snapshot.
+
+    The revision detects changing pages; it grants no authority. Computing it
+    scans visible active items in PostgreSQL, while only one page leaves the
+    database. Action endpoints still validate current permissions and locks.
+    """
+    if pagination.page > 1 and revision is None:
+        raise HTTPException(status_code=422, detail="Revisão obrigatória após a primeira página")
+    filtered = select(WorkQueueItem).where(
+        WorkQueueItem.tipo.in_(list(resolvable_tipos(current_user.roles))),
+        _operational_status_condition(),
+        _work_item_scope_condition(db, current_user),
+    ).cte("visible_queue")
+    order = (filtered.c.prioridade.asc().nulls_last(),
+             filtered.c.created_at.asc(), filtered.c.id.asc())
+    fingerprint = func.md5(cast(func.jsonb_build_array(
+        filtered.c.id, filtered.c.tipo, filtered.c.titulo, filtered.c.contexto,
+        filtered.c.status, filtered.c.pessoa_id, filtered.c.responsavel_id,
+        filtered.c.prioridade, filtered.c.prazo, filtered.c.created_at,
+    ), Text))
+    summary = select(
+        func.count().label("total"),
+        func.md5(func.coalesce(func.string_agg(
+            fingerprint, aggregate_order_by("", *order)), "")).label("revision"),
+    ).select_from(filtered).cte("queue_summary")
+    page = select(filtered).order_by(*order).offset(pagination.offset).limit(pagination.limit).cte("queue_page")
+    item = aliased(WorkQueueItem, page)
+    result = db.execute(select(summary.c.total, summary.c.revision, item)
+        .select_from(summary.outerjoin(page, true()))
+        .order_by(page.c.prioridade.asc().nulls_last(), page.c.created_at.asc(), page.c.id.asc())).all()
+    total, current_revision, _ = result[0]
+    if revision is not None and revision != current_revision:
+        raise HTTPException(status_code=409, detail="A fila mudou. Atualize a lista.")
+    rows = [row[2] for row in result if row[2] is not None]
+    messageable = _messageable_person_ids(db, current_user, rows)
+    return WorkSnapshot(
+        items=[WorkItemOut.from_model(row, can_message=row.pessoa_id in messageable) for row in rows],
+        page=pagination.page, pageSize=pagination.page_size, total=int(total), revision=current_revision,
     )
 
 

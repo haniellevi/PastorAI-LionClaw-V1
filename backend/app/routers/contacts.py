@@ -16,13 +16,13 @@ import dataclasses
 import datetime as dt
 import logging
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import false, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.config import get_settings
 from app.db.models import (
@@ -119,7 +119,7 @@ def _leads_active_cell(db: Session, pessoa_id) -> bool:
 
 
 def _active_leader_ids(
-    db: Session, pessoa_ids: list[uuid.UUID]
+    db: Session, pessoa_ids: list[uuid.UUID], igreja_id: uuid.UUID | None = None,
 ) -> set[str]:
     """IDs da página que lideram célula ativa no tenant (RLS).
 
@@ -135,6 +135,7 @@ def _active_leader_ids(
         .where(
             Celula.ativo.is_(True),
             Celula.lider_id.in_(pessoa_ids),
+            *([Celula.igreja_id == igreja_id] if igreja_id is not None else []),
         )
         .distinct()
     ).scalars().all()
@@ -308,6 +309,30 @@ class ContactOut(BaseModel):
             liderDeCelula=lider_de_celula,
             arquivada=p.arquivada_em is not None,
         )
+
+
+class ContactLookupOut(BaseModel):
+    id: str
+    nome: str
+    telefone: str
+    tipo: str | None = None
+    email: str | None = None
+    aptoLider: bool = False
+    semInteresse: bool = False
+    arquivada: bool = False
+    celulaId: str | None = None
+    liderDeCelula: bool = False
+
+
+def _person_search_filters(q: str | None) -> list:
+    term = (q or "").strip()
+    if not term:
+        return []
+    return [or_(
+        Pessoa.nome.icontains(term, autoescape=True),
+        Pessoa.telefone.icontains(term, autoescape=True),
+        Pessoa.email.icontains(term, autoescape=True),
+    )]
 
 
 class ContactDetailOut(BaseModel):
@@ -564,17 +589,25 @@ class UnarchiveContactResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-@router.get("", response_model=Page[ContactOut])
+class ContactPage(Page[ContactOut]):
+    searchSupported: bool = True
+
+
+@router.get("", response_model=ContactPage)
 def list_contacts(
     pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    celula_id: Annotated[uuid.UUID | None, Query(alias="celulaId")] = None,
     view: ContactView = Query(default="all"),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-) -> Page[ContactOut]:
+) -> ContactPage:
     """Return one filtered, role-scoped tenant page, newest first (RNF-09)."""
 
     conditions = (
         *_contact_view_conditions(view),
+        *_person_search_filters(q),
+        *([Pessoa.celula_id == celula_id] if celula_id is not None else []),
         *_contact_scope_conditions(
             db, current_user, include_assigned_conversation=True
         ),
@@ -597,8 +630,8 @@ def list_contacts(
         .limit(pagination.limit)
     ).scalars().all()
 
-    leader_ids = _active_leader_ids(db, [p.id for p in rows])
-    return Page[ContactOut](
+    leader_ids = _active_leader_ids(db, [p.id for p in rows], uuid.UUID(current_user.igreja_id))
+    return ContactPage(
         items=[
             ContactOut.from_model(p, lider_de_celula=str(p.id) in leader_ids)
             for p in rows
@@ -606,6 +639,41 @@ def list_contacts(
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
+    )
+
+
+@router.get("/lookup", response_model=Page[ContactLookupOut])
+def lookup_contacts(
+    pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    celula_id: Annotated[uuid.UUID | None, Query(alias="celulaId")] = None,
+    view: ContactView = Query(default="all"),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Page[ContactLookupOut]:
+    conditions = (
+        *_contact_view_conditions(view), *_person_search_filters(q),
+        *([Pessoa.celula_id == celula_id] if celula_id is not None else []),
+        *_contact_scope_conditions(db, current_user, include_assigned_conversation=True),
+    )
+    total = db.execute(select(func.count()).select_from(Pessoa).where(*conditions)).scalar_one()
+    rows = db.execute(
+        select(Pessoa).options(load_only(
+            Pessoa.id, Pessoa.nome, Pessoa.telefone, Pessoa.tipo, Pessoa.celula_id,
+            Pessoa.email, Pessoa.apto_lider, Pessoa.sem_interesse, Pessoa.arquivada_em,
+        )).where(*conditions).order_by(Pessoa.nome.asc(), Pessoa.id.asc())
+        .offset(pagination.offset).limit(pagination.limit)
+    ).scalars().all()
+    leaders = _active_leader_ids(db, [person.id for person in rows], uuid.UUID(current_user.igreja_id))
+    return Page[ContactLookupOut](
+        items=[ContactLookupOut(
+            id=str(person.id), nome=person.nome, telefone=person.telefone,
+            tipo=person.tipo, email=person.email,
+            celulaId=str(person.celula_id) if person.celula_id else None,
+            liderDeCelula=str(person.id) in leaders, aptoLider=bool(person.apto_lider),
+            semInteresse=bool(person.sem_interesse), arquivada=person.arquivada_em is not None,
+        ) for person in rows],
+        page=pagination.page, pageSize=pagination.page_size, total=int(total),
     )
 
 

@@ -31,7 +31,9 @@ class _Session:
         self.flushes = 0
         self.commits = 0
 
-    def execute(self, _statement) -> _Rows:
+    def execute(self, statement) -> _Rows:
+        if len(statement.column_descriptions) == 2:
+            return _Rows([(row.papel, row.tela) for row in self.existing])
         return _Rows(self.existing)
 
     def add(self, row: RolePermission) -> None:

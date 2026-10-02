@@ -16,10 +16,16 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from threading import Lock
+from http.cookiejar import CookieJar, DefaultCookiePolicy
+from contextlib import nullcontext
+from collections.abc import Iterator
 from dataclasses import dataclass
 from urllib.parse import quote, urlencode
 
 import httpx
+from fastapi import Request
+from app.performance import timed_span
 
 from app.config import Settings, get_settings
 
@@ -77,8 +83,26 @@ class GoogleOAuthClient:
     def __init__(
         self,
         settings: Settings | None = None,
+        http_client: httpx.Client | None = None,
     ) -> None:
         self._settings = settings or get_settings()
+        self._client_lock = Lock()
+        if http_client is not None:
+            http_client.cookies.clear()
+            http_client.cookies.jar.set_policy(DefaultCookiePolicy(allowed_domains=[]))
+        self._http_client = http_client
+        self._owns_client = http_client is None
+
+    def _client(self) -> httpx.Client:
+        with self._client_lock:
+            if self._http_client is None:
+                self._http_client = httpx.Client(timeout=15.0,
+                    cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])))
+            return self._http_client
+
+    def close(self) -> None:
+        if self._owns_client and self._http_client is not None:
+            self._http_client.close()
 
     def _require_config(self) -> tuple[str, str, str]:
         s = self._settings
@@ -163,7 +187,7 @@ class GoogleOAuthClient:
 
     def _token_request(self, data: dict) -> OAuthTokens:
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with timed_span("provider"), nullcontext(self._client()) as client:
                 resp = client.post(self._settings.google_oauth_token_url, data=data)
                 resp.raise_for_status()
                 body = resp.json()
@@ -193,7 +217,7 @@ class GoogleOAuthClient:
         ``sub`` ou token entra em log — nem em caminho de erro.
         """
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with timed_span("provider"), nullcontext(self._client()) as client:
                 resp = client.get(
                     self._settings.google_oauth_userinfo_url,
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -241,7 +265,7 @@ class GoogleOAuthClient:
             "maxResults": str(max_results),
         }
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with timed_span("provider"), nullcontext(self._client()) as client:
                 resp = client.get(
                     # `calendar_id` vem do que o admin escolheu; escapado para
                     # não escorregar do segmento de path.
@@ -267,7 +291,7 @@ class GoogleOAuthClient:
         """Return the user's calendars as ``[{id, summary, primary}]``."""
         base = self._settings.google_calendar_api_url.rstrip("/")
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with timed_span("provider"), nullcontext(self._client()) as client:
                 resp = client.get(
                     f"{base}/users/me/calendarList",
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -325,6 +349,14 @@ def _normalize_event(it: dict) -> dict:
     }
 
 
-def get_google_oauth_client() -> GoogleOAuthClient:
-    """FastAPI dependency / factory for the Google OAuth client."""
-    return GoogleOAuthClient()
+def get_google_oauth_client(request: Request) -> Iterator[GoogleOAuthClient]:
+    """Use the lifecycle pool; standalone apps close their request fallback."""
+    shared = getattr(request.app.state, "google_oauth_client", None)
+    if shared is not None:
+        yield shared
+        return
+    client = GoogleOAuthClient()
+    try:
+        yield client
+    finally:
+        client.close()

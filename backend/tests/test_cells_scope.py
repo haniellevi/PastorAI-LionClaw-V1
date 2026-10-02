@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Celula, CellAlert
+from app.db.models import AppUser, Celula, CellAlert, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 
@@ -35,6 +35,9 @@ class _Result:
 
     def scalars(self):
         return SimpleNamespace(all=lambda: list(self._scalars))
+
+    def all(self):
+        return list(self._scalars)
 
 
 def _compiled(statement) -> str:
@@ -88,6 +91,9 @@ class CellScopeSession:
         if entity is AppUser and name == "pessoa_id":
             self.actor_lookups += 1
             return _Result(scalar=self.actor_pessoa_id)
+
+        if entity is Pessoa:
+            return _Result()
 
         if "count(" in sql and "celulas" in sql:
             self.cell_statements.append(statement)
@@ -190,7 +196,8 @@ def _assert_member_scope(statement) -> None:
 def _assert_wide_detail_scope(statement) -> None:
     where = _where_sql(statement)
     assert "celulas.id" in where, where
-    assert "celulas.igreja_id" not in where, where
+    assert "celulas.igreja_id" in where, where
+    assert uuid.UUID(_IGREJA_ID).hex in where, where
     assert "celulas.lider_id" not in where, where
     assert "celulas.ativo" not in where, where
     assert "celula_membro" not in where, where
@@ -213,7 +220,7 @@ def test_cell_leader_scope_reaches_count_and_rows_and_keeps_inactive_cells(app) 
         _CELL_ID,
         _INACTIVE_CELL_ID,
     }
-    assert session.actor_lookups == 1
+    assert session.actor_lookups == 2
     assert len(session.cell_statements) == 2
     for statement in session.cell_statements:
         _assert_leader_scope(statement)
@@ -227,7 +234,7 @@ def test_member_scope_reaches_count_and_rows_with_canonical_active_link(app) -> 
 
     assert response.status_code == 200, response.text
     assert response.json()["total"] == 1
-    assert session.actor_lookups == 1
+    assert session.actor_lookups == 2
     assert len(session.cell_statements) == 2
     for statement in session.cell_statements:
         _assert_member_scope(statement)
@@ -251,7 +258,8 @@ def test_accumulated_wide_role_wins_over_cell_leader_scope(app, wide_role) -> No
     assert session.actor_lookups == 0
     assert len(session.cell_statements) == 2
     for statement in session.cell_statements:
-        assert _where_sql(statement) == ""
+        assert "celulas.igreja_id" in _where_sql(statement)
+        assert uuid.UUID(_IGREJA_ID).hex in _where_sql(statement)
 
 
 def test_effective_cell_leader_detail_loads_full_alerts(app) -> None:
@@ -406,7 +414,7 @@ def test_member_cannot_list_or_open_inactive_linked_cell(app) -> None:
     assert list_response.json()["total"] == 0
     assert list_response.json()["items"] == []
     assert detail_response.status_code == 404, detail_response.text
-    assert session.actor_lookups == 2
+    assert session.actor_lookups == 3
     assert len(session.cell_statements) == 3
     for statement in session.cell_statements:
         _assert_member_scope(statement)
@@ -499,7 +507,7 @@ def test_user_without_linked_pessoa_gets_empty_list_and_detail_404(app) -> None:
         "total": 0,
     }
     assert detail_response.status_code == 404, detail_response.text
-    assert session.actor_lookups == 2
+    assert session.actor_lookups == 3
     assert len(session.cell_statements) == 3
     for statement in session.cell_statements:
         assert "false" in _where_sql(statement)

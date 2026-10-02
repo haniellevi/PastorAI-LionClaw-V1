@@ -24,25 +24,13 @@ from app.db.models import RolePermission
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.permissions import screens_for_role
+from app.services.permissions import (
+    MANDATORY_SCREEN, MATRIX_ROLES, effective_permissions,
+)
 
 logger = logging.getLogger("pastorai.roles")
 
 router = APIRouter(prefix="/roles", tags=["roles"])
-
-# Screen that is always available and may never be removed (delta-010).
-MANDATORY_SCREEN = "dashboard"
-
-# Roles that participate in the matrix (admin has implicit access, excluded).
-MATRIX_ROLES = {
-    "operador",
-    "pastor",
-    "lider_g12",
-    "lider_consol",
-    "lider_celula",
-    "lider_mult",
-    "membro",
-}
-
 
 class PermissionsMatrix(BaseModel):
     """Matrix mapping each role to the list of screens it can access."""
@@ -78,25 +66,7 @@ def get_permissions(
     remains enforced by ``get_current_user`` + the scoped database session;
     replacing the matrix stays admin-only on PUT.
     """
-    igreja_uuid = uuid.UUID(current_user.igreja_id)
-    rows = db.execute(
-        select(RolePermission).where(RolePermission.igreja_id == igreja_uuid)
-    ).scalars().all()
-    stored: dict[str, list[str]] = {}
-    for row in rows:
-        stored.setdefault(row.papel, [])
-        if row.tela not in stored[row.papel]:
-            stored[row.papel].append(row.tela)
-
-    # Retorna a matriz EFETIVA: defaults quando o papel nunca foi customizado e
-    # filtros fail-closed para telas admin/Central-only mesmo quando uma linha
-    # legada persistida ainda as concede.
-    tenant_matrix = {role: set(telas) for role, telas in stored.items()}
-    matriz: dict[str, list[str]] = {}
-    for role in MATRIX_ROLES:
-        effective = screens_for_role(role, tenant_matrix)
-        matriz[role] = [MANDATORY_SCREEN, *sorted(effective - {MANDATORY_SCREEN})]
-    return PermissionsMatrix(matriz=matriz)
+    return PermissionsMatrix(matriz=effective_permissions(db, current_user.igreja_id))
 
 
 @router.put("/permissions", response_model=PermissionsMatrix)

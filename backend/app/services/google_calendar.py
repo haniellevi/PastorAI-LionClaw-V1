@@ -16,8 +16,14 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from threading import Lock
+from http.cookiejar import CookieJar, DefaultCookiePolicy
+from contextlib import nullcontext
+from collections.abc import Iterator
 
 import httpx
+from fastapi import Request
+from app.performance import timed_span
 
 from app.config import Settings, get_settings
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
@@ -49,8 +55,25 @@ def _to_rfc3339(data: dt.date, hora: str | None) -> tuple[dict, dict]:
 class GoogleCalendarClient:
     """Thin HTTP client around the Google Calendar events endpoints."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, http_client: httpx.Client | None = None) -> None:
         self._settings = settings or get_settings()
+        self._client_lock = Lock()
+        if http_client is not None:
+            http_client.cookies.clear()
+            http_client.cookies.jar.set_policy(DefaultCookiePolicy(allowed_domains=[]))
+        self._http_client = http_client
+        self._owns_client = http_client is None
+
+    def _client(self) -> httpx.Client:
+        with self._client_lock:
+            if self._http_client is None:
+                self._http_client = httpx.Client(timeout=15.0,
+                    cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])))
+            return self._http_client
+
+    def close(self) -> None:
+        if self._owns_client and self._http_client is not None:
+            self._http_client.close()
 
     def _require_config(self) -> tuple[str, str, str]:
         base_url = self._settings.google_calendar_api_url
@@ -86,9 +109,9 @@ class GoogleCalendarClient:
         if descricao:
             payload["description"] = descricao
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+            with timed_span("provider"), nullcontext(self._client()) as client:
                 resp = client.post(
-                    f"/calendars/{calendar_id}/events",
+                    f"{base_url}/calendars/{calendar_id}/events",
                     headers=self._headers(token),
                     json=payload,
                 )
@@ -109,9 +132,9 @@ class GoogleCalendarClient:
             return
         base_url, token, calendar_id = self._require_config()
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+            with timed_span("provider"), nullcontext(self._client()) as client:
                 resp = client.delete(
-                    f"/calendars/{calendar_id}/events/{google_event_id}",
+                    f"{base_url}/calendars/{calendar_id}/events/{google_event_id}",
                     headers=self._headers(token),
                 )
                 if resp.status_code not in (200, 204, 404, 410):
@@ -121,6 +144,14 @@ class GoogleCalendarClient:
             raise GoogleCalendarError("Falha ao remover evento no Google Calendar") from exc
 
 
-def get_google_calendar_client() -> GoogleCalendarClient:
-    """FastAPI dependency / factory for the Google Calendar client."""
-    return GoogleCalendarClient()
+def get_google_calendar_client(request: Request) -> Iterator[GoogleCalendarClient]:
+    """Use the lifecycle pool; standalone apps close their request fallback."""
+    shared = getattr(request.app.state, "google_calendar_client", None)
+    if shared is not None:
+        yield shared
+        return
+    client = GoogleCalendarClient()
+    try:
+        yield client
+    finally:
+        client.close()
