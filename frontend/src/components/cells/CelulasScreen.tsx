@@ -375,7 +375,7 @@ export function CelulasScreen() {
       <div className="dash-grid">
         <div className="ops-cell-list">
           <div className="ops-search">
-            <label htmlFor="cell-search">Buscar célula</label>
+            <label htmlFor="cell-search">Buscar célula ou líder</label>
             <input id="cell-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
             {loaded ? <p className="ops-result-count" role="status">{visibleCells.length} de {cellsLookup.result?.total ?? 0} células</p> : null}
           </div>

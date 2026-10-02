@@ -31,10 +31,12 @@ async function readLegacyPages<T extends { id: string }>(
   const seen = new Set<string>();
   let expectedTotal: number | undefined;
   for (let page = 1; ; page += 1) {
+    signal?.throwIfAborted();
     const query = new URLSearchParams({ page: String(page), pageSize: "200", ...extra });
     const response = await authedFetch(token, `${route}?${query}`, { signal });
     if (!response.ok) throw new ApiError(response.status, "Não foi possível carregar as opções.");
     const batch = await response.json() as Page<T>;
+    signal?.throwIfAborted();
     if (batch.page !== page || !Number.isSafeInteger(batch.total) || batch.total < 0 ||
       (expectedTotal !== undefined && batch.total !== expectedTotal)) {
       throw new ApiError(502, "A paginação recebida está inconsistente. Tente novamente.");
@@ -87,12 +89,33 @@ export function fetchContactLookupPage(
     (item, q) => searchKey(`${item.nome} ${item.telefone} ${item.email ?? ""}`).includes(q));
 }
 
+function enrichLegacyCells(cells: CellSummary[],people: ContactLookup[]): CellSummary[] {
+  const names = new Map(people.map((person) => [person.id,person.nome]));
+  const counts = new Map<string,{membros:number;visitantes:number}>();
+  for (const person of people) {
+    if (!person.celulaId) continue;
+    const count = counts.get(person.celulaId) ?? {membros:0,visitantes:0};
+    if (person.tipo === "visitante") count.visitantes += 1;
+    else count.membros += 1;
+    counts.set(person.celulaId,count);
+  }
+  return cells.map((cell) => ({...cell,liderNome:cell.liderId ? names.get(cell.liderId) ?? null : null,...(counts.get(cell.id) ?? {membros:0,visitantes:0})}));
+}
+
 export async function fetchCellListPage(token: string, params: LookupParams = {}): Promise<Page<CellSummary>> {
   if (params.q?.trim()) {
     const probe = await authedFetch(token, `/cells/lookup?${paramsQuery(params)}`, { signal: params.signal });
     if (probe.status === 404) {
-      // Force the compatibility reader, whose rows include the full cell data.
-      return lookupPage<CellSummary>(token, "/cells", params);
+      const [cells,people] = await Promise.all([
+        readLegacyPages<CellSummary>(token,"/cells",{},params.signal),
+        readLegacyPages<ContactLookup>(token,"/contacts",{view:"all"},params.signal),
+      ]);
+      const query = paramsQuery(params);
+      const q = searchKey(query.get("q") ?? "");
+      const filtered = enrichLegacyCells(cells,people).filter(cell => searchKey(`${cell.nome} ${cell.liderId === null ? "Sem líder" : cell.liderNome ?? ""}`).includes(q));
+      const page = Number(query.get("page"));
+      const pageSize = Number(query.get("pageSize"));
+      return {items:filtered.slice((page-1)*pageSize,page*pageSize),total:filtered.length,page,pageSize};
     }
     if (!probe.ok) throw new ApiError(probe.status, "Não foi possível carregar as células.");
   }
@@ -113,24 +136,12 @@ export async function fetchCellStats(token: string, signal?: AbortSignal): Promi
       readLegacyPages<CellSummary>(token, "/cells", {}, signal),
       readLegacyPages<ContactLookup>(token, "/contacts", { view: "all" }, signal),
     ]);
-    const names = new Map(people.map((person) => [person.id, person.nome]));
-    const counts = new Map<string, { membros: number; visitantes: number }>();
-    for (const person of people) {
-      if (!person.celulaId) continue;
-      const count = counts.get(person.celulaId) ?? { membros: 0, visitantes: 0 };
-      if (person.tipo === "visitante") count.visitantes += 1;
-      else count.membros += 1;
-      counts.set(person.celulaId, count);
-    }
     return {
       total: cells.length,
       ativas: cells.filter((cell) => cell.ativo).length,
       semLider: cells.filter((cell) => !cell.liderId).length,
       pessoasEmCelulas: people.filter((person) => !!person.celulaId).length,
-      legacyCells: cells.map((cell) => ({ ...cell,
-        liderNome: cell.liderId ? names.get(cell.liderId) ?? null : null,
-        ...(counts.get(cell.id) ?? { membros: 0, visitantes: 0 }),
-      })),
+      legacyCells: enrichLegacyCells(cells,people),
     };
   }
   if (!response.ok) throw new ApiError(response.status, "Não foi possível carregar os indicadores de células.");

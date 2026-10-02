@@ -28,12 +28,13 @@ import { formatAiCostUsd } from "@/lib/ai-cost";
 
 import dynamic from "next/dynamic";
 
-const AuditModal = dynamic(() => import("./AuditModal").then((module) => module.AuditModal));
-const ChurchPage = dynamic(() => import("./ChurchPage").then((module) => module.ChurchPage));
-const CreateIgrejaModal = dynamic(() => import("./CreateIgrejaModal").then((module) => module.CreateIgrejaModal));
-const JevModal = dynamic(() => import("./JevModal").then((module) => module.JevModal));
-const OrquestradorModal = dynamic(() => import("./OrquestradorModal").then((module) => module.OrquestradorModal));
-const PlanosManagerModal = dynamic(() => import("./PlanosManagerModal").then((module) => module.PlanosManagerModal));
+// Keep the console and its focused opener mounted while a tool chunk loads.
+const AuditModal = dynamic(() => import("./AuditModal").then((module) => module.AuditModal), { loading: () => null });
+const ChurchPage = dynamic(() => import("./ChurchPage").then((module) => module.ChurchPage), { loading: () => null });
+const CreateIgrejaModal = dynamic(() => import("./CreateIgrejaModal").then((module) => module.CreateIgrejaModal), { loading: () => null });
+const JevModal = dynamic(() => import("./JevModal").then((module) => module.JevModal), { loading: () => null });
+const OrquestradorModal = dynamic(() => import("./OrquestradorModal").then((module) => module.OrquestradorModal), { loading: () => null });
+const PlanosManagerModal = dynamic(() => import("./PlanosManagerModal").then((module) => module.PlanosManagerModal), { loading: () => null });
 
 const STATUS_LABEL: Record<string, string> = {
   ativa: "Ativa",

@@ -194,6 +194,88 @@ def test_leader_lookup_fails_closed_without_actor_membership(read_session):
     assert cells.total == 0
 
 
+@pytest.mark.parametrize("endpoint", [list_cells, lookup_cells])
+def test_cell_search_matches_visible_leader_before_count_and_pagination(read_session, endpoint):
+    db, queries, _ = read_session
+    first = endpoint(db=db, current_user=principal("pastor"), q="JOÃO A", pagination=PaginationParams(1, 1))
+    second = endpoint(db=db, current_user=principal("pastor"), q="JOÃO A", pagination=PaginationParams(2, 1))
+    assert first.total == second.total == 2
+    assert len(first.items) == len(second.items) == 1
+    assert {first.items[0].id, second.items[0].id} == {str(CELL), str(uid(32))}
+    assert len(queries) == (8 if endpoint is list_cells else 4)
+    if endpoint is list_cells:
+        assert first.items[0].liderNome == second.items[0].liderNome == "João A"
+
+
+@pytest.mark.parametrize("endpoint", [list_cells, lookup_cells])
+def test_cell_search_does_not_disclose_a_leader_outside_contact_visibility(read_session, endpoint):
+    db, _, conn = read_session
+    db.rollback()
+    conn.execute(m.Celula.__table__.update().where(m.Celula.id == CELL).values(lider_id=uid(22)))
+    conn.execute(m.CelulaMembro.__table__.insert(), {
+        "id": uid(91), "igreja_id": TENANT, "celula_id": CELL, "pessoa_id": ACTOR,
+        "papel": "membro", "ativo": True,
+    })
+    mark_tenant_scoped(db, TENANT, source="synthetic-cell-name-visibility")
+    assert endpoint(db=db, current_user=principal("membro"), q="Maria A", pagination=PaginationParams(1, 20)).total == 0
+    assert endpoint(db=db, current_user=principal("membro"), q="Sem líder", pagination=PaginationParams(1, 20)).total == 0
+    visible = endpoint(db=db, current_user=principal("membro"), q="Árvore", pagination=PaginationParams(1, 20))
+    assert visible.total == 1 and [cell.id for cell in visible.items] == [str(CELL)]
+    if endpoint is list_cells:
+        assert visible.items[0].liderNome is None
+
+
+@pytest.mark.parametrize("endpoint", [list_cells, lookup_cells])
+def test_cell_search_excludes_archived_and_other_tenant_leader_names(read_session, endpoint):
+    db, _, conn = read_session
+    db.rollback()
+    conn.execute(m.Pessoa.__table__.update().where(m.Pessoa.id == ACTOR).values(arquivada_em=dt.datetime(2026, 9, 1)))
+    conn.execute(m.Celula.__table__.insert(), {
+        "id": uid(34), "igreja_id": TENANT, "lider_id": uid(23), "nome": "Referência sintética inconsistente",
+        "cobertura_espiritual": "Sintética", "ativo": True, "created_at": dt.datetime(2026, 1, 4),
+    })
+    mark_tenant_scoped(db, TENANT, source="synthetic-cell-name-tenant")
+    for query in ("João A", "João B"):
+        assert endpoint(db=db, current_user=principal("pastor"), q=query, pagination=PaginationParams(1, 20)).total == 0
+
+
+@pytest.mark.parametrize("endpoint", [list_cells, lookup_cells])
+def test_cell_search_preserves_leaderless_label_and_literal_wildcards(read_session, endpoint):
+    db, _, conn = read_session
+    db.rollback()
+    conn.execute(m.Pessoa.__table__.update().where(m.Pessoa.id == ACTOR).values(nome="João %_/ literal"))
+    conn.execute(m.Celula.__table__.insert(), {
+        "id": uid(35), "igreja_id": TENANT, "lider_id": None, "nome": "Comunidade sem referência",
+        "cobertura_espiritual": "Sintética", "ativo": True, "created_at": dt.datetime(2026, 1, 5),
+    })
+    mark_tenant_scoped(db, TENANT, source="synthetic-cell-search-literal")
+    leaderless = endpoint(db=db, current_user=principal("pastor"), q="sem LÍDER", pagination=PaginationParams(1, 20))
+    assert leaderless.total == 1 and [cell.id for cell in leaderless.items] == [str(uid(35))]
+    for query in ("%", "_", "/"):
+        page = endpoint(db=db, current_user=principal("pastor"), q=query, pagination=PaginationParams(1, 20))
+        assert page.total == 2 and {cell.id for cell in page.items} == {str(CELL), str(uid(32))}
+
+
+@pytest.mark.parametrize("endpoint", [list_cells, lookup_cells])
+def test_cell_search_reuses_assigned_conversation_contact_exception(read_session, endpoint):
+    db, _, conn = read_session
+    db.rollback()
+    conn.execute(m.Celula.__table__.update().where(m.Celula.id == CELL).values(lider_id=uid(22)))
+    conn.execute(m.CelulaMembro.__table__.insert(), {
+        "id": uid(91), "igreja_id": TENANT, "celula_id": CELL, "pessoa_id": ACTOR,
+        "papel": "membro", "ativo": True,
+    })
+    conn.execute(m.Conversation.__table__.insert(), {
+        "id": uid(92), "igreja_id": TENANT, "pessoa_id": uid(22), "assumido_por": USER,
+        "telefone": "550000000002", "estado": "humano",
+    })
+    mark_tenant_scoped(db, TENANT, source="synthetic-cell-search-assigned-contact")
+    page = endpoint(db=db, current_user=principal("operador"), q="Maria A", pagination=PaginationParams(1, 20))
+    assert page.total == 1 and [cell.id for cell in page.items] == [str(CELL)]
+    if endpoint is list_cells:
+        assert page.items[0].liderNome == "Maria A"
+
+
 def test_central_count_page_names_and_future_exclusion(read_session):
     db, queries, _ = read_session
     page = get_pending_reports(db=db, current_user=principal("pastor"), page=2, page_size=1)

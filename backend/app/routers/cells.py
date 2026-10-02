@@ -571,7 +571,7 @@ def list_cells(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[CellOut]:
     """List the tenant's cells, paginated."""
-    scope_filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(q)]
+    scope_filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(db, current_user, q)]
     total = db.execute(
         select(func.count()).select_from(Celula).where(*scope_filters)
     ).scalar_one()
@@ -611,9 +611,25 @@ class CellLookupOut(BaseModel):
     ativo: bool
 
 
-def _cell_search_filters(q: str | None) -> list:
+def _cell_search_filters(db: Session, current_user: CurrentUser, q: str | None) -> list:
     term = (q or "").strip()
-    return [Celula.nome.icontains(term, autoescape=True)] if term else []
+    if not term:
+        return []
+    from app.routers.contacts import _contact_scope_conditions, _contact_view_conditions
+
+    # Search only names the same caller may see in /contacts?view=all and in
+    # this list's liderNome. EXISTS preserves the outer cell count/pagination.
+    visible_leader_name = select(Pessoa.id).where(
+        Pessoa.id == Celula.lider_id,
+        *_contact_view_conditions("all"),
+        *_contact_scope_conditions(db, current_user, include_assigned_conversation=True),
+        Pessoa.nome.icontains(term, autoescape=True),
+    ).correlate(Celula).exists()
+    matches = [Celula.nome.icontains(term, autoescape=True), visible_leader_name]
+    if term.casefold() in "sem líder":
+        # A hidden or archived leader remains a leader; only NULL gets this label.
+        matches.append(Celula.lider_id.is_(None))
+    return [or_(*matches)]
 
 
 @router.get("/cells/lookup", response_model=Page[CellLookupOut])
@@ -623,7 +639,7 @@ def lookup_cells(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[CellLookupOut]:
-    filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(q)]
+    filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(db, current_user, q)]
     total = db.execute(select(func.count()).select_from(Celula).where(*filters)).scalar_one()
     rows = db.execute(
         select(Celula).options(load_only(Celula.id, Celula.nome, Celula.lider_id, Celula.ativo))
