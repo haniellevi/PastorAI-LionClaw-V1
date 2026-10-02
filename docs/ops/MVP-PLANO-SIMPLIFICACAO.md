@@ -464,8 +464,10 @@ sem declarar as próximas verticais implementadas.
    pedido explícito, próxima reunião inequívoca, resumo e SIM, revalidação
    do vínculo/célula/horário no serviço compartilhado e fonte única do painel.
    [Implementação e evidências locais de 02/10](../sprints/2026-10-02-mvp-own-presence.md).
-   Expectativa de visitante e oração continuam pendentes; flags e gates
-   operacionais existentes permanecem. Testes sintéticos não concluem o piloto.
+   A [expectativa própria de visitante](../sprints/2026-10-02-mvp-own-visitor-expectation.md)
+   é candidato local validado: comando nominal tratado localmente, proposta/SIM
+   e serviço humano comum, com CHECKs SQL fechados. Oração permanece pendente;
+   flags e gates operacionais existentes permanecem. Testes sintéticos não concluem o piloto.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
    - [x] Hoje e atendimento humano v1: aprovado visualmente e publicado em
      30/09, com preservação de rascunhos, lista paginada e estados explícitos.

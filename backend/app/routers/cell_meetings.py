@@ -44,7 +44,7 @@ from app.db.models import (
     Pessoa,
 )
 from app.db.session import get_db
-from app.services.ministerial_actions import confirm_meeting_attendance
+from app.services.ministerial_actions import confirm_meeting_attendance, register_own_visitor_expectation
 from app.deps import (
     CENTRAL_ROLES,
     CurrentUser,
@@ -565,16 +565,11 @@ def register_expectativa_visitante(
             detail="Você não tem vínculo ativo na célula desta reunião",
         )
 
-    expectativa = CelulaExpectativaVisitante(
-        igreja_id=igreja_id,
-        reuniao_id=reuniao.id,
-        pessoa_id=pessoa_uuid,
+    expectativa = register_own_visitor_expectation(
+        db, current_user, reuniao_id=uuid.UUID(str(reuniao.id)),
         nome_visitante=payload.nomeVisitante,
         observacao_oracao=payload.observacaoOracao,
     )
-    db.add(expectativa)
-    db.flush()
-    db.refresh(expectativa)
     db.commit()
 
     return ExpectativaVisitanteOut.from_model(expectativa)

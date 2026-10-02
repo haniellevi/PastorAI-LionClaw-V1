@@ -33,6 +33,7 @@ from app.domain.agent_authz import MINISTERIAL_ROLES, CONSOLIDATION_TOOL_ROLES
 from app.domain.consolidation import VALID_VINCULOS
 from app.services.ministerial_actions import (
     can_mark_for_other, confirm_meeting_attendance, register_decision,
+    register_own_visitor_expectation,
 )
 from app.services.whatsapp_agenda import (
     AGENDA_TIMEZONE,
@@ -51,14 +52,14 @@ from app.services.consolidation_whatsapp import (
     consolidation_responsible_task_types,
 )
 
-ACTIONS = frozenset({'registrar_decisao', 'marcar_presenca'})
+ACTIONS = frozenset({'registrar_decisao', 'marcar_presenca', 'registrar_expectativa_visitante'})
 PROPOSAL_ACTIONS = ACTIONS | frozenset({
     'configurar_lembrete_agenda',
     'configurar_lembrete_consolidacao',
     'marcar_fonovisita_feita',
     'atribuir_consolidacao',
 })
-_PERSON_ACTIONS = ACTIONS
+_PERSON_ACTIONS = frozenset({'registrar_decisao', 'marcar_presenca'})
 _OWN_PRESENCE_REQUEST = re.compile(
     r'(?:quero confirmar|confirmar|eu confirmo) minha presenca '
     r'na (?P<next>proxima )?reuniao(?: da minha celula)?'
@@ -138,6 +139,17 @@ def action_allowed(context, code: str) -> bool:
 
 
 def validated_action_arguments(code: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+    if code == 'registrar_expectativa_visitante':
+        from app.services.agent_action_proposals import (
+            AgentAction, ProposalTarget, canonical_action_arguments,
+        )
+        if type(arguments) is not dict or set(arguments) != {'reuniao_id', 'nome_visitante'}:
+            raise ValueError('action arguments')
+        try:
+            target = ProposalTarget('reuniao', uuid.UUID(arguments['reuniao_id']))
+        except (TypeError, ValueError, AttributeError):
+            raise ValueError('target') from None
+        return canonical_action_arguments(AgentAction.REGISTRAR_EXPECTATIVA_VISITANTE, target, arguments)
     expected = {'pessoa_id', 'vinculo', 'celula_id'} if code == 'registrar_decisao' else {'pessoa_id', 'reuniao_id'}
     if code not in ACTIONS or set(arguments) != expected:
         raise ValueError('action arguments')
@@ -192,26 +204,90 @@ def _own_presence_requested(value: object) -> bool:
 
 
 def _own_presence_targets(session: Session, context, *, requested_text: object) -> tuple[CatalogTarget, ...]:
-    from app.services.whatsapp_privilege import PrivilegeContext
-
-    if type(context) is not PrivilegeContext:
-        return ()
     intent = _own_presence_intent(requested_text)
     if intent is None:
         return ()
+    selected = _own_meeting_selection(session, context, intent=intent)
+    if selected is None:
+        return ()
+    cell, meeting = selected
+    hour = f' às {meeting.hora}' if type(meeting.hora) is str and _SAFE_HOUR.fullmatch(meeting.hora) else ''
+    return (CatalogTarget('marcar_presenca', MappingProxyType({
+        'pessoa_id': str(context.pessoa_id), 'reuniao_id': str(meeting.id),
+    }), f'Confirmar minha presença em {_label(cell.nome)}, {meeting.data.isoformat()}{hour}'),)
+
+
+def own_visitor_command(value: object) -> tuple[bool, str | None]:
+    """Separate a local attempt from a valid command; never project the name."""
+    if type(value) is not str:
+        return False, None
+    text = value.strip()
+    if not re.match(r'^(?:(?:n[aã]o|quero|se puder)\s+)?indicar\b', text, re.IGNORECASE):
+        return False, None
+    match = re.fullmatch(
+        r'indicar (?P<name>.*?) como visitante na próxima reunião da minha célula',
+        text, flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        return True, None
+    from app.services.agent_action_proposals import canonical_visitor_name, ProposalContractError
+    try:
+        return True, canonical_visitor_name(match.group('name'))
+    except ProposalContractError:
+        return True, None
+
+
+def _own_visitor_targets(session: Session, context, *, requested_text: object) -> tuple[CatalogTarget, ...]:
+    _, name = own_visitor_command(requested_text)
+    if name is None:
+        return ()
+    selected = _own_meeting_selection(session, context, intent='next')
+    if selected is None:
+        return ()
+    _, meeting = selected
+    return (CatalogTarget('registrar_expectativa_visitante', MappingProxyType({
+        'reuniao_id': str(meeting.id),
+    }), 'Indicar visitante na próxima reunião da minha célula'),)
+
+
+def visitor_expectation_arguments_authorized(session: Session, *, context, target, arguments, summary) -> bool:
+    """Rebind private arguments to the anchored command and a current own slot."""
+    from app.services.whatsapp_privilege import PrivilegeContext
+    if type(context) is not PrivilegeContext or target.kind != 'reuniao':
+        return False
+    source = session.execute(select(Message.texto).where(
+        Message.igreja_id == context.igreja_id, Message.conversation_id == context.conversation_id,
+        Message.id == context.inbound_message_id, Message.direcao == 'in',
+    )).scalar_one_or_none()
+    _, name = own_visitor_command(source)
+    if name is None or arguments != {'reuniao_id': str(target.id), 'nome_visitante': name}:
+        return False
+    targets = _own_visitor_targets(session, context, requested_text=source)
+    return any(item.arguments['reuniao_id'] == str(target.id)
+               and summary == item.summary + _CONFIRMATION_SUFFIX for item in targets)
+
+
+def _own_meeting_selection(session: Session, context, *, intent: str):
+    """Shared bounded own selection; membership never comes from leadership."""
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if (type(context) is not PrivilegeContext or intent not in {'next', 'generic'}
+        or any(type(value) is not uuid.UUID or value.int == 0 for value in (
+            context.igreja_id, context.pessoa_id, context.app_user_id))):
+        return None
     memberships = session.execute(select(CelulaMembro).where(
         CelulaMembro.igreja_id == context.igreja_id,
         CelulaMembro.pessoa_id == context.pessoa_id,
         CelulaMembro.ativo.is_(True),
     ).limit(2).execution_options(populate_existing=True)).scalars().all()
     if len(memberships) != 1:
-        return ()
+        return None
     cell = session.execute(select(Celula).where(
         Celula.id == memberships[0].celula_id, Celula.igreja_id == context.igreja_id,
         Celula.ativo.is_(True),
     ).execution_options(populate_existing=True)).scalar_one_or_none()
     if cell is None:
-        return ()
+        return None
     now = cell_meetings_schedule.now_in_sao_paulo()
     meetings = session.execute(select(CelulaReuniao).where(
         CelulaReuniao.igreja_id == context.igreja_id, CelulaReuniao.celula_id == cell.id,
@@ -223,33 +299,30 @@ def _own_presence_targets(session: Session, context, *, requested_text: object) 
         data=meeting.data, hora=meeting.hora, now=now,
     )]
     if not eligible:
-        return ()
+        return None
     if intent == 'generic':
         if sentinel is not None or len(eligible) != 1:
-            return ()
+            return None
         meeting = eligible[0]
     else:
         first_date = eligible[0].data
         # Only a complete earliest date can determine "next". A sentinel on
         # that date can hide an earlier hour or a tie beyond the window.
         if sentinel is not None and sentinel.data <= first_date:
-            return ()
+            return None
         first_day = [meeting for meeting in eligible if meeting.data == first_date]
         if len(first_day) == 1:
             meeting = first_day[0]  # E4 permits an absent hour when unambiguous.
         else:
             if any(type(meeting.hora) is not str or not _SAFE_HOUR.fullmatch(meeting.hora)
                    for meeting in first_day):
-                return ()
+                return None
             earliest_hour = min(meeting.hora for meeting in first_day)
             earliest = [meeting for meeting in first_day if meeting.hora == earliest_hour]
             if len(earliest) != 1:
-                return ()
+                return None
             meeting = earliest[0]
-    hour = f' às {meeting.hora}' if type(meeting.hora) is str and _SAFE_HOUR.fullmatch(meeting.hora) else ''
-    return (CatalogTarget('marcar_presenca', MappingProxyType({
-        'pessoa_id': str(context.pessoa_id), 'reuniao_id': str(meeting.id),
-    }), f'Confirmar minha presença em {_label(cell.nome)}, {meeting.data.isoformat()}{hour}'),)
+    return cell, meeting
 
 
 def _valid_term_version(value: object) -> str | None:
@@ -1210,10 +1283,18 @@ def execute_catalog_action(session: Session, context, code: str, arguments: Mapp
     if (
         type(context) is not PrivilegeContext
         or code not in ACTIONS
-        or (code != 'marcar_presenca' and not action_allowed(context, code))
+        or (code not in {'marcar_presenca', 'registrar_expectativa_visitante'} and not action_allowed(context, code))
     ):
         raise HTTPException(403, 'Ação não autorizada')
     args = validated_action_arguments(code, arguments)
+    if code == 'registrar_expectativa_visitante':
+        if any(type(value) is not uuid.UUID or value.int == 0 for value in (
+            context.igreja_id, context.app_user_id, context.pessoa_id)):
+            raise HTTPException(403, 'Ação não autorizada')
+        row = register_own_visitor_expectation(session, _user(context),
+            reuniao_id=uuid.UUID(args['reuniao_id']), nome_visitante=args['nome_visitante'],
+            observacao_oracao=None, expected_actor_pessoa_id=context.pessoa_id)
+        return str(row.id)
     person_id = uuid.UUID(args['pessoa_id'])
     if code == 'marcar_presenca':
         if person_id != context.pessoa_id:
@@ -1310,6 +1391,7 @@ def _consolidation_catalog_groups(
 
 
 _CATALOG_DESCRIPTIONS = {
+    'registrar_expectativa_visitante': 'Indicar visitante próprio para a próxima reunião, após confirmação explícita',
     'registrar_decisao': 'Registrar decisão de fé de uma pessoa, após confirmação explícita',
     'marcar_presenca': 'Confirmar presença própria ou de terceiro autorizado em reunião de célula, após confirmação explícita',
     'consultar_vinculo': 'Consultar meu próprio vínculo cadastrado, com confirmação no painel',
@@ -1397,6 +1479,11 @@ def build_catalog(session: Session, context):
         Message.igreja_id == tenant, Message.conversation_id == context.conversation_id,
         Message.id == context.inbound_message_id, Message.direcao == 'in',
     )).scalar_one_or_none() or ''
+    visitor_attempt, _ = own_visitor_command(requested_text)
+    if visitor_attempt:
+        return _catalog_from_groups({'registrar_expectativa_visitante': list(
+            _own_visitor_targets(session, context, requested_text=requested_text),
+        )})
     own_request = _own_presence_requested(requested_text)
     if own_request:
         grouped['marcar_presenca'] = list(_own_presence_targets(

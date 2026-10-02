@@ -1,0 +1,79 @@
+{
+  "mission": "M-2026-10-02-mvp-visitor-expectation",
+  "utc": "2026-10-02T18:44:47.460661+00:00",
+  "base_sha": "21604b01350eab1a72c6d5a4c643ce79d6aea417",
+  "source_base_sha": "791568fea01cbd1c8bd674f580e19dfeaa648c28",
+  "branch": "feat/mvp-own-visitor-release-20261002",
+  "code_patch_sha256": "bbbc61b7fa86cac0456f681f22afa123359bf351cbe7d1b8707002b86009d55b",
+  "results": {
+    "agent": {
+      "passed": 335,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0
+    },
+    "human": {
+      "passed": 105,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0
+    },
+    "PG": {
+      "passed": 68,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0
+    }
+  },
+  "total_passed": 508,
+  "source_pins_before_after_equal": true,
+  "migration": {
+    "path": "backend/migrations/20261002_173000_visitor_expectation_whatsapp.sql",
+    "sha256": "2c3d0c36e059418e1078e26da9eae1bce8f406cd812625b9e42c4ddd1b837f5a",
+    "authoring_authorization": "Raniel option1 explicit local visitor slice simpleMVP only",
+    "checks_changed_only": 2,
+    "actual_SQL_exercised_in_public_bare_table_on_disposable_PG": true,
+    "up_up_down_up_and_used_down_preserves_data": "PASS",
+    "two_physical_pids_real_table_lock_SQLSTATE55P03": "PASS",
+    "shared_application": false
+  },
+  "workflow": {
+    "synthetic_signed_ASGI_queue_real_worker_SIM_and_own_service": "PASS",
+    "two_SIM_real_PIDs_ledger_one_effect_one_receipt": "PASS",
+    "before_commit_failure_rollback_then_same_SIM_recovery": "PASS",
+    "tenant_404_actor_403_proposal_tamper_failclosed": "PASS",
+    "name_absent_from_captured_fake_LLM_prompts_outbound_receipts_usage_logs": "PASS observed paths only",
+    "two_human_direct_endpoints_multiple_names_optional_note": "PASS, not actual HTTP201/auth"
+  },
+  "limits": [
+    "Local synthetic only; no RLS policies in msg_idemp1 fixture, backendpredicates only",
+    "ASGI/queue/provider/identity seams synthetic; no WhatsApp external network/live delivery",
+    "Source preflight unchanged; disabled/legacy paths not a global egress proof",
+    "Beforecommit rollback does not prove ambiguous networkCOMMIT handling",
+    "No shared DB/deploy/flagactivation/billing/PROD; no new merge authorization"
+  ],
+  "operational_gates_opened": false,
+  "status": "local validated candidate; integration pending",
+  "files": {
+    "app/db/models.py": "sha256:3ee1113941543ed2ecb30239b51a9084cba604fa970541f652c79925f5fdc93d",
+    "tests/test_visitor_expectation_whatsapp.py": "sha256:319bb8905c9af1d82d51b9f368510507024b39f2262abe60d94f74aef5232e10",
+    "tests/test_visitor_expectation_whatsapp_pg.py": "sha256:016d771cab40dc5980769a120f5eedeb9af8e718bcd624cf1590963353c89ca7",
+    "migrations/20261002_173000_visitor_expectation_whatsapp.sql": "sha256:2c3d0c36e059418e1078e26da9eae1bce8f406cd812625b9e42c4ddd1b837f5a"
+  },
+  "independent_delivery_review": {
+    "agent": "LENTE",
+    "model": "GPT-5.6-Terra",
+    "effort": "max",
+    "decision": "GO local candidate/open PR only",
+    "report": "2026-10-02-mvp-own-visitor-expectation-review.md",
+    "report_sha256": "4512d9d22578551e9933e8b060abd8bb9a1b51a1cec2a6e85261adab7bd16485"
+  },
+  "CI_sentinel_fix": {
+    "file": "deploy/tests/test_backend_schema_pg17.py",
+    "sha256": "84d2aac79f666afd5200e0cf968f42c7b24595c137e6b8e8c0edf72e5ec6fd8d",
+    "reason": "migration inventory81 to82 plus explicitnewfilename sentinel",
+    "product_backend_bytes_unchanged": true,
+    "integral_preflight_validation": "pending exactnewhead CI",
+    "first_failure_job": 110980858296
+  }
+}

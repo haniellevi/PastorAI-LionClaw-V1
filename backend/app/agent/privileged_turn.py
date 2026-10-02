@@ -227,6 +227,18 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
                 context=context,
                 summary_message=message,
             )
+        if proposal.action == 'registrar_expectativa_visitante':
+            from app.services.agent_action_proposals import (
+                AgentAction, ProposalTarget, canonical_action_arguments,
+            )
+            from app.services.agent_privilege_catalog import visitor_expectation_arguments_authorized
+            target = ProposalTarget(proposal.target_kind, proposal.target_id)
+            arguments = canonical_action_arguments(
+                AgentAction.REGISTRAR_EXPECTATIVA_VISITANTE, target, proposal.arguments_json,
+            )
+            return visitor_expectation_arguments_authorized(
+                session, context=context, target=target, arguments=arguments, summary=message.texto,
+            )
         _, targets = build_catalog(session, context)
         return any(target.code == proposal.action
             and dict(target.arguments) == proposal.arguments_json
@@ -467,6 +479,50 @@ def _execute(session, execution):
             raise
         raise ProposalExecutionDenied('domain_conflict') from None
     return ActionEffect(receipt_text='Registro confirmado.', opaque_effect_id=uuid.UUID(effect_id))
+
+
+def _local_visitor_expectation(session, context, current_text, message):
+    """Stage a deterministic private command after the existing auth boundary."""
+    from sqlalchemy import select
+    from app.db.models import Message
+    from app.services.whatsapp_privilege import PrivilegeContext
+    from app.services.agent_privilege_catalog import build_catalog, own_visitor_command
+    from app.services.agent_action_proposals import (
+        AgentAction, ProposalContractError, ProposalTarget, prepare_action_proposal,
+    )
+    attempt, name = own_visitor_command(current_text)
+    if not attempt:
+        return False
+    response = 'Não foi possível preparar a indicação. Confira o nome e a próxima reunião da sua célula.'
+    if type(context) is PrivilegeContext and name is not None:
+        # The snapshot may be bounded. A truncated or changed persisted source
+        # cannot be promoted into a different valid nominal command.
+        source = session.execute(select(Message.texto).where(
+            Message.igreja_id == context.igreja_id, Message.conversation_id == context.conversation_id,
+            Message.id == context.inbound_message_id, Message.direcao == 'in',
+        )).scalar_one_or_none()
+        if type(source) is str and source.strip() == current_text:
+            _, mapping = build_catalog(session, context)
+            targets = [item for item in mapping.values() if item.code == 'registrar_expectativa_visitante']
+            if len(targets) == 1:
+                selected = targets[0]
+                summary = _action_summary(selected.summary)
+                try:
+                    target = ProposalTarget('reuniao', uuid.UUID(selected.arguments['reuniao_id']))
+                    message.texto = summary
+                    proposal = prepare_action_proposal(
+                        session, context=context, inbound_message_id=context.inbound_message_id,
+                        action=AgentAction.REGISTRAR_EXPECTATIVA_VISITANTE, target=target,
+                        arguments={'reuniao_id': str(target.id), 'nome_visitante': name},
+                        summary=summary, summary_message_id=message.id,
+                    )
+                except (ProposalContractError, KeyError, TypeError, ValueError):
+                    pass
+                else:
+                    _store_response(message, context, summary, kind='summary', proposal_id=proposal.proposal_id)
+                    return True
+    _store_response(message, context, response, kind='clarify')
+    return True
 
 
 def _local_confirmation(session, context, outcome, message):
@@ -859,6 +915,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
         build_catalog,
         build_consolidation_catalog,
         consolidation_routing_projection,
+        own_visitor_command,
     )
     from app.services.agent_privilege_routing import route_privileged_message
     from app.services.crypto import decrypt_secret
@@ -898,13 +955,16 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             decision_payload={'erro': reason}, usage=routing_usage or None, ownership_guard=ownership_guard)
 
     v3_projection = None
+    visitor_attempt, _ = own_visitor_command(preflight.current_text)
     with _session(runtime_session_factory, outcome) as session:
         context = resolve_whatsapp_privilege_context(session, igreja_id=igreja_id,
             conversation_id=outcome.conversation_id, inbound_message_id=outcome.inbound_message_id)
-        if type(context) is PrivilegeContext:
+        if type(context) is PrivilegeContext and not visitor_attempt:
             v3_projection = consolidation_routing_projection(session, context)
     v3_recognized = v3_projection is not None
     if type(context) is PublicWhatsappContext:
+        if visitor_attempt:
+            return qw.AgentRunDisposition.COMPLETED
         return None
     if type(context) is not PrivilegeContext:
         return handoff('privilege_identity')
@@ -927,6 +987,8 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             local = _local_audio_consent(session, current, local_outcome, message)
             if not local:
                 local = _local_confirmation(session, current, local_outcome, message)
+            if not local:
+                local = _local_visitor_expectation(session, current, preflight.current_text, message)
         if not invalid:
             session.commit()
     if invalid:
@@ -1272,6 +1334,10 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
 
 
 def _apply_selection(session, context, selected, message, *, current_text, conversation) -> bool:
+    # This capability is local-only. A model handle can never supply a name
+    # or invoke its staging path, even if it somehow selects this option.
+    if selected.code == 'registrar_expectativa_visitante':
+        return False
     from app.services.agent_action_proposals import (
         AgentAction, ProposalTarget, prepare_action_proposal,
     )

@@ -51,6 +51,16 @@ Callers humanos históricos e permissões de terceiros permanecem.
 [Implementação, testes e limites](sprints/2026-10-02-mvp-own-presence.md).
 A fatia não conclui visitante/oração, o piloto real ou a V4 inteira.
 
+## Expectativa própria de visitante no WhatsApp, candidato de 02/10/2026
+
+Comando nominal explícito é tratado localmente, com contexto do servidor,
+próxima reunião inequívoca, resumo entregue e SIM. O serviço humano comum
+revalida titular/vínculo/célula/horário antes da escrita e preserva os contratos
+humanos. O nome fica na proposta privada e na expectativa que o painel já lê;
+resumo e recibo são genéricos. Dois CHECKs mantêm o contrato SQL fechado.
+[Implementação, evidências e limites](sprints/2026-10-02-mvp-own-visitor-expectation.md).
+Candidato local validado; oração, ativação e piloto real continuam pendentes.
+
 ## S3 revisada: candidato WhatsApp-first, histórico de 27/09/2026
 
 O [plano aprovado](ops/mvp-s3-whatsapp-first-plano.md) define identidade operacional

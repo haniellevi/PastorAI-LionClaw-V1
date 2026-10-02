@@ -44,6 +44,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, resolve_actor_pessoa_id
 from app.domain.cell_meetings_schedule import meeting_has_passed
+from app.services.ministerial_actions import register_own_visitor_expectation
 
 # Reuso dos helpers/constantes de cell_meetings.py (PR2) — não reimplementar.
 from app.routers.cell_meetings import (
@@ -547,16 +548,11 @@ def indicate_my_visitor(
             detail="Você não tem vínculo ativo na célula desta reunião",
         )
 
-    expectativa = CelulaExpectativaVisitante(
-        igreja_id=igreja_id,
-        reuniao_id=reuniao.id,
-        pessoa_id=pessoa_id,
+    expectativa = register_own_visitor_expectation(
+        db, current_user, reuniao_id=uuid.UUID(str(reuniao.id)),
         nome_visitante=payload.nomeVisitante,
         observacao_oracao=payload.observacaoOracao,
     )
-    db.add(expectativa)
-    db.flush()
-    db.refresh(expectativa)
     db.commit()
 
     return VisitorExpectationOut(
