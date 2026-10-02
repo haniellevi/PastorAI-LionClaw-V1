@@ -279,7 +279,7 @@ export function ConsentGovernanceDraftTab({
   };
 
   return (
-    <section aria-labelledby="consent-governance-title">
+    <section className="governance-drafts" aria-labelledby="consent-governance-title">
       <div
         data-testid="draft-only-banner"
         role="status"
@@ -344,12 +344,7 @@ export function ConsentGovernanceDraftTab({
         <>
           <div
             aria-label="Finalidades em preparação"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
-              gap: "var(--s3)",
-              marginBottom: "var(--s4)",
-            }}
+            className="governance-purposes"
           >
             {CONSENT_GOVERNANCE_PURPOSES.map((purpose) => {
               const draft = findPurpose(state, purpose);
@@ -357,7 +352,7 @@ export function ConsentGovernanceDraftTab({
                 <article
                   key={purpose}
                   data-testid="governance-purpose-card"
-                  className="card card-pad"
+                  className="governance-purpose"
                   aria-labelledby={`purpose-${purpose}`}
                 >
                   <h3 id={`purpose-${purpose}`} style={{ margin: 0, fontSize: "1rem" }}>

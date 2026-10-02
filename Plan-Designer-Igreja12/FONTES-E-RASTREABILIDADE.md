@@ -1,6 +1,12 @@
 # Fontes e rastreabilidade
 
-## Atualização do designer, 30/09/2026
+## Atualização global do designer, 01/10/2026
+
+Raniel aprovou a composição, copy e movimento v3 e autorizou sua aplicação global e publicação frontend. A proposta pré-implementação tem SHA256 `be616f40fa6263f34109d8b4ead4e41872576a272c9a67ca71384e9b91501b19` e foi incorporada ao [contrato aprovado](../docs/design/UX-EXPRESSIVA-V3-APROVADA.md).
+
+Worktree: `/home/raniel-linux/.codex/worktrees/ux-global-v2-final/PastorAi-1.0`, branch `codex/ux-global-v2-final`, base main `342b255e309f49b03177d31259d92bb87cc3c1f9`. [DESIGN.md](../DESIGN.md), [cobertura](../docs/ai/PRD-COVERAGE.md), [Wiki](../docs/WIKI-IGREJA12.md) e [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md) distinguem implementação, QA sintético e prova do deployment. Estado de produção depende do recibo do SHA implantado, sem presumir funcionamento de provedores ou dados privados.
+
+## Atualização histórica do designer, 30/09/2026
 
 - Aprovação de Raniel: "ficou excelente, pode atualizar o designer do projeto", após a prévia de Hoje e Conversas v2.
 - Fonte de implementação: `66a56cc0b601bf14f8e3036e9cede11f54b32087`, branch `codex/ux-contraste-fluxo-v2`, worktree `/tmp/igreja12-ux-contraste-v2-20260930`.

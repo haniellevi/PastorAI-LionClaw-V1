@@ -15,7 +15,7 @@
  * Segue o mesmo padrão da tela legada #celulas (CelulasScreen), sem o painel de
  * detalhe/membros/alertas dela — fora de escopo aqui.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
@@ -57,14 +57,24 @@ export function ManageCellsPanel({
   token,
   onToast,
   onChanged,
+  revealHealth = false,
 }: {
   token: string;
   onToast: (t: CentralToast) => void;
   onChanged: () => void;
+  revealHealth?: boolean;
 }) {
   const { user, expireSession } = useAuth();
+  const healthDisclosure = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    if (!revealHealth || !healthDisclosure.current) return;
+    healthDisclosure.current.open = true;
+    healthDisclosure.current.querySelector("summary")?.focus();
+  }, [revealHealth]);
 
   const [cells, setCells] = useState<CellSummary[]>([]);
+  const [query, setQuery] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -276,6 +286,7 @@ export function ManageCellsPanel({
   );
 
   const showEmpty = loaded && !loadError && cells.length === 0;
+  const visibleCells = cells.filter((cell) => cell.nome.toLocaleLowerCase("pt-BR").includes(query.trim().toLocaleLowerCase("pt-BR")));
 
   return (
     <div className="central-stack">
@@ -327,8 +338,13 @@ export function ManageCellsPanel({
             <Icon name="central-celula" /> Selecionar célula existente
             {cells.length ? <span className="count">· {cells.length}</span> : null}
           </div>
+          <div className="ops-search" style={{ padding: "var(--s4)", marginBottom: 0 }}>
+            <label htmlFor="central-cell-search">Buscar célula</label>
+            <input type="search" id="central-cell-search" value={query} onChange={(event) => setQuery(event.target.value)} />
+          </div>
           <div>
-            {cells.map((c) => {
+            {visibleCells.length === 0 ? <div className="section-body"><p>Nenhuma célula corresponde à busca.</p><DsButton variant="secondary" onClick={() => setQuery("")}>Limpar busca</DsButton></div> : null}
+            {visibleCells.map((c) => {
               const selected = c.id === selectedId;
               return (
                 <button
@@ -352,6 +368,7 @@ export function ManageCellsPanel({
 
           {selectedCell ? (
             <>
+              <p className="ops-selected-context" role="status">Célula selecionada: <strong>{selectedCell.nome}</strong>. As ações abaixo se aplicam a ela.</p>
               <div className="cell-detail-actions" style={{ padding: "var(--s3) var(--s4)", marginBottom: 0 }}>
                 <DsButton variant="secondary" onClick={() => openEdit(selectedCell)} block>
                   <Icon name="document" />
@@ -423,7 +440,7 @@ export function ManageCellsPanel({
                           <div className="nm">{membroNome(m.pessoaId)}</div>
                         </div>
                         <StatusPill tone="ok">Ativo</StatusPill>
-                        <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+                        <div className="ops-secondary-actions">
                           <DsButton
                             variant="secondary"
                             size="md"
@@ -439,7 +456,7 @@ export function ManageCellsPanel({
                             <Icon name="transfer" />
                             <span>Transferir</span>
                           </DsButton>
-                          <DsButton
+                          <details><summary aria-label={`Mais ações para ${membroNome(m.pessoaId)}`}>Mais ações</summary><DsButton
                             variant="danger"
                             size="md"
                             onClick={() =>
@@ -453,7 +470,7 @@ export function ManageCellsPanel({
                           >
                             <Icon name="close" />
                             <span>Remover</span>
-                          </DsButton>
+                          </DsButton></details>
                         </div>
                       </div>
                     ))}
@@ -465,9 +482,11 @@ export function ManageCellsPanel({
         </section>
       ) : null}
 
-      <CellHealthList token={token} />
+      <details className="ops-disclosure" ref={healthDisclosure}>
+        <summary>Saúde e multiplicações</summary>
+        <div className="ops-disclosure-body ops-support"><CellHealthList token={token} /><MultiplicationsList token={token} /></div>
+      </details>
       <PendingReportsList token={token} />
-      <MultiplicationsList token={token} />
 
       {showForm ? (
         <CellFormModal

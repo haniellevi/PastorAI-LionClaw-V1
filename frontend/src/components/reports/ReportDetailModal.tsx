@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Detalhe de um relatório de reunião de célula (api-reports). Modal somente
  * leitura aberto pela ação "Ver" em #relatorios.
@@ -31,8 +33,8 @@ export function ReportDetailModal({
 
   // Somente-leitura: fechar sem restrição (Esc/backdrop/botão do DsDialog).
   return (
-    <DsDialog open onClose={onClose} title={`Relatório — ${report.celulaNome ?? "Célula"}`}>
-      <div className="modal-form">
+    <DsDialog className="ops-dialog" open onClose={onClose} title={`Relatório — ${report.celulaNome ?? "Célula"}`}>
+      <div className="modal-form ops-dialog">
         <div className="detail-head">
           <div>
             <h3>{report.celulaNome ?? "Célula"}</h3>

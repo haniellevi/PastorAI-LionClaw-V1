@@ -466,14 +466,14 @@ sem declarar as próximas verticais implementadas.
      [Registro e limites](../sprints/2026-09-30-ux-hoje-atendimento-v1.md).
      PR #445, merge `363ecb5`, frontend Vercel READY e domínios públicos HTTP 200.
      Atendimento autenticado e provedor real não exercitados na publicação.
-   - [ ] Contraste e clareza v2: implementação local de tokens, Hoje e Conversas
-     após aprovação em 30/09. Ações secundárias sob demanda e rótulos visíveis.
-     [Recorte, aceite e evidências](../sprints/2026-09-30-ux-contraste-fluxo-v2.md).
-     A evolução global de 42 telas segue em fatias; este recorte não conclui a trilha.
-   - [ ] Acesso v2 (F02): candidato local de login da igreja, recuperação,
-     redefinição, convite e entrada do console, autorizado em 30/09.
-     [Recorte, testes e limites](../sprints/2026-09-30-ux-acesso-v2.md).
-     Checkbox permanece aberto até a entrega; demais superfícies seguem em fatias.
+   - [x] Implementação da UX global v2/v3: aplicação da direção expressiva aprovada
+     em 01/10 às 42 unidades de acesso, operação, gestão, console e estados.
+     Contraste, hierarquia, conteúdo sob demanda e movimento pertencem à trilha
+     visual; APIs, tenant e capacidades existentes permanecem.
+     [Execução, QA e recibo v3](../sprints/2026-10-01-ux-expressiva-v3.md).
+     Implementação validada localmente; publicação exige o recibo do SHA exato
+     vinculado à PR. Não representa conclusão das verticais WhatsApp-first ou
+     ativação de provedores.
    - [x] AUD-02: candidato source-only do escopo de microfone por geração,
      conversa e contexto obrigatório, com falha fechada quando o contexto falta.
      Mudança de conversa ou de escopo autenticado descarta áudio e anexo;

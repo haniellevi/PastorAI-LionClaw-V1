@@ -1,6 +1,6 @@
 # Planejamento Mestre PastorAI / Igreja 12
 
-**Referência visual atual, 30/09/2026:** o refinamento de contraste e clareza aprovado está em [DESIGN.md](../DESIGN.md), com aplicação comprovada no candidato de [Hoje e Conversas v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md). A [referência do programa](README.md) distingue esse recorte do histórico de agosto e das demais telas ainda planejadas. Este plano continua expressando metas; sua atualização não declara o produto amplo concluído nem um novo estado de produção.
+**Referência visual atual, 01/10/2026:** a direção expressiva v3 aprovada está em [DESIGN.md](../DESIGN.md), aplicada às 42 unidades existentes e registrada na [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md). A [referência do programa](README.md) separa o refinamento implementado das intenções históricas de agosto. Este plano continua expressando metas de domínio; a entrega visual não declara o produto amplo concluído nem abre gates operacionais.
 
 ## 1. Resultado esperado
 
@@ -439,7 +439,7 @@ Detalhes em [08-ROADMAP-PRIORIZADO.md](08-ROADMAP-PRIORIZADO.md).
 
 ## 19. Estado da entrega original, agosto de 2026
 
-Este bloco preserva o resultado da missão de planejamento inicial. O estado corrente do refinamento visual está na [referência do programa](README.md) e no [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md).
+Este bloco preserva o resultado da missão de planejamento inicial. O estado corrente do refinamento visual está na [referência do programa](README.md) e no [registro v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md).
 
 - planejamento integrado: concluído;
 - pasta e acervo: concluídos;

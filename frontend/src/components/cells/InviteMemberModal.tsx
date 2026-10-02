@@ -1,5 +1,7 @@
 "use client";
 
+import "./operations-ux-v2.css";
+
 import { useMemo, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
@@ -84,7 +86,7 @@ export function AddCellMemberModal({
   }
 
   return (
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!sending) onClose();
@@ -92,7 +94,7 @@ export function AddCellMemberModal({
       title={`Adicionar à célula · ${celulaNome}`}
     >
       {success ? (
-        <div className="modal-form">
+        <div className="modal-form ops-dialog">
           <DsBanner kind="info">{success}</DsBanner>
           <p className="sub" style={{ color: "var(--muted)" }}>
             Se esta pessoa também precisar entrar no sistema, conceda o acesso
@@ -106,7 +108,7 @@ export function AddCellMemberModal({
         </div>
       ) : (
         <form
-          className="modal-form"
+          className="modal-form ops-dialog"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();

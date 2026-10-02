@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * US — Solicitação de MULTIPLICAÇÃO (líder → Central). A multiplicação nasce como
  * Solicitação (`POST /cell-requests` tipo `multiplicacao`, RF-14): não multiplica
@@ -135,7 +137,7 @@ export function MultiplicationRequestModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -149,7 +151,7 @@ export function MultiplicationRequestModal({
       {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
-          className="modal-form"
+          className="modal-form ops-dialog"
           onSubmit={(e) => {
             e.preventDefault();
             void submit();

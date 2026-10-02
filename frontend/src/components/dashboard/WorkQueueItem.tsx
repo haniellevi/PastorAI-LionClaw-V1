@@ -36,6 +36,8 @@ const DEFAULT_VISUAL = { icon: "alert" as IconKey, cls: "h" as const };
 
 export interface WorkQueueItemProps {
   item: WorkItem;
+  /** Ênfase preenchida reservada à primeira tarefa visível. */
+  priority?: boolean;
   now: number;
   /** Nome do responsável atual, resolvido pela equipe (ou null). */
   responsibleName: string | null;
@@ -58,6 +60,7 @@ export interface WorkQueueItemProps {
 
 export function WorkQueueItem({
   item,
+  priority = true,
   now,
   responsibleName,
   canLinkCell,
@@ -115,6 +118,7 @@ export function WorkQueueItem({
       <div className="dh-item-actions">
         {showLinkCellAction ? (
           <DsButton
+            variant={priority ? "primary" : "secondary"}
             disabled={busy}
             aria-busy={busy || undefined}
             aria-label={`Conectar à célula: ${item.titulo}`}
@@ -127,6 +131,7 @@ export function WorkQueueItem({
 
         {isFonovisita ? (
           <DsButton
+            variant={priority ? "primary" : "secondary"}
             disabled={busy}
             aria-busy={busy || undefined}
             aria-label={`Registrar fonovisita: ${item.titulo}`}
@@ -139,6 +144,7 @@ export function WorkQueueItem({
 
         {assumeIsPrimary ? (
           <DsButton
+            variant={priority ? "primary" : "secondary"}
             disabled={busy || assumido}
             aria-busy={busy || undefined}
             aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
@@ -150,7 +156,11 @@ export function WorkQueueItem({
 
         {!assumeIsPrimary || canAssignQueue || item.canMessage ? (
           <details className="action-disclosure dh-item-more">
-            <summary>Mais ações<span className="sr-only">: {item.titulo}</span></summary>
+            <summary>{[
+              !assumeIsPrimary ? "Assumir" : "",
+              canAssignQueue ? "Atribuir" : "",
+              item.canMessage ? "Enviar mensagem" : "",
+            ].filter(Boolean).join(" ou ")}<span className="sr-only">: {item.titulo}</span></summary>
             <div className="action-disclosure-body">
               {!assumeIsPrimary ? (
                 <DsButton

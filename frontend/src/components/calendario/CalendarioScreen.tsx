@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Tela #calendario — Agenda da igreja (EVT-3). Lê eventos reais de GET /events e
  * oferece três visões: Semana, Mês e Ano.
@@ -296,7 +298,8 @@ export function CalendarioScreen() {
     [view, year, dated, today],
   );
 
-  // VIS-2 mobile: célula do dia selecionado na grade mensal ≤640px. O último
+  // VIS-2 mensal compacto: dia selecionado quando a largura útil é pequena.
+  // O CSS usa container query de 860px, com fallback de viewport até 640px. O último
   // dia tocado vale enquanto pertencer ao mês exibido; fora dele (navegou de
   // mês) cai para hoje, e por fim para o dia 1. Derivação pura, sem efeito.
   const selectedDayCell = useMemo(() => {
@@ -501,11 +504,11 @@ export function CalendarioScreen() {
   const periodLabel = calendarView ? viewLabel(cursor, calendarView) : "A confirmar";
 
   return (
-    <div className="screen agenda" key="calendario">
+    <div className="screen agenda ops-v2" key="calendario">
       <div className="screen-head">
         <div className="titles">
-          <h2>{periodLabel}</h2>
-          <p>Eventos da igreja, recorrências e confirmações.</p>
+          <h2 aria-live="polite" aria-atomic="true">{periodLabel}</h2>
+          <p>Selecione um evento para ver os detalhes. Itens em A confirmar precisam de revisão.</p>
         </div>
         <div className="actions">
           {isCalendar ? (
@@ -612,7 +615,7 @@ export function CalendarioScreen() {
                   </div>
                 </div>
 
-                {/* VIS-2-MOBILE-CALENDAR-ARCH-1: variante mensal MOBILE (≤640px).
+                {/* VIS-2-MOBILE-CALENDAR-ARCH-1: variante mensal compacta.
                     Decisão de produto: em coluna de ~40px não cabe hora+título —
                     a grade vira visão geral + seletor de dia (botões reais com
                     aria-pressed e badge de contagem), e os detalhes completos
@@ -620,7 +623,8 @@ export function CalendarioScreen() {
                     só seleciona; a criação para admin/pastor é o botão explícito
                     "Novo evento neste dia" (no desktop o clique na célula segue
                     criando, acima). Qual das duas grades aparece é decisão do
-                    CSS: .cal-m só existe ≤640px; .cal some nessa faixa. */}
+                    CSS: .cal-m aparece com largura útil ≤860px via container
+                    query, com fallback de viewport ≤640px; .cal some nessa faixa. */}
                 <div className="cal-m">
                   <div className="cal-m-cal">
                     <div className="cal-head">

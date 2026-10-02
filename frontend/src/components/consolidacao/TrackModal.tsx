@@ -31,6 +31,8 @@ import type { SessionConsolidation } from "@/lib/consolidacao-store";
 import { initials } from "@/lib/g12-api";
 import { Icon } from "@/lib/icons";
 
+import "../contacts/people-ux-v2.css";
+
 export interface TrackModalProps {
   contact: Contact;
   /** Vínculo de sessão (consolidacaoId/responsável/etapas) — pode faltar. */
@@ -80,25 +82,26 @@ export function TrackModal({
   const firstPending = next; // próxima etapa obrigatória "now"
 
   const note = concluida
-    ? "Consolidação concluída — a pessoa entra no critério para a Universidade da Vida."
+    ? "Consolidação concluída no registro. A gestão de turmas da Universidade da Vida ainda está indisponível."
     : !consolidacaoId
       ? "A confirmação de etapas exige uma consolidação lançada ou atribuída nesta sessão. Lance ou atribua a decisão desta pessoa para habilitar."
       : !isResponsavel
-        ? "Apenas o consolidador responsável pode confirmar etapas (gate de identidade)."
+        ? "Apenas o consolidador responsável pode confirmar as etapas desta pessoa."
         : allDone
-          ? "Todas as etapas obrigatórias estão confirmadas — conclua a consolidação."
+          ? "Todas as etapas obrigatórias estão confirmadas. Concluir registra esta pessoa como consolidada individual."
           : "Concluir é liberado apenas com todas as etapas obrigatórias confirmadas.";
 
   return (
     // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
     // primitive); fechar bloqueado enquanto uma ação está em andamento.
     <DsDialog
+      className="people-ux-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
       }}
       title="Trilha de consolidação"
-      description="Processo individual — da decisão à conclusão"
+      description="Confira os registros da pessoa antes de confirmar a próxima etapa."
     >
       <>
         {error ? (
@@ -144,9 +147,10 @@ export function TrackModal({
                     {step.label}
                     {step.optional ? <span className="seg-chip">opcional</span> : null}
                   </div>
-                  <div className="sub" style={{ color: "var(--muted)" }}>
-                    {step.desc}
+                  <div className="people-stage-status">
+                    {isDone ? "Registrada" : isNow ? "Próxima etapa" : "Não registrada"}
                   </div>
+                  <div className="sub">{step.desc}</div>
                 </div>
               </div>
             );
@@ -157,6 +161,10 @@ export function TrackModal({
           <Icon name="lock" />
           {note}
         </p>
+
+        {canAct && next ? (
+          <p className="people-next-label">Confirmar registra {etapaLabel(next)} para {contact.nome}.</p>
+        ) : null}
 
         <div className="modal-foot">
           <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>

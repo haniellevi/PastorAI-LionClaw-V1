@@ -135,22 +135,10 @@ describe("Agenda e Conversas — composição operacional", () => {
 });
 
 describe("Pessoas, células e Jornada — foco antes de densidade", () => {
-  const ganhar = readFileSync(join(__dirname, "../components/contacts/GanharScreen.tsx"), "utf8");
-  const contatos = readFileSync(join(__dirname, "../components/contacts/ContatosScreen.tsx"), "utf8");
-  const celulas = readFileSync(join(__dirname, "../components/cells/CelulasScreen.tsx"), "utf8");
-  const g12 = readFileSync(join(__dirname, "../components/g12/G12Screen.tsx"), "utf8");
   const central = readFileSync(
     join(__dirname, "../components/central-celula/CentralCelulaScreen.tsx"),
     "utf8",
   );
-
-  it("explica a finalidade de cada área antes das listas e dos números", () => {
-    expect(ganhar).toContain("Organize novos contatos e visitantes antes do próximo passo da jornada.");
-    expect(contatos).toContain("Encontre, atualize e acompanhe cada pessoa com clareza.");
-    expect(celulas).toContain("Veja saúde, liderança e vínculos de cada célula.");
-    expect(g12).toContain("Navegue pela descendência e pelos indicadores da liderança.");
-    expect(central).toContain("Veja quem precisa de atenção hoje e decida o próximo passo de cada célula.");
-  });
 
   it("mantém a Central como workspace único e usa superfícies sem elevação", () => {
     expect(central).toContain('className="cc-workspace"');
@@ -174,22 +162,6 @@ describe("Pessoas, células e Jornada — foco antes de densidade", () => {
 });
 
 describe("Administração e operação — contexto antes de configuração", () => {
-  const setup = readFileSync(join(__dirname, "../components/config/SetupChecklistScreen.tsx"), "utf8");
-  const equipe = readFileSync(join(__dirname, "../components/config/EquipeScreen.tsx"), "utf8");
-  const permissoes = readFileSync(join(__dirname, "../components/config/PermissoesScreen.tsx"), "utf8");
-  const agente = readFileSync(join(__dirname, "../components/config/AgenteScreen.tsx"), "utf8");
-  const whatsapp = readFileSync(join(__dirname, "../components/whatsapp/WhatsappScreen.tsx"), "utf8");
-  const comunicados = readFileSync(join(__dirname, "../components/comunicados/ComunicadosScreen.tsx"), "utf8");
-
-  it("explica cada decisão administrativa antes dos controles", () => {
-    expect(setup).toContain("Conclua o que libera a operação da sua igreja com segurança.");
-    expect(equipe).toContain("Convide pessoas e mantenha os papéis necessários para o cuidado da igreja.");
-    expect(permissoes).toContain("Defina o que cada responsabilidade pode acessar no painel.");
-    expect(agente).toContain("Revise comportamento, credencial e rotinas do agente com contexto.");
-    expect(whatsapp).toContain("Conecte e acompanhe o canal usado no cuidado e na comunicação da igreja.");
-    expect(comunicados).toContain("Prepare o comunicado, revise o alcance e envie no momento certo.");
-  });
-
   it("mantém matrizes, cards e etapas administrativas em superfícies calmas", () => {
     expect(bodyFor(".admin-screen .card", "background: var(--surface-raised)")).toContain(
       "box-shadow: none",
@@ -222,7 +194,7 @@ describe("Estados de borda — informação antes de frustração", () => {
   const screenView = readFileSync(join(__dirname, "../components/shell/ScreenView.tsx"), "utf8");
 
   it("usa a mesma superfície calma para bloqueio, acesso restrito e áreas futuras", () => {
-    expect(locked).toContain('className="screen journey-screen locked-screen"');
+    expect(locked).toMatch(/className="screen journey-screen locked-screen(?: [^"]+)?"/);
     expect(denied).toContain('className="screen journey-screen access-screen"');
     expect(central).toContain('className="screen cc access-screen"');
     expect(screenView).toContain('className="screen scaffold-screen"');
@@ -260,31 +232,8 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
     );
   });
 
-  it("preserva Quiet Operations sem elevação ou eyebrows repetidos", () => {
-    for (const selector of [".dh-hero", ".dh-workboard", ".dh-panel"]) {
-      expect(bodyFor(selector, "background: var(--surface-raised)")).not.toContain(
-        "box-shadow",
-      );
-    }
-    expect(globals).not.toContain("--dh-panel-shadow");
-    expect(globals).not.toContain(".dh-panel-kicker");
-    expect(dashboard).not.toContain("dh-panel-kicker");
-  });
-
-  it("usa a marca canônica e a escala tipográfica de produto", () => {
-    expect(dashboard).toContain('import { DiamondMark } from "@/components/brand/DiamondMark"');
-    expect(dashboard).toContain('<DiamondMark className="dh-hero-mark" size={42} title="" />');
-    expect(dashboard).not.toContain("dh-hero-facet");
-    expect(bodyFor(".dh-title", "font: var(--type-h1)")).toContain(
-      "font: var(--type-h1)",
-    );
-    expect(bodyFor(".dh-queue-title", "font: 650 18px")).toContain(
-      "font: 650 18px/1.3 var(--font-display)",
-    );
-    expect(bodyFor(".dh-item-title", "font: 700 14px")).toContain(
-      "font: 700 14px/1.4 var(--font)",
-    );
-  });
+  // Composição/tipografia v3 são medidas no navegador (ux-clarity/ux-motion).
+  // Regras antigas do globals não demonstram a cascata final.
 
   it("reorganiza o farol e as ações antes de comprimir a fila no tablet", () => {
     const dashboardResponsiveStart = globals.indexOf(".dh-team-workload .dh-person-row");

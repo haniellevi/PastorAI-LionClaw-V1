@@ -2,15 +2,15 @@
 
 **Register:** product
 
-**Status:** direção aprovada nos Gates 4/4.1; fundação visual aprovada no Gate 5.2; refinamento de contraste e clareza v2 aprovado em 30/09/2026.
+**Status:** direção aprovada nos Gates 4/4.1; fundação visual aprovada no Gate 5.2; refinamento v2 aprovado em 30/09/2026 e conjunto expressivo v3 aprovado em 01/10/2026.
 
 **Fonte conceitual:** [Identidade Diamante Lapidado](docs/design/IDENTIDADE-VISUAL-DIAMANTE-LAPIDADO-IGREJA12.md).
 
-**Implementação:** [tokens](frontend/src/app/design-tokens.css) e [estilos do produto](frontend/src/app/globals.css).
+**Implementação:** [tokens](frontend/src/app/design-tokens.css), [estilos do produto](frontend/src/app/globals.css) e [composição v3](frontend/src/app/expressive-ux-v3.css). Estilos de família preservam componentes e contratos locais.
 
-**Recorte validado e limites:** [Hoje e Conversas v2](docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md).
+**Aplicação global e limites:** [contrato v3 aprovado](docs/design/UX-EXPRESSIVA-V3-APROVADA.md), [execução v3](docs/sprints/2026-10-01-ux-expressiva-v3.md) e [base v2, 42 unidades](docs/sprints/2026-10-01-ux-global-v2.md). Implementação, testes e publicação possuem evidências próprias.
 
-Este documento orienta todas as superfícies. A aprovação da prévia de Hoje e Conversas não declara concluída a aplicação às demais telas.
+Este documento orienta as superfícies de operação, gestão da igreja e console da plataforma. A aplicação global de 01/10 mantém os contratos e estados do produto; evolução visual não completa capacidades de domínio ainda parciais.
 
 ## 1. Norte
 
@@ -78,13 +78,16 @@ Cena física orientadora: um pastor ou líder consulta o sistema entre conversas
 
 | Papel | Família | Tamanho | Peso | Linha |
 |---|---|---:|---:|---:|
-| Display institucional | Sora | 28 | 700 | 1.15 |
-| H1 produto | Sora | 22 | 700 | 1.22 |
-| H2 | Sora | 18 | 650 | 1.32 |
+| Marca no acesso desktop | Sora | 48 a 56 | 700 | 1.16 |
+| Título de tela desktop/mobile | Sora | 32/28 | 700 | 1.2 |
+| Título do formulário de acesso | Sora | 28 | 700 | 1.22 |
+| Seção | Sora | 18 | 650 | 1.32 |
 | H3 | Plus Jakarta Sans | 16 | 700 | 1.35 |
 | Corpo | Plus Jakarta Sans | 15 | 450 | 1.5 |
 | Label | Plus Jakarta Sans | 14 | 650 | 1.4 |
 | Metadado | Plus Jakarta Sans | 13 | 500 | 1.45 |
+
+Identidade de linha usa 16 px e apoio necessário usa 14 px. Campos usam 16 px. Os aliases históricos `--type-h1` e `--type-display` permanecem compatíveis com títulos internos; as classes de tela e acesso aplicam os papéis v3 acima.
 
 Nenhum texto operacional abaixo de 12 px. Eyebrows em caixa alta são reservados a orientação excepcional, não aparecem em todas as seções.
 
@@ -116,7 +119,7 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 - Controles permanecem familiares e retangulares.
 - Facetas angulares ficam restritas ao símbolo, ilustrações e momentos de progresso.
 - Pílula é usada apenas para status compacto, não para cada rótulo.
-- Elevação é reservada a dialog, popover e toast.
+- Elevação é reservada a dialog, popover e toast; a superfície principal do Hoje admite sombra mineral de baixa intensidade.
 
 ## 7. Iconografia e imagem
 
@@ -190,7 +193,7 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 :root {
   --motion-fast: 140ms;
   --motion-standard: 200ms;
-  --motion-expressive: 640ms;
+  --motion-expressive: 220ms;
   --ease-out-productive: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-expressive: cubic-bezier(0.19, 1, 0.22, 1);
 }
@@ -205,9 +208,10 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 
 ### Expressivo
 
-- Apenas marco significativo: 480–760 ms.
-- Os planos do símbolo se encaixam e estabilizam uma única vez.
-- Sem loop automático, partículas, confete, bounce ou parallax operacional.
+- Arte separada da marca entra uma vez em 220 ms; geometria canônica do símbolo permanece intacta.
+- Facetas decorativas do acesso e cabeçalhos gerais respondem ao pointer fino até 6 px, com uma atualização por frame. Foco de campo suspende o efeito; coarse/reduced motion usam composição estática.
+- Apoio não crítico pode revelar uma vez em 200 ms durante scroll nativo, permanecendo visível sem JS. Dados, campos e mensagens aparecem imediatamente; polling não reinicia animação.
+- Sem loop automático, partículas, confete, bounce, cursor substituído ou scroll controlado pelo efeito.
 
 ### Reduced motion
 
@@ -226,7 +230,7 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 
 ### Acesso
 
-- Marca do produto acima de um formulário único, em superfície clara de até 440 px.
+- Split a partir de 1024 px, área mineral de marca entre 42% e 55%, formulário único em superfície clara de até 440 px. Mobile usa faixa compacta de marca e formulário em coluna única.
 - Título nomeia o passo atual; ajuda curta fica junto ao campo. Conteúdo institucional não disputa atenção com a entrada.
 - Igreja e console compartilham a composição, mantendo suas sessões e contratos separados.
 - Campos de 16 px e 48 px de altura; foco de 2 px. Recuperação e links legais permanecem identificáveis por texto.
@@ -236,12 +240,11 @@ Escala base: `4, 8, 12, 16, 24, 32, 48, 64`.
 
 ### Painel de Hoje
 
-- Estrutura Quiet Operations.
+- Faixa mineral compacta, saudação e estado real; fila em superfície clara.
 - Saudação e pessoas recebem calor de Pastoral Editorial.
 - Sem rail persistente de Precision Workspace.
 - Totais do escopo aparecem depois da fila, em "Visão geral do seu cuidado", recolhidos por padrão.
-- Cada cuidado apresenta pessoa, motivo e uma ação principal. Atribuição e outras
-  ações ficam em um disclosure nativo "Mais ações", com nome acessível por cuidado.
+- Cada cuidado apresenta pessoa, motivo e ação existente por tipo. A primeira tarefa visível recebe botão preenchido; demais ações principais usam borda. Atribuição, mensagem e assumir secundário ficam em disclosure nomeado pelas ações realmente disponíveis.
 - Agenda imediata permanece visível; Jornada e distribuição por responsável
   aparecem sob demanda. "Abrir conversas" respeita a capacidade existente.
 

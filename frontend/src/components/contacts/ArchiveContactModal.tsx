@@ -31,6 +31,8 @@ function PreflightItems({ items }: { items: OffboardingPreflightItem[] }) {
   );
 }
 
+import "./people-ux-v2.css";
+
 export function ArchiveContactModal({
   contact,
   preflight,
@@ -66,6 +68,7 @@ export function ArchiveContactModal({
 
   return (
     <DsDialog
+      className="people-ux-dialog"
       open
       onClose={() => {
         if (!busy) onClose();

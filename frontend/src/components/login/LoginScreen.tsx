@@ -290,7 +290,7 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
           {mode === "login" ? (
             <form className="login-card" onSubmit={handleSubmit} noValidate>
               <AuthCardHeading title="Entre na sua igreja">
-                Acesse com o e-mail cadastrado pela sua igreja.
+                Use o e-mail e a senha do seu acesso.
               </AuthCardHeading>
 
               {authMessage || accessMessage ? (
@@ -348,7 +348,7 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
           ) : mode === "forgot" ? (
             <form className="login-card" onSubmit={handleForgot} noValidate>
               <AuthCardHeading title={fStatus === "sent" ? "Confira seu e-mail" : "Recuperar acesso"} focus>
-                {fStatus === "sent" ? "Confira também a pasta de spam." : "Informe o e-mail cadastrado pela sua igreja."}
+                {fStatus === "sent" ? "Confira também a pasta de spam." : "Informe o e-mail que você usa para entrar."}
               </AuthCardHeading>
 
               {fStatus === "sent" ? (

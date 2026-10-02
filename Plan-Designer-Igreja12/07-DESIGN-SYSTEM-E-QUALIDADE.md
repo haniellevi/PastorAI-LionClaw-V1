@@ -2,7 +2,7 @@
 
 ## 1. Direção preservada
 
-Atualizado em 30/09/2026 com a prévia de contraste e clareza v2 aprovada. [DESIGN.md](../DESIGN.md) é o contrato visual canônico; este capítulo descreve sua aplicação e as metas de qualidade. A identidade Diamante Lapidado permanece como base.
+Atualizado em 01/10/2026 com a direção expressiva v3 aprovada e aplicada às 42 unidades existentes. [DESIGN.md](../DESIGN.md) é o contrato visual canônico; este capítulo descreve sua aplicação e as metas de qualidade. A identidade Diamante Lapidado permanece como base.
 
 Nome da direção: **Farol de Hoje sobre Diamante Lapidado**.
 
@@ -21,7 +21,7 @@ A imagem em `assets/concepts/conceito-farol-de-hoje.png` explora essa direção.
 
 ## 2. O que já é canônico
 
-A referência implementada deste refinamento é o candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`, com [tokens](../frontend/src/app/design-tokens.css) e [estilos](../frontend/src/app/globals.css). A tabela abaixo resume os valores canônicos, sem criar uma paleta alternativa.
+A referência vigente é a [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md), com [tokens](../frontend/src/app/design-tokens.css), [estilos de base](../frontend/src/app/globals.css) e [composição v3](../frontend/src/app/expressive-ux-v3.css). A tabela abaixo resume a paleta canônica. Os valores tipográficos legados dos tokens permanecem por compatibilidade; as famílias de telas aplicam a hierarquia v3.
 
 ### Cor
 
@@ -49,8 +49,9 @@ Estados semânticos atuais, verde, âmbar, coral e azul, permanecem independente
 - títulos: Sora;
 - corpo: Plus Jakarta Sans;
 - dados técnicos raros: JetBrains Mono;
-- corpo operacional: 15 pixels, linha 1.5;
-- rótulo: 14 pixels; metadado: 13 pixels;
+- corpo, identidade de linha e campos: 16 pixels; apoio e metadado de linha: 14 pixels;
+- rótulo: 14 pixels; título de tela: 32 pixels no desktop e 28 no mobile;
+- acesso: headline de marca de 48 a 56 pixels no desktop, título do formulário de 28 pixels;
 - títulos, pesos e entrelinhas seguem a tabela de [DESIGN.md](../DESIGN.md);
 - nenhum texto operacional abaixo de 12 pixels.
 
@@ -70,12 +71,14 @@ Escala atual: 4, 8, 12, 16, 24, 32, 48 e 64 pixels.
 
 - rápido: 140 ms;
 - padrão: 200 ms;
-- expressivo: 640 ms, apenas em momentos raros;
+- expressivo: 220 ms na entrada de facetas do acesso; hover 140 ms e apoio/diálogo 200 ms;
+- mouse fino: facetas decorativas separadas, deslocamento máximo de 6 pixels e um frame pendente; foco de campo interrompe o efeito;
+- conteúdo de apoio: revelação única com scroll nativo, sem esconder ações ou campos;
 - `prefers-reduced-motion` já deve neutralizar animações e transições.
 
 ## 3. Teal e reconhecimento de marca
 
-Exploração histórica, sem adoção no refinamento v2 aprovado. Os tokens candidatos abaixo permanecem fora do contrato canônico.
+Exploração histórica, sem adoção no refinamento v3 aprovado. Os tokens candidatos abaixo permanecem fora do contrato canônico.
 
 O código atual consolidou azul mineral como ação canônica. Reintroduzir teal como segundo primário criaria duas identidades e deve ser evitado.
 
@@ -100,17 +103,17 @@ Antes de adoção, medir contraste e comparar com `state-ok` e WhatsApp para evi
 
 ### Farol de Hoje
 
-No recorte v2, a composição prioriza a fila de cuidados:
+Na composição v3, a faixa mineral compacta e a fila de cuidados priorizam:
 
 - saudação curta;
 - pessoa e motivo antes dos totais;
-- uma ação principal por cuidado, com secundárias em "Mais ações" conforme capacidade;
+- uma ação principal por cuidado, com ênfase no primeiro e secundárias rotuladas conforme a capacidade disponível;
 - agenda imediata visível;
 - Jornada e responsáveis sob demanda;
 - totais do escopo em "Visão geral do seu cuidado", recolhidos por padrão;
 - estado de tranquilidade quando não há pendências.
 
-Não usar hero de landing page.
+A faixa de Hoje, Gestão e Console permanece compacta (até 160 pixels no desktop), com contexto e ações visíveis. Listas e formulários usam superfícies claras. Acesso usa composição dividida 48/52 a partir de 1024 pixels e formulário de largura máxima 440 pixels; no mobile, marca compacta e formulário único.
 
 ### Caminho vivo G12
 
@@ -325,6 +328,6 @@ No [recorte v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md), a evidênc
 
 ## 12. Gate de direção
 
-Em 30/09/2026, a direção de contraste, clareza e composição de Hoje e Conversas foi aprovada e passou a orientar as demais superfícies. Cada próxima fatia valida sua composição com os contratos existentes e registra resultado e limites. A [referência atual do programa](README.md) controla o próximo gate da entrega.
+Em 01/10/2026, Raniel aprovou o conjunto concreto v3 e autorizou a aplicação global e a publicação frontend. A [execução e evidência](../docs/sprints/2026-10-01-ux-expressiva-v3.md) controla o candidato, QA e recibo; a [referência do programa](README.md) mantém os limites de produto e das operações externas.
 
 A exploração histórica de teal e as composições ainda não implementadas não passam a ser capacidades aprovadas por essa atualização.

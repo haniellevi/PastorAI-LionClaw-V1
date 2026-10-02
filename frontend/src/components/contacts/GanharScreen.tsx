@@ -41,6 +41,8 @@ import { navigateToAdminRoute } from "@/lib/surface";
 
 import { LinkCellModal } from "./LinkCellModal";
 
+import "./people-ux-v2.css";
+
 type Tab = "novos-contatos" | "visitantes";
 
 interface Toast {
@@ -259,14 +261,13 @@ export function GanharScreen() {
         },
       },
       {
-        header: "",
-        width: "1px",
+        header: "Próxima ação",
         cell: (c) => (
-          <div className="row-actions">
+          <div className="row-actions" onKeyDown={(e) => e.stopPropagation()}>
             {canLinkCell && !c.celulaId ? (
               <button
                 type="button"
-                className="btn btn-sm"
+                className="btn btn-sm btn-primary"
                 disabled={busyId === c.id}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -321,16 +322,19 @@ export function GanharScreen() {
         },
       },
       {
-        header: "",
-        width: "1px",
+        header: "Próxima ação",
         cell: (c) => {
           const canPromote = meetsPromotionCriteria(c);
           return (
-            <div className="row-actions">
+            <div className="people-next-action" onKeyDown={(e) => e.stopPropagation()}>
+              <p className="people-meta">
+                {canPromote ? "Critério para Consolidar atendido" : "Precisa de 3 presenças ou decisão por Jesus"}
+              </p>
+              <div className="row-actions">
               {canLinkCell && !c.celulaId ? (
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className={`btn btn-sm${!canPromote || !canAdvancePipeline ? " btn-primary" : ""}`}
                   disabled={busyId === c.id}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -344,7 +348,7 @@ export function GanharScreen() {
               {canAdvancePipeline ? (
                 <button
                   type="button"
-                  className="btn btn-sm btn-primary"
+                  className={`btn btn-sm${canPromote ? " btn-primary" : ""}`}
                   disabled={!canPromote || busyId === c.id}
                   aria-disabled={!canPromote || undefined}
                   title={
@@ -357,7 +361,7 @@ export function GanharScreen() {
                     if (canPromote) void handlePromote(c);
                   }}
                 >
-                  Promover
+                  Avançar para Consolidar
                 </button>
               ) : null}
               {canOpenContact ? (
@@ -372,6 +376,7 @@ export function GanharScreen() {
                   Ver contato
                 </button>
               ) : null}
+              </div>
             </div>
           );
         },
@@ -388,11 +393,11 @@ export function GanharScreen() {
   );
 
   return (
-    <div className="screen journey-screen journey-screen--ganhar" key="ganhar">
+    <div className="screen journey-screen journey-screen--ganhar people-ux" key="ganhar">
       <div className="screen-head">
         <div className="titles">
-          <h2>Base de entrada</h2>
-          <p>Organize novos contatos e visitantes antes do próximo passo da jornada.</p>
+          <h2>Contatos e visitantes</h2>
+          <p>Acompanhe visitantes e ajude a construir o próximo vínculo.</p>
         </div>
         <div className="actions">
           <button
@@ -422,44 +427,26 @@ export function GanharScreen() {
         </div>
       ) : null}
 
-      <div className="stat-grid">
-        {showSkeleton
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="stat skeleton" key={i}>
-                <div className="sk-line sk-sm" />
-                <div className="sk-line sk-lg" />
-              </div>
-            ))
-          : stats.map((s) => (
-              <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
-                <div className="lbl">
-                  <Icon name={s.icon} />
-                  {s.label}
-                </div>
-                <div className="val num">{s.value}</div>
-                <div className="delta">{s.delta}</div>
-              </div>
-            ))}
-      </div>
-
       <div className="card">
         <div className="panel-title">
           Pessoas que chegaram
           <div className="right">
-            <div className="tabs">
+            <div className="tabs people-filter-group" role="group" aria-label="Filtrar contatos e visitantes">
               <button
                 type="button"
+                aria-pressed={tab === "novos-contatos"}
                 className={`tab${tab === "novos-contatos" ? " active" : ""}`}
                 onClick={() => setTab("novos-contatos")}
               >
-                Novos contatos <span className="num">{novos.length}</span>
+                Novos contatos {loaded ? <span className="num">{novos.length}</span> : null}
               </button>
               <button
                 type="button"
+                aria-pressed={tab === "visitantes"}
                 className={`tab${tab === "visitantes" ? " active" : ""}`}
                 onClick={() => setTab("visitantes")}
               >
-                Visitantes <span className="num">{visitantes.length}</span>
+                Visitantes {loaded ? <span className="num">{visitantes.length}</span> : null}
               </button>
             </div>
           </div>
@@ -483,8 +470,9 @@ export function GanharScreen() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : !loaded ? null : (
           <DataTable
+            className="people-table"
             columns={tab === "novos-contatos" ? novosColumns : visitantesColumns}
             rows={rows}
             rowKey={(c) => c.id}
@@ -497,12 +485,37 @@ export function GanharScreen() {
               hint:
                 tab === "novos-contatos"
                   ? "Quem falar com a igreja pelo WhatsApp aparece aqui."
-                  : "Visitantes da semana entram nesta lista automaticamente.",
+                  : "Visitantes registrados no estágio Ganhar aparecem nesta lista.",
             }}
             onRowClick={canOpenContact ? openContact : undefined}
           />
         )}
       </div>
+
+      {loaded || showSkeleton ? <details className="people-disclosure people-overview">
+        <summary>Resumo dos contatos carregados</summary>
+      <div className="stat-grid">
+        {showSkeleton
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div className="stat skeleton" key={i}>
+                <div className="sk-line sk-sm" />
+                <div className="sk-line sk-lg" />
+              </div>
+            ))
+          : stats.map((s) => (
+              <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
+                <div className="lbl">
+                  <Icon name={s.icon} />
+                  {s.label}
+                </div>
+                <div className="val num">{s.value}</div>
+                <div className="delta">{s.delta}</div>
+              </div>
+            ))}
+      </div>
+
+        <p className="people-meta">Contagens da lista carregada, dentro do seu acesso atual.</p>
+      </details> : null}
 
       {canLinkCell && linkTarget ? (
         <LinkCellModal

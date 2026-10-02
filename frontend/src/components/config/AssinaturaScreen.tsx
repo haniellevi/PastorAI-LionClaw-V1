@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #assinatura — plano e faturamento (Asaas / US-34..36).
  * Consome api-subscription (GET /subscription) e o checkout (POST /subscription).
@@ -359,7 +361,7 @@ export function AssinaturaScreen() {
   ) : null;
 
   return (
-    <div className="screen admin-screen subscription-screen" key="assinatura">
+    <div className="screen admin-screen subscription-screen administration-ux" key="assinatura">
       <div className="screen-head">
         <div className="titles">
           <h2>Assinatura da igreja</h2>
@@ -532,6 +534,7 @@ export function AssinaturaScreen() {
           <button
             type="button"
             className={`tab${tab === "overview" ? " active" : ""}`}
+            aria-pressed={tab === "overview"}
             onClick={() => setTab("overview")}
           >
             Visão geral
@@ -539,6 +542,7 @@ export function AssinaturaScreen() {
           <button
             type="button"
             className={`tab${tab === "plans" ? " active" : ""}`}
+            aria-pressed={tab === "plans"}
             onClick={() => setTab("plans")}
           >
             Planos por porte
@@ -732,7 +736,7 @@ export function AssinaturaScreen() {
             </div>
           ) : null}
           {frozenCheckoutRecovery}
-          <table className="data-table">
+          <table className="data-table ux-stack-table">
             <thead>
               <tr>
                 <th>Plano</th>
@@ -753,11 +757,11 @@ export function AssinaturaScreen() {
                 const retomar = placeholder && sub?.plano === plan.code;
                 return (
                   <tr key={plan.code}>
-                    <td className="nm">{plan.label}</td>
-                    <td className="num">{formatLimit(plan.limite)}</td>
-                    <td className="num">{BRL.format(plan.preco)}</td>
-                    <td className="num">{BRL.format(setupFee)}</td>
-                    <td>
+                    <td className="nm" data-label="Plano">{plan.label}</td>
+                    <td className="num" data-label="Até">{formatLimit(plan.limite)}</td>
+                    <td className="num" data-label="Mensalidade">{BRL.format(plan.preco)}</td>
+                    <td className="num" data-label="Setup">{BRL.format(setupFee)}</td>
+                    <td data-label="Ações">
                       {isCurrent ? (
                         <StatusPill tone="accent">Plano atual</StatusPill>
                       ) : assinante ? (

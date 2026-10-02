@@ -27,6 +27,7 @@ import {
 } from "react";
 
 import { DiamondMark } from "@/components/brand/DiamondMark";
+import { MineralBackdrop } from "@/components/brand/MineralBackdrop";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
@@ -933,10 +934,12 @@ export function DashboardScreen() {
     <div className="screen dashboard dh" key="dashboard">
       {/* Farol compacto: calor pastoral, estado real do dia e uma ação quieta. */}
       <header
-        className={`dh-hero${
+        data-mineral-surface
+        className={`dh-hero mineral-surface${
           hasWorkQueue && acoesAbertas > 0 ? " has-actions" : " is-calm"
         }`}
       >
+        <MineralBackdrop compact />
         <DiamondMark className="dh-hero-mark" size={42} title="" />
         <div className="dh-greet">
           <p className="dh-date">
@@ -1153,10 +1156,11 @@ export function DashboardScreen() {
           ) : (
             <>
               <div className="dh-queue" id="dashboard-work-queue" role="list">
-                {displayedItems.map((item) => (
+                {displayedItems.map((item, index) => (
                   <WorkQueueItem
                   key={item.id}
                   item={item}
+                  priority={index === 0}
                   now={now}
                   responsibleName={
                     item.responsavelId

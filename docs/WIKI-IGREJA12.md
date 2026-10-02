@@ -406,12 +406,20 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   [Recorte e limites](sprints/2026-09-30-ux-contraste-fluxo-v2.md).
   A prévia aprovada passou a orientar o [design system](../DESIGN.md) e o
   [Plan Designer](../Plan-Designer-Igreja12/README.md), atualizados em 30/09.
-  A aplicação às demais telas continua parcial.
+  Este recorte foi consolidado na aplicação global de 01/10, registrada abaixo.
 - UX acesso v2 (F02): candidato local com marca e formulário compartilhados na
   entrada da igreja e do console, recuperação neutra e estados explícitos de
   senha e convite. Campos preservados nas falhas e isolamento entre links.
   [Implementação e limites de validação](sprints/2026-09-30-ux-acesso-v2.md).
-  Sem novo estado de produção ou conclusão da evolução global.
+  Seu candidato foi consolidado na aplicação global de 01/10.
+- UX global v2/v3: aplicação do conjunto aprovado às 42 unidades de experiência,
+  com navegação nativa, foco, listas e detalhes, formulários legíveis, informações
+  secundárias sob demanda e estados reais preservados em gestão e console.
+  [Cobertura da base v2](sprints/2026-10-01-ux-global-v2.md) e
+  [execução, QA e recibo v3](sprints/2026-10-01-ux-expressiva-v3.md).
+  A entrega visual não altera as classificações dos módulos nem os gates de
+  banco, agente e provedores. Publicação é comprovada somente pelo recibo do SHA
+  implantado vinculado ao registro, sem presumir operação autenticada em PROD.
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
 ### Fundação do agente

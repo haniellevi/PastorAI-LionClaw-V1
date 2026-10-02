@@ -27,7 +27,7 @@ export function NextMeetingCard({
   return (
     <section className="card" aria-label="Próxima reunião">
       <div className="panel-title">
-        <Icon name="calendar" /> Próxima reunião
+        <Icon name="calendar" /> Sua próxima reunião
       </div>
 
       {meeting ? (

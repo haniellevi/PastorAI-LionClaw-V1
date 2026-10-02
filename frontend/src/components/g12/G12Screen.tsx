@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Tela #g12 — Painel do Discipular / organograma de descendências (Visão G12).
  *
@@ -11,7 +13,7 @@
  *
  * Estados: loading · empty · organograma · descendencia (ramo aberto).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -40,6 +42,7 @@ export function G12Screen() {
   const [tab, setTab] = useState<VTab>("arvore");
   // Caminho de drill-down (índices de filhos a partir da raiz).
   const [path, setPath] = useState<number[]>([]);
+  const breadcrumb = useRef<HTMLElement | null>(null);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -101,19 +104,21 @@ export function G12Screen() {
 
   const openBranch = useCallback((childIdx: number) => {
     setPath((prev) => [...prev, childIdx]);
+    requestAnimationFrame(() => breadcrumb.current?.focus());
   }, []);
 
   const goToCrumb = useCallback((level: number) => {
     setPath((prev) => prev.slice(0, level));
+    requestAnimationFrame(() => breadcrumb.current?.focus());
   }, []);
 
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen journey-screen g12-screen" key="g12">
+    <div className="screen journey-screen g12-screen ops-v2" key="g12">
       <div className="screen-head">
         <div className="titles">
-          <h2>Rede de discipulado</h2>
+          <h2>Jornada G12</h2>
           <p>Navegue pela descendência e pelos indicadores da liderança.</p>
         </div>
         <div className="actions">
@@ -138,10 +143,11 @@ export function G12Screen() {
         <div className="panel-title">
           Liderança
           <div className="right">
-            <div className="tabs">
+            <div className="tabs" role="group" aria-label="Visualização da rede">
               <button
                 type="button"
                 className={`tab${tab === "arvore" ? " active" : ""}`}
+                aria-pressed={tab === "arvore"}
                 onClick={() => setTab("arvore")}
               >
                 Descendências
@@ -149,6 +155,7 @@ export function G12Screen() {
               <button
                 type="button"
                 className={`tab${tab === "indicadores" ? " active" : ""}`}
+                aria-pressed={tab === "indicadores"}
                 onClick={() => setTab("indicadores")}
               >
                 Indicadores
@@ -180,7 +187,7 @@ export function G12Screen() {
         ) : tab === "arvore" ? (
           <>
             <div className="org-bar">
-              <nav className="org-bc" aria-label="Descendência atual">
+              <nav className="org-bc" ref={breadcrumb} tabIndex={-1} aria-label="Descendência atual">
                 {trail.map((node, i) => {
                   const isLast = i === trail.length - 1;
                   return (
@@ -190,6 +197,7 @@ export function G12Screen() {
                         type="button"
                         className={`crumb-b${isLast ? " cur" : ""}`}
                         disabled={isLast}
+                        aria-current={isLast ? "page" : undefined}
                         onClick={() => goToCrumb(i)}
                       >
                         {node.id === SYNTHETIC_ROOT ? "Liderança principal" : node.nome}
@@ -237,6 +245,7 @@ export function G12Screen() {
                       className={`slot filled${hasTeam ? " has-team" : ""}`}
                       disabled={!hasTeam}
                       aria-disabled={!hasTeam || undefined}
+                      aria-label={hasTeam ? `Abrir descendência de ${child.nome}` : `${child.nome}, sem liderados`}
                       onClick={() => hasTeam && openBranch(idx)}
                       title={hasTeam ? "Abrir descendência" : undefined}
                     >
@@ -244,7 +253,7 @@ export function G12Screen() {
                       <div className="s-body">
                         <div className="nm">{child.nome}</div>
                         <div className="rl">{tipoLabel(child.tipo)}</div>
-                        {hasTeam ? <div className="team-n">{team} no time</div> : null}
+                        <div className="team-n">{hasTeam ? `${team} no time` : "Sem liderados"}</div>
                       </div>
                       {hasTeam ? <Icon name="caret" className="s-go" /> : null}
                     </button>
@@ -255,8 +264,7 @@ export function G12Screen() {
 
             <p className="org-hint">
               <Icon name="g12" />
-              Clique num card que já tem time para abrir o próximo nível da descendência. Você vê a
-              sua linha descendente.
+              Abra uma pessoa com liderados para ver o próximo nível. Use o caminho acima para voltar à liderança anterior.
             </p>
           </>
         ) : (

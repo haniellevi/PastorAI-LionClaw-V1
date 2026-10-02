@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Alterar status e/ou plano de uma igreja (US-42): suspender, reativar, aprovar
  * ou mover de plano. Envia só os campos alterados. Observação: o backend não
@@ -94,11 +96,13 @@ export function EditIgrejaModal({
 
   return (
     <DsDialog
+      className="administration-ux administration-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
       }}
       title={igreja.nome}
+      description="Alterações na igreja selecionada. Exclusão fica separada das configurações comuns."
       footer={
         <>
           <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
@@ -125,6 +129,7 @@ export function EditIgrejaModal({
           submit();
         }}
       >
+        <p className="admin-target-note">Igreja alvo: {igreja.nome}</p>
         {error ? (
           <div className="error-banner" role="alert">
             <span>{error}</span>
@@ -180,6 +185,8 @@ export function EditIgrejaModal({
           </select>
         </div>
 
+        <details className="admin-disclosure">
+        <summary>Exclusão da igreja</summary>
         <div
           style={{
             borderTop: "1px solid var(--border)",
@@ -211,6 +218,7 @@ export function EditIgrejaModal({
             Excluir igreja
           </button>
         </div>
+        </details>
       </form>
     </DsDialog>
   );

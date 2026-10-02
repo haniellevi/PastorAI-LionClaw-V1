@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #perfil — o próprio usuário edita seus dados de acesso: nome de exibição
  * e senha. Acessível a qualquer papel (cada um edita a própria conta).
@@ -118,16 +120,16 @@ export function PerfilScreen() {
   );
 
   return (
-    <div className="screen profile-screen" key="perfil">
+    <div className="screen profile-screen administration-ux" key="perfil">
       <div className="screen-head">
         <div className="titles">
           <h2>Seu perfil</h2>
           <p>Atualize como seu nome aparece e mantenha a conta protegida.</p>
         </div>
       </div>
-      <div className="dash-grid">
+      <div className="admin-form-stack">
         <form className="card card-pad" onSubmit={saveNome}>
-          <h3>Dados de exibição</h3>
+          <h3>Seu nome na conta</h3>
           <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
             Conta: <strong>{user?.email}</strong>
           </p>
@@ -177,7 +179,7 @@ export function PerfilScreen() {
         </form>
 
         <form className="card card-pad" onSubmit={savePw}>
-          <h3>Trocar senha</h3>
+          <h3>Segurança da conta</h3>
           <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
             Informe a senha atual para confirmar a troca.
           </p>

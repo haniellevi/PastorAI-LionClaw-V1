@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela "Identidade Visual" da superfície admin (admin.<domínio> → /gestao).
  * O admin da igreja envia, pré-visualiza e remove a LOGO DA IGREJA (identidade
@@ -157,11 +159,11 @@ export function IdentidadeVisualScreen() {
   const previewLogo = previewUrl ?? (showSavedLogo ? savedLogo : null);
 
   return (
-    <div className="screen admin-screen identity-screen" key="identidade">
+    <div className="screen admin-screen identity-screen administration-ux" key="identidade">
       <div className="screen-head">
         <div className="titles">
           <h2>Identidade da igreja</h2>
-          <p>Cuide do nome e da marca que acompanham a experiência do painel.</p>
+          <p>Atualize a logo exibida no painel.</p>
         </div>
       </div>
       <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
@@ -246,7 +248,7 @@ export function IdentidadeVisualScreen() {
             </p>
 
             {error ? (
-              <p className="sub" style={{ color: "var(--danger)", marginBottom: "var(--s3)" }}>
+              <p className="sub" role="alert" style={{ color: "var(--danger)", marginBottom: "var(--s3)" }}>
                 {error}
               </p>
             ) : null}
@@ -294,7 +296,9 @@ export function IdentidadeVisualScreen() {
                 <button
                   type="button"
                   className="btn btn-danger"
-                  onClick={() => void remove()}
+                  onClick={() => {
+                    if (window.confirm(`Remover a logo de ${nome}? O painel passa a exibir o nome da igreja.`)) void remove();
+                  }}
                   disabled={busy}
                 >
                   <Icon name="trash" />

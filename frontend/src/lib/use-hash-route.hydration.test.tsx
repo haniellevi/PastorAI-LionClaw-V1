@@ -5,7 +5,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveRootSurface } from "./public-auth-flow";
-import { useHashRoute } from "./use-hash-route";
+import { getHashRouteHistoryIndex, registerHashRouteGuard, useHashRoute } from "./use-hash-route";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -59,6 +59,60 @@ afterEach(() => {
 });
 
 describe("useHashRoute: SSR e hidratação", () => {
+  it("consulta o guard uma vez por evento e cleanup antigo não remove o guard atual", async () => {
+    window.history.replaceState(null, "", "/#dashboard");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(h("div", null, h(Routes), h(Routes)));
+    });
+    const previousGuard = vi.fn(() => false);
+    const guard = vi.fn(() => false);
+    const removePrevious = registerHashRouteGuard(previousGuard);
+    const removeGuard = registerHashRouteGuard(guard);
+    removePrevious();
+    try {
+      await act(async () => {
+        window.history.pushState(null, "", "/#inbox");
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      });
+      expect(guard).toHaveBeenCalledTimes(1);
+      expect(previousGuard).not.toHaveBeenCalled();
+      expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["dashboard", "dashboard"]);
+      removeGuard();
+      await act(async () => window.dispatchEvent(new HashChangeEvent("hashchange")));
+      expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["inbox", "inbox"]);
+    } finally {
+      removeGuard();
+    }
+  });
+
+  it("indexa entradas sem perder state Next e mantém o índice na mesma rota", async () => {
+    const nextState = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ["sintetico"], custom: "preservar" };
+    window.history.replaceState(nextState, "", "/#dashboard");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(h("div", null, h(Routes), h(Routes)));
+    });
+    const firstIndex = getHashRouteHistoryIndex();
+    expect(window.history.state).toMatchObject(nextState);
+    await act(async () => {
+      window.location.hash = "inbox";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(getHashRouteHistoryIndex()).toBe(firstIndex + 1);
+    const historyLength = window.history.length;
+    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+    expect(getHashRouteHistoryIndex()).toBe(firstIndex + 1);
+    expect(window.history.length).toBe(historyLength);
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(getHashRouteHistoryIndex()).toBe(firstIndex);
+    expect(window.history.state).toMatchObject(nextState);
+    expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["dashboard", "dashboard"]);
+  });
+
   it.each(["redefinir-senha/token-sintetico", "ativar/token-sintetico"])(
     "hidrata acesso direto a %s sem substituir HTML por divergência",
     async (route) => {
@@ -134,5 +188,52 @@ describe("useHashRoute: SSR e hidratação", () => {
     await act(async () => root!.unmount());
     root = undefined;
     expect(remove).toHaveBeenCalledWith("hashchange", subscriptions[0]![1]);
+  });
+
+  it("preserva a tela durante render anterior ao hashchange cancelado", async () => {
+    window.history.replaceState(null, "", "/#permissoes");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(h(Routes));
+    });
+    window.history.replaceState(null, "", "/#setup");
+    await act(async () => root!.render(h(Routes)));
+    expect(container.querySelector("output")?.textContent).toBe("permissoes");
+
+    const cancel = (event: Event) => {
+      window.history.replaceState(null, "", "/#permissoes");
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("hashchange", cancel, { capture: true, once: true });
+    await act(async () => window.dispatchEvent(new HashChangeEvent("hashchange")));
+    expect(window.location.hash).toBe("#permissoes");
+    expect(container.querySelector("output")?.textContent).toBe("permissoes");
+
+    await act(async () => {
+      window.history.replaceState(null, "", "/#setup");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(container.querySelector("output")?.textContent).toBe("setup");
+  });
+
+  it("sincroniza assinantes simultâneos e lê a URL atual depois do último unmount", async () => {
+    window.history.replaceState(null, "", "/#dashboard");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(h("div", null, h(Routes), h(Routes)));
+    });
+    await act(async () => {
+      window.history.replaceState(null, "", "/#inbox");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["inbox", "inbox"]);
+    await act(async () => root!.unmount());
+    root = undefined;
+    window.history.replaceState(null, "", "/#setup");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(h(Routes));
+    });
+    expect(container.querySelector("output")?.textContent).toBe("setup");
   });
 });

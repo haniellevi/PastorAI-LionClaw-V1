@@ -107,10 +107,10 @@
   --type-meta: 500 13px/1.45 var(--font);
   /* Nenhum texto operacional abaixo de 12px. */
 
-  /* Motion — produtivo 140–220ms; expressivo 480–760ms, uma única vez */
+  /* Motion v3: decorativo 220ms, uma única vez, controles imediatos. */
   --motion-fast: 140ms;
   --motion-standard: 200ms;
-  --motion-expressive: 640ms;
+  --motion-expressive: 220ms;
   --ease-out-productive: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-expressive: cubic-bezier(0.19, 1, 0.22, 1);
 }

@@ -111,6 +111,49 @@ afterEach(() => {
 });
 
 describe("AgenteScreen: revalidação da BYO", () => {
+  it.each(["fetchAgentConfig", "fetchLlmModels"] as const)(
+    "não afirma que o assistente está desativado quando %s falha",
+    async (failedLoad) => {
+      mocks[failedLoad].mockRejectedValue(new Error("Falha sintética de leitura"));
+      act(() => root.render(h(AgenteScreen)));
+      await flush();
+
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Não foi possível carregar",
+      );
+      expect(container.textContent).toContain("Estado do assistente indisponível");
+      expect(container.textContent).not.toContain("Assistente desativado");
+      expect(container.textContent).not.toContain("Assistente ativo");
+      expect(container.querySelector(".seg-toggle-row")?.textContent).not.toMatch(/Desativado|Ativo/);
+      expect(container.textContent).not.toContain("Ainda não configurado pela plataforma");
+      act(() => findButton("Agendamentos").click());
+      const cronName = container.querySelector<HTMLInputElement>("#cronName")!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(cronName, "Agendamento sintético");
+        cronName.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(findButton("Criar agendamento").disabled).toBe(true);
+      expect(container.querySelector<HTMLInputElement>('.seg-toggle-row input[type="checkbox"]')?.disabled).toBe(true);
+      await act(async () => {
+        container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+      expect(mocks.createCron).not.toHaveBeenCalled();
+      expect(mocks.updateCron).not.toHaveBeenCalled();
+      expect(mocks.updateLlmModel).not.toHaveBeenCalled();
+      expect(mocks.saveCredential).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])("mostra somente o estado confirmado, ativo=%s", async (ativo) => {
+    mocks.fetchAgentConfig.mockResolvedValue({ configured: true, ativo, nome: "Laboratório", comportamento: "Sintético" });
+    act(() => root.render(h(AgenteScreen)));
+    await flush();
+
+    expect(container.textContent).toContain(ativo ? "Assistente ativo" : "Assistente desativado");
+    expect(container.textContent).not.toContain("Estado do assistente indisponível");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("revalida a credencial ativa no mesmo modelo sem pedir ou reenviar a chave", async () => {
     act(() => root.render(h(AgenteScreen)));
     await flush();

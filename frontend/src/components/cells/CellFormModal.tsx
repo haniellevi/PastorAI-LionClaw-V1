@@ -1,5 +1,7 @@
 "use client";
 
+import "./operations-ux-v2.css";
+
 /**
  * Formulário de criar/editar célula (api-cells) — form-field + btn-primary.
  * cobertura_espiritual é OBRIGATÓRIA: o submit fica bloqueado enquanto o campo
@@ -146,7 +148,7 @@ export function CellFormModal({
     // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
     // primitive); fechar bloqueado enquanto salva. O foco inicial vai para o
     // campo Nome via [data-autofocus].
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -154,7 +156,7 @@ export function CellFormModal({
       title={title}
     >
         <form
-          className="modal-form"
+          className="modal-form ops-dialog"
           onSubmit={(e) => {
             e.preventDefault();
             submit();

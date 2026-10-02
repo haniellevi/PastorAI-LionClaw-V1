@@ -1,6 +1,14 @@
 # Fluxos e wireframes essenciais
 
-## Referência aprovada, Hoje e Conversas v2
+## Referência vigente, UX expressiva v3
+
+Aplicação de 01/10/2026 às 42 unidades existentes. [DESIGN.md](../DESIGN.md) controla identidade, hierarquia e movimento; o [registro v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md) liga aprovação, paridade, QA e recibo.
+
+Acesso combina marca e formulário claro, com uma coluna no mobile. Hoje, Gestão e Console usam faixa mineral compacta; listas destacam pessoa, estado e próxima ação. Pessoas preserva filtro/página ao voltar do detalhe. Permissões confirma saída antes de publicar a rota, mantendo rascunho e destinos de Voltar/Avançar. Na Agenda mensal estreita, a grade seleciona o dia e a lista abaixo apresenta horário e título completos; espaço amplo conserva a grade de eventos.
+
+Ações, papéis, capacidades e payloads permanecem os do domínio existente. A [paridade operacional](../docs/design/UX-V3-PARIDADE-OPERACAO.md) e a [paridade administrativa](../docs/design/UX-V3-PARIDADE-ADMINISTRACAO.md) preservam a rastreabilidade da base.
+
+## Base aprovada anteriormente, Hoje e Conversas v2
 
 Atualização de 30/09/2026, baseada no candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`. Esta seção descreve o recorte implementado e aprovado na prévia. O [design system](../DESIGN.md) controla sua apresentação; o [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) contém testes e limites.
 

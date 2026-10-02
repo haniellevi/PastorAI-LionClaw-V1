@@ -139,6 +139,32 @@ button {
 a {
   color: inherit;
 }
+/* Fundação transversal v2: o controle nativo mantém foco e contraste em
+   qualquer família de tela, inclusive quando ainda não usa primitives ds. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+:where(button, a, summary) {
+  touch-action: manipulation;
+}
+:where(h1, h2, h3, h4, [id]) {
+  scroll-margin-top: var(--s4);
+}
+@media (max-width: 860px) {
+  .btn.btn,
+  .btn.btn-sm {
+    min-height: 44px;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  .field.field select,
+  .field.field textarea,
+  select,
+  textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+}
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
@@ -352,18 +378,17 @@ a {
 }
 .field label {
   display: block;
-  font-size: 12.5px;
-  font-weight: 560;
+  font: var(--type-label);
   margin-bottom: 6px;
   color: var(--fg);
 }
 .field .helper {
-  font-size: 12px;
+  font: var(--type-meta);
   color: var(--muted); /* F4: texto essencial (helper) — faint reprovava AA (2.46:1) */
   margin-top: 5px;
 }
 .field .err {
-  font-size: 12px;
+  font: var(--type-meta);
   color: var(--danger);
   margin-top: 5px;
 }
@@ -411,7 +436,7 @@ textarea {
   background: var(--surface);
   color: var(--fg);
   font-family: inherit;
-  font-size: 14px;
+  font-size: 15px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -466,8 +491,9 @@ input[type="checkbox"] {
   padding: 9px 14px;
   border-radius: var(--r-sm);
   border: 1px solid transparent;
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 650;
+  min-height: 40px;
   background: var(--surface-2);
   color: var(--fg);
   border-color: var(--border-strong);
@@ -486,8 +512,8 @@ input[type="checkbox"] {
   transform: translateY(1px);
 }
 .btn:focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .btn svg {
   width: 15px;
@@ -497,7 +523,7 @@ input[type="checkbox"] {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
-  box-shadow: var(--shadow-primary);
+  box-shadow: none;
 }
 .btn-primary:hover {
   background: var(--accent-dark);
@@ -522,7 +548,8 @@ input[type="checkbox"] {
 }
 .btn-sm {
   padding: 5px 9px;
-  font-size: 12.5px;
+  font-size: 13px;
+  min-height: 32px;
 }
 .btn:disabled {
   opacity: 0.5;
@@ -804,6 +831,7 @@ input[type="checkbox"] {
 /* nav items — linha com bloco de ícone arredondado colorido */
 .nav-item {
   display: flex;
+  text-decoration: none;
   align-items: center;
   gap: 11px;
   padding: 7px 10px;
@@ -820,6 +848,7 @@ input[type="checkbox"] {
   margin-bottom: 1px;
 }
 .nav-item:hover {
+  text-decoration: none;
   background: color-mix(in oklch, var(--ice-50) 8%, transparent);
   color: oklch(97% 0.006 235);
 }
@@ -1243,6 +1272,10 @@ input[type="checkbox"] {
   font: var(--type-h2);
   text-wrap: balance;
 }
+.screen-head .titles {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .screen-head .titles p {
   color: var(--muted);
   margin-top: 4px;
@@ -1330,7 +1363,7 @@ input[type="checkbox"] {
 .card {
   background: var(--surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--r-lg);
+  border-radius: var(--radius-panel);
 }
 .card-pad {
   padding: var(--s4);
@@ -1387,6 +1420,10 @@ input[type="checkbox"] {
   color: var(--border-strong);
   margin-bottom: var(--s4);
 }
+.scaffold h1 {
+  font: var(--type-title);
+  color: var(--text-primary);
+}
 .scaffold h3 {
   font-size: 16px;
   color: var(--fg);
@@ -1412,6 +1449,8 @@ input[type="checkbox"] {
   min-height: 100dvh;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: var(--s4);
   background: var(--bg);
   color: var(--muted);
 }
@@ -3012,105 +3051,110 @@ button.jr-row:focus-visible {
   .agenda .cal-m {
     display: block;
   }
-  .cal-m-cal {
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .cal-m-grid {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-  }
-  .cal-m-cell {
-    min-width: 0;
-    min-height: 48px;
-    padding: 5px 2px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    border: 0;
-    border-right: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    border-radius: 0;
-    background: var(--surface);
-  }
-  .cal-m-cell:nth-child(7n) {
-    border-right: 0;
-  }
-  .cal-m-cell.off {
-    background: var(--surface-2);
-    cursor: default;
-  }
-  .cal-m-cell .d.num {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
-  }
-  /* Selecionado: fundo + anel interno; o estado programático é o aria-pressed
-     do botão. */
-  .cal-m-cell.selected {
-    background: var(--selection-soft);
-    box-shadow: inset 0 0 0 2px var(--action-primary);
-  }
-  .cal-m-cell.selected .d.num {
-    color: var(--action-primary);
-  }
-  .cal-m-cell:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-  /* Indicador de eventos do dia: número visível na badge (nunca só cor) +
-     contagem repetida no aria-label do botão. */
-  .cal-m-count {
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    display: inline-grid;
-    place-items: center;
-    border-radius: 999px;
-    background: var(--action-primary);
-    color: var(--text-on-action);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-  }
-  .cal-m-day {
-    margin-top: var(--s4);
-  }
-  /* PR214-CORRECTIVE-1: o item da lista do dia é um <button> nativo com a cara
-     do .list-row — este reset cobre só o que o UA impõe ao button (fundo,
-     borda, cor, alinhamento, largura). O separador inferior re-declara o do
-     .list-row, que o border:0 apagaria; o :last-child do .list-row segue mais
-     específico e tira o do último. Filhos viram span (div em button é
-     inválido) — .nm/.sub precisam voltar a empilhar. */
-  .cal-m-event {
-    width: 100%;
-    background: transparent;
-    color: inherit;
-    text-align: left;
-    font: inherit;
-    border: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .cal-m-event:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-  .cal-m-event .nm,
-  .cal-m-event .sub {
-    display: block;
-  }
-  .cal-m-day-empty {
-    margin: 0;
-    padding: var(--s3) 0;
-  }
-  .cal-m-new {
-    width: 100%;
-    min-height: 44px;
-    margin-top: var(--s3);
-  }
+}
+
+/* A mesma lista mensal atende telas estreitas e containers com sidebar. */
+.cal-m-cal {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+.cal-m-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.cal-m-cell {
+  min-width: 0;
+  min-height: 48px;
+  padding: 5px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+}
+.cal-m-cell:nth-child(7n) {
+  border-right: 0;
+}
+.cal-m-cell.off {
+  background: var(--surface-2);
+  cursor: default;
+}
+.cal-m-cell .d.num {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Selecionado: fundo + anel interno; o estado programático é o aria-pressed
+   do botão. */
+.cal-m-cell.selected {
+  background: var(--selection-soft);
+  box-shadow: inset 0 0 0 2px var(--action-primary);
+}
+.cal-m-cell.selected .d.num {
+  color: var(--action-primary);
+}
+.cal-m-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Indicador de eventos do dia: número visível na badge (nunca só cor) +
+   contagem repetida no aria-label do botão. */
+.cal-m-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--action-primary);
+  color: var(--text-on-action);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.cal-m-day {
+  margin-top: var(--s4);
+}
+/* PR214-CORRECTIVE-1: o item da lista do dia é um <button> nativo com a cara
+   do .list-row — este reset cobre só o que o UA impõe ao button (fundo,
+   borda, cor, alinhamento, largura). O separador inferior re-declara o do
+   .list-row, que o border:0 apagaria; o :last-child do .list-row segue mais
+   específico e tira o do último. Filhos viram span (div em button é
+   inválido) — .nm/.sub precisam voltar a empilhar. */
+.cal-m-event {
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+}
+.cal-m-event:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.cal-m-event .nm,
+.cal-m-event .sub {
+  display: block;
+}
+.cal-m-day-empty {
+  margin: 0;
+  padding: var(--s3) 0;
+}
+.cal-m-new {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s3);
+}
+
+@media (max-width: 640px) {
   .mc.mc--leader .mc-hero {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
@@ -3300,6 +3344,15 @@ button.jr-row:focus-visible {
   text-align: center;
   padding: var(--s7);
   color: var(--muted);
+  font: var(--type-body);
+}
+.empty-state strong {
+  display: block;
+  color: var(--text-primary);
+  font: var(--type-h3);
+}
+.empty-state p + p {
+  margin-top: var(--s2);
 }
 .empty-state svg {
   width: 40px;
@@ -3577,13 +3630,12 @@ button.jr-row:focus-visible {
 table.data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 .data-table thead th {
   text-align: left;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 13px;
+  text-transform: none;
   color: var(--muted); /* F4: cabeçalho de coluna é texto essencial — faint reprovava AA */
   font-weight: 600;
   padding: 10px var(--s4);
@@ -3609,7 +3661,7 @@ table.data-table {
   font-weight: 560;
 }
 .data-table td .sub {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 /* Avatar de pessoa só serve ao card mobile; some na tabela desktop.
@@ -8554,6 +8606,7 @@ table.data-table {
 
 /* ---- composer ---- */
 .ib .thread-foot {
+  padding-inline: var(--s3);
   border-top: 1px solid var(--border-subtle);
   background: var(--surface-raised);
 }

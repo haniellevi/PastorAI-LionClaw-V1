@@ -11,13 +11,13 @@ Este diretório é o centro de planejamento integrado de UX, produto e experiên
 
 Um requisito antigo nunca deve apagar uma evolução já existente. Quando houver conflito, registrar a divergência, validar a operação atual e decidir conscientemente se há algo melhor a incorporar.
 
-## Referência atual, 30/09/2026
+## Referência atual, 01/10/2026
 
-O [design system canônico](../DESIGN.md) incorpora a prévia v2 aprovada por Raniel: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
+O [design system canônico](../DESIGN.md) incorpora o [conjunto expressivo v3 aprovado](../docs/design/UX-EXPRESSIVA-V3-APROVADA.md), com acesso split, assinatura mineral, títulos fortes e movimento decorativo acessível. A [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md) cobre todas as superfícies existentes e a publicação frontend autorizada. A base v2 aprovada mantém: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
 
-O primeiro recorte de Hoje e Conversas está implementado no candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`, na [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447), ainda em rascunho. Os quatro checks de produto passaram nesse SHA. A [F02 de acesso](../docs/sprints/2026-09-30-ux-acesso-v2.md) aplica a direção a login, recuperação, senha, convite e entrada do console, em candidato local próprio. A aplicação global permanece parcial; navegação, gestão da igreja e operação da plataforma continuam nas suas fatias de implementação e validação.
+O [registro global v2](../docs/sprints/2026-10-01-ux-global-v2.md) consolida as 42 unidades aprovadas: acesso, navegação, Hoje, atendimento, pessoas, células, agenda, gestão, console e estados globais. A implementação preserva contratos, papéis, tenant e gates. As fontes que já atendiam à direção foram mantidas e verificadas; capacidades ausentes continuam explicitamente indisponíveis.
 
-O [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) contém evidência e limites. O estado geral do produto permanece na [Wiki](../docs/WIKI-IGREJA12.md) e na [matriz de cobertura](../docs/ai/PRD-COVERAGE.md). Esta atualização do designer não registra um novo estado de produção.
+Os registros de [Hoje e Conversas](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) e [acesso F02](../docs/sprints/2026-09-30-ux-acesso-v2.md) preservam a evidência histórica. O estado geral do produto permanece na [Wiki](../docs/WIKI-IGREJA12.md) e na [matriz de cobertura](../docs/ai/PRD-COVERAGE.md). SHA e recibo da publicação pertencem à entrega global, sem inferir operação autenticada de provedores.
 
 ## Histórico do programa, snapshot de 11/08/2026
 
@@ -70,4 +70,4 @@ Os estados abaixo pertencem ao registro de agosto e não são uma consulta atual
 
 ## Gate permanente
 
-As aprovações de cada fatia ficam no seu registro. Em 30/09, a prévia de Hoje e Conversas v2 e a atualização do designer foram aprovadas. Próximo gate deste recorte: autorização nominal para liberar a PR #447 do rascunho para revisão. Merge e publicação seguem o runbook e a autorização da entrega; aprovação visual não abre gates de banco, provedores, envio ou ativação do agente.
+As aprovações de cada fatia ficam no seu registro. A direção visual, desenvolvimento global e publicação do frontend foram autorizados por Raniel nesta conversa. A entrega exige revisão, checks no SHA exato e recibo de publicação conforme runbook. Banco, provedores, envio e ativação do agente mantêm seus gates próprios.

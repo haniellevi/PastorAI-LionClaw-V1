@@ -197,6 +197,23 @@ describe("CreateIgrejaModal — W4B (DsDialog)", () => {
     });
   });
 
+  it("a revisão acompanha a taxa personalizada, a isenção e o uso da taxa padrão", () => {
+    const onSubmit = vi.fn();
+    render({ onSubmit });
+    const feeReview = () => [...container.querySelectorAll("dt")]
+      .find((term) => term.textContent === "Taxa de setup")?.nextElementSibling?.textContent;
+    expect(feeReview()).toBe("Taxa padrão da plataforma");
+    setValue(fieldByLabel("Taxa de setup personalizada"), "39.9");
+    expect(feeReview()).toMatch(/R\$\s*39,90/);
+    setValue(fieldByLabel("Taxa de setup personalizada"), "0");
+    expect(feeReview()).toMatch(/R\$\s*0,00/);
+    setValue(fieldByLabel("Taxa de setup personalizada"), "4.99");
+    expect(feeReview()).toBe("Taxa inválida, confira o campo.");
+    setValue(fieldByLabel("Taxa de setup personalizada"), "");
+    expect(feeReview()).toBe("Taxa padrão da plataforma");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("bloqueia já no primeiro submit uma taxa entre R$ 0,01 e R$ 4,99", () => {
     const onSubmit = vi.fn<(i: CreateIgrejaInput) => void>();
     render({ onSubmit });

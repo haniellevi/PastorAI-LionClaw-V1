@@ -102,15 +102,27 @@ test("contraste renderizado e composição não perdem controles nas quatro larg
         return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
       };
       const root = getComputedStyle(document.documentElement);
+      const lead = document.querySelector<HTMLElement>(".dh-lead")!;
+      const hero = document.querySelector<HTMLElement>(".dh-hero")!;
+      const selected = document.querySelector<HTMLElement>(".sidebar .nav-item.active");
       return {
         fg, bg, ratio: ratio(fg, bg), fontSize: getComputedStyle(el).fontSize,
         actionRatio: ratio(root.getPropertyValue("--text-on-action"), root.getPropertyValue("--action-primary")),
         focusRatio: ratio(root.getPropertyValue("--focus-ring"), bg),
+        heroLeadRatio: ratio(getComputedStyle(lead).color, getComputedStyle(hero).backgroundColor),
+        selectedNavRatio: selected ? ratio(getComputedStyle(selected).color, getComputedStyle(selected).backgroundColor) : null,
+        heroHeight: hero.getBoundingClientRect().height,
+        heroTitleSize: getComputedStyle(hero.querySelector(".dh-title")!).fontSize,
       };
     });
     expect(contrast.ratio).toBeGreaterThanOrEqual(4.5);
     expect(contrast.actionRatio).toBeGreaterThanOrEqual(4.5);
     expect(contrast.focusRatio).toBeGreaterThanOrEqual(3);
+    expect(contrast.heroLeadRatio).toBeGreaterThanOrEqual(4.5);
+    if (contrast.selectedNavRatio !== null) expect(contrast.selectedNavRatio).toBeGreaterThanOrEqual(4.5);
+    expect(contrast.fontSize).toBe("14px");
+    expect(contrast.heroTitleSize).toBe(width <= 860 ? "28px" : "32px");
+    if (width >= 1024) expect(contrast.heroHeight).toBeLessThanOrEqual(160);
     const activeFilter = page.locator(".dh-filter-btn.active").first();
     await activeFilter.focus();
     await page.keyboard.press("Tab");

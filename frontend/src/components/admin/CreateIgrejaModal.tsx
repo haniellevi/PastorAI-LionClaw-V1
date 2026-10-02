@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Provisionar nova igreja (US-43): cria o tenant + admin inicial (que recebe o
  * convite de ativação por e-mail). Validação inline; o erro do backend (422 de
@@ -79,11 +81,13 @@ export function CreateIgrejaModal({
 
   return (
     <DsDialog
+      className="administration-ux administration-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
       }}
       title="Provisionar nova igreja"
+      description="Crie a igreja e prepare o convite do administrador inicial. Os resultados serão informados separadamente."
       footer={
         <>
           <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
@@ -116,6 +120,7 @@ export function CreateIgrejaModal({
           </div>
         ) : null}
 
+        <h3>Igreja e plano</h3>
         <Field
           label="Nome da igreja"
           value={nome}
@@ -149,6 +154,7 @@ export function CreateIgrejaModal({
           error={setupFeeError}
         />
 
+        <h3 className="admin-section">Administrador inicial</h3>
         <Field
           label="Administrador — nome"
           value={adminNome}
@@ -165,6 +171,20 @@ export function CreateIgrejaModal({
           helper="Recebe o convite para ativar o acesso ao painel da igreja."
           error={adminEmailError}
         />
+        <details className="admin-disclosure">
+          <summary>Conferir dados de criação</summary>
+          <dl className="detail-list">
+            <div><dt>Igreja</dt><dd>{nome.trim() || "Nome não informado"}</dd></div>
+            <div><dt>Plano</dt><dd>{planOptions.find((option) => option.codigo === plano)?.nome ?? "Sem plano definido"}</dd></div>
+            <div><dt>Taxa de setup</dt><dd>{setupFeeValue === null
+              ? "Taxa padrão da plataforma"
+              : setupFeeInvalid
+                ? "Taxa inválida, confira o campo."
+                : setupFeeValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</dd></div>
+            <div><dt>Administrador</dt><dd>{adminNome.trim() || "Nome não informado"}</dd></div>
+            <div><dt>Convite para</dt><dd>{adminEmail.trim() || "E-mail não informado"}</dd></div>
+          </dl>
+        </details>
       </form>
     </DsDialog>
   );

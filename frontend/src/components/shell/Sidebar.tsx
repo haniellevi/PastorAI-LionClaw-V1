@@ -136,17 +136,21 @@ export function Sidebar({
     // estar aqui, não num span sr-only separado que o aria-label silenciaria).
     const accessibleLabel = item.locked ? `${item.label} — disponível em breve` : item.label;
 
+    const NavControl = item.locked ? "button" : "a";
     return (
-      <button
+      <NavControl
         key={`${item.target}-${item.label}`}
-        type="button"
+        type={item.locked ? "button" : undefined}
+        href={item.locked ? undefined : `#${item.target}`}
         className={classes}
         data-accent={tint}
         aria-label={accessibleLabel}
         aria-current={!item.locked && route === item.target ? "page" : undefined}
         aria-disabled={item.locked || undefined}
-        onClick={() => {
-          if (!item.locked) onNavigate(item.target);
+        onClick={(event) => {
+          if (item.locked || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onNavigate(item.target);
         }}
         onPointerDown={() => {
           if (!item.locked) onPreload?.(item.target);
@@ -172,7 +176,7 @@ export function Sidebar({
             <Icon name="lock" />
           </span>
         ) : null}
-      </button>
+      </NavControl>
     );
   }
 
@@ -262,6 +266,8 @@ export function Sidebar({
             <img
               src={igrejaLogo!}
               alt={`Logo de ${igrejaNome}`}
+              width={512}
+              height={160}
               onError={() => setLogoFailed(true)}
             />
           </span>
@@ -302,14 +308,18 @@ export function Sidebar({
 
       <div className="side-foot">
         <div className="side-user">
-          <button
-            type="button"
+          <a
+            href="#perfil"
             className="side-user-link"
             title="Meu perfil"
             onPointerDown={() => onPreload?.("perfil")}
             onMouseEnter={() => onPreload?.("perfil")}
             onFocus={() => onPreload?.("perfil")}
-            onClick={() => onNavigate("perfil")}
+            onClick={(event) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate("perfil");
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -323,6 +333,7 @@ export function Sidebar({
               color: "inherit",
               textAlign: "left",
               cursor: "pointer",
+              textDecoration: "none",
             }}
           >
             <span className="av">{initials(user.nome)}</span>
@@ -332,7 +343,7 @@ export function Sidebar({
                 Meu perfil
               </span>
             </span>
-          </button>
+          </a>
           <button
             type="button"
             id="logoutBtn"

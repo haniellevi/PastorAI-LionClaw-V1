@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Tela #enviar — panorama de multiplicações (somente leitura).
  *
@@ -81,12 +83,13 @@ export function EnviarScreen() {
   const registradas = data?.registradas ?? [];
 
   return (
-    <div className="screen journey-screen journey-screen--enviar" key="enviar">
+    <div className="screen journey-screen journey-screen--enviar ops-v2" key="enviar">
       <div className="screen-head">
         <div className="titles">
           <h2>Multiplicações</h2>
           <p>Acompanhe pedidos e registros que fortalecem a próxima geração.</p>
         </div>
+        <div className="actions"><button type="button" className="btn" disabled={loading} onClick={() => void load()}><Icon name="refresh" /> Atualizar</button></div>
       </div>
       <div className="info-banner" role="note">
         <Icon name="info" />
@@ -136,7 +139,7 @@ export function EnviarScreen() {
             ))}
           </div>
         </div>
-      ) : (
+      ) : error && !data ? null : (
         <>
           <div className="card">
             <div className="panel-title">

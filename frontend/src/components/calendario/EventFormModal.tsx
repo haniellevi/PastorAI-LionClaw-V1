@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Form de evento da agenda (api-events) — form-field + btn-primary. Cria um novo
  * evento ou, quando recebe `event` (EVT-4), edita um existente (PUT parcial). O
@@ -61,7 +63,7 @@ export function EventFormModal({
   const title = isEdit ? "Editar evento" : "Novo evento";
 
   return (
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -69,7 +71,7 @@ export function EventFormModal({
       title={title}
     >
       <form
-        className="modal-form"
+        className="modal-form ops-dialog"
         onSubmit={(e) => {
           e.preventDefault();
           submit();

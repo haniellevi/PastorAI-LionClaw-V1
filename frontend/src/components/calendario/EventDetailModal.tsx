@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Detalhe de um evento da agenda (EVT-4). Mostra título, quando (data/hora ou
  * recorrência), descrição, status/origem/recorrência e o estado de sync com o
@@ -91,7 +93,7 @@ export function EventDetailModal({
   const showPills = Boolean(status || event.tipo || event.origem || event.recorrencia);
 
   return (
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();

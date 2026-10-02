@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * US-03 — indicar (nominalmente) um visitante para a próxima reunião. Formulário
  * controlado à mão: nome obrigatório (validação inline) e um pedido de oração
@@ -64,7 +66,7 @@ export function IndicateVisitorModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();

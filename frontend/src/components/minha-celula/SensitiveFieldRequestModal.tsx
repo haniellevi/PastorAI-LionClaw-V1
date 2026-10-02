@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * US-13 — Solicitação de alteração de campo SENSÍVEL da célula (líder → Central).
  * Campos sensíveis (dia, horário, endereço, anfitrião, auxiliar) NUNCA são salvos
@@ -142,7 +144,7 @@ export function SensitiveFieldRequestModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -156,7 +158,7 @@ export function SensitiveFieldRequestModal({
       {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
-          className="modal-form"
+          className="modal-form ops-dialog"
           onSubmit={(e) => {
             e.preventDefault();
             void submit();

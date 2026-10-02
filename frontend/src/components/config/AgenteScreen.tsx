@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #agente — configuração do Agente de IA (F? / US-27..29). Admin-only
  * (gating de rota no AppShell / seção config adminOnly em navigation.ts).
@@ -85,6 +87,8 @@ export function AgenteScreen() {
 
   const [tab, setTab] = useState<Tab>("behavior");
   const [loading, setLoading] = useState(true);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // ── Credencial LLM ──────────────────────────────────────────────────────
   const [provedor, setProvedor] = useState<LlmProvider>("openai");
@@ -150,6 +154,9 @@ export function AgenteScreen() {
   useEffect(() => {
     if (!token) return;
     let alive = true;
+    setLoading(true);
+    setConfigLoaded(false);
+    setLoadError(null);
     void (async () => {
       try {
         const [cred, modelCatalog, cfg, cronList, reqList] = await Promise.all([
@@ -171,14 +178,16 @@ export function AgenteScreen() {
           setNome(cfg.nome ?? "");
           setTom(cfg.tom ?? "");
           setComportamento(cfg.comportamento ?? "");
-          setAtivo(cfg.ativo);
         }
+        setAtivo(cfg.ativo);
+        setConfigLoaded(true);
         setCrons(cronList);
         setRequests(reqList);
       } catch (err) {
+        if (!alive) return;
         if (handleSessionError(err)) return;
-        setCredError(
-          "Não foi possível carregar os modelos permitidos. Atualize a página e tente novamente.",
+        setLoadError(
+          "Não foi possível carregar o estado e as configurações do assistente. Atualize a página e tente novamente.",
         );
       } finally {
         if (alive) setLoading(false);
@@ -297,7 +306,7 @@ export function AgenteScreen() {
 
   // ── Criar/editar cron (gatilho de estado validado antes de salvar) ───────
   const submitCron = useCallback(async () => {
-    if (!token || savingCron || cronNome.trim().length === 0) return;
+    if (!token || !configLoaded || savingCron || cronNome.trim().length === 0) return;
     setSavingCron(true);
     setCronError(null);
     const payload = {
@@ -329,14 +338,14 @@ export function AgenteScreen() {
     } finally {
       setSavingCron(false);
     }
-  }, [token, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, editingId, resetCronForm, flashToast, handleSessionError]);
+  }, [token, configLoaded, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, editingId, resetCronForm, flashToast, handleSessionError]);
 
   // ── Ativar/desativar um cron (soft-disable via toggle de `ativo`) ────────
   const toggleCron = useCallback(
     async (cron: CronResult) => {
       // Bloqueia se há outro toggle em voo ou se a linha está em edição: editar
       // + alternar a mesma linha causaria um revert silencioso ao salvar.
-      if (!token || togglingId || editingId === cron.id) return;
+      if (!token || !configLoaded || togglingId || editingId === cron.id) return;
       setTogglingId(cron.id);
       setCronError(null);
       try {
@@ -363,7 +372,7 @@ export function AgenteScreen() {
         setTogglingId(null);
       }
     },
-    [token, togglingId, editingId, flashToast, handleSessionError],
+    [token, configLoaded, togglingId, editingId, flashToast, handleSessionError],
   );
 
   const modelChanged =
@@ -374,23 +383,29 @@ export function AgenteScreen() {
   const cronReady = cronNome.trim().length > 0;
 
   return (
-    <div className="screen admin-screen agent-screen" key="agente">
+    <div className="screen admin-screen agent-screen administration-ux" key="agente">
       <div className="screen-head">
         <div className="titles">
           <h2>Assistente da igreja</h2>
-          <p>Revise comportamento, credencial e rotinas do agente com contexto.</p>
+          <p>Configure credencial e rotinas. Revise o comportamento e solicite ajustes.</p>
         </div>
         <div className="actions">
-          <StatusPill tone={loading ? "muted" : credentialTone(credentialState)}>
-            {loading ? "Carregando…" : credentialLabel(credentialState)}
+          <StatusPill tone={loading || !configLoaded ? "muted" : credentialTone(credentialState)}>
+            {loading ? "Carregando…" : configLoaded ? credentialLabel(credentialState) : "Credencial indisponível"}
           </StatusPill>
         </div>
       </div>
 
+      {loadError ? <div className="error-banner" role="alert"><span>{loadError}</span></div> : null}
+      <div className="admin-context">
+        <strong>{loading ? "Carregando estado do assistente…" : !configLoaded ? "Estado do assistente indisponível" : ativo ? "Assistente ativo" : "Assistente desativado"}</strong>
+        <p>Credencial e conexão são pré-requisitos. Salvar a chave ou o modelo não altera o estado do assistente.</p>
+      </div>
       <div className="tabs admin-tabs" style={{ marginBottom: "var(--s4)" }}>
         <button
           type="button"
           className={`tab${tab === "behavior" ? " active" : ""}`}
+          aria-pressed={tab === "behavior"}
           onClick={() => setTab("behavior")}
         >
           Comportamento
@@ -398,6 +413,7 @@ export function AgenteScreen() {
         <button
           type="button"
           className={`tab${tab === "credential" ? " active" : ""}`}
+          aria-pressed={tab === "credential"}
           onClick={() => setTab("credential")}
         >
           Credencial LLM
@@ -405,6 +421,7 @@ export function AgenteScreen() {
         <button
           type="button"
           className={`tab${tab === "crons" ? " active" : ""}`}
+          aria-pressed={tab === "crons"}
           onClick={() => setTab("crons")}
         >
           Agendamentos
@@ -434,23 +451,23 @@ export function AgenteScreen() {
           <div className="row" style={{ marginBottom: "var(--s3)" }}>
             <div className="field" style={{ margin: 0 }}>
               <label>Nome do agente</label>
-              <div className="val">{nome || "—"}</div>
+              <div className="val">{loading ? "Carregando…" : !configLoaded ? "Indisponível" : nome || "—"}</div>
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label>Tom de voz</label>
-              <div className="val">{tom || "—"}</div>
+              <div className="val">{loading ? "Carregando…" : !configLoaded ? "Indisponível" : tom || "—"}</div>
             </div>
           </div>
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label>Comportamento e instruções</label>
             <div className="val" style={{ whiteSpace: "pre-wrap" }}>
-              {comportamento || "Ainda não configurado pela plataforma."}
+              {loading ? "Carregando…" : !configLoaded ? "Indisponível" : comportamento || "Ainda não configurado pela plataforma."}
             </div>
           </div>
           <div className="seg-toggle-row">
             <span>Status do agente</span>
-            <StatusPill tone={ativo ? "ok" : "muted"}>
-              {ativo ? "Ativo" : "Desativado"}
+            <StatusPill tone={configLoaded && ativo ? "ok" : "muted"}>
+              {loading ? "Carregando…" : !configLoaded ? "Indisponível" : ativo ? "Ativo" : "Desativado"}
             </StatusPill>
           </div>
         </div>
@@ -542,6 +559,8 @@ export function AgenteScreen() {
             </div>
           ) : null}
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
+            <h3>Credencial e modelo</h3>
+            <p className="sub">Confira o resultado da validação. A chave permanece protegida e salvar não ativa o assistente.</p>
             <label htmlFor="agProvider">Provedor</label>
             <select
               id="agProvider"
@@ -717,19 +736,19 @@ export function AgenteScreen() {
               />
             </div>
             <div className="seg-toggle-row" style={{ marginBottom: "var(--s3)" }}>
-              <span>{cronAtivo ? "Agendamento ativo" : "Agendamento pausado"}</span>
+              <span>{!configLoaded ? "Configuração indisponível" : cronAtivo ? "Agendamento ativo" : "Agendamento pausado"}</span>
               <Toggle
                 checked={cronAtivo}
                 onChange={setCronAtivo}
                 label="Ativar agendamento"
-                disabled={savingCron}
+                disabled={savingCron || !configLoaded}
               />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={!cronReady || savingCron}
+                disabled={!configLoaded || !cronReady || savingCron}
                 aria-busy={savingCron || undefined}
               >
                 {savingCron
@@ -796,7 +815,7 @@ export function AgenteScreen() {
                             type="button"
                             className="btn btn-sm"
                             onClick={() => startEdit(c)}
-                            disabled={togglingId === c.id}
+                            disabled={!configLoaded || togglingId === c.id}
                           >
                             Editar
                           </button>
@@ -804,7 +823,7 @@ export function AgenteScreen() {
                             type="button"
                             className="btn btn-sm"
                             onClick={() => void toggleCron(c)}
-                            disabled={togglingId !== null || editingId === c.id}
+                            disabled={!configLoaded || togglingId !== null || editingId === c.id}
                             aria-busy={togglingId === c.id || undefined}
                           >
                             {c.ativo ? "Desativar" : "Ativar"}

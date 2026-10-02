@@ -30,6 +30,8 @@ const ORIGENS = [
   "Visita / fonovisita",
 ] as const;
 
+import "../contacts/people-ux-v2.css";
+
 export interface DecisionModalProps {
   /** Pessoas elegíveis para lançar a decisão. */
   contacts: Contact[];
@@ -80,7 +82,7 @@ export function DecisionModal({
 
   const submit = () => {
     setTouched(true);
-    if (!canSubmit) return;
+    if (busy || !canSubmit) return;
     onSubmit({
       pessoa: pessoaId,
       origem,
@@ -93,12 +95,13 @@ export function DecisionModal({
     // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
     // primitive); fechar bloqueado enquanto salva, como nas waves anteriores.
     <DsDialog
+      className="people-ux-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
       }}
       title="Lançar decisão por Jesus"
-      description="Registre quem decidiu por Jesus para iniciar a consolidação. Ninguém que aceitou Jesus fica sem acompanhamento."
+      description="Escolha a pessoa, a origem e o vínculo para registrar a decisão e iniciar o acompanhamento."
     >
         <form
           className="modal-form"
@@ -119,6 +122,8 @@ export function DecisionModal({
               <label htmlFor="dec-pessoa">Pessoa</label>
               <select
                 id="dec-pessoa"
+                disabled={busy}
+                aria-describedby={pessoaError ? "dec-pessoa-error" : undefined}
                 value={pessoaId}
                 onChange={(e) => setPessoaId(e.target.value)}
                 aria-invalid={pessoaError ? true : undefined}
@@ -131,7 +136,7 @@ export function DecisionModal({
                 ))}
               </select>
               {pessoaError ? (
-                <div className="err" role="alert">
+                <div id="dec-pessoa-error" className="err" role="alert">
                   {pessoaError}
                 </div>
               ) : null}
@@ -140,6 +145,7 @@ export function DecisionModal({
               <label htmlFor="dec-origem">Origem da decisão</label>
               <select
                 id="dec-origem"
+                disabled={busy}
                 value={origem}
                 onChange={(e) => setOrigem(e.target.value)}
               >
@@ -152,8 +158,8 @@ export function DecisionModal({
             </div>
           </div>
 
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Vínculo da pessoa</label>
+          <fieldset className="choice-field" disabled={busy}>
+            <legend>Vínculo da pessoa</legend>
             <div className="choice">
               <label className={vinculo === "celula" ? "on" : undefined}>
                 <input
@@ -189,13 +195,15 @@ export function DecisionModal({
                 </span>
               </label>
             </div>
-          </div>
+          </fieldset>
 
           {vinculo === "celula" && !celulaFlowBlocked ? (
             <div className={`field${celulaError ? " invalid" : ""}`} style={{ margin: "var(--s4) 0 0" }}>
               <label htmlFor="dec-celula">Célula que participa</label>
               <select
                 id="dec-celula"
+                disabled={busy}
+                aria-describedby={celulaError ? "dec-celula-error" : undefined}
                 value={celulaId}
                 onChange={(e) => setCelulaId(e.target.value)}
                 aria-invalid={celulaError ? true : undefined}
@@ -208,7 +216,7 @@ export function DecisionModal({
                 ))}
               </select>
               {celulaError ? (
-                <div className="err" role="alert">
+                <div id="dec-celula-error" className="err" role="alert">
                   {celulaError}
                 </div>
               ) : null}
@@ -216,11 +224,11 @@ export function DecisionModal({
           ) : null}
 
           <div className="flow-note">
-            <Icon name={celulaFlowBlocked ? "alert" : "sparkles"} />
+            <Icon name={celulaFlowBlocked ? "alert" : "clock"} />
             <span>
               {celulaFlowBlocked ? (
                 <>
-                  Nenhuma célula ativa com líder disponível — o fluxo de célula fica
+                  Nenhuma célula ativa com líder disponível. O fluxo de célula fica
                   bloqueado. Use <strong>Visitante sem vínculo</strong>: a consolidação
                   abre prazo de 24h para conectar a pessoa assim que houver célula.
                 </>
@@ -231,7 +239,7 @@ export function DecisionModal({
                 </>
               ) : (
                 <>
-                  Fluxo visitante: ao lançar, abre-se um prazo de 24h (deadline-badge)
+                  Ao lançar esta decisão, a consolidação começa com prazo de 24h
                   para conectar a pessoa a uma célula. Atrasos são escalados.
                 </>
               )}

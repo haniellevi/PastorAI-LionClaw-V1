@@ -1,0 +1,434 @@
+/* Pessoas e consolidação: composição v3 aprovada, com contratos v2 preservados. */
+.people-ux {
+  color: var(--text-primary);
+}
+.people-ux .screen-head {
+  align-items: flex-start;
+  gap: var(--s4);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.people-ux .screen-head .titles h2 {
+  font: 700 32px/1.2 var(--font-display);
+  letter-spacing: -0.025em;
+}
+.people-ux .screen-head .titles p {
+  max-width: 64ch;
+  margin-top: var(--s2);
+  color: var(--text-secondary);
+  font: 450 16px/1.5 var(--font);
+}
+.people-ux :is(.card, .dash-side, .qbody, .person-id, .people-next-action) {
+  min-width: 0;
+}
+.people-ux :is(.nm, .qbody strong, .detail-head h3) {
+  color: var(--text-primary);
+  font: 650 16px/1.45 var(--font);
+  overflow-wrap: anywhere;
+}
+.people-ux :is(.sub, .meta, .lock-note, .count),
+.people-meta {
+  color: var(--text-secondary);
+  font: 500 14px/1.5 var(--font);
+  overflow-wrap: anywhere;
+}
+.people-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s4);
+  margin-bottom: var(--s4);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.people-toolbar .field {
+  margin: 0;
+  min-width: min(100%, 280px);
+}
+.people-toolbar label,
+.people-ux-dialog :is(.field label, .ds-field__label, legend) {
+  display: block;
+  margin-bottom: var(--s2);
+  color: var(--text-primary);
+  font: var(--type-label);
+}
+.people-toolbar select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-control);
+  padding: var(--s2) var(--s3);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  font: var(--type-body);
+}
+.people-toolbar .people-meta {
+  margin: 0 0 var(--s2);
+}
+.people-layout {
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+}
+.people-detail-region {
+  border-radius: var(--radius-panel);
+}
+.people-ux :is(button, select, summary, .row-link):focus-visible,
+.people-detail-region:focus-visible,
+.people-ux-dialog :is(input, select, textarea, button, summary):focus-visible,
+.people-ux-dialog .choice label:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.people-ux .btn,
+.people-ux-dialog :is(.btn, .ds-btn) {
+  min-height: 40px;
+  font: var(--type-label);
+  white-space: normal;
+  text-align: center;
+}
+.people-back {
+  align-self: flex-start;
+}
+.people-ux .data-table {
+  font: var(--type-body);
+}
+.people-ux .data-table th {
+  color: var(--text-secondary);
+  font: var(--type-label);
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+}
+.people-ux .data-table td {
+  padding: var(--s4) var(--s3);
+  overflow-wrap: anywhere;
+}
+.people-ux .data-table .pill {
+  white-space: nowrap;
+}
+.people-ux .data-table td .sub {
+  margin-top: var(--s1);
+  font: 500 14px/1.5 var(--font);
+}
+.people-ux .data-table tr:has(.people-open[aria-pressed="true"]) {
+  background: var(--selection-soft);
+}
+.people-ux .detail-head {
+  flex-wrap: wrap;
+}
+.people-ux .detail-head h3 {
+  font: 700 20px/1.3 var(--font-display);
+}
+.people-detail-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  min-width: 0;
+}
+.people-detail-identity > div {
+  min-width: 0;
+}
+.people-detail-identity .avatar {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  color: var(--action-primary);
+  background: var(--selection-soft);
+  font: 650 16px/1.4 var(--font);
+}
+.people-ux .detail-list dt {
+  color: var(--text-secondary);
+  font: 500 14px/1.5 var(--font);
+}
+.people-ux .detail-list dd {
+  margin: 0;
+  color: var(--text-primary);
+  font: 550 15px/1.5 var(--font);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.people-ux .detail-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: flex-start;
+  gap: var(--s3);
+  padding-bottom: var(--s3);
+}
+.people-context {
+  margin-bottom: var(--s4);
+}
+.people-disclosure {
+  margin-top: var(--s4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  padding: 0 var(--s3);
+  background: var(--surface-raised);
+}
+.people-disclosure > summary {
+  padding: var(--s3) 0;
+  color: var(--text-primary);
+  font: var(--type-label);
+  cursor: pointer;
+  min-height: 44px;
+}
+.people-disclosure > :not(summary) {
+  margin-top: var(--s2);
+  margin-bottom: var(--s3);
+}
+.people-disclosure .btn + .btn {
+  margin-top: var(--s2);
+}
+.people-overview {
+  padding: 0 var(--s4) var(--s2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+}
+.people-overview .stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+}
+.people-overview .stat .val {
+  font-size: 22px;
+}
+.people-filter-group {
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.people-ux .people-filter-group .tab {
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-control);
+  min-height: 44px;
+  color: var(--text-primary);
+  font: var(--type-label);
+}
+.people-ux .people-filter-group .tab.active {
+  background: var(--action-primary);
+  color: var(--text-on-action);
+  border-color: var(--action-primary);
+}
+.people-ux .people-filter-group .tab.active .num {
+  color: inherit;
+}
+.people-work-list {
+  display: grid;
+  gap: var(--s4);
+}
+.people-ux .panel-title {
+  min-height: 56px;
+  gap: var(--s3);
+  font: 650 16px/1.4 var(--font);
+  flex-wrap: wrap;
+}
+.people-ux .qitem {
+  padding: var(--s4);
+  gap: var(--s4);
+  border-bottom-color: var(--border-subtle);
+  flex-wrap: wrap;
+}
+.people-ux .qbody {
+  flex: 1 1 240px;
+}
+.people-next-label {
+  margin-top: var(--s2);
+  color: var(--text-primary);
+  font: var(--type-label);
+}
+.people-next-action .people-meta {
+  margin: 0 0 var(--s2);
+}
+.people-next-action .row-actions {
+  justify-content: flex-start;
+  gap: var(--s2);
+}
+.people-module-info .panel-title {
+  flex-wrap: wrap;
+}
+.people-ux-dialog {
+  max-width: 600px;
+}
+.people-ux-dialog :is(input:not([type="radio"]):not([type="checkbox"]), select, textarea) {
+  font-size: 16px;
+  color: var(--text-primary);
+  border-color: var(--border-emphasis);
+  min-height: 44px;
+}
+.people-ux-dialog :is(.sub, .modal-sub, .ds-dialog-desc, .cs, .flow-note, .lock-note, .preserve-note, .people-stage-status) {
+  color: var(--text-secondary);
+  font: 500 14px/1.5 var(--font);
+  overflow-wrap: anywhere;
+}
+.people-ux-dialog .recip {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.people-ux-dialog .recip .nm,
+.people-ux-dialog .track .nm {
+  color: var(--text-primary);
+  font: 650 16px/1.45 var(--font);
+  flex-wrap: wrap;
+}
+.people-ux-dialog .track .sub,
+.people-ux .track .sub {
+  font: 500 14px/1.5 var(--font);
+  color: var(--text-secondary);
+}
+.people-ux .track .stop .nm {
+  font: 650 16px/1.45 var(--font);
+}
+.people-ux-dialog .track .stop.now .dot {
+  border-color: var(--action-primary);
+  color: var(--action-primary);
+  background: var(--selection-soft);
+}
+.people-ux-dialog .track .stop .dot {
+  width: 28px;
+  height: 28px;
+}
+.people-ux-dialog .track .stop::before {
+  left: 13px;
+}
+.people-ux-dialog .people-stage-status {
+  margin: var(--s1) 0;
+  color: var(--text-primary);
+  font-weight: 650;
+}
+.people-ux-dialog .track .stop.done .dot {
+  background: var(--action-primary);
+  border-color: var(--action-primary);
+  color: var(--text-on-action);
+}
+.people-ux-dialog .choice-field {
+  border: 0;
+  padding: 0;
+  margin: var(--s4) 0 0;
+  min-width: 0;
+}
+.people-ux-dialog .choice label {
+  border-color: var(--border-emphasis);
+}
+.people-ux-dialog .choice input {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--s2);
+  accent-color: var(--action-primary);
+  vertical-align: middle;
+}
+.people-ux-dialog .choice .ct {
+  display: inline-flex;
+  color: var(--text-primary);
+  font: var(--type-label);
+}
+.people-discard-note {
+  padding: var(--s3);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-control);
+  margin-top: var(--s4);
+  color: var(--text-primary);
+  font: var(--type-body);
+}
+.people-discard-actions {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-top: var(--s3);
+}
+.people-ux :disabled,
+.people-ux-dialog :disabled {
+  opacity: 1;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+}
+@media (max-width: 1024px) {
+  .people-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 860px) {
+  .people-ux .screen-head .titles h2 {
+    font-size: 28px;
+  }
+  .people-ux :is(.btn, .tab),
+  .people-ux-dialog :is(.btn, .ds-btn) {
+    min-height: 44px;
+  }
+  .people-ux--detail-open .people-list-region,
+  .people-ux--detail-open .screen-head .actions {
+    display: none;
+  }
+  .people-ux:not(.people-ux--detail-open) .people-detail-region {
+    display: none;
+  }
+  .people-ux .people-table thead {
+    display: none;
+  }
+  .people-ux .people-table,
+  .people-ux .people-table :is(tbody, tr, td) {
+    display: block;
+    width: 100%;
+  }
+  .people-ux .people-table tr {
+    padding: var(--s4);
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .people-ux .people-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--s2);
+    padding: var(--s2) 0;
+    border: 0;
+    text-align: start;
+  }
+  .people-ux .people-table td::before {
+    content: attr(data-label);
+    color: var(--text-secondary);
+    font: 500 14px/1.5 var(--font);
+    white-space: normal;
+  }
+  .people-ux .people-table td:first-child::before,
+  .people-ux .people-table td[data-label="Detalhe"]::before,
+  .people-ux .people-table td[data-label="Próxima ação"]::before,
+  .people-ux .people-table td[data-label="Acompanhamento"]::before {
+    display: none;
+  }
+  .people-ux .people-table td:first-child {
+    display: block;
+    font: var(--type-label);
+    margin-bottom: var(--s2);
+  }
+  .people-ux .people-table td:first-child .avatar {
+    display: none;
+  }
+  .people-ux .people-table td :is(.btn, .people-next-action) {
+    width: 100%;
+  }
+  .people-ux .qactions,
+  .people-ux .qactions .btn {
+    width: 100%;
+  }
+}
+@media (max-width: 560px) {
+  .people-toolbar .field,
+  .people-toolbar select {
+    width: 100%;
+  }
+  .people-ux-dialog .row {
+    flex-direction: column;
+  }
+  .people-ux-dialog .choice {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.people-ux-dialog .modal-foot[hidden] {
+  display: none;
+}
