@@ -483,12 +483,18 @@ sem declarar as próximas verticais implementadas.
      limites](../sprints/2026-09-30-aud02-microphone-conversation-scope.md).
      Merge continua sujeito a novo head, CI, revisões e gate nominal.
    - [ ] Programa de desempenho de 02/10: fonte integrada pela PR #451;
-     frontend publicado em `e59feb5`, com CI e aliases confirmados.
+     frontend publicado em `379a4dc` após a PR documental #452, com bytes de
+     produto iguais a `e59feb5`, CI e aliases confirmados.
      [Plano, contratos e limites](../performance/2026-10-02-fluidity-plan.md) e
      [recibo de publicação](../performance/2026-10-02-fluidity-release.md).
      Implantação backend e métricas autenticadas de campo permanecem pendentes.
+     Environment `backend-production` configurado em 02/10 com reviewer
+     obrigatório, bypass administrativo desativado, `main` única e variáveis
+     restritas. Credenciais, acesso temporário, inventário e janela nominal
+     do operador ainda necessários antes do dispatch.
      Região, capacidade e protocolo durável de
-     envio humano dependem de evidência específica; nenhum gate foi alterado.
+     envio humano dependem de evidência específica; nenhum gate de efeitos
+     externos foi alterado.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;
