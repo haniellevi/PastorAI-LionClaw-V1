@@ -18,6 +18,7 @@ import "./globals.css";
 // O globals.css mantém aliases compatíveis, todos alinhados a esta fundação.
 import "./design-tokens.css";
 import "./ds.css";
+import "./expressive-ux-v3.css";
 
 export const metadata: Metadata = {
   title: {
@@ -25,7 +26,7 @@ export const metadata: Metadata = {
     template: "%s · Igreja 12",
   },
   description:
-    "Sistema agêntico de gestão de igrejas na Visão G12: consolidação, discipulado e células orquestrados por IA no WhatsApp.",
+    "Cuidado e acompanhamento para sua igreja: pessoas, células e atendimentos pelo WhatsApp, com um painel para configuração e governança.",
   applicationName: "Igreja 12",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

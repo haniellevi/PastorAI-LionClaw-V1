@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Central de Célula (Jornada G12 > Discipular > Central de Célula).
  *
@@ -35,6 +37,11 @@ export function CentralCelulaScreen() {
   const isCentral = user?.roles.includes("pastor") || user?.roles.includes("admin") || false;
 
   const [tab, setTab] = useState<CentralTab>("dashboard");
+  const [revealHealth, setRevealHealth] = useState(false);
+  const openTab = useCallback((nextTab: CentralTab, showHealth = false) => {
+    setRevealHealth(nextTab === "cells" && showHealth);
+    setTab(nextTab);
+  }, []);
   const [dashboard, setDashboard] = useState<CentralDashboard | null>(null);
   const [loadingDash, setLoadingDash] = useState(true);
   const [dashError, setDashError] = useState<string | null>(null);
@@ -94,7 +101,7 @@ export function CentralCelulaScreen() {
   };
 
   return (
-    <div className="screen cc" key="central-celula">
+    <div className="screen cc ops-v2" key="central-celula">
       <div className="screen-head">
         <div className="titles">
           <h2>Central de Célula</h2>
@@ -103,7 +110,7 @@ export function CentralCelulaScreen() {
       </div>
 
       <section className="cc-workspace" aria-label="Gestão central das células">
-        <CentralTabs active={tab} onChange={setTab} badges={badges}>
+        <CentralTabs active={tab} onChange={openTab} badges={badges}>
           {tab === "dashboard" && token ? (
             <DashboardPanel
               token={token}
@@ -111,12 +118,12 @@ export function CentralCelulaScreen() {
               loading={loadingDash}
               error={dashError}
               onRetry={() => void loadDashboard("initial")}
-              onGoTo={setTab}
+              onGoTo={openTab}
             />
           ) : null}
 
           {tab === "cells" && token ? (
-            <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+            <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} revealHealth={revealHealth} />
           ) : null}
 
           {tab === "requests" && token ? (

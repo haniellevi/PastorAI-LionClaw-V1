@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Página dedicada de uma igreja no console master (tela cheia, não mais modal).
  * Abas: Dashboard (visão + ações), Agente (config do agente da igreja), Admins
@@ -266,12 +268,13 @@ export function ChurchPage({
   };
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: "var(--s4)" }}>
+    <div className="administration-ux platform-church">
       <button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>
         ← Voltar
       </button>
 
-      <header style={{ margin: "var(--s3) 0 var(--s4)" }}>
+      <header className="platform-target" style={{ margin: "var(--s3) 0 var(--s4)" }}>
+        <p className="sub">Igreja selecionada · Console da Plataforma</p>
         <h1 style={{ margin: 0 }}>{igreja.nome}</h1>
         <p className="sub" style={{ margin: 0, color: "var(--muted)" }}>
           {STATUS_LABEL[igreja.status] ?? igreja.status}
@@ -489,7 +492,7 @@ function DashboardTab({
       ) : null}
 
       <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
-        <Button variant="primary" size="sm" onClick={onEdit} disabled={busy}>
+        <Button variant={pending ? "ghost" : "primary"} size="sm" onClick={onEdit} disabled={busy}>
           Editar dados
         </Button>
         {pending ? (
@@ -673,6 +676,8 @@ function AgenteTab({
           <span>{err}</span>
         </div>
       ) : null}
+      <h3>Comportamento desta igreja</h3>
+      <p className="sub">Revise o comportamento e o estado desejado antes de salvar. A credencial da igreja continua separada desta configuração.</p>
       <div className="field" style={{ marginBottom: "var(--s3)" }}>
         <label htmlFor="cp-nome">Nome do agente</label>
         <input id="cp-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pastora Ana" />

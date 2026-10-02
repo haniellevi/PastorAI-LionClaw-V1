@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Minha Célula — visão do Discípulo (Células PR3). Orquestra, em paralelo:
  *   próxima reunião (US-01), avisos (US-04), materiais (US-21) e histórico (US-05).
@@ -8,6 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { SupportReveal } from "@/components/brand/SupportReveal";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { DsToast, DsToastRegion } from "@/components/ds/Toast";
@@ -91,13 +94,13 @@ export function DiscipuloScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen mc mc--member" key="minha-celula">
+    <div className="screen mc mc--member ops-v2" key="minha-celula">
       <div className="screen-head">
         {/* PR212-CORRECTIVE-1: o h1 "Minha Célula" é da Topbar (SCREEN_META);
             repetir o mesmo texto aqui duplicava o título na tela. Fica só o
             subtítulo. */}
         <div className="titles">
-          <p>Sua próxima reunião, avisos e histórico.</p>
+          <p>Sua próxima reunião, avisos e materiais da célula.</p>
         </div>
       </div>
 
@@ -142,12 +145,18 @@ export function DiscipuloScreen() {
           <div className="mc-area mc-area--notices">
             <NoticesFeed notices={notices} />
           </div>
-          <div className="mc-area mc-area--materials">
-            <MaterialsFeed materials={materials} />
-          </div>
-          <div className="mc-area mc-area--history">
-            <MeetingHistoryList items={history} />
-          </div>
+          <SupportReveal className="mc-area mc-area--materials">
+            <details className="ops-disclosure">
+              <summary>Materiais da célula</summary>
+              <div className="ops-disclosure-body"><MaterialsFeed materials={materials} /></div>
+            </details>
+          </SupportReveal>
+          <SupportReveal className="mc-area mc-area--history">
+            <details className="ops-disclosure">
+              <summary>Meu histórico de reuniões</summary>
+              <div className="ops-disclosure-body"><MeetingHistoryList items={history} /></div>
+            </details>
+          </SupportReveal>
         </div>
       )}
 

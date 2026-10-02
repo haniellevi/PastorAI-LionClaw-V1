@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import type { CreateContactInput } from "@/lib/contacts-api";
 
+import "./people-ux-v2.css";
+
 export interface NewContactModalProps {
   busy: boolean;
   error: string | null;
@@ -27,12 +29,20 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
   const [genero, setGenero] = useState<"" | "m" | "f">("");
   const [tipo, setTipo] = useState("contato");
   const [touched, setTouched] = useState(false);
+  const [discardRequested, setDiscardRequested] = useState(false);
+  const dirty = Boolean(nome || telefone || email || genero || tipo !== "contato");
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setDiscardRequested(true);
+    else onClose();
+  };
 
   const nomeError = touched && !nome.trim() ? "Informe o nome." : undefined;
   const telError =
     touched && telefone.replace(/\D/g, "").length < 8 ? "Telefone inválido." : undefined;
 
   const submit = () => {
+    if (busy || discardRequested) return;
     setTouched(true);
     if (!nome.trim() || telefone.replace(/\D/g, "").length < 8) return;
     onSubmit({
@@ -48,10 +58,9 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
     // Fechar bloqueado enquanto salva (Esc/backdrop/botão do DsDialog); o foco
     // inicial vai para o campo Nome via [data-autofocus].
     <DsDialog
+      className="people-ux-dialog"
       open
-      onClose={() => {
-        if (!busy) onClose();
-      }}
+      onClose={requestClose}
       title="Novo contato"
     >
       <form
@@ -119,14 +128,24 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
           </div>
         </div>
 
-        <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+        <div className="modal-foot" hidden={discardRequested}>
+          <button type="button" className="btn btn-sm" onClick={requestClose} disabled={busy}>
             Cancelar
           </button>
-          <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
+          <Button type="submit" variant="primary" size="sm" disabled={discardRequested} loading={busy} loadingText="Salvando…">
             Salvar contato
           </Button>
         </div>
+        {discardRequested ? (
+          <div className="people-discard-note" role="alert">
+            <strong>Descartar alterações não salvas?</strong>
+            <p>O preenchimento será perdido se você fechar agora.</p>
+            <div className="people-discard-actions">
+              <button type="button" className="btn" disabled={busy} onClick={() => { if (!busy) setDiscardRequested(false); }}>Continuar editando</button>
+              <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { if (!busy) onClose(); }}>Descartar alterações</button>
+            </div>
+          </div>
+        ) : null}
       </form>
     </DsDialog>
   );

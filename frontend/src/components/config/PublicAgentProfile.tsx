@@ -127,7 +127,7 @@ export function PublicAgentProfile({ token, expireSession }: { token: string; ex
           <legend className="panel-title">Células públicas por bairro</legend>
           {visibleCells.length === 0 ? <p className="sub">Nenhuma célula publicada. Adicione uma se a igreja quiser indicar uma por bairro.</p> : null}
           {visibleCells.map((cell, index) => (
-            <div key={cell.id} className="card card-pad" style={{ marginBottom: "var(--s3)" }}>
+            <div key={cell.id} className="admin-inline-section" style={{ marginBottom: "var(--s3)" }}>
               <div className="row" style={{ flexWrap: "wrap" }}>
                 <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
                   <label htmlFor={`publicBairro${index}`}>Bairro da célula {index + 1}</label>

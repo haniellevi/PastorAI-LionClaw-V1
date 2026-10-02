@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela "Integrações" da superfície admin (admin.<domínio> → /gestao).
  * Reúne a configuração administrativa da Agenda que antes vivia embutida na
@@ -18,7 +20,7 @@ export function IntegracoesScreen() {
   const [msg, setMsg] = useState<string | null>(null);
 
   return (
-    <div className="screen admin-screen integrations-screen" key="integracoes">
+    <div className="screen admin-screen integrations-screen administration-ux" key="integracoes">
       <div className="screen-head">
         <div className="titles">
           <h2>Integrações</h2>
@@ -31,6 +33,9 @@ export function IntegracoesScreen() {
         </div>
       ) : null}
 
+      <section className="admin-section" aria-labelledby="calendar-connection-title">
+      <h3 id="calendar-connection-title">Conta e importação</h3>
+      <p className="sub">Conectar o Google autoriza a integração. Eventos importados precisam de confirmação na Agenda.</p>
       <CalendarConnectCard
         onImported={(r: ImportResult) =>
           setMsg(
@@ -42,7 +47,11 @@ export function IntegracoesScreen() {
           )
         }
       />
+      </section>
+      <section className="admin-section" aria-labelledby="calendar-alert-title">
+      <h3 id="calendar-alert-title">Quem recebe os alertas</h3>
       <AlertRecipientsCard />
+      </section>
     </div>
   );
 }

@@ -29,7 +29,8 @@ let churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
 let identityChallengeConsumed = false;
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
 // Opt-in, loopback-only synthetic inbox for visual UX verification.
-const uxFixture = process.env.M09_UX_FIXTURE === "1";
+const defaultUxFixture = process.env.M09_UX_FIXTURE === "1";
+let uxFixture = defaultUxFixture;
 let uxConversations = [];
 let uxMessages = new Map();
 function resetUxInbox() {
@@ -54,6 +55,7 @@ function resetUxInbox() {
 resetUxInbox();
 
 function resetState() {
+  uxFixture = defaultUxFixture;
   requests = [];
   nextRequestId = 1;
   selectedModel = "gpt-5.6-luna";
@@ -164,6 +166,12 @@ const server = createServer(async (request, response) => {
     sendJson(response, 200, { status: "reset" });
     return;
   }
+  if (method === "POST" && pathname === "/__e2e/ux-inbox") {
+    uxFixture = true;
+    resetUxInbox();
+    sendJson(response, 200, { status: "synthetic-only" });
+    return;
+  }
 
   const startedAt = Date.now();
   const record = {
@@ -256,7 +264,8 @@ const server = createServer(async (request, response) => {
             pessoaId: "00000000-0000-4000-8000-000000000011",
             responsavelId: null,
             prioridade: 1,
-            prazo: "2099-01-01T12:00:00-03:00",
+            canMessage: uxFixture,
+            prazo: uxFixture ? new Date(Date.now() + 2 * 86_400_000).toISOString() : "2099-01-01T12:00:00-03:00",
           },
         ]),
       );
@@ -264,7 +273,7 @@ const server = createServer(async (request, response) => {
     }
     if (method === "GET" && pathname === "/team/lookup") {
       record.status = 200;
-      sendJson(response, 200, page([{ ...profile, usuarioId: profile.appUserId, status: "ativo", papeis: profile.roles, pessoaId: null }]));
+      sendJson(response, 200, page([{ ...profile, usuarioId: profile.appUserId, status: "ativo", papeis: profile.roles, pessoaId: null, tiposFila: ["visitante"] }]));
       return;
     }
     if (method === "GET" && pathname === "/cells") {

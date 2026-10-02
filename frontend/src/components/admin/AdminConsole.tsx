@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Console Super-Admin autenticado: lista todas as igrejas da plataforma com
  * contadores (cross-tenant), provisiona novas igrejas (US-43) e altera
@@ -7,6 +9,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { MineralBackdrop } from "@/components/brand/MineralBackdrop";
 import { Button } from "@/components/ui/Button";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import {
@@ -48,11 +51,11 @@ const brl = (v: number) =>
 
 function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="card" style={{ padding: "var(--s3)" }}>
+    <div className="platform-metric">
       <div className="sub" style={{ color: "var(--muted)" }}>
         {label}
       </div>
-      <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{value}</div>
+      <div className="platform-metric-value">{value}</div>
       {hint ? (
         <div className="sub" style={{ color: "var(--muted)" }}>
           {hint}
@@ -156,7 +159,10 @@ export function AdminConsole() {
     { header: "Plano", cell: (r) => (r.plano ? PLANO_LABEL[r.plano] ?? r.plano : "—") },
     { header: "Membros", numeric: true, cell: (r) => r.membros },
     { header: "Pessoas", numeric: true, cell: (r) => r.pessoas },
-    { header: "", width: "1px", cell: () => <span className="sub">Detalhes →</span> },
+    { header: "Ações", cell: (r) => <Button variant="ghost" size="sm"
+      aria-label={`Abrir igreja: ${r.nome}`} onClick={() => { setModalError(null); setViewing(r); }}>
+      Abrir igreja
+    </Button> },
   ];
 
   // Igreja aberta → página dedicada em tela cheia (substitui o antigo modal).
@@ -179,23 +185,17 @@ export function AdminConsole() {
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: "var(--s4)" }}>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "var(--s2)",
-          marginBottom: "var(--s4)",
-        }}
-      >
+    <div className="administration-ux platform-console">
+      <header className="platform-head admin-overview mineral-surface" data-mineral-surface>
+        <MineralBackdrop compact />
         <div>
           <h1 style={{ margin: 0 }}>Console da Plataforma</h1>
+          <p className="platform-guidance">Escolha a igreja antes de administrar seus dados.</p>
           <p className="sub" style={{ margin: 0 }}>
             {admin ? `${admin.nome} · ${admin.email}` : "Administração multi-igreja"}
           </p>
         </div>
-        <div style={{ display: "flex", gap: "var(--s2)" }}>
+        <nav className="platform-tools" aria-label="Operações da plataforma">
           <Button variant="ghost" size="sm" onClick={() => setOrquestradorOpen(true)}>
             Orquestrador
           </Button>
@@ -211,7 +211,7 @@ export function AdminConsole() {
           <Button variant="ghost" size="sm" onClick={logout}>
             Sair
           </Button>
-        </div>
+        </nav>
       </header>
 
       {notice ? (
@@ -229,14 +229,7 @@ export function AdminConsole() {
       ) : null}
 
       {metrics ? (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-            gap: "var(--s3)",
-            marginBottom: "var(--s4)",
-          }}
-        >
+        <section className="platform-summary" aria-label="Estados das igrejas">
           <MetricCard label="Igrejas" value={String(metrics.totalIgrejas)} />
           <MetricCard label="Ativas" value={String(metrics.porStatus.ativa ?? 0)} />
           <MetricCard
@@ -251,27 +244,13 @@ export function AdminConsole() {
             )}
             hint="suspensas + inadimplentes"
           />
-          <MetricCard label="MRR" value={brl(metrics.mrr)} hint="igrejas ativas" />
-          <MetricCard
-            label="Custo de IA"
-            value={formatAiCostUsd(metrics.custoIaTotal)}
-            hint="acumulado"
-          />
-        </div>
+        </section>
       ) : null}
 
       <div className="card">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "var(--s2)",
-            padding: "var(--s3) var(--s4)",
-          }}
-        >
-          <strong>Igrejas{igrejas ? ` (${igrejas.length})` : ""}</strong>
-          <div style={{ display: "flex", gap: "var(--s2)" }}>
+        <div className="platform-list-head">
+          <h2>Igrejas{igrejas ? ` (${igrejas.length})` : ""}</h2>
+          <div className="platform-tools">
             <Button
               variant="ghost"
               size="sm"
@@ -302,6 +281,7 @@ export function AdminConsole() {
 
         {igrejas ? (
           <DataTable
+            className="ux-stack-table"
             columns={columns}
             rows={igrejas}
             rowKey={(r) => r.id}
@@ -315,11 +295,22 @@ export function AdminConsole() {
             }}
           />
         ) : loading ? (
-          <div style={{ padding: "var(--s6)", textAlign: "center" }}>
+          <div role="status" style={{ padding: "var(--s6)", textAlign: "center" }}>
             <span className="spinner" aria-hidden="true" />
+            <p>Carregando igrejas…</p>
           </div>
         ) : null}
       </div>
+
+      {metrics ? (
+        <details className="admin-disclosure">
+          <summary>Financeiro da plataforma</summary>
+          <div className="platform-finance">
+            <MetricCard label="MRR" value={brl(metrics.mrr)} hint="igrejas ativas" />
+            <MetricCard label="Custo de IA" value={formatAiCostUsd(metrics.custoIaTotal)} hint="acumulado, em dólar" />
+          </div>
+        </details>
+      ) : null}
 
       {createOpen ? (
         <CreateIgrejaModal

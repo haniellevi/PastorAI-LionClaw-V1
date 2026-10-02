@@ -1,5 +1,7 @@
 # Planejamento Mestre PastorAI / Igreja 12
 
+**Referência visual atual, 01/10/2026:** a direção expressiva v3 aprovada está em [DESIGN.md](../DESIGN.md), aplicada às 42 unidades existentes e registrada na [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md). A [referência do programa](README.md) separa o refinamento implementado das intenções históricas de agosto. Este plano continua expressando metas de domínio; a entrega visual não declara o produto amplo concluído nem abre gates operacionais.
+
 ## 1. Resultado esperado
 
 Este plano integra o produto atual, os documentos históricos, as correções já realizadas e as novas necessidades do usuário. Ele não propõe voltar à versão antiga.
@@ -435,7 +437,9 @@ Detalhes em [08-ROADMAP-PRIORIZADO.md](08-ROADMAP-PRIORIZADO.md).
 - nenhuma mensagem real sem gate;
 - nenhuma mudança de produção inferida por aprovação visual.
 
-## 19. Estado desta entrega
+## 19. Estado da entrega original, agosto de 2026
+
+Este bloco preserva o resultado da missão de planejamento inicial. O estado corrente do refinamento visual está na [referência do programa](README.md) e no [registro v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md).
 
 - planejamento integrado: concluído;
 - pasta e acervo: concluídos;

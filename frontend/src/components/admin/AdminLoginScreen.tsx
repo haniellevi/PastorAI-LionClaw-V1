@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Login do console Super-Admin. Reaproveita o mesmo POST /auth/login do painel,
+ * Login do console Super-Admin. Usa o POST /admin/login dedicado,
  * mas valida o acesso de plataforma em seguida (/admin/me). Uma conta válida de
  * igreja que NÃO seja platform admin recebe uma recusa explícita aqui.
  */
 import { useState, type FormEvent } from "react";
 
+import { AuthLayout } from "@/components/auth/AuthLayout";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { AdminAuthError } from "@/lib/admin-api";
@@ -17,14 +18,19 @@ export function AdminLoginScreen() {
   const { login, accessMessage } = useAdminAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [emailError, setEmailError] = useState<string>();
+  const [passwordError, setPasswordError] = useState<string>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
-    if (!email.includes("@") || !password) {
-      setError("Informe e-mail e senha.");
+    const invalidEmail = !email.includes("@");
+    setEmailError(invalidEmail ? "Informe um e-mail válido." : undefined);
+    setPasswordError(!password ? "Informe sua senha." : undefined);
+    if (invalidEmail || !password) {
+      (event.currentTarget.elements.namedItem(invalidEmail ? "email" : "password") as HTMLInputElement | null)?.focus();
       return;
     }
     setError(undefined);
@@ -46,22 +52,16 @@ export function AdminLoginScreen() {
   }
 
   return (
-    <section
-      style={{
-        minHeight: "100dvh",
-        display: "grid",
-        placeItems: "center",
-        padding: "var(--s4)",
-      }}
-    >
+    <AuthLayout>
       <form
         className="login-card"
         onSubmit={handleSubmit}
         noValidate
-        style={{ maxWidth: 380, width: "100%" }}
       >
-        <h1>Console da Plataforma</h1>
-        <p className="sub">Administração multi-igreja do Igreja 12. Acesso restrito.</p>
+        <header className="login-card-head">
+          <h1>Console da Plataforma</h1>
+          <p className="sub">Use sua conta com permissão para administrar a plataforma.</p>
+        </header>
 
         {error || accessMessage ? (
           <div className="auth-error block" role="alert">
@@ -75,8 +75,12 @@ export function AdminLoginScreen() {
           name="email"
           placeholder="usuario@example.com"
           autoComplete="username"
+          spellCheck={false}
+          autoCapitalize="none"
+          inputMode="email"
           value={email}
           disabled={loading}
+          error={emailError}
           onChange={(e) => setEmail(e.target.value)}
         />
         <Field
@@ -87,12 +91,13 @@ export function AdminLoginScreen() {
           autoComplete="current-password"
           value={password}
           disabled={loading}
+          error={passwordError}
           onChange={(e) => setPassword(e.target.value)}
         />
         <Button type="submit" variant="primary" block loading={loading} loadingText="Entrando…">
           Entrar
         </Button>
       </form>
-    </section>
+    </AuthLayout>
   );
 }

@@ -11,7 +11,17 @@ Este diretório é o centro de planejamento integrado de UX, produto e experiên
 
 Um requisito antigo nunca deve apagar uma evolução já existente. Quando houver conflito, registrar a divergência, validar a operação atual e decidir conscientemente se há algo melhor a incorporar.
 
-## Estado do programa
+## Referência atual, 01/10/2026
+
+O [design system canônico](../DESIGN.md) incorpora o [conjunto expressivo v3 aprovado](../docs/design/UX-EXPRESSIVA-V3-APROVADA.md), com acesso split, assinatura mineral, títulos fortes e movimento decorativo acessível. A [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md) cobre todas as superfícies existentes e a publicação frontend autorizada. A base v2 aprovada mantém: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
+
+O [registro global v2](../docs/sprints/2026-10-01-ux-global-v2.md) consolida as 42 unidades aprovadas: acesso, navegação, Hoje, atendimento, pessoas, células, agenda, gestão, console e estados globais. A implementação preserva contratos, papéis, tenant e gates. As fontes que já atendiam à direção foram mantidas e verificadas; capacidades ausentes continuam explicitamente indisponíveis.
+
+Os registros de [Hoje e Conversas](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) e [acesso F02](../docs/sprints/2026-09-30-ux-acesso-v2.md) preservam a evidência histórica. O estado geral do produto permanece na [Wiki](../docs/WIKI-IGREJA12.md) e na [matriz de cobertura](../docs/ai/PRD-COVERAGE.md). SHA e recibo da publicação pertencem à entrega global, sem inferir operação autenticada de provedores.
+
+## Histórico do programa, snapshot de 11/08/2026
+
+Os estados abaixo pertencem ao registro de agosto e não são uma consulta atual às respectivas PRs ou ao ambiente.
 
 - Planejamento inicial: concluído em 2026-08-10 sobre a base `3f085ec7228d770649b0d9041f0e16154fe37629`.
 - Fatias 01, 02 e 03: integradas à `main` pelos PRs [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247), [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248) e [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250).
@@ -60,7 +70,4 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 ## Gate permanente
 
-O dono do produto aprovou a implementação e a publicação do PR da Fatia 04, e
-autorizou preparar a Fatia 05 em PR separado. Isso não autoriza merge,
-migration, alteração de banco, configuração externa, envio real, deploy ou
-produção. Cada passo permanece um gate humano separado.
+As aprovações de cada fatia ficam no seu registro. A direção visual, desenvolvimento global e publicação do frontend foram autorizados por Raniel nesta conversa. A entrega exige revisão, checks no SHA exato e recibo de publicação conforme runbook. Banco, provedores, envio e ativação do agente mantêm seus gates próprios.

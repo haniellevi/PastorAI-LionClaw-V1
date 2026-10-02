@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Triagem Jev (TypeSafe) em modo sombra: status e configuração para o master.
  *
@@ -173,11 +175,13 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
 
   return (
     <DsDialog
+      className="administration-ux administration-dialog"
       open
       onClose={() => {
         if (!ocupado) onClose();
       }}
       title="Triagem Jev"
+      description="Estado, configuração e teste são ações distintas. Confira o escopo e os bloqueios retornados pelo servidor."
       footer={
         loaded ? (
           <>
@@ -186,7 +190,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
             </button>
             <Button
               type="button"
-              variant="primary"
+              variant="ghost"
               size="sm"
               loading={busy}
               loadingText="Testando…"
@@ -227,7 +231,8 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
         </div>
       ) : status ? (
         <>
-          <dl style={{ display: "grid", gap: "var(--s2)", margin: 0 }}>
+          <h3>Estado atual da triagem</h3>
+          <dl className="detail-list" style={{ display: "grid", gap: "var(--s2)", margin: 0 }}>
             <div>
               <dt className="sub">Integração com o agente</dt>
               <dd style={{ margin: 0 }}>
@@ -288,11 +293,12 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
           </dl>
 
           <form
+            className="admin-section"
             aria-label="Configuração do Jev"
             onSubmit={(e) => void salvar(e)}
             style={{ marginTop: "var(--s4)" }}
           >
-            <h3 style={{ fontSize: 14, margin: "0 0 var(--s3)" }}>Configuração</h3>
+            <h3 style={{ margin: "0 0 var(--s3)" }}>Configuração</h3>
             <div className="field">
               <label htmlFor="jev-chave">Chave da TypeSafe</label>
               <input

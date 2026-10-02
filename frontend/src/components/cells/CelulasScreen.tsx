@@ -1,5 +1,7 @@
 "use client";
 
+import "./operations-ux-v2.css";
+
 /**
  * Tela #celulas (legada, deep-link fora do menu — delta-012).
  *
@@ -15,6 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { SupportReveal } from "@/components/brand/SupportReveal";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -58,6 +61,10 @@ export function CelulasScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const selectedTrigger = useRef<HTMLButtonElement | null>(null);
+  const detailPanel = useRef<HTMLDivElement | null>(null);
+  const latestDetailRequest = useRef(0);
   const [detail, setDetail] = useState<CellDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -145,18 +152,21 @@ export function CelulasScreen() {
   const openDetail = useCallback(
     async (cellId: string) => {
       if (!token) return;
+      const requestId = ++latestDetailRequest.current;
       setSelectedId(cellId);
       setDetailLoading(true);
       setDetailError(null);
       setDetail(null);
       try {
         const d = await fetchCellDetail(token, cellId);
+        if (requestId !== latestDetailRequest.current) return;
         setDetail(d);
       } catch (err) {
         if (handleSessionError(err)) return;
+        if (requestId !== latestDetailRequest.current) return;
         setDetailError(err instanceof ApiError ? err.message : "Não foi possível abrir a célula.");
       } finally {
-        setDetailLoading(false);
+        if (requestId === latestDetailRequest.current) setDetailLoading(false);
       }
     },
     [token, handleSessionError],
@@ -263,6 +273,15 @@ export function CelulasScreen() {
     [contacts],
   );
 
+  const visibleCells = useMemo(() => {
+    const search = query.trim().toLocaleLowerCase("pt-BR");
+    return cells.filter((cell) => `${cell.nome} ${leaderName(cell.liderId)}`.toLocaleLowerCase("pt-BR").includes(search));
+  }, [cells, query, leaderName]);
+
+  useEffect(() => {
+    if (selectedId) detailPanel.current?.focus();
+  }, [selectedId]);
+
   // A tela legada nunca consulta /team. Liderança é somente leitura aqui e a
   // Central é a superfície única para aprovar ou trocar líder.
   const leaderOptions = useMemo(
@@ -281,11 +300,11 @@ export function CelulasScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen cells-screen" key="celulas">
+    <div className={`screen cells-screen ops-v2${selectedId ? " has-cell-selection" : ""}`} key="celulas">
       <div className="screen-head">
         <div className="titles">
-          <h2>Células da igreja</h2>
-          <p>Veja saúde, liderança e vínculos de cada célula.</p>
+          <h2>Células</h2>
+          <p>Localize a célula e acompanhe quem participa.</p>
         </div>
       </div>
       {error ? (
@@ -298,7 +317,10 @@ export function CelulasScreen() {
         </div>
       ) : null}
 
-      <div className="stat-grid">
+      <SupportReveal>
+      <details className="ops-disclosure">
+      <summary>Visão geral das células</summary>
+      <div className="ops-disclosure-body"><div className="stat-grid">
         {showSkeleton
           ? Array.from({ length: 4 }).map((_, i) => (
               <div className="stat skeleton" key={i}>
@@ -306,7 +328,7 @@ export function CelulasScreen() {
                 <div className="sk-line sk-lg" />
               </div>
             ))
-          : stats.map((s) => (
+          : loaded ? stats.map((s) => (
               <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
                 <div className="lbl">
                   <Icon name={s.icon} />
@@ -315,8 +337,10 @@ export function CelulasScreen() {
                 <div className="val num">{s.value}</div>
                 <div className="delta">{s.delta}</div>
               </div>
-            ))}
-      </div>
+            )) : <p className="ops-state-note" role="status">Visão geral indisponível. Tente novamente para confirmar os indicadores.</p>}
+      </div></div>
+      </details>
+      </SupportReveal>
 
       <p className="lock-note">
         <Icon name="lock" />
@@ -325,7 +349,12 @@ export function CelulasScreen() {
       </p>
 
       <div className="dash-grid">
-        <div>
+        <div className="ops-cell-list">
+          <div className="ops-search">
+            <label htmlFor="cell-search">Buscar célula ou líder</label>
+            <input id="cell-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
+            {loaded ? <p className="ops-result-count" role="status">{visibleCells.length} de {cells.length} células</p> : null}
+          </div>
           {showSkeleton ? (
             <div className="grid-cells">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -335,7 +364,7 @@ export function CelulasScreen() {
                 </div>
               ))}
             </div>
-          ) : cells.length === 0 ? (
+          ) : error && !loaded ? null : cells.length === 0 ? (
             <div className="card">
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="central-celula" />
@@ -345,16 +374,23 @@ export function CelulasScreen() {
                 </p>
               </div>
             </div>
+          ) : visibleCells.length === 0 ? (
+            <div className="card card-pad"><p>Nenhuma célula corresponde à busca.</p><button type="button" className="btn" onClick={() => setQuery("")}>Limpar busca</button></div>
           ) : (
             <div className="grid-cells">
-              {cells.map((c) => {
+              {visibleCells.map((c) => {
                 const selected = c.id === selectedId;
                 return (
                   <button
                     type="button"
                     key={c.id}
                     className={`card cell-card${selected ? " sel" : ""}`}
-                    onClick={() => void openDetail(c.id)}
+                    aria-pressed={selected}
+                    aria-label={`Abrir célula ${c.nome}`}
+                    onClick={(event) => {
+                      selectedTrigger.current = event.currentTarget;
+                      void openDetail(c.id);
+                    }}
                   >
                     <div className="cell-card-head">
                       <div>
@@ -392,7 +428,17 @@ export function CelulasScreen() {
           )}
         </div>
 
-        <div className="dash-side">
+        <div className="dash-side" ref={detailPanel} tabIndex={-1} aria-label="Detalhe da célula selecionada">
+          {selectedId ? <button type="button" className="btn ops-cell-back" onClick={() => {
+            latestDetailRequest.current += 1;
+            setSelectedId(null);
+            setDetail(null);
+            setDetailLoading(false);
+            requestAnimationFrame(() => {
+              if (selectedTrigger.current?.isConnected) selectedTrigger.current.focus();
+              else document.getElementById("cell-search")?.focus();
+            });
+          }}><Icon name="chevron-left" /> Voltar à lista de células</button> : null}
           <CellDetailPanel
             cell={cells.find((c) => c.id === selectedId) ?? null}
             detail={detail}

@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #comunicados — envio segmentado pelo WhatsApp oficial respeitando
  * consentimento/opt-out (RF-38 / US-31..33). Fluxo em três passos:
@@ -297,7 +299,7 @@ export function ComunicadosScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen operations-screen communications-screen" key="comunicados">
+    <div className="screen operations-screen communications-screen administration-ux" key="comunicados">
       <div className="screen-head">
         <div className="titles">
           <h2>Comunicação da igreja</h2>
@@ -336,6 +338,7 @@ export function ComunicadosScreen() {
             {(["compose", "segment", "review"] as Step[]).map((s, i) => (
               <li
                 key={s}
+                aria-current={step === s ? "step" : undefined}
                 className={`bc-step${step === s ? " active" : ""}${
                   ["compose", "segment", "review"].indexOf(step) > i ? " done" : ""
                 }`}
@@ -554,7 +557,7 @@ export function ComunicadosScreen() {
 
               <div className="field" style={{ marginTop: "var(--s3)" }}>
                 <label>Mensagem</label>
-                <p className="sub" style={{ color: "var(--muted)" }}>{mensagem}</p>
+                <p className="message-preview">{mensagem}</p>
               </div>
 
               {blocked ? (

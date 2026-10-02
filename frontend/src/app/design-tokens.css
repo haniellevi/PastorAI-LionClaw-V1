@@ -34,7 +34,7 @@
   --ice-50: oklch(98.5% 0.008 230);
   --ink-950: oklch(24% 0.035 245);
   --ink-700: oklch(39% 0.03 245);
-  --ink-600: oklch(52% 0.025 245);
+  --ink-600: oklch(46% 0.025 245);
   --line-200: oklch(88% 0.018 235);
 
   /* Superfícies */
@@ -52,8 +52,8 @@
   /* Gate 6.1: nome próprio da fundação — NUNCA reutilizar um nome de token que
      já exista no :root do globals.css (este arquivo importa DEPOIS e venceria
      a cascata, mudando telas legadas). Regressão: design-tokens.test.ts. */
-  --border-emphasis: oklch(82% 0.024 238);
-  --focus-ring: var(--diamond-500);
+  --border-emphasis: oklch(63% 0.024 238);
+  --focus-ring: var(--diamond-600);
 
   /* Ação e seleção (regra definitiva do gate) */
   --action-primary: var(--diamond-700);
@@ -102,15 +102,15 @@
   --type-h1: 700 22px/1.22 var(--font-display);
   --type-h2: 650 18px/1.32 var(--font-display);
   --type-h3: 700 16px/1.35 var(--font);
-  --type-body: 450 14px/1.5 var(--font);
-  --type-label: 650 13px/1.35 var(--font);
-  --type-meta: 500 12px/1.4 var(--font);
+  --type-body: 450 15px/1.5 var(--font);
+  --type-label: 650 14px/1.4 var(--font);
+  --type-meta: 500 13px/1.45 var(--font);
   /* Nenhum texto operacional abaixo de 12px. */
 
-  /* Motion — produtivo 140–220ms; expressivo 480–760ms, uma única vez */
+  /* Motion v3: decorativo 220ms, uma única vez, controles imediatos. */
   --motion-fast: 140ms;
   --motion-standard: 200ms;
-  --motion-expressive: 640ms;
+  --motion-expressive: 220ms;
   --ease-out-productive: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-expressive: cubic-bezier(0.19, 1, 0.22, 1);
 }

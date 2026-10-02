@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #equipe — dar acesso ao painel (convite) e editar papéis (F3 / RF-40 /
  * delta-049).
@@ -414,7 +416,7 @@ export function EquipeScreen() {
     // Gestão de acessos (editar papéis / reenviar / remover) é só do admin.
     if (isAdminUser) {
       base.push({
-        header: "",
+        header: "Ações",
         width: "1px",
         cell: (m) => (
           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -455,11 +457,11 @@ export function EquipeScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen admin-screen team-screen" key="equipe">
+    <div className="screen admin-screen team-screen administration-ux" key="equipe">
       <div className="screen-head">
         <div className="titles">
-          <h2>Acessos da equipe</h2>
-          <p>Convide pessoas e mantenha os papéis necessários para o cuidado da igreja.</p>
+          <h2>Pessoas com acesso</h2>
+          <p>Gerencie contas e convites. Cadastrar uma pessoa na igreja não concede acesso ao painel.</p>
         </div>
         <div className="actions">
           {podeConvidar ? (
@@ -494,6 +496,7 @@ export function EquipeScreen() {
             void submitInvite();
           }}
         >
+          <h3>{invMode === "existente" ? "Convidar pessoa cadastrada" : "Convidar nova pessoa"}</h3>
           {invError ? (
             <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
               <Icon name="alert" />
@@ -709,6 +712,7 @@ export function EquipeScreen() {
           </div>
         ) : (
           <DataTable
+            className="ux-stack-table"
             columns={columns}
             rows={members}
             rowKey={(m) => m.usuarioId}
@@ -726,7 +730,7 @@ export function EquipeScreen() {
       {editing ? (
         // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
         // primitive); mesmo título do head manual anterior.
-        <DsDialog open onClose={closeEdit} title={`Editar papéis · ${editing.nome}`}>
+        <DsDialog open className="administration-ux administration-dialog" onClose={closeEdit} title={`Editar papéis · ${editing.nome}`}>
             <form
               className="modal-form"
               onSubmit={(e) => {

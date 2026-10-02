@@ -305,8 +305,8 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
     await renderScreen();
     openVisitantesTab();
 
-    expect(buttonWithText("Promover")).toBeDefined();
-    act(() => buttonWithText("Promover")?.click());
+    expect(buttonWithText("Avançar para Consolidar")).toBeDefined();
+    act(() => buttonWithText("Avançar para Consolidar")?.click());
     await flush();
 
     expect(apiMock.promoteContact).toHaveBeenCalledWith("tok-1", "p1", "consolidar");
@@ -325,7 +325,7 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
       await renderScreen();
       openVisitantesTab();
 
-      expect(buttonWithText("Promover")).toBeUndefined();
+      expect(buttonWithText("Avançar para Consolidar")).toBeUndefined();
       expect(apiMock.promoteContact).not.toHaveBeenCalled();
     },
   );
@@ -340,13 +340,13 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
     });
     await renderScreen();
     openVisitantesTab();
-    expect(buttonWithText("Promover")).toBeDefined();
+    expect(buttonWithText("Avançar para Consolidar")).toBeDefined();
 
     authState.roles = ["membro"];
     await renderScreen();
     openVisitantesTab();
 
-    expect(buttonWithText("Promover")).toBeUndefined();
+    expect(buttonWithText("Avançar para Consolidar")).toBeUndefined();
     expect(apiMock.promoteContact).not.toHaveBeenCalled();
   });
 });

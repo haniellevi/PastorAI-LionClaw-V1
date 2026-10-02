@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #whatsapp — Conexão do número oficial (US-05/US-06/US-07, delta-005).
  *
@@ -339,7 +341,7 @@ export function WhatsappScreen() {
   const primaryAction: "connect" | "reconnect" = info?.numero ? "reconnect" : "connect";
 
   return (
-    <div className="screen admin-screen whatsapp-screen" key="whatsapp">
+    <div className="screen admin-screen whatsapp-screen administration-ux" key="whatsapp">
       <div className="screen-head">
         <div className="titles">
           <h2>Número oficial do WhatsApp</h2>
@@ -357,6 +359,8 @@ export function WhatsappScreen() {
           </button>
         </div>
       </div>
+
+      <p className="admin-context">Esta tela conecta o canal da igreja. A ativação do assistente é uma configuração separada.</p>
 
       {error ? (
         <div className="error-banner" role="alert">
@@ -574,6 +578,8 @@ export function WhatsappScreen() {
             ) : null}
 
             {!isOnline ? (
+              <details className="admin-disclosure">
+              <summary>Conectar com código numérico</summary>
               <div className="field" style={{ marginTop: "var(--s4)", textAlign: "left" }}>
                 <label htmlFor="wa-numero">
                   Não consegue ler o QR? Gere um código pelo número
@@ -598,6 +604,7 @@ export function WhatsappScreen() {
                   </button>
                 </div>
               </div>
+              </details>
             ) : null}
           </div>
         </div>

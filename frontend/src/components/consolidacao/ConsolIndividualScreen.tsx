@@ -8,6 +8,7 @@
  * responsável confirma etapas (gate de identidade) e concluir exige todas as
  * etapas obrigatórias. Lançar decisão na própria tela abre o decision-modal.
  */
+import { DataTable, type Column } from "@/components/ui/DataTable";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import {
   MANDATORY_ETAPAS,
@@ -15,16 +16,18 @@ import {
   canConsolidate,
   countMandatory,
   derivedStages,
+  etapaLabel,
   mergeStages,
   nextMandatory,
 } from "@/lib/consolidacao-api";
-import type { Contact } from "@/lib/contacts-api";
 import { Icon } from "@/lib/icons";
 
 import { AccessDenied } from "./AccessDenied";
 import { DecisionModal } from "./DecisionModal";
 import { TrackModal } from "./TrackModal";
 import { useConsolidation } from "./useConsolidation";
+
+import "../contacts/people-ux-v2.css";
 
 export function ConsolIndividualScreen() {
   const c = useConsolidation();
@@ -38,6 +41,7 @@ export function ConsolIndividualScreen() {
     return {
       contact: p,
       done: countMandatory(stages),
+      next: nextMandatory(stages),
       consolidador: c.consolidadorName(p.id),
     };
   });
@@ -49,12 +53,27 @@ export function ConsolIndividualScreen() {
   const total = MANDATORY_ETAPAS.length;
   const showSkeleton = c.loading && !c.loaded;
 
+  const columns: Array<Column<(typeof rows)[number]>> = [
+    { header: "Pessoa", cell: ({ contact }) => <span className="nm">{contact.nome}</span> },
+    { header: "Consolidador", cell: ({ consolidador }) => consolidador ?? <StatusPill tone="warn">Não informado</StatusPill> },
+    { header: "Etapas registradas", cell: ({ done, next }) => (
+      <><div className="num">{done} de {total} obrigatórias</div><div className="people-meta">{next ? `Próxima: ${etapaLabel(next)}` : "Etapas obrigatórias registradas"}</div></>
+    ) },
+    { header: "Acompanhamento", cell: ({ contact }) => (
+      <button type="button" className="btn btn-sm" aria-label={`Abrir trilha de ${contact.nome}`}
+        onKeyDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); c.openTrack(contact); }}>
+        Abrir trilha
+      </button>
+    ) },
+  ];
+
   return (
-    <div className="screen journey-screen journey-screen--consolidar" key="consol-individual">
+    <div className="screen journey-screen journey-screen--consolidar people-ux" key="consol-individual">
       <div className="screen-head">
         <div className="titles">
-          <h2>Trilhas em andamento</h2>
-          <p>Acompanhe cada etapa da consolidação individual.</p>
+          <h2>Consolidação individual</h2>
+          <p>Confira os registros e confirme a próxima etapa de cada pessoa.</p>
         </div>
         <div className="actions">
           <button type="button" className="btn btn-primary" onClick={() => c.openDecision()}>
@@ -74,11 +93,11 @@ export function ConsolIndividualScreen() {
         </div>
       ) : null}
 
-      <div className="grid-2" style={{ alignItems: "start" }}>
+      <div className="people-work-list">
         <div className="card">
           <div className="panel-title">
             <span>Em andamento</span>
-            <span className="count">· clique para abrir a trilha</span>
+            <span className="count">{showSkeleton ? "Carregando…" : c.loaded ? `${rows.length} ${rows.length === 1 ? "pessoa" : "pessoas"} na lista` : "Lista indisponível"}</span>
           </div>
           {showSkeleton ? (
             <div className="queue">
@@ -92,7 +111,7 @@ export function ConsolIndividualScreen() {
                 </div>
               ))}
             </div>
-          ) : rows.length === 0 ? (
+          ) : !c.loaded ? null : rows.length === 0 ? (
             <div className="empty-state" style={{ padding: "var(--s6)" }}>
               <Icon name="consol-individual" />
               <p>
@@ -101,44 +120,27 @@ export function ConsolIndividualScreen() {
               </p>
             </div>
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Pessoa</th>
-                  <th>Consolidador</th>
-                  <th className="num">Progresso</th>
-                  <th style={{ width: "1px" }} />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ contact, done, consolidador }) => (
-                  <TrackRow
-                    key={contact.id}
-                    contact={contact}
-                    done={done}
-                    total={total}
-                    consolidador={consolidador}
-                    onOpen={() => c.openTrack(contact)}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              className="people-table"
+              columns={columns}
+              rows={rows}
+              rowKey={({ contact }) => contact.id}
+              onRowClick={({ contact }) => c.openTrack(contact)}
+              empty={{ icon: "consol-individual", title: "Nenhuma consolidação nesta lista." }}
+            />
           )}
         </div>
 
-        <div className="card card-pad">
-          <div className="panel-title" style={{ padding: "0 0 var(--s3)" }}>
-            Como funciona a trilha
-          </div>
+        <details className="people-disclosure people-overview">
+          <summary>Como funciona a trilha</summary>
           <div className="track">
             {TRACK_STEPS.map((step, i) => {
-              // Card informativo: ilustra done (1-2), now (fonovisita) e pendente.
-              const cls =
-                i < 2 ? "stop done" : i === 2 ? "stop now" : "stop";
+              // Sequência informativa, sem simular progresso de uma pessoa.
+              const cls = "stop";
               return (
                 <div className={cls} key={step.etapa}>
                   <span className="dot">
-                    {i < 2 ? <Icon name="check" /> : i + 1}
+                    {i + 1}
                   </span>
                   <div>
                     <div className="nm">
@@ -156,9 +158,9 @@ export function ConsolIndividualScreen() {
           <p className="lock-note" style={{ marginTop: "var(--s3)" }}>
             <Icon name="lock" />
             Concluídas todas as visitas, a pessoa é marcada como consolidada individual
-            e entra no critério para a Universidade da Vida.
+            no registro. A gestão de turmas da Universidade da Vida ainda está indisponível.
           </p>
-        </div>
+        </details>
       </div>
 
       {c.decisionOpen ? (
@@ -195,48 +197,5 @@ export function ConsolIndividualScreen() {
         </div>
       ) : null}
     </div>
-  );
-}
-
-function TrackRow({
-  contact,
-  done,
-  total,
-  consolidador,
-  onOpen,
-}: {
-  contact: Contact;
-  done: number;
-  total: number;
-  consolidador: string | null;
-  onOpen: () => void;
-}) {
-  return (
-    <tr
-      className="row-link"
-      onClick={onOpen}
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      <td className="nm">{contact.nome}</td>
-      <td>
-        {consolidador ? (
-          <span className="sub">{consolidador}</span>
-        ) : (
-          <StatusPill tone="warn">Sem consolidador</StatusPill>
-        )}
-      </td>
-      <td className="num">
-        {done} / {total}
-      </td>
-      <td>
-        <Icon name="caret" />
-      </td>
-    </tr>
   );
 }

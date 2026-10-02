@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionExpiredError } from "@/lib/api";
+import { ApiError } from "@/lib/dashboard-api";
 import type { CentralDashboard } from "@/lib/cell-central-api";
 
 import { DashboardPanel } from "./DashboardPanel";
@@ -87,6 +88,29 @@ afterEach(() => {
 });
 
 describe("DashboardPanel", () => {
+  it("não anuncia ausência sem dashboard confirmado, mesmo com a página de fila vazia", async () => {
+    await act(async () => root.render(<DashboardPanel {...props("token-a")} dashboard={null} error="Resumo indisponível." />));
+    await flush();
+    expect(container.textContent).toContain("Resumo indisponível.");
+    expect(container.textContent).not.toContain("Nenhuma exceção aberta");
+    expect(container.textContent).not.toContain("Fila da Central zerada");
+    expect(container.querySelector(".central-cards")).toBeNull();
+  });
+
+  it("não converte falha da fila em vazio e confirma ausência após retry", async () => {
+    const emptyDashboard = { ...dashboard, relatorios_pendentes: 0, solicitacoes_aguardando: 0, celulas_com_alerta: 0, multiplicacoes_pendentes: 0 };
+    mocks.getPendingReports.mockRejectedValueOnce(new ApiError(500, "Fila indisponível."));
+    await act(async () => root.render(<DashboardPanel {...props("token-a")} dashboard={emptyDashboard} />));
+    await flush();
+    expect(container.textContent).toContain("Fila indisponível.");
+    expect(container.textContent).not.toContain("Nenhuma exceção aberta");
+    expect(container.textContent).not.toContain("Fila da Central zerada");
+    const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Tentar novamente"))!;
+    await act(async () => retry.click());
+    await flush();
+    expect(container.textContent).toContain("Nenhuma pendência na lista carregada.");
+  });
+
   it("não duplica multiplicações no resumo de pendências", async () => {
     await act(async () => root.render(<DashboardPanel {...props("token-a")} />));
     await flush();

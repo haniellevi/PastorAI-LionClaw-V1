@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Minha Célula — visão do LÍDER (Células PR: Líder). Orquestra a gestão da célula:
  *   • planejar reunião pontual (US-06) e relatar a reunião em etapas (US-07..11);
@@ -232,7 +234,7 @@ export function MinhaCelulaLider() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen mc mc--leader" key="minha-celula-lider">
+    <div className="screen mc mc--leader ops-v2" key="minha-celula-lider">
       <div className="mc-shell">
         <div className="screen-head mc-screen-head">
           <div className="titles">
@@ -314,7 +316,7 @@ export function MinhaCelulaLider() {
                   <section className="mc-report-picker" aria-labelledby="mc-report-picker-title">
                     <div className="mc-report-picker-copy">
                       <h2 id="mc-report-picker-title">Relatório da reunião</h2>
-                      <p>Escolha uma reunião e avance por uma etapa de cada vez.</p>
+                      <p>Escolha a reunião que deseja registrar. Confira a data antes de salvar presenças ou enviar.</p>
                     </div>
                     {reunioes.length === 0 ? (
                       <p className="muted-note">
@@ -322,7 +324,7 @@ export function MinhaCelulaLider() {
                       </p>
                     ) : (
                       <div className="field mc-report-select">
-                        <label htmlFor="reuniao-picker">Reunião</label>
+                        <label htmlFor="reuniao-picker">Reunião do relatório</label>
                         <select
                           id="reuniao-picker"
                           value={selectedReuniaoId}

@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 
+import { SupportReveal } from "@/components/brand/SupportReveal";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
@@ -126,7 +127,7 @@ export function DashboardPanel({
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-  onGoTo: (tab: CentralTab) => void;
+  onGoTo: (tab: CentralTab, revealHealth?: boolean) => void;
 }) {
   const { expireSession } = useAuth();
   const [reports, setReports] = useState<PendingReportItem[]>([]);
@@ -204,7 +205,11 @@ export function DashboardPanel({
       <header className="cc-today-head">
         <h3>Hoje na Central</h3>
         <p>
-          {pendingCount > 0
+          {!dashboard || error || queueError
+            ? loading || showQueueSkeleton
+              ? "Carregando as pendências da Central…"
+              : "Não foi possível confirmar as pendências agora."
+            : pendingCount > 0
             ? `${pendingCount} ${pendingCount === 1 ? "pendência pede" : "pendências pedem"} atenção. Abra a pendência, não apenas o número.`
             : "Nenhuma exceção aberta. Os totais da igreja ficam abaixo, se precisar conferir."}
         </p>
@@ -252,10 +257,10 @@ export function DashboardPanel({
             </div>
           ))}
         </div>
-      ) : shownQueue.length === 0 ? (
+      ) : !queueLoaded || (shownQueue.length === 0 && (!dashboard || error)) ? null : shownQueue.length === 0 ? (
         <DsEmptyState
           illustration={<Icon name="check" />}
-          title="Fila da Central zerada."
+          title="Nenhuma pendência na lista carregada."
           hint="Quando um relatório, solicitação ou célula pedir cuidado, aparece aqui."
         />
       ) : (
@@ -267,7 +272,7 @@ export function DashboardPanel({
                 <button
                   type="button"
                   className="cc-today-row"
-                  onClick={() => onGoTo(item.goTo)}
+                  onClick={() => item.kind === "health" ? onGoTo(item.goTo, true) : onGoTo(item.goTo)}
                 >
                   <span className={`cc-today-ic ${visual.cls}`} aria-hidden="true">
                     <Icon name={visual.icon} />
@@ -285,6 +290,7 @@ export function DashboardPanel({
       )}
 
       {!showTotalsSkeleton && dashboard ? (
+        <SupportReveal>
         <details className="cc-today-summary">
           <summary>Totais da igreja</summary>
           <div className="central-cards">
@@ -312,6 +318,7 @@ export function DashboardPanel({
             })}
           </div>
         </details>
+        </SupportReveal>
       ) : null}
     </section>
   );

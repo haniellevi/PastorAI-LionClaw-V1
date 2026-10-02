@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -104,7 +106,7 @@ export function CadastroIgrejaScreen() {
   }
 
   return (
-    <div className="screen admin-screen" key="cadastro-igreja">
+    <div className="screen admin-screen administration-ux" key="cadastro-igreja">
       <div className="screen-head"><div className="titles">
         <h2>Cadastro da igreja</h2>
         <p>Informe o endereço institucional e os horários dos cultos para consultas públicas.</p>

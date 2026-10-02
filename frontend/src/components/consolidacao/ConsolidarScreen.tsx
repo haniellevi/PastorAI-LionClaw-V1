@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 import { DeadlineBadge } from "@/components/dashboard/DeadlineBadge";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
-import { canConsolidate } from "@/lib/consolidacao-api";
+import { canConsolidate, derivedStages, etapaLabel, mergeStages, nextMandatory } from "@/lib/consolidacao-api";
 import type { Contact } from "@/lib/contacts-api";
 import { computeDeadline } from "@/lib/deadline";
 import { initials } from "@/lib/g12-api";
@@ -26,6 +26,8 @@ import { AccessDenied } from "./AccessDenied";
 import { DecisionModal } from "./DecisionModal";
 import { TrackModal } from "./TrackModal";
 import { isConsolidated, useConsolidation } from "./useConsolidation";
+
+import "../contacts/people-ux-v2.css";
 
 function genderLabel(g: string | null): string {
   if (g === "f") return "Feminino";
@@ -78,20 +80,14 @@ export function ConsolidarScreen() {
   const stats: Array<{ icon: IconKey; label: string; value: string | number; delta: string; alert?: boolean }> = [
     {
       icon: "user",
-      label: "Fila de consolidação individual",
+      label: "Em acompanhamento",
       value: pending.length,
-      delta: "aguardando iniciar",
+      delta: "acompanhamento pendente",
       alert: pending.length > 0,
     },
     {
-      icon: "document",
-      label: "Prontos para a próxima UV",
-      value: consolidated.length,
-      delta: "consolidados aptos",
-    },
-    {
       icon: "check",
-      label: "100% consolidados",
+      label: "Consolidação concluída",
       value: consolidated.length,
       delta: "individual e/ou UV",
     },
@@ -123,11 +119,11 @@ export function ConsolidarScreen() {
   ];
 
   return (
-    <div className="screen journey-screen journey-screen--consolidar" key="consolidar">
+    <div className="screen journey-screen journey-screen--consolidar people-ux" key="consolidar">
       <div className="screen-head">
         <div className="titles">
           <h2>Cuidado de novos discípulos</h2>
-          <p>Priorize decisões recentes e acompanhe o avanço de cada pessoa.</p>
+          <p>Acompanhe os cuidados em andamento.</p>
         </div>
         <div className="actions">
           <button
@@ -151,33 +147,13 @@ export function ConsolidarScreen() {
         </div>
       ) : null}
 
-      <div className="stat-grid">
-        {showSkeleton
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="stat skeleton" key={i}>
-                <div className="sk-line sk-sm" />
-                <div className="sk-line sk-lg" />
-              </div>
-            ))
-          : stats.map((s) => (
-              <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
-                <div className="lbl">
-                  <Icon name={s.icon} />
-                  {s.label}
-                </div>
-                <div className="val num">{s.value}</div>
-                <div className="delta">{s.delta}</div>
-              </div>
-            ))}
-      </div>
-
-      <div className="dash-grid">
+      <div className="people-work-list">
         <div className="card">
           <div className="panel-title">
             <span>
-              <Icon name="user" /> Fila de consolidação individual
+              <Icon name="user" /> Em acompanhamento
             </span>
-            <span className="count">· precisa iniciar</span>
+            <span className="count">{showSkeleton ? "Carregando…" : c.loaded ? `${pending.length} pessoas na lista` : "Lista indisponível"}</span>
           </div>
           {showSkeleton ? (
             <div className="queue">
@@ -191,18 +167,21 @@ export function ConsolidarScreen() {
                 </div>
               ))}
             </div>
-          ) : pending.length === 0 ? (
+          ) : !c.loaded ? null : pending.length === 0 ? (
             <div className="empty-state" style={{ padding: "var(--s6)" }}>
               <Icon name="check" />
               <p>
-                <strong>Fila zerada.</strong> Toda decisão recente já tem consolidação
-                iniciada.
+                <strong>Nenhum acompanhamento pendente nesta lista.</strong> Decisões
+                registradas no estágio Consolidar aparecem aqui.
               </p>
             </div>
           ) : (
             <div className="queue">
               {pending.map((p) => {
                 const prazo = c.prazoByPessoa.get(p.id) ?? null;
+                const stages = mergeStages(derivedStages(p), c.sessionFor(p.id)?.confirmedStages);
+                const next = nextMandatory(stages);
+                const responsavel = c.consolidadorName(p.id);
                 return (
                   <div className="qitem" key={p.id}>
                     <span className="qicon v">
@@ -212,8 +191,12 @@ export function ConsolidarScreen() {
                       <strong>{p.nome}</strong>
                       <div className="meta">
                         {p.celulaId
-                          ? `${c.cellName(p.celulaId)} · consolidação a iniciar`
-                          : "Sem célula · conectar e iniciar consolidação"}
+                          ? c.cellName(p.celulaId)
+                          : "Nenhuma célula vinculada"}
+                      </div>
+                      <div className="people-meta">{responsavel ? `Consolidador: ${responsavel}` : "Consolidador não informado"}</div>
+                      <div className="people-next-label">
+                        {next ? `Próxima etapa: ${etapaLabel(next)}` : "Etapas obrigatórias registradas"}
                       </div>
                       {prazo ? (
                         <DeadlineBadge prazo={prazo} now={c.now} prefix="prazo 24h" />
@@ -223,6 +206,7 @@ export function ConsolidarScreen() {
                       <button
                         type="button"
                         className="btn btn-sm"
+                        aria-label={`Ver progresso de ${p.nome}`}
                         onClick={() => c.openTrack(p)}
                       >
                         Ver progresso
@@ -235,58 +219,12 @@ export function ConsolidarScreen() {
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s4)" }}>
-          <div className="card">
-            <div className="panel-title">
-              <span>
-                <Icon name="document" /> Próxima Universidade da Vida
-              </span>
-              <span className="count">· liderança define o critério</span>
-            </div>
-            {consolidated.length === 0 ? (
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
-                <Icon name="university" />
-                <p>
-                  <strong>Ninguém apto ainda.</strong> Consolidados na trilha aparecem
-                  aqui como aptos à próxima turma.
-                </p>
-              </div>
-            ) : (
-              <div>
-                {consolidated.slice(0, 5).map((p) => (
-                  <div className="list-row" key={p.id}>
-                    <span className="avatar">{initials(p.nome)}</span>
-                    <div style={{ flex: 1 }}>
-                      <div className="nm">{p.nome}</div>
-                      <div className="sub">
-                        {p.celulaId ? `${c.cellName(p.celulaId)} · ` : ""}
-                        consolidado individual
-                      </div>
-                    </div>
-                    <span className="pill accent">Apto</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ padding: "var(--s3) var(--s4)" }}>
-              <button
-                type="button"
-                className="btn btn-sm locked-soon"
-                disabled
-                aria-disabled
-                title="Abrir turma da UV — em breve (bloqueado no MVP)"
-              >
-                Abrir turma da UV <Icon name="clock" />
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="card" style={{ marginTop: "var(--s4)" }}>
         <div className="panel-title">
           <span>
-            <Icon name="check" /> 100% consolidados
+            <Icon name="check" /> Consolidação concluída
           </span>
           <span className="count">· individual e/ou UV</span>
         </div>
@@ -310,9 +248,9 @@ export function ConsolidarScreen() {
               <option value="m">Masculino</option>
             </select>
           </div>
-          <div className="fcount">
+          {c.loaded ? <div className="fcount">
             <strong>{filteredConsolidated.length}</strong> pessoas
-          </div>
+          </div> : null}
         </div>
         {showSkeleton ? (
           <div className="queue">
@@ -326,19 +264,92 @@ export function ConsolidarScreen() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : !c.loaded ? null : (
           <DataTable
+            className="people-table"
             columns={consColumns}
             rows={filteredConsolidated}
             rowKey={(p) => p.id}
             empty={{
               icon: "check",
-              title: "Nenhuma pessoa 100% consolidada com esses filtros.",
+              title: "Nenhuma consolidação concluída com esses filtros.",
               hint: "Conclua trilhas individuais para ver a base consolidada crescer.",
             }}
           />
         )}
       </div>
+
+      {c.loaded || showSkeleton ? <details className="people-disclosure people-overview">
+        <summary>Resumo do acompanhamento</summary>
+      <div className="stat-grid">
+        {showSkeleton
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div className="stat skeleton" key={i}>
+                <div className="sk-line sk-sm" />
+                <div className="sk-line sk-lg" />
+              </div>
+            ))
+          : stats.map((s) => (
+              <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
+                <div className="lbl">
+                  <Icon name={s.icon} />
+                  {s.label}
+                </div>
+                <div className="val num">{s.value}</div>
+                <div className="delta">{s.delta}</div>
+              </div>
+            ))}
+      </div>
+
+        <p className="people-meta">Contagens das pessoas carregadas dentro do seu acesso atual.</p>
+      </details> : null}
+      <details className="people-disclosure people-overview">
+        <summary>Universidade da Vida: disponibilidade</summary>
+          <div className="people-module-info">
+            <div className="panel-title">
+              <span>
+                <Icon name="document" /> Universidade da Vida
+              </span>
+              <span className="count">· módulo indisponível</span>
+            </div>
+            {!c.loaded ? null : consolidated.length === 0 ? (
+              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+                <Icon name="university" />
+                <p>
+                  <strong>Nenhuma consolidação concluída nesta lista.</strong> A gestão
+                  de turmas da Universidade da Vida ainda está indisponível.
+                </p>
+              </div>
+            ) : (
+              <div>
+                {consolidated.slice(0, 5).map((p) => (
+                  <div className="list-row" key={p.id}>
+                    <span className="avatar">{initials(p.nome)}</span>
+                    <div style={{ flex: 1 }}>
+                      <div className="nm">{p.nome}</div>
+                      <div className="sub">
+                        {p.celulaId ? `${c.cellName(p.celulaId)} · ` : ""}
+                        consolidado individual
+                      </div>
+                    </div>
+                    <span className="pill muted">Consolidado</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ padding: "var(--s3) var(--s4)" }}>
+              <button
+                type="button"
+                className="btn btn-sm locked-soon"
+                disabled
+                aria-disabled
+                title="A gestão de turmas da Universidade da Vida ainda está indisponível"
+              >
+                Abrir turma da UV <Icon name="clock" />
+              </button>
+            </div>
+          </div>
+      </details>
 
       {c.decisionOpen ? (
         <DecisionModal

@@ -9,6 +9,8 @@ import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Icon } from "@/lib/icons";
 import type { Cell } from "@/lib/dashboard-api";
 
+import "./people-ux-v2.css";
+
 export function LinkCellModal({
   cells,
   contactName,
@@ -30,6 +32,7 @@ export function LinkCellModal({
   // linhas do seletor já ficam desabilitadas com busy.
   return (
     <DsDialog
+      className="people-ux-dialog"
       open
       onClose={() => {
         if (!busy) onClose();

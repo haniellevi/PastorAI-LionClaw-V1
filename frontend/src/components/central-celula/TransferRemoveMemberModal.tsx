@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 import { useMemo, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
@@ -126,7 +128,7 @@ export function TransferRemoveMemberModal({
         : "Remover";
 
   return (
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!sending) onClose();
@@ -134,7 +136,7 @@ export function TransferRemoveMemberModal({
       title={title}
     >
       {success ? (
-        <div className="modal-form">
+        <div className="modal-form ops-dialog">
           <DsBanner kind="info">{success}</DsBanner>
           <div className="modal-foot">
             <DsButton variant="primary" onClick={onClose}>
@@ -144,7 +146,7 @@ export function TransferRemoveMemberModal({
         </div>
       ) : (
         <form
-          className="modal-form"
+          className="modal-form ops-dialog"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();

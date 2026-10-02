@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * Tela #relatorios (legada, deep-link — delta-012). Relatórios de célula da
  * semana: um card com os RECEBIDOS e outro com os que faltam entregar.
@@ -208,18 +210,18 @@ export function RelatoriosScreen() {
       { header: "Presentes", numeric: true, cell: (r) => r.presentes ?? "—" },
       { header: "Visitantes", numeric: true, cell: (r) => r.visitantes ?? "—" },
       {
-        header: "",
-        width: "1px",
+        header: "Relatório",
         cell: (r) => (
           <button
             type="button"
             className="btn btn-sm"
+            aria-label={`Ver relatório de ${r.celulaNome ?? "Célula"}, reunião de ${formatMeetingDate(r.dataReuniao)}`}
             onClick={(e) => {
               e.stopPropagation();
               setDetailId(r.id);
             }}
           >
-            Ver
+            Ver relatório
           </button>
         ),
       },
@@ -228,17 +230,18 @@ export function RelatoriosScreen() {
   );
 
   return (
-    <div className="screen operations-screen reports-screen" key="relatorios">
+    <div className="screen operations-screen reports-screen ops-v2" key="relatorios">
       <div className="screen-head">
         <div className="titles">
           <h2>Relatórios de células</h2>
           <p>Acompanhe o que chegou e o que ainda precisa de cuidado nesta semana.</p>
         </div>
         <div className="actions">
-          <div className="tabs">
+          <div className="tabs" role="group" aria-label="Período dos relatórios">
             <button
               type="button"
               className={`tab${tab === "atual" ? " active" : ""}`}
+              aria-pressed={tab === "atual"}
               onClick={() => setTab("atual")}
             >
               Semana atual
@@ -246,6 +249,7 @@ export function RelatoriosScreen() {
             <button
               type="button"
               className={`tab${tab === "historico" ? " active" : ""}`}
+              aria-pressed={tab === "historico"}
               onClick={() => setTab("historico")}
             >
               Histórico
@@ -253,6 +257,8 @@ export function RelatoriosScreen() {
           </div>
         </div>
       </div>
+
+      <p className="ops-period-note" role="status">{tab === "atual" ? "Reuniões da semana atual." : "Histórico das reuniões da semana anterior."} Datas no horário de São Paulo.</p>
 
       {error ? (
         <div className="error-banner" role="alert">
@@ -265,7 +271,7 @@ export function RelatoriosScreen() {
       ) : null}
 
       {showSkeleton ? (
-        <div className="grid-2" style={{ alignItems: "start" }}>
+        <div className="reports-workspace">
           {Array.from({ length: 2 }).map((_, i) => (
             <div className="card card-pad" key={i}>
               {Array.from({ length: 3 }).map((__, j) => (
@@ -279,39 +285,21 @@ export function RelatoriosScreen() {
             </div>
           ))}
         </div>
-      ) : reunioesTotal === 0 ? (
+      ) : error && !loaded ? null : reunioesTotal === 0 ? (
         <div className="card">
           <div className="empty-state" style={{ padding: "var(--s6)" }}>
             <Icon name="document" />
             <p>
-              <strong>Nenhuma reunião de célula nesta semana.</strong> Os
+              <strong>{tab === "atual" ? "Nenhuma reunião de célula nesta semana." : "Nenhuma reunião de célula na semana anterior."}</strong> Os
               relatórios aparecem aqui depois que as reuniões forem agendadas
               pelos líderes.
             </p>
           </div>
         </div>
       ) : (
-        <div className="grid-2" style={{ alignItems: "start" }}>
-          <div className="card">
+        <div className="reports-workspace">
+          <div className="card reports-pending">
             <div className="panel-title">
-              <Icon name="check" /> Recebidos
-              <span className="count">· {recebidos.length} de {reunioesTotal} reuniões</span>
-            </div>
-            <DataTable
-              columns={recebidosColumns}
-              rows={recebidos}
-              rowKey={(r) => r.id}
-              empty={{
-                icon: "document",
-                title: "Nenhum relatório recebido ainda.",
-                hint: "Os relatórios enviados pelos líderes aparecem aqui.",
-              }}
-              onRowClick={(r) => setDetailId(r.id)}
-            />
-          </div>
-
-          <div className="card">
-            <div className="panel-title" style={{ color: pendentes.length ? "var(--warn)" : undefined }}>
               <Icon name="alert" /> Pendentes
               <span className="count">· {pendentes.length} reunião(ões)</span>
             </div>
@@ -334,8 +322,8 @@ export function RelatoriosScreen() {
                         <div className="sub">Reunião de {formatMeetingDate(r.dataReuniao)}</div>
                       </div>
                       <StatusPill tone={sla.tone}>{sla.label}</StatusPill>
-                      <button type="button" className="btn btn-sm" onClick={() => setDetailId(r.id)}>
-                        Ver
+                      <button type="button" className="btn btn-sm" aria-label={`Ver relatório de ${r.celulaNome ?? "Célula"}, reunião de ${formatMeetingDate(r.dataReuniao)}`} onClick={() => setDetailId(r.id)}>
+                        Ver relatório
                       </button>
                     </div>
                   );
@@ -343,6 +331,25 @@ export function RelatoriosScreen() {
               </div>
             )}
           </div>
+
+          <div className="card reports-received">
+            <div className="panel-title">
+              <Icon name="check" /> Recebidos
+              <span className="count">· {recebidos.length} de {reunioesTotal} reuniões</span>
+            </div>
+            <DataTable
+              columns={recebidosColumns}
+              rows={recebidos}
+              rowKey={(r) => r.id}
+              empty={{
+                icon: "document",
+                title: "Nenhum relatório recebido ainda.",
+                hint: "Os relatórios enviados pelos líderes aparecem aqui.",
+              }}
+              onRowClick={(r) => setDetailId(r.id)}
+            />
+          </div>
+
         </div>
       )}
 

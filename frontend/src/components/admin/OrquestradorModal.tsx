@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Orquestrador padrão (modelo do master) — Fatia 3. Define UM comportamento base
  * ("começa igual a todas as igrejas"); ao aprovar uma igreja, esse modelo é
@@ -105,11 +107,13 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
 
   return (
     <DsDialog
+      className="administration-ux administration-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
       }}
       title="Orquestrador padrão"
+      description="Modelo base da plataforma. O comportamento de cada igreja pode ser revisado no seu próprio detalhe."
       footer={
         loaded ? (
           <>

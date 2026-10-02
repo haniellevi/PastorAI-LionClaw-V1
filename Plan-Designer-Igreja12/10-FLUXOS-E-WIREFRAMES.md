@@ -1,6 +1,53 @@
 # Fluxos e wireframes essenciais
 
-Estes wireframes são determinísticos. Eles organizam capacidades atuais e gaps aprováveis. Não representam código implementado.
+## Referência vigente, UX expressiva v3
+
+Aplicação de 01/10/2026 às 42 unidades existentes. [DESIGN.md](../DESIGN.md) controla identidade, hierarquia e movimento; o [registro v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md) liga aprovação, paridade, QA e recibo.
+
+Acesso combina marca e formulário claro, com uma coluna no mobile. Hoje, Gestão e Console usam faixa mineral compacta; listas destacam pessoa, estado e próxima ação. Pessoas preserva filtro/página ao voltar do detalhe. Permissões confirma saída antes de publicar a rota, mantendo rascunho e destinos de Voltar/Avançar. Na Agenda mensal estreita, a grade seleciona o dia e a lista abaixo apresenta horário e título completos; espaço amplo conserva a grade de eventos.
+
+Ações, papéis, capacidades e payloads permanecem os do domínio existente. A [paridade operacional](../docs/design/UX-V3-PARIDADE-OPERACAO.md) e a [paridade administrativa](../docs/design/UX-V3-PARIDADE-ADMINISTRACAO.md) preservam a rastreabilidade da base.
+
+## Base aprovada anteriormente, Hoje e Conversas v2
+
+Atualização de 30/09/2026, baseada no candidato `66a56cc0b601bf14f8e3036e9cede11f54b32087`. Esta seção descreve o recorte implementado e aprovado na prévia. O [design system](../DESIGN.md) controla sua apresentação; o [registro v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) contém testes e limites.
+
+### Hoje
+
+```text
+Hoje                                      [Abrir conversas, se permitido]
+Saudação e contexto do escopo
+
+Cuidados que precisam de atenção
+  Pessoa, motivo, prazo e responsável disponíveis
+  [Ação principal]  [Mais ações]
+> Visão geral do seu cuidado
+
+Próximos eventos, visíveis
+> Jornada e responsáveis
+```
+
+Cada cuidado mantém sua ação principal à vista. Atribuição, mensagem e outras ações aparecem conforme a capacidade existente. Os dois blocos de apoio começam recolhidos. "Abrir conversas" leva à lista autorizada: `WorkItem` não contém `conversationId`, portanto o recorte não seleciona a conversa da pessoa por nome ou telefone.
+
+### Conversas
+
+```text
+LISTA                                    CONVERSA
+Conversas                                Pessoa
+[Nome, telefone ou mensagem]             Estado e responsável
+[Todas] [Em espera] [IA]                  [Assumir atendimento, se disponível]
+                                         [Transferir] [Ver pessoa] [Mais ações]
+Pessoa, prévia, estado e horário
+[Carregar mais, quando houver]            Histórico e composição da mensagem
+```
+
+No desktop, lista e conversa compartilham a superfície. No mobile, são telas separadas; voltar preserva busca e rascunho. "Ver pessoa" abre contexto sob demanda. Assumir, encerrar e transferir dependem do estado, responsável e permissões existentes; exclusão mantém a confirmação.
+
+Os estados do contrato continuam `ia`, `humano` e `aguardando`, apresentados em linguagem de atendimento. Disponibilidade do canal, opt-out e falhas são condições próprias, sem criar o estado "Resolvida". Devolver à IA preserva o handoff existente, sem requisito novo de resumo. Transferência usa destinos elegíveis, sem adicionar uma ação específica de escalonamento ao pastor.
+
+## Wireframes históricos, agosto de 2026
+
+As seções numeradas abaixo organizam intenções e gaps do planejamento inicial. Não representam código entregue nem substituem a referência v2 acima. Filtros como "Atribuídas a mim" e "Fora da igreja", estado "Resolvida", contexto persistente e resumo obrigatório no handoff permanecem propostas históricas, sem implementação por este recorte.
 
 ## 1. Fluxo de acesso
 

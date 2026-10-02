@@ -1,5 +1,7 @@
 "use client";
 
+import "../cells/operations-ux-v2.css";
+
 /**
  * EVT-8 PR3 — modal de confirmação de evento com configuração de notificação.
  *
@@ -160,7 +162,7 @@ export function ConfirmEventModal({
       : (ANTECEDENCIAS.find((a) => a.id === quando)?.label.toLowerCase() ?? "");
 
   return (
-    <DsDialog
+    <DsDialog className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -168,7 +170,7 @@ export function ConfirmEventModal({
       title="Confirmar evento"
     >
       <form
-        className="modal-form"
+        className="modal-form ops-dialog"
         onSubmit={(e) => {
           e.preventDefault();
           if (canSubmit) submit();

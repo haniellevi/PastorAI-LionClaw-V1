@@ -87,6 +87,17 @@ function render(
 }
 
 describe("Sidebar: cadastro da igreja", () => {
+  it("destino disponível é link real; Ctrl+clique mantém a navegação nativa", () => {
+    render("dashboard");
+    const link = container.querySelector<HTMLAnchorElement>('[aria-label="Painel de Hoje"]')!;
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("#dashboard");
+    const modifiedClick = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    act(() => link.dispatchEvent(modifiedClick));
+    expect(modifiedClick.defaultPrevented).toBe(false);
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
   it("mostra e navega pelo menu para admin", () => {
     render("dashboard", false, false, {
       sections: ADMIN_NAV_SECTIONS,

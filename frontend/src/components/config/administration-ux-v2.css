@@ -1,0 +1,246 @@
+/* Gestão da igreja e plataforma: os contratos continuam nos componentes. */
+.administration-ux {
+  --admin-copy: var(--text-secondary);
+  --admin-ink: var(--text-primary);
+  color: var(--admin-ink);
+  font-size: 15px;
+  line-height: 1.5;
+  min-width: 0;
+}
+.administration-ux .screen-head { gap: 20px; align-items: flex-start; }
+.administration-ux .titles p { max-width: 68ch; color: var(--admin-copy); }
+.administration-ux :is(.sub, .helper, .meta, .count) {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.administration-ux :is(h2, h3, h4, .panel-title) { color: var(--admin-ink); }
+.administration-ux :is(h3, h4, .panel-title) { font-size: 18px; line-height: 1.4; }
+.administration-ux .card {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+  min-width: 0;
+}
+.administration-ux .card-pad { padding: 24px; }
+.administration-ux .field { margin-bottom: 20px; min-width: 0; }
+.administration-ux :is(.field label, .field legend) { font-size: 14px; font-weight: 650; }
+.administration-ux :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  color: var(--admin-ink);
+  border-color: var(--border-emphasis);
+  font-size: 16px;
+  min-height: 44px;
+  max-width: 100%;
+  min-width: 0;
+}
+.administration-ux textarea { line-height: 1.6; padding: 12px; resize: vertical; }
+.administration-ux input:disabled { opacity: 1; background: var(--surface-panel); }
+.administration-ux :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.administration-ux :is(.btn, .ds-btn) { min-height: 40px; white-space: normal; }
+.administration-ux :is(.row, .actions, .modal-foot) { gap: 12px; }
+.administration-ux :is(.error-banner, .info-banner, .degraded-banner) {
+  line-height: 1.6;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.administration-ux .admin-section {
+  margin-block: 20px;
+  padding-block: 20px;
+  border-block-start: 1px solid var(--border-subtle);
+}
+.administration-ux .admin-section > :first-child { margin-block-start: 0; }
+.administration-ux .admin-context {
+  padding: 16px 20px;
+  margin-block: 16px;
+  background: var(--selection-soft);
+  border-radius: var(--radius-control);
+  color: var(--admin-ink);
+}
+.administration-ux .admin-context p { margin: 4px 0 0; max-width: 72ch; }
+.administration-ux .admin-disclosure { margin-block: 20px; }
+.administration-ux .admin-disclosure > summary {
+  padding: 14px 0;
+  cursor: pointer;
+  font-weight: 650;
+  color: var(--admin-ink);
+}
+.administration-ux .admin-disclosure[open] > summary { margin-bottom: 12px; }
+.administration-ux .admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.administration-ux .admin-actions > :first-child { margin-inline-end: auto; }
+.administration-ux .admin-form-stack { display: grid; gap: 24px; max-width: 780px; }
+.administration-ux .admin-form-stack form { margin: 0; }
+.administration-ux .admin-inline-section { padding-block: 20px; border-block-start: 1px solid var(--border-subtle); }
+.administration-ux .admin-inline-section .row { flex-wrap: wrap; }
+.administration-ux .admin-tabs { flex-wrap: wrap; gap: 8px; }
+.administration-ux .tab { min-height: 44px; padding: 10px 16px; }
+.administration-ux .tab.active { background: var(--action-primary); color: var(--text-on-action); }
+.administration-ux .data-table { table-layout: auto; }
+.administration-ux .data-table :is(th, td) { padding: 16px; font-size: 14px; overflow-wrap: anywhere; }
+.administration-ux .data-table thead th { color: var(--admin-copy); font-weight: 650; }
+.administration-ux .data-table .nm { font-size: 15px; }
+.administration-ux :is(.list-row, .config-row, .conn-row, .seg-row) { gap: 16px; padding-block: 16px; }
+.administration-ux :is(.list-row, .config-row, .conn-row) > * { min-width: 0; overflow-wrap: anywhere; }
+.administration-ux .role-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; }
+.administration-ux .role-pick label { min-height: 48px; padding: 14px; flex-wrap: wrap; }
+.administration-ux .role-pick label:has(input:disabled) { opacity: 1; background: var(--surface-panel); }
+.administration-ux .role-pick .rk { font-size: 13px; color: var(--admin-copy); }
+.administration-ux .setup-list { list-style: none; padding: 0; margin: 0; }
+.administration-ux .setup-list .qitem { padding: 20px 24px; gap: 16px; }
+.administration-ux .setup-list strong { font-size: 16px; }
+.administration-ux .setup-list .qicon { flex-shrink: 0; }
+.administration-ux .perm-wrap { overflow: auto; max-height: 70vh; }
+.administration-ux .perm-table { min-width: 840px; }
+.administration-ux .perm-table thead th { position: sticky; top: 0; background: var(--surface-panel); z-index: 1; }
+.administration-ux .perm-table tbody th { position: sticky; left: 0; background: var(--surface-raised); min-width: 160px; }
+.administration-ux .perm-table :is(th, td) { font-size: 14px; padding: 14px 12px; }
+.administration-ux .perm-table td.locked { color: var(--admin-copy); opacity: 1; }
+.administration-ux .perm-mobile { display: none; }
+.administration-ux .perm-access-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 56px; padding: 16px 0; border-bottom: 1px solid var(--border-subtle); }
+.administration-ux .perm-review { margin-block: 20px; }
+.administration-ux .perm-review ul { padding-inline-start: 20px; }
+.administration-ux .conn-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.administration-ux .qr { max-width: 100%; width: 220px; height: 220px; margin-inline: auto; }
+.administration-ux .bc-steps { gap: 12px; margin-bottom: 28px; }
+.administration-ux .bc-step { font-size: 14px; }
+.administration-ux .message-preview { background: var(--surface-panel); padding: 16px; border-radius: var(--radius-control); white-space: pre-wrap; overflow-wrap: anywhere; }
+.administration-ux.platform-console, .administration-ux.platform-church { max-width: 1200px; margin: 0 auto; padding: 32px; }
+.administration-ux .platform-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 28px; }
+.administration-ux .platform-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.administration-ux .platform-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 28px; padding: 20px; background: var(--surface-panel); border-radius: var(--radius-panel); }
+.administration-ux .platform-metric { min-width: 0; }
+.administration-ux .platform-metric-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.administration-ux .platform-finance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.administration-ux .platform-list-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding: 20px 24px; }
+.administration-ux .platform-list-head h2 { margin: 0; }
+.administration-ux .platform-target { position: sticky; top: 0; z-index: 2; padding: 16px 0; background: var(--surface-canvas); border-bottom: 1px solid var(--border-subtle); }
+.administration-ux .platform-target h1 { overflow-wrap: anywhere; }
+.administration-dialog { width: min(860px, calc(100vw - 32px)); max-width: 860px; }
+.administration-dialog .ds-dialog-body { padding: 24px; }
+.administration-dialog .ds-dialog-head { border-bottom: 1px solid var(--border-subtle); }
+.administration-dialog .ds-dialog-foot { flex-wrap: wrap; gap: 12px; }
+.administration-dialog .modal-form { max-width: 100%; }
+.administration-dialog .admin-target-note { font-weight: 650; margin-bottom: 20px; }
+.administration-ux .governance-purposes { margin-bottom: 24px; }
+.administration-ux .governance-purpose { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--border-subtle); }
+.administration-ux .governance-purpose h3 { grid-column: 1; }
+.administration-ux .governance-purpose p { grid-column: 1; margin: 4px 0 0; }
+.administration-ux .governance-purpose button { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+/* V3: a expressão mineral fica nas visões gerais; formulários seguem claros. */
+.administration-ux .screen-head .titles h2 {
+  font-size: 32px;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+.administration-ux .screen-head .titles p { font-size: 16px; line-height: 1.5; }
+.administration-ux .admin-overview {
+  padding: 24px 28px;
+  margin-bottom: 28px;
+  border: 1px solid var(--diamond-900);
+  border-radius: 16px;
+  background: var(--diamond-950);
+  color: var(--text-on-action);
+  min-width: 0;
+}
+.administration-ux .admin-overview > :not(.mineral-backdrop) {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.administration-ux .admin-overview :is(h1, h2) { color: inherit; }
+.administration-ux .admin-overview h1 { font: 700 32px/1.2 var(--font-display); letter-spacing: -0.035em; }
+.administration-ux .admin-overview .titles p { color: inherit; }
+.administration-ux .admin-overview .admin-eyebrow {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+}
+.administration-ux .admin-overview .platform-guidance { font-size: 16px; line-height: 1.5; margin: 8px 0 4px; }
+.administration-ux .admin-overview .platform-tools { justify-content: flex-end; flex: 0 1 460px; }
+.administration-ux .admin-overview .btn {
+  color: var(--text-on-action);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--text-on-action) 45%, transparent);
+}
+.administration-ux .admin-overview :is(a, button):focus-visible { outline-color: var(--diamond-100); }
+.administration-ux.setup-screen .panel-title h2 { font: inherit; margin: 0; }
+.administration-ux .card { border-radius: 12px; }
+.administration-ux .card-pad > h3 { margin: 0 0 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+.administration-ux :is(.data-table .nm, .data-table td:first-child, .list-row strong, .config-row strong) { font-size: 16px; }
+.administration-ux .data-table td::before { font-size: 14px; }
+.administration-ux .data-table thead { background: var(--surface-panel); }
+.administration-ux .data-table tbody tr:last-child td { border-bottom: 0; }
+.administration-ux .setup-list .qicon { width: 40px; height: 40px; background: var(--selection-soft); color: var(--action-primary); }
+.administration-ux .setup-list .qicon.v { background: var(--state-ok-soft); color: var(--state-ok); }
+.administration-ux .setup-list .sub { font-weight: 650; color: var(--admin-ink); }
+.administration-ux .setup-list .meta { margin-top: 4px; }
+.administration-ux .admin-context { border-inline-start: 3px solid var(--diamond-700); }
+.administration-ux .admin-disclosure > summary { border-bottom: 1px solid var(--border-subtle); }
+.administration-ux .admin-disclosure > summary::marker { color: var(--action-primary); }
+.administration-ux .platform-summary { background: transparent; border-block: 1px solid var(--border-subtle); border-radius: 0; padding-inline: 0; }
+.administration-ux .platform-metric-value { font-size: 28px; letter-spacing: -0.02em; }
+.administration-ux .platform-metric + .platform-metric { border-inline-start: 1px solid var(--border-subtle); padding-inline-start: 20px; }
+.administration-ux .platform-finance .platform-metric { border: 0; padding: 20px; background: var(--surface-panel); border-radius: 12px; }
+.administration-ux .detail-list { margin: 0; }
+.administration-ux .detail-list > div { display: grid; grid-template-columns: minmax(130px, 32%) minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border-subtle); }
+.administration-ux .detail-list dt { font-size: 14px; color: var(--admin-copy); }
+.administration-ux .detail-list dd { font-size: 16px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.administration-ux .admin-unavailable { max-width: 680px; min-height: 220px; border-inline-start: 4px solid var(--diamond-700); }
+.administration-ux .admin-unavailable p { font-size: 16px; max-width: 54ch; }
+@media (hover: hover) and (pointer: fine) {
+  .administration-ux :is(.btn, .ds-btn, summary) { transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease; }
+  .administration-ux .admin-overview .btn:hover { background: color-mix(in srgb, var(--text-on-action) 12%, transparent); }
+}
+@media (max-width: 860px) {
+  .administration-ux :is(.btn, .ds-btn) { min-height: 44px; }
+}
+@media (max-width: 760px) {
+  .administration-ux.platform-console, .administration-ux.platform-church { padding: 20px 16px; }
+  .administration-ux :is(.screen-head, .platform-head) { flex-direction: column; align-items: stretch; }
+  .administration-ux .card-pad { padding: 20px 16px; }
+  .administration-ux :is(.grid-2, .dash-grid, .conn-grid) { grid-template-columns: minmax(0, 1fr); }
+  .administration-ux .row { flex-direction: column; align-items: stretch; }
+  .administration-ux .actions { flex-wrap: wrap; }
+  .administration-ux .platform-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; }
+  .administration-ux .platform-finance { grid-template-columns: minmax(0, 1fr); }
+  .administration-ux .platform-target { position: static; }
+  .administration-ux .setup-list .qitem { flex-wrap: wrap; padding: 20px 16px; }
+  .administration-ux .setup-list .qbody { min-width: 0; flex-basis: calc(100% - 56px); }
+  .administration-ux .setup-list .qactions { margin-inline-start: 48px; }
+  .administration-ux .perm-desktop { display: none; }
+  .administration-ux .perm-mobile { display: block; }
+  .administration-ux :is(.config-row, .conn-row) { flex-wrap: wrap; }
+  .administration-ux .bc-steps { justify-content: space-between; gap: 4px; }
+  .administration-ux .bc-step { flex-wrap: wrap; gap: 6px; }
+  .administration-ux .ux-stack-table, .administration-ux .ux-stack-table tbody { display: block; width: 100%; }
+  .administration-ux .ux-stack-table thead { display: none; }
+  .administration-ux .ux-stack-table tr { display: block; border-bottom: 1px solid var(--border-emphasis); padding: 12px 0; }
+  .administration-ux .ux-stack-table td { display: grid; grid-template-columns: minmax(96px, 35%) minmax(0, 1fr); gap: 12px; text-align: start; border: none; padding: 10px 16px; }
+  .administration-ux .ux-stack-table td::before { content: attr(data-label); font-weight: 650; color: var(--admin-copy); }
+  .administration-ux .ux-stack-table td > * { min-width: 0; }
+  .administration-ux .ux-stack-table td[data-label="Ações"] { display: block; }
+  .administration-ux .ux-stack-table td[data-label="Ações"]::before { display: none; }
+  .administration-ux div[style*="display: flex"] { flex-wrap: wrap; }
+  .administration-ux div[style*="display: flex"] > input { flex-basis: 100%; }
+  .administration-ux .governance-purpose { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .administration-ux .governance-purpose button { grid-column: 1; grid-row: auto; justify-self: start; }
+  .administration-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .administration-dialog .ds-dialog-body { padding: 20px 16px; }
+}
+@media (max-width: 860px) {
+  .administration-ux .screen-head .titles h2,
+  .administration-ux .admin-overview h1 { font-size: 28px; }
+  .administration-ux .admin-overview { padding: 20px; border-radius: 12px; margin-bottom: 24px; }
+  .administration-ux .admin-overview .platform-tools { flex-basis: auto; justify-content: flex-start; }
+  .administration-ux .platform-metric + .platform-metric { padding-inline-start: 12px; }
+}
+@media (max-width: 760px) {
+  .administration-ux .platform-metric:nth-child(odd) { border-inline-start: 0; padding-inline-start: 0; }
+  .administration-ux .detail-list > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .administration-ux :is(.btn, .ds-btn, summary) { transition: none; }
+}

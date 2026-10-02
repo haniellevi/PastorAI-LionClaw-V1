@@ -119,14 +119,14 @@ function tableText(): string {
   return container.querySelector(".data-table")?.textContent ?? "";
 }
 
-/** Aba de filtro (role="tab") pelo rótulo — não confundir com botões de ação. */
+/** Filtro nativo pelo rótulo, incluindo a lista exclusiva de arquivadas. */
 async function clickTab(label: string) {
-  const tab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) =>
-    b.textContent!.includes(label),
-  );
-  if (!tab) throw new Error(`aba não encontrada: ${label}`);
+  const select = container.querySelector<HTMLSelectElement>("#people-filter")!;
+  const option = [...select.options].find((item) => item.textContent?.includes(label));
+  if (!option) throw new Error(`filtro não encontrado: ${label}`);
   act(() => {
-    tab.click();
+    select.value = option.value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await flush();
 }

@@ -36,6 +36,8 @@ const DEFAULT_VISUAL = { icon: "alert" as IconKey, cls: "h" as const };
 
 export interface WorkQueueItemProps {
   item: WorkItem;
+  /** Ênfase preenchida reservada à primeira tarefa visível. */
+  priority?: boolean;
   now: number;
   /** Nome do responsável atual, resolvido pela equipe (ou null). */
   responsibleName: string | null;
@@ -58,6 +60,7 @@ export interface WorkQueueItemProps {
 
 export function WorkQueueItem({
   item,
+  priority = true,
   now,
   responsibleName,
   canLinkCell,
@@ -115,6 +118,7 @@ export function WorkQueueItem({
       <div className="dh-item-actions">
         {showLinkCellAction ? (
           <DsButton
+            variant={priority ? "primary" : "secondary"}
             disabled={busy}
             aria-busy={busy || undefined}
             aria-label={`Conectar à célula: ${item.titulo}`}
@@ -127,6 +131,7 @@ export function WorkQueueItem({
 
         {isFonovisita ? (
           <DsButton
+            variant={priority ? "primary" : "secondary"}
             disabled={busy}
             aria-busy={busy || undefined}
             aria-label={`Registrar fonovisita: ${item.titulo}`}
@@ -137,38 +142,61 @@ export function WorkQueueItem({
           </DsButton>
         ) : null}
 
-        <DsButton
-          variant={assumeIsPrimary ? "primary" : "tertiary"}
-          disabled={busy || assumido}
-          aria-busy={busy || undefined}
-          aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
-          onClick={() => onAssume(item)}
-        >
-          {assumido ? "Assumido" : "Assumir"}
-        </DsButton>
-
-        {canAssignQueue ? (
+        {assumeIsPrimary ? (
           <DsButton
-            variant="tertiary"
-            disabled={busy}
+            variant={priority ? "primary" : "secondary"}
+            disabled={busy || assumido}
             aria-busy={busy || undefined}
-            aria-label={`Atribuir responsável: ${item.titulo}`}
-            onClick={() => onAssign(item)}
+            aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
+            onClick={() => onAssume(item)}
           >
-            Atribuir
+            {assumido ? "Assumido" : "Assumir"}
           </DsButton>
         ) : null}
 
-        {item.canMessage ? (
-          <DsButton
-            variant="tertiary"
-            disabled={busy}
-            aria-busy={busy || undefined}
-            aria-label={`Enviar mensagem: ${item.titulo}`}
-            onClick={() => onMessage(item)}
-          >
-            Mensagem
-          </DsButton>
+        {!assumeIsPrimary || canAssignQueue || item.canMessage ? (
+          <details className="action-disclosure dh-item-more">
+            <summary>{[
+              !assumeIsPrimary ? "Assumir" : "",
+              canAssignQueue ? "Atribuir" : "",
+              item.canMessage ? "Enviar mensagem" : "",
+            ].filter(Boolean).join(" ou ")}<span className="sr-only">: {item.titulo}</span></summary>
+            <div className="action-disclosure-body">
+              {!assumeIsPrimary ? (
+                <DsButton
+                  variant="tertiary"
+                  disabled={busy || assumido}
+                  aria-busy={busy || undefined}
+                  aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
+                  onClick={() => onAssume(item)}
+                >
+                  {assumido ? "Assumido" : "Assumir"}
+                </DsButton>
+              ) : null}
+              {canAssignQueue ? (
+                <DsButton
+                  variant="tertiary"
+                  disabled={busy}
+                  aria-busy={busy || undefined}
+                  aria-label={`Atribuir responsável: ${item.titulo}`}
+                  onClick={() => onAssign(item)}
+                >
+                  Atribuir
+                </DsButton>
+              ) : null}
+              {item.canMessage ? (
+                <DsButton
+                  variant="tertiary"
+                  disabled={busy}
+                  aria-busy={busy || undefined}
+                  aria-label={`Enviar mensagem: ${item.titulo}`}
+                  onClick={() => onMessage(item)}
+                >
+                  Mensagem
+                </DsButton>
+              ) : null}
+            </div>
+          </details>
         ) : null}
       </div>
     </div>

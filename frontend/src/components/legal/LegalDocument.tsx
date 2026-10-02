@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Children, isValidElement, type ReactNode } from "react";
 
 import { DiamondMark } from "@/components/brand/DiamondMark";
 
@@ -13,6 +13,11 @@ interface LegalDocumentProps {
 }
 
 export function LegalDocument({ children, description, title }: LegalDocumentProps) {
+  const sections = Children.toArray(children).flatMap((child) =>
+    isValidElement<{ id?: string; children?: ReactNode }>(child) && child.type === "h2" && child.props.id
+      ? [{ id: child.props.id, title: child.props.children }]
+      : [],
+  );
   return (
     <div className={styles.page}>
       <a className={styles.skipLink} href="#conteudo-legal">
@@ -33,7 +38,7 @@ export function LegalDocument({ children, description, title }: LegalDocumentPro
         </nav>
       </header>
 
-      <main className={styles.main} id="conteudo-legal">
+      <main className={styles.main} id="conteudo-legal" tabIndex={-1}>
         <section className={styles.hero}>
           <p className={styles.eyebrow}>Transparência e confiança</p>
           <h1>{title}</h1>
@@ -52,6 +57,14 @@ export function LegalDocument({ children, description, title }: LegalDocumentPro
           </dl>
         </section>
 
+        {sections.length > 0 ? (
+          <details className={styles.index}>
+            <summary>Localizar seção</summary>
+            <nav aria-label="Seções deste documento">
+              <ol>{sections.map((section) => <li key={section.id}><a href={`#${section.id}`}>{section.title}</a></li>)}</ol>
+            </nav>
+          </details>
+        ) : null}
         <article className={styles.document}>{children}</article>
       </main>
 

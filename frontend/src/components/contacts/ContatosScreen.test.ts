@@ -311,10 +311,11 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     expect(tableText()).toContain("Beatriz Lima");
     expect(tableText()).not.toContain("Ana Souza");
 
-    const visitantesTab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
-      (button) => button.textContent!.includes("Visitantes"),
-    )!;
-    act(() => visitantesTab.click());
+    const filter = container.querySelector<HTMLSelectElement>("#people-filter")!;
+    act(() => {
+      filter.value = "visitante";
+      filter.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     await flush();
 
     expect(apiMock.fetchContactsPage).toHaveBeenCalledTimes(3);
@@ -342,10 +343,11 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     await flush();
     expect(tableText()).toContain("Ana Souza");
 
-    const visitantesTab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
-      (button) => button.textContent!.includes("Visitantes"),
-    )!;
-    act(() => visitantesTab.click());
+    const filter = container.querySelector<HTMLSelectElement>("#people-filter")!;
+    act(() => {
+      filter.value = "visitante";
+      filter.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     await act(async () => {
       await Promise.resolve();
     });

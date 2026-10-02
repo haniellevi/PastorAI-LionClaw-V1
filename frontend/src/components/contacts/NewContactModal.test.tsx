@@ -168,3 +168,25 @@ describe("NewContactModal — DsDialog acessível", () => {
     });
   });
 });
+
+
+describe("NewContactModal, saída com preenchimento", () => {
+  it("Esc preserva o preenchimento até confirmar descarte", () => {
+    const onClose = renderModal();
+    const input = container.querySelector<HTMLInputElement>("[data-autofocus]")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Pessoa fictícia");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    pressKey("Escape");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(input.value).toBe("Pessoa fictícia");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Descartar alterações não salvas?");
+    fire(buttonByText("Continuar editando"), "click");
+    expect(input.value).toBe("Pessoa fictícia");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    pressKey("Escape");
+    fire(buttonByText("Descartar alterações"), "click");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

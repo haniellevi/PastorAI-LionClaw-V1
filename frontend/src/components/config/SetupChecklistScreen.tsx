@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #setup — checklist de configuração inicial da igreja (Missão 7B-7).
  * Landing padrão da superfície admin (primeiro item de ADMIN_NAV_SECTIONS).
@@ -11,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { MineralBackdrop } from "@/components/brand/MineralBackdrop";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
@@ -24,14 +27,14 @@ const ITEM_COPY: Record<
   { label: string; done: string; pending: string; icon: IconKey; cta: string }
 > = {
   identidade: {
-    label: "Identidade Visual",
+    label: "Identidade da igreja",
     done: "Logo da igreja configurada.",
     pending: "Sem logo ainda — o sistema mostra o nome da igreja no lugar (opcional).",
     icon: "image",
     cta: "Configurar",
   },
   equipe: {
-    label: "Papéis e Equipe",
+    label: "Pessoas com acesso",
     done: "Já há mais gente da equipe com acesso além de você.",
     pending: "Só você tem acesso até agora — convide pastores e líderes.",
     icon: "team",
@@ -52,8 +55,8 @@ const ITEM_COPY: Record<
     cta: "Conectar",
   },
   agente: {
-    label: "Agente IA",
-    done: "Credencial do modelo (BYO) configurada e ativa.",
+    label: "Credencial do assistente",
+    done: "Credencial do modelo (BYO) configurada. Confira o estado do assistente na configuração.",
     pending: "Credencial do modelo de IA ainda não configurada.",
     icon: "agent",
     cta: "Configurar",
@@ -102,15 +105,19 @@ export function SetupChecklistScreen() {
   }, [load]);
 
   const pending = items?.filter((i) => !i.done).length ?? 0;
+  const nextItem = items?.find((item) => !item.done && item.id !== "identidade")
+    ?? items?.find((item) => !item.done);
 
   return (
-    <div className="screen admin-screen setup-screen" key="setup">
-      <div className="screen-head">
+    <div className="screen admin-screen setup-screen administration-ux" key="setup">
+      <header className="screen-head admin-overview mineral-surface" data-mineral-surface>
+        <MineralBackdrop compact />
         <div className="titles">
-          <h2>Primeiros passos</h2>
-          <p>Conclua o que libera a operação da sua igreja com segurança.</p>
+          <p className="admin-eyebrow">Primeiros passos</p>
+          <h2>Gestão da igreja</h2>
+          <p>Confira o cadastro e os acessos da equipe.</p>
         </div>
-      </div>
+      </header>
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -128,11 +135,11 @@ export function SetupChecklistScreen() {
 
       <div className="card">
         <div className="panel-title">
-          Checklist de ativação
+          <h2>Primeiros passos</h2>
           <span className="count">
             {items
               ? pending === 0
-                ? "· tudo certo"
+                ? "· itens configurados"
                 : `· ${pending} pendente${pending > 1 ? "s" : ""}`
               : ""}
           </span>
@@ -151,22 +158,24 @@ export function SetupChecklistScreen() {
             ))}
           </div>
         ) : items && items.length > 0 ? (
-          <div className="queue">
+          <ul className="queue setup-list" aria-label="Tarefas de configuração">
             {items.map((item) => {
               const copy = ITEM_COPY[item.id];
               return (
-                <div className="qitem" key={item.id}>
+                <li className="qitem" key={item.id}>
                   <span className={`qicon ${item.done ? "v" : "h"}`}>
                     <Icon name={item.done ? "check" : copy.icon} />
                   </span>
                   <div className="qbody">
                     <strong>{copy.label}</strong>
+                    <div className="sub">{item.done ? "Configurado" : item.id === "identidade" ? "Opcional" : "Pendente"}</div>
                     <div className="meta">{item.done ? copy.done : copy.pending}</div>
                   </div>
                   <div className="qactions">
                     <button
                       type="button"
-                      className={`btn btn-sm${item.done ? "" : " btn-primary"}`}
+                      className={`btn btn-sm${item.id === nextItem?.id ? " btn-primary" : ""}`}
+                      aria-label={`${item.done ? "Ver" : copy.cta}: ${copy.label}`}
                       onClick={() => {
                         const action = resolveSetupNavAction(item);
                         if (action.kind === "external") {
@@ -179,12 +188,13 @@ export function SetupChecklistScreen() {
                       {item.done ? "Ver" : copy.cta}
                     </button>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         ) : null}
       </div>
+      <p className="sub admin-context">Configurar credencial ou conectar o WhatsApp não ativa o assistente. O estado do agente aparece na sua própria configuração.</p>
     </div>
   );
 }

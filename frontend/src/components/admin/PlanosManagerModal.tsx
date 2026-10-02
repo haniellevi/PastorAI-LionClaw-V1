@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Gestão de planos do console master ("o master define os planos"): lista o
  * catálogo (tabela `planos`, migration 0012), cria/edita/exclui. O código é a
@@ -230,9 +232,11 @@ export function PlanosManagerModal({
     // primitive); título acompanha o modo (lista/novo/edição) como no head
     // manual anterior.
     <DsDialog
+      className="administration-ux administration-dialog"
       open
       onClose={onClose}
       title={isForm ? (editing === "new" ? "Novo plano" : "Editar plano") : "Planos"}
+      description={isForm ? "Confira preço, limite e disponibilidade antes de salvar." : "Catálogo da plataforma. Taxa inicial e mensalidade são configurações distintas."}
     >
         {isForm ? (
           <form
@@ -366,7 +370,7 @@ export function PlanosManagerModal({
                     disabled={busy}
                   />
                   <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--s2)" }}>
-                    <Button variant="primary" size="sm" onClick={() => void saveSetupFee()} disabled={busy}>
+                    <Button variant="ghost" size="sm" onClick={() => void saveSetupFee()} disabled={busy}>
                       Salvar taxa padrão
                     </Button>
                   </div>
@@ -376,7 +380,7 @@ export function PlanosManagerModal({
                     Nenhum plano cadastrado.
                   </p>
                 ) : (
-                  <table className="data-table">
+                  <table className="data-table ux-stack-table">
                     <thead>
                       <tr>
                         <th>Plano</th>
@@ -388,8 +392,8 @@ export function PlanosManagerModal({
                     </thead>
                     <tbody>
                       {planos.map((p) => (
-                        <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.55 }}>
-                          <td className="nm">
+                        <tr key={p.id}>
+                          <td className="nm" data-label="Plano">
                             {p.nome}
                             <div className="sub" style={{ color: "var(--muted)" }}>
                               {p.codigo}
@@ -397,12 +401,12 @@ export function PlanosManagerModal({
                               {p.ativo ? "" : " · inativo"}
                             </div>
                           </td>
-                          <td className="num">
+                          <td className="num" data-label="Limite">
                             {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
                           </td>
-                          <td className="num">{brl(p.precoMensal)}</td>
-                          <td className="num">{p.emUso}</td>
-                          <td>
+                          <td className="num" data-label="Mensalidade">{brl(p.precoMensal)}</td>
+                          <td className="num" data-label="Em uso">{p.emUso}</td>
+                          <td data-label="Ações">
                             <div style={{ display: "flex", gap: "var(--s2)", justifyContent: "flex-end" }}>
                               <button
                                 type="button"

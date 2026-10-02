@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Auditoria do console master (M3): lista as ações cross-tenant recentes — quem
  * provisionou/aprovou/editou/excluiu qual igreja ou plano. Lê GET /admin/audit
@@ -95,7 +97,7 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
       onClose={onClose}
       title="Auditoria"
       description="Últimas 100 ações administrativas, da mais recente para a mais antiga."
-      className="admin-audit-dialog"
+      className="admin-audit-dialog administration-ux administration-dialog"
       footer={
         <>
           <button type="button" className="btn btn-sm" onClick={onClose}>

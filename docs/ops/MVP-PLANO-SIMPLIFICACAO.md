@@ -461,10 +461,19 @@ sem declarar as próximas verticais implementadas.
    sem ativação, migration compartilhada ou conclusão do domínio presumida.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
-   - [x] Hoje e atendimento humano v1: integrada em 30/09 pela PR #445,
-     merge `363ecb5f`, com preservação de rascunhos, lista paginada e estados explícitos.
+   - [x] Hoje e atendimento humano v1: aprovado visualmente e publicado em
+     30/09, com preservação de rascunhos, lista paginada e estados explícitos.
      [Registro e limites](../sprints/2026-09-30-ux-hoje-atendimento-v1.md).
-     Integração Git observada; sem validação com provedor real nesta missão.
+     PR #445, merge `363ecb5`, frontend Vercel READY e domínios públicos HTTP 200.
+     Atendimento autenticado e provedor real não exercitados na publicação.
+   - [x] Implementação da UX global v2/v3: aplicação da direção expressiva aprovada
+     em 01/10 às 42 unidades de acesso, operação, gestão, console e estados.
+     Contraste, hierarquia, conteúdo sob demanda e movimento pertencem à trilha
+     visual; APIs, tenant e capacidades existentes permanecem.
+     [Execução, QA e recibo v3](../sprints/2026-10-01-ux-expressiva-v3.md).
+     Implementação validada localmente; publicação exige o recibo do SHA exato
+     vinculado à PR. Não representa conclusão das verticais WhatsApp-first ou
+     ativação de provedores.
    - [x] AUD-02: candidato source-only do escopo de microfone por geração,
      conversa e contexto obrigatório, com falha fechada quando o contexto falta.
      Mudança de conversa ou de escopo autenticado descarta áudio e anexo;

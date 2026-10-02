@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/config/administration-ux-v2.css";
+
 /**
  * Tela #permissoes — matriz papel × tela (role_permissions / delta-010).
  * Consome api-role-perms (GET/PUT /roles/permissions).
@@ -28,6 +30,7 @@ import {
 import { usePermissions } from "@/lib/permissions-context";
 import { fetchPermissions, savePermissions } from "@/lib/roles-api";
 import { ROLE_DEFS, ROLE_ORDER, type Role } from "@/lib/roles";
+import { getHashRouteHistoryIndex, registerHashRouteGuard } from "@/lib/use-hash-route";
 
 /** Papéis editáveis (admin tem acesso total, fora da matriz). */
 const EDITABLE_ROLES: Array<Exclude<Role, "admin">> = ROLE_ORDER.filter(
@@ -36,7 +39,7 @@ const EDITABLE_ROLES: Array<Exclude<Role, "admin">> = ROLE_ORDER.filter(
 
 /** Rótulos compactos das colunas (portados do artifact travado). */
 const SCREEN_LABEL: Record<string, string> = {
-  dashboard: "Dashboard",
+  dashboard: "Hoje",
   inbox: "Conversas",
   ganhar: "Ganhar",
   consolidar: "Consolidar",
@@ -45,6 +48,7 @@ const SCREEN_LABEL: Record<string, string> = {
   capacitacao: "Capacitação",
   g12: "G12",
   "central-celula": "Central Célula",
+  "minha-celula": "Minha célula",
   enviar: "Enviar",
   calendario: "Agenda",
   comunicados: "Comunicação",
@@ -95,6 +99,7 @@ export function PermissoesScreen() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRole, setSelectedRole] = useState<Exclude<Role, "admin">>(EDITABLE_ROLES[0] ?? "pastor");
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -160,6 +165,55 @@ export function PermissoesScreen() {
 
   const draftMatrix = useMemo(() => fromDraft(draft), [draft]);
   const dirty = useMemo(() => !sameMatrix(draftMatrix, saved), [draftMatrix, saved]);
+  const changes = EDITABLE_ROLES.flatMap((role) => MENU_SCREENS.flatMap((screen) => {
+    const before = saved[role]?.includes(screen) ?? false;
+    const after = draft[role]?.has(screen) ?? false;
+    return before === after ? [] : [`${ROLE_DEFS[role].label}: ${after ? "liberar" : "remover"} ${SCREEN_LABEL[screen] ?? screen}`];
+  }));
+
+  useEffect(() => {
+    if (!dirty) return;
+    const currentUrl = window.location.href;
+    const currentIndex = getHashRouteHistoryIndex();
+    let acceptedUrl: string | null = null;
+    let restoring = false;
+    const onLeave = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const onRouteLeave = (event: Event): boolean => {
+      const destination = window.location.href;
+      if (restoring) {
+        event.stopImmediatePropagation();
+        if (destination === currentUrl && event.type === "hashchange") restoring = false;
+        return false;
+      }
+      if (destination === currentUrl) return true;
+      if (event.type === "hashchange" && destination === acceptedUrl) {
+        acceptedUrl = null;
+        return true;
+      }
+      if (window.confirm("Há permissões não salvas. Descartar alterações e sair desta tela?")) {
+        if (event.type === "popstate") acceptedUrl = destination;
+        return true;
+      }
+      // O veto no assinante impede a publicação da rota durante a volta.
+      // Restaurar o cursor mantém destinos/states de Back e Forward.
+      event.stopImmediatePropagation();
+      const destinationIndex = getHashRouteHistoryIndex();
+      restoring = true;
+      window.history.go(currentIndex - destinationIndex);
+      return false;
+    };
+    const removeHashGuard = registerHashRouteGuard(onRouteLeave);
+    window.addEventListener("beforeunload", onLeave);
+    window.addEventListener("popstate", onRouteLeave, true);
+    return () => {
+      removeHashGuard();
+      window.removeEventListener("beforeunload", onLeave);
+      window.removeEventListener("popstate", onRouteLeave, true);
+    };
+  }, [dirty]);
 
   const save = useCallback(async () => {
     if (!token || !dirty || saving) return;
@@ -189,7 +243,7 @@ export function PermissoesScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen admin-screen permissions-screen" key="permissoes">
+    <div className="screen admin-screen permissions-screen administration-ux" key="permissoes">
       <div className="screen-head">
         <div className="titles">
           <h2>Permissões por papel</h2>
@@ -230,7 +284,8 @@ export function PermissoesScreen() {
         <p className="perm-cap">
           Marque as telas liberadas para cada papel. As mudanças valem no menu
           assim que você salvar. <strong>Administrador</strong> tem acesso total
-          e não é editável.
+          e não é editável. Papéis acumulados somam os acessos; as ações continuam
+          sujeitas à autorização do servidor.
         </p>
 
         {showSkeleton ? (
@@ -244,14 +299,39 @@ export function PermissoesScreen() {
               </div>
             ))}
           </div>
-        ) : (
-          <div className="perm-wrap">
+        ) : loaded ? (
+          <>
+          <div className="perm-mobile">
+            <div className="field">
+              <label htmlFor="permission-role">Responsabilidade</label>
+              <select id="permission-role" value={selectedRole} disabled={saving}
+                onChange={(event) => setSelectedRole(event.target.value as Exclude<Role, "admin">)}>
+                {EDITABLE_ROLES.map((role) => <option key={role} value={role}>{ROLE_DEFS[role].label}</option>)}
+              </select>
+            </div>
+            <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend className="panel-title">Acessos desta responsabilidade</legend>
+              {MENU_SCREENS.map((screen) => {
+                const label = SCREEN_LABEL[screen] ?? screen;
+                const locked = screen === "dashboard" || (selectedRole !== CENTRAL_ROLE && isCentralOnlyScreen(screen));
+                return <label className="perm-access-row" key={screen}>
+                  <span>{label}</span>
+                  {locked ? <span className="sub">{screen === "dashboard" ? "Garantido" : "Restrito a pastor/admin"}</span>
+                    : <input type="checkbox" checked={draft[selectedRole]?.has(screen) ?? false} disabled={saving}
+                      aria-label={`${ROLE_DEFS[selectedRole].label} vê ${label}`}
+                      onChange={(event) => toggle(selectedRole, screen, event.target.checked)} />}
+                </label>;
+              })}
+            </fieldset>
+          </div>
+          <div className="perm-wrap perm-desktop" tabIndex={0} role="region" aria-label="Matriz de acessos por papel">
             <table className="perm-table">
+              <caption className="sr-only">Telas liberadas por papel. Hoje é garantido; áreas centrais continuam restritas.</caption>
               <thead>
                 <tr>
-                  <th>Papel</th>
+                  <th scope="col">Papel</th>
                   {MENU_SCREENS.map((screen) => (
-                    <th key={screen}>{SCREEN_LABEL[screen] ?? screen}</th>
+                    <th scope="col" key={screen}>{SCREEN_LABEL[screen] ?? screen}</th>
                   ))}
                 </tr>
               </thead>
@@ -265,9 +345,9 @@ export function PermissoesScreen() {
                           <td
                             key={screen}
                             className="locked"
-                            title="Dashboard é garantido a todos"
+                            title="Hoje é garantido a todos"
                           >
-                            ●
+                            <span aria-label="Acesso garantido">Sim</span>
                           </td>
                         );
                       }
@@ -278,7 +358,7 @@ export function PermissoesScreen() {
                             className="locked"
                             title="Tela exclusiva de pastor e administrador"
                           >
-                            —
+                            <span aria-label="Acesso restrito a pastor e administrador">Restrito</span>
                           </td>
                         );
                       }
@@ -301,7 +381,18 @@ export function PermissoesScreen() {
               </tbody>
             </table>
           </div>
-        )}
+          </>
+        ) : null}
+        {dirty ? (
+          <div className="admin-context perm-review" role="status">
+            <strong>{changes.length} {changes.length === 1 ? "alteração não salva" : "alterações não salvas"}</strong>
+            <details className="admin-disclosure">
+              <summary>Revisar alterações de acesso</summary>
+              <ul>{changes.map((change) => <li key={change}>{change}</li>)}</ul>
+            </details>
+            <p>Salvar atualiza o menu. Descartar recupera a matriz salva.</p>
+          </div>
+        ) : null}
       </div>
 
       {toast ? (

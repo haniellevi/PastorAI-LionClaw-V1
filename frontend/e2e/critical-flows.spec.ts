@@ -118,8 +118,8 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
 
-    const agenda = page.getByRole("button", { name: "Agenda" });
-    const dashboard = page.getByRole("button", { name: "Painel de Hoje" });
+    const agenda = page.getByRole("link", { name: "Agenda", exact: true });
+    const dashboard = page.getByRole("link", { name: "Painel de Hoje", exact: true });
 
     // Aquecimento explícito: pointer/hover dispara chunk + dados, depois a tela
     // é visitada uma vez antes das amostras que entram no p75.
@@ -253,9 +253,9 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     await resetHarness(request);
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
-    await page.getByRole("link", { name: "Admin" }).click();
+    await page.getByRole("link", { name: "Admin", exact: true }).click();
     await expect(page).toHaveURL(/\/gestao/);
-    const cadastroItem = page.getByRole("button", { name: "Cadastro da igreja" });
+    const cadastroItem = page.getByRole("link", { name: "Cadastro da igreja", exact: true });
     await expect(cadastroItem).toBeVisible();
     await cadastroItem.click();
 
