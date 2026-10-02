@@ -420,6 +420,7 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   A entrega visual não altera as classificações dos módulos nem os gates de
   banco, agente e provedores. Publicação é comprovada somente pelo recibo do SHA
   implantado vinculado ao registro, sem presumir operação autenticada em PROD.
+  Estado verificável do release, CI e deployment: [PR consolidada #450](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/450).
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
 
 ### Fundação do agente

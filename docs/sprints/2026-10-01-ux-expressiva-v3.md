@@ -4,7 +4,7 @@
 
 Em 01/10/2026, Raniel aprovou o [conjunto concreto de referência, copy, composição e motion](../design/UX-EXPRESSIVA-V3-APROVADA.md) e autorizou sua aplicação em todo o sistema e a publicação do frontend. A proposta pré-implementação tem SHA256 `be616f40fa6263f34109d8b4ead4e41872576a272c9a67ca71384e9b91501b19`.
 
-Execução no worktree `/home/raniel-linux/.codex/worktrees/ux-global-v2-final/PastorAi-1.0`, branch `codex/ux-global-v2-final`, sobre `d46d765c0e2853a38b3f484140e281da643f73de`. O checkout original do usuário permanece preservado. Base comparada: main `342b255e309f49b03177d31259d92bb87cc3c1f9`. A implementação e suas correções dirigidas foram validadas localmente; a regressão integrada e a publicação são registradas pelo SHA exato na PR consolidada e no recibo de deployment.
+Execução no worktree `/home/raniel-linux/.codex/worktrees/ux-global-v2-final/PastorAi-1.0`, branch `codex/ux-global-v2-final`, sobre `d46d765c0e2853a38b3f484140e281da643f73de`. O checkout original do usuário permanece preservado. Base comparada: main `342b255e309f49b03177d31259d92bb87cc3c1f9`. A implementação e suas correções dirigidas foram validadas localmente; a regressão integrada e a publicação são registradas pelo SHA exato na [PR consolidada #450](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/450) e no recibo de deployment. O registro da PR recebe os resultados finais, o commit de merge, o deployment e a verificação dos aliases somente após a execução real.
 
 ## Cobertura e preservação
 
