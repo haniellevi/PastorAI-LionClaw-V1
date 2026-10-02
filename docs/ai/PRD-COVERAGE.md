@@ -1685,3 +1685,9 @@ exit não zero. A suíte focal usa análise AST adversarial e execução sem ban
 ela não cobre PostgreSQL, RLS, rede, credenciais, trust anchor, replay real ou
 autorização humana. O próximo gate é a revisão humana nominal de uma missão
 separada, sem autorização de aplicação.
+# Recorte operacional de manutenção da API (02/10/2026)
+
+O [perfil de manutenção](../../deploy/BACKEND-MAINTENANCE-RELEASE.md) prepara um
+backport de desempenho sobre o backend legado, preservando schema e workers.
+Não reclassifica os domínios V1a/V2b/V3 ou as frentes D2 pausadas. A publicação
+efetiva depende do recibo operacional da API, distinto do frontend e da main.
