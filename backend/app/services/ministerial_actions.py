@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.db.models import AppUser, Celula, CelulaMembro, CelulaPresenca, CelulaReuniao, Consolidacao, Decision, Pessoa
 from app.deps import CurrentUser
+from app.domain import cell_meetings_schedule
 from app.domain.consolidation import CONNECTION_DEADLINE_HOURS, CONSOLIDATION_ROLES, VALID_VINCULOS, VINCULO_VISITANTE
 from app.domain.hierarchy import is_leader_or_superior
 
@@ -108,7 +109,15 @@ def can_mark_for_other(db: Session, current_user: CurrentUser, cell: Celula) -> 
 
 
 def confirm_meeting_attendance(db: Session, current_user: CurrentUser, *,
-                               reuniao_id: uuid.UUID, pessoa_id: uuid.UUID | None = None) -> CelulaPresenca:
+                               reuniao_id: uuid.UUID, pessoa_id: uuid.UUID | None = None,
+                               expected_actor_pessoa_id: uuid.UUID | None = None) -> CelulaPresenca:
+    # Internal catalog-only contract. Human callers omit it and retain the
+    # original body below, including historical own/third-party attendance.
+    if expected_actor_pessoa_id is not None:
+        if type(expected_actor_pessoa_id) is not uuid.UUID or pessoa_id is not None:
+            raise HTTPException(403, "Ação não autorizada")
+        return _confirm_own_meeting_attendance(db, current_user,
+            reuniao_id=reuniao_id, expected_actor_pessoa_id=expected_actor_pessoa_id)
     tenant = uuid.UUID(current_user.igreja_id)
     meeting = db.execute(select(CelulaReuniao).where(
         CelulaReuniao.id == reuniao_id, CelulaReuniao.igreja_id == tenant,
@@ -163,5 +172,79 @@ def confirm_meeting_attendance(db: Session, current_user: CurrentUser, *,
     attendance.origem = source
     attendance.updated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
+    db.refresh(attendance)
+    return attendance
+
+
+def _confirm_own_meeting_attendance(db: Session, current_user: CurrentUser, *,
+                                   reuniao_id: uuid.UUID,
+                                   expected_actor_pessoa_id: uuid.UUID) -> CelulaPresenca:
+    """Lock fresh server facts in actor/meeting/cell/member/presence order.
+
+    The caller owns the transaction. No model argument can select this branch.
+    """
+    tenant = uuid.UUID(current_user.igreja_id)
+    actor = db.execute(select(AppUser.pessoa_id).where(
+        AppUser.id == uuid.UUID(current_user.app_user_id), AppUser.igreja_id == tenant,
+    ).with_for_update()).scalar_one_or_none()
+    if actor is None or actor != expected_actor_pessoa_id:
+        raise HTTPException(403, "Vínculo do usuário alterado")
+    meeting = db.execute(select(CelulaReuniao).where(
+        CelulaReuniao.id == reuniao_id, CelulaReuniao.igreja_id == tenant,
+    ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(404, "Reunião não encontrada")
+    cell = db.execute(select(Celula).where(
+        Celula.id == meeting.celula_id, Celula.igreja_id == tenant,
+        Celula.ativo.is_(True),
+    ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    if cell is None:
+        raise HTTPException(403, "Célula sem vínculo elegível")
+    member = db.execute(select(CelulaMembro).where(
+        CelulaMembro.igreja_id == tenant, CelulaMembro.celula_id == cell.id,
+        CelulaMembro.pessoa_id == actor, CelulaMembro.ativo.is_(True),
+    ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(403, "Pessoa sem vínculo ativo na célula desta reunião")
+    query = select(CelulaPresenca).where(
+        CelulaPresenca.igreja_id == tenant, CelulaPresenca.reuniao_id == meeting.id,
+        CelulaPresenca.pessoa_id == actor,
+    ).with_for_update().execution_options(populate_existing=True)
+    attendance = db.execute(query).scalar_one_or_none()
+
+    def confirmation_time() -> dt.datetime:
+        now = cell_meetings_schedule.now_in_sao_paulo()
+        if cell_meetings_schedule.meeting_has_passed(data=meeting.data, hora=meeting.hora, now=now):
+            raise HTTPException(409, "A reunião já ocorreu; não é possível confirmar presença")
+        return now.astimezone(dt.timezone.utc)
+
+    inserted = False
+    if attendance is None:
+        db.flush()
+        try:
+            with db.begin_nested():
+                # Capture again after lock waits and savepoint flush, directly
+                # before the insert. E4 allows equality with the meeting time.
+                confirmed_at = confirmation_time()
+                attendance = CelulaPresenca(igreja_id=tenant, reuniao_id=meeting.id,
+                    pessoa_id=actor, estado="confirmada", origem="auto", updated_at=confirmed_at)
+                db.add(attendance)
+                db.flush()
+                inserted = True
+        except IntegrityError as exc:
+            sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+            if sqlstate != "23505":
+                raise
+            # Keep the outer actor/meeting/cell/member locks; reacquire the
+            # conflicting presence row and check the clock before its update.
+            attendance = db.execute(query).scalar_one_or_none()
+            if attendance is None:
+                raise
+    if not inserted:
+        confirmed_at = confirmation_time()
+        attendance.estado = "confirmada"
+        attendance.origem = "auto"
+        attendance.updated_at = confirmed_at
+        db.flush()
     db.refresh(attendance)
     return attendance

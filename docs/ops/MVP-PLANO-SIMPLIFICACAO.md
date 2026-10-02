@@ -460,6 +460,12 @@ sem declarar as próximas verticais implementadas.
    validado localmente](v3-consolidacao-20260928/README.md), base original PR435 `342f0ce`,
    sem ativação, migration compartilhada ou conclusão do domínio presumida.
 5. **V4: membro**, presença, expectativa de visitante e pedido de oração.
+   A primeira fatia implementa presença própria no catálogo S3 existente:
+   pedido explícito, próxima reunião inequívoca, resumo e SIM, revalidação
+   do vínculo/célula/horário no serviço compartilhado e fonte única do painel.
+   [Implementação e evidências locais de 02/10](../sprints/2026-10-02-mvp-own-presence.md).
+   Expectativa de visitante e oração continuam pendentes; flags e gates
+   operacionais existentes permanecem. Testes sintéticos não concluem o piloto.
 6. **Trilha UX do painel**, quando houver capacidade, sem travar as verticais.
    - [x] Hoje e atendimento humano v1: aprovado visualmente e publicado em
      30/09, com preservação de rascunhos, lista paginada e estados explícitos.
