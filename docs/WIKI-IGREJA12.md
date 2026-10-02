@@ -442,23 +442,29 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   Fonte integrada pela [PR #451](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/451);
   frontend publicado em `379a4dc` após a PR documental #452, com os mesmos
   bytes de produto de `e59feb5` e os três aliases confirmados em 02/10.
-  Backend não publicado nesta missão e metas autenticadas de campo abertas.
+  API de manutenção publicada em `07a3f4d9` às `2026-10-02T16:45:01Z`, com
+  pós-verificação às `16:46:26.929711Z`; metas autenticadas de campo abertas.
   Rota GitHub `backend-production` configurada em 02/10: revisão obrigatória
   de `haniellevi`, bypass administrativo desativado, branch `main` única,
   allowlist e piso elevado para `c5f99b5`, que inclui a guarda revisada da
   PR #453 e as proteções da PR #443. Console Hostinger acessado em 02/10;
   Compose atualizado de 2.40.3 para 5.0.0 sem reiniciar os quatro serviços.
-  Credenciais da Action ainda ausentes. O legado ativo não tem checker de
-  rollback; preflight privado, recuperação revisada e janela nominal seguem
-  pendentes. A PR #453 prepara recusa dessa condição antes da interrupção.
-  [Recibo, CI, rollback e próximo gate](performance/2026-10-02-fluidity-release.md).
+  A publicação usou o console e o perfil restrito de manutenção; a Action de
+  release integral conserva seus requisitos próprios. A PR #453 recusa o
+  legado sem checker de rollback nessa rota integral.
+  [Recibo, CI, recuperação e limites](performance/2026-10-02-fluidity-release.md).
   O preflight privado posterior, entre 15:35Z e 15:54Z, confirmou o schema
   legado: 70 migrations no ledger e ausência das tabelas V1a/V2b/V3. A imagem
-  ativa corresponde aos 146 arquivos verificados de `eb5a09b9`. A publicação
-  das otimizações seguirá o [perfil restrito de manutenção da API](../deploy/BACKEND-MAINTENANCE-RELEASE.md),
-  com backport compatível, recuperação pela imagem antiga e workers preservados.
-  A autorização de produção foi reiterada pelo proprietário; os bloqueios
-  restantes deste recorte são verificações técnicas, sem novo pedido de acesso.
+  anterior corresponde aos 146 arquivos verificados de `eb5a09b9`. O
+  [perfil restrito de manutenção da API](../deploy/BACKEND-MAINTENANCE-RELEASE.md)
+  publicou o backport da PR #455, com orquestrador `9f2e87da` da PR #456,
+  checker read-only aprovado para 70 migrations, 13 tabelas e 153 tipos de coluna.
+  Os seis serviços protegidos, incluindo os três workers, mantiveram IDs,
+  imagens, início e reinícios; gates e symlink da stack foram preservados.
+  Houve breve indisponibilidade observada durante a troca. Saúde e prontidão
+  públicas retornaram 200, quatro rotas protegidas retornaram 401 sem sessão
+  e todas identificaram o novo SHA. Não houve rollback nem migration.
+  [Recibo sanitizado de produção](performance/2026-10-02-backend-maintenance-production.json).
 
 ### Fundação do agente
 
