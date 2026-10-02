@@ -3,7 +3,7 @@
 Registro observado em 02/10/2026, UTC. Fonte, CI, publicação frontend e backend
 possuem provas distintas. As metas de campo permanecem abertas.
 
-## Continuação do backend: manutenção compatível com o legado
+## Backend publicado: manutenção compatível com o legado
 
 Em 02/10 o proprietário reiterou autorização de produção e acesso ao ambiente.
 O preflight privado, por conexão existente na VPS em transação read-only,
@@ -11,7 +11,7 @@ confirmou 70 entradas de ledger, schema legado e ausência de tabelas exigidas
 pelo backend da main. O estado do PostgreSQL observado foi 17.6. Não houve
 mutação de dados, schema, gates ou serviços durante esse diagnóstico.
 
-A imagem ativa foi comparada ao snapshot privado de
+A imagem anterior à troca foi comparada ao snapshot privado de
 `eb5a09b975160f993a3c31bd3c28edc89d9a38ff`: 145 arquivos Python e o lock de
 dependências coincidiram, sem arquivos extras. As colunas e políticas das 13
 tabelas necessárias aos caminhos otimizados foram consultadas sem ler dados
@@ -19,13 +19,43 @@ de domínio. Esse recorte não atesta migrations antigas ausentes ou módulos
 futuros e não substitui a revisão dos dados.
 
 O [perfil de manutenção da API](../../deploy/BACKEND-MAINTENANCE-RELEASE.md)
-define um backport de desempenho sobre esse legado. Orquestrador, candidato e
-manifestos terão SHAs próprios no recibo. Os workers e o symlink da stack
-permanecem na versão anterior; não haverá fechamento/reabertura de gates,
-migration ou ativação V1a/V2b/V3 para entregar essa otimização.
+publicou o backport `07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02`, revisado na
+[PR #455](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/455).
+O orquestrador veio da main `9f2e87da62255e2bc53a7052be3018c0b51c189b`, merge da
+[PR #456](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/456), com árvore
+igual à do candidato operacional revisado `ced644f1813cbcb8b5842f373b1634d73ce5799b`.
+Ambas as PRs concluíram todos os checks com sucesso; links, SHAs e digests
+constam no [recibo sanitizado de produção](2026-10-02-backend-maintenance-production.json).
 
-Publicação desse perfil ainda não comprovada neste registro. Os testes e o
-recibo de produção serão acrescentados após conclusão das verificações.
+A execução começou às `2026-10-02T16:43:23.884529Z`, terminou com código `0`
+às `16:45:01Z` e foi pós-verificada às `16:46:26.929711Z`. A imagem da API é
+`sha256:4a65f30e1c2dfbcf84c88e9c88203a4176a8d10f7d1b345248bc367ec9a9b241`.
+Somente a API foi substituída. Os seis serviços protegidos, incluindo os três
+workers, mantiveram IDs, imagens, início e contadores de reinícios. Os workers
+e o symlink da stack permanecem no release legado. Os gates foram preservados:
+`ALLOW_REAL_SENDS=true`, `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
+`BROADCAST_ASYNC_ENABLED=false`; não houve migration, mudança de `AgentConfig`
+ou ativação V1a/V2b/V3.
+
+O checker read-only confirmou o contrato de 70 entradas no ledger, 13 tabelas
+e 153 tipos de coluna. O monitor da troca registrou dez observações, três com
+`HTTPError` entre `16:44:36.238978Z` e `16:44:46.653555Z`; voltou a receber 200
+com o SHA novo às `16:44:51.831911Z`. Isso comprova breve indisponibilidade,
+sem estabelecer duração exata ou códigos HTTP das falhas.
+
+No smoke posterior, `/health` e `/ready` retornaram 200; `/auth/bootstrap`,
+`/cells/lookup`, `/cells/summary` e `/contacts/lookup` retornaram 401 sem sessão.
+Todas as seis respostas trouxeram `X-Backend-Release` igual ao SHA da API.
+A prontidão confirmou banco, Redis, dependências opcionais e os três workers.
+Sua amostra pública de 2.034,7 ms é um probe de prontidão, sem valor de benchmark
+do produto. Não houve teste autenticado de latência nem encerramento dos RNFs.
+
+Não houve rollback. A imagem anterior
+`sha256:bab6320c33315aa5948290867b18ae5b1fe5d980f3d843825f529d36a2a9ae27`
+foi preservada para recuperação; o checksum do backup foi conferido, mas a
+restauração do banco não foi exercitada. A nova API contém os locks corrigidos;
+os workers mantêm as dependências anteriores. As oito migrations antigas
+ausentes no ledger continuam pendentes.
 
 ## Fonte e CI
 
@@ -104,11 +134,12 @@ de JavaScript. Uma medição desktop do app teve LCP de 6.072 ms; três novas
 amostras isoladas tiveram 1.228, 940 e 1.512 ms. A causa da variação não foi
 estabelecida e a pequena amostra não demonstra um SLO de campo.
 
-## Backend e campo pendentes
+## Histórico do preflight e limites de campo
 
-O backend deste pacote **não foi publicado**. O acesso à VPS pelo console web
-da Hostinger foi confirmado em 02/10. Código integrado, testes PG17 e deployment
-frontend não comprovam aplicação do backend ou estado de schema em produção.
+Até o preflight relatado abaixo, o backend ainda não havia sido publicado.
+A publicação posterior da API de manutenção está comprovada na seção inicial;
+o backend integral da main continua fora dessa execução. Este histórico
+preserva a sequência de diagnóstico e os requisitos da rota integral.
 
 A ausência de `backend-production`, registrada às `13:36Z`, foi resolvida em
 02/10 sob o pedido de continuidade do backend. A leitura REST em
@@ -142,7 +173,7 @@ Nenhum arquivo privado foi lido. Não foi disparado o workflow manual nem
 executada conexão SSH/banco de produção. A configuração do GitHub não comprova
 schema ou recuperação. A inspeção do console às `2026-10-02T14:27:07Z`
 confirmou os quatro contêineres saudáveis, a imagem
-`sha256:bab6320c33315aa5948290867b18ae5b1fe5d980f3d843825f529d362a2a9ae27`
+`sha256:bab6320c33315aa5948290867b18ae5b1fe5d980f3d843825f529d36a2a9ae27`
 e o diretório de trabalho em
 `/opt/pastorai-releases/eb5a09b975160f993a3c31bd3c28edc89d9a38ff/deploy`.
 O symlink ativo aponta para esse release; nome de diretório e label não provam
@@ -183,14 +214,15 @@ Essas verificações usam dublês de comandos e não atestam banco ou recuperaç
 real da VPS. A mudança de preflight não altera a classificação de cobertura
 do produto na matriz PRD.
 
-O cliente conserva fallbacks para a API anterior. Os ganhos de bootstrap
-combinado, paginação/agrupamento SQL, snapshots da fila, cursores e assinatura
-de mídia desacoplada dependem da implantação verificável do novo backend.
-Os fallbacks completos mantêm conteúdo, com custo maior onde necessário.
+O cliente conserva fallbacks para a API anterior. O backport publicado oferece
+bootstrap combinado, paginação/agrupamento SQL, snapshots da fila, cursores e
+assinatura de mídia desacoplada. A melhoria percebida em tarefas autenticadas
+ainda precisa ser medida; os fallbacks continuam disponíveis.
 
-Nenhuma migration, região, capacidade, pool de banco, Redis ou gate de envio,
-billing ou agente foi alterado. O lock do envio humano permanece. As decisões
-condicionadas e o bug preexistente de código opaco estão no
+O pool da API passou a verificar conexões ociosas e os clientes HTTP reutilizam
+conexões. Região, capacidade e infraestrutura de banco/Redis foram preservadas,
+assim como os gates de envio, billing e agente. O lock do envio humano permanece.
+As decisões condicionadas e o bug preexistente de código opaco estão no
 [plano e seus limites](2026-10-02-fluidity-plan.md).
 
 Registro histórico anterior à autorização deste turno e ao perfil de manutenção:
@@ -209,5 +241,5 @@ O acesso pelo console foi resolvido; as credenciais da Action continuam ausentes
 O runbook reserva as consultas de PROD ao operador. A publicação genérica não
 define alvos, duração nem a decisão nominal de fechamento de envios, que pode
 cancelar avisos pendentes. Reabertura exige decisão humana separada.
-Depois da implantação, medir tarefas autenticadas antes de decidir mudanças
+O próximo trabalho de validação é medir tarefas autenticadas antes de decidir mudanças
 de infraestrutura ou encerrar os RNFs de desempenho.

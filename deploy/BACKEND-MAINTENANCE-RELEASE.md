@@ -107,5 +107,29 @@ conhecidas na consulta de 02/10. Driver: 26 testes; contrato de schema:
 18 unitários e 8 PostgreSQL 17. Uma transcrição inicial marcou FORCE em `celula_membro` incorretamente;
 o checker vivo recusou o perfil antes de qualquer troca. O contrato corrigido
 preserva a configuração observada, sem executar ALTER TABLE.
-Os 153 tipos também coincidiram na inspeção
-read-only de produção às 16:10Z. Publicação ainda pendente neste registro.
+Os 153 tipos também coincidiram na inspeção read-only de produção às 16:10Z.
+
+## Resultado de produção
+
+As PRs [#455](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/455) e
+[#456](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/456) concluíram
+todos os checks com sucesso. O orquestrador integrado na main
+`9f2e87da62255e2bc53a7052be3018c0b51c189b` publicou somente a API do candidato
+`07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02`. O driver terminou com código `0`
+às `2026-10-02T16:45:01Z`; a pós-verificação ocorreu às `16:46:26.929711Z`.
+
+A imagem publicada é
+`sha256:4a65f30e1c2dfbcf84c88e9c88203a4176a8d10f7d1b345248bc367ec9a9b241`.
+O checker read-only aprovou 70 entradas no ledger, 13 tabelas e 153 tipos de
+coluna. Os seis serviços protegidos mantiveram IDs, imagens, início e reinícios;
+gates e symlink da stack foram preservados. Houve breve indisponibilidade
+observada na troca, sem medição exata de duração. Saúde e prontidão públicas
+retornaram 200 e quatro rotas protegidas recusaram acesso anônimo com 401,
+todas com o SHA esperado no header. Não houve migration ou rollback.
+
+O [recibo sanitizado](../docs/performance/2026-10-02-backend-maintenance-production.json)
+fixa CI, digests e observações; o
+[registro de desempenho](../docs/performance/2026-10-02-fluidity-release.md)
+mantém os limites. Os workers continuam com imagem e dependências legadas.
+Latência autenticada, RNFs de campo e restauração do banco não foram validados
+por essa publicação.
