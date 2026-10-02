@@ -433,8 +433,11 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   Backend não publicado nesta missão e metas autenticadas de campo abertas.
   Rota GitHub `backend-production` configurada em 02/10: revisão obrigatória
   de `haniellevi`, bypass administrativo desativado, branch `main` única,
-  allowlist e piso revisado da PR #443. Credenciais ainda ausentes; acesso
-  temporário, inventário e janela nominal do operador seguem pendentes.
+  allowlist e piso revisado da PR #443. Console Hostinger acessado em 02/10;
+  Compose atualizado de 2.40.3 para 5.0.0 sem reiniciar os quatro serviços.
+  Credenciais da Action ainda ausentes. O legado ativo não tem checker de
+  rollback; preflight privado, recuperação revisada e janela nominal seguem
+  pendentes. A PR #453 prepara recusa dessa condição antes da interrupção.
   [Recibo, CI, rollback e próximo gate](performance/2026-10-02-fluidity-release.md).
 
 ### Fundação do agente

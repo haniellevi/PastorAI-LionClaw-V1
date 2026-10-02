@@ -694,7 +694,12 @@ correntes e não autorizados.
 
 ## 10. Rollback
 
-- Backend: parar os quatro serviços e executar o preflight do código anterior
+- Backend: antes do release, comprovar checker e manifesto anterior válidos,
+  além dos preflights anterior e candidato em modo somente leitura, cada um
+  com seu próprio manifesto. Falha impede build e substituição dos serviços;
+  ausência de checker ou manifesto é recusada antes da cópia da configuração.
+  Um release legado sem checker requer recuperação revisada antes da janela.
+  Se houver falha após a substituição, parar os quatro serviços e executar o preflight do código anterior
   com seu próprio manifesto e imagem antes de qualquer start, conforme
   [`BACKEND-RELEASE-MANUAL.md`](../../deploy/BACKEND-RELEASE-MANUAL.md).
   Ausência de checker, divergência do ledger ou incompatibilidade mantém gates

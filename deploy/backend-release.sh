@@ -16,12 +16,18 @@ migration_manifest() {
   python3 - "$1" <<'MANIFEST'
 import json
 from pathlib import Path
+import re
 import runpy
 import sys
 backend = Path(sys.argv[1]).resolve()
 files = runpy.run_path(str(backend / "scripts/migrate.py"))["migration_files"](backend / "migrations")
-if not files:
-    raise SystemExit("release has no active migration files")
+if (
+    not isinstance(files, list)
+    or not files
+    or not all(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_]+\.sql", name) for name in files)
+    or len(files) != len(set(files))
+):
+    raise SystemExit("release has no valid active migration manifest")
 print(json.dumps(files, separators=(",", ":")))
 MANIFEST
 }
@@ -64,6 +70,11 @@ if [[ ! "$active_release_sha" =~ ^[0-9a-f]{40}$ || "$active" != "$release_root/$
 fi
 if [[ ! -f "$active/deploy/$configuration" || ! -f "$candidate/deploy/check_backend_schema.py" ]]; then
   echo "active configuration or candidate schema check is missing" >&2
+  exit 1
+fi
+if [[ ! -f "$active/deploy/check_backend_schema.py" ]] ||
+   ! previous_migrations=$(migration_manifest "$active/backend"); then
+  echo "rollback schema compatibility unverifiable before release; previous checker or manifest unavailable" >&2
   exit 1
 fi
 
@@ -260,12 +271,13 @@ cd -- "$candidate/deploy"
 docker compose config --quiet
 check_compose_gates
 
-# The current backend container has the database driver and live DATABASE_URL.
-# The candidate checker is piped in; it queries only catalog metadata and the
-# migration ledger inside a read-only transaction. A failure exits before build.
+# Check each release with its own manifest before replacing the active services.
+# Both checkers query catalog metadata and the ledger in read-only transactions.
 cd -- "$active/deploy"
 check_compose_gates
 check_external_gates
+docker compose exec -T -e "EXPECTED_MIGRATIONS=$previous_migrations" backend python - \
+  < "$active/deploy/check_backend_schema.py"
 docker compose exec -T -e "EXPECTED_MIGRATIONS=$expected_migrations" backend python - \
   < "$candidate/deploy/check_backend_schema.py"
 
