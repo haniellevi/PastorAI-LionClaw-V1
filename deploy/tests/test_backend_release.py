@@ -102,6 +102,14 @@ case "$*" in
     elif [ -f "$TRACE.candidate_up" ]; then printf '%s\\n' "$ROLLBACK_CONFIG_JSON";
     else printf '%s\\n' "$ACTIVE_CONFIG_JSON"; fi
     exit 0 ;;
+  'compose exec -T -e EXPECTED_MIGRATIONS='*' backend python -')
+    checker_hash=$(sha256sum | cut -d' ' -f1)
+    printf 'preflight-checker|%s|%s\\n' "$PWD" "$checker_hash" >> "$TRACE"
+    printf 'docker|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
+    if [ "$5" = 'EXPECTED_MIGRATIONS=["0001_synthetic.sql"]' ]; then
+      exit "${PREVIOUS_PREFLIGHT_EXIT:-0}"
+    fi
+    exit "${PREFLIGHT_EXIT:-0}" ;;
   *' sh -c '*)
     printf 'gates|%s|%s\\n' "$PWD" "$4" >> "$TRACE"
     if [ "$PWD" = "$NEW_DEPLOY" ] && [ "${CANDIDATE_GATES_EXIT:-0}" = 1 ]; then exit 1; fi
@@ -109,7 +117,6 @@ case "$*" in
 esac
 printf 'docker|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
 case "$*" in
-  'compose exec -T -e EXPECTED_MIGRATIONS='*' backend python -') exit "${PREFLIGHT_EXIT:-0}" ;;
   'compose build --build-arg PASTORAI_RELEASE_SHA='*' backend')
     if [ "$PWD" = "$NEW_DEPLOY" ]; then expected_revision="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     else expected_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; fi
@@ -156,6 +163,12 @@ if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${HEALTH_EXIT:-0}"; fi
 exit "${ROLLBACK_HEALTH_EXIT:-0}"
 """
         )
+        (bin_dir / "cp").write_text(
+            """#!/bin/sh
+printf 'copy-configuration|%s\\n' "$PWD" >> "$TRACE"
+exec /bin/cp "$@"
+"""
+        )
         (bin_dir / "timeout").write_text(
             """#!/bin/sh
 printf 'timeout|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
@@ -172,7 +185,7 @@ shift 3
 exec "$@"
 """
         )
-        for name in ("docker", "curl", "timeout"):
+        for name in ("docker", "curl", "cp", "timeout"):
             (bin_dir / name).chmod(0o755)
         self.trace = self.root / "trace"
         closed = {
@@ -310,12 +323,70 @@ exec "$@"
         self.assertFalse(any(f"docker|{self.old}|compose start --wait " in c for c in self.calls()))
         self.assertTrue((self.old / "configuration.fixture").exists())
 
-    def test_missing_previous_manifest_blocks_checker_and_application(self):
+    def assert_rollback_prerequisites_refused_before_effects(self):
+        active_configuration = (self.old / "configuration.fixture").read_bytes()
+        result = self.run_release()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback schema compatibility", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.new / "configuration.fixture").exists())
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assertEqual((self.old / "configuration.fixture").read_bytes(), active_configuration)
+
+    def test_missing_previous_manifest_blocks_before_configuration_or_services(self):
         (self.old.parent / "backend/scripts/migrate.py").unlink()
-        result = self.run_release(HEALTH_EXIT="17")
-        self.assertEqual(result.returncode, 17)
-        self.assertFalse(any("checker-start|" in c for c in self.calls()))
-        self.assertFalse(any(f"docker|{self.old}|compose start --wait " in c for c in self.calls()))
+        self.assert_rollback_prerequisites_refused_before_effects()
+
+    def test_invalid_previous_manifest_blocks_before_configuration_or_services(self):
+        for selection in ("[]", "None", "'0001_synthetic.sql'", "[None]",
+                          "['../0001_synthetic.sql']", "['0001_synthetic.sql'] * 2"):
+            with self.subTest(selection=selection):
+                self.setUp()
+                (self.old.parent / "backend/scripts/migrate.py").write_text(
+                    f"def migration_files(path): return {selection}\n"
+                )
+                self.assert_rollback_prerequisites_refused_before_effects()
+
+    def test_previous_manifest_loader_without_selection_blocks_before_effects(self):
+        (self.old.parent / "backend/scripts/migrate.py").write_text("# SYNTHETIC NO LOADER\n")
+        self.assert_rollback_prerequisites_refused_before_effects()
+
+    def test_previous_schema_failure_blocks_before_build_or_services(self):
+        result = self.run_release(PREVIOUS_PREFLIGHT_EXIT="19")
+        self.assertEqual(result.returncode, 19, result.stderr)
+        calls = self.calls()
+        expected = hashlib.sha256((self.old / "check_backend_schema.py").read_bytes()).hexdigest()
+        self.assertIn(f"preflight-checker|{self.old}|{expected}", calls)
+        self.assertIn(
+            f'docker|{self.old}|compose exec -T -e EXPECTED_MIGRATIONS=["0001_synthetic.sql"] backend python -',
+            calls,
+        )
+        self.assertFalse(any("compose build " in c or "compose up " in c
+                             or "compose stop " in c or "compose start --wait " in c
+                             for c in calls))
+        self.assertFalse((self.new / "configuration.fixture").exists())
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assertEqual((self.old / "configuration.fixture").read_text(), "SYNTHETIC=1\n")
+
+    def test_both_release_checkers_run_before_build_with_own_sources_and_manifests(self):
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls()
+        checks = [c for c in calls if "|compose exec -T -e EXPECTED_MIGRATIONS=" in c]
+        self.assertEqual(len(checks), 2)
+        self.assertIn('EXPECTED_MIGRATIONS=["0001_synthetic.sql"] backend python -', checks[0])
+        manifest = json.loads(checks[1].split("EXPECTED_MIGRATIONS=", 1)[1].rsplit(" backend python -", 1)[0])
+        self.assertEqual(
+            manifest,
+            sorted(p.name for p in (DEPLOY.parent / "backend/migrations").glob("*.sql")
+                   if p.is_file() and "OPERATIONAL_AUTHORIZATION=BLOCKED" not in p.read_text()),
+        )
+        for directory, check in zip((self.old, self.new), checks, strict=True):
+            expected = hashlib.sha256((directory / "check_backend_schema.py").read_bytes()).hexdigest()
+            self.assertEqual(calls[calls.index(check) - 1], f"preflight-checker|{self.old}|{expected}")
+        build = next(i for i, c in enumerate(calls) if f"docker|{self.new}|compose build " in c)
+        self.assertLess(calls.index(checks[0]), calls.index(checks[1]))
+        self.assertLess(calls.index(checks[1]), build)
 
     def test_failed_candidate_does_not_retain_private_configuration(self):
         result = self.run_release(BUILD_EXIT="1")
@@ -323,12 +394,9 @@ exec "$@"
         self.assertFalse((self.new / "configuration.fixture").exists())
         self.assertTrue((self.old / "configuration.fixture").exists())
 
-    def test_rollback_missing_checker_never_starts_previous_code(self):
+    def test_missing_previous_checker_blocks_before_configuration_or_services(self):
         (self.old / "check_backend_schema.py").unlink()
-        result = self.run_release(HEALTH_EXIT="1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(any(f"docker|{self.old}|compose start --wait " in c for c in self.calls()))
-        self.assertIn("rollback schema compatibility", result.stderr)
+        self.assert_rollback_prerequisites_refused_before_effects()
 
     def test_candidate_gates_verified_before_start(self):
         result = self.run_release()

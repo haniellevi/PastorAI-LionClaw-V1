@@ -140,10 +140,16 @@ Com o gate de PROD separado e concedido, dispare **Backend release (manual)**
 na `main` e informe o `release_sha` completo, de 40 caracteres. A Action
 recusa SHA fora da `main`, empacota o commit exato, transfere por SSH com
 chave de host fixada e chama `deploy/backend-release.sh` na VPS. O script
-confere primeiro os gates de efeitos externos no Compose resolvido do candidato
+recusa checker anterior ausente ou manifesto anterior inválido antes de copiar
+a configuração privada ou chamar Docker. Depois confere os gates de efeitos externos no Compose resolvido do candidato
 e do release anterior, antes de build ou `up`, e nos quatro contêineres ativos;
-depois executa `deploy/check_backend_schema.py` no backend, em transação
-somente leitura. Migration ativa ausente do ledger, migration no banco sem
+depois executa os checkers anterior e candidato no backend ativo, cada um com
+o manifesto selecionado por sua própria árvore, em transações somente leitura.
+Ambos precisam passar antes de construir ou substituir os serviços; o rollback
+repete o checker anterior em sua própria imagem antes de retomar a aplicação.
+Um release legado sem checker exige um plano de recuperação revisado antes da
+janela, sem copiar o checker candidato para a árvore anterior.
+Migration ativa ausente do ledger, migration no banco sem
 arquivo ativo no candidato, coluna ou tabela V2b/V3 ausente, RLS/ACL ou policy
 de tenant V3 incompleta, erro de banco ou ausência do contêiner fazem
 o comando sair com erro **antes de build ou restart**. Antes do preflight e

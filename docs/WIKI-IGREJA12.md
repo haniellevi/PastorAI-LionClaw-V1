@@ -428,8 +428,17 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   A validação sintética não encerra RNFs de campo; frontend, backend e
   observação operacional têm recibos distintos.
   Fonte integrada pela [PR #451](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/451);
-  frontend publicado em `e59feb5`, com os três aliases confirmados em 02/10.
+  frontend publicado em `379a4dc` após a PR documental #452, com os mesmos
+  bytes de produto de `e59feb5` e os três aliases confirmados em 02/10.
   Backend não publicado nesta missão e metas autenticadas de campo abertas.
+  Rota GitHub `backend-production` configurada em 02/10: revisão obrigatória
+  de `haniellevi`, bypass administrativo desativado, branch `main` única,
+  allowlist e piso elevado para `c5f99b5`, que inclui a guarda revisada da
+  PR #453 e as proteções da PR #443. Console Hostinger acessado em 02/10;
+  Compose atualizado de 2.40.3 para 5.0.0 sem reiniciar os quatro serviços.
+  Credenciais da Action ainda ausentes. O legado ativo não tem checker de
+  rollback; preflight privado, recuperação revisada e janela nominal seguem
+  pendentes. A PR #453 prepara recusa dessa condição antes da interrupção.
   [Recibo, CI, rollback e próximo gate](performance/2026-10-02-fluidity-release.md).
 
 ### Fundação do agente

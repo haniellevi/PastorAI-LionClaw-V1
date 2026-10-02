@@ -67,16 +67,97 @@ Rollback frontend disponível: release anterior
 `35c79663f706a9db489b3a896e0f4b1ec96f8b1c`, deployment
 `dpl_2FMcWy82H7ydNzgq2QsBSrZbuBCy`. Nenhum rollback foi executado.
 
+O recibo documental foi integrado pela
+[PR #452](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/452).
+O frontend de `379a4dc51bfd46d25d68e5cb43a0699b48d12bc1`, deployment
+`dpl_8qZDU3BgKXMjUnowvKXn7CJgYhrv`, foi confirmado `READY`, Production,
+com os três aliases em `2026-10-02T13:55:31Z`. Os diretórios `frontend`,
+`backend` e `deploy` conservam os mesmos bytes do merge `e59feb5`.
+Os cinco workflows de CI do SHA `379a4dc` terminaram em `SUCCESS`,
+conferidos em `2026-10-02T14:01:26Z`.
+O smoke público desse deployment teve seis amostras com HTTP 200 e sem erros
+de JavaScript. Uma medição desktop do app teve LCP de 6.072 ms; três novas
+amostras isoladas tiveram 1.228, 940 e 1.512 ms. A causa da variação não foi
+estabelecida e a pequena amostra não demonstra um SLO de campo.
+
 ## Backend e campo pendentes
 
-O backend deste pacote **não foi publicado**. Sua versão/runtime ativos não
-foram inspecionados nesta missão. Código integrado, testes PG17 e deployment
+O backend deste pacote **não foi publicado**. O acesso à VPS pelo console web
+da Hostinger foi confirmado em 02/10. Código integrado, testes PG17 e deployment
 frontend não comprovam aplicação do backend ou estado de schema em produção.
 
-A inspeção read-only do GitHub em `2026-10-02T13:36Z` encontrou somente os
-environments `Preview` e `production`, sem `backend-production`; a listagem de
-nomes dos secrets do repositório estava vazia. Nenhum valor privado foi lido.
-Não foi disparado o workflow manual nem executada conexão SSH/banco de produção.
+A ausência de `backend-production`, registrada às `13:36Z`, foi resolvida em
+02/10 sob o pedido de continuidade do backend. A leitura REST em
+`2026-10-02T14:12:19Z`, seguida de conferência independente, confirmou:
+
+| Configuração de `backend-production` | Estado observado |
+|---|---|
+| Reviewer obrigatório | `haniellevi`, User `8795157` |
+| Bypass administrativo | Desativado, `can_admins_bypass=false` |
+| Origem permitida | Uma branch `main`, zero tags |
+| `BACKEND_DEPLOY_ALLOWED_ACTORS` | `haniellevi` |
+| `BACKEND_DEPLOY_SAFE_BASE_SHA` | `49abfa86f2ff80bbf85d41fbc8cdb1778c583b56` |
+| Nomes de secrets do environment | Lista vazia |
+
+O piso é o merge revisado da PR #443, que inclui o endurecimento de timeout e
+rollback, e é ancestral do candidato `379a4dc`. Piso e candidato contêm
+`BACKEND_RELEASE_SAFETY_VERSION=2`; candidatos anteriores ao endurecimento
+ficam recusados. `prevent_self_review=false` mantém a aprovação humana viável
+com a única identidade operacional confirmada, sem dispensar a revisão
+obrigatória. O agente não aprova o próprio dispatch.
+
+Após a revisão da correção de preflight da PR #453, o piso foi elevado para
+`c5f99b5463b128e4c7749dcd876ffa03164a1d34`, confirmado pela API do environment
+às `2026-10-02T14:45:30Z`. Esse commit contém os bytes revisados da nova guarda;
+até sua integração na `main`, o workflow recusa candidatos dessa branch.
+O piso novo impede selecionar versões anteriores que descobriam a ausência
+do checker de rollback somente depois de interromper serviços. Os demais
+controles permanecem iguais; nenhum dispatch foi executado.
+
+Nenhum arquivo privado foi lido. Não foi disparado o workflow manual nem
+executada conexão SSH/banco de produção. A configuração do GitHub não comprova
+schema ou recuperação. A inspeção do console às `2026-10-02T14:27:07Z`
+confirmou os quatro contêineres saudáveis, a imagem
+`sha256:bab6320c33315aa5948290867b18ae5b1fe5d980f3d843825f529d362a2a9ae27`
+e o diretório de trabalho em
+`/opt/pastorai-releases/eb5a09b975160f993a3c31bd3c28edc89d9a38ff/deploy`.
+O symlink ativo aponta para esse release; nome de diretório e label não provam
+sozinhos todos os bytes executados. Nos quatro processos,
+`ALLOW_REAL_SENDS=true`; os outros três gates estão fechados. Fechar envios
+exige inventário e janela próprios porque pode cancelar avisos pendentes.
+
+O host usava Compose `2.40.3+ds1-0ubuntu1~24.04.1`, sem as opções de espera
+exigidas pelo procedimento. Às `2026-10-02T14:39:45Z`, foi instalado Compose
+`5.0.0` oficial em `/usr/local/lib/docker/cli-plugins/docker-compose`, com
+SHA-256 `5091bac5729ce968c602d157c2f0b959b7b367d4efb70aa864eb9ae78eebe13e`.
+Versão, `start --wait`, `--wait-timeout` e probe GNU `timeout` passaram.
+O plugin anterior em `/usr/libexec/docker/cli-plugins/docker-compose` foi
+preservado. IDs, horário de início e saúde dos quatro contêineres permaneceram
+iguais; nenhum serviço foi reiniciado. Essa atualização do cliente não prova
+deploy, schema ou rollback da aplicação.
+
+O hPanel mostrou backup semanal de `30/09/2026 01:51`, com `23,80 GB`, no
+horário exibido pelo provedor, e nenhum snapshot. Isso comprova a listagem,
+sem atestar restaurabilidade ou compatibilidade de banco. O arquivo de status
+do backup local existia com mtime `2026-10-02T06:16:05Z`; seu conteúdo e os
+backups não foram abertos.
+
+O release ativo não contém `deploy/check_backend_schema.py`, confirmado no
+console às `2026-10-02T14:32:38Z` e na árvore Git histórica. A correção preparada
+na PR #453 recusa checker/manifesto anterior ausente ou inválido antes da cópia
+da configuração e exige os dois checkers, com seus próprios manifestos, antes
+de build ou substituição. Ela preserva a revalidação do rollback em sua própria
+imagem e não cria compatibilidade para o legado. A recuperação desse legado
+precisa de um contrato revisado após a consulta do schema vivo.
+Validação da correção: RED com cinco testes e dez falhas de assertions na
+fonte anterior; GREEN com 52 testes sintéticos de release, incluindo 14 do
+workflow, sem skips, no
+Python 3.13.14, repetido por revisão independente dos mesmos hashes.
+Os 18 contratos do runbook também passaram; os 14 testes do workflow foram
+reexecutados isoladamente após a atualização documental.
+Essas verificações usam dublês de comandos e não atestam banco ou recuperação
+real da VPS. A mudança de preflight não altera a classificação de cobertura
+do produto na matriz PRD.
 
 O cliente conserva fallbacks para a API anterior. Os ganhos de bootstrap
 combinado, paginação/agrupamento SQL, snapshots da fila, cursores e assinatura
@@ -88,12 +169,20 @@ billing ou agente foi alterado. O lock do envio humano permanece. As decisões
 condicionadas e o bug preexistente de código opaco estão no
 [plano e seus limites](2026-10-02-fluidity-plan.md).
 
-Próximo gate operacional único: configurar a rota protegida de backend e
-registrar a janela nominal de Raniel, igrejas-alvo, inventário privado,
-contenção e backup/rollback conforme
+Próximo gate operacional único: autorização específica de Raniel para o
+preflight privado da configuração ativa e consultas somente leitura de schema
+e inventário agregado no Supabase PROD, incluindo a delegação excepcional das
+consultas reservadas ao operador. Esse gate não autoriza fechamento de envios,
+alteração de banco ou restart. Depois do diagnóstico, registrar a recuperação
+revisada e a janela nominal, igrejas-alvo, contenção e backup/rollback conforme
 [runbook manual](../../deploy/BACKEND-RELEASE-MANUAL.md) e
 [runbook de produção](../ops/PRODUCTION-RUNBOOK.md).
-O runbook reserva as consultas de PROD ao operador. A publicação genérica
-não define alvos, duração nem a autorização de fechamento/reabertura de envios.
+As quatro credenciais `BACKEND_DEPLOY_HOST`, `BACKEND_DEPLOY_USER`,
+`BACKEND_DEPLOY_SSH_KEY` e `BACKEND_DEPLOY_KNOWN_HOSTS` precisam ser configuradas
+no environment por um caminho privado autorizado, com host-key conferida.
+O acesso pelo console foi resolvido; as credenciais da Action continuam ausentes.
+O runbook reserva as consultas de PROD ao operador. A publicação genérica não
+define alvos, duração nem a decisão nominal de fechamento de envios, que pode
+cancelar avisos pendentes. Reabertura exige decisão humana separada.
 Depois da implantação, medir tarefas autenticadas antes de decidir mudanças
 de infraestrutura ou encerrar os RNFs de desempenho.
