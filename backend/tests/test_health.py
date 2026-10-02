@@ -19,6 +19,18 @@ def test_health_returns_200(app) -> None:
     assert resp.headers["server-timing"].startswith("app;dur=")
 
 
+def test_requests_have_bounded_histograms_and_explicit_backend_release(app) -> None:
+    response = TestClient(app).get("/health")
+
+    assert hasattr(app.state, "performance")
+    assert response.headers["x-backend-release"] == "unknown"
+    records = app.state.performance.snapshot()
+    health = next(item for item in records if item["route"] == "/health")
+    assert health["method"] == "GET"
+    assert health["status_class"] == "2xx"
+    assert health["request_ms"]["count"] >= 1
+
+
 def test_request_id_reuses_only_log_safe_values(app) -> None:
     client = TestClient(app)
 
@@ -131,3 +143,56 @@ def test_lifespan_closes_application_clerk_pool(monkeypatch) -> None:
     assert len(created) == 2
     assert created[0] is not created[1]
     assert closed == [True, True]
+
+
+def test_lifespan_shares_and_closes_google_provider_pools(monkeypatch) -> None:
+    import app.main as main
+
+    closed = []
+
+    class FakeClient:
+        def __init__(self, *, settings) -> None:
+            self.settings = settings
+
+        def close(self) -> None:
+            closed.append(self)
+
+    monkeypatch.setattr(main, "GoogleOAuthClient", FakeClient, raising=False)
+    monkeypatch.setattr(main, "GoogleCalendarClient", FakeClient, raising=False)
+    monkeypatch.setattr(main, "get_engine", lambda: MagicMock())
+    local_app = main.create_app()
+
+    with TestClient(local_app) as client:
+        assert hasattr(local_app.state, "google_oauth_client")
+        assert hasattr(local_app.state, "google_calendar_client")
+        oauth = local_app.state.google_oauth_client
+        calendar = local_app.state.google_calendar_client
+        assert client.get("/health").status_code == 200
+        assert closed == []
+
+    assert closed == [oauth, calendar]
+
+
+def test_lifespan_storage_pool_has_no_shared_auth_or_proxy_and_closes(monkeypatch) -> None:
+    import app.main as main
+
+    monkeypatch.setattr(main, "get_engine", lambda: MagicMock())
+    local_app = main.create_app()
+
+    with TestClient(local_app):
+        pool = local_app.state.storage_http_client
+        assert pool.is_closed is False
+        assert pool.trust_env is False
+        assert pool.follow_redirects is False
+        assert "authorization" not in pool.headers
+        assert "apikey" not in pool.headers
+        # A private provider cookie must never be inherited by another request.
+        import httpx
+        first_request = pool.build_request("GET", "https://synthetic.example.invalid/storage")
+        pool.cookies.extract_cookies(httpx.Response(200, request=first_request,
+            headers={"set-cookie": "private_session=synthetic; Path=/"}))
+        second_request = pool.build_request("GET", "https://synthetic.example.invalid/storage")
+        assert "cookie" not in second_request.headers
+        assert len(pool.cookies) == 0
+
+    assert pool.is_closed is True

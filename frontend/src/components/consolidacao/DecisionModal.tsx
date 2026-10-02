@@ -13,8 +13,12 @@
  * Estados: closed · celula-flow · visitante-flow. O submit envia para
  * api-launch-decision (launchDecision) via callback do painel.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
+import { fetchCellLookupPage, fetchContactLookupPage, type CellLookup, type ContactLookup } from "@/lib/lookup-api";
+import { fetchContactDetail } from "@/lib/contacts-api";
+import { SessionExpiredError } from "@/lib/api";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import type { CellSummary } from "@/lib/cells-api";
@@ -35,6 +39,8 @@ import "../contacts/people-ux-v2.css";
 export interface DecisionModalProps {
   /** Pessoas elegíveis para lançar a decisão. */
   contacts: Contact[];
+  token?: string | null;
+  onSessionExpired?: () => void;
   /** Células disponíveis (apenas ativas com líder entram no fluxo A). */
   cells: CellSummary[];
   /** Pré-seleção da pessoa (ex.: abrir a partir de um item da fila). */
@@ -47,6 +53,8 @@ export interface DecisionModalProps {
 
 export function DecisionModal({
   contacts,
+  token,
+  onSessionExpired,
   cells,
   defaultPessoaId,
   busy,
@@ -54,6 +62,22 @@ export function DecisionModal({
   onClose,
   onSubmit,
 }: DecisionModalProps) {
+  const [lookupPessoa,setLookupPessoa] = useState<ContactLookup | null>(() => contacts.find(person => person.id === defaultPessoaId) ?? null);
+  const [lookupCell,setLookupCell] = useState<CellLookup | null>(null);
+  const [lookupError,setLookupError] = useState<string | null>(null);
+  const defaultRequest = useRef<string | null>(null);
+  const selectionVersion = useRef(0);
+  const loadPeople = useCallback((q: string,page: number,signal: AbortSignal) => fetchContactLookupPage(token!,{q,page,signal}),[token]);
+  const loadCells = useCallback((q: string,page: number,signal: AbortSignal) => fetchCellLookupPage(token!,{q,page,signal}),[token]);
+  useEffect(() => {
+    if (!token || !defaultPessoaId || defaultRequest.current === defaultPessoaId) return;
+    defaultRequest.current = defaultPessoaId;
+    if (lookupPessoa?.id === defaultPessoaId) return;
+    const version = selectionVersion.current;
+    let active = true;
+    void fetchContactDetail(token,defaultPessoaId).then(person => { if (active && version === selectionVersion.current) setLookupPessoa(person); }).catch(error => { if (!active) return; if(error instanceof SessionExpiredError) onSessionExpired?.(); else setLookupError("Não foi possível confirmar a pessoa selecionada."); });
+    return () => { active = false; };
+  },[token,defaultPessoaId,lookupPessoa?.id,onSessionExpired]);
   const [pessoaId, setPessoaId] = useState(defaultPessoaId ?? "");
   const [origem, setOrigem] = useState<string>(ORIGENS[0]);
   const [vinculo, setVinculo] = useState<DecisionVinculo>("celula");
@@ -64,30 +88,30 @@ export function DecisionModal({
     () => cells.filter((c) => c.ativo && c.liderId),
     [cells],
   );
-  const noCellAvailable = availableCells.length === 0;
+  const noCellAvailable = !token && availableCells.length === 0;
 
   // Fluxo A bloqueado quando não há célula disponível para vincular.
   const celulaFlowBlocked = vinculo === "celula" && noCellAvailable;
 
-  const pessoaError = touched && !pessoaId ? "Selecione a pessoa." : undefined;
+  const pessoaError = touched && !(token ? lookupPessoa : pessoaId) ? "Selecione a pessoa." : undefined;
   const celulaError =
-    touched && vinculo === "celula" && !celulaFlowBlocked && !celulaId
+    touched && vinculo === "celula" && !celulaFlowBlocked && !(token ? lookupCell : celulaId)
       ? "Selecione a célula que a pessoa participa."
       : undefined;
 
   const canSubmit =
-    Boolean(pessoaId) &&
+    Boolean(token ? lookupPessoa : pessoaId) &&
     !celulaFlowBlocked &&
-    (vinculo === "visitante" || Boolean(celulaId));
+    (vinculo === "visitante" || Boolean(token ? lookupCell?.ativo && lookupCell.liderId : celulaId));
 
   const submit = () => {
     setTouched(true);
     if (busy || !canSubmit) return;
     onSubmit({
-      pessoa: pessoaId,
+      pessoa: token ? lookupPessoa!.id : pessoaId,
       origem,
       vinculo,
-      celulaId: vinculo === "celula" ? celulaId || null : null,
+      celulaId: vinculo === "celula" ? (token ? lookupCell!.id : celulaId || null) : null,
     });
   };
 
@@ -110,6 +134,7 @@ export function DecisionModal({
             submit();
           }}
         >
+          {lookupError ? <p role="alert">{lookupError}</p> : null}
           {error ? (
             <div className="error-banner" role="alert">
               <Icon name="alert" />
@@ -120,7 +145,7 @@ export function DecisionModal({
           <div className="row">
             <div className={`field${pessoaError ? " invalid" : ""}`}>
               <label htmlFor="dec-pessoa">Pessoa</label>
-              <select
+              {token ? <PaginatedLookup<ContactLookup> loadPage={loadPeople} selected={lookupPessoa} onSelect={person => { selectionVersion.current += 1; setLookupPessoa(person); setLookupError(null); }} label="Buscar pessoa" inputId="dec-person-search" getLabel={person => person.nome} getDescription={person => person.telefone} disabled={busy} onSessionExpired={onSessionExpired} /> : <select
                 id="dec-pessoa"
                 disabled={busy}
                 aria-describedby={pessoaError ? "dec-pessoa-error" : undefined}
@@ -134,7 +159,7 @@ export function DecisionModal({
                     {c.nome}
                   </option>
                 ))}
-              </select>
+              </select>}
               {pessoaError ? (
                 <div id="dec-pessoa-error" className="err" role="alert">
                   {pessoaError}
@@ -200,7 +225,7 @@ export function DecisionModal({
           {vinculo === "celula" && !celulaFlowBlocked ? (
             <div className={`field${celulaError ? " invalid" : ""}`} style={{ margin: "var(--s4) 0 0" }}>
               <label htmlFor="dec-celula">Célula que participa</label>
-              <select
+              {token ? <PaginatedLookup<CellLookup> loadPage={loadCells} selected={lookupCell} onSelect={setLookupCell} label="Buscar célula" inputId="dec-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <select
                 id="dec-celula"
                 disabled={busy}
                 aria-describedby={celulaError ? "dec-celula-error" : undefined}
@@ -214,7 +239,7 @@ export function DecisionModal({
                     {c.nome}
                   </option>
                 ))}
-              </select>
+              </select>}
               {celulaError ? (
                 <div id="dec-celula-error" className="err" role="alert">
                   {celulaError}

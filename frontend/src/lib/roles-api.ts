@@ -13,6 +13,7 @@
 import { ApiError, authedFetch, readDetail } from "./dashboard-api";
 import type { PermissionMatrix } from "./permissions";
 import type { Role } from "./roles";
+import { parsePermissionMatrix } from "./permission-matrix";
 
 interface MatrixDto {
   matriz: Record<string, string[]>;
@@ -31,10 +32,8 @@ const MATRIX_ROLES: MatrixRole[] = [
 ];
 
 function toMatrix(dto: MatrixDto): PermissionMatrix {
-  const matrix: PermissionMatrix = {};
-  for (const role of MATRIX_ROLES) {
-    matrix[role] = dto.matriz[role] ?? [];
-  }
+  const matrix = parsePermissionMatrix(dto);
+  if (!matrix) throw new ApiError(502, "As permissões recebidas são inválidas. Tente novamente.");
   return matrix;
 }
 

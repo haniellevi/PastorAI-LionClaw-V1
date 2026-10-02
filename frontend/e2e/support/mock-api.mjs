@@ -21,6 +21,9 @@ const profile = {
   igrejaLogoUrl: null,
 };
 
+let performanceMode = false;
+let queueSize = 1;
+const permissionEnvelope = {matriz:{pastor:["dashboard","inbox","ganhar","consolidar","consol-individual","universidade-vida","capacitacao","g12","central-celula","enviar","calendario","celulas","relatorios"],lider_g12:[],lider_consol:[],lider_celula:[],lider_mult:[],operador:[],membro:[]}};
 let requests = [];
 let nextRequestId = 1;
 let selectedModel = "gpt-5.6-luna";
@@ -55,6 +58,8 @@ function resetUxInbox() {
 resetUxInbox();
 
 function resetState() {
+  performanceMode = false;
+  queueSize = 1;
   uxFixture = defaultUxFixture;
   requests = [];
   nextRequestId = 1;
@@ -68,9 +73,9 @@ function resetState() {
 
 function delayFor(pathname) {
   if (pathname === "/auth/login") return 280;
-  if (pathname === "/auth/me") return 320;
+  if (pathname === "/auth/me" || pathname === "/auth/bootstrap") return 320;
   if (
-    pathname === "/work-queue" ||
+    pathname === "/work-queue" || pathname === "/work-queue/snapshot" ||
     pathname === "/team/lookup" ||
     pathname === "/cells" ||
     pathname === "/dashboard/overview"
@@ -162,7 +167,10 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (method === "POST" && pathname === "/__e2e/reset") {
+    const options = await readBody(request);
     resetState();
+    performanceMode = options?.performance === true;
+    queueSize = Math.min(2000,Math.max(1,Number(options?.queueSize ?? 1)));
     sendJson(response, 200, { status: "reset" });
     return;
   }
@@ -201,7 +209,7 @@ const server = createServer(async (request, response) => {
 
     if (method === "POST" && pathname === "/auth/login") {
       record.status = 200;
-      sendJson(response, 200, { token, ...profile });
+      sendJson(response, 200, { token, ...profile, ...(performanceMode ? {permissions:permissionEnvelope} : {}) });
       return;
     }
     if (method === "POST" && pathname === "/agent/identity-confirmations") {
@@ -214,6 +222,22 @@ const server = createServer(async (request, response) => {
       record.status = 200;
       sendJson(response, 200, { status: "confirmed" });
       return;
+    }
+    if (performanceMode && method === "GET" && pathname === "/auth/bootstrap") {
+      record.status = 200; sendJson(response,200,{user:profile,permissions:permissionEnvelope}); return;
+    }
+    if (performanceMode && method === "GET" && pathname === "/work-queue/snapshot") {
+      const revision = "0123456789abcdef0123456789abcdef";
+      if (url.searchParams.has("revision") && url.searchParams.get("revision") !== revision) { record.status=409; sendJson(response,409,{detail:"A fila mudou."}); return; }
+      const selectedPage = Math.max(1,Number(url.searchParams.get("page") ?? 1));
+      const size = Math.min(200,Math.max(1,Number(url.searchParams.get("pageSize") ?? 25)));
+      const rows = Array.from({length:queueSize},(_,index)=>({id:`00000000-0000-4000-8000-${String(index+10).padStart(12,"0")}`,tipo:"visitante",titulo:index === 0 ? "Acompanhar visitante E2E" : `Ação sintética ${index+1}`,contexto:"Fila sintética local",status:"pendente",pessoaId:null,responsavelId:null,prioridade:1,canMessage:false,prazo:"2099-01-01T12:00:00-03:00"}));
+      record.status=200; sendJson(response,200,{items:rows.slice((selectedPage-1)*size,selectedPage*size),total:rows.length,page:selectedPage,pageSize:size,revision}); return;
+    }
+    // Known additive reads are absent on the simulated older API. Unknown
+    // routes still fail with 501 so accidental traffic cannot pass silently.
+    if (method === "GET" && (/^\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary)$/.test(pathname) || /^\/conversations\/[^/]+\/messages\/media-urls$/.test(pathname))) {
+      record.status = 404; sendJson(response, 404, {detail:"Contrato adicional ausente nesta API sintética."}); return;
     }
     if (method === "GET" && pathname === "/auth/me") {
       record.status = 200;

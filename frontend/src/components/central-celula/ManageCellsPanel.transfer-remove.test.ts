@@ -39,8 +39,20 @@ vi.mock("@/lib/contacts-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/contacts-api")>(
     "@/lib/contacts-api",
   );
-  return { ...actual, fetchContacts: mocks.fetchContacts };
+  return { ...actual, fetchContacts: mocks.fetchContacts,
+    fetchContactDetail: async (_token: string, id: string) => {
+      const page = await mocks.fetchContacts();
+      return page.items.find((person: { id: string }) => person.id === id) ?? { id, nome: "Líder", aptoLider: true };
+    },
+  };
 });
+
+vi.mock("@/lib/lookup-api", async () => ({
+  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  fetchCellListPage: mocks.fetchCellsFull,
+  fetchCellLookupPage: mocks.fetchCellsFull,
+  fetchContactLookupPage: mocks.fetchContacts,
+}));
 
 vi.mock("@/lib/dashboard-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>(
@@ -231,8 +243,7 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     // destino aparece no modal (não na lista de células — o texto exato sem "Líder:")
     const destinoInModal = Array.from(container.querySelectorAll("button")).find(
       (button) =>
-        button.textContent?.trim() === "Célula Esperança" &&
-        !button.textContent?.includes("Ativa"),
+        button.closest('[role="dialog"]') && button.textContent?.includes("Célula Esperança") && !button.disabled,
     );
     expect(destinoInModal).toBeTruthy();
   });
@@ -315,8 +326,7 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     // Seleciona o destino (botão dentro do modal — texto exato, sem "Líder:"/"Ativa")
     const destinoBtn = Array.from(container.querySelectorAll("button")).find(
       (button) =>
-        button.textContent?.trim() === "Célula Esperança" &&
-        !button.textContent?.includes("Ativa"),
+        button.closest('[role="dialog"]') && button.textContent?.includes("Célula Esperança") && !button.disabled,
     ) as HTMLButtonElement;
     act(() => destinoBtn.click());
     await flushEffects();

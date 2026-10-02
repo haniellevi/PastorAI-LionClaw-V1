@@ -86,6 +86,10 @@ export function AgenteScreen() {
   const { token, expireSession } = useAuth();
 
   const [tab, setTab] = useState<Tab>("behavior");
+  const [supportError, setSupportError] = useState<string | null>(null);
+  const [supportAttempt, setSupportAttempt] = useState(0);
+  const [requestsLoading,setRequestsLoading] = useState(true);
+  const [cronsLoading, setCronsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [configLoaded, setConfigLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -159,19 +163,14 @@ export function AgenteScreen() {
     setLoadError(null);
     void (async () => {
       try {
-        const [cred, modelCatalog, cfg, cronList, reqList] = await Promise.all([
+        const [cred, cfg] = await Promise.all([
           fetchCredentialStatus(token),
-          fetchLlmModels(token),
           fetchAgentConfig(token),
-          fetchCrons(token),
-          fetchConfigRequests(token),
         ]);
         if (!alive) return;
         setCredentialState(cred.status);
         if (cred.provedor) setProvedor(cred.provedor as LlmProvider);
-        const selectedModel = cred.modelo ?? modelCatalog.padrao;
-        setModelOptions(modelCatalog.modelos);
-        setModelPricingDate(modelCatalog.precosAtualizadosEm);
+        const selectedModel = cred.modelo ?? "";
         setModelo(selectedModel);
         setSavedModelo(cred.modelo);
         if (cfg.configured) {
@@ -181,8 +180,6 @@ export function AgenteScreen() {
         }
         setAtivo(cfg.ativo);
         setConfigLoaded(true);
-        setCrons(cronList);
-        setRequests(reqList);
       } catch (err) {
         if (!alive) return;
         if (handleSessionError(err)) return;
@@ -197,6 +194,35 @@ export function AgenteScreen() {
       alive = false;
     };
   }, [token, handleSessionError]);
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    setSupportError(null);
+    if (tab === "crons") setCronsLoading(true);
+    if (tab === "behavior") setRequestsLoading(true);
+    const load = async () => {
+      try {
+        if (tab === "credential") {
+          const catalog = await fetchLlmModels(token);
+          if (!active) return;
+          setModelOptions(catalog.modelos);
+          setModelPricingDate(catalog.precosAtualizadosEm);
+          setModelo((current) => current || catalog.padrao);
+        } else if (tab === "crons") {
+          const crons = await fetchCrons(token);
+          if (active) setCrons(crons);
+        } else {
+          const requests = await fetchConfigRequests(token);
+          if (active) setRequests(requests);
+        }
+      } catch (error) {
+        if (active && !handleSessionError(error)) setSupportError("Não foi possível carregar esta seção do assistente.");
+      } finally { if (active && tab === "crons") setCronsLoading(false); if (active && tab === "behavior") setRequestsLoading(false); }
+    };
+    void load();
+    return () => { active = false; };
+  }, [token, tab, supportAttempt, handleSessionError]);
 
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
@@ -261,7 +287,7 @@ export function AgenteScreen() {
 
   // ── Enviar requisição de mudança ao master ───────────────────────────────
   const submitRequest = useCallback(async () => {
-    if (!token || sendingReq || reqMensagem.trim().length === 0) return;
+    if (!token || !configLoaded || requestsLoading || sendingReq || reqMensagem.trim().length === 0) return;
     setSendingReq(true);
     setReqError(null);
     try {
@@ -277,7 +303,7 @@ export function AgenteScreen() {
     } finally {
       setSendingReq(false);
     }
-  }, [token, sendingReq, reqMensagem, flashToast, handleSessionError]);
+  }, [token, configLoaded, requestsLoading, sendingReq, reqMensagem, flashToast, handleSessionError]);
 
   // ── Resetar o formulário de cron (sai do modo edição) ────────────────────
   const resetCronForm = useCallback(() => {
@@ -306,7 +332,7 @@ export function AgenteScreen() {
 
   // ── Criar/editar cron (gatilho de estado validado antes de salvar) ───────
   const submitCron = useCallback(async () => {
-    if (!token || !configLoaded || savingCron || cronNome.trim().length === 0) return;
+    if (!token || !configLoaded || cronsLoading || savingCron || cronNome.trim().length === 0) return;
     setSavingCron(true);
     setCronError(null);
     const payload = {
@@ -338,7 +364,7 @@ export function AgenteScreen() {
     } finally {
       setSavingCron(false);
     }
-  }, [token, configLoaded, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, editingId, resetCronForm, flashToast, handleSessionError]);
+  }, [token, configLoaded, cronsLoading, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, editingId, resetCronForm, flashToast, handleSessionError]);
 
   // ── Ativar/desativar um cron (soft-disable via toggle de `ativo`) ────────
   const toggleCron = useCallback(
@@ -396,6 +422,7 @@ export function AgenteScreen() {
         </div>
       </div>
 
+      {supportError ? <div className="error-banner" role="alert">{supportError}<button type="button" className="btn btn-sm" onClick={() => setSupportAttempt((value) => value + 1)}>Tentar novamente</button></div> : null}
       {loadError ? <div className="error-banner" role="alert"><span>{loadError}</span></div> : null}
       <div className="admin-context">
         <strong>{loading ? "Carregando estado do assistente…" : !configLoaded ? "Estado do assistente indisponível" : ativo ? "Assistente ativo" : "Assistente desativado"}</strong>
@@ -503,7 +530,7 @@ export function AgenteScreen() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={reqMensagem.trim().length === 0 || sendingReq}
+              disabled={!configLoaded || requestsLoading || reqMensagem.trim().length === 0 || sendingReq}
               aria-busy={sendingReq || undefined}
             >
               {sendingReq ? "Enviando…" : "Enviar requisição"}
@@ -748,7 +775,7 @@ export function AgenteScreen() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={!configLoaded || !cronReady || savingCron}
+                disabled={!configLoaded || cronsLoading || !cronReady || savingCron}
                 aria-busy={savingCron || undefined}
               >
                 {savingCron
@@ -772,7 +799,7 @@ export function AgenteScreen() {
 
           <div className="card">
             <div className="panel-title">Agendamentos configurados</div>
-            {crons.length === 0 ? (
+            {cronsLoading ? <p role="status">Carregando agendamentos…</p> : crons.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="clock" />
                 <p>

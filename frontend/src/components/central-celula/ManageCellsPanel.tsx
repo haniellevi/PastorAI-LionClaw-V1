@@ -29,15 +29,17 @@ import { useAuth } from "@/lib/auth-context";
 import { fetchChurchCadastroCapability } from "@/lib/church-cadastro-api";
 import {
   fetchCellMembros,
-  fetchCellsFull,
   upsertCell,
   type CellMembro,
   type CellSummary,
   type UpsertCellInput,
 } from "@/lib/cells-api";
-import { fetchContacts, type Contact } from "@/lib/contacts-api";
+import { fetchContactDetail, type Contact } from "@/lib/contacts-api";
 import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
+import { fetchCellListPage, fetchContactLookupPage } from "@/lib/lookup-api";
+import { useLookupPage } from "@/components/lookups/useLookupPage";
+import { LookupPager } from "@/components/lookups/LookupPager";
 
 import { CellHealthList } from "./CellHealthList";
 import { PendingReportsList } from "./PendingReportsList";
@@ -115,34 +117,65 @@ export function ManageCellsPanel({
     pessoaId: string;
   } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const [cellPage, contactPage, teamPage] = await Promise.all([
-        fetchCellsFull(token),
-        fetchContacts(token),
-        fetchTeam(token),
-      ]);
-      setCells(cellPage.items);
-      setContacts(contactPage.items);
-      setTeam(teamPage.items);
-      setLoaded(true);
-    } catch (err) {
-      if (err instanceof SessionExpiredError) {
-        expireSession();
-        return;
-      }
-      setLoadError(
-        err instanceof ApiError
-          ? err.message
-          : "Não foi possível carregar células, Pessoas e acessos.",
-      );
-    }
-  }, [token, expireSession]);
-
+  const loadCellsPage = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchCellListPage(token, { q, page, signal }), [token]);
+  const cellsLookup = useLookupPage(loadCellsPage, query);
+  const retryCells = cellsLookup.retry;
+  const load = useCallback(async () => { retryCells(); }, [retryCells]);
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (cellsLookup.result) {
+      setCells(cellsLookup.result.items);
+      setLoaded(true);
+    }
+    if (cellsLookup.error instanceof SessionExpiredError) expireSession();
+    setLoadError(cellsLookup.error instanceof Error ? cellsLookup.error.message : null);
+  }, [cellsLookup.result, cellsLookup.error, expireSession]);
+
+  // Only the visible leaders and selected members need full identity labels.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const rememberPeople = useCallback(async (ids: string[]) => {
+    const unique = [...new Set(ids)];
+    const people = await Promise.all(unique.map((id) => fetchContactDetail(token, id)));
+    if (tokenRef.current !== token) return;
+    setContacts((previous) => {
+      const byId = new Map(previous.map((person) => [person.id, person]));
+      people.forEach((person) => byId.set(person.id, person));
+      return [...byId.values()];
+    });
+  }, [token]);
+  useEffect(() => {
+    const ids = cells.filter((cell) => cell.liderId && !cell.liderNome).map((cell) => cell.liderId!);
+    if (!ids.length) return;
+    void rememberPeople(ids).catch((reason: unknown) => {
+      if (reason instanceof SessionExpiredError) expireSession();
+    });
+  }, [cells, rememberPeople, expireSession]);
+  useEffect(() => {
+    if (!showForm) return;
+    let active = true;
+    void fetchTeam(token).then((page) => { if (active) setTeam(page.items); }).catch((reason: unknown) => {
+      if (reason instanceof SessionExpiredError) expireSession();
+      else if (active) setFormError(reason instanceof Error ? reason.message : "Não foi possível validar os acessos da equipe.");
+    });
+    return () => { active = false; };
+  }, [showForm, token, expireSession]);
+  useEffect(() => {
+    if (!showForm || !editing?.liderId) return;
+    void rememberPeople([editing.liderId]).catch((reason: unknown) => {
+      if (reason instanceof SessionExpiredError) expireSession();
+      else setFormError(reason instanceof Error ? reason.message : "Não foi possível validar o líder atual.");
+    });
+  }, [showForm, editing?.liderId, rememberPeople, expireSession]);
+  const loadLeadersPage = useCallback(async (q: string, page: number, signal: AbortSignal) => {
+    const result = await fetchContactLookupPage(token, { q, page, signal, view: "aptos" });
+    return { ...result, items: buildCellLeaderOptions(result.items, team, editing?.liderId) };
+  }, [token, team, editing?.liderId]);
+  const loadCoveragePage = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token, { q, page, signal, view: "pastor" }).then((result) =>
+      ({ ...result, items: result.items.filter((person) => !person.semInteresse) })), [token]);
+  const loadContactsPage = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token, { q, page, signal }), [token]);
 
   // A Central cruza Pessoa + Equipe completa. Convites pendentes, acessos
   // revogados, ausentes ou duplicados ficam visíveis com o motivo, sem poderem
@@ -153,13 +186,19 @@ export function ManageCellsPanel({
   );
 
   const leaderName = useCallback(
-    (id: string | null) => (id ? contacts.find((c) => c.id === id)?.nome ?? "—" : "—"),
-    [contacts],
+    (id: string | null) => (id ? cells.find((cell) => cell.liderId === id)?.liderNome ?? contacts.find((c) => c.id === id)?.nome ?? "Carregando nome…" : "Sem líder"),
+    [cells, contacts],
   );
 
+  const [selectedRecord, setSelectedRecord] = useState<CellSummary | null>(null);
+  useEffect(() => {
+    setCells([]); setContacts([]); setTeam([]); setLoaded(false);
+    setSelectedId(null); setSelectedRecord(null); setShowForm(false); setShowInvite(false);
+    setMemberAction(null);
+  }, [token]);
   const selectedCell = useMemo(
-    () => cells.find((c) => c.id === selectedId) ?? null,
-    [cells, selectedId],
+    () => cells.find((c) => c.id === selectedId) ?? (selectedRecord?.id === selectedId ? selectedRecord : null),
+    [cells, selectedId, selectedRecord],
   );
   const addMemberBlockReason = selectedCell
     ? cellMemberAddBlockReason(selectedCell)
@@ -184,8 +223,10 @@ export function ManageCellsPanel({
     setMembrosLoading(true);
     setMembrosError(null);
     fetchCellMembros(token, selectedId)
-      .then((rows) => {
-        if (!cancelled) setMembros(rows);
+      .then(async (rows) => {
+        if (cancelled) return;
+        setMembros(rows);
+        await rememberPeople(rows.map((row) => row.pessoaId));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -203,7 +244,7 @@ export function ManageCellsPanel({
     return () => {
       cancelled = true;
     };
-  }, [selectedId, token, expireSession, membrosNonce]);
+  }, [selectedId, token, expireSession, membrosNonce, rememberPeople]);
 
   // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
   // 'lider' é legado e não volta como semântica; G12 pastoral formal fica para
@@ -237,6 +278,7 @@ export function ManageCellsPanel({
         });
         setShowForm(false);
         setEditing(null);
+        retryCells();
         onToast({
           kind: "ok",
           text: input.id ? `Célula ${saved.nome} atualizada.` : `Célula ${saved.nome} criada.`,
@@ -258,7 +300,7 @@ export function ManageCellsPanel({
         setSaving(false);
       }
     },
-    [token, onToast, onChanged, expireSession],
+    [token, onToast, onChanged, expireSession, retryCells],
   );
 
   const handleMemberAdded = useCallback(
@@ -285,8 +327,8 @@ export function ManageCellsPanel({
     [memberAction, contacts],
   );
 
-  const showEmpty = loaded && !loadError && cells.length === 0;
-  const visibleCells = cells.filter((cell) => cell.nome.toLocaleLowerCase("pt-BR").includes(query.trim().toLocaleLowerCase("pt-BR")));
+  const showEmpty = loaded && !loadError && !query && cellsLookup.result?.total === 0;
+  const visibleCells = cells;
 
   return (
     <div className="central-stack">
@@ -336,7 +378,7 @@ export function ManageCellsPanel({
         <section className="card" aria-label="Selecionar célula existente">
           <div className="panel-title">
             <Icon name="central-celula" /> Selecionar célula existente
-            {cells.length ? <span className="count">· {cells.length}</span> : null}
+            {cellsLookup.result ? <span className="count">· {cellsLookup.result.total}</span> : null}
           </div>
           <div className="ops-search" style={{ padding: "var(--s4)", marginBottom: 0 }}>
             <label htmlFor="central-cell-search">Buscar célula</label>
@@ -351,7 +393,7 @@ export function ManageCellsPanel({
                   type="button"
                   key={c.id}
                   className={`cc-cell-row${selected ? " cc-cell-row--active" : ""}`}
-                  onClick={() => setSelectedId(selected ? null : c.id)}
+                  onClick={() => { setSelectedRecord(c); setSelectedId(selected ? null : c.id); }}
                   aria-pressed={selected}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -366,6 +408,7 @@ export function ManageCellsPanel({
             })}
           </div>
 
+          <div style={{ padding: "var(--s4)" }}><LookupPager result={cellsLookup.result} loading={cellsLookup.loading} onPage={cellsLookup.setPage} /></div>
           {selectedCell ? (
             <>
               <p className="ops-selected-context" role="status">Célula selecionada: <strong>{selectedCell.nome}</strong>. As ações abaixo se aplicam a ela.</p>
@@ -493,6 +536,9 @@ export function ManageCellsPanel({
           cell={editing}
           leaders={leaderOptions}
           coverageOptions={coverageOptions}
+          loadLeadersPage={loadLeadersPage}
+          loadCoveragePage={loadCoveragePage}
+          onSessionExpired={expireSession}
           canManageLeadership
           publicDataEnabled={publicDataEnabled}
           canPublish={canPublish}
@@ -512,6 +558,7 @@ export function ManageCellsPanel({
           celulaId={selectedCell.id}
           celulaNome={selectedCell.nome}
           contacts={contacts}
+          loadContactsPage={loadContactsPage}
           onClose={() => setShowInvite(false)}
           onAdded={handleMemberAdded}
         />
@@ -519,6 +566,7 @@ export function ManageCellsPanel({
 
       {memberAction && selectedCell && memberActionPessoa ? (
         <TransferRemoveMemberModal
+          token={token}
           origem={selectedCell}
           pessoa={memberActionPessoa}
           cells={cells}

@@ -93,6 +93,8 @@ export function ConsolIndividualScreen() {
         </div>
       ) : null}
 
+      {c.supportError ? <p role="status" className="people-meta">{c.supportError}</p> : null}
+      {c.hasMore ? <div className="people-toolbar"><span role="status">{c.people.length} de {c.pipelineTotal} pessoas carregadas</span><button type="button" className="btn btn-sm" disabled={c.loadingMore || c.loading} onClick={() => void c.loadMore()}>{c.loadingMore ? "Carregando…" : "Carregar mais pessoas"}</button></div> : null}
       <div className="people-work-list">
         <div className="card">
           <div className="panel-title">
@@ -115,7 +117,7 @@ export function ConsolIndividualScreen() {
             <div className="empty-state" style={{ padding: "var(--s6)" }}>
               <Icon name="consol-individual" />
               <p>
-                <strong>Nenhuma consolidação em andamento.</strong> Lance uma decisão
+                <strong>{c.hasMore ? "Nenhuma consolidação entre as pessoas carregadas." : "Nenhuma consolidação em andamento."}</strong> Lance uma decisão
                 por Jesus para iniciar o acompanhamento individual.
               </p>
             </div>
@@ -165,6 +167,8 @@ export function ConsolIndividualScreen() {
 
       {c.decisionOpen ? (
         <DecisionModal
+          token={c.token}
+          onSessionExpired={c.expireSession}
           contacts={c.contacts}
           cells={c.cells}
           defaultPessoaId={c.decisionPessoa}

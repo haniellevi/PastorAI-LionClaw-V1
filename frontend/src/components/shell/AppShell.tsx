@@ -74,7 +74,9 @@ export function AppShell() {
 
   const warmRoute = useCallback(
     (target: string) => {
-      if (!user) return;
+      if (!user || document.visibilityState === "hidden") return;
+      const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+      if (connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType ?? "")) return;
       const targetBase = target.split("/", 1)[0] ?? target;
       const targetOwnerOk =
         !OWNER_ONLY.has(targetBase) || (user.isOwner ?? false);
@@ -95,17 +97,6 @@ export function AppShell() {
     },
     [user, token, matrix],
   );
-
-  // Depois da tela inicial estabilizar, aquece gradualmente os três destinos
-  // mais usados. O escalonamento evita disputar rede/CPU com o primeiro paint.
-  useEffect(() => {
-    if (!user || !token) return;
-    const commonRoutes = ["inbox", "calendario", "ganhar"];
-    const timers = commonRoutes.map((target, index) =>
-      window.setTimeout(() => warmRoute(target), 3_500 + index * 1_500),
-    );
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [user, token, warmRoute]);
 
   // A troca/encerramento da sessão remove imediatamente snapshots que ainda
   // estejam na memória, mesmo que o TTL curto não tenha vencido.

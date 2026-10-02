@@ -14,7 +14,7 @@ const adminApiMocks = vi.hoisted(() => ({
 
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
-  return { ...actual, fetchMe: apiMocks.fetchMe, login: apiMocks.login };
+  return { ...actual, fetchMe: apiMocks.fetchMe, fetchBootstrap: async (token: string) => ({ user: await apiMocks.fetchMe(token), permissions: null }), login: apiMocks.login };
 });
 vi.mock("./admin-api", async () => {
   const actual = await vi.importActual<typeof import("./admin-api")>("./admin-api");
@@ -114,6 +114,17 @@ describe("AuthProvider — restauração de sessão", () => {
   beforeEach(() => {
     latest = null;
     window.localStorage.setItem("pastorai:token", "tenant-token");
+  });
+
+  it("ignores a bootstrap that finishes after logout", async () => {
+    let resolve!: (value: MeResult) => void;
+    apiMocks.fetchMe.mockImplementation(() => new Promise<MeResult>(done => { resolve = done; }));
+    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    act(() => latest?.logout());
+    await act(async () => { resolve(me); });
+    expect(latest?.status).toBe("unauthenticated");
+    expect(latest?.user).toBeNull();
+    expect(window.localStorage.getItem("pastorai:token")).toBeNull();
   });
 
   it("encerra 403, apaga o token e preserva a mensagem para o fluxo de acesso", async () => {

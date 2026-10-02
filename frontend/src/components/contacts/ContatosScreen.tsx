@@ -123,7 +123,10 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const currentDataKey = `${filter}:${currentPage}`;
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => { if (search.trim() === query) return; const timer = window.setTimeout(() => { setQuery(search.trim()); setCurrentPage(1); }, 250); return () => window.clearTimeout(timer); }, [search,query]);
+  const currentDataKey = `${filter}:${currentPage}:${query}`;
   const hasCurrentData = loadedKey === currentDataKey;
   const [pagination, setPagination] = useState({
     page: 1,
@@ -188,6 +191,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   // Uma troca rápida de página pode inverter a ordem das respostas. Só a
   // requisição mais recente pode atualizar a tabela.
   const loadRequestRef = useRef(0);
+  const loadControllerRef = useRef<AbortController | null>(null);
   // Células mudam muito menos que a página/filtro de contatos. Reaproveite a
   // mesma promessa por sessão para que paginar não repita esse request.
   const cellsRequestRef = useRef<{
@@ -210,19 +214,24 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const loadPage = useCallback(
     async (requestedPage: number) => {
       if (!token) return;
+      loadControllerRef.current?.abort();
+      const controller = new AbortController();
+      loadControllerRef.current = controller;
       const requestId = ++loadRequestRef.current;
-      const dataKey = `${filter}:${requestedPage}`;
+      const dataKey = `${filter}:${requestedPage}:${query}`;
       setLoading(true);
       setError(null);
       try {
-        const [page, cellPage] = await Promise.all([
-          fetchContactsPage(token, {
+        const page = await fetchContactsPage(token, {
             page: requestedPage,
             pageSize: CONTACTS_PAGE_SIZE,
             view: filter,
-          }),
-          fetchCellsOnce(),
-        ]);
+            signal: controller.signal,
+            ...(query ? {q: query} : {}),
+          });
+        if (controller.signal.aborted || loadRequestRef.current !== requestId) return;
+        // Names support arrives independently; a cells outage does not hide people.
+        void fetchCellsOnce().then(cellPage => { if (loadRequestRef.current === requestId) setCells(cellPage.items); }).catch(handleSessionError);
         if (loadRequestRef.current !== requestId) return;
         // Defesa adicional contra um backend/mocked response fora do contrato:
         // nunca renderize mais linhas do que o orçamento desta tela.
@@ -232,10 +241,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           pageSize: Math.min(page.pageSize, CONTACTS_PAGE_SIZE),
           total: page.total,
         });
-        setCells(cellPage.items);
         setLoadedKey(dataKey);
       } catch (err) {
-        if (loadRequestRef.current !== requestId) return;
+        if (controller.signal.aborted || loadRequestRef.current !== requestId) return;
         if (handleSessionError(err)) return;
         // Preserve a última página confirmada. hasCurrentData impede que ela
         // apareça sob outro filtro/página enquanto a nova leitura falhou.
@@ -243,14 +251,20 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           err instanceof ApiError ? err.message : "Não foi possível carregar os contatos.",
         );
       } finally {
+        if (loadControllerRef.current === controller) loadControllerRef.current = null;
         if (loadRequestRef.current === requestId) setLoading(false);
       }
     },
-    [token, filter, handleSessionError, fetchCellsOnce],
+    [token, filter, query, handleSessionError, fetchCellsOnce],
   );
 
   useEffect(() => {
     void loadPage(currentPage);
+    return () => {
+      loadRequestRef.current += 1;
+      loadControllerRef.current?.abort();
+      loadControllerRef.current = null;
+    };
   }, [currentPage, loadPage]);
 
   // Deep-link: sincroniza seleção quando o id do hash muda.
@@ -747,6 +761,10 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             {FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
         </div>
+        <div className="field">
+          <label htmlFor="people-search">Buscar nome, telefone ou e-mail</label>
+          <input id="people-search" type="search" value={search} onChange={event => setSearch(event.target.value)} autoComplete="off" />
+        </div>
         <p className="people-meta" role="status" aria-live="polite">
           {hasCurrentData && !error
             ? `${pagination.total} pessoas neste filtro`
@@ -898,6 +916,8 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
 
       {linkTarget ? (
         <LinkCellModal
+          token={token}
+          onSessionExpired={expireSession}
           cells={cells}
           contactName={linkTarget.nome}
           busy={busyId === linkTarget.id}

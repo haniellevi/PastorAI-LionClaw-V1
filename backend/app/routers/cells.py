@@ -17,19 +17,21 @@ import logging
 import re
 import unicodedata
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import false, func, select
+from sqlalchemy import Time, and_, case, cast, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
-from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, CelulaReuniao, CellAlert, Pessoa
 from app.db.session import get_db
 from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central, resolve_actor_pessoa_id
 from app.domain.cell_meetings_schedule import (
     InvalidDiaReuniao,
     canonical_weekday_label,
+    now_in_sao_paulo,
 )
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
@@ -98,6 +100,9 @@ class CellOut(BaseModel):
     bairro: str | None = None
     divulgarWhatsapp: bool = False  # noqa: N815
     ativo: bool
+    liderNome: str | None = None
+    membros: int | None = None
+    visitantes: int | None = None
 
     @classmethod
     def from_model(cls, c: Celula) -> "CellOut":
@@ -339,7 +344,7 @@ def _cell_read_scope_filters(
     """
 
     if current_user.has_any_role(CELL_TENANT_WIDE_READ_ROLES):
-        return []
+        return [Celula.igreja_id == uuid.UUID(current_user.igreja_id)]
 
     actor_pessoa_id = _actor_pessoa_id(db, current_user)
     if actor_pessoa_id is None:
@@ -561,27 +566,194 @@ def _assert_whatsapp_publication(
 @router.get("/cells", response_model=Page[CellOut])
 def list_cells(
     pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[CellOut]:
     """List the tenant's cells, paginated."""
-    scope_filters = _cell_read_scope_filters(db, current_user)
+    scope_filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(db, current_user, q)]
     total = db.execute(
         select(func.count()).select_from(Celula).where(*scope_filters)
     ).scalar_one()
     rows = db.execute(
         select(Celula)
         .where(*scope_filters)
-        .order_by(Celula.created_at.desc())
+        .order_by(Celula.created_at.desc(), Celula.id.desc())
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).scalars().all()
-    return Page[CellOut](
-        items=[CellOut.from_model(c) for c in rows],
-        page=pagination.page,
-        pageSize=pagination.page_size,
-        total=int(total),
+    output = [CellOut.from_model(c) for c in rows]
+    if rows:
+        from app.routers.contacts import _contact_scope_conditions, _contact_view_conditions
+        contact_filters = [*_contact_view_conditions("all"),
+            *_contact_scope_conditions(db,current_user,include_assigned_conversation=True)]
+        counts = db.execute(select(
+            Pessoa.celula_id,
+            func.count().filter(Pessoa.tipo.is_distinct_from("visitante")).label("members"),
+            func.count().filter(Pessoa.tipo == "visitante").label("visitors"),
+        ).where(*contact_filters,Pessoa.celula_id.in_([c.id for c in rows])).group_by(Pessoa.celula_id)).all()
+        by_cell = {str(cid):(members,visitors) for cid,members,visitors in counts}
+        leader_ids = {c.lider_id for c in rows if c.lider_id is not None}
+        names = db.execute(select(Pessoa.id,Pessoa.nome).where(
+            *contact_filters,Pessoa.id.in_(leader_ids),
+        )).all() if leader_ids else []
+        by_leader = {str(pid):name for pid,name in names}
+        for item in output:
+            item.membros,item.visitantes = by_cell.get(item.id,(0,0))
+            item.liderNome = by_leader.get(item.liderId)
+    return Page[CellOut](items=output,page=pagination.page,pageSize=pagination.page_size,total=int(total))
+
+
+class CellLookupOut(BaseModel):
+    id: str
+    nome: str
+    liderId: str | None = None
+    ativo: bool
+
+
+def _cell_search_filters(db: Session, current_user: CurrentUser, q: str | None) -> list:
+    term = (q or "").strip()
+    if not term:
+        return []
+    from app.routers.contacts import _contact_scope_conditions, _contact_view_conditions
+
+    # Search only names the same caller may see in /contacts?view=all and in
+    # this list's liderNome. EXISTS preserves the outer cell count/pagination.
+    visible_leader_name = select(Pessoa.id).where(
+        Pessoa.id == Celula.lider_id,
+        *_contact_view_conditions("all"),
+        *_contact_scope_conditions(db, current_user, include_assigned_conversation=True),
+        Pessoa.nome.icontains(term, autoescape=True),
+    ).correlate(Celula).exists()
+    matches = [Celula.nome.icontains(term, autoescape=True), visible_leader_name]
+    if term.casefold() in "sem líder":
+        # A hidden or archived leader remains a leader; only NULL gets this label.
+        matches.append(Celula.lider_id.is_(None))
+    return [or_(*matches)]
+
+
+@router.get("/cells/lookup", response_model=Page[CellLookupOut])
+def lookup_cells(
+    pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Page[CellLookupOut]:
+    filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(db, current_user, q)]
+    total = db.execute(select(func.count()).select_from(Celula).where(*filters)).scalar_one()
+    rows = db.execute(
+        select(Celula).options(load_only(Celula.id, Celula.nome, Celula.lider_id, Celula.ativo))
+        .where(*filters).order_by(Celula.nome.asc(), Celula.id.asc())
+        .offset(pagination.offset).limit(pagination.limit)
+    ).scalars().all()
+    return Page[CellLookupOut](
+        items=[CellLookupOut(id=str(c.id), nome=c.nome, liderId=str(c.lider_id) if c.lider_id else None, ativo=c.ativo) for c in rows],
+        page=pagination.page, pageSize=pagination.page_size, total=int(total),
     )
+
+
+class LedCellSummary(BaseModel):
+    id: str
+    nome: str
+
+
+class LedMeetingSummary(BaseModel):
+    id: str
+    celula_id: str
+    data: str
+    hora: str | None
+    local: str | None = None
+    tema: str | None = None
+    minha_presenca: str = "nao_confirmou"
+
+
+class LedTodayOut(BaseModel):
+    cells: list[LedCellSummary]
+    meeting: LedMeetingSummary | None = None
+
+
+def _cell_name_key(nome: str):
+    return "".join(ch for ch in unicodedata.normalize("NFD", nome.casefold()) if not unicodedata.combining(ch))
+
+
+@router.get("/cells/me/led-today", response_model=LedTodayOut)
+def led_cells_today(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> LedTodayOut:
+    """Upcoming occurrence among the actor's led cells without historical lists."""
+    tenant = uuid.UUID(current_user.igreja_id)
+    actor = _actor_pessoa_id(db, current_user)
+    if actor is None:
+        return LedTodayOut(cells=[])
+    cells = db.execute(select(Celula).options(load_only(Celula.id, Celula.nome)).where(
+        Celula.igreja_id == tenant, Celula.lider_id == uuid.UUID(actor), Celula.ativo.is_(True),
+    )).scalars().all()
+    cells.sort(key=lambda c: (_cell_name_key(c.nome), str(c.id)))
+    result = LedTodayOut(cells=[LedCellSummary(id=str(c.id), nome=c.nome) for c in cells])
+    if not cells:
+        return result
+    now = now_in_sao_paulo()
+    # Null-hour occurrences retain the dashboard's end-of-day (23:59) rule.
+    clean_hora = func.btrim(CelulaReuniao.hora)
+    slot = case(
+        (CelulaReuniao.hora.is_(None), "23:59"),
+        (clean_hora.op("~")(r"^([01][0-9]|2[0-3]):[0-5][0-9]$"), clean_hora),
+        else_=None,
+    )
+    filters = (
+        CelulaReuniao.igreja_id == tenant, CelulaReuniao.celula_id.in_([c.id for c in cells]),
+        CelulaReuniao.status.is_distinct_from("cancelada"),
+        slot.is_not(None),
+        or_(CelulaReuniao.data > now.date(), and_(CelulaReuniao.data == now.date(), cast(slot, Time) >= now.time().replace(tzinfo=None))),
+    )
+    upcoming = select(CelulaReuniao.data.label("day"), slot.label("time")).where(*filters).order_by(
+        CelulaReuniao.data.asc(), slot.asc(), CelulaReuniao.id.asc(),
+    ).limit(1).cte("next_led_slot")
+    # Only meetings sharing the nearest slot are candidates for the stable,
+    # accent-insensitive cell-name/id tie break. No old occurrences are loaded.
+    meetings = db.execute(select(CelulaReuniao).join(upcoming, and_(
+        CelulaReuniao.data == upcoming.c.day, slot == upcoming.c.time,
+    )).where(*filters)).scalars().all()
+    names = {str(c.id): c.nome for c in cells}
+    if meetings:
+        first = min(meetings, key=lambda r: (_cell_name_key(names[str(r.celula_id)]), str(r.celula_id), str(r.id)))
+        result.meeting = LedMeetingSummary(
+            id=str(first.id), celula_id=str(first.celula_id), data=first.data.isoformat(), hora=first.hora,
+            tema=f"{names[str(first.celula_id)]}: {first.tema or 'Reunião da célula'}",
+        )
+    return result
+
+
+class CellsSummaryOut(BaseModel):
+    total: int
+    ativas: int
+    semLider: int
+    pessoasEmCelulas: int
+
+
+@router.get("/cells/summary", response_model=CellsSummaryOut)
+def cells_summary(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CellsSummaryOut:
+    from app.routers.contacts import _contact_scope_conditions, _contact_view_conditions
+    cell_filters = _cell_read_scope_filters(db,current_user)
+    # Keep the existing card definition: active contacts' legacy cell mirror,
+    # under the same row visibility as /contacts. No new membership rule.
+    contact_filters = [*_contact_view_conditions("all"),
+        *_contact_scope_conditions(db,current_user,include_assigned_conversation=True)]
+    people = select(func.count()).select_from(Pessoa).where(
+        *contact_filters,Pessoa.celula_id.is_not(None),
+    ).scalar_subquery()
+    counts = db.execute(select(
+        func.count().label("cells_total"),
+        func.count().filter(Celula.ativo.is_(True)).label("cells_active"),
+        func.count().filter(Celula.lider_id.is_(None)).label("cells_unled"),
+        people.label("cells_people"),
+    ).select_from(Celula).where(*cell_filters)).one()
+    return CellsSummaryOut(total=counts.cells_total,ativas=counts.cells_active,
+        semLider=counts.cells_unled,pessoasEmCelulas=counts.cells_people)
 
 
 @router.get("/cells/{cell_id}", response_model=CellDetailOut)

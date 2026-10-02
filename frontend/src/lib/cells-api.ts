@@ -34,6 +34,9 @@ export interface CellSummary {
   ativo: boolean;
   bairro?: string | null;
   divulgarWhatsapp?: boolean;
+  liderNome?: string | null;
+  membros?: number;
+  visitantes?: number;
 }
 
 /** Alerta aberto sobre um liderado da célula (cell_alerts). */
@@ -72,11 +75,19 @@ export async function fetchCellsFull(
   token: string,
   pageSize = 200,
 ): Promise<Page<CellSummary>> {
-  const res = await authedFetch(token, `/cells?page=1&pageSize=${pageSize}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar as células.");
+  const size = Math.min(200, Math.max(1, Math.trunc(pageSize)));
+  const items: CellSummary[] = [];
+  let total = 0;
+  for (let page = 1; ; page += 1) {
+    const res = await authedFetch(token, `/cells?page=${page}&pageSize=${size}`);
+    if (!res.ok) throw new ApiError(res.status, "Não foi possível carregar as células.");
+    const batch = (await res.json()) as Page<CellSummary>;
+    items.push(...batch.items);
+    total = batch.total;
+    if (items.length >= total) break;
+    if (batch.items.length === 0) throw new ApiError(502, "A lista de células mudou. Atualize para confirmar todos os registros.");
   }
-  return (await res.json()) as Page<CellSummary>;
+  return { items, total, page: 1, pageSize: size };
 }
 
 export async function fetchCellDetail(
@@ -363,6 +374,10 @@ export async function getLedCellsTodayContext(
   token: string,
   now = new Date(),
 ): Promise<LedCellsTodayContext> {
+  const context = await authedFetch(token, "/cells/me/led-today");
+  if (context.ok) return (await context.json()) as LedCellsTodayContext;
+  if (context.status !== 404) throw new ApiError(context.status, "Não foi possível resolver suas próximas reuniões.");
+  // Backend anterior: mantém a leitura completa, com a mesma autoridade.
   const cells = [...(await getMyLedCells(token))].sort(
     (a, b) =>
       a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }) ||

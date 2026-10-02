@@ -47,6 +47,8 @@ export interface FetchContactsParams {
   pageSize?: number;
   /** Visão aplicada no servidor antes de count/offset/limit. */
   view?: ContactView;
+  q?: string;
+  signal?: AbortSignal;
 }
 
 /** Projeção de pessoa retornada por /contacts e /pipeline (ContactOut). */
@@ -213,22 +215,51 @@ function isOffboardingPreflight(value: unknown): value is OffboardingPreflight {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
+export interface ContactPage extends Page<Contact> {
+  searchSupported?: boolean;
+}
+
 export async function fetchContactsPage(
   token: string,
   params: FetchContactsParams = {},
-): Promise<Page<Contact>> {
+): Promise<ContactPage> {
   const page = Math.max(1, Math.trunc(params.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.trunc(params.pageSize ?? 200)));
-  const query = new URLSearchParams({
-    page: String(page),
-    pageSize: String(pageSize),
-    view: params.view ?? "all",
-  });
-  const res = await authedFetch(token, `/contacts?${query.toString()}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar os contatos.");
+  const q = params.q?.trim() ?? "";
+  const read = async (requestedPage: number,size: number,search = ""): Promise<ContactPage> => {
+    params.signal?.throwIfAborted();
+    const query = new URLSearchParams({page:String(requestedPage),pageSize:String(size),view:params.view ?? "all"});
+    if (search) query.set("q",search);
+    const res = await authedFetch(token,`/contacts?${query}`,{signal:params.signal});
+    if (!res.ok) throw new ApiError(res.status,"Não foi possível carregar os contatos.");
+    const result = await res.json() as ContactPage;
+    params.signal?.throwIfAborted();
+    return result;
+  };
+  const result = await read(page,pageSize,q);
+  if (!q || result.searchSupported === true) return result;
+  // Older servers silently ignore q. Collect the scoped view before filtering,
+  // so a match beyond the first200 remains reachable during a rolling deployment.
+  const rows = new Map<string,Contact>();
+  let total: number | undefined;
+  let maxPages = 1;
+  for (let legacyPage = 1; legacyPage <= maxPages; legacyPage += 1) {
+    const batch = await read(legacyPage,200);
+    if (!Number.isSafeInteger(batch.total) || batch.total < 0 || !Number.isSafeInteger(batch.pageSize) || batch.pageSize < 1 || batch.pageSize > 200 || batch.page !== legacyPage || (total !== undefined && batch.total !== total)) {
+      throw new ApiError(502,"A lista de pessoas mudou durante a busca. Tente novamente.");
+    }
+    total = batch.total;
+    maxPages = Math.ceil(total / batch.pageSize) + 2;
+    for (const contact of batch.items) {
+      if (rows.has(contact.id)) throw new ApiError(502,"A lista de pessoas mudou durante a busca. Tente novamente.");
+      rows.set(contact.id,contact);
+    }
+    if (rows.size === total) break;
+    if (!batch.items.length || rows.size > total || legacyPage === maxPages) throw new ApiError(502,"A busca de pessoas está incompleta. Tente novamente.");
   }
-  return (await res.json()) as Page<Contact>;
+  const needle = q.toLocaleLowerCase("pt-BR");
+  const matches = [...rows.values()].filter(contact => [contact.nome,contact.telefone,contact.email].some(value => value?.toLocaleLowerCase("pt-BR").includes(needle)));
+  return {items:matches.slice((page-1)*pageSize,page*pageSize),total:matches.length,page,pageSize,searchSupported:false};
 }
 
 /**
@@ -268,14 +299,50 @@ export async function fetchPipeline(
   token: string,
   etapa?: string,
   pageSize = 200,
+  params: {page?: number; q?: string; group?: ContactGroup; signal?: AbortSignal} = {},
 ): Promise<Page<Contact>> {
-  const query = new URLSearchParams({ page: "1", pageSize: String(pageSize) });
+  const query = new URLSearchParams({ page: String(params.page ?? 1), pageSize: String(pageSize) });
+  if (params.q?.trim()) query.set("q", params.q.trim());
+  if (params.group) query.set("group", params.group);
   if (etapa) query.set("etapa", etapa);
-  const res = await authedFetch(token, `/pipeline?${query.toString()}`);
+  const res = await authedFetch(token, `/pipeline?${query.toString()}`, {signal:params.signal});
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a base de entrada.");
   }
   return (await res.json()) as Page<Contact>;
+}
+
+export interface GanharSummary { total: number; novosContatos: number; visitantesSemCelula: number; visitantesComDecisao: number; }
+
+export function summarizeGanhar(items: Contact[]): GanharSummary {
+  const active = items.filter(item => !item.semInteresse);
+  const visitors = active.filter(item => classifyGanhar(item) === "visitantes");
+  return {total:active.length,novosContatos:active.length-visitors.length,visitantesSemCelula:visitors.filter(item => !item.celulaId).length,visitantesComDecisao:visitors.filter(item => item.aceitouJesus).length};
+}
+
+/** Counts stay global while rows are bounded. Missing additive API preserves legacy completeness. */
+export async function fetchGanharPage(token: string, params: {page?:number;pageSize?:number;q?:string;group:ContactGroup;signal?:AbortSignal}): Promise<Page<Contact> & {summary:GanharSummary}> {
+  const size = params.pageSize ?? 50;
+  const summaryQuery = new URLSearchParams({etapa:"ganhar"});
+  if (params.q?.trim()) summaryQuery.set("q",params.q.trim());
+  const [page, summaryResponse] = await Promise.all([
+    fetchPipeline(token,"ganhar",size,params),
+    authedFetch(token, `/pipeline/summary?${summaryQuery}`, {signal:params.signal}),
+  ]);
+  if (summaryResponse.ok) return {...page,summary:await summaryResponse.json() as GanharSummary};
+  if (summaryResponse.status !== 404) throw new ApiError(summaryResponse.status,"Não foi possível confirmar a base de entrada.");
+  const items: Contact[] = [];
+  for (let next = 1; ; next += 1) {
+    const batch = await fetchPipeline(token,"ganhar",200,{page:next,signal:params.signal});
+    items.push(...batch.items);
+    if (items.length >= batch.total) break;
+    if (batch.items.length === 0) throw new ApiError(502,"A base de entrada está incompleta. Tente novamente.");
+  }
+  const query = params.q?.trim().toLocaleLowerCase("pt-BR") ?? "";
+  const matching = items.filter(item => !item.semInteresse && (!query || `${item.nome} ${item.telefone} ${item.email ?? ""}`.toLocaleLowerCase("pt-BR").includes(query)));
+  const grouped = matching.filter(item => classifyGanhar(item) === params.group);
+  const selectedPage = params.page ?? 1;
+  return {items:grouped.slice((selectedPage-1)*size,selectedPage*size),page:selectedPage,pageSize:size,total:grouped.length,summary:summarizeGanhar(matching)};
 }
 
 // ---------------------------------------------------------------------------

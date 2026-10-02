@@ -7,7 +7,7 @@ import type { EventItem } from "../src/lib/events-api";
 import type { TreeNode } from "../src/lib/g12-api";
 import type { ReportItem } from "../src/lib/reports-api";
 import type { MeResult } from "../src/lib/api";
-import type { Contact } from "../src/lib/contacts-api";
+import type { Contact, ContactDetail } from "../src/lib/contacts-api";
 import type { Page as ApiPage, TeamMember } from "../src/lib/dashboard-api";
 import type { PermissionMatrix } from "../src/lib/permissions";
 import { API_URL, APP_URL, armBrowserSafety, expectCleanBrowser, loginThroughUi, resetHarness } from "./support/helpers";
@@ -52,7 +52,8 @@ async function fixtures(page: Page) {
     }
     if (path === "/auth/me" && (controls.leader || controls.member)) data = { appUserId: "00000000-0000-4000-8000-000000000001", churchId: "00000000-0000-4000-8000-000000000002", email: "admin.e2e@example.test", nome: controls.leader ? "Líder de exemplo" : "Membro de exemplo", chatNome: controls.leader ? "Líder" : "Membro", roles: [controls.leader ? "lider_celula" : "membro"], isOwner: false, igrejaNome: "Igreja Laboratório", igrejaLogoUrl: null } satisfies MeResult;
     else if (method === "GET" && path === "/roles/permissions") data = { matriz: permissions };
-    else if (method === "GET" && path === "/contacts") data = pageOf<Contact>([]);
+    else if (method === "GET" && path === "/contacts") data = pageOf<Contact>([{id:"ops-leader",nome:"Líder sintético de exemplo",telefone:"5500000000000",email:null,genero:null,tipo:"membro",etapa:"discipular",subetapa:null,acompanhamento:null,semInteresse:false,semInteresseMotivo:null,presencasCelula:0,aceitouJesus:false,celulaId:null,liderId:null,aptoLider:true,liderDeCelula:true}]);
+    else if (method === "GET" && path === "/contacts/ops-leader") data = {id:"ops-leader",nome:"Líder sintético de exemplo",telefone:"5500000000000",email:null,genero:null,tipo:"membro",etapa:"discipular",subetapa:null,acompanhamento:null,semInteresse:false,semInteresseMotivo:null,presencasCelula:0,aceitouJesus:false,celulaId:null,liderId:null,aptoLider:true,liderDeCelula:true,faixaEtaria:null,endereco:null,celulaNome:null,liderNome:null,arquivada:false,consentimento:false,optout:false,origem:null,primeiroContato:null,criadoEm:null} satisfies ContactDetail;
     else if (method === "GET" && path === "/team") data = pageOf<TeamMember>([]);
     else if (method === "GET" && path === "/cells") data = pageOf([cell, otherCell]);
     else if (method === "GET" && path === "/cells/me/leading") data = [{ id: cell.id, nome: cell.nome }];

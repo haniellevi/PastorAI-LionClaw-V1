@@ -291,6 +291,7 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     expect(apiMock.fetchContactsPage).toHaveBeenNthCalledWith(1, "tok-1", {
       page: 1,
       pageSize: 50,
+      signal: expect.any(AbortSignal),
       view: "all",
     });
     expect(container.textContent).toContain("Página 1 de 2");
@@ -305,6 +306,7 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     expect(apiMock.fetchContactsPage).toHaveBeenNthCalledWith(2, "tok-1", {
       page: 2,
       pageSize: 50,
+      signal: expect.any(AbortSignal),
       view: "all",
     });
     expect(container.textContent).toContain("Página 2 de 2");
@@ -322,6 +324,7 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     expect(apiMock.fetchContactsPage).toHaveBeenNthCalledWith(3, "tok-1", {
       page: 1,
       pageSize: 50,
+      signal: expect.any(AbortSignal),
       view: "visitante",
     });
     expect(container.textContent).toContain("Página 1 de 2");

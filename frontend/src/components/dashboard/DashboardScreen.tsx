@@ -315,7 +315,7 @@ export function DashboardScreen() {
       locallyRemovedItemIds.current = new Set();
       if (mode === "retry") {
         const paths = [
-          "/work-queue?",
+          "/work-queue",
           ...(canAssignQueue ? ["/team/lookup?"] : []),
           ...(canLinkCell ? ["/cells?"] : []),
           "/dashboard/overview",

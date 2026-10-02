@@ -20,7 +20,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, noload
 
 from app.config import get_settings
 from app.db.models import AppUser, Celula, Igreja, Pessoa, UserRole
@@ -257,19 +257,21 @@ def list_members(
     sem e-mail) para resolver nomes — não este endpoint. Paginado (RNF-09).
     """
 
+    igreja_id = uuid.UUID(current_user.igreja_id)
     total = db.execute(
-        select(func.count()).select_from(AppUser)
+        select(func.count()).select_from(AppUser).where(AppUser.igreja_id == igreja_id)
     ).scalar_one()
     users = db.execute(
-        select(AppUser)
-        .order_by(AppUser.nome.asc())
-        .offset(pagination.offset)
-        .limit(pagination.limit)
+        select(AppUser).options(noload(AppUser.roles), noload(AppUser.igreja))
+        .where(AppUser.igreja_id == igreja_id)
+        .order_by(AppUser.nome.asc(), AppUser.id.asc())
+        .offset(pagination.offset).limit(pagination.limit)
     ).scalars().all()
-
     role_rows = db.execute(
-        select(UserRole.user_id, UserRole.papel)
-    ).all()
+        select(UserRole.user_id, UserRole.papel).where(
+            UserRole.igreja_id == igreja_id, UserRole.user_id.in_([u.id for u in users]),
+        )
+    ).all() if users else []
     roles_by_user: dict[uuid.UUID, list[str]] = {}
     for user_id, papel in role_rows:
         roles_by_user.setdefault(user_id, []).append(papel)
@@ -328,7 +330,7 @@ def list_members_lookup(
     ).scalar_one()
     users = db.execute(
         select(AppUser)
-        .options(joinedload(AppUser.roles))
+        .options(joinedload(AppUser.roles), noload(AppUser.igreja))
         .where(*lookup_filters)
         .order_by(AppUser.nome.asc())
         .offset(pagination.offset)
@@ -399,7 +401,7 @@ def list_inbox_transfer_targets(
     ).scalar_one()
     users = db.execute(
         select(AppUser)
-        .options(joinedload(AppUser.roles))
+        .options(joinedload(AppUser.roles), noload(AppUser.igreja))
         .where(*filters)
         .order_by(AppUser.nome.asc())
         .offset(pagination.offset)

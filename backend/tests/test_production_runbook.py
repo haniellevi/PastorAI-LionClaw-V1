@@ -56,7 +56,7 @@ def test_external_send_gate_exits_before_health_and_symlink() -> None:
     assert "services=(backend queue-worker cron-worker broadcast-worker)" in block
     start = block.index("# Keep secrets")
     gate = block.index("\ncheck_external_gates\n", start)
-    build = block.index("\ndocker compose build backend\n", gate)
+    build = block.index('\ndocker compose build --build-arg "PASTORAI_RELEASE_SHA=$release_sha" backend\n', gate)
     activate = block.index("\ncreate_and_start\n", build)
     health = block.index("curl -fsS", activate)
     symlink = block.index("ln -s --", health)

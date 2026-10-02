@@ -30,7 +30,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import nulls_last, select
+from sqlalchemy import func, nulls_last, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Celula, CelulaReuniao
@@ -213,19 +213,37 @@ def list_reports(
 
     igreja_id = uuid.UUID(current_user.igreja_id)
 
+    filters = (
+        CelulaReuniao.igreja_id == igreja_id,
+        CelulaReuniao.data >= monday,
+        CelulaReuniao.data <= sunday,
+        CelulaReuniao.status != STATUS_CANCELADA,
+    )
+    # Preserve the established fail-closed rule for *all* sent snapshots in the
+    # week, including outside the requested page. Stream a narrow projection;
+    # do not hydrate all meetings or build all response DTOs in memory.
+    sent = db.execute(
+        select(CelulaReuniao.relatorio_snapshot, CelulaReuniao.oferta_valor, CelulaReuniao.observacoes)
+        .where(*filters, CelulaReuniao.relatorio_status == RELATORIO_ENVIADO)
+        .execution_options(stream_results=True, yield_per=100)
+    )
+    try:
+        for snapshot_row in sent:
+            _consolidado(snapshot_row)
+    except CellReportSnapshotValidationError as exc:
+        raise HTTPException(status_code=500, detail={
+            "code": "INVALID_CELL_REPORT_SNAPSHOT", "reason": exc.code.value,
+        }) from None
+    finally:
+        sent.close()
+
+    total = int(db.execute(
+        select(func.count()).select_from(CelulaReuniao).where(*filters)
+    ).scalar_one())
     reunioes = db.execute(
-        select(CelulaReuniao)
-        .where(
-            CelulaReuniao.igreja_id == igreja_id,
-            CelulaReuniao.data >= monday,
-            CelulaReuniao.data <= sunday,
-            CelulaReuniao.status != STATUS_CANCELADA,
-        )
-        .order_by(
-            CelulaReuniao.data.asc(),
-            nulls_last(CelulaReuniao.hora.asc()),
-            CelulaReuniao.id.asc(),
-        )
+        select(CelulaReuniao).where(*filters)
+        .order_by(CelulaReuniao.data.asc(), nulls_last(CelulaReuniao.hora.asc()), CelulaReuniao.id.asc())
+        .offset(pagination.offset).limit(pagination.limit)
     ).scalars().all()
 
     # Nomes só das células referenciadas, filtrando por tenant (sem varrer a
@@ -278,12 +296,9 @@ def list_reports(
             )
         )
 
-    total = len(items)
-    start = pagination.offset
-    page_items = items[start : start + pagination.limit]
 
     return Page[ReportOut](
-        items=page_items,
+        items=items,
         page=pagination.page,
         pageSize=pagination.page_size,
         total=total,

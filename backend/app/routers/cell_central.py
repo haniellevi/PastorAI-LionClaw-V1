@@ -19,7 +19,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import Time, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -32,7 +32,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import CurrentUser, require_central
-from app.domain.cell_meetings_schedule import meeting_has_passed
+from app.domain.cell_meetings_schedule import now_in_sao_paulo
 from app.domain.cell_requests import STATUS_AGUARDANDO, TIPO_MULTIPLICACAO
 from app.services import cell_health_service
 from app.services.cell_health_service import (
@@ -77,6 +77,7 @@ class PendingReportsPage(BaseModel):
     items: list[PendingReportItem]
     page: int
     page_size: int
+    total: int = 0
 
 
 class HealthSignalOut(BaseModel):
@@ -97,6 +98,17 @@ class HealthOut(BaseModel):
     cells: list[CellHealthOut]
 
 
+def _past_meeting_filter(now: dt.datetime):
+    """SQL equivalent of meeting_has_passed, including null/malformed hours."""
+    local = now_in_sao_paulo(now)
+    hora = func.btrim(CelulaReuniao.hora)
+    valid_time = case((hora.op("~")(r"^([01][0-9]|2[0-3]):[0-5][0-9]$"), cast(hora, Time)), else_=None)
+    return or_(
+        CelulaReuniao.data < local.date(),
+        and_(CelulaReuniao.data == local.date(), valid_time < local.time().replace(tzinfo=None)),
+    )
+
+
 # ---------------------------------------------------------------------------
 # GET /cell-central/dashboard
 # ---------------------------------------------------------------------------
@@ -110,30 +122,23 @@ def get_dashboard(
     now = dt.datetime.now(dt.timezone.utc)
     recent_cutoff = now - dt.timedelta(days=RECENT_DAYS)
 
-    # relatorios_pendentes — reuniões passadas não canceladas com relatório
-    # não enviado.
-    reunioes = db.execute(
-        select(CelulaReuniao).where(CelulaReuniao.igreja_id == igreja_id)
-    ).scalars().all()
-    relatorios_pendentes = sum(
-        1
-        for r in reunioes
-        if r.status != STATUS_CANCELADA
-        and r.relatorio_status != RELATORIO_ENVIADO
-        and meeting_has_passed(data=r.data, hora=r.hora)
-    )
+    def counter(model, *filters):
+        return select(func.count()).select_from(model).where(model.igreja_id == igreja_id, *filters).scalar_subquery()
 
-    # solicitacoes_aguardando / multiplicacoes_pendentes.
-    solicitacoes = db.execute(
-        select(CelulaSolicitacao).where(
-            CelulaSolicitacao.igreja_id == igreja_id,
-            CelulaSolicitacao.status == STATUS_AGUARDANDO,
-        )
-    ).scalars().all()
-    solicitacoes_aguardando = len(solicitacoes)
-    multiplicacoes_pendentes = sum(
-        1 for s in solicitacoes if s.tipo == TIPO_MULTIPLICACAO
-    )
+    counters = db.execute(select(
+        counter(CelulaReuniao, CelulaReuniao.status.is_distinct_from(STATUS_CANCELADA),
+            CelulaReuniao.relatorio_status.is_distinct_from(RELATORIO_ENVIADO), _past_meeting_filter(now)).label("central_pending"),
+        counter(CelulaSolicitacao, CelulaSolicitacao.status == STATUS_AGUARDANDO).label("central_requests"),
+        counter(CelulaSolicitacao, CelulaSolicitacao.status == STATUS_AGUARDANDO,
+            CelulaSolicitacao.tipo == TIPO_MULTIPLICACAO).label("central_multiplications"),
+        counter(CelulaAviso, CelulaAviso.ativo.is_(True), CelulaAviso.publicado_em >= recent_cutoff).label("central_notices"),
+        counter(CelulaMaterial, CelulaMaterial.ativo.is_(True), CelulaMaterial.publicado_em >= recent_cutoff).label("central_materials"),
+    )).one()
+    relatorios_pendentes = counters.central_pending
+    solicitacoes_aguardando = counters.central_requests
+    multiplicacoes_pendentes = counters.central_multiplications
+    avisos_recentes = counters.central_notices
+    materiais_recentes = counters.central_materials
 
     # celulas_com_alerta — células distintas com ≥1 vermelho OU alerta.
     healths = cell_health_service.compute_cells_health(
@@ -141,26 +146,6 @@ def get_dashboard(
     )
     celulas_com_alerta = sum(
         1 for h in healths if h.vermelhos > 0 or h.alertas > 0
-    )
-
-    # avisos_recentes / materiais_recentes — ativos publicados nos últimos 7 dias.
-    avisos = db.execute(
-        select(CelulaAviso).where(
-            CelulaAviso.igreja_id == igreja_id,
-            CelulaAviso.ativo.is_(True),
-        )
-    ).scalars().all()
-    avisos_recentes = sum(
-        1 for a in avisos if _is_recent(a.publicado_em, recent_cutoff)
-    )
-    materiais = db.execute(
-        select(CelulaMaterial).where(
-            CelulaMaterial.igreja_id == igreja_id,
-            CelulaMaterial.ativo.is_(True),
-        )
-    ).scalars().all()
-    materiais_recentes = sum(
-        1 for m in materiais if _is_recent(m.publicado_em, recent_cutoff)
     )
 
     return DashboardOut(
@@ -195,45 +180,38 @@ def get_pending_reports(
     """
     igreja_id = uuid.UUID(current_user.igreja_id)
 
-    reunioes = db.execute(
-        select(CelulaReuniao)
-        .where(CelulaReuniao.igreja_id == igreja_id)
-        .order_by(CelulaReuniao.data.asc(), CelulaReuniao.hora.asc())
+    filters = (
+        CelulaReuniao.igreja_id == igreja_id,
+        CelulaReuniao.status.is_distinct_from(STATUS_CANCELADA),
+        CelulaReuniao.relatorio_status == RELATORIO_PENDENTE,
+        _past_meeting_filter(dt.datetime.now(dt.timezone.utc)),
+    )
+    total = int(db.execute(select(func.count()).select_from(CelulaReuniao).where(*filters)).scalar_one())
+    window = db.execute(
+        select(CelulaReuniao).where(*filters)
+        .order_by(CelulaReuniao.data.asc(), CelulaReuniao.hora.asc(), CelulaReuniao.id.asc())
+        .offset((page - 1) * page_size).limit(page_size)
     ).scalars().all()
-
-    pending = [
-        r
-        for r in reunioes
-        if r.status != STATUS_CANCELADA
-        and r.relatorio_status == RELATORIO_PENDENTE
-        and meeting_has_passed(data=r.data, hora=r.hora)
-    ]
-
-    start = (page - 1) * page_size
-    window = pending[start : start + page_size]
-
-    # Caches por célula p/ evitar consultas repetidas na janela.
-    cell_cache: dict[uuid.UUID, Celula | None] = {}
-    lider_cache: dict[uuid.UUID, str] = {}
-
-    items: list[PendingReportItem] = []
+    cell_ids = {r.celula_id for r in window}
+    cells = db.execute(select(Celula).where(
+        Celula.igreja_id == igreja_id, Celula.id.in_(cell_ids),
+    )).scalars().all() if cell_ids else []
+    cell_by_id = {str(c.id): c for c in cells}
+    leader_ids = {c.lider_id for c in cells if c.lider_id is not None}
+    leaders = db.execute(select(Pessoa.id, Pessoa.nome).where(
+        Pessoa.igreja_id == igreja_id, Pessoa.id.in_(leader_ids),
+    )).all() if leader_ids else []
+    names = {str(pid): nome for pid, nome in leaders}
+    items = []
     for r in window:
-        cell = _resolve_cell(db, igreja_id, r.celula_id, cell_cache)
-        celula_nome = cell.nome if cell is not None else ""
-        lider_nome = _resolve_lider_nome(
-            db, igreja_id, cell, lider_cache
-        )
-        items.append(
-            PendingReportItem(
-                reuniao_id=str(r.id),
-                celula_id=str(r.celula_id),
-                celula_nome=celula_nome,
-                lider_nome=lider_nome,
-                data=r.data.isoformat(),
-            )
-        )
+        cell = cell_by_id.get(str(r.celula_id))
+        items.append(PendingReportItem(
+            reuniao_id=str(r.id), celula_id=str(r.celula_id), data=r.data.isoformat(),
+            celula_nome=cell.nome if cell else "",
+            lider_nome=names.get(str(cell.lider_id), "") if cell else "",
+        ))
 
-    return PendingReportsPage(items=items, page=page, page_size=page_size)
+    return PendingReportsPage(items=items, page=page, page_size=page_size, total=total)
 
 
 # ---------------------------------------------------------------------------
@@ -278,52 +256,3 @@ def get_health(
             for h in window
         ]
     )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def _is_recent(published: dt.datetime | None, cutoff: dt.datetime) -> bool:
-    """True se ``published`` é >= cutoff (tolerante a datetime naive/aware)."""
-    if published is None:
-        return False
-    ref = published
-    if ref.tzinfo is None:
-        ref = ref.replace(tzinfo=dt.timezone.utc)
-    return ref >= cutoff
-
-
-def _resolve_cell(
-    db: Session,
-    igreja_id: uuid.UUID,
-    celula_id: uuid.UUID,
-    cache: dict[uuid.UUID, Celula | None],
-) -> Celula | None:
-    if celula_id not in cache:
-        cache[celula_id] = db.execute(
-            select(Celula).where(
-                Celula.id == celula_id,
-                Celula.igreja_id == igreja_id,
-            )
-        ).scalar_one_or_none()
-    return cache[celula_id]
-
-
-def _resolve_lider_nome(
-    db: Session,
-    igreja_id: uuid.UUID,
-    cell: Celula | None,
-    cache: dict[uuid.UUID, str],
-) -> str:
-    """Nome do líder via ``celulas.lider_id`` → ``pessoas.nome`` (§6.6)."""
-    if cell is None or cell.lider_id is None:
-        return ""
-    if cell.lider_id not in cache:
-        pessoa = db.execute(
-            select(Pessoa).where(
-                Pessoa.id == cell.lider_id,
-                Pessoa.igreja_id == igreja_id,
-            )
-        ).scalar_one_or_none()
-        cache[cell.lider_id] = pessoa.nome if pessoa is not None else ""
-    return cache[cell.lider_id]

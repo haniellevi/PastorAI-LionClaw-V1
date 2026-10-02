@@ -1,5 +1,5 @@
-import type { Contact } from "@/lib/contacts-api";
 import type { TeamMember } from "@/lib/dashboard-api";
+import type { ContactLookup } from "@/lib/lookup-api";
 
 export interface CellLeaderOption {
   id: string;
@@ -34,7 +34,7 @@ function accessReason(members: readonly TeamMember[]): string | null {
  * salvamento até a regularização ou a escolha de outro líder.
  */
 export function buildCellLeaderOptions(
-  contacts: readonly Contact[],
+  contacts: readonly ContactLookup[],
   team: readonly TeamMember[],
   currentLeaderId: string | null | undefined,
 ): CellLeaderOption[] {
@@ -101,7 +101,7 @@ export function buildCellLeaderOptions(
 
 /** Opção mínima para superfícies fora da Central, sempre somente leitura. */
 export function currentLeaderReadOnlyOption(
-  contacts: readonly Contact[],
+  contacts: readonly Pick<ContactLookup, "id" | "nome">[],
   currentLeaderId: string | null | undefined,
 ): CellLeaderOption[] {
   if (!currentLeaderId) return [];

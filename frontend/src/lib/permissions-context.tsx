@@ -75,6 +75,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const authStatus = auth?.status ?? "unauthenticated";
   const token = auth?.token ?? null;
   const expireSession = auth?.expireSession;
+  const bootstrapSnapshot = auth?.permissionSnapshot;
   const [snapshot, setSnapshot] = useState<{
     token: string | null;
     matrix: PermissionMatrix;
@@ -82,14 +83,22 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }>(() => ({ token: null, matrix: defaultMatrix(), source: "default" }));
   const requestId = useRef(0);
 
+  const effectiveSnapshot = snapshot.token === token || bootstrapSnapshot?.token !== token
+    ? snapshot
+    : { token, matrix: bootstrapSnapshot.matrix, source: "remote" as const };
   const loading =
-    authStatus === "authenticated" && Boolean(token) && snapshot.token !== token;
+    authStatus === "authenticated" && Boolean(token) && effectiveSnapshot.token !== token;
 
   useEffect(() => {
     const currentRequest = ++requestId.current;
 
     if (authStatus !== "authenticated" || !token) {
       setSnapshot({ token: null, matrix: defaultMatrix(), source: "default" });
+      return;
+    }
+
+    if (bootstrapSnapshot?.token === token) {
+      setSnapshot({ token, matrix: { ...bootstrapSnapshot.matrix }, source: "remote" });
       return;
     }
 
@@ -143,7 +152,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       active = false;
       if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [authStatus, token, expireSession]);
+  }, [authStatus, token, expireSession, bootstrapSnapshot]);
 
   const setMatrix = useCallback((next: PermissionMatrix) => {
     setSnapshot((current) => ({
@@ -154,8 +163,8 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const value = useMemo<PermissionsContextValue>(
-    () => ({ matrix: snapshot.matrix, loading, source: snapshot.source, setMatrix }),
-    [snapshot.matrix, snapshot.source, loading, setMatrix],
+    () => ({ matrix: effectiveSnapshot.matrix, loading, source: effectiveSnapshot.source, setMatrix }),
+    [effectiveSnapshot.matrix, effectiveSnapshot.source, loading, setMatrix],
   );
 
   return (

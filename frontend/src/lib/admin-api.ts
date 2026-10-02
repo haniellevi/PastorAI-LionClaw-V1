@@ -7,18 +7,14 @@
  * (lib/api.ts) — o admin é um app_user normal; o que o eleva é o /admin/me.
  */
 
+import { fetchWithDeadline } from "./request-with-deadline";
+
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 // Cobre Clerk (até ~10s) + rate limit + banco frio sem afetar deadlines do Inbox.
 const ADMIN_AUTH_TIMEOUT_MS = 20_000;
 
 async function adminAuthFetch(url: string, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ADMIN_AUTH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return fetchWithDeadline(url, init, ADMIN_AUTH_TIMEOUT_MS);
 }
 
 export interface AdminMe {
@@ -255,7 +251,7 @@ export async function fetchAdminMe(token: string): Promise<AdminMe> {
 export async function listIgrejas(token: string): Promise<AdminIgreja[]> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -356,7 +352,7 @@ export async function createIgreja(
 ): Promise<CreateIgrejaResult> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas`, {
       method: "POST",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -376,7 +372,7 @@ export async function updateIgreja(
 ): Promise<AdminIgreja> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}`, {
       method: "PATCH",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -392,7 +388,7 @@ export async function updateIgreja(
 export async function fetchBillingSettings(token: string): Promise<AdminBillingSettings> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/billing/settings`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/billing/settings`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -409,7 +405,7 @@ export async function updateBillingSettings(
 ): Promise<AdminBillingSettings> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/billing/settings`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/billing/settings`, {
       method: "PUT",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -425,7 +421,7 @@ export async function updateBillingSettings(
 export async function fetchMetrics(token: string): Promise<AdminMetrics> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/metrics`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/metrics`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -442,7 +438,7 @@ export async function fetchIgrejaDetail(
 ): Promise<AdminIgrejaDetail> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -542,7 +538,7 @@ export async function updateIgrejaConsentGovernancePurpose(
 export async function aprovarIgreja(token: string, id: string): Promise<AdminIgreja> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/aprovar`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/aprovar`, {
       method: "POST",
       headers: authHeaders(token),
     });
@@ -557,7 +553,7 @@ export async function aprovarIgreja(token: string, id: string): Promise<AdminIgr
 export async function deleteIgreja(token: string, id: string): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}`, {
       method: "DELETE",
       headers: authHeaders(token),
     });
@@ -601,7 +597,7 @@ export interface UpdatePlanoInput {
 export async function listPlanos(token: string): Promise<AdminPlano[]> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/planos`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/planos`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -618,7 +614,7 @@ export async function createPlano(
 ): Promise<AdminPlano> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/planos`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/planos`, {
       method: "POST",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -638,7 +634,7 @@ export async function updatePlano(
 ): Promise<AdminPlano> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/planos/${id}`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/planos/${id}`, {
       method: "PATCH",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -654,7 +650,7 @@ export async function updatePlano(
 export async function deletePlano(token: string, id: string): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/planos/${id}`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/planos/${id}`, {
       method: "DELETE",
       headers: authHeaders(token),
     });
@@ -685,7 +681,7 @@ export async function fetchAudit(
 ): Promise<AdminAuditEntry[]> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/audit?limit=${limit}`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/audit?limit=${limit}`, {
       headers: authHeaders(token),
     });
   } catch {
@@ -704,7 +700,7 @@ export async function fetchIgrejaAdmins(
 ): Promise<AdminIgrejaAdmin[]> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/admins`, {
       headers: authHeaders(token),
     });
   } catch {
@@ -726,7 +722,7 @@ export async function addIgrejaAdmin(
 ): Promise<AdminIgrejaAdmin & { emailEnviado: boolean }> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/admins`, {
       method: "POST",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -746,7 +742,7 @@ export async function setIgrejaDono(
 ): Promise<{ donoId: string }> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/dono`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/dono`, {
       method: "PUT",
       headers: jsonHeaders(token),
       body: JSON.stringify({ appUserId }),
@@ -766,7 +762,7 @@ export async function resendAdminInvite(
 ): Promise<{ emailEnviado: boolean }> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins/${userId}/reenviar`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/admins/${userId}/reenviar`, {
       method: "POST",
       headers: authHeaders(token),
     });
@@ -785,7 +781,7 @@ export async function removeIgrejaAdmin(
 ): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins/${userId}`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/admins/${userId}`, {
       method: "DELETE",
       headers: authHeaders(token),
     });
@@ -814,7 +810,7 @@ export async function fetchIgrejaAgente(
 ): Promise<AdminAgente> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/agente`, {
       headers: authHeaders(token),
     });
   } catch {
@@ -841,7 +837,7 @@ export interface AdminOrquestrador {
 export async function fetchOrquestrador(token: string): Promise<AdminOrquestrador> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/orquestrador`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/orquestrador`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -860,7 +856,7 @@ export async function saveOrquestrador(
 ): Promise<AdminOrquestrador> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/orquestrador`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/orquestrador`, {
       method: "PUT",
       headers: jsonHeaders(token),
       body: JSON.stringify(payload),
@@ -885,7 +881,7 @@ export async function saveIgrejaAgente(
 ): Promise<AdminAgente> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/agente`, {
       method: "PUT",
       headers: jsonHeaders(token),
       body: JSON.stringify(payload),
@@ -904,7 +900,7 @@ export async function resetIgrejaAgente(
 ): Promise<AdminAgente> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente/reset`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/agente/reset`, {
       method: "POST",
       headers: jsonHeaders(token),
     });
@@ -936,7 +932,7 @@ export async function fetchIgrejaAgenteRequests(
 ): Promise<AdminAgenteRequest[]> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente/requests`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/agente/requests`, {
       headers: authHeaders(token),
     });
   } catch {
@@ -958,7 +954,7 @@ export async function resolveAgenteRequest(
 ): Promise<AdminAgenteRequest> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/agente/requests/${reqId}/resolver`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/agente/requests/${reqId}/resolver`, {
       method: "POST",
       headers: jsonHeaders(token),
       body: JSON.stringify(payload),
@@ -1027,7 +1023,7 @@ const JEV_BACKEND_DESATUALIZADO =
 export async function fetchJevStatus(token: string): Promise<AdminJevStatus> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/jev`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/jev`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -1047,7 +1043,7 @@ export async function saveJevConfig(
 ): Promise<AdminJevStatus> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/jev/config`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/jev/config`, {
       method: "PUT",
       headers: jsonHeaders(token),
       body: JSON.stringify(input),
@@ -1064,7 +1060,7 @@ export async function saveJevConfig(
 export async function testJev(token: string): Promise<AdminJevTeste> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/jev/teste`, {
+    res = await fetchWithDeadline(`${API_BASE}/admin/jev/teste`, {
       method: "POST",
       headers: authHeaders(token),
     });

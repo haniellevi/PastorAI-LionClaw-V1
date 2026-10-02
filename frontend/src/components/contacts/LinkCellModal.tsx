@@ -5,6 +5,9 @@
  * Bloqueia células inativas ou sem líder no próprio seletor (regra do backend),
  * e exibe erro inline quando o vínculo falha (ex.: 409 célula inativa).
  */
+import { useCallback } from "react";
+import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
+import { fetchCellLookupPage, type CellLookup } from "@/lib/lookup-api";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Icon } from "@/lib/icons";
 import type { Cell } from "@/lib/dashboard-api";
@@ -13,6 +16,8 @@ import "./people-ux-v2.css";
 
 export function LinkCellModal({
   cells,
+  token,
+  onSessionExpired,
   contactName,
   busy,
   error,
@@ -20,6 +25,8 @@ export function LinkCellModal({
   onLink,
 }: {
   cells: Cell[];
+  token?: string | null;
+  onSessionExpired?: () => void;
   contactName: string;
   busy: boolean;
   error: string | null;
@@ -27,6 +34,7 @@ export function LinkCellModal({
   onLink: (celulaId: string) => void;
 }) {
   const title = "Conectar à célula";
+  const loadPage = useCallback((q: string, page: number, signal: AbortSignal) => fetchCellLookupPage(token!, {q,page,signal}), [token]);
 
   // Fechar bloqueado durante o vínculo (Esc/backdrop/botão do DsDialog); as
   // linhas do seletor já ficam desabilitadas com busy.
@@ -48,7 +56,7 @@ export function LinkCellModal({
         </div>
       ) : null}
 
-      <div className="picker">
+      {token ? <PaginatedLookup<CellLookup> loadPage={loadPage} selected={null} onSelect={cell => { if (cell?.ativo && cell.liderId && !busy) onLink(cell.id); }} label="Buscar célula" inputId="link-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <div className="picker">
         {cells.length === 0 ? (
           <p className="sub">Nenhuma célula cadastrada.</p>
         ) : (
@@ -75,7 +83,7 @@ export function LinkCellModal({
             );
           })
         )}
-      </div>
+      </div>}
     </DsDialog>
   );
 }

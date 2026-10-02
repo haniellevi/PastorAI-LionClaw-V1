@@ -133,14 +133,10 @@ export function ChurchPage({
   const loadAll = useCallback(async () => {
     setError(null);
     try {
-      const [d, a, ag] = await Promise.all([
-        fetchIgrejaDetail(token, igreja.id),
-        fetchIgrejaAdmins(token, igreja.id).catch(() => [] as AdminIgrejaAdmin[]),
-        fetchIgrejaAgente(token, igreja.id).catch(() => null),
-      ]);
+      // Agent status enriches the overview, but never holds its primary detail.
+      void fetchIgrejaAgente(token, igreja.id).then(setAgente).catch(err => handleErr(err, "Não foi possível carregar o agente."));
+      const d = await fetchIgrejaDetail(token, igreja.id);
       setDetail(d);
-      setAdmins(a);
-      setAgente(ag);
     } catch (err) {
       const m = handleErr(err, "Não foi possível carregar a igreja.");
       if (m) setError(m);
@@ -185,6 +181,13 @@ export function ChurchPage({
   useEffect(() => {
     if (tab === "governanca" && !governance?.enabled) setTab("dashboard");
   }, [governance, tab]);
+
+  useEffect(() => {
+    if (tab !== "admins") return;
+    let active = true;
+    void fetchIgrejaAdmins(token, igreja.id).then(value => { if (active) setAdmins(value); }).catch(err => { if (active) { const message = handleErr(err, "Não foi possível carregar os administradores."); if (message) setError(message); } });
+    return () => { active = false; };
+  }, [tab, token, igreja.id, handleErr]);
 
   const reloadAdmins = useCallback(() => {
     fetchIgrejaAdmins(token, igreja.id)

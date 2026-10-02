@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 // Como o painel, é inteiramente client-side e auth-gated.
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return <AdminAuthProvider>{children}</AdminAuthProvider>;

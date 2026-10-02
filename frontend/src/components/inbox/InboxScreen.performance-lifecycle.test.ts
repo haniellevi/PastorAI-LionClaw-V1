@@ -1,0 +1,131 @@
+// @vitest-environment jsdom
+import {act,createElement as h} from 'react';
+import {createRoot} from 'react-dom/client';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+const auth=vi.hoisted(()=>({token:'synthetic-token',status:'authenticated',user:{roles:['pastor'],appUserId:'synthetic-user',churchId:'synthetic-church'},expireSession:vi.fn()}));
+const api=vi.hoisted(()=>({fetchConversations:vi.fn(),fetchInboxAgentStatus:vi.fn(),fetchMessageWindow:vi.fn(),fetchLoadedMessageRange:vi.fn(),fetchMessageMediaUrls:vi.fn(),fetchConversationPhoto:vi.fn(),markConversationRead:vi.fn()}));
+vi.mock('@/lib/auth-context',()=>({useAuth:()=>auth}));
+vi.mock('@/lib/conversations-api',async(importOriginal)=>({...await importOriginal(),...api}));
+const {InboxScreen}=await import('./InboxScreen');
+const message={id:'synthetic-message',direcao:'in',autor:'contato',autorNome:null,tipo:'audio',texto:null,mediaUrl:null,mediaMime:'audio/ogg',mediaNome:'synthetic.ogg',criadoEm:'2026-10-02T12:00:00Z'};
+const conversation={id:'synthetic-conversation',nome:'Contato sintético',telefone:'5500000000000',pessoaId:null,estado:'ia',ultimaMensagem:'Áudio',naoLidas:0,assumidoPor:null,assumidoPorNome:null,assumidoEm:null,esperaDesde:null,atualizadoEm:null,tipo:null,semInteresse:false};
+let root:any,container:HTMLDivElement;
+beforeEach(()=>{
+ auth.token='synthetic-token';
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+ globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+ for(const mock of Object.values(api))mock.mockReset();
+ api.fetchConversations.mockResolvedValue({items:[conversation],total:1,page:1,pageSize:100});
+ api.fetchInboxAgentStatus.mockResolvedValue({configured:true,ativo:true,pausedByChurch:false});
+ api.fetchConversationPhoto.mockResolvedValue(null);api.markConversationRead.mockResolvedValue(undefined);
+ api.fetchMessageWindow.mockResolvedValue({items:[message],total:1,page:1,pageSize:50,cursorSupported:true,nextBefore:null,nextAfter:'cursor-latest'});
+ api.fetchLoadedMessageRange.mockResolvedValue({items:[message],total:1,page:1,pageSize:50,cursorSupported:true,nextBefore:null,nextAfter:'cursor-latest',rangeReconciled:true});
+ api.fetchMessageMediaUrls.mockResolvedValue({'synthetic-message':'https://example.com/synthetic-expiring-audio'});
+ vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('Network forbidden');}));
+ vi.stubGlobal('matchMedia',(query:string)=>({matches:false,media:query,onchange:null,addEventListener(){},removeEventListener(){},addListener(){},removeListener(){},dispatchEvent:()=>false}));
+ Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});
+ container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);
+});
+afterEach(()=>{
+ act(()=>root.unmount());container.remove();Reflect.deleteProperty(document,'visibilityState');vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();
+});
+it('renews media before one-hour TTL while preserving draft and scroll',async()=>{
+ api.fetchConversations.mockResolvedValue({items:[{...conversation,estado:'humano',assumidoPor:'synthetic-user'}],total:1,page:1,pageSize:100});
+ await act(async()=>root.render(h(InboxScreen)));
+ const button=[...container.querySelectorAll<HTMLButtonElement>('button.conv')].find(btn=>btn.textContent?.includes('Contato sintético'))!;
+ await act(async()=>button.click());
+ expect(api.fetchMessageMediaUrls).toHaveBeenCalledTimes(1);
+ expect(container.querySelector('audio')?.getAttribute('src')).toBe('https://example.com/synthetic-expiring-audio');
+ const input=container.querySelector<HTMLInputElement>('[aria-label="Resposta ao contato"]')!;
+ await act(async()=>{
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'Rascunho sintético preservado');
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+ });
+ const body=container.querySelector<HTMLDivElement>('.thread-body')!;
+ Object.defineProperties(body,{scrollHeight:{configurable:true,value:1000},clientHeight:{configurable:true,value:100}});
+ body.scrollTop=200;act(()=>body.dispatchEvent(new Event('scroll',{bubbles:true})));
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));
+ expect(api.fetchMessageMediaUrls).toHaveBeenCalledTimes(1);
+ api.fetchMessageMediaUrls.mockResolvedValue({'synthetic-message':'https://example.com/synthetic-renewed-audio'});
+ vi.setSystemTime(new Date('2026-10-02T12:51:00Z'));
+ await act(async()=>vi.advanceTimersByTimeAsync(20_000));
+ expect(api.fetchMessageMediaUrls).toHaveBeenCalledTimes(2);
+ expect(container.querySelector('audio')?.getAttribute('src')).toBe('https://example.com/synthetic-renewed-audio');
+ expect(input.value).toBe('Rascunho sintético preservado');expect(body.scrollTop).toBe(200);
+});
+it('Inbox API failure actually backs off rather than polling again after one regular interval',async()=>{
+ vi.spyOn(Math,'random').mockReturnValue(0);
+ api.fetchConversations.mockRejectedValue(new Error('synthetic API outage'));
+ await act(async()=>root.render(h(InboxScreen)));
+ expect(api.fetchConversations).toHaveBeenCalledTimes(1);
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));
+ expect(api.fetchConversations).toHaveBeenCalledTimes(2);
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));
+ expect(api.fetchConversations).toHaveBeenCalledTimes(2);
+});
+it('cursor reconciliation confirms an old loaded row, removes a deletion, preserves draft and avoids hidden polling',async()=>{
+ let visibility='visible';
+ Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>visibility});
+ const oldPending={...message,tipo:'texto',texto:'PENDING SYNTHETIC OLD',mediaMime:null,id:'synthetic-old',criadoEm:'2026-10-02T11:00:00Z'};
+ const deleted={...oldPending,id:'synthetic-deleted',texto:'DELETE SYNTHETIC ROW',criadoEm:'2026-10-02T11:00:01Z'};
+ const newer={...oldPending,id:'synthetic-new',texto:'NEW SYNTHETIC ROW',criadoEm:'2026-10-02T12:00:00Z'};
+ const confirmed={...oldPending,texto:'CONFIRMED SYNTHETIC OLD'};
+ api.fetchConversations.mockResolvedValue({items:[{...conversation,estado:'humano',assumidoPor:'synthetic-user'}],total:1,page:1,pageSize:100});
+ api.fetchMessageWindow.mockImplementation(async(_token:string,_convId:string,options:any)=>({items:options.after?[]:[oldPending,deleted],total:2,page:1,pageSize:50,cursorSupported:true,nextBefore:null,nextAfter:'cursor-latest'}));
+ api.fetchLoadedMessageRange.mockResolvedValue({items:[confirmed,newer],total:2,page:1,pageSize:50,cursorSupported:true,nextBefore:null,nextAfter:'new-latest',rangeReconciled:true});
+ await act(async()=>root.render(h(InboxScreen)));
+ const button=[...container.querySelectorAll<HTMLButtonElement>('button.conv')].find(btn=>btn.textContent?.includes('Contato sintético'))!;
+ await act(async()=>button.click());
+ const input=container.querySelector<HTMLInputElement>('[aria-label="Resposta ao contato"]')!;
+ expect(input.disabled).toBe(false);
+ await act(async()=>{
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'DRAFT SYNTHETIC PRESERVED');
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+ });
+ expect(input.value).toBe('DRAFT SYNTHETIC PRESERVED');
+ await act(async()=>vi.advanceTimersByTimeAsync(60_000));
+ expect(container.textContent).toContain('CONFIRMED SYNTHETIC OLD');
+ expect(container.textContent).not.toContain('PENDING SYNTHETIC OLD');
+ expect(container.textContent).not.toContain('DELETE SYNTHETIC ROW');
+ expect(input.value).toBe('DRAFT SYNTHETIC PRESERVED');
+ const previous=api.fetchMessageWindow.mock.calls.length;
+ visibility='hidden';act(()=>document.dispatchEvent(new Event('visibilitychange')));
+ await act(async()=>vi.advanceTimersByTimeAsync(90_000));
+ expect(api.fetchMessageWindow).toHaveBeenCalledTimes(previous);
+});
+it('a media denial invalidates signing responses already in flight in the same visit',async()=>{
+ const {ApiError}=await import('@/lib/dashboard-api');
+ const older={...message,id:'synthetic-older-audio',criadoEm:'2026-10-02T11:00:00Z'};
+ let finishOld!: (value:Record<string,string>)=>void;
+ api.fetchMessageWindow.mockImplementation(async(_token:string,_convId:string,options:any)=>({items:options.before?[older]:[message],total:2,page:1,pageSize:50,cursorSupported:true,nextBefore:options.before?null:'before-older',nextAfter:'cursor-latest'}));
+ api.fetchMessageMediaUrls.mockImplementationOnce(()=>new Promise(resolve=>{finishOld=resolve;})).mockRejectedValueOnce(new ApiError(403,'synthetic access revoked'));
+ await act(async()=>root.render(h(InboxScreen)));
+ const conv=[...container.querySelectorAll<HTMLButtonElement>('button.conv')].find(btn=>btn.textContent?.includes('Contato sintético'))!;
+ await act(async()=>conv.click());
+ const olderButton=[...container.querySelectorAll<HTMLButtonElement>('button')].find(btn=>btn.textContent?.trim()==='Carregar mensagens anteriores')!;
+ await act(async()=>olderButton.click());
+ expect(api.fetchMessageMediaUrls).toHaveBeenCalledTimes(2);
+ expect(container.querySelectorAll('audio')).toHaveLength(0);
+ await act(async()=>finishOld({'synthetic-message':'https://example.com/synthetic-late-url'}));
+ expect(container.querySelectorAll('audio')).toHaveLength(0);
+});
+
+it('legacy visit probes once then polls its established200 contract once per interval',async()=>{
+ const actual=await vi.importActual<typeof import('@/lib/conversations-api')>('@/lib/conversations-api');
+ const requests=vi.fn(async(_input:RequestInfo | URL)=>Response.json({items:[{...message,tipo:'texto',texto:'Mensagem sintética legada'}],total:1,page:1,pageSize:200}));vi.stubGlobal('fetch',requests);
+ api.fetchMessageWindow.mockImplementation(actual.fetchMessageWindow);
+ await act(async()=>root.render(h(InboxScreen)));
+ const button=[...container.querySelectorAll<HTMLButtonElement>('button.conv')].find(btn=>btn.textContent?.includes('Contato sintético'))!;
+ await act(async()=>button.click());
+ expect(requests).toHaveBeenCalledTimes(2);
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));expect(requests).toHaveBeenCalledTimes(3);
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));expect(requests).toHaveBeenCalledTimes(4);
+ expect(requests.mock.calls.filter(([input])=>String(input).includes('pageSize=50'))).toHaveLength(1);
+ expect(requests.mock.calls.slice(1).every(([input])=>String(input).includes('pageSize=200')&&!String(input).includes('includeMedia'))).toBe(true);
+ // A new authenticated scope must independently establish its capability.
+ auth.token='synthetic-new-session';await act(async()=>root.render(h(InboxScreen)));
+ const reopened=[...container.querySelectorAll<HTMLButtonElement>('button.conv')].find(btn=>btn.textContent?.includes('Contato sintético'))!;
+ await act(async()=>reopened.click());
+ expect(requests).toHaveBeenCalledTimes(6);
+ expect(requests.mock.calls.filter(([input])=>String(input).includes('pageSize=50'))).toHaveLength(2);
+});

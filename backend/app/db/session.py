@@ -17,6 +17,7 @@ from sqlalchemy.exc import InvalidatePoolError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
+from app.performance import instrument_engine, instrument_session_factory
 
 _engine: Engine | None = None
 _SessionFactory: sessionmaker[Session] | None = None
@@ -57,8 +58,8 @@ def _install_idle_pre_ping(engine: Engine, idle_seconds: float) -> None:
         if last_checkin is None or time.monotonic() - last_checkin < idle_seconds:
             return
         # Public do_ping, not SQLAlchemy's internal _do_ping_w_event: a failed
-        # ping here does not dispatch `handle_error` events. The app registers
-        # no such listener today; add one here if that ever changes.
+        # ping here does not dispatch `handle_error` events. Query telemetry
+        # therefore excludes this ping; acquisition includes its elapsed time.
         try:
             dialect.do_ping(dbapi_connection)
         except dialect.loaded_dbapi.Error as exc:
@@ -100,6 +101,7 @@ def get_engine() -> Engine:
         )
         if idle_seconds > 0:
             _install_idle_pre_ping(engine, idle_seconds)
+        instrument_engine(engine)
         _engine = engine
     return _engine
 
@@ -114,6 +116,7 @@ def get_session_factory() -> sessionmaker[Session]:
             expire_on_commit=False,
             future=True,
         )
+        instrument_session_factory(_SessionFactory)
     return _SessionFactory
 
 

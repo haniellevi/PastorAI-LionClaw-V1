@@ -8,6 +8,7 @@ the graceful degradation (signing failure yields an empty map, not an error).
 from __future__ import annotations
 
 import json
+import inspect
 import uuid
 
 import httpx
@@ -43,6 +44,25 @@ def _settings(**over) -> Settings:
     )
     base.update(over)
     return Settings(**base)
+
+
+def test_reuses_injected_pool_without_closing_or_sharing_tenant_headers():
+    assert "http_client" in inspect.signature(SupabaseStorage).parameters
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        path = json.loads(request.content)["paths"][0]
+        return httpx.Response(200, json=[{"path": path, "signedURL": "/signed/synthetic"}])
+
+    with httpx.Client(transport=httpx.MockTransport(handler), trust_env=False) as client:
+        storage = SupabaseStorage(_settings(), http_client=client)
+        assert storage.sign(["tenant-a/synthetic"]) != {}
+        assert storage.sign(["tenant-b/synthetic"]) != {}
+        assert not client.is_closed
+        assert "authorization" not in client.headers
+        assert all(request.extensions["timeout"]["read"] == 15 for request in requests)
+        assert len(requests) == 2
 
 
 # ---- MIME helpers ---------------------------------------------------------

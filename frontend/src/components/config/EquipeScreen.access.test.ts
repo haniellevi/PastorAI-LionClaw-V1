@@ -30,12 +30,10 @@ vi.mock("@/lib/auth-context", () => ({
   }),
 }));
 
-vi.mock("@/lib/contacts-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/contacts-api")>(
-    "@/lib/contacts-api",
-  );
-  return { ...actual, fetchContacts: mocks.fetchContacts };
-});
+vi.mock("@/lib/lookup-api", async () => ({
+  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  fetchContactLookupPage: mocks.fetchContacts,
+}));
 
 vi.mock("@/lib/dashboard-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>(
@@ -139,6 +137,19 @@ afterEach(() => {
 });
 
 describe("EquipeScreen: acesso separado da célula", () => {
+  it("mantém o alvo e o e-mail escolhidos ao paginar além da base inicial", async () => {
+    mocks.fetchContacts.mockReset().mockResolvedValueOnce({ items: [linkedLeader], page: 1, pageSize: 25, total: 301 })
+      .mockResolvedValueOnce({ items: [{ ...linkedLeader, id: "p-250", nome: "Outra Pessoa" }], page: 2, pageSize: 25, total: 301 });
+    await act(async () => root.render(h(EquipeScreen)));
+    act(() => [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Dar acesso ao painel")!.click());
+    await flushEffects();
+    act(() => [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("Ana Vinculada"))!.click());
+    await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Próxima página")!.click());
+    expect(mocks.fetchContacts.mock.calls[1]![1]).toMatchObject({ page: 2, q: "" });
+    expect(container.textContent).toContain("Pessoa selecionada: Ana Vinculada");
+    expect(container.textContent).toContain("Página 2 de 13");
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Enviar convite")!.disabled).toBe(false);
+  });
   it("permite selecionar Pessoa já vinculada/líder e omite celulaId do convite", async () => {
     act(() => root.render(h(EquipeScreen)));
     await flushEffects();

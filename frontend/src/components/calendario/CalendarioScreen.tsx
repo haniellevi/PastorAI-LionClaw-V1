@@ -51,6 +51,7 @@ import {
   dateFromIso,
   deleteEvent,
   eventsInMonth,
+  eventWindow,
   fetchEvents,
   formatLongDate,
   partitionEvents,
@@ -211,28 +212,38 @@ export function CalendarioScreen() {
     [expireSession],
   );
 
+  const loadGeneration = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
   const load = useCallback(
     async (mode: "initial" | "retry") => {
       if (!token) return;
+      const generation = ++loadGeneration.current;
+      loadController.current?.abort();
+      const controller = new AbortController();
+      loadController.current = controller;
       if (mode === "initial") setLoading(true);
       if (mode === "retry") clearAuthedResponseCache(token, ["/events?"]);
       setError(null);
       try {
-        const page = await fetchEvents(token);
+        const window = view === "confirmar" ? { status: "a_confirmar" } : {...eventWindow(view, cursor),includeUndated:true};
+        const page = await fetchEvents(token, 200, window, controller.signal);
+        if (controller.signal.aborted || generation !== loadGeneration.current) return;
         setEvents(page.items);
         setLoaded(true);
       } catch (err) {
+        if (controller.signal.aborted || generation !== loadGeneration.current) return;
         if (handleSessionError(err)) return;
         setError(err instanceof ApiError ? err.message : "Não foi possível carregar a agenda.");
       } finally {
-        setLoading(false);
+        if (generation === loadGeneration.current) setLoading(false);
       }
     },
-    [token, handleSessionError],
+    [token, handleSessionError, view, cursor],
   );
 
   useEffect(() => {
     void load("initial");
+    return () => { loadController.current?.abort(); };
   }, [load]);
 
   const toastTimer = useRef<number | null>(null);

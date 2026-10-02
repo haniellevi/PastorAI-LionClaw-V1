@@ -10,6 +10,7 @@ const apiMock = vi.hoisted(() => ({
   fetchTeamLookup: vi.fn(),
   fetchWorkQueuePage: vi.fn(),
   fetchEvents: vi.fn(),
+  fetchEventWindowPage: vi.fn(),
   fetchUpcomingEvents: vi.fn(),
 }));
 
@@ -30,6 +31,8 @@ vi.mock("./dashboard-api", () => ({
 
 vi.mock("./events-api", () => ({
   fetchEvents: apiMock.fetchEvents,
+  fetchEventWindowPage: apiMock.fetchEventWindowPage,
+  eventWindow: () => ({ fromDate: "2026-10-01", toDate: "2026-10-31" }),
   fetchUpcomingEvents: apiMock.fetchUpcomingEvents,
 }));
 
@@ -72,13 +75,13 @@ describe("preloadRouteData — capacidades do dashboard", () => {
       if (hasWorkQueue) {
         expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledWith("tok-1", 1, 25);
       }
-      expect(apiMock.fetchTeamLookup).toHaveBeenCalledTimes(canAssignQueue ? 1 : 0);
+      expect(apiMock.fetchTeamLookup).not.toHaveBeenCalled();
       expect(apiMock.fetchOverview).toHaveBeenCalledTimes(hasWorkQueue ? 1 : 0);
       expect(apiMock.fetchUpcomingEvents).toHaveBeenCalledTimes(
         canSeeCalendar ? 1 : 0,
       );
-      expect(apiMock.fetchPipeline).toHaveBeenCalledWith("tok-1", "ganhar");
-      expect(apiMock.fetchCells).toHaveBeenCalledTimes(canLinkCell ? 2 : 0);
+      expect(apiMock.fetchPipeline).toHaveBeenCalledWith("tok-1", "ganhar",50,{group:"novos-contatos"});
+      expect(apiMock.fetchCells).not.toHaveBeenCalled();
     },
   );
 
@@ -88,14 +91,15 @@ describe("preloadRouteData — capacidades do dashboard", () => {
     await preloadRouteData("tok-1", "dashboard", roles);
     await preloadRouteData("tok-1", "ganhar", roles);
 
-    expect(apiMock.fetchCells).toHaveBeenCalledTimes(2);
+    expect(apiMock.fetchCells).not.toHaveBeenCalled();
   });
 
   it("preserva os preloads de calendário e inbox", async () => {
     await preloadRouteData("tok-1", "calendario", ["membro"]);
     await preloadRouteData("tok-1", "inbox", ["membro"]);
 
-    expect(apiMock.fetchEvents).toHaveBeenCalledWith("tok-1");
+    expect(apiMock.fetchEvents).not.toHaveBeenCalled();
+    expect(apiMock.fetchEventWindowPage).toHaveBeenCalledOnce();
     expect(apiMock.fetchConversations).toHaveBeenCalledWith("tok-1");
     expect(apiMock.fetchCells).not.toHaveBeenCalled();
   });

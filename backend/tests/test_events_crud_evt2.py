@@ -22,12 +22,14 @@ entre tenants é a RLS, exercitada fora deste harness offline.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.db.models import AppUser, Conversation, Event, EventNotifyTarget
 from app.db.session import get_db
+from app.domain.phone import normalize_phone
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -85,7 +87,7 @@ class EventSession:
             return _R(scalar=self.event)
         if ent is Conversation:
             self.last_conversation_stmt = statement
-            return _R(scalar=self.conversation)
+            return _R(scalar=self.conversation, scalars=[self.conversation] if self.conversation else [])
         return _R(scalars=self.roles)
 
     def add(self, obj) -> None:
@@ -156,8 +158,8 @@ def make_conversation(*, pessoa_id=None, telefone="5511999990000"):
     return SimpleNamespace(
         id="00000000-0000-0000-0000-0000000000c1",
         igreja_id="00000000-0000-0000-0000-000000000001",
-        pessoa_id=pessoa_id,
-        telefone=telefone,
+        pessoa_id=uuid.UUID(pessoa_id) if pessoa_id else None,
+        telefone=normalize_phone(telefone),
     )
 
 
@@ -759,12 +761,12 @@ def test_confirm_individual_contact_phone_fallback(app) -> None:
     )
     assert resp.status_code == 200
     assert resp.json()["contatos"] == [
-        {"pessoaId": None, "telefone": "5511988887777"}
+        {"pessoaId": None, "telefone": normalize_phone("5511988887777")}
     ]
     targets = [t for t in session.added_all if isinstance(t, EventNotifyTarget)]
     assert len(targets) == 1
     assert targets[0].pessoa_id is None
-    assert targets[0].telefone == "5511988887777"
+    assert targets[0].telefone == normalize_phone("5511988887777")
 
 
 def test_confirm_individual_prefers_pessoa_when_conversation_has_one(app) -> None:

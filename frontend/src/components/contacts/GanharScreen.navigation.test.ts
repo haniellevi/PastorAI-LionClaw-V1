@@ -34,6 +34,7 @@ vi.mock("@/lib/contacts-api", async (importOriginal) => {
   return {
     ...actual,
     fetchPipeline: apiMock.fetchPipeline,
+    fetchGanharPage: async (token: string) => { const page = await apiMock.fetchPipeline(token, "ganhar"); return {...page, summary:actual.summarizeGanhar(page.items)}; },
     linkContactCell: vi.fn(),
     promoteContact: apiMock.promoteContact,
   };
@@ -201,8 +202,8 @@ describe("GanharScreen — autorização para vincular célula", () => {
     await renderScreen();
 
     expect(vincularCelula()).toBeDefined();
-    expect(apiMock.fetchCells).toHaveBeenCalledTimes(1);
-    expect(apiMock.fetchCells).toHaveBeenCalledWith("tok-1");
+    expect(apiMock.fetchCells).not.toHaveBeenCalled();
+
   });
 
   it.each([
@@ -270,14 +271,14 @@ describe("GanharScreen — autorização para vincular célula", () => {
 
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(vincularCelula()).toBeUndefined();
-    expect(apiMock.fetchCells).toHaveBeenCalledTimes(1);
+    expect(apiMock.fetchCells).not.toHaveBeenCalled();
 
     authState.roles = ["admin"];
     await renderScreen();
 
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(vincularCelula()).toBeDefined();
-    expect(apiMock.fetchCells).toHaveBeenCalledTimes(2);
+    expect(apiMock.fetchCells).not.toHaveBeenCalled();
   });
 });
 
@@ -304,6 +305,7 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
     });
     await renderScreen();
     openVisitantesTab();
+    await flush();
 
     expect(buttonWithText("Avançar para Consolidar")).toBeDefined();
     act(() => buttonWithText("Avançar para Consolidar")?.click());
@@ -324,6 +326,7 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
       });
       await renderScreen();
       openVisitantesTab();
+    await flush();
 
       expect(buttonWithText("Avançar para Consolidar")).toBeUndefined();
       expect(apiMock.promoteContact).not.toHaveBeenCalled();
@@ -340,11 +343,13 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
     });
     await renderScreen();
     openVisitantesTab();
+    await flush();
     expect(buttonWithText("Avançar para Consolidar")).toBeDefined();
 
     authState.roles = ["membro"];
     await renderScreen();
     openVisitantesTab();
+    await flush();
 
     expect(buttonWithText("Avançar para Consolidar")).toBeUndefined();
     expect(apiMock.promoteContact).not.toHaveBeenCalled();

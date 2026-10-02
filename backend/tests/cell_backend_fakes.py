@@ -31,6 +31,7 @@ from app.db.models import (
     CelulaVisitante,
     Pessoa,
 )
+from app.domain.cell_meetings_schedule import meeting_has_passed
 from tests.conftest import make_app_user  # re-exportado p/ os testes desta sprint
 
 __all__ = ["make_app_user"]
@@ -74,6 +75,12 @@ class _R:
         self._scalar = scalar
         self._scalars = list(scalars or [])
         self._rows = list(rows or [])
+
+    def scalar_one(self):
+        return self._scalar
+
+    def one(self):
+        return self._scalar
 
     def scalar_one_or_none(self):
         return self._scalar
@@ -259,6 +266,9 @@ class CellSession:
         if active and self._wants_active(statement):
             rows = self._active(rows)
         rows = self._apply_order(rows, self._order_specs(statement))
+        offset = getattr(getattr(statement, "_offset_clause", None), "value", 0) or 0
+        limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+        rows = rows[offset : offset + limit if limit is not None else None]
         return _R(scalar=(rows[0] if rows else None), scalars=rows)
 
     def _select_group_count(
@@ -370,6 +380,33 @@ class CellSession:
         ent = descs[0].get("entity") if descs else None
         name = descs[0].get("name") if descs else None
 
+        if "central_pending" in sql:
+            params_values = statement.compile().params.values()
+            tenant = next(str(v) for v in params_values if str(v) == TENANT)
+            requests = [r for r in self.solicitacoes if str(r.igreja_id) == tenant and r.status == "aguardando"]
+            cutoff = now_utc() - dt.timedelta(days=7)
+            def recent(rows):
+                return sum(1 for r in rows if str(r.igreja_id) == tenant and r.ativo and r.publicado_em is not None
+                    and (r.publicado_em.replace(tzinfo=dt.timezone.utc) if r.publicado_em.tzinfo is None else r.publicado_em) >= cutoff)
+            return _R(scalar=SimpleNamespace(
+                central_pending=sum(1 for r in self.reunioes if str(r.igreja_id) == tenant and r.status != "cancelada"
+                    and r.relatorio_status != "enviado" and meeting_has_passed(data=r.data, hora=r.hora)),
+                central_requests=len(requests), central_multiplications=sum(r.tipo == "multiplicacao" for r in requests),
+                central_notices=recent(self.avisos), central_materials=recent(self.materiais),
+            ))
+        if "btrim" in sql:
+            params = statement.compile().params
+            tenant = next(v for k, v in params.items() if k.startswith("igreja_id"))
+            matching = [r for r in self.reunioes if str(r.igreja_id) == str(tenant) and r.relatorio_status == "pendente"]
+            matching = [r for r in matching if r.status != "cancelada" and meeting_has_passed(data=r.data, hora=r.hora)]
+            if "count(" in sql.lower():
+                return _R(scalar=len(matching))
+            matching = self._apply_order(matching, self._order_specs(statement))
+            offset = getattr(getattr(statement, "_offset_clause", None), "value", 0) or 0
+            limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+            return _R(scalars=matching[offset : offset + limit if limit is not None else None])
+        if ent is Pessoa and name == "id" and len(descs) == 2:
+            return _R(rows=[(p.id, p.nome) for p in self._filter(self.pessoas, statement)])
         if ent is AppUser and name == "pessoa_id":
             return _R(scalar=self.actor_pessoa_id)
         if ent is AppUser:

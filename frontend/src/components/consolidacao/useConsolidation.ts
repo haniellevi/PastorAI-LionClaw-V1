@@ -33,6 +33,7 @@ import {
   followStatus,
   type Contact,
 } from "@/lib/contacts-api";
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { ApiError, fetchWorkQueue, type WorkItem } from "@/lib/dashboard-api";
 
 export interface Toast {
@@ -52,10 +53,16 @@ export function useConsolidation() {
   const [people, setPeople] = useState<Contact[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<CellSummary[]>([]);
+  const [deadlinesReady,setDeadlinesReady] = useState(false);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pipelineTotal, setPipelineTotal] = useState(0);
+  const [pipelinePage, setPipelinePage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadGeneration = useRef(0);
+  const [supportError, setSupportError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   // Re-render quando o store de sessão muda (confirmações/decisões).
@@ -90,27 +97,30 @@ export function useConsolidation() {
       if (!token) return;
       if (mode === "initial") setLoading(true);
       setError(null);
+      setSupportError(null);
+      setDeadlinesReady(false);
+      setLoadingMore(false);
+      const generation = ++loadGeneration.current;
       try {
-        const [pipe, contactPage, cellPage, queue] = await Promise.all([
-          fetchPipeline(token, "consolidar"),
-          fetchContacts(token),
-          fetchCellsFull(token),
-          fetchWorkQueue(token),
-        ]);
+        // Deadline and labels enrich the list independently; no picker catalog blocks its first page.
+        void fetchWorkQueue(token).then(queue => { if (generation === loadGeneration.current) { setWorkItems(queue.items); setDeadlinesReady(true); } }).catch(err => { if (generation === loadGeneration.current && !handleSessionError(err)) setSupportError("Não foi possível confirmar os prazos da fila. Atualize para tentar novamente."); });
+        void fetchCellsFull(token).then(page => { if (generation === loadGeneration.current) setCells(page.items); }).catch(err => { if (generation === loadGeneration.current && !handleSessionError(err)) setSupportError("Nomes de células indisponíveis. Atualize para tentar novamente."); });
+        const pipe = await fetchPipeline(token, "consolidar", 50);
+        if (generation !== loadGeneration.current) return;
         setPeople(pipe.items);
-        setContacts(contactPage.items);
-        setCells(cellPage.items);
-        setWorkItems(queue.items);
+        setContacts(pipe.items);
+        setPipelinePage(1);
+        setPipelineTotal(pipe.total);
         setLoaded(true);
       } catch (err) {
-        if (handleSessionError(err)) return;
+        if (generation !== loadGeneration.current || handleSessionError(err)) return;
         setError(
           err instanceof ApiError
             ? err.message
             : "Não foi possível carregar a consolidação.",
         );
       } finally {
-        setLoading(false);
+        if (generation === loadGeneration.current) setLoading(false);
       }
     },
     [token, handleSessionError],
@@ -118,13 +128,26 @@ export function useConsolidation() {
 
   useEffect(() => {
     void load("initial");
+    return () => { loadGeneration.current += 1; };
   }, [load]);
 
-  // Tick do deadline-badge (sem reload): recalcula o "agora" a cada 30s.
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(id);
-  }, []);
+  useVisibleInterval(() => setNow(Date.now()), 30_000);
+
+  const loadMore = useCallback(async () => {
+    if (!token || loadingMore || people.length >= pipelineTotal) return;
+    const generation = loadGeneration.current;
+    setLoadingMore(true);
+    try {
+      const page = await fetchPipeline(token,"consolidar",50,{page:pipelinePage+1});
+      if (generation !== loadGeneration.current) return;
+      if (page.items.length === 0 && people.length < page.total) throw new ApiError(502,"A base mudou. Atualize para confirmar os próximos registros.");
+      setPeople(current => [...new Map([...current,...page.items].map(item => [item.id,item])).values()]);
+      setContacts(current => [...new Map([...current,...page.items].map(item => [item.id,item])).values()]);
+      setPipelinePage(page.page);
+      setPipelineTotal(page.total);
+    } catch(error) { if (generation === loadGeneration.current && !handleSessionError(error)) setError(error instanceof ApiError ? error.message : "Não foi possível carregar mais pessoas."); }
+    finally { if (generation === loadGeneration.current) setLoadingMore(false); }
+  },[token,loadingMore,people.length,pipelineTotal,pipelinePage,handleSessionError]);
 
   const toastTimer = useRef<number | null>(null);
   const flashToast = useCallback((t: Toast) => {
@@ -148,7 +171,7 @@ export function useConsolidation() {
 
   const personName = useCallback(
     (id: string | null) =>
-      id ? contacts.find((c) => c.id === id)?.nome ?? null : null,
+      id ? contacts.find((c) => c.id === id)?.nome ?? "Consolidador" : null,
     [contacts],
   );
 
@@ -303,6 +326,14 @@ export function useConsolidation() {
   return {
     // identidade
     selfId,
+    token,
+    expireSession,
+    hasMore: people.length < pipelineTotal,
+    pipelineTotal,
+    loadingMore,
+    loadMore,
+    supportError,
+    deadlinesReady,
     roles: user?.roles ?? [],
     // dados
     people,

@@ -34,8 +34,20 @@ vi.mock("@/lib/contacts-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/contacts-api")>(
     "@/lib/contacts-api",
   );
-  return { ...actual, fetchContacts: mocks.fetchContacts };
+  return { ...actual, fetchContacts: mocks.fetchContacts,
+    fetchContactDetail: async (_token: string, id: string) => {
+      const page = await mocks.fetchContacts();
+      return page.items.find((person: { id: string }) => person.id === id) ?? { id, nome: "Líder", aptoLider: true };
+    },
+  };
 });
+
+vi.mock("@/lib/lookup-api", async () => ({
+  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  fetchCellListPage: mocks.fetchCellsFull,
+  fetchCellLookupPage: mocks.fetchCellsFull,
+  fetchContactLookupPage: mocks.fetchContacts,
+}));
 
 vi.mock("@/lib/dashboard-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>(

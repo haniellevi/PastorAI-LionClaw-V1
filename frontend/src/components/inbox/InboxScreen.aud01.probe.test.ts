@@ -25,6 +25,8 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/auth-context", () => ({ useAuth: () => auth }));
 vi.mock("@/lib/conversations-api", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/conversations-api")>(), ...api,
+  fetchMessageWindow: async (token: string, convId: string, _options: unknown, signal: AbortSignal) => ({ items: await api.fetchMessages(token, convId, 200, signal), cursorSupported: false }),
+  fetchMessageMediaUrls: async () => ({}),
 }));
 const { InboxScreen } = await import("./InboxScreen");
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

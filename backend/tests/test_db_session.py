@@ -71,6 +71,13 @@ def test_get_engine_bounds_pool_and_pings_only_idle_connections(
     assert [(target, name) for target, name, _ in listeners] == [
         (engine, "checkin"),
         (engine, "checkout"),
+        (engine, "before_cursor_execute"),
+        (engine, "after_cursor_execute"),
+        (engine, "handle_error"),
+        (engine, "checkout"),
+        (engine, "checkin"),
+        (engine, "invalidate"),
+        (engine, "detach"),
     ]
     assert "private-test-value" not in caplog.text
 
@@ -81,7 +88,25 @@ def test_zero_idle_seconds_keeps_ping_on_every_checkout(monkeypatch) -> None:
     assert session_module.get_engine() is engine
 
     assert captured["kwargs"]["pool_pre_ping"] is True
-    assert listeners == []
+    assert [name for _, name, _ in listeners] == [
+        "before_cursor_execute", "after_cursor_execute", "handle_error",
+        "checkout", "checkin", "invalidate", "detach",
+    ]
+
+
+def test_get_engine_installs_timing_listeners_only_on_its_own_engine(monkeypatch) -> None:
+    engine, captured, listeners = _capture_engine(monkeypatch, idle_seconds=60)
+
+    session_module.get_engine()
+    session_module.get_engine()
+
+    assert captured["calls"] == 1
+    assert [name for _, name, _ in listeners] == [
+        "checkin", "checkout",  # Existing idle-ping contract, before timing.
+        "before_cursor_execute", "after_cursor_execute", "handle_error",
+        "checkout", "checkin", "invalidate", "detach",
+    ]
+    assert all(target is engine for target, _, _ in listeners)
 
 
 class _DbapiError(Exception):

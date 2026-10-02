@@ -110,7 +110,10 @@ esac
 printf 'docker|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
 case "$*" in
   'compose exec -T -e EXPECTED_MIGRATIONS='*' backend python -') exit "${PREFLIGHT_EXIT:-0}" ;;
-  'compose build backend')
+  'compose build --build-arg PASTORAI_RELEASE_SHA='*' backend')
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then expected_revision="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    else expected_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; fi
+    [ "$*" = "compose build --build-arg PASTORAI_RELEASE_SHA=$expected_revision backend" ] || exit 1
     if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
   'compose run '*) exit "${ROLLBACK_PREFLIGHT_EXIT:-0}" ;;
@@ -199,9 +202,9 @@ exec "$@"
             "BROADCAST_ASYNC_ENABLED": "false",
         }
 
-    def run_release(self, **changes: str) -> subprocess.CompletedProcess[str]:
+    def run_release(self, *, revision: str = SHA_NEW, **changes: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
-            ["bash", str(DEPLOY / "backend-release.sh"), SHA_NEW],
+            ["bash", str(DEPLOY / "backend-release.sh"), revision],
             env={**self.environment, **changes},
             capture_output=True,
             text=True,
@@ -441,16 +444,45 @@ exec "$@"
     def test_build_failure_keeps_previous_containers(self) -> None:
         result = self.run_release(BUILD_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(any("compose build backend" in call for call in self.calls()))
+        self.assertTrue(any(f"compose build --build-arg PASTORAI_RELEASE_SHA={SHA_NEW} backend" in call for call in self.calls()))
         self.assertFalse(any("compose start --wait " in call for call in self.calls()))
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_candidate_build_receives_exact_release_revision(self) -> None:
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"docker|{self.new}|compose build --build-arg PASTORAI_RELEASE_SHA={SHA_NEW} backend",
+            self.calls(),
+        )
+
+    def test_unverifiable_candidate_revision_stops_before_build(self) -> None:
+        for revision in ("", "legacy", "b" * 39, "B" * 40):
+            with self.subTest(revision=revision):
+                result = self.run_release(revision=revision)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("exact 40-character release SHA", result.stderr)
+                self.assertEqual(self.calls(), [])
+
+    def test_unverifiable_rollback_revision_stops_before_effects(self) -> None:
+        legacy = self.old.parent.with_name("legacy")
+        self.old.parent.rename(legacy)
+        (self.root / "current").unlink()
+        (self.root / "current").symlink_to(legacy)
+
+        result = self.run_release()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exact SHA required for rollback", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.new / "configuration.fixture").exists())
 
     def test_health_failure_restarts_previous_code(self) -> None:
         result = self.run_release(HEALTH_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
         calls = self.calls()
         self.assertTrue(any(f"docker|{self.new}|compose start --wait " in call for call in calls))
-        self.assertTrue(any(f"docker|{self.old}|compose build backend" in call for call in calls))
+        self.assertIn(f"docker|{self.old}|compose build --build-arg PASTORAI_RELEASE_SHA={SHA_OLD} backend", calls)
         self.assertTrue(
             any(f"docker|{self.old}|compose start --wait " in call and SERVICES in call for call in calls)
         )

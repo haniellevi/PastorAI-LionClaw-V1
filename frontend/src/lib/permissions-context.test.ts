@@ -366,3 +366,22 @@ describe("PermissionsProvider — matriz efetiva da sessão", () => {
     expect(current?.matrix.membro).toEqual(DEFAULT_PERMISSIONS.membro);
   });
 });
+
+
+it("adota matriz do bootstrap somente para o mesmo token, sem GET duplicado", async () => {
+  authMock.value = { status: "authenticated", token: "token-a", expireSession: vi.fn() };
+  Object.assign(authMock.value, { permissionSnapshot: { token: "token-a", matrix: { membro: ["dashboard"] } } });
+  render();
+  await flush();
+  expect(rolesApiMock.fetchPermissions).not.toHaveBeenCalled();
+  expect(current?.source).toBe("remote");
+  expect(current?.matrix.membro).toEqual(["dashboard"]);
+  act(() => current?.setMatrix({ membro: ["dashboard", "calendario"] }));
+  expect(current?.matrix.membro).toEqual(["dashboard", "calendario"]);
+  rolesApiMock.fetchPermissions.mockResolvedValueOnce({ membro: ["dashboard"] });
+  authMock.value = { ...authMock.value, token: "token-b" };
+  render();
+  await flush();
+  expect(rolesApiMock.fetchPermissions).toHaveBeenCalledWith("token-b");
+  expect(current?.matrix.membro).toEqual(["dashboard"]);
+});

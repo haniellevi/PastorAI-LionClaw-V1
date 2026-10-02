@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy import and_, case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -42,7 +43,7 @@ from app.domain.pipeline import (
     validate_transition,
 )
 from app.routers._common import Page, PaginationParams
-from app.routers.contacts import ContactOut, _active_leader_ids
+from app.routers.contacts import ContactOut, _active_leader_ids, _person_search_filters
 from app.services.consolidation_workflow import (
     advance_consolidacao_stage,
     assign_consolidacao,
@@ -122,6 +123,14 @@ def _pipeline_scope_filters(
         pipeline_filter,
         or_(*visible) if visible else false(),
     ]
+
+
+def _ganhar_new_filter():
+    return case(
+        (Pessoa.subetapa == "novo_contato", True),
+        (Pessoa.subetapa == "visitante", False),
+        else_=func.coalesce(Pessoa.presencas_celula,0) <= 0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +245,8 @@ class AdvanceStageResponse(BaseModel):
 @router.get("/pipeline", response_model=Page[ContactOut])
 def list_pipeline(
     pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    group: Annotated[Literal["novos-contatos", "visitantes"] | None, Query()] = None,
     etapa: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
@@ -260,7 +271,9 @@ def list_pipeline(
     scoped_visibility = and_(
         *_pipeline_scope_filters(db, current_user, allow_own_person=True),
     ).self_group()
-    filters = [scoped_visibility]
+    filters = [scoped_visibility, *_person_search_filters(q)]
+    if group is not None:
+        filters.append(_ganhar_new_filter() if group == "novos-contatos" else ~_ganhar_new_filter())
     if etapa is not None:
         normalized = etapa.strip().lower()
         if normalized not in VALID_ETAPAS:
@@ -279,7 +292,7 @@ def list_pipeline(
     rows = db.execute(
         select(Pessoa)
         .where(*filters)
-        .order_by(Pessoa.created_at.desc())
+        .order_by(Pessoa.created_at.desc(), Pessoa.id.desc())
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).scalars().all()
@@ -294,6 +307,38 @@ def list_pipeline(
         pageSize=pagination.page_size,
         total=int(total),
     )
+
+
+class PipelineSummaryOut(BaseModel):
+    total: int
+    novosContatos: int
+    visitantesSemCelula: int
+    visitantesComDecisao: int
+
+
+@router.get("/pipeline/summary", response_model=PipelineSummaryOut)
+def pipeline_summary(
+    etapa: Annotated[str | None, Query()] = None,
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> PipelineSummaryOut:
+    filters = [*_pipeline_scope_filters(db,current_user,allow_own_person=True), *_person_search_filters(q)]
+    if etapa is not None:
+        stage = etapa.strip().lower()
+        if stage not in VALID_ETAPAS:
+            raise HTTPException(status_code=422,detail=f"etapa inválida: {etapa}")
+        filters.append(or_(Pessoa.etapa.is_(None),Pessoa.etapa == stage) if stage == "ganhar" else Pessoa.etapa == stage)
+    # Exact classifyGanhar order: explicit substage precedes attendance fallback.
+    is_new = _ganhar_new_filter()
+    counts = db.execute(select(
+        func.count().label("pipeline_total"),
+        func.count().filter(is_new).label("pipeline_new"),
+        func.count().filter(~is_new,Pessoa.celula_id.is_(None)).label("pipeline_unlinked"),
+        func.count().filter(~is_new,Pessoa.aceitou_jesus.is_(True)).label("pipeline_decisions"),
+    ).select_from(Pessoa).where(*filters)).one()
+    return PipelineSummaryOut(total=counts.pipeline_total, novosContatos=counts.pipeline_new,
+        visitantesSemCelula=counts.pipeline_unlinked, visitantesComDecisao=counts.pipeline_decisions)
 
 
 @router.put("/pipeline", response_model=PipelineUpdateResponse)
