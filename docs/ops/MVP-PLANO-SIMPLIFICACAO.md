@@ -482,11 +482,12 @@ sem declarar as próximas verticais implementadas.
      polling, paginação e erros permanecem. [Registro, testes e
      limites](../sprints/2026-09-30-aud02-microphone-conversation-scope.md).
      Merge continua sujeito a novo head, CI, revisões e gate nominal.
-   - [ ] Programa de desempenho de 02/10: candidato de cliente, bootstrap,
-     consultas SQL, paginação consistente, histórico recente e telemetria em
-     validação. [Plano, contratos e limites](../performance/2026-10-02-fluidity-plan.md).
-     Publicação frontend, implantação backend e métricas de campo são etapas
-     verificadas separadamente. Região, capacidade e protocolo durável de
+   - [ ] Programa de desempenho de 02/10: fonte integrada pela PR #451;
+     frontend publicado em `e59feb5`, com CI e aliases confirmados.
+     [Plano, contratos e limites](../performance/2026-10-02-fluidity-plan.md) e
+     [recibo de publicação](../performance/2026-10-02-fluidity-release.md).
+     Implantação backend e métricas autenticadas de campo permanecem pendentes.
+     Região, capacidade e protocolo durável de
      envio humano dependem de evidência específica; nenhum gate foi alterado.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
