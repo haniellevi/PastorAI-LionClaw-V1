@@ -28,6 +28,7 @@ from app.db.models import (
 from app.db.rls_observability import require_tenant_scope
 from app.db.tenant_session import TenantScopeError
 from app.deps import CurrentUser
+from app.domain import cell_meetings_schedule
 from app.domain.agent_authz import MINISTERIAL_ROLES, CONSOLIDATION_TOOL_ROLES
 from app.domain.consolidation import VALID_VINCULOS
 from app.services.ministerial_actions import (
@@ -58,6 +59,10 @@ PROPOSAL_ACTIONS = ACTIONS | frozenset({
     'atribuir_consolidacao',
 })
 _PERSON_ACTIONS = ACTIONS
+_OWN_PRESENCE_REQUEST = re.compile(
+    r'(?:quero confirmar|confirmar|eu confirmo) minha presenca '
+    r'na (?P<next>proxima )?reuniao(?: da minha celula)?'
+)
 _REMINDER_REQUEST = re.compile(
     r'\b(?:lembrete(?:s)?|lembre[- ]?me|avise[- ]?me|me[ -](?:lembre|avise))\b'
 )
@@ -169,6 +174,82 @@ def _mentioned_name(text: str, name: str) -> bool:
         if not unicodedata.combining(c) and unicodedata.category(c) not in {'Cf'}).split())
     key = _label_key(name)
     return bool(key and re.search(r'(?<!\w)' + re.escape(key) + r'(?!\w)', normalized))
+
+
+def _own_presence_intent(value: object) -> str | None:
+    """Admit only an affirmative own request, never a name or loose keyword."""
+    if type(value) is not str or not value or len(value) > 240:
+        return None
+    normalized = ''.join(char for char in unicodedata.normalize('NFKD', value).casefold()
+                         if not unicodedata.combining(char))
+    normalized = ' '.join(normalized.split()).rstrip('.!')
+    match = _OWN_PRESENCE_REQUEST.fullmatch(normalized)
+    return ('next' if match.group('next') else 'generic') if match else None
+
+
+def _own_presence_requested(value: object) -> bool:
+    return _own_presence_intent(value) is not None
+
+
+def _own_presence_targets(session: Session, context, *, requested_text: object) -> tuple[CatalogTarget, ...]:
+    from app.services.whatsapp_privilege import PrivilegeContext
+
+    if type(context) is not PrivilegeContext:
+        return ()
+    intent = _own_presence_intent(requested_text)
+    if intent is None:
+        return ()
+    memberships = session.execute(select(CelulaMembro).where(
+        CelulaMembro.igreja_id == context.igreja_id,
+        CelulaMembro.pessoa_id == context.pessoa_id,
+        CelulaMembro.ativo.is_(True),
+    ).limit(2).execution_options(populate_existing=True)).scalars().all()
+    if len(memberships) != 1:
+        return ()
+    cell = session.execute(select(Celula).where(
+        Celula.id == memberships[0].celula_id, Celula.igreja_id == context.igreja_id,
+        Celula.ativo.is_(True),
+    ).execution_options(populate_existing=True)).scalar_one_or_none()
+    if cell is None:
+        return ()
+    now = cell_meetings_schedule.now_in_sao_paulo()
+    meetings = session.execute(select(CelulaReuniao).where(
+        CelulaReuniao.igreja_id == context.igreja_id, CelulaReuniao.celula_id == cell.id,
+        CelulaReuniao.data >= now.date(),
+    ).order_by(CelulaReuniao.data, CelulaReuniao.id).limit(65)
+        .execution_options(populate_existing=True)).scalars().all()
+    sentinel = meetings[64] if len(meetings) > 64 else None
+    eligible = [meeting for meeting in meetings[:64] if not cell_meetings_schedule.meeting_has_passed(
+        data=meeting.data, hora=meeting.hora, now=now,
+    )]
+    if not eligible:
+        return ()
+    if intent == 'generic':
+        if sentinel is not None or len(eligible) != 1:
+            return ()
+        meeting = eligible[0]
+    else:
+        first_date = eligible[0].data
+        # Only a complete earliest date can determine "next". A sentinel on
+        # that date can hide an earlier hour or a tie beyond the window.
+        if sentinel is not None and sentinel.data <= first_date:
+            return ()
+        first_day = [meeting for meeting in eligible if meeting.data == first_date]
+        if len(first_day) == 1:
+            meeting = first_day[0]  # E4 permits an absent hour when unambiguous.
+        else:
+            if any(type(meeting.hora) is not str or not _SAFE_HOUR.fullmatch(meeting.hora)
+                   for meeting in first_day):
+                return ()
+            earliest_hour = min(meeting.hora for meeting in first_day)
+            earliest = [meeting for meeting in first_day if meeting.hora == earliest_hour]
+            if len(earliest) != 1:
+                return ()
+            meeting = earliest[0]
+    hour = f' às {meeting.hora}' if type(meeting.hora) is str and _SAFE_HOUR.fullmatch(meeting.hora) else ''
+    return (CatalogTarget('marcar_presenca', MappingProxyType({
+        'pessoa_id': str(context.pessoa_id), 'reuniao_id': str(meeting.id),
+    }), f'Confirmar minha presença em {_label(cell.nome)}, {meeting.data.isoformat()}{hour}'),)
 
 
 def _valid_term_version(value: object) -> str | None:
@@ -1129,11 +1210,36 @@ def execute_catalog_action(session: Session, context, code: str, arguments: Mapp
     if (
         type(context) is not PrivilegeContext
         or code not in ACTIONS
-        or not action_allowed(context, code)
+        or (code != 'marcar_presenca' and not action_allowed(context, code))
     ):
         raise HTTPException(403, 'Ação não autorizada')
     args = validated_action_arguments(code, arguments)
     person_id = uuid.UUID(args['pessoa_id'])
+    if code == 'marcar_presenca':
+        if person_id != context.pessoa_id:
+            # Deny member-to-third-person calls before even looking up a person.
+            if not action_allowed(context, code):
+                raise HTTPException(403, 'Ação não autorizada')
+        else:
+            actor = session.execute(select(AppUser.pessoa_id).where(
+                AppUser.id == context.app_user_id, AppUser.igreja_id == context.igreja_id,
+            ).with_for_update()).scalar_one_or_none()
+            if actor is None or actor != person_id:
+                raise HTTPException(403, 'Vínculo do usuário alterado')
+            meeting = session.execute(select(CelulaReuniao).where(
+                CelulaReuniao.id == uuid.UUID(args['reuniao_id']),
+                CelulaReuniao.igreja_id == context.igreja_id,
+            ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+            if meeting is None:
+                raise HTTPException(404, 'Reunião não encontrada')
+            cell = session.execute(select(Celula).where(
+                Celula.id == meeting.celula_id, Celula.igreja_id == context.igreja_id,
+                Celula.ativo.is_(True),
+            ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+            if cell is None:
+                raise HTTPException(403, 'Célula sem vínculo elegível')
+            if cell_meetings_schedule.meeting_has_passed(data=meeting.data, hora=meeting.hora):
+                raise HTTPException(409, 'A reunião já ocorreu; não é possível confirmar presença')
     person = session.execute(select(Pessoa).where(Pessoa.id == person_id,
         Pessoa.igreja_id == context.igreja_id, Pessoa.arquivada_em.is_(None))).scalar_one_or_none()
     if person is None:
@@ -1142,9 +1248,11 @@ def execute_catalog_action(session: Session, context, code: str, arguments: Mapp
         row = register_decision(session, _user(context), pessoa_id=person_id,
             vinculo=args['vinculo'], origem='whatsapp',
             celula_id=uuid.UUID(args['celula_id']) if args['celula_id'] else None)
+    elif person_id == context.pessoa_id:
+        row = confirm_meeting_attendance(session, _user(context),
+            reuniao_id=uuid.UUID(args['reuniao_id']), pessoa_id=None,
+            expected_actor_pessoa_id=context.pessoa_id)
     else:
-        if person_id == context.pessoa_id:
-            raise HTTPException(403, 'Esta ação confirma presença de terceiro')
         row = confirm_meeting_attendance(session, _user(context),
             reuniao_id=uuid.UUID(args['reuniao_id']), pessoa_id=person_id)
     return str(row.id)
@@ -1203,7 +1311,7 @@ def _consolidation_catalog_groups(
 
 _CATALOG_DESCRIPTIONS = {
     'registrar_decisao': 'Registrar decisão de fé de uma pessoa, após confirmação explícita',
-    'marcar_presenca': 'Confirmar presença prevista de terceiro em reunião de célula, após confirmação explícita',
+    'marcar_presenca': 'Confirmar presença própria ou de terceiro autorizado em reunião de célula, após confirmação explícita',
     'consultar_vinculo': 'Consultar meu próprio vínculo cadastrado, com confirmação no painel',
     'consultar_celulas': 'Consultar dados das células autorizadas, com confirmação no painel',
     'consultar_agenda': 'Consultar agenda autorizada da igreja sem dados de pessoas',
@@ -1289,9 +1397,14 @@ def build_catalog(session: Session, context):
         Message.igreja_id == tenant, Message.conversation_id == context.conversation_id,
         Message.id == context.inbound_message_id, Message.direcao == 'in',
     )).scalar_one_or_none() or ''
+    own_request = _own_presence_requested(requested_text)
+    if own_request:
+        grouped['marcar_presenca'] = list(_own_presence_targets(
+            session, context, requested_text=requested_text,
+        ))
     roster = session.execute(select(Pessoa.id, Pessoa.nome).where(
         Pessoa.igreja_id == tenant, Pessoa.arquivada_em.is_(None))).all() if any(
-            action_allowed(context, action) for action in _PERSON_ACTIONS) else []
+            action_allowed(context, action) for action in _PERSON_ACTIONS) and not own_request else []
     person_names = Counter(_label_key(name) for _, name in roster)
     # Only a name explicitly present in this anchored request can enter a D
     # prompt. Unrelated roster entries and history never become model input.
@@ -1300,7 +1413,7 @@ def build_catalog(session: Session, context):
     cell_names = Counter(_label_key(name) for name in session.execute(
         select(Celula.nome).where(Celula.igreja_id == tenant,
             Celula.ativo.is_(True))).scalars()) if requested_ids else Counter()
-    decision_targets = _decision_targets_for_requested_text(
+    decision_targets = () if own_request else _decision_targets_for_requested_text(
         session,
         context,
         requested_text=requested_text,

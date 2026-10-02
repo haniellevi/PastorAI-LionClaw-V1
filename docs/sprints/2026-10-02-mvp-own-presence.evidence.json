@@ -1,0 +1,41 @@
+{
+  "mission": "M-2026-10-02-mvp-presence-integration",
+  "timestamp_utc": "2026-10-02T15:07:53.649712+00:00",
+  "tested_base_sha": "379a4dc51bfd46d25d68e5cb43a0699b48d12bc1",
+  "product_files": {
+    "app/services/agent_privilege_catalog.py": "869704214872a349e153ca6fb946c52cd429328d2f9efecc2df2a88046b6689a",
+    "app/services/ministerial_actions.py": "4cecec5d9cdfb6a57054ffd3b1e1654d5fe53ec3cde9f20d191e4f67cf5bbaa0",
+    "app/agent/privileged_turn.py": "4eb206995849954df71a900dd65eb7934af5f8e54b97f4b8c935f417accd46ba"
+  },
+  "test_files": {
+    "tests/test_agent_privileged_turn_pg.py": "f379fadcfc2a9bebd74fc6c07487dc3607abb5d2ad518e5714dd14feb4d75644",
+    "tests/test_agent_privileged_turn.py": "5cfb988b6a3a22909162e157c69764c7fce37af55f5ed0f8c716d588a08b86ae",
+    "tests/test_member_presence_whatsapp.py": "d0f4f7a39d0e87bb9f111d18fce5c4b88d54f98624fe8abf280912cc65715320",
+    "tests/test_ministerial_actions.py": "34c7bcadc21a9d807e614431c10e2f35a9094cd00bc228148987566c7c177450"
+  },
+  "offline": {
+    "passed": 226,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "postgres": {
+    "version": "17.6",
+    "network": "none",
+    "ports": [],
+    "passed": 53,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "expected_count_verified": true
+  },
+  "review_product": "Independent LENTE GO on three product files",
+  "limitations": [
+    "Synthetic provider/LLM and in-memory queue",
+    "Panel projections with synthetic principal, no real Clerk authentication",
+    "Fixtures do not prove operational RLS policies",
+    "No shared DB, activation, real delivery, publication, billing or PROD"
+  ],
+  "rollback": "Revert branch commit; no migration or shared DB application",
+  "review_tests": "Independent LENTE GO on final PG53 passive probe and metadata; no blocking P0/P1"
+}

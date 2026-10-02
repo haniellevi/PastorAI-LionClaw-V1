@@ -1154,8 +1154,6 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
                     evolution_client=evolution_client,
                 )
             return qw.AgentRunDisposition.COMPLETED
-    if v3_projection is None and canonical_public_info_request(preflight.current_text) is not None:
-        return None
     routing_text = preflight.current_text
     with _session(runtime_session_factory, outcome) as session:
         _, _, error = _load_tier_a_plan_state(session, preflight)
@@ -1177,6 +1175,15 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
                 if not set(v3_projection.required_codes) <= {option.code for option in catalog}:
                     catalog, mapping = (), {}
                 routing_text = v3_projection.text
+    if v3_projection is None and canonical_public_info_request(preflight.current_text) is not None:
+        # Only a current server-owned attendance target takes precedence over
+        # the public lookup; other catalog options retain the public fallback.
+        if not any(
+            target.code == 'marcar_presenca'
+            and target.arguments.get('pessoa_id') == str(current.pessoa_id)
+            for target in mapping.values()
+        ):
+            return None
     if not catalog:
         return handoff('privilege_catalog')
     if ownership_guard is not None:
