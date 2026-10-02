@@ -1402,7 +1402,7 @@
       [
         "celula_membro",
         true,
-        true,
+        false,
         true,
         false
       ],

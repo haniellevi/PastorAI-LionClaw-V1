@@ -55,12 +55,14 @@ class MaintenanceSchemaPgTests(unittest.TestCase):
                 if not cur.fetchone()[0]: cur.execute("CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOBYPASSRLS")
                 cur.execute("CREATE TABLE public.schema_migrations(name text PRIMARY KEY)")
                 cur.executemany("INSERT INTO public.schema_migrations VALUES (%s)", [(n,) for n in cls.profile["schema"]["ledger"]])
+                forced_tables = {row[0] for row in cls.profile["schema"]["relations"] if row[2]}
                 for table, columns in cls.profile["schema"]["columns"].items():
                     fields = [sql.SQL("{} {}").format(sql.Identifier(c), sql.SQL(cls.profile["schema"]["column_types"][table][c][0])) for c in columns]
                     cur.execute(sql.SQL("CREATE TABLE public.{} ({})").format(sql.Identifier(table), sql.SQL(",").join(fields)))
                     cur.execute(sql.SQL("GRANT SELECT ON public.{} TO authenticated").format(sql.Identifier(table)))
                     cur.execute(sql.SQL("ALTER TABLE public.{} ENABLE ROW LEVEL SECURITY").format(sql.Identifier(table)))
-                    if table == "celula_membro": cur.execute("ALTER TABLE public.celula_membro FORCE ROW LEVEL SECURITY")
+                    if table in forced_tables:
+                        cur.execute(sql.SQL("ALTER TABLE public.{} FORCE ROW LEVEL SECURITY").format(sql.Identifier(table)))
                 cur.execute("CREATE FUNCTION public.current_igreja_id() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS %s", (cls.profile["schema"]["tenant_function"][0],))
                 commands = {"*": "ALL", "r": "SELECT", "w": "UPDATE"}
                 for table, name, command, _, _, using, check in cls.profile["schema"]["policies"]:

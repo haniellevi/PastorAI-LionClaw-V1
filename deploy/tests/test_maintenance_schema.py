@@ -54,6 +54,23 @@ class MaintenanceSchemaTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 checker.validate(observed, self.profile)
 
+    def test_observed_legacy_tables_keep_rls_nonowner_acl_without_force(self):
+        observed = copy.deepcopy(self.observed)
+        observed["relations"] = [[row[0], True, False, True, False] for row in observed["relations"]]
+        checker.validate(observed, self.profile)
+
+    def test_force_rls_mismatch_is_rejected_in_both_directions(self):
+        for expected_force in (False, True):
+            profile = copy.deepcopy(self.profile)
+            observed = copy.deepcopy(self.observed)
+            index = next(i for i, row in enumerate(profile["schema"]["relations"]) if row[0] == "celula_membro")
+            profile["schema"]["relations"][index][2] = expected_force
+            observed["relations"][index][2] = expected_force
+            checker.validate(observed, profile)
+            observed["relations"][index][2] = not expected_force
+            with self.subTest(expected_force=expected_force), self.assertRaisesRegex(ValueError, "RLS"):
+                checker.validate(observed, profile)
+
     def test_missing_extra_or_permissive_policy_is_rejected(self):
         variants = [self.observed["policies"][:-1], self.observed["policies"] + [
             ["messages", "unbounded", "*", True, [0], "true", "true"]]]

@@ -41,8 +41,8 @@ reclassificada como migration aplicada.
 O checker confere presença e tipos de 153 colunas de 13 tabelas usadas pelos caminhos otimizados,
 RLS habilitada, SELECT de `authenticated`, ausência de propriedade por essa
 role, conjunto completo de policies dessas tabelas e a função de resolução
-do tenant, inclusive linguagem SQL. Preserva a configuração legada de FORCE RLS, presente apenas em
-`celula_membro` nesse recorte. Não é auditoria de todo o banco nem prova de
+do tenant, inclusive linguagem SQL. Preserva a configuração legada de FORCE RLS, desativada nas 13 relações
+desse recorte; o papel `authenticated` não é proprietário nem bypass. Não é auditoria de todo o banco nem prova de
 consistência dos dados históricos. Testes cross-tenant de comportamento usam
 PostgreSQL 17 descartável com dados sintéticos.
 
@@ -104,5 +104,8 @@ Candidato fixado: `07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02` (PR #455).
 Validação local: 5.494 testes offline, 373 PostgreSQL 17 sem skips e 97 testes
 focais independentes. Locks de runtime e auditoria sem vulnerabilidades
 conhecidas na consulta de 02/10. Driver: 26 testes; contrato de schema:
-16 unitários e 8 PostgreSQL 17. Os 153 tipos também coincidiram na inspeção
+18 unitários e 8 PostgreSQL 17. Uma transcrição inicial marcou FORCE em `celula_membro` incorretamente;
+o checker vivo recusou o perfil antes de qualquer troca. O contrato corrigido
+preserva a configuração observada, sem executar ALTER TABLE.
+Os 153 tipos também coincidiram na inspeção
 read-only de produção às 16:10Z. Publicação ainda pendente neste registro.
