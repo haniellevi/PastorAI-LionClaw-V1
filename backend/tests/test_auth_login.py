@@ -33,6 +33,8 @@ def test_login_success_returns_token_and_bootstrap_profile(app) -> None:
     )
     assert resp.status_code == 200
     body = resp.json()
+    permissions = body.pop("permissions")
+    assert "dashboard" in permissions["matriz"]["pastor"]
     assert body == {
         "appUserId": "00000000-0000-0000-0000-0000000000a1",
         "churchId": "00000000-0000-0000-0000-000000000001",
@@ -149,7 +151,7 @@ def test_delinquent_owner_can_login_and_restore_session_for_recovery(app) -> Non
     assert login.status_code == 200
     assert me.status_code == 200
     login_profile = {
-        key: value for key, value in login.json().items() if key != "token"
+        key: value for key, value in login.json().items() if key not in {"token", "permissions"}
     }
     assert login_profile == me.json()
     assert me.json()["isOwner"] is True

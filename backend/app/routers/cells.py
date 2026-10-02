@@ -16,12 +16,13 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import false, func, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
@@ -91,6 +92,9 @@ class CellOut(BaseModel):
     linkLocalizacao: str | None = None  # noqa: N815
     mensagemConvite: str | None = None  # noqa: N815
     ativo: bool
+    liderNome: str | None = None
+    membros: int | None = None
+    visitantes: int | None = None
 
     @classmethod
     def from_model(cls, c: Celula) -> "CellOut":
@@ -304,7 +308,8 @@ def _actor_pessoa_id(db: Session, current_user: CurrentUser) -> str | None:
     """Resolve the acting user's linked pessoa_id (for hierarchy checks)."""
     pessoa_id = db.execute(
         select(AppUser.pessoa_id).where(
-            AppUser.id == uuid.UUID(current_user.app_user_id)
+            AppUser.id == uuid.UUID(current_user.app_user_id),
+            AppUser.igreja_id == uuid.UUID(current_user.igreja_id),
         )
     ).scalar_one_or_none()
     return str(pessoa_id) if pessoa_id else None
@@ -319,14 +324,14 @@ def _cell_read_scope_filters(
     fail closed and carry explicit tenant predicates as defense in depth.
     """
 
+    igreja_id = uuid.UUID(current_user.igreja_id)
     if current_user.has_any_role(CELL_TENANT_WIDE_READ_ROLES):
-        return []
+        return [Celula.igreja_id == igreja_id]
 
     actor_pessoa_id = _actor_pessoa_id(db, current_user)
     if actor_pessoa_id is None:
         return [false()]
 
-    igreja_id = uuid.UUID(current_user.igreja_id)
     actor_id = uuid.UUID(actor_pessoa_id)
 
     if "lider_celula" in current_user.roles:
@@ -489,30 +494,123 @@ def _sensitive_changed(payload: UpsertCellRequest, cell: Celula) -> bool:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+class CellLookupOut(BaseModel):
+    id: str
+    nome: str
+    liderId: str | None = None
+    ativo: bool
+
+
+class CellsSummaryOut(BaseModel):
+    total: int
+    ativas: int
+    semLider: int
+    pessoasEmCelulas: int
+
+
+def _visible_contact_conditions(db: Session, current_user: CurrentUser) -> tuple:
+    from app.routers.contacts import _contact_scope_conditions, _contact_view_conditions
+    return (
+        *_contact_view_conditions("all"),
+        *_contact_scope_conditions(db, current_user, include_assigned_conversation=True),
+    )
+
+
+def _cell_search_filters(q: str | None, contact_conditions: tuple) -> list:
+    term = (q or "").strip()
+    if not term:
+        return []
+    visible_leader = select(Pessoa.id).where(
+        *contact_conditions, Pessoa.id == Celula.lider_id,
+        Pessoa.igreja_id == Celula.igreja_id,
+        Pessoa.nome.icontains(term, autoescape=True),
+    ).correlate(Celula).exists()
+    return [or_(Celula.nome.icontains(term, autoescape=True), visible_leader)]
+
+
 @router.get("/cells", response_model=Page[CellOut])
 def list_cells(
     pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[CellOut]:
     """List the tenant's cells, paginated."""
-    scope_filters = _cell_read_scope_filters(db, current_user)
+    contact_conditions = _visible_contact_conditions(db, current_user)
+    scope_filters = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(q, contact_conditions)]
     total = db.execute(
         select(func.count()).select_from(Celula).where(*scope_filters)
     ).scalar_one()
     rows = db.execute(
         select(Celula)
         .where(*scope_filters)
-        .order_by(Celula.created_at.desc())
+        .order_by(Celula.created_at.desc(), Celula.id.desc())
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).scalars().all()
+    output = [CellOut.from_model(cell) for cell in rows]
+    if rows:
+        counts = db.execute(select(
+            Pessoa.celula_id,
+            func.count().filter(Pessoa.tipo.is_distinct_from("visitante")),
+            func.count().filter(Pessoa.tipo == "visitante"),
+        ).where(*contact_conditions, Pessoa.celula_id.in_([cell.id for cell in rows]))
+            .group_by(Pessoa.celula_id)).all()
+        by_cell = {str(cell_id): (members, visitors) for cell_id, members, visitors in counts}
+        leader_ids = {cell.lider_id for cell in rows if cell.lider_id is not None}
+        names = db.execute(select(Pessoa.id, Pessoa.nome).where(
+            *contact_conditions, Pessoa.id.in_(leader_ids),
+        )).all() if leader_ids else []
+        by_leader = {str(person_id): name for person_id, name in names}
+        for item in output:
+            item.membros, item.visitantes = by_cell.get(item.id, (0, 0))
+            item.liderNome = by_leader.get(item.liderId)
     return Page[CellOut](
-        items=[CellOut.from_model(c) for c in rows],
+        items=output,
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
     )
+
+
+@router.get("/cells/lookup", response_model=Page[CellLookupOut])
+def lookup_cells(
+    pagination: PaginationParams = Depends(),
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Page[CellLookupOut]:
+    contact_conditions = _visible_contact_conditions(db, current_user) if (q or "").strip() else ()
+    conditions = [*_cell_read_scope_filters(db, current_user), *_cell_search_filters(q, contact_conditions)]
+    total = db.execute(select(func.count()).select_from(Celula).where(*conditions)).scalar_one()
+    rows = db.execute(select(Celula).options(load_only(Celula.id, Celula.nome, Celula.lider_id, Celula.ativo))
+        .where(*conditions).order_by(Celula.nome.asc(), Celula.id.asc())
+        .offset(pagination.offset).limit(pagination.limit)).scalars().all()
+    return Page[CellLookupOut](
+        items=[CellLookupOut(id=str(cell.id), nome=cell.nome,
+            liderId=str(cell.lider_id) if cell.lider_id else None, ativo=cell.ativo) for cell in rows],
+        page=pagination.page, pageSize=pagination.page_size, total=int(total),
+    )
+
+
+@router.get("/cells/summary", response_model=CellsSummaryOut)
+def cells_summary(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CellsSummaryOut:
+    contact_conditions = _visible_contact_conditions(db, current_user)
+    cell_conditions = _cell_read_scope_filters(db, current_user)
+    people = select(func.count()).select_from(Pessoa).where(
+        *contact_conditions, Pessoa.celula_id.is_not(None),
+    ).scalar_subquery()
+    counts = db.execute(select(
+        func.count().label("cells_total"),
+        func.count().filter(Celula.ativo.is_(True)).label("cells_active"),
+        func.count().filter(Celula.lider_id.is_(None)).label("cells_unled"),
+        people.label("cells_people"),
+    ).select_from(Celula).where(*cell_conditions)).one()
+    return CellsSummaryOut(total=counts.cells_total, ativas=counts.cells_active,
+        semLider=counts.cells_unled, pessoasEmCelulas=counts.cells_people)
 
 
 @router.get("/cells/{cell_id}", response_model=CellDetailOut)

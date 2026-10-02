@@ -56,6 +56,8 @@ def test_get_role_permissions_allowed_for_membro_and_tenant_scoped(app) -> None:
         def execute(self, statement, params=None):
             descriptions = getattr(statement, "column_descriptions", None)
             if descriptions and descriptions[0].get("entity") is RolePermission:
+                if len(descriptions) == 2:
+                    return SimpleNamespace(all=lambda: [(row.papel, row.tela) for row in rows])
                 return SimpleNamespace(
                     scalars=lambda: SimpleNamespace(all=lambda: list(rows))
                 )

@@ -48,15 +48,15 @@ def test_me_includes_chat_nome(app) -> None:
     assert resp.json()["chatNome"] == "Pastor Raniel"
 
 
-def test_me_authentication_uses_five_database_round_trips(app) -> None:
+def test_me_authentication_uses_three_database_round_trips(app) -> None:
     session = FakeSession(app_user=make_app_user(), roles=["admin", "pastor"])
     client = _wire(app, session=session, clerk=FakeClerk())
 
     resp = client.get("/auth/me", headers=_AUTH)
 
     assert resp.status_code == 200
-    # claim GUC + SET LOCAL ROLE + user/igreja/roles + tenant GUC + role.
-    assert session.execute_count == 5
+    # claim+role, user/igreja/roles, tenant+role.
+    assert session.execute_count == 3
     app_user_sql = next(
         str(statement)
         for statement in session.executed_statements

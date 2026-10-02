@@ -23,17 +23,22 @@ class _RecordingSession:
         return None
 
 
+_ROLE_LOCAL = "set_config('role', 'authenticated', true)"
+
+
 def test_set_tenant_context_for_igreja_sets_guc_and_role() -> None:
     s = _RecordingSession()
     set_tenant_context_for_igreja(s, "11111111-1111-1111-1111-111111111111")
 
-    sqls = " ".join(sql for sql, _ in s.calls)
-    assert "app.tenant_igreja_id" in sqls
-    assert "set local role authenticated" in sqls
+    # GUC e papel numa única ida ao banco, ambos transaction-local.
+    assert len(s.calls) == 1
+    sql, params = s.calls[0]
+    assert "set_config('app.tenant_igreja_id', :igreja_id, true)" in sql
+    assert _ROLE_LOCAL in sql
     # igreja_id vai como parâmetro (cast a uuid em current_igreja_id) — sem
     # interpolação de string / injeção.
-    bound = [p for _, p in s.calls if p]
-    assert bound and bound[0]["igreja_id"] == "11111111-1111-1111-1111-111111111111"
+    assert params == {"igreja_id": "11111111-1111-1111-1111-111111111111"}
+    assert "11111111" not in sql
 
 
 def test_set_tenant_context_for_igreja_coerces_to_str() -> None:
@@ -47,8 +52,10 @@ def test_set_tenant_context_uses_clerk_subject() -> None:
     s = _RecordingSession()
     set_tenant_context(s, "clerk_user_42")
 
-    sqls = " ".join(sql for sql, _ in s.calls)
-    assert "request.jwt.claims" in sqls
-    assert "set local role authenticated" in sqls
-    bound = [p for _, p in s.calls if p]
-    assert bound and "clerk_user_42" in bound[0]["claims"]
+    # Claim e papel numa única ida ao banco, ambos transaction-local.
+    assert len(s.calls) == 1
+    sql, params = s.calls[0]
+    assert "set_config('request.jwt.claims', :claims, true)" in sql
+    assert _ROLE_LOCAL in sql
+    assert params is not None and "clerk_user_42" in params["claims"]
+    assert "clerk_user_42" not in sql

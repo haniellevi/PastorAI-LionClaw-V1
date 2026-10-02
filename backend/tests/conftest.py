@@ -171,6 +171,7 @@ class FakeSession:
         if isinstance(self.app_user, SimpleNamespace):
             self.app_user.roles = [SimpleNamespace(papel=role) for role in self.roles]
         self.execute_count = 0
+        self.info: dict = {}
         self.executed_statements: list[object] = []
         # Linhas (papel, tela) da matriz do tenant, p/ testar require_screen.
         self.role_permissions = role_permissions or []

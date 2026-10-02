@@ -23,11 +23,11 @@ import binascii
 import datetime as dt
 import logging
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -490,14 +490,47 @@ def conversation_photo(
     return PhotoResponse(url=url)
 
 
-@router.get("/{conversation_id}/messages", response_model=Page[MessageOut])
+class MessagePage(Page[MessageOut]):
+    nextBefore: str | None = None  # noqa: N815
+    nextAfter: str | None = None  # noqa: N815
+    hasMoreAfter: bool = False  # noqa: N815
+
+
+class MediaUrlsOut(BaseModel):
+    urls: dict[str, str]
+
+
+def _history_cursor(message: Message) -> str:
+    value = f"{message.criado_em.isoformat()}|{message.id}"
+    return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
+
+
+def _parse_history_cursor(value: str) -> tuple[dt.datetime, uuid.UUID]:
+    try:
+        decoded = base64.b64decode(
+            value + "=" * (-len(value) % 4), altchars=b"-_", validate=True,
+        ).decode("utf-8")
+        timestamp, item_id = decoded.split("|", 1)
+        parsed = dt.datetime.fromisoformat(timestamp)
+        if parsed.tzinfo is None:
+            raise ValueError("timezone required")
+        return parsed, uuid.UUID(item_id)
+    except (ValueError, UnicodeError, binascii.Error) as exc:
+        raise HTTPException(422, "Cursor de histórico inválido") from exc
+
+
+@router.get("/{conversation_id}/messages", response_model=MessagePage)
 def list_messages(
     conversation_id: str,
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_screen("inbox")),
     storage: SupabaseStorage = Depends(get_storage),
-) -> Page[MessageOut]:
+    latest: bool = False,
+    include_media: Annotated[bool, Query(alias="includeMedia")] = True,
+    before: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
+    after: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
+) -> MessagePage:
     """Return a conversation's message history, oldest first (US-13).
 
     Media messages carry a short-lived **signed URL** (`mediaUrl`) so the panel
@@ -506,38 +539,108 @@ def list_messages(
     """
     conv = _get_conversation(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
+    if str(conv.igreja_id) != current_user.igreja_id:
+        raise HTTPException(404, "Conversa não encontrada")
+    if before and after:
+        raise HTTPException(422, "Escolha somente um cursor de histórico")
+    cursor = _parse_history_cursor(before or after) if before or after else None
+    windowed = latest or before is not None or after is not None
+    if windowed and pagination.page != 1:
+        raise HTTPException(422, "Use o cursor para navegar pelo histórico")
 
     visible_message = or_(
         Message.agent_reply_state.is_(None),
         Message.agent_reply_state == AGENT_REPLY_CONFIRMED,
     )
+    condition = (
+        Message.conversation_id == conv.id,
+        Message.igreja_id == uuid.UUID(current_user.igreja_id),
+        visible_message,
+    )
     total = db.execute(
         select(func.count())
         .select_from(Message)
-        .where(Message.conversation_id == conv.id, visible_message)
+        .where(*condition)
     ).scalar_one()
-    rows = db.execute(
-        select(Message)
-        .where(Message.conversation_id == conv.id, visible_message)
-        .order_by(Message.criado_em.asc())
-        .offset(pagination.offset)
-        .limit(pagination.limit)
-    ).scalars().all()
+    statement = select(Message).where(*condition)
+    if before:
+        statement = statement.where(
+            tuple_(Message.criado_em, Message.id) < cursor
+        )
+    elif after:
+        statement = statement.where(
+            tuple_(Message.criado_em, Message.id) > cursor
+        )
+    descending = (latest or before is not None) and after is None
+    statement = statement.order_by(
+        Message.criado_em.desc() if descending else Message.criado_em.asc(),
+        Message.id.desc() if descending else Message.id.asc(),
+    )
+    if not windowed:
+        statement = statement.offset(pagination.offset)
+    rows = db.execute(statement.limit(pagination.limit + int(windowed))).scalars().all()
+    has_more = windowed and len(rows) > pagination.limit
+    rows = rows[:pagination.limit]
+    if descending:
+        rows.reverse()
 
-    paths = [m.media_path for m in rows if m.media_path]
-    signed = storage.sign(paths) if paths else {}
+    # Materialize the DTO and pointers while attributes are loaded. Session
+    # close rolls back the readonly transaction and releases the connection;
+    # no lazy ORM access or database lock spans a Storage HTTP call.
+    next_before = _history_cursor(rows[0]) if rows and descending and has_more else None
+    next_after = _history_cursor(rows[-1]) if rows else None
+    items = [MessageOut.from_model(row) for row in rows]
+    media = [(item, row.media_path) for item, row in zip(items, rows) if row.media_path]
+    db.close()
+    signed = storage.sign([path for _, path in media]) if include_media and media else {}
+    for item, path in media:
+        item.mediaUrl = signed.get(path)
 
-    return Page[MessageOut](
-        items=[
-            MessageOut.from_model(
-                m, media_url=signed.get(m.media_path) if m.media_path else None
-            )
-            for m in rows
-        ],
+    return MessagePage(
+        items=items,
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
+        nextBefore=next_before,
+        nextAfter=next_after,
+        hasMoreAfter=bool(after and has_more),
     )
+
+
+@router.get("/{conversation_id}/messages/media-urls", response_model=MediaUrlsOut)
+def message_media_urls(
+    conversation_id: str,
+    ids: Annotated[str, Query(min_length=1, max_length=7400)],
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_screen("inbox")),
+    storage: SupabaseStorage = Depends(get_storage),
+) -> MediaUrlsOut:
+    """Sign only visible messages in a currently authorized conversation."""
+    values = ids.split(",")
+    if len(values) > 200:
+        raise HTTPException(422, "Solicite no máximo 200 mídias")
+    try:
+        message_ids = {uuid.UUID(value) for value in values}
+    except ValueError as exc:
+        raise HTTPException(422, "Identificador de mensagem inválido") from exc
+    conv = _get_conversation(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
+    if str(conv.igreja_id) != current_user.igreja_id:
+        raise HTTPException(404, "Conversa não encontrada")
+    rows = db.execute(
+        select(Message.id, Message.media_path).where(
+            Message.id.in_(message_ids), Message.conversation_id == conv.id,
+            Message.igreja_id == uuid.UUID(current_user.igreja_id),
+            or_(Message.agent_reply_state.is_(None),
+                Message.agent_reply_state == AGENT_REPLY_CONFIRMED),
+        )
+    ).all()
+    if {row.id for row in rows} != message_ids:
+        raise HTTPException(404, "Mensagem não encontrada")
+    pointers = [(str(row.id), row.media_path) for row in rows if row.media_path]
+    db.close()
+    signed = storage.sign([path for _, path in pointers]) if pointers else {}
+    return MediaUrlsOut(urls={item_id: signed[path] for item_id, path in pointers if path in signed})
 
 
 @router.post("/{conversation_id}/messages", response_model=MessageOut)

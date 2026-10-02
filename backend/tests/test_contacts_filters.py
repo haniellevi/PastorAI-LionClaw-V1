@@ -117,7 +117,7 @@ def test_endpoint_filters_count_and_rows_before_offset(app) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "page": 2, "pageSize": 50, "total": 73}
+    assert response.json() == {"items": [], "page": 2, "pageSize": 50, "total": 73, "searchSupported": True}
     # An empty page needs only count + rows; the bounded leader query is skipped.
     assert len(session.statements) == 2
     count_sql = str(
