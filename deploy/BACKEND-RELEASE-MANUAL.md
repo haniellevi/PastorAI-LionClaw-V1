@@ -377,3 +377,10 @@ recuperação. Sua publicação não autoriza operação nem fecha P2-5 operacio
    garante traps; preservar configuração do ativo e do anterior e volumes.
    Inventariar cancelados, pendentes e fontes V3 pré-época conforme as seções
    anteriores. Reabertura, reconstrução de avisos e envio exigem gates próprios.
+# Exceção restrita para manutenção da API legada
+
+O perfil de [manutenção da API](BACKEND-MAINTENANCE-RELEASE.md) permite o backport
+de desempenho compatível com o banco legado observado em 02/10/2026. Ele tem
+manifestos, checker e recuperação próprios, preserva os workers e não utiliza
+este workflow de release integral. Não remove os requisitos abaixo nem autoriza
+migrations, ativação V1a/V2b/V3 ou substituição completa da stack.

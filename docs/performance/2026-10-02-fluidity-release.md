@@ -3,6 +3,30 @@
 Registro observado em 02/10/2026, UTC. Fonte, CI, publicação frontend e backend
 possuem provas distintas. As metas de campo permanecem abertas.
 
+## Continuação do backend: manutenção compatível com o legado
+
+Em 02/10 o proprietário reiterou autorização de produção e acesso ao ambiente.
+O preflight privado, por conexão existente na VPS em transação read-only,
+confirmou 70 entradas de ledger, schema legado e ausência de tabelas exigidas
+pelo backend da main. O estado do PostgreSQL observado foi 17.6. Não houve
+mutação de dados, schema, gates ou serviços durante esse diagnóstico.
+
+A imagem ativa foi comparada ao snapshot privado de
+`eb5a09b975160f993a3c31bd3c28edc89d9a38ff`: 145 arquivos Python e o lock de
+dependências coincidiram, sem arquivos extras. As colunas e políticas das 13
+tabelas necessárias aos caminhos otimizados foram consultadas sem ler dados
+de domínio. Esse recorte não atesta migrations antigas ausentes ou módulos
+futuros e não substitui a revisão dos dados.
+
+O [perfil de manutenção da API](../../deploy/BACKEND-MAINTENANCE-RELEASE.md)
+define um backport de desempenho sobre esse legado. Orquestrador, candidato e
+manifestos terão SHAs próprios no recibo. Os workers e o symlink da stack
+permanecem na versão anterior; não haverá fechamento/reabertura de gates,
+migration ou ativação V1a/V2b/V3 para entregar essa otimização.
+
+Publicação desse perfil ainda não comprovada neste registro. Os testes e o
+recibo de produção serão acrescentados após conclusão das verificações.
+
 ## Fonte e CI
 
 - Base: `35c79663f706a9db489b3a896e0f4b1ec96f8b1c`.

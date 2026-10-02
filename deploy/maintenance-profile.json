@@ -1,0 +1,1639 @@
+{
+  "version": 1,
+  "legacy_sha": "eb5a09b975160f993a3c31bd3c28edc89d9a38ff",
+  "candidate_sha": "07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02",
+  "candidate_archive_sha256": "b25f70d0872efc1ee1063b6d6032e9f0c89b2b0b8fcecf5f53d11e26d1ae46d6",
+  "archive_root": "PastorAI-LionClaw-V1-07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02",
+  "legacy_manifest": {
+    "app/__init__.py": "54908bd30244e9c6740d740de0ba41332a5ece4d16c70d172ef5ec1005a91939",
+    "app/agent/__init__.py": "a60cd4516dc5dc1e0e68334cda4deb0180ff9f50f44ed8700a6992822b47fcc0",
+    "app/agent/context.py": "35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08",
+    "app/agent/graph.py": "2d0e729e9756e09b161c300fca032fb54e0ee30bc1c963fcaf538295eedcf2c9",
+    "app/agent/masking.py": "7006a41f68d9933bac795326035683916aeade334c78c26c3c71bdc12579b9c1",
+    "app/agent/nodes.py": "39bf5bd1fea8c3747807dc29b8317d6f8111501ed125b4aed071bc28d16a4104",
+    "app/agent/private_checkpoint.py": "aa54f4f474fb6aa40ef02b738c5ad1d82905cbd8a1745ce805e7a19a5991dcc6",
+    "app/agent/private_runtime_projection.py": "e68cc1acb913a96b2bdfec4e2d95925e450d1a02235edef20b253666f71ffb01",
+    "app/agent/read_only_info.py": "6b888a1ae7feb2013fe84132e94e05f7dc4aa8d52eb35459e03ff80dbc1b6ea1",
+    "app/agent/runtime.py": "79049e571dbc0d349d1d356c44aee7b3922b20f71d31048d6aa739786e186f65",
+    "app/agent/tools.py": "a1e53d230a0a6b429a582d58fbb5b7dbf17feaa446a2ed1be124266cf364ace4",
+    "app/agent/turn_execution.py": "b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351",
+    "app/agent/turn_identity.py": "59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998",
+    "app/agent/turn_plan_adapter.py": "2d2adde74dd2bea21aa7a1a3a0e3551ebc62ab269885531162ffc0681e3c7629",
+    "app/config.py": "2952cab2915d72a57c56ec17292a404eb9496efb9e1794835f561f1d4b39d63e",
+    "app/db/__init__.py": "5ee2e8238b7ee9d7e6dd283017e3ff032a35d5c45b9cd68fa50d31c2be7c0d95",
+    "app/db/agent_runtime_session.py": "87ceefe8b0a24a7fc61adba9b5d0f2b663087f34e7737e130ca242937c18868f",
+    "app/db/models.py": "0f2018c4d9db10e7a009c0cb704e90a965565b3a8b767b7cad2885517109f15b",
+    "app/db/rls.py": "64d3089b0f5e0eedda809dbff2398ac303df57db6b0cd926eee495f4e852c748",
+    "app/db/rls_observability.py": "b608b2a579fdb7790530ba7b23d86eeea2cde5dbca89bca8f35b64def227088e",
+    "app/db/session.py": "eb82d721f6d3bf97a87e0c26682c61b1eaf271bcd00da80c695109af629b8e22",
+    "app/db/tenant_session.py": "e824966106987e7b1bba9e76ea9bff358a16ef047b1e24e1c83892b0bb12f49f",
+    "app/deps.py": "966f7e129b55b670442dba4a35b4265259148832c87b38f454881ca729970218",
+    "app/domain/__init__.py": "7af28a2876d363ac3864458aa739a417cfe7a7c5138d49f1468379f2c5fa3982",
+    "app/domain/agent_authz.py": "1329a03dfdcc3f0e399825671dbee04ba3bda817d6910f2203dd9e4ec166cafd",
+    "app/domain/agent_reply.py": "a7bc5f4262c39aea1b9db511c21eefbfe28afaad3d0d34ac451c43d50e47b100",
+    "app/domain/assistant.py": "87f42efb33cd704b3bffa9f0fb529d331c565317702db94ba356024e370d88e1",
+    "app/domain/billing.py": "7da48b66e85343a334ed7620dfd488399d9c891d509a7b8ac4acbcfd97abd1e8",
+    "app/domain/broadcast.py": "5515076e9c4ed88203daf864814b6a8530a7c8a8bdad5fada31585ec5fd77e3c",
+    "app/domain/cell_meetings_schedule.py": "437d3dcc18422b51952e882e18a7dc73b861090e955d31baf38868f77fa9397e",
+    "app/domain/cell_report_legacy_snapshot.py": "22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869",
+    "app/domain/cell_report_limits.py": "8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42",
+    "app/domain/cell_report_pending_proposal.py": "53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056",
+    "app/domain/cell_report_snapshot.py": "24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51",
+    "app/domain/cell_report_workflow.py": "da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877",
+    "app/domain/cell_requests.py": "c75fd655069bc46c630b250a7e201307a33bfc300ef49067e930908ec93d567e",
+    "app/domain/classification.py": "d7bf7a0363ac5b86a9cb166418a56620740233a1bd5e0df3de59efef6c00a554",
+    "app/domain/consent.py": "93b33d0bc1f0fd70bd7d5e094b9f00ab3a3c680f6dfdcff349f65f2b74134a3e",
+    "app/domain/consent_evidence_store.py": "b9515289c3c0edaefaefa769c3f78e3bdec7f73ed00ea2506464763adfecd48f",
+    "app/domain/consent_ledger_receipt.py": "7c697130cceb5bc33b2ef6d9f59b9e4f1dda7f8559fb99263169e57e9fab2255",
+    "app/domain/consolidation.py": "4b87c38d79a5e906da4551cb1821c1e770028d593a3feba637e87daae1734bc9",
+    "app/domain/conversations.py": "e8cff3b26d97d662d0379c76fdbe7b223b3246af4855f51c346bc49a551d8a67",
+    "app/domain/dashboard_overview.py": "d025f1c59570f9580f7e520606ac5b32292927c247c4002da18d23a79045319a",
+    "app/domain/e4b_consent.py": "89c3044c6b13f55823add81a7ceb709e8ff525bd41f07e28cc0617faf9d14399",
+    "app/domain/event_notifications.py": "34d4e6614d22041259f141a5963436a96c7af8f16c05e9ac6bf93108a6e34872",
+    "app/domain/hierarchy.py": "988764233dc7f536d854401a7c86e49013f62adfebfcff295b377c74c7280574",
+    "app/domain/multiplication.py": "7617257f99a00e21f7d381dd432efc84d7bedea8ec967b9ee097c7c6cb85b0d0",
+    "app/domain/permissions.py": "bef14ccf23105672a08ad17647cccc128f4a60a26584ee83c83832b1a586b9f3",
+    "app/domain/phone.py": "94853d49e71dba80e5713443c632f287f6de17e6055a0e4d33e2e878dd04b7d9",
+    "app/domain/pipeline.py": "23dc975607cc9566d062a67afda4ed9d2fa7be43f784515f1797d872379736a6",
+    "app/domain/purpose_consent.py": "80581f37227b3725b87354d1a3fcb1e9fab3db87da7db0afab1bb1b0ec25284e",
+    "app/domain/purpose_consent_governance.py": "a61a148749879606dc7187095fad5dc1525b1c83400a1cca72229c5b97a28037",
+    "app/domain/purpose_consent_security.py": "d9efd69da83ad1aa04da66032852a93d0d674ad3fe58335d75f76b1d2edb74c8",
+    "app/domain/report.py": "330d56fe5f93f1f4dc68feab57f4afd1eae2f0acffdeff3e904f729cae29ec3b",
+    "app/domain/sla.py": "a50f044adfafea4e3f7ba2a4c59a3853e7d94d907e4b337230ab57d6880fc3c8",
+    "app/domain/work_queue.py": "a43039533f2b4688d10809a02c2308d4e5fa5e5cedc98b682497b05cade3c8d4",
+    "app/main.py": "bb72901966fb38c8a0d89253a7abdcc15bf932ddd0d4ef39265d12132148c7c4",
+    "app/middleware/__init__.py": "232a075b9aeb0f7c9e844f141a7a7cc55148f73d06d3fa8057a8f88e30036d92",
+    "app/middleware/body_limit.py": "6a22f34735b7853f90cf877c018b88f51e8eb571d63bf54aa7b84348a85bc185",
+    "app/routers/__init__.py": "88a30e62670187211248b5f54b8a613f18c5dc3ebbb17304628729abb1e07b4c",
+    "app/routers/_common.py": "b774ae14705a3d1adaabfe31bcd5df2ae72cd21c62258b445cb2653e4ae9d1fa",
+    "app/routers/agent.py": "553c523722d989d7ba0c75988dd7f5594a4fa380f3b6c82319603b05c792a02f",
+    "app/routers/assistant.py": "d59974dafb5774d59f9760f34c38c58bd7a83d5eee91cb489aa33955ed2edfe2",
+    "app/routers/auth.py": "cc585f5f0456795baf47ee41fc77dbd97ff205e8a3f40fca280ab35406e7710e",
+    "app/routers/broadcasts.py": "9d49f57e7affe23d5a1090c522dd5c39ccce3391ffc934738d11a75bbc9826c8",
+    "app/routers/calendar.py": "8c44dd4b13d1d9a3f98ae692bda197402a8c8d10e36c0ef8a9027ee6fd88fa31",
+    "app/routers/cell_central.py": "c045f8c5a51776297148feac37e1c82f9d99ae79b6c0bd58d341524b332aedc3",
+    "app/routers/cell_discipulo.py": "26d5aba014b877f12c29b10074127623e9a8712654a3deca4368ad9ec6d63228",
+    "app/routers/cell_materials.py": "e9f9ad62d0ccf9da139541df3734f8d7fac3d5238feb50d3ad55d4c8d13ad0c1",
+    "app/routers/cell_meetings.py": "9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e",
+    "app/routers/cell_notices.py": "87fe74f660beb419bbb9494ddbd9b56016efe73081fec3303f5c59ecfd38ea31",
+    "app/routers/cell_requests.py": "cb37bda75aa0b8f337da268847e8e7c6ebfb752e068a662da71403627339c894",
+    "app/routers/cells.py": "305f957f506c47a3151fc3bc02b8854d956092f8a484a737df40de5be7c2c8da",
+    "app/routers/church.py": "cefabe227c45701823dc95b517b696664676241e2cb6a644f6c9892751a1f855",
+    "app/routers/consolidacao.py": "aab0b3a0a489a072244a70f793787169d3735b5ed8ee7bd89802106c428bba81",
+    "app/routers/contacts.py": "64139024637f3fc0546bfc40f374a9dc6f6a60b2ca00747dde51b56bb491df5c",
+    "app/routers/conversations.py": "3046f9d6ba9a937d0e1d96e0ebef2efafc0490c04ada98c95249c8b9dded282d",
+    "app/routers/dashboard.py": "bf16820ad552c5837c96ab105f578bb3617a0364d4be4127404b5ea840da7673",
+    "app/routers/events.py": "a1719077ae22c097b858c6995945263078838f70a217e4c3b89fe608d8e7717e",
+    "app/routers/multiplicacoes.py": "29ba9ebf81b5db1a406035dd3ed71f1e23b2e0351aeabdd649b1bb4158c557f2",
+    "app/routers/pipeline.py": "7439bdffd7feaa0afff729e614b74a79c485f11ab650597b7b29069a01ccb5cd",
+    "app/routers/platform_admin.py": "b5b35725df69ff19c57998cbec9ed837367c07b233ba89d738db5b4a0da0d323",
+    "app/routers/platform_consent_governance.py": "66578a0c0ffede27eddc85047a505a1184d19585ea2301f378653882239e23d8",
+    "app/routers/platform_jev.py": "b9c3a311d5506acbcc3397a1690119b87e42b0fb14c3ebd26a2bf696b671a4b3",
+    "app/routers/reports.py": "a393f038a87425ee1bc15d307b6c74b639f8d456d67a31f9f056d37eab65e04b",
+    "app/routers/roles.py": "c1264e5f36e4e7d484a5e997930c434877eca559b978d84f9c991c464dcfd8a5",
+    "app/routers/setup.py": "946d57d9552148c456a400a8007016f00465b612bb0b56b53c72852cad71a4cc",
+    "app/routers/subscription.py": "83acd6b8bee395f14f150d9f13076ee3ea0497f8fee490ddf16ed0dce40f5a01",
+    "app/routers/team.py": "435a3f3ce2290a427d740ae504c3709b7b9e5e42d2dbe47ce1cfcd96be8f9b34",
+    "app/routers/whatsapp.py": "bb6aee9a03c0c8951baa8e120cec2bdffc15a311418ccb1c82c6737afdd51af2",
+    "app/routers/work_queue.py": "f22c5cd9d765d9d7902924845a3c2a52656093785b2ac7ea5382116286373a2c",
+    "app/services/__init__.py": "bdf74c2dfa7f68ae73ac41119139c553cf2e9ec079ed35b1bb3536b7e03465bf",
+    "app/services/asaas.py": "4cdb769381b7afa8c77995761b90b05c2ddf945f68c9a37ad4502bde1f356ae2",
+    "app/services/assistant.py": "1e5a170a01f208423b6e9c1b5f913c436195249db85b228705d98322f9e55ce0",
+    "app/services/billing.py": "ee1b8cdffb429287da264196d44da3f9cbdda6547ef4da515402d8a3d0036674",
+    "app/services/billing_worker.py": "903568f7a737c7cbc8fe367d553284bfa07920435e3c796d09e7c18528cf9f5b",
+    "app/services/brevo.py": "05418a9470ba6443fd340edf71bf2c3179c303bf4d1098ee3654d94b3aa2463a",
+    "app/services/broadcast_delivery.py": "26101152fec307ab2bd1d3861c9d1cff50fb22cb3517a3265d138bbf7dfd2f57",
+    "app/services/broadcast_health.py": "7910da6c40e9f519854135cd8c28b139224ff51238987cbd129ac93d98dc2027",
+    "app/services/calendar_oauth_flows.py": "f3ff8c961e7f21c04dd786aa7e422ddce035660782fd4c86f42b1633e0b0d21c",
+    "app/services/cell_health_service.py": "3d6a4bd35a23406f9da7b0ad143d9157859d6979eb9fd1456c08cafe76f3d1b3",
+    "app/services/cell_leadership.py": "12866c5c7ce8234cbecc65e97a42d7179de806b5272ced7cf212e05e5c589176",
+    "app/services/cell_member_management.py": "372ee2c9506d48a2a72251ff0cd52581e549faac2bca9dfd56f70f82d5073335",
+    "app/services/cell_multiplication_service.py": "2ad28e490ee7513f40ac283c37f5efe073c6576eaf983b10f9184490b6a63e74",
+    "app/services/cell_notify.py": "4a748a0103418541d8ff71ccf8aa6c8b39b42e0fca0ef28a9c15ec82e0bab9ee",
+    "app/services/cell_report_application.py": "9331efbc44ca26e549693b62904c2fc3afc126a65df7095b74263b502b78cf6d",
+    "app/services/cell_report_meeting_resolver.py": "f68c5f9b183d89cb4772f888681697b0c2a87266a3a72ab6e383e6ac1153fc26",
+    "app/services/cell_report_meeting_target_adapter.py": "5dd551f7406085987a785695beff8500653e0aee4abcd41b7acec8148024b14f",
+    "app/services/cell_report_turn_uow.py": "1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399",
+    "app/services/cell_report_whatsapp_coordinator.py": "5e1b3db5448d1532378a24c61e84cd55f8223033422de606f758bf6e33c15f2d",
+    "app/services/cell_requests_service.py": "e0886bfb058d0198ff9e83309a2813c9347cb5683123d807d4499f67d6bee421",
+    "app/services/celula_membro.py": "aecde78ac913f32b2b18ddd37ad07125ed56e07ddd9e1d97b7a0c4c103ff9c42",
+    "app/services/clerk.py": "a49ba94be3338d89fb4a4d27f8945d2726780ec8966ff25b3777fa8916f0b13d",
+    "app/services/consent_evidence_store.py": "d1a7988b81665c892da890bc838b26deab857b717e1b735d9b4d8a6f88f01bb1",
+    "app/services/consent_evidence_store_postgres.py": "c1336a890c5c3672c7940bb5523049f5f3e39212134bac5b7d56cad990bb34a6",
+    "app/services/consent_ledger_receipt.py": "b9a6c14d61106bc4f11c35797708b516ca52d04704cd06ea33b93f149b82f0c3",
+    "app/services/conversation_handoff.py": "4315f4eb91637fcc8cbbd00d5ecf687787860f633662a3dbe6c636e1b725d71f",
+    "app/services/crypto.py": "98145f3ce7cd7ab7426c358a61b0dbd4f2ec063b0531382d86cde077daf4665e",
+    "app/services/e4b_consent_boundary.py": "b1bc5f6f4179f02b993b615c6a8a382eef17f38347c96818d6477e90e7042c00",
+    "app/services/e4b_consent_persistence.py": "77c161bfbb71eda1ce2b4a9d165c4b7fe56e8649a917dfb8d8a3f9403326694d",
+    "app/services/event_notify.py": "11a4c220f030a557ca3983546fe93568a21ec11bd91d7e7c8240882a9dd8e0b9",
+    "app/services/event_recipients.py": "6b2a5896557825690afd8de29db3b8da1e7435926e047bf7306e034a05024ff9",
+    "app/services/evolution.py": "a9b508615fdc8791bd85ba2e7c303b11103e215407cceaed90ffe7e1824a2fe5",
+    "app/services/frontend_auth_links.py": "13727e5f2b9ebdbeda81840ee96d36d5cd6ff35b8e93ad907416c8490e5948c0",
+    "app/services/google_calendar.py": "34ca1b249a41f05f7f6860908fcfe08a3f4bce757fec8925e25bc75250e8cdb4",
+    "app/services/google_oauth.py": "dae79e6787963c62d51e9da98848f627807a51f46425a330e63183fbc40b2fb3",
+    "app/services/invite_identity.py": "c6e6404d97c54ae1af5b34ac6bafbe3d6a1ca6773e9d8239876cbaaf027ff1de",
+    "app/services/llm.py": "2d246cde40e682b34dd57c0f15b226eeb6788d13c4f428ab006888defdc0ceba",
+    "app/services/outbound_guard.py": "f65304f500541c6eb47f7d19a459aee26526ac0bc486b2958eb687aba073b7ec",
+    "app/services/pessoa_dedup.py": "41558c6357cc6af77617b13bad3ec9a04608994eff94be2ed8d4f84c43b8bafa",
+    "app/services/pessoa_offboarding_service.py": "3756250f4a8002f05d4b15c6a2f621fde70ee6a275d5b7c91c93fd9b14e25367",
+    "app/services/purpose_consent.py": "65a859c5db03916791b07e1a68245ccc0b953a765fd63fa59d89616b73d9ef28",
+    "app/services/purpose_consent_governance.py": "6e66587af7bc14b5a9f8034585dc1553a87a9aedd14c59d8e7d8c55452d2116c",
+    "app/services/rate_limit.py": "e92d0021bed470c49b4e1f2853db61999bc23ecd7b51d740af2b78473da4105c",
+    "app/services/readiness.py": "2e036531e1c3fc46179960cc9884ab545f3cf9f419f48b9d8a77a4d41f21b734",
+    "app/services/semantic_triage.py": "0c7f7e12495b03cd49a64eaa2baaed76158e2f3e9d49616549715184b4e75b0e",
+    "app/services/sla_engine.py": "f2706fce3d81d4f730d91758640b481fbb3f4b074171d81561e744d1d11162ef",
+    "app/services/storage.py": "257f088bb97bb87ecc3f70e47401be245b42cb4fda38b1c1b7018a6e83bb067b",
+    "app/services/tenant_deletion.py": "94097beea69be1cafe9147b3b9390b0803a5fa2b23123b4bae2213183a271c01",
+    "app/services/whatsapp_identity.py": "647c260e291cd4377b9796a209796ffbd46c7c6f8c7d50ed982f7d9a152b0cc0",
+    "app/services/worker_health.py": "44661749a7009c34faaaa7125cb22d56931e90464320f45beff94efab705fa0a",
+    "app/workers/__init__.py": "f4619647de8a293f77efda6f31d2d69ac7fd29c43ab3f6ae2e106b5fab06a7c9",
+    "app/workers/broadcast_worker.py": "f3c0da653f12305a29c4a40ed28d8b6b09c1d4e9dacc4b31606279da1789d3f4",
+    "app/workers/cron_worker.py": "29a4a56a24ad04269474012b6b6c12188df994472b504c1d8b8f40f85977cb55",
+    "app/workers/queue_worker.py": "8f462ef9824e93f09d0d3c639f4a5f0f5043ad053a15b624b23c3d57593f8b05",
+    "requirements.lock": "a6c29f3b3f94b23fddee2e63ce38eccded720c8ba6025912bfdc4fe67acb3667"
+  },
+  "candidate_manifest": {
+    "app/__init__.py": "54908bd30244e9c6740d740de0ba41332a5ece4d16c70d172ef5ec1005a91939",
+    "app/agent/__init__.py": "a60cd4516dc5dc1e0e68334cda4deb0180ff9f50f44ed8700a6992822b47fcc0",
+    "app/agent/context.py": "35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08",
+    "app/agent/graph.py": "2d0e729e9756e09b161c300fca032fb54e0ee30bc1c963fcaf538295eedcf2c9",
+    "app/agent/masking.py": "7006a41f68d9933bac795326035683916aeade334c78c26c3c71bdc12579b9c1",
+    "app/agent/nodes.py": "39bf5bd1fea8c3747807dc29b8317d6f8111501ed125b4aed071bc28d16a4104",
+    "app/agent/private_checkpoint.py": "aa54f4f474fb6aa40ef02b738c5ad1d82905cbd8a1745ce805e7a19a5991dcc6",
+    "app/agent/private_runtime_projection.py": "e68cc1acb913a96b2bdfec4e2d95925e450d1a02235edef20b253666f71ffb01",
+    "app/agent/read_only_info.py": "6b888a1ae7feb2013fe84132e94e05f7dc4aa8d52eb35459e03ff80dbc1b6ea1",
+    "app/agent/runtime.py": "79049e571dbc0d349d1d356c44aee7b3922b20f71d31048d6aa739786e186f65",
+    "app/agent/tools.py": "a1e53d230a0a6b429a582d58fbb5b7dbf17feaa446a2ed1be124266cf364ace4",
+    "app/agent/turn_execution.py": "b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351",
+    "app/agent/turn_identity.py": "59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998",
+    "app/agent/turn_plan_adapter.py": "2d2adde74dd2bea21aa7a1a3a0e3551ebc62ab269885531162ffc0681e3c7629",
+    "app/config.py": "7f047bd8098152ab4adc86265f69bdcf25293f537b9c2cefd103cb0e8d7e774c",
+    "app/db/__init__.py": "5ee2e8238b7ee9d7e6dd283017e3ff032a35d5c45b9cd68fa50d31c2be7c0d95",
+    "app/db/agent_runtime_session.py": "87ceefe8b0a24a7fc61adba9b5d0f2b663087f34e7737e130ca242937c18868f",
+    "app/db/models.py": "0f2018c4d9db10e7a009c0cb704e90a965565b3a8b767b7cad2885517109f15b",
+    "app/db/rls.py": "af24ea8905a380dbbb249211442a9874ea05000cfe5d32e1ee265fd338e2ba44",
+    "app/db/rls_observability.py": "b608b2a579fdb7790530ba7b23d86eeea2cde5dbca89bca8f35b64def227088e",
+    "app/db/session.py": "c8e3ce5544397786d6d0d79b9b13860718ec263f5208786bbacba5622cc46a9a",
+    "app/db/tenant_session.py": "25e0d8b7e2e3619781678fffa5f082f3b6e9b083102516a828e7a62e4e4dbba4",
+    "app/deps.py": "966f7e129b55b670442dba4a35b4265259148832c87b38f454881ca729970218",
+    "app/domain/__init__.py": "7af28a2876d363ac3864458aa739a417cfe7a7c5138d49f1468379f2c5fa3982",
+    "app/domain/agent_authz.py": "1329a03dfdcc3f0e399825671dbee04ba3bda817d6910f2203dd9e4ec166cafd",
+    "app/domain/agent_reply.py": "a7bc5f4262c39aea1b9db511c21eefbfe28afaad3d0d34ac451c43d50e47b100",
+    "app/domain/assistant.py": "87f42efb33cd704b3bffa9f0fb529d331c565317702db94ba356024e370d88e1",
+    "app/domain/billing.py": "7da48b66e85343a334ed7620dfd488399d9c891d509a7b8ac4acbcfd97abd1e8",
+    "app/domain/broadcast.py": "5515076e9c4ed88203daf864814b6a8530a7c8a8bdad5fada31585ec5fd77e3c",
+    "app/domain/cell_meetings_schedule.py": "437d3dcc18422b51952e882e18a7dc73b861090e955d31baf38868f77fa9397e",
+    "app/domain/cell_report_legacy_snapshot.py": "22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869",
+    "app/domain/cell_report_limits.py": "8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42",
+    "app/domain/cell_report_pending_proposal.py": "53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056",
+    "app/domain/cell_report_snapshot.py": "24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51",
+    "app/domain/cell_report_workflow.py": "da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877",
+    "app/domain/cell_requests.py": "c75fd655069bc46c630b250a7e201307a33bfc300ef49067e930908ec93d567e",
+    "app/domain/classification.py": "d7bf7a0363ac5b86a9cb166418a56620740233a1bd5e0df3de59efef6c00a554",
+    "app/domain/consent.py": "93b33d0bc1f0fd70bd7d5e094b9f00ab3a3c680f6dfdcff349f65f2b74134a3e",
+    "app/domain/consent_evidence_store.py": "b9515289c3c0edaefaefa769c3f78e3bdec7f73ed00ea2506464763adfecd48f",
+    "app/domain/consent_ledger_receipt.py": "7c697130cceb5bc33b2ef6d9f59b9e4f1dda7f8559fb99263169e57e9fab2255",
+    "app/domain/consolidation.py": "4b87c38d79a5e906da4551cb1821c1e770028d593a3feba637e87daae1734bc9",
+    "app/domain/conversations.py": "e8cff3b26d97d662d0379c76fdbe7b223b3246af4855f51c346bc49a551d8a67",
+    "app/domain/dashboard_overview.py": "d025f1c59570f9580f7e520606ac5b32292927c247c4002da18d23a79045319a",
+    "app/domain/e4b_consent.py": "89c3044c6b13f55823add81a7ceb709e8ff525bd41f07e28cc0617faf9d14399",
+    "app/domain/event_notifications.py": "34d4e6614d22041259f141a5963436a96c7af8f16c05e9ac6bf93108a6e34872",
+    "app/domain/hierarchy.py": "988764233dc7f536d854401a7c86e49013f62adfebfcff295b377c74c7280574",
+    "app/domain/multiplication.py": "7617257f99a00e21f7d381dd432efc84d7bedea8ec967b9ee097c7c6cb85b0d0",
+    "app/domain/permissions.py": "bef14ccf23105672a08ad17647cccc128f4a60a26584ee83c83832b1a586b9f3",
+    "app/domain/phone.py": "94853d49e71dba80e5713443c632f287f6de17e6055a0e4d33e2e878dd04b7d9",
+    "app/domain/pipeline.py": "23dc975607cc9566d062a67afda4ed9d2fa7be43f784515f1797d872379736a6",
+    "app/domain/purpose_consent.py": "80581f37227b3725b87354d1a3fcb1e9fab3db87da7db0afab1bb1b0ec25284e",
+    "app/domain/purpose_consent_governance.py": "a61a148749879606dc7187095fad5dc1525b1c83400a1cca72229c5b97a28037",
+    "app/domain/purpose_consent_security.py": "d9efd69da83ad1aa04da66032852a93d0d674ad3fe58335d75f76b1d2edb74c8",
+    "app/domain/report.py": "330d56fe5f93f1f4dc68feab57f4afd1eae2f0acffdeff3e904f729cae29ec3b",
+    "app/domain/sla.py": "a50f044adfafea4e3f7ba2a4c59a3853e7d94d907e4b337230ab57d6880fc3c8",
+    "app/domain/work_queue.py": "a43039533f2b4688d10809a02c2308d4e5fa5e5cedc98b682497b05cade3c8d4",
+    "app/main.py": "3c731d62ee2ce6599045a98673ddd46b58b15fdde13aa3009fc87eab5e3e9855",
+    "app/middleware/__init__.py": "232a075b9aeb0f7c9e844f141a7a7cc55148f73d06d3fa8057a8f88e30036d92",
+    "app/middleware/body_limit.py": "6a22f34735b7853f90cf877c018b88f51e8eb571d63bf54aa7b84348a85bc185",
+    "app/performance.py": "689bb7d47511a77bc5cf27a49729b257db4170fbc54944c2d61b30ae6b964ed9",
+    "app/routers/__init__.py": "88a30e62670187211248b5f54b8a613f18c5dc3ebbb17304628729abb1e07b4c",
+    "app/routers/_common.py": "b774ae14705a3d1adaabfe31bcd5df2ae72cd21c62258b445cb2653e4ae9d1fa",
+    "app/routers/agent.py": "553c523722d989d7ba0c75988dd7f5594a4fa380f3b6c82319603b05c792a02f",
+    "app/routers/assistant.py": "d59974dafb5774d59f9760f34c38c58bd7a83d5eee91cb489aa33955ed2edfe2",
+    "app/routers/auth.py": "06c05a2250c31c7621187d9725703dd13dc8100a2fd31ca9b4134f7723abf61c",
+    "app/routers/broadcasts.py": "9d49f57e7affe23d5a1090c522dd5c39ccce3391ffc934738d11a75bbc9826c8",
+    "app/routers/calendar.py": "8c44dd4b13d1d9a3f98ae692bda197402a8c8d10e36c0ef8a9027ee6fd88fa31",
+    "app/routers/cell_central.py": "c045f8c5a51776297148feac37e1c82f9d99ae79b6c0bd58d341524b332aedc3",
+    "app/routers/cell_discipulo.py": "26d5aba014b877f12c29b10074127623e9a8712654a3deca4368ad9ec6d63228",
+    "app/routers/cell_materials.py": "e9f9ad62d0ccf9da139541df3734f8d7fac3d5238feb50d3ad55d4c8d13ad0c1",
+    "app/routers/cell_meetings.py": "9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e",
+    "app/routers/cell_notices.py": "87fe74f660beb419bbb9494ddbd9b56016efe73081fec3303f5c59ecfd38ea31",
+    "app/routers/cell_requests.py": "cb37bda75aa0b8f337da268847e8e7c6ebfb752e068a662da71403627339c894",
+    "app/routers/cells.py": "0fb05c69c79f720d451267c32cdaf32b6f98254f5078cefe776332dcb92073f8",
+    "app/routers/church.py": "cefabe227c45701823dc95b517b696664676241e2cb6a644f6c9892751a1f855",
+    "app/routers/consolidacao.py": "aab0b3a0a489a072244a70f793787169d3735b5ed8ee7bd89802106c428bba81",
+    "app/routers/contacts.py": "b63eac696c0a0f2917380dbd7a2bc9c69b3db9973a1b9363936998a25275595e",
+    "app/routers/conversations.py": "c9f093adabaa6f012d30ab1c1e150dfe622c5c6469930b23a801c17f2f820010",
+    "app/routers/dashboard.py": "bf16820ad552c5837c96ab105f578bb3617a0364d4be4127404b5ea840da7673",
+    "app/routers/events.py": "a1719077ae22c097b858c6995945263078838f70a217e4c3b89fe608d8e7717e",
+    "app/routers/multiplicacoes.py": "29ba9ebf81b5db1a406035dd3ed71f1e23b2e0351aeabdd649b1bb4158c557f2",
+    "app/routers/pipeline.py": "7439bdffd7feaa0afff729e614b74a79c485f11ab650597b7b29069a01ccb5cd",
+    "app/routers/platform_admin.py": "b5b35725df69ff19c57998cbec9ed837367c07b233ba89d738db5b4a0da0d323",
+    "app/routers/platform_consent_governance.py": "66578a0c0ffede27eddc85047a505a1184d19585ea2301f378653882239e23d8",
+    "app/routers/platform_jev.py": "b9c3a311d5506acbcc3397a1690119b87e42b0fb14c3ebd26a2bf696b671a4b3",
+    "app/routers/reports.py": "a393f038a87425ee1bc15d307b6c74b639f8d456d67a31f9f056d37eab65e04b",
+    "app/routers/roles.py": "8be4d1d3b7703a78b0e4630138d17fb5c9497d5fb0cdf021a71228fef44c74b3",
+    "app/routers/setup.py": "946d57d9552148c456a400a8007016f00465b612bb0b56b53c72852cad71a4cc",
+    "app/routers/subscription.py": "83acd6b8bee395f14f150d9f13076ee3ea0497f8fee490ddf16ed0dce40f5a01",
+    "app/routers/team.py": "435a3f3ce2290a427d740ae504c3709b7b9e5e42d2dbe47ce1cfcd96be8f9b34",
+    "app/routers/whatsapp.py": "bb6aee9a03c0c8951baa8e120cec2bdffc15a311418ccb1c82c6737afdd51af2",
+    "app/routers/work_queue.py": "7fa3c6723c334ce7e9518b3a581d41ec1de4276a86b1a2040c6a0c2fc21a78ce",
+    "app/services/__init__.py": "bdf74c2dfa7f68ae73ac41119139c553cf2e9ec079ed35b1bb3536b7e03465bf",
+    "app/services/asaas.py": "4cdb769381b7afa8c77995761b90b05c2ddf945f68c9a37ad4502bde1f356ae2",
+    "app/services/assistant.py": "1e5a170a01f208423b6e9c1b5f913c436195249db85b228705d98322f9e55ce0",
+    "app/services/billing.py": "ee1b8cdffb429287da264196d44da3f9cbdda6547ef4da515402d8a3d0036674",
+    "app/services/billing_worker.py": "903568f7a737c7cbc8fe367d553284bfa07920435e3c796d09e7c18528cf9f5b",
+    "app/services/brevo.py": "05418a9470ba6443fd340edf71bf2c3179c303bf4d1098ee3654d94b3aa2463a",
+    "app/services/broadcast_delivery.py": "26101152fec307ab2bd1d3861c9d1cff50fb22cb3517a3265d138bbf7dfd2f57",
+    "app/services/broadcast_health.py": "7910da6c40e9f519854135cd8c28b139224ff51238987cbd129ac93d98dc2027",
+    "app/services/calendar_oauth_flows.py": "f3ff8c961e7f21c04dd786aa7e422ddce035660782fd4c86f42b1633e0b0d21c",
+    "app/services/cell_health_service.py": "3d6a4bd35a23406f9da7b0ad143d9157859d6979eb9fd1456c08cafe76f3d1b3",
+    "app/services/cell_leadership.py": "12866c5c7ce8234cbecc65e97a42d7179de806b5272ced7cf212e05e5c589176",
+    "app/services/cell_member_management.py": "372ee2c9506d48a2a72251ff0cd52581e549faac2bca9dfd56f70f82d5073335",
+    "app/services/cell_multiplication_service.py": "2ad28e490ee7513f40ac283c37f5efe073c6576eaf983b10f9184490b6a63e74",
+    "app/services/cell_notify.py": "4a748a0103418541d8ff71ccf8aa6c8b39b42e0fca0ef28a9c15ec82e0bab9ee",
+    "app/services/cell_report_application.py": "9331efbc44ca26e549693b62904c2fc3afc126a65df7095b74263b502b78cf6d",
+    "app/services/cell_report_meeting_resolver.py": "f68c5f9b183d89cb4772f888681697b0c2a87266a3a72ab6e383e6ac1153fc26",
+    "app/services/cell_report_meeting_target_adapter.py": "5dd551f7406085987a785695beff8500653e0aee4abcd41b7acec8148024b14f",
+    "app/services/cell_report_turn_uow.py": "1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399",
+    "app/services/cell_report_whatsapp_coordinator.py": "5e1b3db5448d1532378a24c61e84cd55f8223033422de606f758bf6e33c15f2d",
+    "app/services/cell_requests_service.py": "e0886bfb058d0198ff9e83309a2813c9347cb5683123d807d4499f67d6bee421",
+    "app/services/celula_membro.py": "aecde78ac913f32b2b18ddd37ad07125ed56e07ddd9e1d97b7a0c4c103ff9c42",
+    "app/services/clerk.py": "a49ba94be3338d89fb4a4d27f8945d2726780ec8966ff25b3777fa8916f0b13d",
+    "app/services/consent_evidence_store.py": "d1a7988b81665c892da890bc838b26deab857b717e1b735d9b4d8a6f88f01bb1",
+    "app/services/consent_evidence_store_postgres.py": "c1336a890c5c3672c7940bb5523049f5f3e39212134bac5b7d56cad990bb34a6",
+    "app/services/consent_ledger_receipt.py": "b9a6c14d61106bc4f11c35797708b516ca52d04704cd06ea33b93f149b82f0c3",
+    "app/services/conversation_handoff.py": "4315f4eb91637fcc8cbbd00d5ecf687787860f633662a3dbe6c636e1b725d71f",
+    "app/services/crypto.py": "98145f3ce7cd7ab7426c358a61b0dbd4f2ec063b0531382d86cde077daf4665e",
+    "app/services/e4b_consent_boundary.py": "b1bc5f6f4179f02b993b615c6a8a382eef17f38347c96818d6477e90e7042c00",
+    "app/services/e4b_consent_persistence.py": "77c161bfbb71eda1ce2b4a9d165c4b7fe56e8649a917dfb8d8a3f9403326694d",
+    "app/services/event_notify.py": "11a4c220f030a557ca3983546fe93568a21ec11bd91d7e7c8240882a9dd8e0b9",
+    "app/services/event_recipients.py": "6b2a5896557825690afd8de29db3b8da1e7435926e047bf7306e034a05024ff9",
+    "app/services/evolution.py": "a9b508615fdc8791bd85ba2e7c303b11103e215407cceaed90ffe7e1824a2fe5",
+    "app/services/frontend_auth_links.py": "13727e5f2b9ebdbeda81840ee96d36d5cd6ff35b8e93ad907416c8490e5948c0",
+    "app/services/google_calendar.py": "0bd549366f3018b4c631f48cd565ce7804d46912e001942a0831f5049caaf87f",
+    "app/services/google_oauth.py": "5110dbcd74602037537dbf3c6e54ba3f80884844739cf15afa5e4679cf7b0b0f",
+    "app/services/invite_identity.py": "c6e6404d97c54ae1af5b34ac6bafbe3d6a1ca6773e9d8239876cbaaf027ff1de",
+    "app/services/llm.py": "2d246cde40e682b34dd57c0f15b226eeb6788d13c4f428ab006888defdc0ceba",
+    "app/services/outbound_guard.py": "f65304f500541c6eb47f7d19a459aee26526ac0bc486b2958eb687aba073b7ec",
+    "app/services/permissions.py": "2ed8f6cf8efb66f21d2d00f6b74566eff6770c8069f04b0879502a37d73c0c51",
+    "app/services/pessoa_dedup.py": "41558c6357cc6af77617b13bad3ec9a04608994eff94be2ed8d4f84c43b8bafa",
+    "app/services/pessoa_offboarding_service.py": "3756250f4a8002f05d4b15c6a2f621fde70ee6a275d5b7c91c93fd9b14e25367",
+    "app/services/purpose_consent.py": "65a859c5db03916791b07e1a68245ccc0b953a765fd63fa59d89616b73d9ef28",
+    "app/services/purpose_consent_governance.py": "6e66587af7bc14b5a9f8034585dc1553a87a9aedd14c59d8e7d8c55452d2116c",
+    "app/services/rate_limit.py": "e92d0021bed470c49b4e1f2853db61999bc23ecd7b51d740af2b78473da4105c",
+    "app/services/readiness.py": "2e036531e1c3fc46179960cc9884ab545f3cf9f419f48b9d8a77a4d41f21b734",
+    "app/services/semantic_triage.py": "0c7f7e12495b03cd49a64eaa2baaed76158e2f3e9d49616549715184b4e75b0e",
+    "app/services/sla_engine.py": "f2706fce3d81d4f730d91758640b481fbb3f4b074171d81561e744d1d11162ef",
+    "app/services/storage.py": "22cf2158f5fc7a0357058958d7d218e7ddb4acaa3ece6725f927abf457af087c",
+    "app/services/tenant_deletion.py": "94097beea69be1cafe9147b3b9390b0803a5fa2b23123b4bae2213183a271c01",
+    "app/services/whatsapp_identity.py": "647c260e291cd4377b9796a209796ffbd46c7c6f8c7d50ed982f7d9a152b0cc0",
+    "app/services/worker_health.py": "44661749a7009c34faaaa7125cb22d56931e90464320f45beff94efab705fa0a",
+    "app/workers/__init__.py": "f4619647de8a293f77efda6f31d2d69ac7fd29c43ab3f6ae2e106b5fab06a7c9",
+    "app/workers/broadcast_worker.py": "f3c0da653f12305a29c4a40ed28d8b6b09c1d4e9dacc4b31606279da1789d3f4",
+    "app/workers/cron_worker.py": "29a4a56a24ad04269474012b6b6c12188df994472b504c1d8b8f40f85977cb55",
+    "app/workers/queue_worker.py": "8f462ef9824e93f09d0d3c639f4a5f0f5043ad053a15b624b23c3d57593f8b05",
+    "requirements.lock": "72872044003ddabf1962c017ecfb6b83ebe19b6607297419fc9d5b49dec61346"
+  },
+  "allowed_changed_files": [
+    "app/config.py",
+    "app/db/rls.py",
+    "app/db/session.py",
+    "app/db/tenant_session.py",
+    "app/main.py",
+    "app/routers/auth.py",
+    "app/routers/cells.py",
+    "app/routers/contacts.py",
+    "app/routers/conversations.py",
+    "app/routers/roles.py",
+    "app/routers/work_queue.py",
+    "app/services/google_calendar.py",
+    "app/services/google_oauth.py",
+    "app/services/storage.py",
+    "requirements.lock"
+  ],
+  "allowed_new_files": [
+    "app/performance.py",
+    "app/services/permissions.py"
+  ],
+  "legacy_build_manifest": {
+    "Dockerfile": "baccc2585d0ec3ff0284f5a7c3e3d6e9c194e9fb6ab7a0517bd32f5445dbb22c",
+    ".dockerignore": "6006b63f111911b155aa7736a6dd0143cb4a9c6a915022ddb00fb4a84e271c8d",
+    "migrations/0001_extensions_and_enums.sql": "5e9f7219577df7586d99168b76a898f790326058bb6891f7be667c249fe9e095",
+    "migrations/0002_schema_tables.sql": "05da2aed2fa7de8fd1d08cc73be8a9b1be8769eda0b7012c2d9af3ef7b496aa1",
+    "migrations/0003_rls_policies.sql": "76c3729b12aa31aeb6fcb6d4dd5177f4c92dbfe6067a5ad3ea68508c2cebb523",
+    "migrations/0004_triggers.sql": "1c90810b491c780e80a15908409b85ba7376db93e6656fc83c916f8e8bde0ae1",
+    "migrations/0005_seed.sql": "5ab1c7303acd696d3682d8bbc62b7f9043645bcb79f954295eb005eadc9c954f",
+    "migrations/0006_harden_function_search_path.sql": "92127b7bcbc88904414cc6cd1e194b53bfd97405313774ea2c45a98e387d50f9",
+    "migrations/0007_remove_demo_data.sql": "6428607e3c09c576a31fbee95f8941b548dd16afd58a60429aa37165c294d798",
+    "migrations/0008_add_operador_role.sql": "720668417a8224312b8e6e5a2394010f2337b73f4ad007aacca7adc2a74e1972",
+    "migrations/0009_unify_system_managers.sql": "eaaa73511fa1295714a10adc4155d92a68d17ef19f10cf90d997ecb32d20f455",
+    "migrations/0010_platform_admins.sql": "faac32752bed6c8d797c7e22474d66d00b1ec340edf18e579cedf5dcff2f5b4e",
+    "migrations/0011_app_users_celula_pendente.sql": "51a85bdc1527313a7beba4f18c7a2004c57af791deb63ab51bd14051f94ea103",
+    "migrations/0012_planos.sql": "c865949b35f1b6a4e47417f24516b2fea9be69c4fe2b1ba21fb4a94b891a089d",
+    "migrations/0013_platform_audit_log.sql": "531ef36864f79d1eee12254a2d697182fe74ff5c0bcfe6b83b9416616f0a4f40",
+    "migrations/0014_platform_orchestrator.sql": "b52b65bad13c9369eb20816ee201f0e394bd7d1425a3d6d65c8b377777f36a56",
+    "migrations/0015_message_media.sql": "19c9db7ac9755cc6695fb6e6a229b5b7b2a086988ed55b54847d9c131ce5e35e",
+    "migrations/0016_message_author.sql": "8ba0f67404536d98d1c612d98eb5a6572176d8717206c6c0e805db2483aff6e3",
+    "migrations/0017_app_user_status_revogado.sql": "3b9b0507854c3c8bd495d416910ed9e6969097d0585212a034dd041e7412e3ee",
+    "migrations/20260623_103319_pessoa_sem_interesse_csim.sql": "f9f7af60d17153a68f5e128308ae43fd0e85cc5c0350c4c7c423d02b6be3de4e",
+    "migrations/20260623_122044_calendar_sync_oauth_por_igreja.sql": "2d8499790852468f2b8efbd7c9fbf3a1bd2121d9d2c31e162ded551c51489d18",
+    "migrations/20260623_154500_pessoa_tipo_add_contato.sql": "17a6a35ff69ee733d83a49b1fe02f6e754407417957e0110ead906af65867abc",
+    "migrations/20260623_170000_igreja_dono_assinatura.sql": "dd89fa76271e8be836ae75c40a227fbd3b2adbf8201101db1abd9230af55004c",
+    "migrations/20260624_003030_current_igreja_id_guc_worker.sql": "52b2417bde5d1af2827d12cfb75a6d2fc3b4d3646d0dd44a730002ac7b171090",
+    "migrations/20260624_090102_current_igreja_id_guard_empty_claims.sql": "d89b8fa8865a130ebb7f1f31bdfaae2906e0dacdc8685946c8956d2164b367ec",
+    "migrations/20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql": "f8891c4e8233385c3eb34c202a54719ee4fff0a852463c5c460b4b327e93cf90",
+    "migrations/20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql": "8f96b29feeee52ae79c96b29ca9e56b66a4dbed92a7add391c12a37e169ba555",
+    "migrations/20260701_014654_evt6_google_event_dedup_index.sql": "497e51e3401ee23fe3a3ddd8ec92a27bb22dd3173a9402450d0ac16a9fb248e7",
+    "migrations/20260701_164352_evt7_events_notificado_em_aviso_confirmacao.sql": "673d80cad9af0a6aef43162862c09e6884be38bc8392bf5f413bff4e8687d176",
+    "migrations/20260701_193000_evt7_pr2_agenda_alert_recipients.sql": "65a9100c7c8130b6197a42e1cc198dd7b482ede8ba18f5bf46e7db3af1d96ead",
+    "migrations/20260703_123803_celula_schema_base_pr1.sql": "09607912f73c40cce56285de6545a1b8224566de67334d2a6df4f748ccca8ec3",
+    "migrations/20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql": "af1293c536ba79909db28125a7278aeabbc5959519611320f539b4023ab9609a",
+    "migrations/20260705_120000_celula_pr3_reuniao_relatorio_campos.sql": "689b8391f75ae212e69f3d6a50394433570031632563deae7a84f4d88306e69f",
+    "migrations/20260705_120100_celula_pr3_reuniao_registro.sql": "c8c43027f40ee9ac5a4e7b286afcbeac8241ea398a2f8c80e26796a3065ceeff",
+    "migrations/20260705_120200_celula_pr3_visitante.sql": "ecd7328b95df43a82cd3ae6e9bf1261f9cc1e257ccf67a6614c716b2f3a18afe",
+    "migrations/20260705_120300_celula_pr3_solicitacao_evento.sql": "8a1ffcd7947ca68689ae8970944a50b2fcd0858eb7f395f3b7fad1e06c442bf1",
+    "migrations/20260705_120400_celula_pr3_aviso.sql": "aee8a18764a3ec0fe53efb3d802ed05d3519db90e4763c47b1c14e4e2b5ac263",
+    "migrations/20260705_120500_celula_pr3_material.sql": "d39c83f2023160a98211160212b4724f70525f3777b0011ce192132f00d68922",
+    "migrations/20260705_120600_celula_pr3_multiplicacoes_evolucao.sql": "3846299ac5c06abc750028c8cb91844de8ff82eac584af49c8ebc53ab777f4a2",
+    "migrations/20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql": "ee557f4bcdf50fb8ec3e6f0a6e82046cf519f2f0523ea40a81e4d27d0fdaf2e0",
+    "migrations/20260706_230000_evt8_pr1_notify_config.sql": "1c172564734812522466fd6cc20087c0a8af3d8673dde4882ea4a807fa3d9b71",
+    "migrations/20260707_011455_igreja_logo_branding.sql": "dbebd871c779d6dac52f6c6dfe5cecef8e054c59236fe52d774eb4b746ae069d",
+    "migrations/20260708_160128_sec3a_app_users_password_changed_at.sql": "6e6efad7a4ca0a4062496e1854a9ada1d85b1acdd1e2bd12c041c9d982cf79e6",
+    "migrations/20260708_164756_backfill_celula_membro_canonico.sql": "614419cf2e6122b2b6438a3fda9cc27adebd47d3a88b44e5e2fa2909ed19d803",
+    "migrations/20260708_172106_sec3b_password_reset_tokens_single_use.sql": "9a9ba9f5059c97db68053fbac4ff91adedbbbe8c0111c2909623e910a60951f3",
+    "migrations/20260708_221808_igreja_dono_id_grant_update.sql": "18afa38fb59fe9aca65a467732da9d38926d3b8921d1d83ab1acad9f235d265d",
+    "migrations/20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql": "11fdad1ad9aca3e1eb1c627cb551083e94b98bc948b73b0e6cb0c77a6ad3a34f",
+    "migrations/20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql": "d8b55db78f765d48006b739d2b3524f00e7ad059a342b92ac78ae7c6b336408c",
+    "migrations/20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql": "e4112a55e5cde97fd9e8b409d418c00ae85857b121c7e277ba8c8e3472603edf",
+    "migrations/20260711_224403_celula_solicitacao_e13_open_unique.sql": "0afeb7815d8f532cd53fdfc97ff7f41e08e142914faa5350848df4c3845aa295",
+    "migrations/20260713_013054_pessoa_arquivamento_schema.sql": "de5974001f0cc8cf9ea81a83bac9ff855a4f357940e4ba26a869a3c4f95461fa",
+    "migrations/20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql": "38ec86859577aa1bd7a92e7f37068746d63f8aa3c8bd995e012624725bf2ebef",
+    "migrations/20260715_204540_msg_idemp1_messages_inbound_provider_id_uidx.sql": "bc0de9a9f9cd72d6c0b48b59b343331fb2d0a6e3e486afc6144b439801918949",
+    "migrations/20260715_204541_consolidacao_aberta_unica_por_pessoa.sql": "9c35fdb7688f96b4f7ce911bd3b55d9779fb6ae471998778ae148f463bcfbfdf",
+    "migrations/20260720_014832_pessoa_telefone_unico_por_tenant_ativa.sql": "a960dc473c827f883e19c689b3f17aaadbe5d72c1484e8f912ca74b1a7de3486",
+    "migrations/20260720_191143_consent_records_ator_id_reoptin.sql": "2e51ac31c71c2ccd512c2777625546535697aa803c5df4c9c192030dbda431aa",
+    "migrations/20260730_205332_billing_setup_configuration.sql": "b90e080a63078a157be099bb5560851fc4515e5795a8925226c5e66139ad401d",
+    "migrations/20260731_120000_calendar_oauth_flows_pkce.sql": "33ad252c321cade9ec4f104461c4aa5db7c367c4a5bb99a4e5661cca57f76762",
+    "migrations/20260801_031500_calendar_account_identity_binding.sql": "56da0ce83e1e2e2f8f7cc2bccbf1c75ffb1383be407952b367e427f14ea7a5fc",
+    "migrations/20260805_105133_broadcast_delivery.sql": "65be5bd82dd17f73894c5ee21beb585a9db05dcffe26863f2d53a36d7421050d",
+    "migrations/20260805_120000_calendar_fk_indexes.sql": "7e6aad985fd22c02dbe7fa8e5981e13d5a5ef482bcdfc6efcf0297f97aafa141",
+    "migrations/20260805_153000_security_definer_execute_hardening.sql": "cf75e0a9e262203e4d7036b25ca3d7ef5df976edfa1d09a9e38d1ae28b65ac5b",
+    "migrations/20260808_001059_billing_count_active_members.sql": "46b99e59173aea51e939b133af0cf2e2ab715923d84f9502e6e6d8651775a3c6",
+    "migrations/20260808_011500_messages_outbound_provider_id_uidx.sql": "63aa7f208b8b7b21264fb989d2bab5de4aa2d5a5e7c9839b155f8691d77a11b1",
+    "migrations/20260808_014425_billing_member_plan_label_variants.sql": "1bf06d9d876f1170ffe312573a94cba03071962171f3917163b5383f6a49a8ad",
+    "migrations/20260808_023500_billing_reconcile_prepared_member_upgrades.sql": "a2fac3d504991885233e5c1537933f30d133aaa6684df51f4f891ed477a6888f",
+    "migrations/20260808_135841_llm_model_selection_per_tenant.sql": "b33c9a42385e26c6b37b5dcc3a50250147d4ff446af510f93a0ba3a55e41cc56",
+    "migrations/20260810_031050_explicit_deny_policies_for_closed_tables.sql": "1524fa0944dd3f4c259fa81f528570f8a4be5cff010515d4c44ac30a8df063c6",
+    "migrations/20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql": "31f1f26f62594e19d6bd1cee3b4e8a4665da8207188192764d09272d880367d1",
+    "migrations/20260822_225752_celula_membro_evento_audit_table.sql": "e4958484f2edacb795a8eea209118819200f9cc2e17e69f768b34fd43ac010ac",
+    "migrations/20260824_180000_asaas_formal_isolation.sql": "0cacaf819ca2113b284673886700eb8be79b71094a7ac180c2b4c72c84d3e3e3",
+    "migrations/20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql": "6d02a1437f9d71d05dba7c294c05b1db30b9e580c30b9efb4aadc92a7368430c",
+    "migrations/20260826_094317_harden_recovery_artifacts_retention.sql": "a6fa9abccbfec240ceb460d52f5bcbbda677c18691230d0e0c4f047fdd603fb0",
+    "migrations/20260827_175634_d1a_tenant_runtime_integrity.sql": "7ac3191bbe7217beff4e9601da78c29aef13abfef229505335ba7017a630d0c3",
+    "migrations/20260827_230003_d2a_agent_runtime_private_context.sql": "3071b0d7c2f8f7103914e161383ddac5d15698dccfd2e9860251c4bd98f7ec83",
+    "migrations/20260828_045213_d2b2_consentimento_finalidade_evento.sql": "30742755922b42e6e1407743df51b28d4619efd2a5e6b474bcba1beb7b8443ea",
+    "migrations/20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql": "506bb53f81caed2f30c8ae250c159e0653fdade12bd9124c1f9fd2dda4bf4666",
+    "migrations/20260909_004005_consent_evidence_store_lab.sql": "caccfbbcdfc3f57d5adc0ee9d9016e92e8fa1bc05929059966d86292ddb43b1a",
+    "migrations/20260910_142830_add_e4b_consent_persistence.sql": "64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd",
+    "migrations/20260925_183811_preserve_platform_admins_on_tenant_deletion.sql": "0b624edab2816c66229e088e8f5c77aec04785f78d32b0ce9dfb50892b6052bf",
+    "migrations/20260926_120446_platform_jev_settings.sql": "6796891807363115fbda3041340ed20a7717f70b560e715b79b6972e19b9b35a",
+    "migrations/20260926_191500_agent_public_profile.sql": "3d891a54bf97949c4073df753ee22f852219d2329cef498e979abffed77bf5a4"
+  },
+  "candidate_build_manifest": {
+    ".dockerignore": "6006b63f111911b155aa7736a6dd0143cb4a9c6a915022ddb00fb4a84e271c8d",
+    "Dockerfile": "baccc2585d0ec3ff0284f5a7c3e3d6e9c194e9fb6ab7a0517bd32f5445dbb22c",
+    "migrations/0001_extensions_and_enums.sql": "5e9f7219577df7586d99168b76a898f790326058bb6891f7be667c249fe9e095",
+    "migrations/0002_schema_tables.sql": "05da2aed2fa7de8fd1d08cc73be8a9b1be8769eda0b7012c2d9af3ef7b496aa1",
+    "migrations/0003_rls_policies.sql": "76c3729b12aa31aeb6fcb6d4dd5177f4c92dbfe6067a5ad3ea68508c2cebb523",
+    "migrations/0004_triggers.sql": "1c90810b491c780e80a15908409b85ba7376db93e6656fc83c916f8e8bde0ae1",
+    "migrations/0005_seed.sql": "5ab1c7303acd696d3682d8bbc62b7f9043645bcb79f954295eb005eadc9c954f",
+    "migrations/0006_harden_function_search_path.sql": "92127b7bcbc88904414cc6cd1e194b53bfd97405313774ea2c45a98e387d50f9",
+    "migrations/0007_remove_demo_data.sql": "6428607e3c09c576a31fbee95f8941b548dd16afd58a60429aa37165c294d798",
+    "migrations/0008_add_operador_role.sql": "720668417a8224312b8e6e5a2394010f2337b73f4ad007aacca7adc2a74e1972",
+    "migrations/0009_unify_system_managers.sql": "eaaa73511fa1295714a10adc4155d92a68d17ef19f10cf90d997ecb32d20f455",
+    "migrations/0010_platform_admins.sql": "faac32752bed6c8d797c7e22474d66d00b1ec340edf18e579cedf5dcff2f5b4e",
+    "migrations/0011_app_users_celula_pendente.sql": "51a85bdc1527313a7beba4f18c7a2004c57af791deb63ab51bd14051f94ea103",
+    "migrations/0012_planos.sql": "c865949b35f1b6a4e47417f24516b2fea9be69c4fe2b1ba21fb4a94b891a089d",
+    "migrations/0013_platform_audit_log.sql": "531ef36864f79d1eee12254a2d697182fe74ff5c0bcfe6b83b9416616f0a4f40",
+    "migrations/0014_platform_orchestrator.sql": "b52b65bad13c9369eb20816ee201f0e394bd7d1425a3d6d65c8b377777f36a56",
+    "migrations/0015_message_media.sql": "19c9db7ac9755cc6695fb6e6a229b5b7b2a086988ed55b54847d9c131ce5e35e",
+    "migrations/0016_message_author.sql": "8ba0f67404536d98d1c612d98eb5a6572176d8717206c6c0e805db2483aff6e3",
+    "migrations/0017_app_user_status_revogado.sql": "3b9b0507854c3c8bd495d416910ed9e6969097d0585212a034dd041e7412e3ee",
+    "migrations/20260623_103319_pessoa_sem_interesse_csim.sql": "f9f7af60d17153a68f5e128308ae43fd0e85cc5c0350c4c7c423d02b6be3de4e",
+    "migrations/20260623_122044_calendar_sync_oauth_por_igreja.sql": "2d8499790852468f2b8efbd7c9fbf3a1bd2121d9d2c31e162ded551c51489d18",
+    "migrations/20260623_154500_pessoa_tipo_add_contato.sql": "17a6a35ff69ee733d83a49b1fe02f6e754407417957e0110ead906af65867abc",
+    "migrations/20260623_170000_igreja_dono_assinatura.sql": "dd89fa76271e8be836ae75c40a227fbd3b2adbf8201101db1abd9230af55004c",
+    "migrations/20260624_003030_current_igreja_id_guc_worker.sql": "52b2417bde5d1af2827d12cfb75a6d2fc3b4d3646d0dd44a730002ac7b171090",
+    "migrations/20260624_090102_current_igreja_id_guard_empty_claims.sql": "d89b8fa8865a130ebb7f1f31bdfaae2906e0dacdc8685946c8956d2164b367ec",
+    "migrations/20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql": "f8891c4e8233385c3eb34c202a54719ee4fff0a852463c5c460b4b327e93cf90",
+    "migrations/20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql": "8f96b29feeee52ae79c96b29ca9e56b66a4dbed92a7add391c12a37e169ba555",
+    "migrations/20260701_014654_evt6_google_event_dedup_index.sql": "497e51e3401ee23fe3a3ddd8ec92a27bb22dd3173a9402450d0ac16a9fb248e7",
+    "migrations/20260701_164352_evt7_events_notificado_em_aviso_confirmacao.sql": "673d80cad9af0a6aef43162862c09e6884be38bc8392bf5f413bff4e8687d176",
+    "migrations/20260701_193000_evt7_pr2_agenda_alert_recipients.sql": "65a9100c7c8130b6197a42e1cc198dd7b482ede8ba18f5bf46e7db3af1d96ead",
+    "migrations/20260703_123803_celula_schema_base_pr1.sql": "09607912f73c40cce56285de6545a1b8224566de67334d2a6df4f748ccca8ec3",
+    "migrations/20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql": "af1293c536ba79909db28125a7278aeabbc5959519611320f539b4023ab9609a",
+    "migrations/20260705_120000_celula_pr3_reuniao_relatorio_campos.sql": "689b8391f75ae212e69f3d6a50394433570031632563deae7a84f4d88306e69f",
+    "migrations/20260705_120100_celula_pr3_reuniao_registro.sql": "c8c43027f40ee9ac5a4e7b286afcbeac8241ea398a2f8c80e26796a3065ceeff",
+    "migrations/20260705_120200_celula_pr3_visitante.sql": "ecd7328b95df43a82cd3ae6e9bf1261f9cc1e257ccf67a6614c716b2f3a18afe",
+    "migrations/20260705_120300_celula_pr3_solicitacao_evento.sql": "8a1ffcd7947ca68689ae8970944a50b2fcd0858eb7f395f3b7fad1e06c442bf1",
+    "migrations/20260705_120400_celula_pr3_aviso.sql": "aee8a18764a3ec0fe53efb3d802ed05d3519db90e4763c47b1c14e4e2b5ac263",
+    "migrations/20260705_120500_celula_pr3_material.sql": "d39c83f2023160a98211160212b4724f70525f3777b0011ce192132f00d68922",
+    "migrations/20260705_120600_celula_pr3_multiplicacoes_evolucao.sql": "3846299ac5c06abc750028c8cb91844de8ff82eac584af49c8ebc53ab777f4a2",
+    "migrations/20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql": "ee557f4bcdf50fb8ec3e6f0a6e82046cf519f2f0523ea40a81e4d27d0fdaf2e0",
+    "migrations/20260706_230000_evt8_pr1_notify_config.sql": "1c172564734812522466fd6cc20087c0a8af3d8673dde4882ea4a807fa3d9b71",
+    "migrations/20260707_011455_igreja_logo_branding.sql": "dbebd871c779d6dac52f6c6dfe5cecef8e054c59236fe52d774eb4b746ae069d",
+    "migrations/20260708_160128_sec3a_app_users_password_changed_at.sql": "6e6efad7a4ca0a4062496e1854a9ada1d85b1acdd1e2bd12c041c9d982cf79e6",
+    "migrations/20260708_164756_backfill_celula_membro_canonico.sql": "614419cf2e6122b2b6438a3fda9cc27adebd47d3a88b44e5e2fa2909ed19d803",
+    "migrations/20260708_172106_sec3b_password_reset_tokens_single_use.sql": "9a9ba9f5059c97db68053fbac4ff91adedbbbe8c0111c2909623e910a60951f3",
+    "migrations/20260708_221808_igreja_dono_id_grant_update.sql": "18afa38fb59fe9aca65a467732da9d38926d3b8921d1d83ab1acad9f235d265d",
+    "migrations/20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql": "11fdad1ad9aca3e1eb1c627cb551083e94b98bc948b73b0e6cb0c77a6ad3a34f",
+    "migrations/20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql": "d8b55db78f765d48006b739d2b3524f00e7ad059a342b92ac78ae7c6b336408c",
+    "migrations/20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql": "e4112a55e5cde97fd9e8b409d418c00ae85857b121c7e277ba8c8e3472603edf",
+    "migrations/20260711_224403_celula_solicitacao_e13_open_unique.sql": "0afeb7815d8f532cd53fdfc97ff7f41e08e142914faa5350848df4c3845aa295",
+    "migrations/20260713_013054_pessoa_arquivamento_schema.sql": "de5974001f0cc8cf9ea81a83bac9ff855a4f357940e4ba26a869a3c4f95461fa",
+    "migrations/20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql": "38ec86859577aa1bd7a92e7f37068746d63f8aa3c8bd995e012624725bf2ebef",
+    "migrations/20260715_204540_msg_idemp1_messages_inbound_provider_id_uidx.sql": "bc0de9a9f9cd72d6c0b48b59b343331fb2d0a6e3e486afc6144b439801918949",
+    "migrations/20260715_204541_consolidacao_aberta_unica_por_pessoa.sql": "9c35fdb7688f96b4f7ce911bd3b55d9779fb6ae471998778ae148f463bcfbfdf",
+    "migrations/20260720_014832_pessoa_telefone_unico_por_tenant_ativa.sql": "a960dc473c827f883e19c689b3f17aaadbe5d72c1484e8f912ca74b1a7de3486",
+    "migrations/20260720_191143_consent_records_ator_id_reoptin.sql": "2e51ac31c71c2ccd512c2777625546535697aa803c5df4c9c192030dbda431aa",
+    "migrations/20260730_205332_billing_setup_configuration.sql": "b90e080a63078a157be099bb5560851fc4515e5795a8925226c5e66139ad401d",
+    "migrations/20260731_120000_calendar_oauth_flows_pkce.sql": "33ad252c321cade9ec4f104461c4aa5db7c367c4a5bb99a4e5661cca57f76762",
+    "migrations/20260801_031500_calendar_account_identity_binding.sql": "56da0ce83e1e2e2f8f7cc2bccbf1c75ffb1383be407952b367e427f14ea7a5fc",
+    "migrations/20260805_105133_broadcast_delivery.sql": "65be5bd82dd17f73894c5ee21beb585a9db05dcffe26863f2d53a36d7421050d",
+    "migrations/20260805_120000_calendar_fk_indexes.sql": "7e6aad985fd22c02dbe7fa8e5981e13d5a5ef482bcdfc6efcf0297f97aafa141",
+    "migrations/20260805_153000_security_definer_execute_hardening.sql": "cf75e0a9e262203e4d7036b25ca3d7ef5df976edfa1d09a9e38d1ae28b65ac5b",
+    "migrations/20260808_001059_billing_count_active_members.sql": "46b99e59173aea51e939b133af0cf2e2ab715923d84f9502e6e6d8651775a3c6",
+    "migrations/20260808_011500_messages_outbound_provider_id_uidx.sql": "63aa7f208b8b7b21264fb989d2bab5de4aa2d5a5e7c9839b155f8691d77a11b1",
+    "migrations/20260808_014425_billing_member_plan_label_variants.sql": "1bf06d9d876f1170ffe312573a94cba03071962171f3917163b5383f6a49a8ad",
+    "migrations/20260808_023500_billing_reconcile_prepared_member_upgrades.sql": "a2fac3d504991885233e5c1537933f30d133aaa6684df51f4f891ed477a6888f",
+    "migrations/20260808_135841_llm_model_selection_per_tenant.sql": "b33c9a42385e26c6b37b5dcc3a50250147d4ff446af510f93a0ba3a55e41cc56",
+    "migrations/20260810_031050_explicit_deny_policies_for_closed_tables.sql": "1524fa0944dd3f4c259fa81f528570f8a4be5cff010515d4c44ac30a8df063c6",
+    "migrations/20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql": "31f1f26f62594e19d6bd1cee3b4e8a4665da8207188192764d09272d880367d1",
+    "migrations/20260822_225752_celula_membro_evento_audit_table.sql": "e4958484f2edacb795a8eea209118819200f9cc2e17e69f768b34fd43ac010ac",
+    "migrations/20260824_180000_asaas_formal_isolation.sql": "0cacaf819ca2113b284673886700eb8be79b71094a7ac180c2b4c72c84d3e3e3",
+    "migrations/20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql": "6d02a1437f9d71d05dba7c294c05b1db30b9e580c30b9efb4aadc92a7368430c",
+    "migrations/20260826_094317_harden_recovery_artifacts_retention.sql": "a6fa9abccbfec240ceb460d52f5bcbbda677c18691230d0e0c4f047fdd603fb0",
+    "migrations/20260827_175634_d1a_tenant_runtime_integrity.sql": "7ac3191bbe7217beff4e9601da78c29aef13abfef229505335ba7017a630d0c3",
+    "migrations/20260827_230003_d2a_agent_runtime_private_context.sql": "3071b0d7c2f8f7103914e161383ddac5d15698dccfd2e9860251c4bd98f7ec83",
+    "migrations/20260828_045213_d2b2_consentimento_finalidade_evento.sql": "30742755922b42e6e1407743df51b28d4619efd2a5e6b474bcba1beb7b8443ea",
+    "migrations/20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql": "506bb53f81caed2f30c8ae250c159e0653fdade12bd9124c1f9fd2dda4bf4666",
+    "migrations/20260909_004005_consent_evidence_store_lab.sql": "caccfbbcdfc3f57d5adc0ee9d9016e92e8fa1bc05929059966d86292ddb43b1a",
+    "migrations/20260910_142830_add_e4b_consent_persistence.sql": "64c031beea4d74feed83337ea623173d0f8d848c685ffcf5365b279a6ea7d1fd",
+    "migrations/20260925_183811_preserve_platform_admins_on_tenant_deletion.sql": "0b624edab2816c66229e088e8f5c77aec04785f78d32b0ce9dfb50892b6052bf",
+    "migrations/20260926_120446_platform_jev_settings.sql": "6796891807363115fbda3041340ed20a7717f70b560e715b79b6972e19b9b35a",
+    "migrations/20260926_191500_agent_public_profile.sql": "3d891a54bf97949c4073df753ee22f852219d2329cef498e979abffed77bf5a4"
+  },
+  "schema": {
+    "database": {
+      "host": "aws-1-us-west-2.pooler.supabase.com",
+      "port": 5432,
+      "name": "postgres",
+      "role": "postgres",
+      "username": "postgres.pffafnchtxbimpwyaczq"
+    },
+    "ledger": [
+      "0001_extensions_and_enums.sql",
+      "0002_schema_tables.sql",
+      "0003_rls_policies.sql",
+      "0004_triggers.sql",
+      "0005_seed.sql",
+      "0006_harden_function_search_path.sql",
+      "0007_remove_demo_data.sql",
+      "0008_add_operador_role.sql",
+      "0009_unify_system_managers.sql",
+      "0010_platform_admins.sql",
+      "0011_app_users_celula_pendente.sql",
+      "0012_planos.sql",
+      "0013_platform_audit_log.sql",
+      "0014_platform_orchestrator.sql",
+      "0015_message_media.sql",
+      "0016_message_author.sql",
+      "0017_app_user_status_revogado.sql",
+      "20260623_103319_pessoa_sem_interesse_csim.sql",
+      "20260623_122044_calendar_sync_oauth_por_igreja.sql",
+      "20260623_154500_pessoa_tipo_add_contato.sql",
+      "20260623_170000_igreja_dono_assinatura.sql",
+      "20260624_003030_current_igreja_id_guc_worker.sql",
+      "20260624_090102_current_igreja_id_guard_empty_claims.sql",
+      "20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql",
+      "20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql",
+      "20260701_014654_evt6_google_event_dedup_index.sql",
+      "20260701_164352_evt7_events_notificado_em_aviso_confirmacao.sql",
+      "20260701_193000_evt7_pr2_agenda_alert_recipients.sql",
+      "20260703_123803_celula_schema_base_pr1.sql",
+      "20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql",
+      "20260705_120000_celula_pr3_reuniao_relatorio_campos.sql",
+      "20260705_120100_celula_pr3_reuniao_registro.sql",
+      "20260705_120200_celula_pr3_visitante.sql",
+      "20260705_120300_celula_pr3_solicitacao_evento.sql",
+      "20260705_120400_celula_pr3_aviso.sql",
+      "20260705_120500_celula_pr3_material.sql",
+      "20260705_120600_celula_pr3_multiplicacoes_evolucao.sql",
+      "20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql",
+      "20260706_230000_evt8_pr1_notify_config.sql",
+      "20260707_011455_igreja_logo_branding.sql",
+      "20260708_160128_sec3a_app_users_password_changed_at.sql",
+      "20260708_164756_backfill_celula_membro_canonico.sql",
+      "20260708_172106_sec3b_password_reset_tokens_single_use.sql",
+      "20260708_221808_igreja_dono_id_grant_update.sql",
+      "20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql",
+      "20260711_224403_celula_solicitacao_e13_open_unique.sql",
+      "20260713_013054_pessoa_arquivamento_schema.sql",
+      "20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql",
+      "20260715_204540_msg_idemp1_messages_inbound_provider_id_uidx.sql",
+      "20260715_204541_consolidacao_aberta_unica_por_pessoa.sql",
+      "20260720_014832_pessoa_telefone_unico_por_tenant_ativa.sql",
+      "20260720_191143_consent_records_ator_id_reoptin.sql",
+      "20260730_205332_billing_setup_configuration.sql",
+      "20260731_120000_calendar_oauth_flows_pkce.sql",
+      "20260801_031500_calendar_account_identity_binding.sql",
+      "20260805_105133_broadcast_delivery.sql",
+      "20260805_120000_calendar_fk_indexes.sql",
+      "20260805_153000_security_definer_execute_hardening.sql",
+      "20260808_001059_billing_count_active_members.sql",
+      "20260808_011500_messages_outbound_provider_id_uidx.sql",
+      "20260808_014425_billing_member_plan_label_variants.sql",
+      "20260808_023500_billing_reconcile_prepared_member_upgrades.sql",
+      "20260808_135841_llm_model_selection_per_tenant.sql",
+      "20260810_031050_explicit_deny_policies_for_closed_tables.sql",
+      "20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql",
+      "20260822_225752_celula_membro_evento_audit_table.sql",
+      "20260824_180000_asaas_formal_isolation.sql",
+      "20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql",
+      "20260826_094317_harden_recovery_artifacts_retention.sql",
+      "20260926_191500_agent_public_profile.sql"
+    ],
+    "columns": {
+      "agent_configs": [
+        "acessos",
+        "ativo",
+        "comportamento",
+        "id",
+        "igreja_id",
+        "informacoes_publicas",
+        "nome",
+        "publico_alvo",
+        "tom"
+      ],
+      "app_users": [
+        "celula_pendente_id",
+        "chat_nome",
+        "clerk_user_id",
+        "created_at",
+        "email",
+        "id",
+        "igreja_id",
+        "nome",
+        "password_changed_at",
+        "pessoa_id",
+        "status"
+      ],
+      "cell_alerts": [
+        "acao_esperada",
+        "celula_id",
+        "created_at",
+        "gatilho",
+        "id",
+        "igreja_id",
+        "pessoa_id",
+        "tratado"
+      ],
+      "celula_membro": [
+        "ativo",
+        "celula_id",
+        "created_at",
+        "id",
+        "igreja_id",
+        "papel",
+        "pessoa_id",
+        "updated_at"
+      ],
+      "celulas": [
+        "anfitriao_id",
+        "ativo",
+        "auxiliar_id",
+        "cobertura_espiritual",
+        "created_at",
+        "dia_reuniao",
+        "endereco",
+        "horario",
+        "id",
+        "igreja_id",
+        "lider_id",
+        "link_grupo",
+        "link_localizacao",
+        "mensagem_convite",
+        "nome"
+      ],
+      "conversations": [
+        "assumido_em",
+        "assumido_por",
+        "espera_desde",
+        "estado",
+        "id",
+        "igreja_id",
+        "nao_lidas",
+        "numero_oficial",
+        "pessoa_id",
+        "telefone",
+        "ultima_mensagem",
+        "updated_at"
+      ],
+      "igrejas": [
+        "created_at",
+        "dono_id",
+        "id",
+        "logo_path",
+        "nome",
+        "plano",
+        "setup_fee_override",
+        "status"
+      ],
+      "messages": [
+        "agent_reply_state",
+        "autor",
+        "autor_nome",
+        "conversation_id",
+        "criado_em",
+        "direcao",
+        "enviado_por",
+        "id",
+        "igreja_id",
+        "media_mime",
+        "media_nome",
+        "media_path",
+        "media_tamanho",
+        "provider_message_id",
+        "texto",
+        "tipo"
+      ],
+      "pessoas": [
+        "aceitou_jesus",
+        "acompanhamento",
+        "apto_lider",
+        "apto_proxima_cd",
+        "arquivada_em",
+        "arquivada_motivo",
+        "arquivada_por",
+        "celula_id",
+        "consentimento",
+        "created_at",
+        "email",
+        "endereco",
+        "etapa",
+        "faixa_etaria",
+        "genero",
+        "id",
+        "igreja_id",
+        "lider_id",
+        "nome",
+        "optout",
+        "origem",
+        "presencas_celula",
+        "primeiro_contato",
+        "sem_interesse",
+        "sem_interesse_motivo",
+        "subetapa",
+        "telefone",
+        "tipo"
+      ],
+      "role_permissions": [
+        "id",
+        "igreja_id",
+        "papel",
+        "tela"
+      ],
+      "subscriptions": [
+        "asaas_customer_external_reference",
+        "asaas_customer_id",
+        "asaas_invoice_payment_id",
+        "asaas_invoice_reversal",
+        "asaas_invoice_url",
+        "asaas_setup_charge_id",
+        "asaas_setup_invoice_url",
+        "asaas_setup_reversed_payment_id",
+        "asaas_subscription_external_reference",
+        "asaas_subscription_id",
+        "id",
+        "igreja_id",
+        "limite",
+        "pessoas",
+        "plano",
+        "proxima_cobranca",
+        "setup_fee_contracted",
+        "setup_pago",
+        "status"
+      ],
+      "user_roles": [
+        "id",
+        "igreja_id",
+        "papel",
+        "user_id"
+      ],
+      "work_queue_items": [
+        "contexto",
+        "created_at",
+        "id",
+        "igreja_id",
+        "pessoa_id",
+        "prazo",
+        "prioridade",
+        "responsavel_id",
+        "status",
+        "tipo",
+        "titulo"
+      ]
+    },
+    "column_types": {
+      "agent_configs": {
+        "acessos": [
+          "text[]"
+        ],
+        "ativo": [
+          "boolean"
+        ],
+        "comportamento": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "informacoes_publicas": [
+          "jsonb"
+        ],
+        "nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "publico_alvo": [
+          "text[]"
+        ],
+        "tom": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "app_users": {
+        "celula_pendente_id": [
+          "uuid"
+        ],
+        "chat_nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "clerk_user_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "email": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "password_changed_at": [
+          "timestamp with time zone"
+        ],
+        "pessoa_id": [
+          "uuid"
+        ],
+        "status": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "cell_alerts": {
+        "acao_esperada": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "celula_id": [
+          "uuid"
+        ],
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "gatilho": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "pessoa_id": [
+          "uuid"
+        ],
+        "tratado": [
+          "boolean"
+        ]
+      },
+      "celula_membro": {
+        "ativo": [
+          "boolean"
+        ],
+        "celula_id": [
+          "uuid"
+        ],
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "papel": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "pessoa_id": [
+          "uuid"
+        ],
+        "updated_at": [
+          "timestamp with time zone"
+        ]
+      },
+      "celulas": {
+        "anfitriao_id": [
+          "uuid"
+        ],
+        "ativo": [
+          "boolean"
+        ],
+        "auxiliar_id": [
+          "uuid"
+        ],
+        "cobertura_espiritual": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "dia_reuniao": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "endereco": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "horario": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "lider_id": [
+          "uuid"
+        ],
+        "link_grupo": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "link_localizacao": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "mensagem_convite": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "nome": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "conversations": {
+        "assumido_em": [
+          "timestamp with time zone"
+        ],
+        "assumido_por": [
+          "uuid"
+        ],
+        "espera_desde": [
+          "timestamp with time zone"
+        ],
+        "estado": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "nao_lidas": [
+          "integer"
+        ],
+        "numero_oficial": [
+          "boolean"
+        ],
+        "pessoa_id": [
+          "uuid"
+        ],
+        "telefone": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "ultima_mensagem": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "updated_at": [
+          "timestamp with time zone"
+        ]
+      },
+      "igrejas": {
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "dono_id": [
+          "uuid"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "logo_path": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "plano": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "setup_fee_override": [
+          "numeric"
+        ],
+        "status": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "messages": {
+        "agent_reply_state": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "autor": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "autor_nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "conversation_id": [
+          "uuid"
+        ],
+        "criado_em": [
+          "timestamp with time zone"
+        ],
+        "direcao": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "enviado_por": [
+          "uuid"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "media_mime": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "media_nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "media_path": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "media_tamanho": [
+          "integer"
+        ],
+        "provider_message_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "texto": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "tipo": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "pessoas": {
+        "aceitou_jesus": [
+          "boolean"
+        ],
+        "acompanhamento": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "apto_lider": [
+          "boolean"
+        ],
+        "apto_proxima_cd": [
+          "boolean"
+        ],
+        "arquivada_em": [
+          "timestamp with time zone"
+        ],
+        "arquivada_motivo": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "arquivada_por": [
+          "uuid"
+        ],
+        "celula_id": [
+          "uuid"
+        ],
+        "consentimento": [
+          "boolean"
+        ],
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "email": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "endereco": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "etapa": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "faixa_etaria": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "genero": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "lider_id": [
+          "uuid"
+        ],
+        "nome": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "optout": [
+          "boolean"
+        ],
+        "origem": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "presencas_celula": [
+          "integer"
+        ],
+        "primeiro_contato": [
+          "timestamp with time zone"
+        ],
+        "sem_interesse": [
+          "boolean"
+        ],
+        "sem_interesse_motivo": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "subetapa": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "telefone": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "tipo": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "role_permissions": {
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "papel": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "tela": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "subscriptions": {
+        "asaas_customer_external_reference": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_customer_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_invoice_payment_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_invoice_reversal": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_invoice_url": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_setup_charge_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_setup_invoice_url": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_setup_reversed_payment_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_subscription_external_reference": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "asaas_subscription_id": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "limite": [
+          "integer"
+        ],
+        "pessoas": [
+          "integer"
+        ],
+        "plano": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "proxima_cobranca": [
+          "date"
+        ],
+        "setup_fee_contracted": [
+          "numeric"
+        ],
+        "setup_pago": [
+          "boolean"
+        ],
+        "status": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      },
+      "user_roles": {
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "papel": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "user_id": [
+          "uuid"
+        ]
+      },
+      "work_queue_items": {
+        "contexto": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "created_at": [
+          "timestamp with time zone"
+        ],
+        "id": [
+          "uuid"
+        ],
+        "igreja_id": [
+          "uuid"
+        ],
+        "pessoa_id": [
+          "uuid"
+        ],
+        "prazo": [
+          "timestamp with time zone"
+        ],
+        "prioridade": [
+          "integer"
+        ],
+        "responsavel_id": [
+          "uuid"
+        ],
+        "status": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "tipo": [
+          "text",
+          "character varying",
+          "enum"
+        ],
+        "titulo": [
+          "text",
+          "character varying",
+          "enum"
+        ]
+      }
+    },
+    "relations": [
+      [
+        "agent_configs",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "app_users",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "cell_alerts",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "celula_membro",
+        true,
+        true,
+        true,
+        false
+      ],
+      [
+        "celulas",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "conversations",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "igrejas",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "messages",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "pessoas",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "role_permissions",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "subscriptions",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "user_roles",
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        "work_queue_items",
+        true,
+        false,
+        true,
+        false
+      ]
+    ],
+    "policies": [
+      [
+        "agent_configs",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "app_users",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "cell_alerts",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "celula_membro",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "celulas",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "conversations",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "igrejas",
+        "igrejas_self_select",
+        "r",
+        true,
+        [
+          0
+        ],
+        "(id = current_igreja_id())",
+        null
+      ],
+      [
+        "igrejas",
+        "igrejas_self_update",
+        "w",
+        true,
+        [
+          0
+        ],
+        "(id = current_igreja_id())",
+        "(id = current_igreja_id())"
+      ],
+      [
+        "messages",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "pessoas",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "role_permissions",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "subscriptions",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "user_roles",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ],
+      [
+        "work_queue_items",
+        "tenant_isolation",
+        "*",
+        true,
+        [
+          0
+        ],
+        "(igreja_id = current_igreja_id())",
+        "(igreja_id = current_igreja_id())"
+      ]
+    ],
+    "tenant_function": [
+      "\n  select coalesce(\n    -- 1) Worker/async: tenant injetado diretamente (sem JWT do Clerk).\n    nullif(current_setting('app.tenant_igreja_id', true), '')::uuid,\n    -- 2) HTTP: igreja_id derivada do clerk_user_id (claim \"sub\" do JWT).\n    --    nullif(claims, '') evita '::jsonb' sobre string vazia no worker.\n    (\n      select au.igreja_id\n      from public.app_users au\n      where au.clerk_user_id = nullif(\n        coalesce(\n          nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub',\n          current_setting('request.jwt.claim.sub', true)\n        ),\n        ''\n      )\n      limit 1\n    )\n  );\n",
+      true,
+      "s",
+      [
+        "search_path=public, pg_temp"
+      ],
+      true,
+      "sql"
+    ]
+  },
+  "dependency_update_source_sha": "b3b93de934e515f7bdb51a5d4393611707089b10"
+}

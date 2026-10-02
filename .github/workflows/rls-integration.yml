@@ -128,6 +128,21 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -q \
             ../deploy/tests/test_backend_schema_pg17.py
 
+      - name: Exercitar contrato legado de manutenção em PG17 descartável
+        env:
+          MAINTENANCE_SCHEMA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/maintenance_schema_disposable
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" - <<'PY'
+          import psycopg2
+          connection = psycopg2.connect(host="127.0.0.1", port=5432, user="postgres", password="postgres", dbname="postgres")
+          connection.autocommit = True
+          with connection.cursor() as cursor:
+              cursor.execute("CREATE DATABASE maintenance_schema_disposable")
+          connection.close()
+          PY
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover \
+            -s ../deploy/tests -p test_maintenance_schema_pg.py -v
+
       - name: Verificar execucao integral da suite RLS
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" - <<'PY'

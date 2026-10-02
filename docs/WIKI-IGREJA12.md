@@ -440,6 +440,13 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   rollback; preflight privado, recuperação revisada e janela nominal seguem
   pendentes. A PR #453 prepara recusa dessa condição antes da interrupção.
   [Recibo, CI, rollback e próximo gate](performance/2026-10-02-fluidity-release.md).
+  O preflight privado posterior, entre 15:35Z e 15:54Z, confirmou o schema
+  legado: 70 migrations no ledger e ausência das tabelas V1a/V2b/V3. A imagem
+  ativa corresponde aos 146 arquivos verificados de `eb5a09b9`. A publicação
+  das otimizações seguirá o [perfil restrito de manutenção da API](../deploy/BACKEND-MAINTENANCE-RELEASE.md),
+  com backport compatível, recuperação pela imagem antiga e workers preservados.
+  A autorização de produção foi reiterada pelo proprietário; os bloqueios
+  restantes deste recorte são verificações técnicas, sem novo pedido de acesso.
 
 ### Fundação do agente
 
