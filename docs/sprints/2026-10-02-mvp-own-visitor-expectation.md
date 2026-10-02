@@ -1,0 +1,17 @@
+# Expectativa própria de visitante pelo WhatsApp, 02/10/2026
+
+Status: candidato local validado, integração e ativação pendentes.
+Base de autoria791568fea01cbd1c8bd674f580e19dfeaa648c28; base de empacotamento21604b01350eab1a72c6d5a4c643ce79d6aea417.
+
+Comando explícito `indicar <nome> como visitante na próxima reunião da minha célula` é tratado localmente após o preflight autorizado e antes da seleção de provedor do caminho privilegiado. O contexto do servidor identifica o membro e a próxima reunião inequívoca de sua célula; nome permanece nos argumentos privados da proposta e no registro de expectativa, sem entrar no catálogo, resumo ou comprovante. A rotina não cria pessoa, presença de visitante nem pedido de oração.
+
+Resumo entregue e SIM atual precedem o efeito. A confirmação revalida titular, tenant, vínculo ativo, célula e relógio E4 sob locks e participa da transação da proposta/recibo. Replay usa o ledger existente, pois indicações humanas múltiplas do mesmo nome continuam válidas. Os dois endpoints humanos compartilham o serviço e preservam status201, observação opcional e seus contratos históricos. O painel lê a fonte existente de expectativas da reunião.
+
+A migration20261002_173000 amplia apenas os dois CHECKs de AgentActionProposal, preserva as sete ações anteriores e aceita expectativa somente com alvo reunião. Sua autoria simples MVP local foi autorizada expressamente por Raniel na opção1; esta exceção não reconcilia o catálogo histórico nem autoriza aplicação compartilhada. O rollback manual recusa a reversão se existir qualquer proposta visitante e preserva o histórico.
+
+Validação local: 335 testes do agente, 105 dos contratos humanos e 68 em PostgreSQL17, total508PASS/0FAIL/0ERROR/0SKIP. As sete ações anteriores, UP repetido, DOWN antes/depois de uso e timeout real55P03 foram exercitados com o SQL da migration. Proposta/SIM, replay, dois PIDs concorrentes, revogação de autoridade, tenant e falha antes do commit preservaram o ledger e o efeito próprio. [Revisão independente LENTE](2026-10-02-mvp-own-visitor-expectation-review.md), GPT5.6Terra/max, GO para entrega local e abertura da PR, com patch e35pins conferidos. [Evidência e hashes](2026-10-02-mvp-own-visitor-expectation-evidence.json). A fixture do fluxo usa schema msg_idemp1 sem policiesRLS; prova predicados de tenant do backend, sem atestar policies operacionais. Provedor, fila e TestClient são sintéticos. Nenhum teste local prova WhatsApp externo, custo, entrega real, implantação, banco compartilhado ou piloto.
+
+A classificação Minha Célula permanece IMPLEMENTADO/PARCIAL. Oração, ativação e piloto real continuam pendentes, assim como a conclusão da V4 e do produto amplo. Gates de banco, deploy, AgentConfig.ativo, envio e cobrança permanecem independentes. A nova PR exigirá autorização nominal de merge própria.
+
+
+Seleção verificada: test_agent_privilege_catalog, test_agent_action_proposals, test_ministerial_actions, test_agent_privilege_routing, test_agent_privileged_turn, test_member_presence_whatsapp e test_visitor_expectation_whatsapp (335); test_cell_discipulo e test_cell_meetings (105); test_agent_privileged_turn_pg e test_visitor_expectation_whatsapp_pg (68). Runtime CPython3.13.14 com requirements.lock vigente; PG17.6 descartável, rede desativada, transporte Unix local. O guard da fixture recusa URLs de ambientes gerenciados ou compartilhados. O CI executa a seleção marcada rls_integration em outro PostgreSQL17 descartável.

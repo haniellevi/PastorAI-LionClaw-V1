@@ -12,13 +12,101 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from app.db.models import AppUser, Celula, CelulaMembro, CelulaPresenca, CelulaReuniao, Consolidacao, Decision, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, CelulaPresenca, CelulaReuniao, CelulaExpectativaVisitante, Consolidacao, Decision, Pessoa
 from app.deps import CurrentUser
 from app.domain import cell_meetings_schedule
 from app.domain.consolidation import CONNECTION_DEADLINE_HOURS, CONSOLIDATION_ROLES, VALID_VINCULOS, VINCULO_VISITANTE
 from app.domain.hierarchy import is_leader_or_superior
 
 logger = logging.getLogger(__name__)
+
+
+def register_own_visitor_expectation(db: Session, current_user: CurrentUser, *,
+                                    reuniao_id: uuid.UUID, nome_visitante: str,
+                                    observacao_oracao: str | None = None,
+                                    expected_actor_pessoa_id: uuid.UUID | None = None
+                                    ) -> CelulaExpectativaVisitante:
+    """Create one own expectation; caller owns commit and the proposal ledger.
+
+    Human callers omit the internal expected actor and keep their historical
+    meeting/membership contract, optional note and multiple rows.
+    """
+    tenant = uuid.UUID(current_user.igreja_id)
+    if expected_actor_pessoa_id is None:
+        meeting = db.execute(select(CelulaReuniao).where(
+            CelulaReuniao.id == reuniao_id, CelulaReuniao.igreja_id == tenant,
+        )).scalar_one_or_none()
+        if meeting is None:
+            raise HTTPException(404, "Reunião não encontrada")
+        actor = db.execute(select(AppUser.pessoa_id).where(
+            AppUser.id == uuid.UUID(current_user.app_user_id), AppUser.igreja_id == tenant,
+        )).scalar_one_or_none()
+        if actor is None:
+            raise HTTPException(403, "Seu usuário não está vinculado a uma pessoa")
+        person_id = uuid.UUID(str(actor))
+        member = db.execute(select(CelulaMembro).where(
+            CelulaMembro.igreja_id == tenant, CelulaMembro.celula_id == meeting.celula_id,
+            CelulaMembro.pessoa_id == person_id, CelulaMembro.ativo.is_(True),
+        )).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(403, "Você não tem vínculo ativo na célula desta reunião")
+        # The existing HTTP schemas validate/trim human input, including notes.
+        if type(nome_visitante) is not str or not 1 <= len(nome_visitante.strip()) <= 200:
+            raise HTTPException(422, "Nome de visitante inválido")
+        name = nome_visitante.strip()
+    else:
+        if (type(expected_actor_pessoa_id) is not uuid.UUID or expected_actor_pessoa_id.int == 0
+            or type(reuniao_id) is not uuid.UUID or reuniao_id.int == 0
+            or observacao_oracao is not None):
+            raise HTTPException(403, "Ação não autorizada")
+        from app.services.agent_action_proposals import canonical_visitor_name, ProposalContractError
+        try:
+            name = canonical_visitor_name(nome_visitante)
+        except ProposalContractError:
+            raise HTTPException(422, "Nome de visitante inválido") from None
+        actor = db.execute(select(AppUser.pessoa_id).where(
+            AppUser.id == uuid.UUID(current_user.app_user_id), AppUser.igreja_id == tenant,
+            AppUser.status == "ativo",
+        ).with_for_update()).scalar_one_or_none()
+        if actor is None or actor != expected_actor_pessoa_id:
+            raise HTTPException(403, "Vínculo do usuário alterado")
+        person = db.execute(select(Pessoa).where(
+            Pessoa.id == expected_actor_pessoa_id, Pessoa.igreja_id == tenant,
+            Pessoa.arquivada_em.is_(None),
+        ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+        if person is None:
+            raise HTTPException(403, "Pessoa sem vínculo elegível")
+        person_id = person.id
+        meeting = db.execute(select(CelulaReuniao).where(
+            CelulaReuniao.id == reuniao_id, CelulaReuniao.igreja_id == tenant,
+        ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+        if meeting is None:
+            raise HTTPException(404, "Reunião não encontrada")
+        cell = db.execute(select(Celula).where(
+            Celula.id == meeting.celula_id, Celula.igreja_id == tenant, Celula.ativo.is_(True),
+        ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+        if cell is None:
+            raise HTTPException(403, "Célula sem vínculo elegível")
+        member = db.execute(select(CelulaMembro).where(
+            CelulaMembro.igreja_id == tenant, CelulaMembro.celula_id == cell.id,
+            CelulaMembro.pessoa_id == person_id, CelulaMembro.ativo.is_(True),
+        ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(403, "Você não tem vínculo ativo na célula desta reunião")
+        # Flush preceding proposal work, then recheck after all lookup/lock
+        # waits immediately before adding the expectation. E4 allows equality.
+        db.flush()
+        now = cell_meetings_schedule.now_in_sao_paulo()
+        if cell_meetings_schedule.meeting_has_passed(data=meeting.data, hora=meeting.hora, now=now):
+            raise HTTPException(409, "A reunião já ocorreu")
+    expectation = CelulaExpectativaVisitante(
+        igreja_id=tenant, reuniao_id=meeting.id, pessoa_id=person_id,
+        nome_visitante=name, observacao_oracao=observacao_oracao,
+    )
+    db.add(expectation)
+    db.flush()
+    db.refresh(expectation)
+    return expectation
 
 
 def register_decision(db: Session, current_user: CurrentUser, *, pessoa_id: uuid.UUID,

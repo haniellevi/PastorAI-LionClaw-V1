@@ -1446,7 +1446,7 @@ class AgentActionProposal(Base):
             "action IN ('registrar_decisao', 'marcar_presenca', "
             "'enviar_relatorio_celula', 'configurar_lembrete_agenda', "
             "'configurar_lembrete_consolidacao', 'marcar_fonovisita_feita', "
-            "'atribuir_consolidacao')",
+            "'atribuir_consolidacao', 'registrar_expectativa_visitante')",
             name="agent_action_proposals_action_closed",
         ),
         CheckConstraint(
@@ -1457,7 +1457,8 @@ class AgentActionProposal(Base):
             "(action = 'configurar_lembrete_agenda' AND target_kind = 'evento') OR "
             "(action = 'marcar_fonovisita_feita' "
             "AND target_kind = 'pendencia_consolidacao') OR "
-            "(action = 'atribuir_consolidacao' AND target_kind = 'consolidacao')",
+            "(action = 'atribuir_consolidacao' AND target_kind = 'consolidacao') OR "
+            "(action = 'registrar_expectativa_visitante' AND target_kind = 'reuniao')",
             name="agent_action_proposals_target_kind_closed",
         ),
         CheckConstraint(

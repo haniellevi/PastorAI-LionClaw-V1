@@ -12,6 +12,7 @@ import json
 import uuid
 import datetime as dt
 import string
+import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -37,6 +38,7 @@ class ProposalExecutionDenied(ProposalContractError):
 class AgentAction(StrEnum):
     REGISTRAR_DECISAO = "registrar_decisao"
     MARCAR_PRESENCA = "marcar_presenca"
+    REGISTRAR_EXPECTATIVA_VISITANTE = "registrar_expectativa_visitante"
     ENVIAR_RELATORIO_CELULA = "enviar_relatorio_celula"
     CONFIGURAR_LEMBRETE_AGENDA = "configurar_lembrete_agenda"
     MARCAR_FONOVISITA_FEITA = "marcar_fonovisita_feita"
@@ -212,6 +214,18 @@ def _canonical_assignment_revision(value: object) -> int:
     return value
 
 
+def canonical_visitor_name(value: object) -> str:
+    """Validate private nominal input without quoting it in an error."""
+    if type(value) is not str or any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value
+    ):
+        raise ProposalContractError("nome de visitante inválido")
+    name = value.strip()
+    if not 1 <= len(name) <= 200:
+        raise ProposalContractError("nome de visitante inválido")
+    return name
+
+
 def canonical_action_arguments(
     action: AgentAction,
     target: ProposalTarget,
@@ -221,6 +235,14 @@ def canonical_action_arguments(
 
     if type(action) is not AgentAction or type(arguments) is not dict:
         raise ProposalContractError("argumentos inválidos")
+    if action is AgentAction.REGISTRAR_EXPECTATIVA_VISITANTE:
+        if target.kind != "reuniao" or set(arguments) != {"reuniao_id", "nome_visitante"}:
+            raise ProposalContractError("argumentos inválidos")
+        meeting_id = _canonical_uuid(arguments["reuniao_id"], field="reuniao_id")
+        if meeting_id != str(target.id):
+            raise ProposalContractError("alvo divergente")
+        return {"reuniao_id": meeting_id,
+                "nome_visitante": canonical_visitor_name(arguments["nome_visitante"])}
     if action is AgentAction.REGISTRAR_DECISAO:
         if target.kind != "pessoa":
             raise ProposalContractError("alvo divergente")
@@ -544,6 +566,12 @@ def prepare_action_proposal(
         message_id=inbound_message_id,
     ) is None:
         raise ProposalContractError("âncora inbound ausente")
+    if action is AgentAction.REGISTRAR_EXPECTATIVA_VISITANTE:
+        from app.services.agent_privilege_catalog import visitor_expectation_arguments_authorized
+        if not visitor_expectation_arguments_authorized(
+            session, context=context, target=target, arguments=canonical_arguments, summary=summary,
+        ):
+            raise ProposalContractError("expectativa de visitante inelegível")
     if action is AgentAction.CONFIGURAR_LEMBRETE_AGENDA:
         from app.services.agent_privilege_catalog import (
             agenda_reminder_arguments_authorized,
@@ -1114,6 +1142,7 @@ def _new_receipt(
     expected_receipt = {
         AgentAction.REGISTRAR_DECISAO.value: "Registro confirmado.",
         AgentAction.MARCAR_PRESENCA.value: "Registro confirmado.",
+        AgentAction.REGISTRAR_EXPECTATIVA_VISITANTE.value: "Registro confirmado.",
         AgentAction.ENVIAR_RELATORIO_CELULA.value: "Relatório confirmado.",
         AgentAction.CONFIGURAR_LEMBRETE_AGENDA.value: "Lembrete confirmado.",
         AgentAction.MARCAR_FONOVISITA_FEITA.value: "Fonovisita confirmada.",
