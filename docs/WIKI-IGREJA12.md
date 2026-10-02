@@ -427,6 +427,10 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   conexão, polling visível e pools de HTTP. [Contratos, limites e publicação](performance/2026-10-02-fluidity-plan.md).
   A validação sintética não encerra RNFs de campo; frontend, backend e
   observação operacional têm recibos distintos.
+  Fonte integrada pela [PR #451](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/451);
+  frontend publicado em `e59feb5`, com os três aliases confirmados em 02/10.
+  Backend não publicado nesta missão e metas autenticadas de campo abertas.
+  [Recibo, CI, rollback e próximo gate](performance/2026-10-02-fluidity-release.md).
 
 ### Fundação do agente
 
