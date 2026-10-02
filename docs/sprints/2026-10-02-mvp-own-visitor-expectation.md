@@ -15,3 +15,5 @@ A classificação Minha Célula permanece IMPLEMENTADO/PARCIAL. Oração, ativa�
 
 
 Seleção verificada: test_agent_privilege_catalog, test_agent_action_proposals, test_ministerial_actions, test_agent_privilege_routing, test_agent_privileged_turn, test_member_presence_whatsapp e test_visitor_expectation_whatsapp (335); test_cell_discipulo e test_cell_meetings (105); test_agent_privileged_turn_pg e test_visitor_expectation_whatsapp_pg (68). Runtime CPython3.13.14 com requirements.lock vigente; PG17.6 descartável, rede desativada, transporte Unix local. O guard da fixture recusa URLs de ambientes gerenciados ou compartilhados. O CI executa a seleção marcada rls_integration em outro PostgreSQL17 descartável.
+
+Compatibilidade do sentinela CI: a nova migration elevou a lista executável de81para82. O teste deploy/tests/test_backend_schema_pg17.py passa a exigir também o filename visitante, preservando os sentinelas anteriores, guards de PostgreSQL17 descartável e dry-run. O backend e a seleção508local permanecem byte idênticos; o teste de preflight integral será verificado no CI da PR458. Isso não executa publicação nem abre qualquer gate operacional.

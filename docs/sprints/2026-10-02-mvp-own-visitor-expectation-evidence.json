@@ -67,5 +67,13 @@
     "decision": "GO local candidate/open PR only",
     "report": "2026-10-02-mvp-own-visitor-expectation-review.md",
     "report_sha256": "4512d9d22578551e9933e8b060abd8bb9a1b51a1cec2a6e85261adab7bd16485"
+  },
+  "CI_sentinel_fix": {
+    "file": "deploy/tests/test_backend_schema_pg17.py",
+    "sha256": "84d2aac79f666afd5200e0cf968f42c7b24595c137e6b8e8c0edf72e5ec6fd8d",
+    "reason": "migration inventory81 to82 plus explicitnewfilename sentinel",
+    "product_backend_bytes_unchanged": true,
+    "integral_preflight_validation": "pending exactnewhead CI",
+    "first_failure_job": 110980858296
   }
 }
