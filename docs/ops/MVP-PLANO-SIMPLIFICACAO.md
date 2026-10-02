@@ -490,7 +490,8 @@ sem declarar as próximas verticais implementadas.
      Implantação backend e métricas autenticadas de campo permanecem pendentes.
      Environment `backend-production` configurado em 02/10 com reviewer
      obrigatório, bypass administrativo desativado, `main` única e variáveis
-     restritas. Console Hostinger acessado em 02/10 e Compose atualizado para
+     restritas; piso elevado para `c5f99b5` com a guarda revisada da PR #453.
+     Console Hostinger acessado em 02/10 e Compose atualizado para
      5.0.0 sem restart. Credenciais da Action continuam ausentes; preflight
      privado, recuperação revisada do legado sem checker e janela nominal
      do operador ainda necessários antes do dispatch. A PR #453 prepara a

@@ -106,6 +106,14 @@ ficam recusados. `prevent_self_review=false` mantém a aprovação humana viáve
 com a única identidade operacional confirmada, sem dispensar a revisão
 obrigatória. O agente não aprova o próprio dispatch.
 
+Após a revisão da correção de preflight da PR #453, o piso foi elevado para
+`c5f99b5463b128e4c7749dcd876ffa03164a1d34`, confirmado pela API do environment
+às `2026-10-02T14:45:30Z`. Esse commit contém os bytes revisados da nova guarda;
+até sua integração na `main`, o workflow recusa candidatos dessa branch.
+O piso novo impede selecionar versões anteriores que descobriam a ausência
+do checker de rollback somente depois de interromper serviços. Os demais
+controles permanecem iguais; nenhum dispatch foi executado.
+
 Nenhum arquivo privado foi lido. Não foi disparado o workflow manual nem
 executada conexão SSH/banco de produção. A configuração do GitHub não comprova
 schema ou recuperação. A inspeção do console às `2026-10-02T14:27:07Z`

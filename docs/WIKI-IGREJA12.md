@@ -433,7 +433,8 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   Backend não publicado nesta missão e metas autenticadas de campo abertas.
   Rota GitHub `backend-production` configurada em 02/10: revisão obrigatória
   de `haniellevi`, bypass administrativo desativado, branch `main` única,
-  allowlist e piso revisado da PR #443. Console Hostinger acessado em 02/10;
+  allowlist e piso elevado para `c5f99b5`, que inclui a guarda revisada da
+  PR #453 e as proteções da PR #443. Console Hostinger acessado em 02/10;
   Compose atualizado de 2.40.3 para 5.0.0 sem reiniciar os quatro serviços.
   Credenciais da Action ainda ausentes. O legado ativo não tem checker de
   rollback; preflight privado, recuperação revisada e janela nominal seguem
