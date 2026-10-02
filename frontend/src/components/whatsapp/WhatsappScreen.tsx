@@ -1,5 +1,6 @@
 "use client";
 
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 import "@/components/config/administration-ux-v2.css";
 
 /**
@@ -178,12 +179,7 @@ export function WhatsappScreen() {
   }, [allowed, load]);
 
   // Enquanto não estiver online, mantém o status atualizado sem reload.
-  useEffect(() => {
-    if (!allowed) return;
-    if (status === "online") return;
-    const id = window.setInterval(() => void load("poll"), POLL_MS);
-    return () => window.clearInterval(id);
-  }, [allowed, status, load]);
+  useVisibleInterval(() => load("poll"), POLL_MS, allowed && status !== "online");
 
   // ---- conectar / reconectar ---------------------------------------------
   // Caminho QR. Nunca envia número: "Gerar novo QR"/"Reparear" usam reconnect

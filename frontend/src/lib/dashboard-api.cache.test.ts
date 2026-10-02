@@ -12,6 +12,7 @@ describe("authedFetch navigation cache", () => {
     clearAuthedResponseCache();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it("deduplica leituras simultâneas e entrega bodies independentes", async () => {
@@ -84,5 +85,53 @@ describe("authedFetch navigation cache", () => {
     await authedFetch("token-a", "/whatsapp/connection");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe("authedFetch bounded freshness", () => {
+  afterEach(() => { clearAuthedResponseCache(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
+
+  it("cancela só o consumidor sem abortar outra leitura compartilhada", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    let resolve!: (response: Response) => void;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>((done) => { resolve = done; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const firstController = new AbortController();
+    const first = authedFetch("actor", "/dashboard/overview", { signal: firstController.signal });
+    const second = authedFetch("actor", "/dashboard/overview");
+    const cancelled = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    firstController.abort();
+    await cancelled;
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    resolve(Response.json({ version: "shared" }));
+    expect(await (await second).json()).toEqual({ version: "shared" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("invalida após commit uma leitura iniciada durante a escrita", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    let commit!: (response: Response) => void;
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((done) => { commit = done; }))
+      .mockResolvedValueOnce(Response.json({ version: "before-commit" }))
+      .mockResolvedValueOnce(Response.json({ version: "committed" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const mutation = authedFetch("actor", "/contacts/one", { method: "PUT", body: "{}" });
+    await authedFetch("actor", "/dashboard/overview");
+    commit(Response.json({ saved: true }));
+    await mutation;
+    const fresh = await authedFetch("actor", "/dashboard/overview");
+    expect(await fresh.json()).toEqual({ version: "committed" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("encerra request geral pendente com deadline, mesmo se fetch ignorar abort", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    const pending = authedFetch("actor", "/roles/permissions");
+    const failed = expect(pending).rejects.toMatchObject({ status: 408 });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await failed;
   });
 });

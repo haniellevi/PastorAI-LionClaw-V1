@@ -17,10 +17,12 @@
 
 import { SessionExpiredError } from "./api";
 import { AuthedResponseCache } from "./authed-response-cache";
+import { fetchWithDeadline, waitForRequest } from "./request-with-deadline";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const responseCache = new AuthedResponseCache();
 const inFlightReads = new Map<string, Promise<Response>>();
+const legacyQueueUntil = new Map<string, number>();
 
 /**
  * Somente leituras aquecidas pela navegação entram no cache. Manter uma lista
@@ -30,8 +32,8 @@ const inFlightReads = new Map<string, Promise<Response>>();
 function cacheTtl(path: string): number {
   if (path.startsWith("/conversations?page=")) return 15_000;
   if (path.startsWith("/events?page=")) return 60_000;
-  if (path.startsWith("/pipeline?")) return 30_000;
-  if (path.startsWith("/work-queue?")) return 30_000;
+  if (path.startsWith("/pipeline?") || path.startsWith("/pipeline/summary?")) return 30_000;
+  if (path.startsWith("/work-queue?") || path.startsWith("/work-queue/snapshot?")) return 30_000;
   if (path.startsWith("/team/lookup?")) return 30_000;
   if (path.startsWith("/cells?")) return 30_000;
   if (path === "/dashboard/overview") return 30_000;
@@ -43,6 +45,7 @@ export function clearAuthedResponseCache(token?: string, pathPrefixes?: string[]
   responseCache.clear(token, pathPrefixes);
   if (!token) {
     inFlightReads.clear();
+    legacyQueueUntil.clear();
     return;
   }
   const tokenPrefix = `${token}\u0000`;
@@ -63,6 +66,8 @@ export interface Page<T> {
   page: number;
   pageSize: number;
   total: number;
+  /** Present only for the additive work queue consistency protocol. */
+  revision?: string;
 }
 
 /** Tipos de item da fila pastoral (work_queue_items.tipo). */
@@ -160,6 +165,7 @@ export async function authedFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
+  if (init?.signal?.aborted) throw init.signal.reason ?? new DOMException("Requisição cancelada.", "AbortError");
   const method = (init?.method ?? "GET").toUpperCase();
   const cacheMode = init?.cache;
   const cacheEnabled = process.env.NODE_ENV !== "test";
@@ -180,9 +186,10 @@ export async function authedFetch(
 
   let res: Response;
   try {
-    const request = () =>
-      fetch(`${API_BASE}${path}`, {
+    const request = (shared = false) =>
+      fetchWithDeadline(`${API_BASE}${path}`, {
         ...init,
+        signal: shared ? undefined : init?.signal,
         headers: {
           ...(init?.body ? { "Content-Type": "application/json" } : {}),
           Authorization: `Bearer ${token}`,
@@ -194,8 +201,16 @@ export async function authedFetch(
       const key = `${token}\u0000${path}`;
       let pending = inFlightReads.get(key);
       if (!pending) {
-        pending = request()
-          .then((response) => {
+        pending = request(true)
+          .then(async (response) => {
+            // Buffer through the total deadline before retaining a cache entry.
+            // Cached bytes have no network/body deadline and remain reusable for their TTL.
+            if (response.ok) {
+              const body = await response.arrayBuffer();
+              response = new Response([204, 205, 304].includes(response.status) ? null : body, {
+                status: response.status, statusText: response.statusText, headers: response.headers,
+              });
+            }
             // Uma invalidação pode remover esta promessa e iniciar outra para
             // a mesma chave. Só a leitura ainda vigente pode repovoar o cache;
             // caso contrário, uma resposta antiga que termine por último
@@ -214,12 +229,20 @@ export async function authedFetch(
       }
       // Cada consumidor recebe seu próprio body; o Response original fica só
       // como fonte das cópias e nunca é consumido diretamente.
-      res = (await pending).clone();
+      res = (await waitForRequest(pending, init?.signal)).clone();
     } else {
       res = await request();
     }
-  } catch {
+  } catch (error) {
+    if (init?.signal?.aborted) throw init.signal.reason ?? error;
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new ApiError(408, "A requisição demorou demais. Tente novamente.");
+    }
     throw new ApiError(0, "Falha de conexão. Verifique sua internet e tente novamente.");
+  } finally {
+    // A read started during a write may contain its pre-commit state. Invalidate
+    // again after settlement, including uncertain network outcomes. Never retry writes.
+    if (cacheEnabled && method !== "GET") clearAuthedResponseCache(token);
   }
   if (res.status === 401) {
     throw new SessionExpiredError();
@@ -284,17 +307,25 @@ export async function fetchWorkQueuePage(
   token: string,
   page = 1,
   pageSize = 100,
-  options?: { revalidate?: boolean },
+  options?: { revalidate?: boolean; revision?: string },
 ): Promise<Page<WorkItem>> {
-  const res = await authedFetch(
-    token,
-    `/work-queue?page=${page}&pageSize=${pageSize}`,
-    options?.revalidate ? { cache: "reload" } : undefined,
-  );
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar a fila de trabalho.");
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (options?.revision) query.set("revision", options.revision);
+  const preferSnapshot = Boolean(options?.revision) || (legacyQueueUntil.get(token) ?? 0) <= Date.now();
+  let res = await authedFetch(token, `${preferSnapshot ? "/work-queue/snapshot" : "/work-queue"}?${query}`, options?.revalidate ? { cache: "reload" } : undefined);
+  if (preferSnapshot && res.status === 404 && !options?.revision) {
+    if (legacyQueueUntil.size >= 64) legacyQueueUntil.delete(legacyQueueUntil.keys().next().value!);
+    legacyQueueUntil.set(token, Date.now() + 60_000);
+    res = await authedFetch(token, `/work-queue?${query}`, options?.revalidate ? { cache: "reload" } : undefined);
+  } else if (preferSnapshot && res.ok) {
+    const result = await res.json() as Page<WorkItem>;
+    if (typeof result.revision !== "string" || !/^[a-f0-9]{32}$/.test(result.revision) || (options?.revision && result.revision !== options.revision)) {
+      throw new ApiError(502, "A fila não confirmou sua versão. Tente novamente.");
+    }
+    return result;
   }
-  return (await res.json()) as Page<WorkItem>;
+  if (!res.ok) throw new ApiError(res.status, res.status === 409 ? "A fila mudou enquanto era carregada. Tente novamente." : "Não foi possível carregar a fila de trabalho.");
+  return await res.json() as Page<WorkItem>;
 }
 
 export interface WorkQueueRemainder {
@@ -357,6 +388,7 @@ async function collectWorkQueueSnapshot(
   while (seenIds.size < firstPage.total && pageRequests < maxPageRequests) {
     const chunk = await fetchWorkQueuePage(token, page, firstPage.pageSize, {
       revalidate: true,
+      revision: firstPage.revision,
     });
     pageRequests += 1;
     if (chunk.total !== firstPage.total) totalsStayedStable = false;
@@ -401,6 +433,23 @@ export async function fetchRemainingWorkQueuePages(
   token: string,
   firstPage: Page<WorkItem>,
 ): Promise<WorkQueueRemainder> {
+  if (firstPage.revision) {
+    let current = firstPage;
+    for (let attempt = 0; attempt < WORK_QUEUE_SNAPSHOT_ATTEMPTS; attempt += 1) {
+      try {
+        const snapshot = await collectWorkQueueSnapshot(token, current.pageSize, current);
+        const verification = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true });
+        if (!snapshot.complete || verification.revision !== current.revision) throw new ApiError(409, "A fila mudou.");
+        const firstIds = new Set(current.items.map((item) => item.id));
+        return { firstPage: current, items: snapshot.items.filter((item) => !firstIds.has(item.id)), total: current.total };
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409) throw error;
+        if (attempt + 1 < WORK_QUEUE_SNAPSHOT_ATTEMPTS) current = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true });
+      }
+    }
+    throw new ApiError(409, "A fila mudou enquanto era carregada. A primeira página permanece disponível; tente novamente para confirmar todas as ações.");
+  }
+
   let snapshot = await collectWorkQueueSnapshot(
     token,
     firstPage.pageSize,
@@ -461,7 +510,7 @@ export async function fetchTeam(token: string, pageSize = 100): Promise<Page<Tea
     const chunk = (await res.json()) as Page<TeamMember>;
     total = chunk.total;
     items.push(...chunk.items);
-    if (chunk.items.length === 0) break;
+    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -493,7 +542,7 @@ export async function fetchTeamLookup(
     const chunk = (await res.json()) as Page<TeamLookupMember>;
     total = chunk.total;
     items.push(...chunk.items);
-    if (chunk.items.length === 0) break;
+    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -521,7 +570,7 @@ export async function fetchCells(token: string, pageSize = 100): Promise<Page<Ce
     const chunk = (await res.json()) as Page<Cell>;
     total = chunk.total;
     items.push(...chunk.items);
-    if (chunk.items.length === 0) break;
+    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 

@@ -18,11 +18,14 @@ import re
 import time
 import uuid
 from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from hashlib import sha256
 
 import httpx
+from fastapi import Request
 
 from app.config import Settings, get_settings
+from app.performance import timed_span
 
 logger = logging.getLogger("pastorai.storage")
 
@@ -189,8 +192,18 @@ def cell_report_audio_storage_path(
 class SupabaseStorage:
     """Thin HTTP client around the Supabase Storage REST API."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, *, http_client: httpx.Client | None = None) -> None:
         self._settings = settings or get_settings()
+        self._http_client = http_client
+
+    @contextmanager
+    def _client(self, timeout: float):
+        with timed_span("storage"):
+            if self._http_client is not None:
+                yield self._http_client
+            else:
+                with httpx.Client(timeout=timeout) as client:
+                    yield client
 
     def _require(self) -> tuple[str, str]:
         url = (self._settings.supabase_url or "").rstrip("/")
@@ -237,9 +250,10 @@ class SupabaseStorage:
             )
         endpoint = f"{url}/storage/v1/object/{MEDIA_BUCKET}/{path}"
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with self._client(30.0) as client:
                 resp = client.post(
                     endpoint,
+                    timeout=30.0,
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": content_type,
@@ -311,9 +325,10 @@ class SupabaseStorage:
             return {}
         endpoint = f"{url}/storage/v1/object/sign/{MEDIA_BUCKET}"
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with self._client(15.0) as client:
                 resp = client.post(
                     endpoint,
+                    timeout=15.0,
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
@@ -354,10 +369,11 @@ class SupabaseStorage:
             return
         endpoint = f"{url}/storage/v1/object/{MEDIA_BUCKET}"
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with self._client(15.0) as client:
                 resp = client.request(
                     "DELETE",
                     endpoint,
+                    timeout=15.0,
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
@@ -385,10 +401,11 @@ class SupabaseStorage:
         try:
             if before_request is not None:
                 before_request()
-            with httpx.Client(timeout=15.0) as client:
+            with self._client(15.0) as client:
                 resp = client.request(
                     "DELETE",
                     endpoint,
+                    timeout=15.0,
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
@@ -421,7 +438,7 @@ class SupabaseStorage:
         paths: list[str] = []
 
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with self._client(15.0) as client:
                 while pending_prefixes:
                     prefix = pending_prefixes.pop()
                     if prefix in visited_prefixes:
@@ -433,6 +450,7 @@ class SupabaseStorage:
                             before_request()
                         response = client.post(
                             endpoint,
+                            timeout=15.0,
                             headers={
                                 "Authorization": f"Bearer {key}",
                                 "Content-Type": "application/json",
@@ -545,9 +563,10 @@ class SupabaseStorage:
         url, key = self._require()
         endpoint = f"{url}/storage/v1/object/{LOGO_BUCKET}/{path}"
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with self._client(30.0) as client:
                 resp = client.post(
                     endpoint,
+                    timeout=30.0,
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": content_type,
@@ -576,10 +595,11 @@ class SupabaseStorage:
             return
         endpoint = f"{url}/storage/v1/object/{LOGO_BUCKET}"
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with self._client(15.0) as client:
                 resp = client.request(
                     "DELETE",
                     endpoint,
+                    timeout=15.0,
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
@@ -622,6 +642,7 @@ def logo_public_url(path: str | None) -> str | None:
     return f"{url}/storage/v1/object/public/{LOGO_BUCKET}/{path}"
 
 
-def get_storage() -> SupabaseStorage:
+def get_storage(request: Request = None) -> SupabaseStorage:
     """FastAPI dependency / factory for the storage client."""
-    return SupabaseStorage()
+    client = getattr(request.app.state, "storage_http_client", None) if request else None
+    return SupabaseStorage(http_client=client)

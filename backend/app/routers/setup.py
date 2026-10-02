@@ -25,12 +25,12 @@ from app.db.models import (
     Celula,
     Igreja,
     LlmCredential,
+    Plano,
     Subscription,
     WhatsappConnection,
 )
 from app.db.session import get_db
 from app.deps import REVOKED_USER_STATUS, CurrentUser, require_role
-from app.services.billing import assigned_complimentary_plan
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -54,60 +54,38 @@ def get_setup_checklist(
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     items: list[SetupItemOut] = []
 
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == igreja_uuid)
-    ).scalar_one_or_none()
-    items.append(
-        SetupItemOut(id="identidade", screen="identidade", done=bool(igreja and igreja.logo_path))
-    )
+    # Scalar projections avoid fetching credentials, full users and history.
+    # Every tenant relation remains explicitly filtered, alongside request RLS.
+    def exists_for(model, *conditions):
+        return select(model.id).where(model.igreja_id == igreja_uuid, *conditions).exists()
 
-    team_count = db.execute(
-        select(func.count())
-        .select_from(AppUser)
-        .where(
-            AppUser.igreja_id == igreja_uuid,
-            AppUser.status.is_distinct_from(REVOKED_USER_STATUS),
-        )
-    ).scalar_one()
-    items.append(SetupItemOut(id="equipe", screen="equipe", done=team_count > 1))
-
-    cell_count = db.execute(
-        select(func.count())
-        .select_from(Celula)
-        .where(Celula.igreja_id == igreja_uuid)
-    ).scalar_one()
-    items.append(SetupItemOut(id="celulas", screen="celulas", done=cell_count > 0))
-
-    conn = db.execute(
-        select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_uuid)
-    ).scalar_one_or_none()
-    items.append(
-        SetupItemOut(id="whatsapp", screen="whatsapp", done=bool(conn and conn.status == "online"))
-    )
-
-    cred = db.execute(
-        select(LlmCredential).where(LlmCredential.igreja_id == igreja_uuid)
-    ).scalar_one_or_none()
-    items.append(
-        SetupItemOut(
-            id="agente", screen="agente", done=bool(cred and cred.validado and cred.ativo)
-        )
-    )
-
+    identity = select(Igreja.logo_path).where(Igreja.id == igreja_uuid).scalar_subquery()
+    team = select(func.count()).select_from(AppUser).where(
+        AppUser.igreja_id == igreja_uuid,
+        AppUser.status.is_distinct_from(REVOKED_USER_STATUS),
+    ).scalar_subquery()
+    complimentary = select(Plano.id).join(Igreja, Igreja.plano == Plano.codigo).where(
+        Igreja.id == igreja_uuid, Plano.preco_mensal == 0,
+    ).exists()
+    state = db.execute(select(
+        identity.label("setup_identity"),
+        (team > 1).label("setup_team"),
+        exists_for(Celula).label("setup_cells"),
+        exists_for(WhatsappConnection, WhatsappConnection.status == "online").label("setup_whatsapp"),
+        exists_for(LlmCredential, LlmCredential.validado.is_(True), LlmCredential.ativo.is_(True)).label("setup_agent"),
+        (exists_for(Subscription, Subscription.status == "ativa") | complimentary).label("setup_subscription"),
+    )).one()
+    items = [
+        SetupItemOut(id="identidade", screen="identidade", done=bool(state.setup_identity)),
+        SetupItemOut(id="equipe", screen="equipe", done=bool(state.setup_team)),
+        SetupItemOut(id="celulas", screen="celulas", done=bool(state.setup_cells)),
+        SetupItemOut(id="whatsapp", screen="whatsapp", done=bool(state.setup_whatsapp)),
+        SetupItemOut(id="agente", screen="agente", done=bool(state.setup_agent)),
+    ]
     if current_user.is_owner:
-        sub = db.execute(
-            select(Subscription).where(Subscription.igreja_id == igreja_uuid)
-        ).scalar_one_or_none()
-        # A concessão master é autoritativa mesmo se restou um placeholder
-        # local de checkout sem assinatura remota.
-        complimentary = assigned_complimentary_plan(db, igreja)
-        items.append(
-            SetupItemOut(
-                id="assinatura",
-                screen="assinatura",
-                done=bool((sub and sub.status == "ativa") or complimentary),
-            )
-        )
+        items.append(SetupItemOut(
+            id="assinatura", screen="assinatura", done=bool(state.setup_subscription),
+        ))
 
     pending = sum(1 for item in items if not item.done)
     return SetupChecklistOut(items=items, pendingCount=pending)

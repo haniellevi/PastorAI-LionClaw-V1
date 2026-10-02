@@ -53,6 +53,8 @@ export type ChatMessageTipo = "texto" | "imagem" | "arquivo" | "audio";
 /** Uma mensagem do histórico da conversa (GET /conversations/{id}/messages). */
 export interface ChatMessage {
   id: string;
+  /** Client-only state while private URLs are read after the text window. */
+  mediaPending?: boolean;
   direcao: "in" | "out";
   autor: "contato" | "ia" | "humano";
   /** Nome de quem respondeu (humano). null para IA/contato. */
@@ -390,3 +392,75 @@ export async function fetchConversationPhoto(
 }
 
 export { ApiError, SessionExpiredError };
+
+export interface MessageWindow extends Page<ChatMessage> {
+  nextBefore?: string | null;
+  nextAfter?: string | null;
+  cursorSupported: boolean;
+  rangeReconciled?: boolean;
+}
+
+/** Newest text window first; older deployments retain the established history contract. */
+export async function fetchMessageWindow(
+  token: string,
+  conversationId: string,
+  options: { before?: string; after?: string; legacy?: boolean } = {},
+  signal?: AbortSignal,
+): Promise<MessageWindow> {
+  if (options.legacy) {
+    const items = await fetchMessages(token,conversationId,200,signal);
+    return {items,page:1,pageSize:200,total:items.length,cursorSupported:false};
+  }
+  const query = new URLSearchParams({ page: "1", pageSize: "50", includeMedia: "false" });
+  if (options.before) query.set("before", options.before);
+  else if (options.after) query.set("after", options.after);
+  else query.set("latest", "true");
+  const res = await authedFetch(token, `/conversations/${conversationId}/messages?${query}`, { signal });
+  if (!res.ok) throw new ApiError(res.status, "Não foi possível carregar as mensagens.");
+  const page = await res.json() as Page<ChatMessage> & { nextBefore?: string | null; nextAfter?: string | null };
+  const supported = "nextBefore" in page && "nextAfter" in page;
+  if (supported && (!Array.isArray(page.items) || ![page.nextBefore,page.nextAfter].every(cursor => cursor === null || typeof cursor === "string"))) throw new ApiError(502,"A janela de mensagens recebida é inválida.");
+  if (!supported) {
+    const items = await fetchMessages(token, conversationId, 200, signal);
+    return { items, page: 1, pageSize: 200, total: items.length, cursorSupported: false };
+  }
+  return { ...page, cursorSupported: true };
+}
+
+export async function fetchMessageMediaUrls(token: string, conversationId: string, ids: string[], signal?: AbortSignal): Promise<Record<string, string>> {
+  if (!ids.length) return {};
+  const urls: Record<string,string> = {};
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 200) {
+    const batch = unique.slice(offset,offset+200);
+    const res = await authedFetch(token, `/conversations/${conversationId}/messages/media-urls?ids=${encodeURIComponent(batch.join(","))}`, {signal,cache:"no-store"});
+    if (res.status === 404) return urls;
+    if (!res.ok) throw new ApiError(res.status,"Não foi possível carregar a mídia.");
+    const dto = await res.json() as {urls:Record<string,string>};
+    Object.assign(urls,dto.urls);
+  }
+  return urls;
+}
+
+
+/** Reconcile mutable rows inside the range the person already loaded. */
+export async function fetchLoadedMessageRange(token: string,conversationId: string,loaded: ChatMessage[],signal?: AbortSignal,completeHistory = false): Promise<MessageWindow> {
+  const latest = await fetchMessageWindow(token,conversationId,{},signal);
+  if (!latest.cursorSupported || !loaded.length) return latest;
+  const oldest = loaded[0]!;
+  const compare = (left: ChatMessage,right: ChatMessage) => (left.criadoEm ?? "").localeCompare(right.criadoEm ?? "") || left.id.localeCompare(right.id);
+  const items = new Map(latest.items.map(item => [item.id,item]));
+  let before = latest.nextBefore;
+  const seenCursors = new Set<string>();
+  const budget = Math.ceil(Math.max(latest.total,loaded.length) / 50) + 2;
+  for (let request = 1; before && (completeHistory || !items.size || compare([...items.values()].sort(compare)[0]!,oldest) > 0); request += 1) {
+    if (request >= budget || seenCursors.has(before)) throw new ApiError(502,"A conversa mudou enquanto era atualizada. Tente novamente.");
+    seenCursors.add(before);
+    const page = await fetchMessageWindow(token,conversationId,{before},signal);
+    if (!page.cursorSupported) return page;
+    if (!page.items.length && page.nextBefore) throw new ApiError(502,"A janela anterior está incompleta.");
+    for (const item of page.items) items.set(item.id,item);
+    before = page.nextBefore;
+  }
+  return {...latest,items:[...items.values()].sort(compare),nextBefore:before,rangeReconciled:true};
+}

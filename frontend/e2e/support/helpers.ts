@@ -45,8 +45,8 @@ export interface LoginMetrics {
 
 const browserSafetyByPage = new WeakMap<Page, BrowserSafety>();
 
-export async function resetHarness(request: APIRequestContext): Promise<void> {
-  const response = await request.post(`${API_URL}/__e2e/reset`);
+export async function resetHarness(request: APIRequestContext, options?: {performance?:boolean;queueSize?:number}): Promise<void> {
+  const response = await request.post(`${API_URL}/__e2e/reset`, {data:options});
   expect(response.ok()).toBeTruthy();
 }
 
@@ -71,7 +71,11 @@ export async function armBrowserSafety(page: Page): Promise<BrowserSafety> {
   };
 
   page.on("console", (message) => {
-    if (message.type() === "error") safety.consoleErrors.push(message.text());
+    if (message.type() !== "error") return;
+    // Exact missing additive routes are an exercised compatibility response.
+    const location = message.location().url;
+    const additive404 = message.text().includes("404") && location.startsWith(API_URL) && /\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary|conversations\/[^/]+\/messages\/media-urls)(?:\?|$)/.test(location);
+    if (!additive404) safety.consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => safety.pageErrors.push(error.message));
   const allowedOrigins = new Set([new URL(APP_URL).origin, new URL(API_URL).origin]);

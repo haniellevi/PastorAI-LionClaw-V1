@@ -207,7 +207,10 @@ def _seed(
         other=uuid.uuid4(),
         subject=uuid.uuid4(),
         consolidation=uuid.uuid4(),
-        item=uuid.uuid4(),
+        # Numeric-only opaque codes hit the existing routing privacy guard.
+        # Keep this happy-path task code alphanumeric; retain UUID entropy,
+        # version and variant. The source incompatibility needs its own fix.
+        item=uuid.UUID("c0c0c0c0c0" + uuid.uuid4().hex[10:]),
         conversation=uuid.uuid4(),
         inbound=uuid.uuid4(),
     )
@@ -331,6 +334,15 @@ def _seed(
                 ),
             ]
         )
+        session.flush()
+        fono = session.execute(
+            select(WorkQueueItem).where(
+                WorkQueueItem.igreja_id == values.tenant,
+                WorkQueueItem.consolidacao_id == values.consolidation,
+                WorkQueueItem.tipo == "fonovisita",
+            )
+        ).scalar_one()
+        fono.id = uuid.UUID("f0f0f0f0f0" + fono.id.hex[10:])
     return values
 
 

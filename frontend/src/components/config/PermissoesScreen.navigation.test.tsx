@@ -59,9 +59,17 @@ async function hashEntry(route: string, state: object) {
   });
 }
 
-async function moveHistory(direction: "back" | "forward") {
+async function moveHistory(direction: "back" | "forward", expectedHash?: string) {
   await act(async () => {
+    const confirmation = expectedHash ? vi.mocked(window.confirm) : null;
+    const previousCalls = confirmation?.mock.calls.length ?? 0;
     window.history[direction]();
+    if (confirmation) {
+      // The capture guard stops the popstate event, so await its confirmation
+      // and repaired URL rather than a listener that the guard deliberately blocks.
+      await vi.waitFor(() => expect(confirmation.mock.calls.length).toBeGreaterThan(previousCalls), {timeout:1000,interval:10});
+      await vi.waitFor(() => expect(window.location.hash).toBe(expectedHash), {timeout:1000,interval:10});
+    }
     // jsdom agenda a travessia e seus eventos em tarefas separadas.
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
@@ -174,7 +182,7 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
     const originalState = window.history.state;
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    await moveHistory("back");
+    await moveHistory("back", "#permissoes");
 
     expect(window.location.hash).toBe("#permissoes");
     expect(window.history.state).toEqual(originalState);
@@ -201,7 +209,7 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
     const originalLength = window.history.length;
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    await moveHistory("forward");
+    await moveHistory("forward", "#permissoes");
 
     expect(window.location.hash).toBe("#permissoes");
     expect(window.history.state).toEqual(originalState);

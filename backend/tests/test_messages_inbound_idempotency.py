@@ -3036,6 +3036,7 @@ def test_inbox_hides_unconfirmed_agent_intents_and_preserves_public_author(
                     direcao="in",
                     autor="contato",
                     texto="Entrada visível",
+                    criado_em=dt.datetime(2026, 1, 1, 10, 0, tzinfo=dt.timezone.utc),
                 ),
                 Message(
                     igreja_id=_IGREJA_A,
@@ -3044,6 +3045,7 @@ def test_inbox_hides_unconfirmed_agent_intents_and_preserves_public_author(
                     autor="ia",
                     agent_reply_state="ia_pendente",
                     texto="Intenção interna",
+                    criado_em=dt.datetime(2026, 1, 1, 10, 1, tzinfo=dt.timezone.utc),
                 ),
                 Message(
                     igreja_id=_IGREJA_A,
@@ -3052,6 +3054,7 @@ def test_inbox_hides_unconfirmed_agent_intents_and_preserves_public_author(
                     autor="ia",
                     agent_reply_state="ia",
                     texto="Resposta confirmada",
+                    criado_em=dt.datetime(2026, 1, 1, 10, 2, tzinfo=dt.timezone.utc),
                 ),
             ]
         )

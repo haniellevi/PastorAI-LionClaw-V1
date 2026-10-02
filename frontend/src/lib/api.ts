@@ -11,6 +11,10 @@
  *   - falha de rede/Clerk indisponível: erro genérico com retry.
  */
 
+import { fetchWithDeadline } from "./request-with-deadline";
+import { parsePermissionMatrix } from "./permission-matrix";
+import type { PermissionMatrix } from "./permissions";
+
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
 export interface MeResult {
@@ -30,6 +34,7 @@ export interface MeResult {
 
 export interface LoginResult extends MeResult {
   token: string;
+  permissions?: PermissionMatrix;
 }
 
 export type LoginErrorKind =
@@ -120,13 +125,7 @@ function parseMeResult(value: unknown): MeResult | null {
 const AUTH_REQUEST_TIMEOUT_MS = 20_000;
 
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return fetchWithDeadline(url, init, AUTH_REQUEST_TIMEOUT_MS);
 }
 
 export async function login(email: string, password: string): Promise<LoginResult> {
@@ -152,7 +151,12 @@ export async function login(email: string, password: string): Promise<LoginResul
       throw new LoginError("network", SERVICE_UNAVAILABLE);
     }
     const profile = parseMeResult(data);
-    if (profile) return { token: data.token, ...profile };
+    if (profile) {
+      if (data.permissions === undefined) return { token: data.token, ...profile };
+      const permissions = parsePermissionMatrix(data.permissions);
+      if (!permissions) throw new LoginError("network", SERVICE_UNAVAILABLE);
+      return { token: data.token, ...profile, permissions };
+    }
 
     // Compatibilidade durante deploy gradual: o backend antigo devolve apenas
     // {token, churchId}. O token só chega ao contexto depois que /auth/me
@@ -203,15 +207,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   throw new LoginError("invalid", INVALID_CREDENTIALS);
 }
 
-export async function fetchMe(token: string): Promise<MeResult> {
-  let res: Response;
-  try {
-    res = await authFetch(`${API_BASE}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch {
-    throw new AuthUnavailableError();
-  }
+async function ensureAuthenticatedResponse(res: Response): Promise<void> {
   if (res.status === 401) {
     throw new SessionExpiredError();
   }
@@ -231,6 +227,42 @@ export async function fetchMe(token: string): Promise<MeResult> {
   if (!res.ok) {
     throw new AuthUnavailableError();
   }
+}
+
+export interface BootstrapResult {
+  user: MeResult;
+  permissions: PermissionMatrix | null;
+}
+
+/** Only an unsupported endpoint permits legacy fallback, never a denied authority. */
+export async function fetchBootstrap(token: string, signal?: AbortSignal): Promise<BootstrapResult> {
+  let res: Response;
+  try {
+    res = await authFetch(`${API_BASE}/auth/bootstrap`, { headers: { Authorization: `Bearer ${token}` }, signal });
+  } catch { throw new AuthUnavailableError(); }
+  if ([404, 405, 501].includes(res.status)) return { user: await fetchMe(token, signal), permissions: null };
+  await ensureAuthenticatedResponse(res);
+  try {
+    const dto: unknown = await res.json();
+    if (!isRecord(dto)) throw new AuthUnavailableError();
+    const user = parseMeResult(dto.user);
+    const permissions = parsePermissionMatrix(dto.permissions);
+    if (!user || !permissions) throw new AuthUnavailableError();
+    return { user, permissions };
+  } catch { throw new AuthUnavailableError(); }
+}
+
+export async function fetchMe(token: string, signal?: AbortSignal): Promise<MeResult> {
+  let res: Response;
+  try {
+    res = await authFetch(`${API_BASE}/auth/me`, {
+      signal,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new AuthUnavailableError();
+  }
+  await ensureAuthenticatedResponse(res);
   try {
     const profile = parseMeResult(await res.json());
     if (!profile) throw new AuthUnavailableError();

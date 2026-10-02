@@ -116,6 +116,15 @@ class _R:
     def scalars(self) -> _Scalars:
         return _Scalars(self._scalars)
 
+    def scalar_one(self):
+        return self._scalar
+
+    def __iter__(self):
+        return iter(self._rows)
+
+    def close(self):
+        pass
+
     def all(self) -> list:
         return list(self._rows)
 
@@ -143,8 +152,16 @@ class ReportsSession:
             return _R(scalar=None)
         if ent is AppUser:
             return _R(scalar=self.app_user)
+        if "count(" in str(statement).lower() and "celula_reuniao" in str(statement):
+            return _R(scalar=len(self._match(self.reunioes, statement)))
         if ent is CelulaReuniao:
-            return _R(scalars=self._match(self.reunioes, statement))
+            matched = self._match(self.reunioes, statement)
+            if name == "relatorio_snapshot":
+                return _R(rows=matched)
+            matched = sorted(matched, key=lambda r: (r.data, r.hora or "99:99", str(r.id)))
+            offset = getattr(getattr(statement, "_offset_clause", None), "value", 0) or 0
+            limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+            return _R(scalars=matched[offset : offset + limit if limit is not None else None])
         if ent is Celula and name == "id":
             return _R(rows=[(c.id, c.nome) for c in self._match(self.cells, statement)])
         if ent is Celula:

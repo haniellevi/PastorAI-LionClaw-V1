@@ -87,6 +87,9 @@ export function ComunicadosScreen() {
   const { token, expireSession } = useAuth();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsState, setContactsState] = useState<"loading" | "ready" | "error">("loading");
+  const [contactsAttempt, setContactsAttempt] = useState(0);
+  const [historyState, setHistoryState] = useState<"loading" | "ready" | "error">("loading");
   const [history, setHistory] = useState<BroadcastItem[]>([]);
   const [capabilities, setCapabilities] =
     useState<BroadcastCapabilities | null>(null);
@@ -125,13 +128,9 @@ export function ComunicadosScreen() {
       if (mode === "initial") setLoading(true);
       setError(null);
       try {
-        const [contactPage, broadcastPage, rollout] = await Promise.all([
-          fetchContacts(token),
-          fetchBroadcasts(token),
-          fetchBroadcastCapabilities(token),
-        ]);
-        setContacts(contactPage.items);
-        setHistory(broadcastPage.items);
+        setHistoryState("loading");
+        void fetchBroadcasts(token).then(page => { setHistory(page.items); setHistoryState("ready"); }).catch(err => { if (!handleSessionError(err)) setHistoryState("error"); });
+        const rollout = await fetchBroadcastCapabilities(token);
         setCapabilities(rollout);
         setLoaded(true);
         // Status do WhatsApp é admin-only: 403/erro não bloqueia a tela.
@@ -154,6 +153,14 @@ export function ComunicadosScreen() {
   useEffect(() => {
     void load("initial");
   }, [load]);
+
+  useEffect(() => {
+    if (!token || step !== "segment") return;
+    let active = true;
+    setContactsState("loading");
+    void fetchContacts(token).then(page => { if (active) { setContacts(page.items); setContactsState("ready"); } }).catch(err => { if (active && !handleSessionError(err)) setContactsState("error"); });
+    return () => { active = false; };
+  }, [token, step, contactsAttempt, handleSessionError]);
 
   const toastTimer = useRef<number | null>(null);
   const pendingRequest = useRef<{ fingerprint: string; key: string } | null>(null);
@@ -202,6 +209,7 @@ export function ComunicadosScreen() {
 
   const composeReady = titulo.trim().length > 0 && mensagem.trim().length > 0;
   const segmentReady =
+    contactsState === "ready" && capabilities !== null &&
     selectedTokens.length > 0 &&
     recipients.length > 0 &&
     (!scheduleOn || (Boolean(data) && !schedulePast)) &&
@@ -223,7 +231,7 @@ export function ComunicadosScreen() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!token) return;
+    if (!token || !segmentReady) return;
     setSubmitting(true);
     setBlocked(null);
     try {
@@ -270,6 +278,7 @@ export function ComunicadosScreen() {
     }
   }, [
     token,
+    segmentReady,
     titulo,
     mensagem,
     selectedTokens,
@@ -399,6 +408,7 @@ export function ComunicadosScreen() {
             </>
           ) : step === "segment" ? (
             <>
+              {contactsState === "loading" ? <p role="status">Carregando destinatários…</p> : contactsState === "error" ? <div role="alert">Não foi possível confirmar os destinatários. <button type="button" className="btn btn-sm" onClick={() => setContactsAttempt(value => value + 1)}>Tentar novamente</button></div> : null}
               <div className="field">
                 <label>Segmentos <span className="helper" style={{ fontWeight: 400 }}>· marque um ou mais</span></label>
                 <div className="seg-list">
@@ -408,7 +418,7 @@ export function ComunicadosScreen() {
                       <div className="seg-row" key={seg.token}>
                         <div style={{ flex: 1 }}>
                           <div className="nm">{seg.label}</div>
-                          <div className="sub">{count} contato(s)</div>
+                          <div className="sub">{contactsState === "ready" ? `${count} contato(s)` : "Contagem aguardando confirmação"}</div>
                         </div>
                         <Toggle
                           label={seg.label}
@@ -421,7 +431,7 @@ export function ComunicadosScreen() {
                 </div>
               </div>
 
-              {selectedTokens.length > 0 && recipients.length === 0 ? (
+              {contactsState === "ready" && selectedTokens.length > 0 && recipients.length === 0 ? (
                 <div className="degraded-banner" role="status" style={{ borderRadius: "var(--r-md)" }}>
                   <Icon name="alert" />
                   <span>Nenhuma pessoa nos segmentos selecionados. Escolha outro segmento.</span>
@@ -578,7 +588,7 @@ export function ComunicadosScreen() {
                   type="button"
                   className="btn btn-primary"
                   disabled={
-                    submitting ||
+                    submitting || !segmentReady ||
                     externalSendsBlocked ||
                     (scheduleOn && !scheduleAvailable)
                   }
@@ -605,7 +615,7 @@ export function ComunicadosScreen() {
                 </div>
               ))}
             </div>
-          ) : history.length === 0 ? (
+          ) : historyState === "error" ? <div role="alert">Histórico indisponível. <button type="button" className="btn btn-sm" onClick={() => void load("retry")}>Tentar novamente</button></div> : historyState === "loading" ? <p role="status">Carregando histórico…</p> : history.length === 0 ? (
             <div className="empty-state" style={{ padding: "var(--s6)" }}>
               <Icon name="broadcast" />
               <p>

@@ -23,13 +23,15 @@ import {
 } from "react";
 
 import {
-  fetchMe,
+  fetchBootstrap,
   login as apiLogin,
   SessionAccessDeniedError,
   SessionExpiredError,
   type MeResult,
 } from "./api";
 import { normalizeRoles, type Role } from "./roles";
+import type { PermissionMatrix } from "./permissions";
+import { clearAuthedResponseCache } from "./dashboard-api";
 
 const TOKEN_KEY = "pastorai:token";
 const RETURN_KEY = "pastorai:returnTo";
@@ -62,6 +64,7 @@ interface AuthContextValue {
   token: string | null;
   /** Motivo terminal devolvido pelo backend ao recusar a sessão restaurada. */
   accessMessage: string | null;
+  permissionSnapshot: { token: string; matrix: PermissionMatrix } | null;
   /** Autentica e hidrata a sessão com a resposta do api-login. */
   login: (email: string, password: string) => Promise<void>;
   /** Repete a validação de um token preservado após falha transitória. */
@@ -227,10 +230,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const tokenRef = useRef<string | null>(null);
+  const [permissionSnapshot, setPermissionSnapshot] = useState<{ token: string; matrix: PermissionMatrix } | null>(null);
+  const sessionGeneration = useRef(0);
 
   // Bootstrap: restaura sessão de um token persistido.
   useEffect(() => {
     let active = true;
+    const generation = sessionGeneration.current;
+    const controller = new AbortController();
+    setPermissionSnapshot(null);
     const token = readToken();
     if (!token) {
       setStatus("unauthenticated");
@@ -238,15 +246,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     tokenRef.current = token;
     preloadAuthenticatedSurface();
-    fetchMe(token)
-      .then((me) => {
-        if (!active) return;
+    fetchBootstrap(token, controller.signal)
+      .then(({ user: me, permissions }) => {
+        if (!active || generation !== sessionGeneration.current) return;
+        setPermissionSnapshot(permissions ? { token, matrix: permissions } : null);
         setUser(toSessionUser(me));
         setAccessMessage(null);
         setStatus("authenticated");
       })
       .catch((error: unknown) => {
-        if (!active) return;
+        if (!active || generation !== sessionGeneration.current) return;
         if (
           error instanceof SessionExpiredError ||
           error instanceof SessionAccessDeniedError
@@ -265,6 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [bootstrapAttempt]);
 
@@ -274,7 +284,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { token, ...me } = await apiLogin(email, password);
+    const generation = ++sessionGeneration.current;
+    const { token, permissions, ...me } = await apiLogin(email, password);
+    if (generation !== sessionGeneration.current) throw new Error("Esta tentativa de acesso foi cancelada.");
+    clearAuthedResponseCache();
+    setPermissionSnapshot(permissions ? { token, matrix: permissions } : null);
     preloadAuthenticatedSurface();
     tokenRef.current = token;
     writeToken(token);
@@ -284,6 +298,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    sessionGeneration.current += 1;
+    setPermissionSnapshot(null);
+    clearAuthedResponseCache();
     tokenRef.current = null;
     writeToken(null);
     try {
@@ -305,6 +322,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const expireSession = useCallback(() => {
+    sessionGeneration.current += 1;
+    setPermissionSnapshot(null);
+    clearAuthedResponseCache();
     try {
       const current = window.location.hash.replace(/^#/, "");
       if (current && current !== "login") {
@@ -336,6 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       token: tokenRef.current,
       accessMessage,
+      permissionSnapshot,
       login,
       retrySession,
       logout,
@@ -348,6 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       accessMessage,
+      permissionSnapshot,
       login,
       retrySession,
       logout,

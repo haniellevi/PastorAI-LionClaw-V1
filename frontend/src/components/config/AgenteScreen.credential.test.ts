@@ -111,7 +111,7 @@ afterEach(() => {
 });
 
 describe("AgenteScreen: revalidação da BYO", () => {
-  it.each(["fetchAgentConfig", "fetchLlmModels"] as const)(
+  it.each(["fetchAgentConfig"] as const)(
     "não afirma que o assistente está desativado quando %s falha",
     async (failedLoad) => {
       mocks[failedLoad].mockRejectedValue(new Error("Falha sintética de leitura"));
@@ -152,6 +152,20 @@ describe("AgenteScreen: revalidação da BYO", () => {
     expect(container.textContent).toContain(ativo ? "Assistente ativo" : "Assistente desativado");
     expect(container.textContent).not.toContain("Estado do assistente indisponível");
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("catalogo de modelos lento/falho não esconde o estado confirmado do agente", async () => {
+    mocks.fetchLlmModels.mockRejectedValue(new Error("Catálogo indisponível"));
+    act(() => root.render(h(AgenteScreen)));
+    await flush();
+    expect(mocks.fetchLlmModels).not.toHaveBeenCalled();
+    expect(mocks.fetchCrons).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Assistente desativado");
+    act(() => findButton("Credencial LLM").click());
+    await flush();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Não foi possível carregar esta seção");
+    expect(container.textContent).toContain("Assistente desativado");
+    expect(mocks.saveCredential).not.toHaveBeenCalled();
   });
 
   it("revalida a credencial ativa no mesmo modelo sem pedir ou reenviar a chave", async () => {

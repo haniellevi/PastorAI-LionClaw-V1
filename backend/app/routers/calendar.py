@@ -918,8 +918,7 @@ def import_events(
 
     if created:
         db.flush()
-        for event in created:
-            db.refresh(event)
+        # PostgreSQL RETURNING fills generated primary keys during flush.
     db.commit()
 
     return ImportResultOut(

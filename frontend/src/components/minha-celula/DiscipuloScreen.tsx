@@ -8,7 +8,7 @@ import "../cells/operations-ux-v2.css";
  * Ações de escrita: confirmar presença (US-02) e indicar visitante (US-03).
  * Estados de cada seção: loading (skeleton) · empty · populated · erro (retry).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SupportReveal } from "@/components/brand/SupportReveal";
 import { DsBanner } from "@/components/ds/Banner";
@@ -36,6 +36,9 @@ export function DiscipuloScreen() {
   const [notices, setNotices] = useState<DiscipleNotice[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const generation = useRef(0);
+  const primaryRequest = useRef(0);
+  const [supportState, setSupportState] = useState<Record<string, "loading" | "ready" | "error">>({});
 
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -58,35 +61,61 @@ export function DiscipuloScreen() {
   const load = useCallback(
     async (mode: "initial" | "retry") => {
       if (!token) return;
+      const request = ++primaryRequest.current;
+      const epoch = generation.current;
       if (mode === "initial") setLoading(true);
       setError(null);
       try {
-        const [nextRes, noticeRes, materialRes, historyRes] = await Promise.all([
-          getNextMeeting(token),
-          getMyNotices(token),
-          listMaterials(token),
-          getMyHistory(token),
-        ]);
+        const nextRes = await getNextMeeting(token);
+        if (request !== primaryRequest.current || epoch !== generation.current) return;
         setMeeting(nextRes.meeting);
-        setNotices(noticeRes);
-        setMaterials(materialRes.items);
-        setHistory(historyRes.items);
         setLoaded(true);
       } catch (err) {
+        if (request !== primaryRequest.current || epoch !== generation.current) return;
         if (handleSessionError(err)) return;
         setError(
           err instanceof ApiError ? err.message : "Não foi possível carregar sua célula.",
         );
       } finally {
-        setLoading(false);
+        if (request === primaryRequest.current && epoch === generation.current) setLoading(false);
       }
     },
     [token, handleSessionError],
   );
 
+  const loadSupport = useCallback(async (kind: "notices" | "materials" | "history") => {
+    if (!token) return;
+    const epoch = generation.current;
+    setSupportState((state) => ({ ...state, [kind]: "loading" }));
+    try {
+      if (kind === "notices") {
+        const data = await getMyNotices(token);
+        if (epoch === generation.current) setNotices(data);
+      } else if (kind === "materials") {
+        const data = await listMaterials(token);
+        if (epoch === generation.current) setMaterials(data.items);
+      } else {
+        const data = await getMyHistory(token);
+        if (epoch === generation.current) setHistory(data.items);
+      }
+      if (epoch === generation.current) setSupportState((state) => ({ ...state, [kind]: "ready" }));
+    } catch (error) {
+      if (epoch === generation.current && !handleSessionError(error)) setSupportState((state) => ({ ...state, [kind]: "error" }));
+    }
+  }, [token, handleSessionError]);
+
   useEffect(() => {
+    generation.current += 1;
+    setSupportState({});
+    setNotices([]); setMaterials([]); setHistory([]);
     void load("initial");
-  }, [load]);
+    void loadSupport("notices");
+    return () => { generation.current += 1; };
+  }, [load, loadSupport]);
+
+  const supportFeedback = (kind: "notices" | "materials" | "history") => supportState[kind] === "error"
+    ? <div role="alert">Esta seção está indisponível. <button type="button" className="btn btn-sm" onClick={() => void loadSupport(kind)}>Tentar novamente</button></div>
+    : supportState[kind] !== "ready" ? <p role="status">Carregando…</p> : null;
 
   // Gate 9.1: sem timer manual — o DsToast e o dono do ciclo de vida.
   const flashToast = useCallback((t: CellToast) => setToast(t), []);
@@ -143,18 +172,19 @@ export function DiscipuloScreen() {
             </div>
           ) : null}
           <div className="mc-area mc-area--notices">
-            <NoticesFeed notices={notices} />
+            {supportFeedback("notices")}
+            {supportState.notices === "ready" ? <NoticesFeed notices={notices} /> : null}
           </div>
           <SupportReveal className="mc-area mc-area--materials">
-            <details className="ops-disclosure">
+            <details className="ops-disclosure" onToggle={(event) => { if (event.currentTarget.open && !supportState.materials) void loadSupport("materials"); }}>
               <summary>Materiais da célula</summary>
-              <div className="ops-disclosure-body"><MaterialsFeed materials={materials} /></div>
+              <div className="ops-disclosure-body">{supportFeedback("materials")}{supportState.materials === "ready" ? <MaterialsFeed materials={materials} /> : null}</div>
             </details>
           </SupportReveal>
           <SupportReveal className="mc-area mc-area--history">
-            <details className="ops-disclosure">
+            <details className="ops-disclosure" onToggle={(event) => { if (event.currentTarget.open && !supportState.history) void loadSupport("history"); }}>
               <summary>Meu histórico de reuniões</summary>
-              <div className="ops-disclosure-body"><MeetingHistoryList items={history} /></div>
+              <div className="ops-disclosure-body">{supportFeedback("history")}{supportState.history === "ready" ? <MeetingHistoryList items={history} /> : null}</div>
             </details>
           </SupportReveal>
         </div>

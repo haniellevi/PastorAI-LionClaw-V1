@@ -263,7 +263,7 @@ def test_list_operator_after_assignment_revoked_or_transferred_is_empty(app) -> 
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"items": [], "page": 1, "pageSize": 20, "total": 0}
+    assert response.json() == {"items": [], "page": 1, "pageSize": 20, "total": 0, "searchSupported": True}
     # The live assignee is part of both count and row predicates; once
     # assumido_por changes, the previous operador no longer matches either.
     for statement in _people_statements(session):
@@ -294,7 +294,7 @@ def test_list_restricted_user_without_pessoa_is_empty_fail_closed(app) -> None:
     response = _client(app, session=session, user=_user("membro")).get("/contacts")
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"items": [], "page": 1, "pageSize": 20, "total": 0}
+    assert response.json() == {"items": [], "page": 1, "pageSize": 20, "total": 0, "searchSupported": True}
     statements = _people_statements(session)
     assert len(statements) == 2
     assert all("false" in _sql(statement).lower() for statement in statements)

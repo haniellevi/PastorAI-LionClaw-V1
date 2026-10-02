@@ -240,12 +240,13 @@ for (const width of [390, 1440]) {
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Lançar decisão", exact: true }).click();
     const decision = page.getByRole("dialog", { name: "Lançar decisão por Jesus", exact: true });
-    await decision.getByLabel("Pessoa", { exact: true }).selectOption("ux-person-51");
-    await decision.getByLabel("Célula que participa", { exact: true }).selectOption(CELL_ID);
+    await decision.getByRole("searchbox", {name:"Buscar pessoa",exact:true}).fill("Rafael");
+    await decision.getByRole("button", {name:/^Rafael Laboratório/}).click();
+    await decision.getByRole("button", {name:/^Célula Laboratório/}).click();
     await decision.getByRole("button", { name: "Lançar decisão", exact: true }).click();
     await expect(decision.getByRole("alert")).toContainText("Decisão fictícia recusada");
-    await expect(decision.getByLabel("Pessoa", { exact: true })).toHaveValue("ux-person-51");
-    await expect(decision.getByLabel("Célula que participa", { exact: true })).toHaveValue(CELL_ID);
+    await expect(decision.getByText("Rafael Laboratório", {exact:true})).toBeVisible();
+    await expect(decision.getByText("Célula Laboratório", {exact:true})).toBeVisible();
     await decision.getByRole("button", { name: "Lançar decisão", exact: true }).click();
     await expect(decision).toBeHidden();
     await page.evaluate(() => { window.location.hash = "consol-individual"; });

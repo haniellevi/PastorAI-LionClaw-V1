@@ -158,7 +158,7 @@ describe("fronteiras de carregamento do frontend", () => {
       authContext.indexOf("useEffect(() =>"),
       authContext.indexOf("const login = useCallback"),
     );
-    expect(bootstrap).toContain("fetchMe(token)");
+    expect(bootstrap).toContain("fetchBootstrap(token, controller.signal)");
     expect(bootstrap).toContain("error instanceof SessionExpiredError");
     expect(bootstrap).toContain('setStatus("unavailable")');
     expect(bootstrap.indexOf("error instanceof SessionExpiredError")).toBeLessThan(

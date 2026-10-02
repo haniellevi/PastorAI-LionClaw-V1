@@ -12,7 +12,9 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import get_settings
 from app.db.session import get_engine
 from app.middleware.body_limit import MediaUploadBodyLimitMiddleware
+from app.performance import PerformanceRegistry, RequestTelemetryMiddleware
 from app.routers import (
     agent,
     agent_identity,
@@ -59,6 +62,8 @@ from app.services.celula_membro import (
     TransferenciaNaoAutorizadaError,
 )
 from app.services.clerk import ClerkClient
+from app.services.google_calendar import GoogleCalendarClient
+from app.services.google_oauth import GoogleOAuthClient
 from app.services.rate_limit import RateLimitExceeded
 from app.services.readiness import collect_readiness
 
@@ -94,6 +99,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # exactly the pool created for that lifespan.
     clerk_client = ClerkClient(settings=settings)
     app.state.clerk_client = clerk_client
+    google_oauth_client = GoogleOAuthClient(settings=settings)
+    google_calendar_client = GoogleCalendarClient(settings=settings)
+    app.state.google_oauth_client = google_oauth_client
+    app.state.google_calendar_client = google_calendar_client
+    # Authentication stays on each Storage request; this pool has no default
+    # tenant headers and cannot inherit proxy credentials from the host.
+    storage_http_client = httpx.Client(
+        trust_env=False, follow_redirects=False,
+        cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])),
+    )
+    app.state.storage_http_client = storage_http_client
     logger.info("PastorAI backend starting (env=%s)", settings.app_env)
     try:
         connection = get_engine().connect()
@@ -110,6 +126,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         clerk_client.close()
         logger.info("Clerk HTTP connection pool closed")
+        google_oauth_client.close()
+        google_calendar_client.close()
+        storage_http_client.close()
+        logger.info("Google HTTP connection pools closed")
         # Graceful shutdown: close pooled connections if the engine was created.
         try:
             get_engine().dispose()
@@ -126,6 +146,7 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+    app.state.performance = PerformanceRegistry()
 
     # Guard the base64 media upload before Starlette/Pydantic buffers and parses
     # its JSON body. Added before CORS so even a 413 carries the normal CORS
@@ -140,37 +161,16 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=[_REQUEST_ID_HEADER, "Server-Timing"],
+        expose_headers=[_REQUEST_ID_HEADER, "Server-Timing", "X-Backend-Release"],
         max_age=_CORS_PREFLIGHT_MAX_AGE_SECONDS,
     )
 
-    @app.middleware("http")
-    async def _request_observability(request: Request, call_next):
-        """Emit low-cardinality request timing without query strings or bodies."""
-        request_id = _request_id(request.headers.get(_REQUEST_ID_HEADER))
-        started = time.perf_counter()
-        request.state.request_id = request_id
-        request.state.request_started = started
-        status_code = 500
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-            duration_ms = (time.perf_counter() - started) * 1000
-            response.headers[_REQUEST_ID_HEADER] = request_id
-            response.headers["Server-Timing"] = f"app;dur={duration_ms:.2f}"
-            return response
-        finally:
-            duration_ms = (time.perf_counter() - started) * 1000
-            route = request.scope.get("route")
-            route_path = getattr(route, "path", "<unmatched>")
-            logger.info(
-                "http_request request_id=%s method=%s route=%s status=%d duration_ms=%.2f",
-                request_id,
-                request.method,
-                route_path,
-                status_code,
-                duration_ms,
-            )
+    app.add_middleware(
+        RequestTelemetryMiddleware,
+        registry=app.state.performance,
+        routes=app.routes,
+        request_id_factory=_request_id,
+    )
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(
@@ -180,13 +180,16 @@ def create_app() -> FastAPI:
         request_id = getattr(request.state, "request_id", None) or _request_id(None)
         started = getattr(request.state, "request_started", time.perf_counter())
         duration_ms = (time.perf_counter() - started) * 1000
-        logger.exception("Unhandled request error request_id=%s", request_id, exc_info=exc)
+        # Exceptions may embed SQL binds, credentials or pastoral data.
+        logger.error("Unhandled request error request_id=%s error_type=%s",
+                     request_id, type(exc).__name__)
         return JSONResponse(
             status_code=500,
             content={"detail": "Erro interno do servidor."},
             headers={
                 _REQUEST_ID_HEADER: request_id,
                 "Server-Timing": f"app;dur={duration_ms:.2f}",
+                "X-Backend-Release": app.state.performance.release,
             },
         )
 

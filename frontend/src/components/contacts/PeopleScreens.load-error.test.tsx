@@ -17,6 +17,7 @@ vi.mock("@/lib/contacts-api", async (original) => ({
   ...await original<typeof import("@/lib/contacts-api")>(),
   fetchContactsPage: api.fetchContactsPage, fetchContactDetail: api.fetchContactDetail,
   fetchContacts: api.fetchContacts, fetchPipeline: api.fetchPipeline,
+  fetchGanharPage: async (token: string) => {const page = await api.fetchPipeline(token,"ganhar"); return {...page, summary: {total:page.items.length,novosContatos:page.items.length,visitantesSemCelula:0,visitantesComDecisao:0}};},
 }));
 vi.mock("@/lib/dashboard-api", async (original) => ({
   ...await original<typeof import("@/lib/dashboard-api")>(),
@@ -138,6 +139,6 @@ it("Pessoas não mistura a página anterior quando a leitura do novo filtro falh
   retry();
   await settle();
   expect(filter.value).toBe("visitante");
-  expect(api.fetchContactsPage).toHaveBeenLastCalledWith("tok-initial", { page: 1, pageSize: 50, view: "visitante" });
+  expect(api.fetchContactsPage).toHaveBeenLastCalledWith("tok-initial", { page: 1, pageSize: 50, view: "visitante", signal: expect.any(AbortSignal) });
   expect(container.textContent).toContain("Nenhum contato neste filtro.");
 });

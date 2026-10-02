@@ -422,6 +422,11 @@ writer ou envio; `catalog_ready=false` e `writer_eligible=false` continuam.
   implantado vinculado ao registro, sem presumir operação autenticada em PROD.
   Estado verificável do release, CI e deployment: [PR consolidada #450](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/450).
 - Agenda, broadcast, billing e integrações com contenção e auditoria próprias.
+- Programa de desempenho de 02/10: bootstrap combinado, lookups/busca,
+  paginação SQL, revisão da fila, histórico por cursor, mídia desacoplada da
+  conexão, polling visível e pools de HTTP. [Contratos, limites e publicação](performance/2026-10-02-fluidity-plan.md).
+  A validação sintética não encerra RNFs de campo; frontend, backend e
+  observação operacional têm recibos distintos.
 
 ### Fundação do agente
 

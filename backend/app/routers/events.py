@@ -29,13 +29,14 @@ import datetime as dt
 import logging
 import re
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy.orm import Session, load_only
 
 from app.db.models import AppUser, Conversation, Event, EventNotifyTarget
 from app.db.session import get_db
@@ -346,13 +347,20 @@ def _get_event(
     return event
 
 
-@router.get("", response_model=Page[EventOut])
+class EventPage(Page[EventOut]):
+    includeUndatedSupported: bool = False  # noqa: N815
+
+
+@router.get("", response_model=EventPage)
 def list_events(
     pagination: PaginationParams = Depends(),
     from_date: dt.date | None = Query(default=None, alias="fromDate"),
+    to_date: Annotated[dt.date | None, Query(alias="toDate")] = None,
+    event_status: Annotated[Literal["a_confirmar"] | None, Query(alias="status")] = None,
+    include_undated: Annotated[bool, Query(alias="includeUndated")] = False,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-) -> Page[EventOut]:
+) -> EventPage:
     """Return visible tenant events, soonest first (RNF-09).
 
     ``fromDate`` is an additive dashboard/read-model filter: it excludes past
@@ -365,9 +373,18 @@ def list_events(
     The count uses the exact same predicates, so ``total`` never leaks or
     overstates hidden drafts.
     """
+    if from_date is not None and to_date is not None and from_date > to_date:
+        raise HTTPException(status_code=422, detail="fromDate deve preceder toDate")
     filters = _visible_event_filters(current_user)
+    date_filters = []
+    if to_date is not None:
+        date_filters.append(Event.data <= to_date)
+    if event_status is not None:
+        filters.append(Event.status == event_status)
     if from_date is not None:
-        filters.append(Event.data >= from_date)
+        date_filters.append(Event.data >= from_date)
+    if date_filters:
+        filters.append(or_(and_(*date_filters), Event.data.is_(None)) if include_undated else and_(*date_filters))
 
     rows = db.execute(
         select(Event)
@@ -383,11 +400,12 @@ def list_events(
     total = db.execute(
         select(func.count()).select_from(Event).where(*filters)
     ).scalar_one()
-    return Page[EventOut](
+    return EventPage(
         items=[EventOut.from_model(e) for e in rows],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
+        includeUndatedSupported=include_undated,
     )
 
 
@@ -540,51 +558,57 @@ def _resolve_contatos(
     vinculada, guardamos o telefone canônico. Dedup por identidade, preservando a
     ordem. NÃO envia nada — só resolve a intenção.
     """
-    resolvidos: list[tuple[uuid.UUID | None, str | None]] = []
-    vistos: set[tuple[str | None, str | None]] = set()
-    for c in contatos:
-        if c.pessoaId:
+    if not contatos:
+        return []
+    references = []
+    person_ids: set[uuid.UUID] = set()
+    phones: set[str] = set()
+    for contact in contatos:
+        if contact.pessoaId:
             try:
-                pessoa_uuid = uuid.UUID(c.pessoaId)
+                person_id = uuid.UUID(contact.pessoaId)
             except ValueError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="pessoaId inválido",
-                ) from exc
-            conv = db.execute(
-                select(Conversation).where(
-                    Conversation.pessoa_id == pessoa_uuid,
-                    Conversation.igreja_id == igreja_id,
-                )
-            ).scalar_one_or_none()
+                raise HTTPException(status_code=422, detail="pessoaId inválido") from exc
+            person_ids.add(person_id)
+            references.append((person_id, None))
         else:
             try:
-                telefone = normalize_phone(c.telefone or "")
+                phone = normalize_phone(contact.telefone or "")
             except ValueError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="telefone inválido",
-                ) from exc
-            conv = db.execute(
-                select(Conversation).where(
-                    Conversation.telefone == telefone,
-                    Conversation.igreja_id == igreja_id,
-                )
-            ).scalar_one_or_none()
-        if conv is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Contato não encontrado nas conversas do WhatsApp da igreja",
-            )
-        # D3 — prefere pessoa_id quando a conversa tem pessoa vinculada.
-        pessoa_id = conv.pessoa_id
-        tel_final = None if pessoa_id is not None else conv.telefone
-        chave = (str(pessoa_id) if pessoa_id is not None else None, tel_final)
-        if chave in vistos:
-            continue
-        vistos.add(chave)
-        resolvidos.append((pessoa_id, tel_final))
-    return resolvidos
+                raise HTTPException(status_code=422, detail="telefone inválido") from exc
+            if not phone:
+                raise HTTPException(status_code=422, detail="telefone inválido")
+            phones.add(phone)
+            references.append((None, phone))
+    rows = db.execute(select(Conversation).options(load_only(
+        Conversation.id, Conversation.pessoa_id, Conversation.telefone,
+    )).where(
+        Conversation.igreja_id == igreja_id,
+        or_(Conversation.pessoa_id.in_(person_ids), Conversation.telefone.in_(phones)),
+    )).scalars().all()
+    by_person = {}
+    by_phone = {}
+    for row in rows:
+        if row.pessoa_id in person_ids:
+            by_person.setdefault(row.pessoa_id, []).append(row)
+        if row.telefone in phones:
+            by_phone.setdefault(row.telefone, []).append(row)
+    resolved = []
+    seen = set()
+    for person_id, phone in references:
+        matches = by_person.get(person_id, []) if person_id else by_phone.get(phone, [])
+        if not matches:
+            raise HTTPException(status_code=422, detail="Contato não encontrado nas conversas do WhatsApp da igreja")
+        if len(matches) != 1:
+            # Preserve scalar_one_or_none's failure on ambiguous legacy rows.
+            raise MultipleResultsFound("Contato individual ambíguo")
+        conv = matches[0]
+        identity = (conv.pessoa_id, None if conv.pessoa_id is not None else conv.telefone)
+        if identity not in seen:
+            seen.add(identity)
+            resolved.append(identity)
+    return resolved
+
 
 
 @router.post("/{event_id}/confirm", response_model=EventOut)

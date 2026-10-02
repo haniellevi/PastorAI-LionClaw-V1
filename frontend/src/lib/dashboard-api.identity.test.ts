@@ -23,7 +23,7 @@ it("envia somente o correlacionador no corpo autenticado, sem cache ou URL", asy
   expect(url).toBe("http://localhost:8000/agent/identity-confirmations");
   expect(init.method).toBe("POST");
   expect(init.cache).toBe("no-store");
-  expect(init.signal).toBe(controller.signal);
+  expect(init.signal?.aborted).toBe(false);
   expect(new Headers(init.headers).get("Authorization")).toBe("Bearer sessao");
   expect(JSON.parse(init.body as string)).toEqual({ challenge: "codigo-opaco" });
 });

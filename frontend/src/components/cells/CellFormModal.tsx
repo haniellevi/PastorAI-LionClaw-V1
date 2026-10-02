@@ -14,7 +14,7 @@ import "./operations-ux-v2.css";
  * como cobertura. Dia/horário viajam separados (diaReuniao + horario HH:MM,
  * campos que o backend já possui).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -22,6 +22,9 @@ import { Field } from "@/components/ui/Field";
 import type { CellSummary, UpsertCellInput } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import { Icon } from "@/lib/icons";
+import { SessionExpiredError } from "@/lib/api";
+import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
+import { useLookupPage, type LookupLoader } from "@/components/lookups/useLookupPage";
 
 import type { CellLeaderOption } from "./cell-leadership";
 
@@ -54,7 +57,10 @@ export interface CellFormModalProps {
   /** Pessoas avaliadas para liderança, incluindo bloqueios e o líder atual. */
   leaders: CellLeaderOption[];
   /** Sugestões para a cobertura espiritual (pastores; não exclui quem já tem célula). */
-  coverageOptions: Contact[];
+  coverageOptions: Pick<Contact, "id" | "nome">[];
+  loadLeadersPage?: LookupLoader<CellLeaderOption>;
+  loadCoveragePage?: LookupLoader<Pick<Contact, "id" | "nome">>;
+  onSessionExpired?: () => void;
   /** Somente a Central pode trocar liderança ou ativar/desativar a célula. */
   canManageLeadership: boolean;
   publicDataEnabled?: boolean;
@@ -69,6 +75,9 @@ export function CellFormModal({
   cell,
   leaders,
   coverageOptions,
+  loadLeadersPage,
+  loadCoveragePage,
+  onSessionExpired,
   canManageLeadership,
   publicDataEnabled = false,
   canPublish = false,
@@ -92,10 +101,13 @@ export function CellFormModal({
   const [publishChanged, setPublishChanged] = useState(false);
   const [diaChanged, setDiaChanged] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [pickedLeader, setPickedLeader] = useState<CellLeaderOption | null>(null);
+  const coverageLookup = useLookupPage(loadCoveragePage, cobertura);
+  useEffect(() => { if (coverageLookup.error instanceof SessionExpiredError) onSessionExpired?.(); }, [coverageLookup.error, onSessionExpired]);
 
-  const currentLeaderOption = leaders.find((option) => option.id === liderId);
+  const currentLeaderOption = pickedLeader?.id === liderId ? pickedLeader : leaders.find((option) => option.id === liderId);
   const leadershipBlocked =
-    canManageLeadership && currentLeaderOption?.blocksSave === true;
+    canManageLeadership && (currentLeaderOption?.blocksSave === true || (!!loadLeadersPage && !!liderId && !currentLeaderOption));
   const blockedLeaderOptions = leaders.filter(
     (option) => !option.selectable && !option.current,
   );
@@ -188,15 +200,22 @@ export function CellFormModal({
             list="cf-cobertura-sugestoes"
           />
           <datalist id="cf-cobertura-sugestoes">
-            {coverageOptions.map((p) => (
+            {(loadCoveragePage ? coverageLookup.result?.items ?? [] : coverageOptions).map((p) => (
               <option key={p.id} value={p.nome} />
             ))}
           </datalist>
+          {coverageLookup.error ? <p role="alert" className="sub">Sugestões de cobertura indisponíveis. <button type="button" className="btn btn-sm" onClick={coverageLookup.retry}>Tentar novamente</button></p> : null}
 
           <div className="row">
             <div className="field">
               <label htmlFor="cf-lider">Líder da célula</label>
-              <select
+              {loadLeadersPage && canManageLeadership ? <PaginatedLookup
+                inputId="cf-lider" label="Buscar líder apto" loadPage={loadLeadersPage}
+                selected={currentLeaderOption ?? null} getLabel={(option) => option.nome}
+                getDescription={(option) => option.reason} isDisabled={(option) => !option.selectable}
+                onSessionExpired={onSessionExpired} allowClear disabled={busy}
+                onSelect={(option) => { setPickedLeader(option); setLiderId(option?.id ?? ""); }}
+              /> : <select
                 id="cf-lider"
                 value={liderId}
                 onChange={(e) => setLiderId(e.target.value)}
@@ -213,7 +232,7 @@ export function CellFormModal({
                     {p.nome}{p.reason ? ` · ${p.reason}` : ""}
                   </option>
                 ))}
-              </select>
+              </select>}
               <p id="cf-lider-help" className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
                 {canManageLeadership
                   ? "Somente pessoas aptas e com acesso ativo ao painel podem assumir a liderança."

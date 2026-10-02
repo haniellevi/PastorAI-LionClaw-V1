@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, noload
 from app.config import get_settings
 from app.db.models import AppUser, PasswordResetToken, Pessoa, UserRole
 from app.db.session import get_db
+from app.db.tenant_session import mark_tenant_scoped
 from app.deps import (
     BLOCKING_IGREJA_STATUSES,
     REVOKED_USER_STATUS,
@@ -49,6 +50,7 @@ from app.services.clerk import (
 from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 from app.services.storage import logo_public_url
+from app.services.permissions import effective_permissions
 
 logger = logging.getLogger("pastorai.auth")
 
@@ -129,10 +131,20 @@ class MeResponse(BaseModel):
     igrejaLogoUrl: str | None = None  # noqa: N815
 
 
+class PermissionsSnapshot(BaseModel):
+    matriz: dict[str, list[str]]
+
+
+class BootstrapResponse(BaseModel):
+    user: MeResponse
+    permissions: PermissionsSnapshot
+
+
 class LoginResponse(MeResponse):
     """Login success contract, including the authenticated profile."""
 
     token: str
+    permissions: PermissionsSnapshot | None = None
 
 
 class UpdateMeRequest(BaseModel):
@@ -298,8 +310,14 @@ def login(
             },
         )
 
+    mark_tenant_scoped(
+        db, app_user.igreja_id, actor_sub=clerk_user_id, source="auth-login-bootstrap"
+    )
     profile = _login_profile(db, app_user)
-    return LoginResponse(token=token, **profile.model_dump())
+    return LoginResponse(
+        token=token, **profile.model_dump(),
+        permissions=PermissionsSnapshot(matriz=effective_permissions(db, str(app_user.igreja_id))),
+    )
 
 
 @router.post("/forgot-password")
@@ -737,6 +755,18 @@ def me(
         isOwner=current_user.is_owner,
         igrejaNome=current_user.igreja_nome,
         igrejaLogoUrl=logo_public_url(current_user.igreja_logo_path),
+    )
+
+
+@router.get("/bootstrap", response_model=BootstrapResponse)
+def bootstrap(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_billing_recovery_user),
+) -> BootstrapResponse:
+    """Resolve identity once and read the effective menu in the same tenant scope."""
+    return BootstrapResponse(
+        user=me(current_user),
+        permissions=PermissionsSnapshot(matriz=effective_permissions(db, current_user.igreja_id)),
     )
 
 

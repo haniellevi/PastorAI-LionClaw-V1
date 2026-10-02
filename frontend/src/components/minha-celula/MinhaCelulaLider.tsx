@@ -86,6 +86,8 @@ export function MinhaCelulaLider() {
   const [members, setMembers] = useState<CellMember[]>([]);
   const [reunioes, setReunioes] = useState<Reuniao[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [materialsState, setMaterialsState] = useState<"loading" | "ready" | "error">("loading");
+  const [materialsAttempt, setMaterialsAttempt] = useState(0);
   const [cellCtx, setCellCtx] = useState<CellContext | null>(null);
   const [selectedReuniaoId, setSelectedReuniaoId] = useState<string>("");
   const [activeArea, setActiveArea] = useState<LeaderArea>("relatorio");
@@ -151,21 +153,14 @@ export function MinhaCelulaLider() {
 
         // Detalhe (dia/horário/cobertura) é opcional para o hero: se a leitura
         // falhar, o painel segue com nome + contadores (não quebra a tela).
-        const [membersRes, reunioesRes, materialsRes, detail] = await Promise.all([
+        const [membersRes, reunioesRes] = await Promise.all([
           getCellMembers(token, resolved.id),
           listReunioes(token, resolved.id),
-          listMaterials(token),
-          fetchCellDetail(token, resolved.id).catch(() => null),
         ]);
         setMembers(membersRes.members);
         setReunioes(reunioesRes);
-        setMaterials(materialsRes.items);
-        setCellCtx({
-          nome: detail?.nome ?? resolved.nome ?? "Sua célula",
-          diaReuniao: detail?.diaReuniao ?? null,
-          horario: detail?.horario ?? null,
-          coberturaEspiritual: detail?.coberturaEspiritual ?? null,
-        });
+        setCellCtx({nome: resolved.nome ?? "Sua célula",diaReuniao:null,horario:null,coberturaEspiritual:null});
+        void fetchCellDetail(token, resolved.id).then(detail => setCellCtx({nome: detail.nome,diaReuniao:detail.diaReuniao,horario:detail.horario,coberturaEspiritual:detail.coberturaEspiritual})).catch(handleSessionError);
         setSelectedReuniaoId((prev) => prev || reunioesRes[0]?.id || "");
 
         setLoaded(true);
@@ -184,6 +179,14 @@ export function MinhaCelulaLider() {
   useEffect(() => {
     void load("initial");
   }, [load]);
+
+  useEffect(() => {
+    if (!token || activeArea !== "materiais") return;
+    let active = true;
+    setMaterialsState("loading");
+    void listMaterials(token).then(result => { if (active) { setMaterials(result.items); setMaterialsState("ready"); } }).catch(error => { if (active && !handleSessionError(error)) setMaterialsState("error"); });
+    return () => { active = false; };
+  }, [token, activeArea, materialsAttempt, handleSessionError]);
 
   const activeMembers = useMemo(() => members.filter((m) => m.ativo), [members]);
   const selectedReuniao = useMemo(
@@ -377,7 +380,7 @@ export function MinhaCelulaLider() {
 
               {activeArea === "materiais" ? (
                 <div className="mc-area-panel">
-                  <MaterialsFeed materials={materials} />
+                  {materialsState === "loading" ? <p role="status">Carregando materiais…</p> : materialsState === "error" ? <div role="alert">Não foi possível carregar os materiais. <button type="button" className="btn btn-sm" onClick={() => setMaterialsAttempt(value => value + 1)}>Tentar novamente</button></div> : <MaterialsFeed materials={materials} />}
                 </div>
               ) : null}
 

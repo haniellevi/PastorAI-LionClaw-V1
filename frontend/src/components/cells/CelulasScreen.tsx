@@ -25,17 +25,19 @@ import { fetchChurchCadastroCapability } from "@/lib/church-cadastro-api";
 import {
   baixarAlert,
   fetchCellDetail,
-  fetchCellsFull,
   upsertCell,
   type CellAlert,
   type CellDetail,
   type CellSummary,
   type UpsertCellInput,
 } from "@/lib/cells-api";
-import { fetchContacts, tipoLabel, tipoTone, type Contact } from "@/lib/contacts-api";
+import { fetchContactDetail, tipoLabel, tipoTone, type Contact } from "@/lib/contacts-api";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon, type IconKey } from "@/lib/icons";
 import { isLeader, type Role } from "@/lib/roles";
+import { fetchCellListPage, fetchCellStats, fetchContactLookupPage, type ContactLookup, type CellStats } from "@/lib/lookup-api";
+import { useLookupPage } from "@/components/lookups/useLookupPage";
+import { LookupPager } from "@/components/lookups/LookupPager";
 
 import { CellFormModal } from "./CellFormModal";
 import { AddCellMemberModal } from "./InviteMemberModal";
@@ -61,6 +63,7 @@ export function CelulasScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<CellSummary | null>(null);
   const [query, setQuery] = useState("");
   const selectedTrigger = useRef<HTMLButtonElement | null>(null);
   const detailPanel = useRef<HTMLDivElement | null>(null);
@@ -109,32 +112,66 @@ export function CelulasScreen() {
     return () => controller.abort();
   }, [token, user?.appUserId, user?.churchId, expireSession]);
 
-  const load = useCallback(
-    async (mode: "initial" | "retry") => {
-      if (!token) return;
-      if (mode === "initial") setLoading(true);
-      setError(null);
-      try {
-        const [cellPage, contactPage] = await Promise.all([
-          fetchCellsFull(token),
-          fetchContacts(token),
-        ]);
-        setCells(cellPage.items);
-        setContacts(contactPage.items);
-        setLoaded(true);
-      } catch (err) {
-        if (handleSessionError(err)) return;
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar as células.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [token, handleSessionError],
-  );
-
+  const loadCellsPage = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchCellListPage(token ?? "", { q, page, signal }), [token]);
+  const cellsLookup = useLookupPage(loadCellsPage, query, !!token);
+  const retryCells = cellsLookup.retry;
+  const [summaryNonce, setSummaryNonce] = useState(0);
+  const load = useCallback(async (_mode: "initial" | "retry") => { retryCells(); setSummaryNonce((value) => value + 1); }, [retryCells]);
   useEffect(() => {
-    void load("initial");
-  }, [load]);
+    setLoading(cellsLookup.loading);
+    if (cellsLookup.result) { setCells(cellsLookup.result.items); setLoaded(true); }
+    if (cellsLookup.error) handleSessionError(cellsLookup.error);
+    setError(cellsLookup.error instanceof Error ? cellsLookup.error.message : null);
+  }, [cellsLookup.loading, cellsLookup.result, cellsLookup.error, handleSessionError]);
+  const [summary, setSummary] = useState<CellStats | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  useEffect(() => {
+    latestDetailRequest.current += 1;
+    setCells([]); setContacts([]); setLoaded(false); setSummary(null); setSummaryError(null);
+    setSelectedId(null); setSelectedRecord(null); setDetail(null);
+    setShowForm(false); setShowInvite(false);
+  }, [token]);
+  useEffect(() => {
+    if (!token || !loaded) return;
+    const controller = new AbortController();
+    setSummaryError(null);
+    void fetchCellStats(token, controller.signal).then((value) => {
+      if (!controller.signal.aborted) setSummary(value);
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      handleSessionError(reason);
+      setSummaryError(reason instanceof Error ? reason.message : "Não foi possível carregar os indicadores.");
+    });
+    return () => controller.abort();
+  }, [token, loaded, summaryNonce, handleSessionError]);
+  useEffect(() => {
+    if (!summary?.legacyCells) return;
+    const byId = new Map(summary.legacyCells.map((cell) => [cell.id, cell]));
+    setCells((previous) => previous.map((cell) => ({ ...cell, ...byId.get(cell.id) })));
+    setSelectedRecord((previous) => previous ? { ...previous, ...byId.get(previous.id) } : null);
+  }, [summary, cellsLookup.result]);
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  useEffect(() => {
+    const ids = [...new Set(cells.filter((cell) => cell.liderId && !cell.liderNome).map((cell) => cell.liderId!))];
+    if (!token || !ids.length) return;
+    let active = true;
+    void Promise.all(ids.map((id) => fetchContactDetail(token, id))).then((people) => {
+      if (active && tokenRef.current === token) setContacts(people);
+    }).catch(handleSessionError);
+    return () => { active = false; };
+  }, [cells, token, handleSessionError]);
+  const loadContactsPage = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token ?? "", { q, page, signal }), [token]);
+  const loadCoveragePage = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token ?? "", { q, page, signal, view: "pastor" }).then((result) =>
+      ({ ...result, items: result.items.filter((person) => !person.semInteresse) })), [token]);
+  const loadCellPeople = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token ?? "", { q, page, signal, celulaId: selectedId ?? undefined }), [token, selectedId]);
+  const cellPeople = useLookupPage(loadCellPeople, "", !!token && !!selectedId);
+  const retryCellPeople = cellPeople.retry;
+  useEffect(() => { if (cellPeople.error) handleSessionError(cellPeople.error); }, [cellPeople.error, handleSessionError]);
 
   const toastTimer = useRef<number | null>(null);
   const flashToast = useCallback((t: Toast) => {
@@ -154,6 +191,8 @@ export function CelulasScreen() {
       if (!token) return;
       const requestId = ++latestDetailRequest.current;
       setSelectedId(cellId);
+      const row = cells.find((cell) => cell.id === cellId);
+      if (row) setSelectedRecord(row);
       setDetailLoading(true);
       setDetailError(null);
       setDetail(null);
@@ -169,7 +208,7 @@ export function CelulasScreen() {
         if (requestId === latestDetailRequest.current) setDetailLoading(false);
       }
     },
-    [token, handleSessionError],
+    [token, cells, handleSessionError],
   );
 
   const handleSave = useCallback(
@@ -185,6 +224,7 @@ export function CelulasScreen() {
         });
         setShowForm(false);
         setEditing(null);
+        void load("retry");
         flashToast({
           kind: "ok",
           text: input.id ? `Célula ${saved.nome} atualizada.` : `Célula ${saved.nome} criada.`,
@@ -204,7 +244,7 @@ export function CelulasScreen() {
         setSaving(false);
       }
     },
-    [token, flashToast, handleSessionError, selectedId, openDetail],
+    [token, flashToast, handleSessionError, selectedId, openDetail, load],
   );
 
   const handleBaixarAlert = useCallback(
@@ -234,49 +274,31 @@ export function CelulasScreen() {
     () => {
       // O sucesso permanece no modal; aqui sincronizamos apenas as leituras.
       void load("retry");
+      retryCellPeople();
       if (selectedId) void openDetail(selectedId);
     },
-    [load, selectedId, openDetail],
+    [load, selectedId, openDetail, retryCellPeople],
   );
 
-  // Membros e visitantes da célula selecionada (derivados de api-contacts).
   const { membros, visitantes } = useMemo(() => {
-    if (!detail) return { membros: [] as Contact[], visitantes: [] as Contact[] };
-    const linked = contacts.filter((c) => c.celulaId === detail.id);
-    return {
-      membros: linked.filter((c) => c.tipo !== "visitante"),
-      visitantes: linked.filter((c) => c.tipo === "visitante"),
-    };
-  }, [detail, contacts]);
-
+    const linked = cellPeople.result?.items ?? [];
+    return { membros: linked.filter((person) => person.tipo !== "visitante"),
+      visitantes: linked.filter((person) => person.tipo === "visitante") };
+  }, [cellPeople.result]);
   const stats: Array<{ icon: IconKey; label: string; value: string | number; delta: string; alert?: boolean }> =
-    useMemo(() => {
-      const ativas = cells.filter((c) => c.ativo).length;
-      const semLider = cells.filter((c) => !c.liderId).length;
-      const totalMembros = contacts.filter((c) => c.celulaId).length;
-      return [
-        { icon: "central-celula", label: "Células ativas", value: ativas, delta: `${cells.length} no total` },
-        {
-          icon: "alert",
-          label: "Células sem líder",
-          value: semLider,
-          delta: "definir cobertura",
-          alert: semLider > 0,
-        },
-        { icon: "user", label: "Pessoas em células", value: totalMembros, delta: "membros e visitantes" },
-        { icon: "g12", label: "Cobertura G12", value: cells.length, delta: "estrutura de células" },
-      ];
-    }, [cells, contacts]);
+    summary ? [
+      { icon: "central-celula", label: "Células ativas", value: summary.ativas, delta: `${summary.total} no total` },
+      { icon: "alert", label: "Células sem líder", value: summary.semLider, delta: "definir cobertura", alert: summary.semLider > 0 },
+      { icon: "user", label: "Pessoas em células", value: summary.pessoasEmCelulas, delta: "membros e visitantes" },
+      { icon: "g12", label: "Cobertura G12", value: summary.total, delta: "estrutura de células" },
+    ] : [];
 
   const leaderName = useCallback(
-    (id: string | null) => (id ? contacts.find((c) => c.id === id)?.nome ?? "—" : "—"),
-    [contacts],
+    (id: string | null) => (id ? cells.find((cell) => cell.liderId === id)?.liderNome ?? detail?.liderNome ?? contacts.find((c) => c.id === id)?.nome ?? "Carregando nome…" : "Sem líder"),
+    [cells, detail, contacts],
   );
 
-  const visibleCells = useMemo(() => {
-    const search = query.trim().toLocaleLowerCase("pt-BR");
-    return cells.filter((cell) => `${cell.nome} ${leaderName(cell.liderId)}`.toLocaleLowerCase("pt-BR").includes(search));
-  }, [cells, query, leaderName]);
+  const visibleCells = cells;
 
   useEffect(() => {
     if (selectedId) detailPanel.current?.focus();
@@ -285,8 +307,9 @@ export function CelulasScreen() {
   // A tela legada nunca consulta /team. Liderança é somente leitura aqui e a
   // Central é a superfície única para aprovar ou trocar líder.
   const leaderOptions = useMemo(
-    () => currentLeaderReadOnlyOption(contacts, editing?.liderId),
-    [contacts, editing],
+    () => currentLeaderReadOnlyOption(editing?.liderId
+      ? [{ id: editing.liderId, nome: leaderName(editing.liderId) }] : [], editing?.liderId),
+    [editing, leaderName],
   );
 
   // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
@@ -328,7 +351,7 @@ export function CelulasScreen() {
                 <div className="sk-line sk-lg" />
               </div>
             ))
-          : loaded ? stats.map((s) => (
+          : summary ? stats.map((s) => (
               <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
                 <div className="lbl">
                   <Icon name={s.icon} />
@@ -339,6 +362,7 @@ export function CelulasScreen() {
               </div>
             )) : <p className="ops-state-note" role="status">Visão geral indisponível. Tente novamente para confirmar os indicadores.</p>}
       </div></div>
+      {summaryError ? <div className="error-banner" role="alert"><span>{summaryError}</span><button type="button" className="btn btn-sm" onClick={() => setSummaryNonce((value) => value + 1)}>Tentar novamente</button></div> : null}
       </details>
       </SupportReveal>
 
@@ -351,9 +375,9 @@ export function CelulasScreen() {
       <div className="dash-grid">
         <div className="ops-cell-list">
           <div className="ops-search">
-            <label htmlFor="cell-search">Buscar célula ou líder</label>
+            <label htmlFor="cell-search">Buscar célula</label>
             <input id="cell-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
-            {loaded ? <p className="ops-result-count" role="status">{visibleCells.length} de {cells.length} células</p> : null}
+            {loaded ? <p className="ops-result-count" role="status">{visibleCells.length} de {cellsLookup.result?.total ?? 0} células</p> : null}
           </div>
           {showSkeleton ? (
             <div className="grid-cells">
@@ -364,7 +388,7 @@ export function CelulasScreen() {
                 </div>
               ))}
             </div>
-          ) : error && !loaded ? null : cells.length === 0 ? (
+          ) : error && !loaded ? null : cells.length === 0 && !query ? (
             <div className="card">
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="central-celula" />
@@ -404,13 +428,13 @@ export function CelulasScreen() {
                     <div className="cell-meta-row">
                       <div>
                         <div className="cell-stat num">
-                          {contacts.filter((p) => p.celulaId === c.id && p.tipo !== "visitante").length}
+                          {c.membros ?? "…"}
                         </div>
                         <div className="sub">membros</div>
                       </div>
                       <div>
                         <div className="cell-stat num">
-                          {contacts.filter((p) => p.celulaId === c.id && p.tipo === "visitante").length}
+                          {c.visitantes ?? "…"}
                         </div>
                         <div className="sub">visitantes</div>
                       </div>
@@ -426,6 +450,7 @@ export function CelulasScreen() {
               })}
             </div>
           )}
+          <LookupPager result={cellsLookup.result} loading={cellsLookup.loading} onPage={cellsLookup.setPage} />
         </div>
 
         <div className="dash-side" ref={detailPanel} tabIndex={-1} aria-label="Detalhe da célula selecionada">
@@ -440,19 +465,23 @@ export function CelulasScreen() {
             });
           }}><Icon name="chevron-left" /> Voltar à lista de células</button> : null}
           <CellDetailPanel
-            cell={cells.find((c) => c.id === selectedId) ?? null}
+            cell={cells.find((c) => c.id === selectedId) ?? (selectedRecord?.id === selectedId ? selectedRecord : detail)}
             detail={detail}
             loading={detailLoading}
             error={detailError}
             membros={membros}
             visitantes={visitantes}
             leaderName={leaderName(detail?.liderId ?? null)}
+            peopleLoading={cellPeople.loading}
+            peopleError={cellPeople.error instanceof Error ? cellPeople.error.message : null}
+            onPeopleRetry={cellPeople.retry}
+            peoplePager={<LookupPager result={cellPeople.result} loading={cellPeople.loading} onPage={cellPeople.setPage} />}
             canEdit={canManage}
             canAddMember={canAddMember}
             busyAlert={busyAlert}
             onInvite={() => setShowInvite(true)}
             onEdit={() => {
-              const target = cells.find((c) => c.id === selectedId);
+              const target = cells.find((c) => c.id === selectedId) ?? detail;
               if (!target) return;
               setEditing(target);
               setFormError(null);
@@ -469,6 +498,8 @@ export function CelulasScreen() {
           cell={editing}
           leaders={leaderOptions}
           coverageOptions={coverageOptions}
+          loadCoveragePage={loadCoveragePage}
+          onSessionExpired={expireSession}
           canManageLeadership={false}
           publicDataEnabled={publicDataEnabled}
           canPublish={canPublish}
@@ -488,6 +519,7 @@ export function CelulasScreen() {
           celulaId={detail.id}
           celulaNome={detail.nome}
           contacts={contacts}
+          loadContactsPage={loadContactsPage}
           onClose={() => setShowInvite(false)}
           onAdded={handleMemberAdded}
         />
@@ -521,13 +553,18 @@ function CellDetailPanel({
   onEdit,
   onTreatAlert,
   onRetry,
+  peopleLoading, peopleError, onPeopleRetry, peoplePager,
 }: {
   cell: CellSummary | null;
   detail: CellDetail | null;
   loading: boolean;
   error: string | null;
-  membros: Contact[];
-  visitantes: Contact[];
+  membros: ContactLookup[];
+  visitantes: ContactLookup[];
+  peopleLoading: boolean;
+  peopleError: string | null;
+  onPeopleRetry: () => void;
+  peoplePager: React.ReactNode;
   leaderName: string;
   canEdit: boolean;
   canAddMember: boolean;
@@ -605,11 +642,11 @@ function CellDetailPanel({
         </div>
         <div>
           <dt>Membros</dt>
-          <dd className="num">{membros.length}</dd>
+          <dd className="num">{cell.membros ?? detail.membros ?? "…"}</dd>
         </div>
         <div>
           <dt>Visitantes</dt>
-          <dd className="num">{visitantes.length}</dd>
+          <dd className="num">{cell.visitantes ?? detail.visitantes ?? "…"}</dd>
         </div>
       </dl>
 
@@ -633,7 +670,7 @@ function CellDetailPanel({
       <div className="panel-title" style={{ padding: "0 0 var(--s2)", borderBottom: "none" }}>
         Membros e visitantes
       </div>
-      {membros.length === 0 && visitantes.length === 0 ? (
+      {peopleLoading ? <p className="sub" role="status">Carregando Pessoas…</p> : peopleError ? <div role="alert">{peopleError}<button type="button" className="btn btn-sm" onClick={onPeopleRetry}>Tentar novamente</button></div> : membros.length === 0 && visitantes.length === 0 ? (
         <p className="sub" style={{ color: "var(--muted)" }}>Nenhuma pessoa vinculada ainda.</p>
       ) : (
         <div>
@@ -658,6 +695,7 @@ function CellDetailPanel({
         </div>
       )}
 
+      {peoplePager}
       <div
         className="panel-title"
         style={{ padding: "var(--s3) 0 var(--s2)", borderBottom: "none", color: detail.alerts.length ? "var(--warn)" : undefined }}

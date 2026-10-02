@@ -57,6 +57,11 @@ if [[ "$active" != "$release_root/"* || ! -d "$active/deploy" || ! -d "$candidat
   echo "release paths are missing, outside the release root, or already active" >&2
   exit 1
 fi
+active_release_sha=${active##*/}
+if [[ ! "$active_release_sha" =~ ^[0-9a-f]{40}$ || "$active" != "$release_root/$active_release_sha" ]]; then
+  echo "active release revision unverifiable; exact SHA required for rollback" >&2
+  exit 1
+fi
 if [[ ! -f "$active/deploy/$configuration" || ! -f "$candidate/deploy/check_backend_schema.py" ]]; then
   echo "active configuration or candidate schema check is missing" >&2
   exit 1
@@ -225,7 +230,7 @@ rollback() {
       exit "$original_status"
     fi
     if ! check_compose_gates ||
-       ! docker compose build backend ||
+       ! docker compose build --build-arg "PASTORAI_RELEASE_SHA=$active_release_sha" backend ||
        ! check_previous_schema "$previous_migrations" ||
        ! create_and_start ||
        ! check_external_gates ||
@@ -265,7 +270,7 @@ docker compose exec -T -e "EXPECTED_MIGRATIONS=$expected_migrations" backend pyt
   < "$candidate/deploy/check_backend_schema.py"
 
 cd -- "$candidate/deploy"
-docker compose build backend
+docker compose build --build-arg "PASTORAI_RELEASE_SHA=$release_sha" backend
 restart_started=1
 create_and_start
 check_external_gates

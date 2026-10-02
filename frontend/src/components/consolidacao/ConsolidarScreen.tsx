@@ -94,8 +94,8 @@ export function ConsolidarScreen() {
     {
       icon: "clock",
       label: "Visitantes em atraso",
-      value: lateCount,
-      delta: "prazo de 24h vencido",
+      value: c.deadlinesReady ? lateCount : "…",
+      delta: c.deadlinesReady ? "prazo de 24h vencido" : "prazos aguardando confirmação",
       alert: lateCount > 0,
     },
   ];
@@ -147,6 +147,8 @@ export function ConsolidarScreen() {
         </div>
       ) : null}
 
+      {c.supportError ? <p role="status" className="people-meta">{c.supportError}</p> : null}
+      {c.hasMore ? <div className="people-toolbar"><span role="status">{c.people.length} de {c.pipelineTotal} pessoas carregadas</span><button type="button" className="btn btn-sm" disabled={c.loadingMore || c.loading} onClick={() => void c.loadMore()}>{c.loadingMore ? "Carregando…" : "Carregar mais pessoas"}</button></div> : null}
       <div className="people-work-list">
         <div className="card">
           <div className="panel-title">
@@ -171,7 +173,7 @@ export function ConsolidarScreen() {
             <div className="empty-state" style={{ padding: "var(--s6)" }}>
               <Icon name="check" />
               <p>
-                <strong>Nenhum acompanhamento pendente nesta lista.</strong> Decisões
+                <strong>{c.hasMore ? "Nenhum acompanhamento entre as pessoas carregadas." : "Nenhum acompanhamento pendente nesta lista."}</strong> Decisões
                 registradas no estágio Consolidar aparecem aqui.
               </p>
             </div>
@@ -353,6 +355,8 @@ export function ConsolidarScreen() {
 
       {c.decisionOpen ? (
         <DecisionModal
+          token={c.token}
+          onSessionExpired={c.expireSession}
           contacts={c.contacts}
           cells={c.cells}
           defaultPessoaId={c.decisionPessoa}

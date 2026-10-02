@@ -121,23 +121,39 @@ function localIsoDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-async function fetchEventPage(
+export async function fetchEventWindowPage(
   token: string,
   page: number,
   pageSize: number,
   fromDate?: string,
-): Promise<Page<EventItem>> {
+  toDate?: string,
+  status?: string,
+  signal?: AbortSignal,
+  includeUndated = false,
+): Promise<Page<EventItem> & {includeUndatedSupported?:boolean}> {
   const query = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
   });
   if (fromDate) query.set("fromDate", fromDate);
+  if (toDate) query.set("toDate", toDate);
+  if (status) query.set("status", status);
+  if (includeUndated) query.set("includeUndated","true");
 
-  const res = await authedFetch(token, `/events?${query.toString()}`);
+  const res = await authedFetch(token, `/events?${query.toString()}`, { signal });
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a agenda.");
   }
   return (await res.json()) as Page<EventItem>;
+}
+
+/** Inclusive window matching the calendar currently displayed, with local dates. */
+export function eventWindow(view: "semana" | "mes" | "ano", cursor: Date): { fromDate: string; toDate: string } {
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const from = view === "ano" ? new Date(year, 0, 1) : view === "mes" ? new Date(year, month, 1) : new Date(year, month, cursor.getDate() - cursor.getDay());
+  const to = view === "ano" ? new Date(year, 11, 31) : view === "mes" ? new Date(year, month + 1, 0) : new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6);
+  return { fromDate: localIsoDate(from), toDate: localIsoDate(to) };
 }
 
 /**
@@ -145,16 +161,22 @@ async function fetchEventPage(
  * existente, que ainda precisa de passado, futuro e recorrências para montar as
  * visões de semana/mês/ano.
  */
-export async function fetchEvents(token: string, pageSize = 200): Promise<Page<EventItem>> {
+export async function fetchEvents(token: string, pageSize = 200, window?: { fromDate?: string; toDate?: string; status?: string; includeUndated?:boolean }, signal?: AbortSignal): Promise<Page<EventItem>> {
   const items: EventItem[] = [];
   let page = 1;
   let total = 0;
+  let maxPages = 1;
 
   do {
-    const chunk = await fetchEventPage(token, page, pageSize);
+    const chunk = await fetchEventWindowPage(token, page, pageSize, window?.fromDate, window?.toDate, window?.status, signal,window?.includeUndated);
+    // Only Calendar asks for undated recurrence. Older servers already filter it
+    // out on fromDate, so absence of this explicit capability requires the full legacy read.
+    if (window?.includeUndated && chunk.includeUndatedSupported !== true) return fetchEvents(token,pageSize,undefined,signal);
     total = chunk.total;
+    if (page === 1) maxPages = Math.ceil(total / Math.max(1,pageSize)) + 2;
+    if (page > maxPages) throw new ApiError(502,"A agenda mudou enquanto era carregada. Atualize para confirmar os registros.");
     items.push(...chunk.items);
-    if (chunk.items.length === 0) break;
+    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502,"A agenda recebida está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -173,7 +195,7 @@ export async function fetchUpcomingEvents(
   now = new Date(),
   pageSize = 6,
 ): Promise<Page<EventItem>> {
-  return fetchEventPage(token, 1, pageSize, localIsoDate(now));
+  return fetchEventWindowPage(token, 1, pageSize, localIsoDate(now));
 }
 
 // ---------------------------------------------------------------------------

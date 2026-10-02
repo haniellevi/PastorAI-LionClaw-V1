@@ -127,6 +127,7 @@ function fmtSecs(total: number): string {
 
 /** Corpo de uma mensagem: texto puro ou mídia (imagem/arquivo/áudio). */
 function MessageBody({ m }: { m: ChatMessage }) {
+  if (m.mediaPending) return <span className="msg-media-na" role="status">Carregando mídia…</span>;
   if (m.tipo === "imagem") {
     return (
       <>
@@ -138,7 +139,7 @@ function MessageBody({ m }: { m: ChatMessage }) {
             className="msg-img-link"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={m.mediaUrl} alt={m.texto ?? "Imagem"} className="msg-img" />
+            <img src={m.mediaUrl} alt={m.texto ?? "Imagem"} className="msg-img" loading="lazy" decoding="async" width={320} height={240} style={{ objectFit: "contain" }} />
           </a>
         ) : (
           <span className="msg-media-na">
@@ -155,7 +156,7 @@ function MessageBody({ m }: { m: ChatMessage }) {
       <>
         {m.mediaUrl ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
-          <audio controls src={m.mediaUrl} className="msg-audio" />
+          <audio controls preload="none" src={m.mediaUrl} className="msg-audio" />
         ) : (
           <span className="msg-media-na">
             <Icon name="alert" /> Áudio indisponível
@@ -224,6 +225,9 @@ export function ConversationThread({
   messages,
   messagesLoading,
   messagesError,
+  hasOlderMessages,
+  olderMessagesLoading,
+  onLoadOlderMessages,
   onRetryMessages,
   panelOpen,
   isAdmin,
@@ -254,6 +258,9 @@ export function ConversationThread({
   messages: ChatMessage[];
   messagesLoading: boolean;
   messagesError?: string | null;
+  hasOlderMessages?: boolean;
+  olderMessagesLoading?: boolean;
+  onLoadOlderMessages?: () => void;
   onRetryMessages?: () => void;
   panelOpen: boolean;
   isAdmin: boolean;
@@ -294,6 +301,7 @@ export function ConversationThread({
   const submittingTextRef = useRef(false);
   const submittingMediaRef = useRef(false);
   const followLatestRef = useRef(true);
+  const olderScroll = useRef<{ height: number; top: number } | null>(null);
 
   const estado = effectiveEstado(conversation);
   const paused = iaPausadaSemInteresse(conversation);
@@ -319,10 +327,18 @@ export function ConversationThread({
     setRecSecs(0);
     return invalidateRecording;
   }, [conversation.id, selfId, recordingContext, canCompose, invalidateRecording]);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    olderScroll.current = null;
+    followLatestRef.current = true;
+  }, [conversation.id]);
+  useLayoutEffect(() => {
     const el = bodyRef.current;
-    if (el && followLatestRef.current) el.scrollTop = el.scrollHeight;
-  }, [conversation.id, messages.length]);
+    if (el && olderScroll.current && !olderMessagesLoading) {
+      const saved = olderScroll.current;
+      el.scrollTop = saved.top + el.scrollHeight - saved.height;
+      olderScroll.current = null;
+    } else if (el && followLatestRef.current && !olderScroll.current) el.scrollTop = el.scrollHeight;
+  }, [conversation.id, messages.length, olderMessagesLoading]);
 
   function clearAttachment() {
     setPendingFile(null);
@@ -605,6 +621,12 @@ export function ConversationThread({
         const el = event.currentTarget;
         followLatestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
       }}>
+        {hasOlderMessages ? <button type="button" className="btn btn-sm" disabled={olderMessagesLoading} onClick={() => {
+          const el = bodyRef.current;
+          if (el) olderScroll.current = { height: el.scrollHeight, top: el.scrollTop };
+          followLatestRef.current = false;
+          onLoadOlderMessages?.();
+        }}>{olderMessagesLoading ? "Carregando histórico…" : "Carregar mensagens anteriores"}</button> : null}
         {messagesLoading && messages.length === 0 ? (
           <p
             className="sub"

@@ -1,5 +1,6 @@
 "use client";
 
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 import "../cells/operations-ux-v2.css";
 
 /**
@@ -158,10 +159,7 @@ export function RelatoriosScreen() {
   // ÚNICO relógio da tela: avança o instante a cada 60s. Não busca nada aqui —
   // só move o tempo, para a semana do Histórico ser recalculada na renderização
   // antes de qualquer requisição. Morre no unmount.
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), REFRESH_MS);
-    return () => window.clearInterval(id);
-  }, []);
+  useVisibleInterval(() => setNow(Date.now()), REFRESH_MS);
 
   // Depois que o tick re-renderizou (semana já recalculada), refaz a busca em
   // silêncio — nas DUAS abas. O status pendente/atrasado é do BACKEND (SLA de

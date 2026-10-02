@@ -259,7 +259,7 @@ describe("DashboardScreen — autorização para conectar à célula", () => {
       await flush();
 
       const expectedPaths = [
-        "/work-queue?",
+        "/work-queue",
         ...(includesTeam ? ["/team/lookup?"] : []),
         ...(includesCells ? ["/cells?"] : []),
         "/dashboard/overview",

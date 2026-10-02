@@ -75,6 +75,9 @@ class _Result:
         self._rows = rows or []
         self._scalar_one = scalar_one
 
+    def one(self):
+        return self._scalar
+
     def scalar_one_or_none(self):
         return self._scalar
 
@@ -179,6 +182,15 @@ class PlatformDB:
 
     def execute(self, statement, params=None) -> _Result:
         self.statements.append(statement)
+        sql = str(statement)
+        if "admin_users" in sql:
+            return _Result(scalar=SimpleNamespace(admin_users=self.count_value, admin_people=self.count_value, admin_ai_cost=self.count_value))
+        if "detail_users" in sql:
+            return _Result(scalar=SimpleNamespace(detail_users=self.count_value, detail_people=self.count_value,
+                detail_cells=self.count_value, detail_cost=self.count_value, detail_tokens=self.count_value))
+        if "GROUP BY igrejas.status, igrejas.plano" in sql:
+            from collections import Counter
+            return _Result(rows=[(status, plan, amount) for (status, plan), amount in Counter((ig.status, ig.plano) for ig in self.igrejas).items()])
         descs = list(getattr(statement, "column_descriptions", []) or [])
         entities = [d.get("entity") for d in descs]
         names = [d.get("name") for d in descs]

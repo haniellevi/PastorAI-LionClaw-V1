@@ -7,13 +7,11 @@
 import { fetchPipeline } from "./contacts-api";
 import { fetchConversations } from "./conversations-api";
 import {
-  fetchCells,
   fetchOverview,
-  fetchTeamLookup,
   fetchWorkQueuePage,
 } from "./dashboard-api";
 import { resolveDashboardResponsibilities } from "./dashboard-responsibilities";
-import { fetchEvents, fetchUpcomingEvents } from "./events-api";
+import { fetchEventWindowPage, eventWindow, fetchUpcomingEvents } from "./events-api";
 import { canSee, DEFAULT_PERMISSIONS, type PermissionMatrix } from "./permissions";
 import type { Role } from "./roles";
 
@@ -30,19 +28,18 @@ export async function preloadRouteData(
     case "dashboard":
       jobs = [
         ...(responsibilities.hasWorkQueue ? [fetchWorkQueuePage(token, 1, 25)] : []),
-        ...(responsibilities.canAssignQueue ? [fetchTeamLookup(token)] : []),
-        ...(responsibilities.canLinkCell ? [fetchCells(token)] : []),
         ...(responsibilities.showOverview ? [fetchOverview(token)] : []),
         ...(canSee("calendario", roles, matrix) ? [fetchUpcomingEvents(token)] : []),
       ];
       break;
-    case "calendario":
-      jobs = [fetchEvents(token)];
+    case "calendario": {
+      const window = eventWindow("mes", new Date());
+      jobs = [fetchEventWindowPage(token, 1, 200, window.fromDate, window.toDate)];
       break;
+    }
     case "ganhar":
       jobs = [
-        fetchPipeline(token, "ganhar"),
-        ...(responsibilities.canLinkCell ? [fetchCells(token)] : []),
+        fetchPipeline(token, "ganhar", 50, {group:"novos-contatos"}),
       ];
       break;
     case "inbox":

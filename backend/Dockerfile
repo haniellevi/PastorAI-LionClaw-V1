@@ -7,6 +7,10 @@
 # A tag legivel facilita manutencao; o digest torna a base imutavel.
 FROM python:3.13.14-slim-trixie@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6 AS base
 
+ARG PASTORAI_RELEASE_SHA=unknown
+LABEL org.opencontainers.image.revision=$PASTORAI_RELEASE_SHA
+ENV PASTORAI_RELEASE_SHA=$PASTORAI_RELEASE_SHA
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AuthUnavailableError,
   fetchMe,
+  fetchBootstrap,
   login,
   SessionAccessDeniedError,
   SessionExpiredError,
@@ -256,5 +257,32 @@ describe("fetchMe", () => {
     mockResponse(200, { churchId: "church-1", roles: ["pastor"] });
 
     await expect(fetchMe("token")).rejects.toBeInstanceOf(AuthUnavailableError);
+  });
+});
+
+
+describe("bootstrap authority", () => {
+  const user = { appUserId: "actor", churchId: "tenant", email: "actor@example.com", nome: "Actor", chatNome: null, roles: ["membro"], igrejaNome: null, igrejaLogoUrl: null };
+  it("lê identidade e matriz num único request", async () => {
+    mockResponse(200, { user, permissions: { matriz: { membro: ["dashboard"] } } });
+    const result = await fetchBootstrap("token");
+    expect(result.user).toEqual(user);
+    expect(result.permissions?.membro).toEqual(["dashboard"]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("fallback legado somente quando endpoint não é suportado", async () => {
+    const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(Response.json(user));
+    vi.stubGlobal("fetch", request);
+    expect(await fetchBootstrap("token")).toEqual({ user, permissions: null });
+    expect(request.mock.calls[1]?.[0]).toContain("/auth/me");
+  });
+  it.each([401, 403, 503])("não contorna recusa/indisponibilidade %s usando legado", async (status) => {
+    mockResponse(status);
+    await expect(fetchBootstrap("token")).rejects.toBeInstanceOf(status === 401 ? SessionExpiredError : status === 403 ? SessionAccessDeniedError : AuthUnavailableError);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("recusa 200 com matriz malformada antes de hidratar autoridade", async () => {
+    mockResponse(200, { user, permissions: { matriz: { membro: "dashboard" } } });
+    await expect(fetchBootstrap("token")).rejects.toBeInstanceOf(AuthUnavailableError);
   });
 });

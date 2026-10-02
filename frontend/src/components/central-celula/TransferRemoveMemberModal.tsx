@@ -2,8 +2,10 @@
 
 import "../cells/operations-ux-v2.css";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
+import { fetchCellLookupPage, type CellLookup } from "@/lib/lookup-api";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
@@ -28,6 +30,7 @@ interface Props {
   cells: CellSummary[];
   /** Modo do modal. */
   mode: "transferir" | "remover";
+  token?: string | null;
   onClose: () => void;
   onDone: () => void;
 }
@@ -48,11 +51,14 @@ export function TransferRemoveMemberModal({
   origem,
   pessoa,
   cells,
+  token: lookupToken,
   mode,
   onClose,
   onDone,
 }: Props) {
   const { token, expireSession } = useAuth();
+  const [lookupDestino, setLookupDestino] = useState<CellLookup | null>(null);
+  const loadDestinos = useCallback((q: string, page: number, signal: AbortSignal) => fetchCellLookupPage(lookupToken!, {q,page,signal}), [lookupToken]);
   const [destinoId, setDestinoId] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +78,7 @@ export function TransferRemoveMemberModal({
     [cells, origem.id],
   );
 
-  const selectedDestino = destinos.find((c) => c.id === destinoId) ?? null;
+  const selectedDestino = lookupToken ? lookupDestino : destinos.find((c) => c.id === destinoId) ?? null;
 
   async function submit() {
     if (!token || sending) return;
@@ -175,7 +181,7 @@ export function TransferRemoveMemberModal({
             )}
           </p>
 
-          {mode === "transferir" ? (
+          {mode === "transferir" && lookupToken ? <PaginatedLookup<CellLookup> label="Célula de destino" inputId="transferDestino" loadPage={loadDestinos} selected={lookupDestino} onSelect={setLookupDestino} getLabel={cell => cell.nome} getDescription={cell => cell.id === origem.id ? "Célula de origem" : !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => cell.id === origem.id || !cell.ativo || !cell.liderId} disabled={sending} onSessionExpired={expireSession} /> : mode === "transferir" ? (
             <div className="field">
               <label htmlFor="transferDestino">Célula de destino</label>
               {destinos.length === 0 ? (

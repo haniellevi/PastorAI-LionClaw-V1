@@ -14,6 +14,7 @@
  * `assumidoPor` real. A lista atualiza por polling (sem reload). Com o WhatsApp
  * offline/reconectando, exibe banner de degradação e desabilita o envio.
  */
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DsBanner } from "@/components/ds/Banner";
@@ -31,7 +32,9 @@ import {
   fetchConversations,
   fetchInboxAgentStatus,
   fetchInboxTransferTargets,
-  fetchMessages,
+  fetchMessageWindow,
+  fetchLoadedMessageRange,
+  fetchMessageMediaUrls,
   handoffConversation,
   markConversationRead,
   sendMedia,
@@ -59,6 +62,8 @@ import { TransferConversationModal } from "./TransferConversationModal";
 import { type AgentAvailability, effectiveEstado } from "./conversation-format";
 
 const POLL_MS = 15_000;
+// Private Storage signatures last one hour; renew while the loaded range is visible.
+const MEDIA_URL_REFRESH_MS = 50 * 60_000;
 // O GET normal deve concluir bem antes disso. Encerrar em 12 s libera o
 // single-flight antes do próximo tick de 15 s, sem transformar oscilações
 // breves de rede em várias requisições concorrentes.
@@ -180,8 +185,16 @@ function InboxSession() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => { messagesRef.current = messages; },[messages]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const mediaControllers = useRef(new Set<AbortController>());
+  const mediaSignedAt = useRef(new Map<string, number>());
+  const mediaInFlight = useRef(new Set<string>());
+  const messageWindowRef = useRef<{ before?: string | null; after?: string | null; supported: boolean; initialized?: boolean; polls: number; total?: number }>({ supported: false, polls: 0 });
   const [toast, setToast] = useState<Toast | null>(null);
 
   // Painel de dados do contato (Parte B) e exclusão de conversa.
@@ -282,15 +295,25 @@ function InboxSession() {
         setListTotal(snapshot.total);
         setHasMorePages(snapshot.more);
         setLoaded(true);
+        return true;
       } catch (err) {
         if (err instanceof RequestTimeoutError) {
           if (mode !== "poll") {
             setError("A carga das conversas demorou mais que o esperado. Tente novamente.");
           }
-          return;
+          return false;
         }
         if (controller.signal.aborted) return;
         if (handleSessionError(err)) return;
+        if (err instanceof ApiError && err.status === 403) {
+          setConversations([]);
+          setSelectedId(null);
+          setMessages([]);
+          mediaSignedAt.current.clear();
+          selectedIdRef.current = null;
+          selectionGenRef.current += 1;
+          for (const mediaController of mediaControllers.current) mediaController.abort();
+        }
         if (mode !== "poll") {
           setError(
             err instanceof ApiError
@@ -298,6 +321,7 @@ function InboxSession() {
               : "Não foi possível carregar as conversas.",
           );
         }
+        return false;
       } finally {
         if (conversationsRequestRef.current === controller) {
           conversationsRequestRef.current = null;
@@ -316,13 +340,16 @@ function InboxSession() {
     try {
       const info = await runTimedRequest(controller, (signal) => fetchConnection(token, signal));
       setConnStatus(info.status);
+      return true;
     } catch (err) {
       if (controller.signal.aborted) return;
       if (handleSessionError(err)) return;
       // 403 (papel sem acesso à conexão) ou falha: mantém "unknown" (sem banner).
       if (err instanceof WaApiError && err.status === 403) {
         setConnStatus("unknown");
+        return;
       }
+      return false;
     } finally {
       if (connectionRequestRef.current === controller) {
         connectionRequestRef.current = null;
@@ -353,6 +380,7 @@ function InboxSession() {
             ? "paused_by_church"
             : "unknown",
       );
+      return true;
     } catch (err) {
       if (controller.signal.aborted && !(err instanceof RequestTimeoutError)) return;
       setAgentAvailability("unknown");
@@ -360,6 +388,7 @@ function InboxSession() {
         agentStatusRefreshPendingRef.current = false;
         return;
       }
+      return false;
     } finally {
       if (agentStatusRequestRef.current === controller) {
         agentStatusRequestRef.current = null;
@@ -409,7 +438,7 @@ function InboxSession() {
   const messageRefreshPendingRef = useRef(new Set<string>());
 
   const loadMessages = useCallback(
-    async (convId: string, mode: "initial" | "poll" | "refresh" = "initial") => {
+    async (convId: string, mode: "initial" | "poll" | "refresh" | "older" = "initial") => {
       if (!token) return;
       const gen = selectionGenRef.current;
       if (selectedIdRef.current !== convId) return;
@@ -424,38 +453,100 @@ function InboxSession() {
       // A requisição só continua valendo se, na volta, a conversa aberta for a
       // mesma E ainda for a mesma visita a ela.
       const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
+      if (mode === "older") setOlderMessagesLoading(true);
       if (mode === "initial") {
         setMessagesLoading(true);
         setMessagesError(null);
       }
+      let failed = false;
       try {
         while (true) {
           const seq = (reqSeqRef.current += 1);
           try {
-            const items = await runTimedRequest(controller, (signal) =>
-              fetchMessages(token, convId, 200, signal),
-            );
-            // Resposta obsoleta (trocou de conversa, ou é de uma visita anterior a
-            // esta mesma conversa): descarta sem tocar na UI.
+            const window = messageWindowRef.current;
+            const delta = mode === "poll" && window.supported && window.after && ++window.polls % 4 !== 0;
+            const options = window.initialized && !window.supported ? {legacy:true} : mode === "older" && window.before ? { before: window.before } : delta ? { after: window.after! } : {};
+            const reconcile = (mode === "poll" || mode === "refresh") && window.supported && !delta;
+            let page = await runTimedRequest(controller, (signal) => reconcile ? fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null) : fetchMessageWindow(token, convId, options, signal));
+            // A newly published old row can change total while falling before after.
+            if (delta && window.total !== undefined && page.total !== window.total + page.items.length) page = await runTimedRequest(controller,signal => fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null));
             if (!atual()) return;
-            // Fora de ordem: outra requisição desta mesma visita, iniciada depois,
-            // já escreveu um histórico mais recente.
             if (seq >= appliedSeqRef.current) {
               appliedSeqRef.current = seq;
-              setMessages(items);
+              const currentById = new Map(messagesRef.current.map(message => [message.id,message]));
+              const items = page.items.map((message) => {
+                if (message.mediaUrl) mediaSignedAt.current.set(message.id,Date.now());
+                const mediaUrl = message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
+                return {...message,mediaUrl,mediaPending:page.cursorSupported && message.tipo !== "texto" && !mediaUrl};
+              });
+              const merge = (current: ChatMessage[]) => {
+                if (!page.cursorSupported || mode === "initial" || page.rangeReconciled) return items;
+                const firstTime = items[0]?.criadoEm;
+                const keep = mode === "older" || delta ? current : current.filter((message) => firstTime && message.criadoEm && (message.criadoEm < firstTime || (message.criadoEm === firstTime && message.id < items[0]!.id)));
+                const merged = new Map(keep.map((message) => [message.id, message]));
+                for (const message of items) merged.set(message.id, message);
+                return [...merged.values()].sort((a, b) => (a.criadoEm ?? "").localeCompare(b.criadoEm ?? "") || a.id.localeCompare(b.id));
+              };
+              const renewMedia = (rows: ChatMessage[]) => rows.map((message) => {
+                if (!page.cursorSupported || message.tipo === "texto") return message;
+                const signedAt = mediaSignedAt.current.get(message.id);
+                if (message.mediaUrl && signedAt === undefined) mediaSignedAt.current.set(message.id,Date.now());
+                const expired = signedAt !== undefined && Date.now() - signedAt >= MEDIA_URL_REFRESH_MS;
+                const mediaUrl = expired ? null : message.mediaUrl;
+                return { ...message,mediaUrl,mediaPending:!mediaUrl };
+              });
+              const nextMessages = renewMedia(merge(messagesRef.current));
+              setMessages((current) => renewMedia(merge(current)));
               setMessagesError(null);
+              if (mode !== "older") window.after = page.nextAfter ?? window.after;
+              if (mode === "older" || mode === "initial" || page.rangeReconciled || !window.supported) window.before = page.nextBefore;
+              window.supported = page.cursorSupported;
+              window.initialized = true;
+              window.total = page.total;
+              setHasOlderMessages(Boolean(window.before));
+              const mediaIds = nextMessages.filter((item) => item.mediaPending && !mediaInFlight.current.has(item.id)).map((item) => item.id);
+              // Text paints before Storage signing. This read shares the visit's
+              // cancellation, but never extends the history loading state.
+              if (mediaIds.length) {
+                const mediaController = new AbortController();
+                const signingIds = mediaInFlight.current;
+                for (const id of mediaIds) signingIds.add(id);
+                mediaControllers.current.add(mediaController);
+                void fetchMessageMediaUrls(token, convId, mediaIds, mediaController.signal).then((urls) => {
+                if (!atual() || mediaController.signal.aborted) return;
+                for (const id of mediaIds) if (urls[id]) mediaSignedAt.current.set(id,Date.now());
+                setMessages((current) => current.map((message) => mediaIds.includes(message.id) ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false } : message));
+              }).catch((error) => {
+                if (!atual() || mediaController.signal.aborted || handleSessionError(error)) return;
+                const forbidden = error instanceof ApiError && error.status === 403;
+                if (forbidden) {
+                  mediaSignedAt.current.clear();
+                  for (const activeController of mediaControllers.current) activeController.abort();
+                }
+                setMessages((current) => current.map((message) => forbidden || mediaIds.includes(message.id) ? { ...message,mediaUrl:forbidden ? null : message.mediaUrl,mediaPending:false } : message));
+              }).finally(() => {
+                for (const id of mediaIds) signingIds.delete(id);
+                mediaControllers.current.delete(mediaController);
+              });
+              }
             }
           } catch (err) {
+            failed = true;
             if (err instanceof RequestTimeoutError) {
-              if (mode === "initial" && atual()) {
+              if ((mode === "initial" || mode === "older") && atual()) {
                 setMessagesError("O carregamento do histórico demorou mais que o esperado. Tente novamente.");
               }
               break;
             }
             if (controller.signal.aborted) break;
             if (handleSessionError(err)) return;
-            if (mode === "initial" && atual()) {
-              setMessagesError("Não foi possível carregar o histórico desta conversa.");
+            if (atual()) {
+              if (err instanceof ApiError && err.status === 403) {
+                mediaSignedAt.current.clear();
+                for (const mediaController of mediaControllers.current) mediaController.abort();
+                setMessages([]);
+              }
+              setMessagesError(mode === "initial" ? "Não foi possível carregar o histórico desta conversa." : "Não foi possível confirmar a atualização do histórico. Tente novamente.");
             }
           }
 
@@ -463,6 +554,7 @@ function InboxSession() {
           // fresh snapshot. Ordinary polling never queues another request.
           if (!messageRefreshPendingRef.current.delete(requestKey) || !atual()) break;
         }
+        return !failed;
       } finally {
         if (messageRequestControllersRef.current.get(requestKey) === controller) {
           messageRequestControllersRef.current.delete(requestKey);
@@ -471,7 +563,10 @@ function InboxSession() {
         messageRefreshPendingRef.current.delete(requestKey);
         // Idem para o "carregando": só a requisição da visita atual pode
         // encerrá-lo — senão a resposta antiga apagaria o skeleton da nova.
-        if (mode === "initial" && atual()) setMessagesLoading(false);
+        if (atual()) {
+          if (mode === "initial") setMessagesLoading(false);
+          if (mode === "older") setOlderMessagesLoading(false);
+        }
       }
     },
     [token, handleSessionError],
@@ -482,11 +577,17 @@ function InboxSession() {
     const requestControllers = messageRequestControllersRef.current;
     const requestsInFlight = messageRequestsInFlightRef.current;
     const refreshesPending = messageRefreshPendingRef.current;
+    const mediaRequests = mediaControllers.current;
     selectedIdRef.current = selectedId;
     selectionGenRef.current += 1;
     const requestKey = `${selectionGenRef.current}:${selectedId ?? ""}`;
     setMessages([]);
+    mediaSignedAt.current.clear();
+    mediaInFlight.current = new Set();
     setMessagesError(null);
+    setHasOlderMessages(false);
+    setOlderMessagesLoading(false);
+    messageWindowRef.current = { supported: false, polls: 0 };
     if (!selectedId) {
       // Sem conversa aberta não há requisição para encerrar o carregamento: a
       // que estava em voo já não conta como atual e seu `finally` é descartado.
@@ -495,6 +596,8 @@ function InboxSession() {
     }
     void loadMessages(selectedId, "initial");
     return () => {
+      for (const mediaController of mediaRequests) mediaController.abort();
+      mediaRequests.clear();
       const controller = requestControllers.get(requestKey);
       requestControllers.delete(requestKey);
       requestsInFlight.delete(requestKey);
@@ -541,17 +644,12 @@ function InboxSession() {
     };
   }, [allowed, load, loadConnection, loadAgentStatus]);
 
-  useEffect(() => {
-    if (!allowed) return;
-    const id = window.setInterval(() => {
-      setNow(Date.now());
-      void load("poll");
-      void loadConnection();
-      void loadAgentStatus();
-      if (selectedId) void loadMessages(selectedId, "poll");
-    }, POLL_MS);
-    return () => window.clearInterval(id);
-  }, [allowed, load, loadConnection, loadAgentStatus, selectedId, loadMessages]);
+  useVisibleInterval(() => {
+    setNow(Date.now());
+    return Promise.all([load("poll"), loadConnection(), loadAgentStatus(), selectedId ? loadMessages(selectedId, "poll") : Promise.resolve()]).then((results) => {
+      if (results.includes(false)) throw new Error("A consulta periódica falhou.");
+    });
+  }, POLL_MS, allowed);
 
   // Gate 8: o painel de dados é um DRAWER sob demanda em TODAS as larguras —
   // sem três colunas permanentes competindo por atenção. Abre só pelo botão
@@ -973,6 +1071,9 @@ function InboxSession() {
             messages={messages}
             messagesLoading={messagesLoading}
             messagesError={messagesError}
+            hasOlderMessages={hasOlderMessages}
+            olderMessagesLoading={olderMessagesLoading}
+            onLoadOlderMessages={() => void loadMessages(selected.id, "older")}
             onRetryMessages={() => void loadMessages(selected.id, "initial")}
             panelOpen={panelOpen}
             isAdmin={isAdminUser}

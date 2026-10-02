@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchCells,
+  clearAuthedResponseCache,
   fetchRemainingWorkQueuePages,
   fetchWorkQueue,
   fetchWorkQueuePage,
@@ -9,6 +10,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearAuthedResponseCache();
 });
 
 const item = (id: string) => ({
@@ -36,7 +38,7 @@ describe("fetchWorkQueue", () => {
       .mockResolvedValueOnce(queuePage(["q2"], 2, 1, 2))
       .mockResolvedValueOnce(queuePage(["q1"], 1, 1, 2))
       .mockResolvedValueOnce(queuePage(["q2"], 2, 1, 2));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const result = await fetchWorkQueue("tok-stable", 1);
 
@@ -63,7 +65,7 @@ describe("fetchWorkQueue", () => {
       .mockResolvedValueOnce(queuePage(["q4"], 3, 2, 4))
       .mockResolvedValueOnce(queuePage(["q1", "q2"], 1, 2, 4))
       .mockResolvedValueOnce(queuePage(["q3", "q4"], 2, 2, 4));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const firstPage = await fetchWorkQueuePage("tok-progressive", 1, 2);
 
@@ -96,7 +98,7 @@ describe("fetchWorkQueue", () => {
       // Nova coleta confirma B integralmente.
       .mockResolvedValueOnce(queuePage(["q1", "q2"], 1, 2, 4))
       .mockResolvedValueOnce(queuePage(["q3", "q5"], 2, 2, 4));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const result = await fetchWorkQueue("tok-compensated", 2);
 
@@ -123,7 +125,7 @@ describe("fetchWorkQueue", () => {
       .mockResolvedValueOnce(queuePage(["q0", "q1"], 1, 2, 5))
       .mockResolvedValueOnce(queuePage(["q2", "q3"], 2, 2, 5))
       .mockResolvedValueOnce(queuePage(["q4"], 3, 2, 5));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const result = await fetchWorkQueue("tok-insert", 2);
 
@@ -148,7 +150,7 @@ describe("fetchWorkQueue", () => {
       .mockResolvedValueOnce(queuePage(["q4"], 2, 2, 3))
       .mockResolvedValueOnce(queuePage(["q2", "q3"], 1, 2, 3))
       .mockResolvedValueOnce(queuePage(["q4"], 2, 2, 3));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const result = await fetchWorkQueue("tok-remove", 2);
 
@@ -168,7 +170,7 @@ describe("fetchWorkQueue", () => {
       .mockResolvedValueOnce(queuePage(["q3", "q6"], 2, 2, 4))
       .mockResolvedValueOnce(queuePage(["q1", "q2"], 1, 2, 4))
       .mockResolvedValueOnce(queuePage(["q3", "q7"], 2, 2, 4));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const result = fetchWorkQueue("tok-unstable", 2);
 
@@ -200,7 +202,7 @@ describe("fetchCells", () => {
       .mockResolvedValueOnce(
         Response.json({ items: [cell("c2")], page: 2, pageSize: 1, total: 2 }),
       );
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => String(url).includes("/work-queue/snapshot?") ? Promise.resolve(new Response(null, { status: 404 })) : fetchMock(url, init));
 
     const result = await fetchCells("tok-cells", 1);
 
@@ -213,4 +215,48 @@ describe("fetchCells", () => {
       expect.any(Object),
     );
   });
+});
+
+
+describe("revision-bounded work queue", () => {
+  const revision = "a".repeat(32);
+  it("coleta uma vez e verifica só a primeira página no protocolo novo", async () => {
+    const request = vi.fn().mockResolvedValueOnce(Response.json({ items: [item("q1")], page: 1, pageSize: 1, total: 2, revision }))
+      .mockResolvedValueOnce(Response.json({ items: [item("q2")], page: 2, pageSize: 1, total: 2, revision }))
+      .mockResolvedValueOnce(Response.json({ items: [item("q1")], page: 1, pageSize: 1, total: 2, revision }));
+    vi.stubGlobal("fetch", request);
+    const page = await fetchWorkQueue("actor", 1);
+    expect(page.items.map((value) => value.id)).toEqual(["q1", "q2"]);
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[1]?.[0]).toContain(`revision=${revision}`);
+  });
+  it("não confirma conteúdo parcial quando página posterior muda a revisão", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => url.includes("revision=")
+      ? Promise.resolve(new Response(null, { status: 409 }))
+      : Promise.resolve(Response.json({ items: [item("q1")], page: 1, pageSize: 1, total: 2, revision }))));
+    const first = await fetchWorkQueuePage("actor", 1, 1);
+    await expect(fetchRemainingWorkQueuePages("actor", first)).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+
+it("confirms 1,005 stable items in 42 snapshot reads preserving the early 25", async () => {
+  const ids = Array.from({length:1005},(_,index)=>`q${index}`);
+  const revision = "0123456789abcdef0123456789abcdef";
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    const page = Number(url.searchParams.get("page"));
+    const size = Number(url.searchParams.get("pageSize"));
+    return Response.json({...await queuePage(ids.slice((page-1)*size,page*size),page,size,ids.length).json(),revision});
+  });
+  vi.stubGlobal("fetch",fetchMock);
+  const first = await fetchWorkQueuePage("large-snapshot",1,25);
+  expect(first.items).toHaveLength(25);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const remainder = await fetchRemainingWorkQueuePages("large-snapshot",first);
+  expect([...first.items,...remainder.items].map(item => item.id)).toEqual(ids);
+  expect(fetchMock).toHaveBeenCalledTimes(42);
+  const queries = fetchMock.mock.calls.map(([url])=>new URL(String(url)));
+  expect(queries.every(url=>url.pathname === "/work-queue/snapshot")).toBe(true);
+  expect(queries.filter(url=>url.searchParams.get("revision") === revision)).toHaveLength(40);
 });

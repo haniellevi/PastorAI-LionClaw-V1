@@ -50,6 +50,8 @@ vi.mock("@/lib/conversations-api", async (importOriginal) => {
     fetchConversations: apiMock.fetchConversations,
     fetchInboxAgentStatus: apiMock.fetchInboxAgentStatus,
     fetchMessages: apiMock.fetchMessages,
+    fetchMessageWindow: async (token: string, convId: string, _options: unknown, signal: AbortSignal) => ({ items: await apiMock.fetchMessages(token, convId, 200, signal), cursorSupported: false }),
+    fetchMessageMediaUrls: async () => ({}),
     fetchConversationPhoto: apiMock.fetchConversationPhoto,
     fetchInboxTransferTargets: apiMock.fetchInboxTransferTargets,
     sendMessage: apiMock.sendMessage,
@@ -671,7 +673,7 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     expect(threadBody().textContent).toContain("snapshot mais novo M2");
   });
 
-  it("um poll lento não duplica antes do prazo e é substituído após o timeout", async () => {
+  it("um poll lento não duplica e é substituído após timeout e recuo", async () => {
     await cargaInicialPendente();
     await resolveRequestAt(0, SNAPSHOT_M1);
 
@@ -699,6 +701,11 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     await act(async () => {
       vi.advanceTimersByTime(3_000);
     });
+    // Timeout is a failed poll: keep the previous snapshot and back off before
+    // retrying, while the canceled request cannot remain a second flight.
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
+    expect(activeRequests("conv-a")).toHaveLength(0);
+    await act(async () => { vi.advanceTimersByTime(30_000); });
     expect(apiMock.fetchMessages).toHaveBeenCalledTimes(3);
     expect(activeRequests("conv-a")).toHaveLength(1);
 

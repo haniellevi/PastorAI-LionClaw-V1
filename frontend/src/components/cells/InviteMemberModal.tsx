@@ -2,7 +2,7 @@
 
 import "./operations-ux-v2.css";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsBanner } from "@/components/ds/Banner";
@@ -13,11 +13,15 @@ import { addCellMember } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
+import type { ContactLookup } from "@/lib/lookup-api";
+import { useLookupPage, type LookupLoader } from "@/components/lookups/useLookupPage";
+import { LookupPager } from "@/components/lookups/LookupPager";
 
 interface Props {
   celulaId: string;
   celulaNome: string;
   contacts: Contact[];
+  loadContactsPage?: LookupLoader<ContactLookup>;
   onClose: () => void;
   onAdded: () => void;
 }
@@ -30,19 +34,22 @@ export function AddCellMemberModal({
   celulaId,
   celulaNome,
   contacts,
+  loadContactsPage,
   onClose,
   onAdded,
 }: Props) {
   const { token, expireSession } = useAuth();
   const [query, setQuery] = useState("");
   const [pessoaId, setPessoaId] = useState<string | null>(null);
+  const [selectedPerson, setSelectedPerson] = useState<ContactLookup | null>(null);
+  const lookup = useLookupPage(loadContactsPage, query);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
   const candidatos = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const elegiveis = contacts.filter(
+    const elegiveis = (loadContactsPage ? lookup.result?.items ?? [] : contacts).filter(
       (contact) =>
         !contact.celulaId &&
         !contact.liderDeCelula &&
@@ -50,15 +57,16 @@ export function AddCellMemberModal({
         !contact.semInteresse &&
         !contact.arquivada,
     );
-    const base = q
+    const base = q && !loadContactsPage
       ? elegiveis.filter((contact) =>
           `${contact.nome} ${contact.telefone}`.toLowerCase().includes(q),
         )
       : elegiveis;
-    return base.slice(0, 50);
-  }, [contacts, query]);
+    return base;
+  }, [contacts, query, loadContactsPage, lookup.result]);
 
-  const selected = candidatos.find((contact) => contact.id === pessoaId) ?? null;
+  const selected = selectedPerson?.id === pessoaId ? selectedPerson : null;
+  useEffect(() => { if (lookup.error instanceof SessionExpiredError) expireSession(); }, [lookup.error, expireSession]);
 
   async function submit() {
     if (!token || !selected || sending) return;
@@ -134,6 +142,7 @@ export function AddCellMemberModal({
               onChange={(event) => {
                 setQuery(event.target.value);
                 setPessoaId(null);
+                setSelectedPerson(null);
                 setError(null);
               }}
               placeholder="Buscar por nome ou telefone…"
@@ -149,7 +158,10 @@ export function AddCellMemberModal({
                 marginTop: 6,
               }}
             >
-              {candidatos.length === 0 ? (
+              {loadContactsPage && lookup.loading ? <p className="sub" role="status">Carregando Pessoas…</p> : lookup.error ? <div role="alert">
+                {lookup.error instanceof Error ? lookup.error.message : "Não foi possível carregar as Pessoas."}
+                <button type="button" className="btn btn-sm" onClick={lookup.retry}>Tentar novamente</button>
+              </div> : candidatos.length === 0 ? (
                 <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
                   Nenhuma Pessoa elegível sem célula foi encontrada.
                 </p>
@@ -162,6 +174,7 @@ export function AddCellMemberModal({
                       key={contact.id}
                       onClick={() => {
                         setPessoaId(contact.id);
+                        setSelectedPerson(contact);
                         setError(null);
                       }}
                       style={{
@@ -193,6 +206,8 @@ export function AddCellMemberModal({
                 })
               )}
             </div>
+            {loadContactsPage ? <LookupPager result={lookup.result} loading={lookup.loading} onPage={lookup.setPage} /> : null}
+            {selected ? <p className="sub" role="status">Pessoa selecionada: <strong>{selected.nome}</strong></p> : null}
           </div>
 
           <div className="modal-foot">

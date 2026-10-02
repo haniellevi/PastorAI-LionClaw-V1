@@ -25,7 +25,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, noload
 
 from app.config import get_settings
 from app.db.models import (
@@ -249,7 +249,7 @@ def admin_login(
 
     # Sem set_tenant_context: resolve cross-tenant, igual ao gate de plataforma.
     app_user = db.execute(
-        select(AppUser).where(AppUser.clerk_user_id == clerk_user_id)
+        select(AppUser).options(noload(AppUser.roles), noload(AppUser.igreja)).where(AppUser.clerk_user_id == clerk_user_id)
     ).scalar_one_or_none()
     if app_user is None:
         raise denied
@@ -918,32 +918,31 @@ def admin_metrics(
     O custo de IA é a soma de ai_usage_logs (BYO-LLM, fora do preço do PastorAI —
     mas o provedor acompanha o consumo por aqui).
     """
-    igrejas = db.execute(select(Igreja)).scalars().all()
+    groups = db.execute(select(Igreja.status, Igreja.plano, func.count()).group_by(
+        Igreja.status, Igreja.plano,
+    )).all()
     precos = _plano_precos(db)
-
     por_status: dict[str, int] = {}
     por_plano: dict[str, int] = {}
     mrr = 0.0
-    for ig in igrejas:
-        por_status[ig.status] = por_status.get(ig.status, 0) + 1
-        if ig.plano:
-            por_plano[ig.plano] = por_plano.get(ig.plano, 0) + 1
-        if ig.status == "ativa" and ig.plano in precos:
-            mrr += precos[ig.plano]
-
-    total_membros = int(
-        db.execute(select(func.count()).select_from(AppUser)).scalar_one()
-    )
-    total_pessoas = int(
-        db.execute(select(func.count()).select_from(Pessoa)).scalar_one()
-    )
-    custo_ia = float(
-        db.execute(select(func.coalesce(func.sum(AiUsageLog.custo), 0))).scalar_one()
-        or 0
-    )
+    total_igrejas = 0
+    for igreja_status, plano, amount in groups:
+        amount = int(amount)
+        total_igrejas += amount
+        por_status[igreja_status] = por_status.get(igreja_status, 0) + amount
+        if plano:
+            por_plano[plano] = por_plano.get(plano, 0) + amount
+        if igreja_status == "ativa" and plano in precos:
+            mrr += precos[plano] * amount
+    totals = db.execute(select(
+        select(func.count()).select_from(AppUser).scalar_subquery().label("admin_users"),
+        select(func.count()).select_from(Pessoa).scalar_subquery().label("admin_people"),
+        select(func.coalesce(func.sum(AiUsageLog.custo), 0)).scalar_subquery().label("admin_ai_cost"),
+    )).one()
+    total_membros, total_pessoas, custo_ia = int(totals.admin_users), int(totals.admin_people), float(totals.admin_ai_cost)
 
     return AdminMetricsOut(
-        totalIgrejas=len(igrejas),
+        totalIgrejas=total_igrejas,
         porStatus=por_status,
         porPlano=por_plano,
         mrr=mrr,
@@ -975,39 +974,17 @@ def get_igreja_detail(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         )
 
-    membros = int(
-        db.execute(
-            select(func.count()).select_from(AppUser).where(AppUser.igreja_id == ig_uuid)
-        ).scalar_one()
-    )
-    pessoas = int(
-        db.execute(
-            select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == ig_uuid)
-        ).scalar_one()
-    )
-    celulas = int(
-        db.execute(
-            select(func.count()).select_from(Celula).where(Celula.igreja_id == ig_uuid)
-        ).scalar_one()
-    )
-
-    custo_ia = float(
-        db.execute(
-            select(func.coalesce(func.sum(AiUsageLog.custo), 0)).where(
-                AiUsageLog.igreja_id == ig_uuid
-            )
-        ).scalar_one()
-        or 0
-    )
-    tokens_ia = int(
-        db.execute(
-            select(
-                func.coalesce(func.sum(AiUsageLog.tokens_in), 0)
-                + func.coalesce(func.sum(AiUsageLog.tokens_out), 0)
-            ).where(AiUsageLog.igreja_id == ig_uuid)
-        ).scalar_one()
-        or 0
-    )
+    def count_tenant(model):
+        return select(func.count()).select_from(model).where(model.igreja_id == ig_uuid).scalar_subquery()
+    totals = db.execute(select(
+        count_tenant(AppUser).label("detail_users"), count_tenant(Pessoa).label("detail_people"),
+        count_tenant(Celula).label("detail_cells"),
+        select(func.coalesce(func.sum(AiUsageLog.custo), 0)).where(AiUsageLog.igreja_id == ig_uuid).scalar_subquery().label("detail_cost"),
+        select(func.coalesce(func.sum(AiUsageLog.tokens_in), 0) + func.coalesce(func.sum(AiUsageLog.tokens_out), 0))
+            .where(AiUsageLog.igreja_id == ig_uuid).scalar_subquery().label("detail_tokens"),
+    )).one()
+    membros, pessoas, celulas = int(totals.detail_users), int(totals.detail_people), int(totals.detail_cells)
+    custo_ia, tokens_ia = float(totals.detail_cost), int(totals.detail_tokens)
 
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == ig_uuid)
@@ -1456,7 +1433,7 @@ def list_igreja_admins(
     igreja = _get_igreja_or_404(db, igreja_id)
     ig_uuid = uuid.UUID(igreja_id)
     rows = db.execute(
-        select(AppUser)
+        select(AppUser).options(noload(AppUser.roles), noload(AppUser.igreja))
         .join(UserRole, UserRole.user_id == AppUser.id)
         .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
         .order_by(AppUser.created_at)

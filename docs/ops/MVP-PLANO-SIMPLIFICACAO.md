@@ -482,6 +482,12 @@ sem declarar as próximas verticais implementadas.
      polling, paginação e erros permanecem. [Registro, testes e
      limites](../sprints/2026-09-30-aud02-microphone-conversation-scope.md).
      Merge continua sujeito a novo head, CI, revisões e gate nominal.
+   - [ ] Programa de desempenho de 02/10: candidato de cliente, bootstrap,
+     consultas SQL, paginação consistente, histórico recente e telemetria em
+     validação. [Plano, contratos e limites](../performance/2026-10-02-fluidity-plan.md).
+     Publicação frontend, implantação backend e métricas de campo são etapas
+     verificadas separadamente. Região, capacidade e protocolo durável de
+     envio humano dependem de evidência específica; nenhum gate foi alterado.
 
 Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
 merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;

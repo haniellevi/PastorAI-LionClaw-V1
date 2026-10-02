@@ -104,14 +104,13 @@ async def _challenge_from_body(request: Request) -> str:
 
 
 @router.post("")
-async def confirm_identity(
-    request: Request,
+def confirm_identity(
+    challenge: str = Depends(_challenge_from_body),
     db: Session = Depends(get_db),
     principal: ConfirmingPanelPrincipal = Depends(get_confirming_panel_principal),
 ) -> dict[str, str]:
     """Consume exactly one current challenge and return no correlator or PII."""
 
-    challenge = await _challenge_from_body(request)
     try:
         confirm_identity_challenge(
             db,

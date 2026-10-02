@@ -7,8 +7,9 @@
  * A decisão vem dos papéis reais de /auth/me; nada é escolhido na UI.
  */
 import { useAuth } from "@/lib/auth-context";
-import { DiscipuloScreen } from "./DiscipuloScreen";
-import { MinhaCelulaLider } from "./MinhaCelulaLider";
+import dynamic from "next/dynamic";
+const DiscipuloScreen = dynamic(() => import("./DiscipuloScreen").then((module) => module.DiscipuloScreen), { loading: () => <p role="status">Carregando sua célula…</p> });
+const MinhaCelulaLider = dynamic(() => import("./MinhaCelulaLider").then((module) => module.MinhaCelulaLider), { loading: () => <p role="status">Carregando sua célula…</p> });
 
 export function MinhaCelulaEntry() {
   const { user } = useAuth();

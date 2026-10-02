@@ -42,6 +42,9 @@ class _R:
     def scalar_one(self):
         return self._scalar_one
 
+    def one(self):
+        return self._scalar
+
     def scalars(self):
         return SimpleNamespace(all=lambda: list(self._scalars))
 
@@ -78,6 +81,18 @@ class SetupSession:
         self.plano = plano
 
     def execute(self, statement, params=None) -> _R:
+        if "setup_identity" in str(statement):
+            return _R(scalar=SimpleNamespace(
+                setup_identity=bool(self.igreja and self.igreja.logo_path),
+                setup_team=self.team_count > 1,
+                setup_cells=self.cell_count > 0,
+                setup_whatsapp=bool(self.whatsapp and self.whatsapp.status == "online"),
+                setup_agent=bool(self.credential and self.credential.validado and self.credential.ativo),
+                setup_subscription=bool(
+                    (self.subscription and self.subscription.status == "ativa")
+                    or (self.igreja and self.igreja.plano and self.plano and self.plano.preco_mensal == 0)
+                ),
+            ))
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         if ent is AppUser:

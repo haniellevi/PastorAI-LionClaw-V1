@@ -22,8 +22,10 @@ import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
   classifyGanhar,
-  fetchPipeline,
+  fetchGanharPage,
+  type GanharSummary,
   followStatus,
+  summarizeGanhar,
   linkContactCell,
   meetsPromotionCriteria,
   promoteContact,
@@ -32,7 +34,6 @@ import {
 import {
   ApiError,
   clearAuthedResponseCache,
-  fetchCells,
   type Cell,
 } from "@/lib/dashboard-api";
 import { Icon, type IconKey } from "@/lib/icons";
@@ -79,6 +80,15 @@ export function GanharScreen() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("novos-contatos");
+  const [pageNumber, setPageNumber] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<GanharSummary | null>(null);
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const loadGeneration = useRef(0);
+  const loadedQueryKey = useRef("");
+  const dataKey = `${tab}:${pageNumber}:${query}:${user?.churchId ?? ""}`;
+  useEffect(() => { if (search.trim() === query) return; const timer = window.setTimeout(() => { setQuery(search.trim()); setPageNumber(1); },250); return () => window.clearTimeout(timer); },[search,query]);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [linkTarget, setLinkTarget] = useState<Contact | null>(null);
@@ -106,7 +116,9 @@ export function GanharScreen() {
   const load = useCallback(
     async (mode: "initial" | "retry") => {
       if (!token) return;
-      if (mode === "initial") setLoading(true);
+      const generation = ++loadGeneration.current;
+      setLoading(true);
+      if (mode === "initial" && loadedQueryKey.current !== dataKey) setLoaded(false);
       if (mode === "retry") {
         clearAuthedResponseCache(
           token,
@@ -115,15 +127,15 @@ export function GanharScreen() {
       }
       setError(null);
       try {
-        const [page, cellPage] = await Promise.all([
-          fetchPipeline(token, "ganhar"),
-          canLinkCell ? fetchCells(token) : Promise.resolve(null),
-        ]);
-        // CSIM (sem interesse) está fora da Visão G12 — não entra na base de "Ganhar".
-        setContacts(page.items.filter((c) => !c.semInteresse));
-        setCells(cellPage?.items ?? []);
+        const page = await fetchGanharPage(token, {page:pageNumber,pageSize:50,group:tab,...(query ? {q:query} : {})});
+        if (generation !== loadGeneration.current) return;
+        setContacts(page.items);
+        setTotal(page.total);
+        setSummary(page.summary);
+        loadedQueryKey.current = dataKey;
         setLoaded(true);
       } catch (err) {
+        if (generation !== loadGeneration.current) return;
         if (handleSessionError(err)) return;
         setError(
           err instanceof ApiError
@@ -131,14 +143,15 @@ export function GanharScreen() {
             : "Não foi possível carregar a base de entrada.",
         );
       } finally {
-        setLoading(false);
+        if (generation === loadGeneration.current) setLoading(false);
       }
     },
-    [token, canLinkCell, handleSessionError],
+    [token, pageNumber, tab, query, dataKey, canLinkCell, handleSessionError],
   );
 
   useEffect(() => {
     void load("initial");
+    return () => { loadGeneration.current += 1; };
   }, [load]);
 
   const toastTimer = useRef<number | null>(null);
@@ -174,18 +187,18 @@ export function GanharScreen() {
     const semAcomp = visitantes.filter((v) => !v.celulaId).length;
     const comDecisao = visitantes.filter((v) => v.aceitouJesus).length;
     return [
-      { icon: "user" as const, label: "Novos contatos", value: novos.length, delta: "redes e WhatsApp" },
+      { icon: "user" as const, label: "Novos contatos", value: summary?.novosContatos ?? novos.length, delta: "redes e WhatsApp" },
       {
         icon: "user" as const,
         label: "Visitantes sem acompanhamento",
-        value: semAcomp,
+        value: summary?.visitantesSemCelula ?? semAcomp,
         delta: "conectar a uma célula",
         alert: semAcomp > 0,
       },
-      { icon: "check" as const, label: "Visitantes com decisão", value: comDecisao, delta: "aceitaram Jesus" },
-      { icon: "ganhar" as const, label: "Base de entrada", value: contacts.length, delta: "no estágio Ganhar" },
+      { icon: "check" as const, label: "Visitantes com decisão", value: summary?.visitantesComDecisao ?? comDecisao, delta: "aceitaram Jesus" },
+      { icon: "ganhar" as const, label: "Base de entrada", value: summary?.total ?? contacts.length, delta: "no estágio Ganhar" },
     ];
-  }, [novos, visitantes, contacts.length]);
+  }, [novos, visitantes, contacts.length, summary]);
 
   const openContact = useCallback(
     (c: Contact) => {
@@ -202,6 +215,9 @@ export function GanharScreen() {
       try {
         await promoteContact(token, c.id, "consolidar");
         setContacts((prev) => prev.filter((p) => p.id !== c.id));
+        const removed = summarizeGanhar([c]);
+        setSummary(current => current ? Object.fromEntries(Object.entries(current).map(([key,value]) => [key,Math.max(0,value - removed[key as keyof GanharSummary])])) as unknown as GanharSummary : null);
+        setTotal(current => Math.max(0,current - 1));
         flashToast({ kind: "ok", text: `${c.nome} promovido para Consolidar.` });
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -224,6 +240,9 @@ export function GanharScreen() {
       try {
         const updated = await linkContactCell(token, linkTarget.id, celulaId);
         setContacts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        const before = summarizeGanhar([linkTarget]);
+        const after = summarizeGanhar([updated]);
+        setSummary(current => current ? Object.fromEntries(Object.entries(current).map(([key,value]) => [key,Math.max(0,value + after[key as keyof GanharSummary] - before[key as keyof GanharSummary])])) as unknown as GanharSummary : null);
         flashToast({ kind: "ok", text: `${updated.nome} conectado à célula.` });
         setLinkTarget(null);
       } catch (err) {
@@ -427,6 +446,7 @@ export function GanharScreen() {
         </div>
       ) : null}
 
+      <div className="field"><label htmlFor="ganhar-search">Buscar nome, telefone ou e-mail</label><input id="ganhar-search" type="search" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <div className="card">
         <div className="panel-title">
           Pessoas que chegaram
@@ -436,17 +456,17 @@ export function GanharScreen() {
                 type="button"
                 aria-pressed={tab === "novos-contatos"}
                 className={`tab${tab === "novos-contatos" ? " active" : ""}`}
-                onClick={() => setTab("novos-contatos")}
+                onClick={() => { setTab("novos-contatos"); setPageNumber(1); }}
               >
-                Novos contatos {loaded ? <span className="num">{novos.length}</span> : null}
+                Novos contatos {loaded ? <span className="num">{summary?.novosContatos ?? novos.length}</span> : null}
               </button>
               <button
                 type="button"
                 aria-pressed={tab === "visitantes"}
                 className={`tab${tab === "visitantes" ? " active" : ""}`}
-                onClick={() => setTab("visitantes")}
+                onClick={() => { setTab("visitantes"); setPageNumber(1); }}
               >
-                Visitantes {loaded ? <span className="num">{visitantes.length}</span> : null}
+                Visitantes {loaded ? <span className="num">{summary ? summary.total - summary.novosContatos : visitantes.length}</span> : null}
               </button>
             </div>
           </div>
@@ -492,8 +512,9 @@ export function GanharScreen() {
         )}
       </div>
 
+      {loaded && total > 50 ? <div className="people-toolbar"><button type="button" className="btn btn-sm" disabled={loading || pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}>Página anterior</button><span role="status">Página {pageNumber} de {Math.ceil(total / 50)} · {total} pessoas nesta aba</span><button type="button" className="btn btn-sm" disabled={loading || pageNumber * 50 >= total} onClick={() => setPageNumber(value => value + 1)}>Próxima página</button></div> : null}
       {loaded || showSkeleton ? <details className="people-disclosure people-overview">
-        <summary>Resumo dos contatos carregados</summary>
+        <summary>Resumo da base de entrada</summary>
       <div className="stat-grid">
         {showSkeleton
           ? Array.from({ length: 4 }).map((_, i) => (
@@ -514,11 +535,13 @@ export function GanharScreen() {
             ))}
       </div>
 
-        <p className="people-meta">Contagens da lista carregada, dentro do seu acesso atual.</p>
+        <p className="people-meta">Contagens de toda a base neste filtro, dentro do seu acesso atual.</p>
       </details> : null}
 
       {canLinkCell && linkTarget ? (
         <LinkCellModal
+          token={token}
+          onSessionExpired={expireSession}
           cells={cells}
           contactName={linkTarget.nome}
           busy={busyId === linkTarget.id}

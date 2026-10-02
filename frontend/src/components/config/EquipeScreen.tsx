@@ -23,7 +23,9 @@ import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { fetchContacts, type Contact } from "@/lib/contacts-api";
+import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
+import { useLookupPage } from "@/components/lookups/useLookupPage";
+import { LookupPager } from "@/components/lookups/LookupPager";
 import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { editableRoles, normalizeRoles, ROLE_ORDER, type Role } from "@/lib/roles";
@@ -76,13 +78,19 @@ export function EquipeScreen() {
   const [invError, setInvError] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
 
-  // base de Pessoas cadastradas, carregada ao abrir o convite
-  const [pessoas, setPessoas] = useState<Contact[]>([]);
-  const [pessoasTotal, setPessoasTotal] = useState(0);
-  const [pessoasLoaded, setPessoasLoaded] = useState(false);
-  const [pessoasLoading, setPessoasLoading] = useState(false);
-  const [pessoasError, setPessoasError] = useState<string | null>(null);
-  const [pessoasNonce, setPessoasNonce] = useState(0);
+  const [invPessoa, setInvPessoa] = useState<ContactLookup | null>(null);
+  const loadPessoas = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token ?? "", { q, page, signal }), [token]);
+  const pessoasLookup = useLookupPage(loadPessoas, invPessoaQuery,
+    inviteOpen && invMode === "existente" && !!token && podeConvidar);
+  const pessoasFiltradas = pessoasLookup.result?.items ?? [];
+  const pessoasLoading = pessoasLookup.loading;
+  const pessoasError = pessoasLookup.error instanceof Error ? pessoasLookup.error.message : null;
+  const resetPessoasPage = pessoasLookup.setPage;
+  useEffect(() => {
+    setInvPessoaId(null); setInvPessoa(null); setInvEmail(""); setInvNome("");
+    setInviteOpen(false);
+  }, [token]);
 
   // edição de papéis
   const [editing, setEditing] = useState<TeamMember | null>(null);
@@ -141,44 +149,9 @@ export function EquipeScreen() {
     void load("initial");
   }, [load]);
 
-  // Ao abrir o convite, carrega a base inteira de Pessoas. Falha é explícita:
-  // não convertemos indisponibilidade em lista vazia.
   useEffect(() => {
-    if (!inviteOpen || !token || pessoasLoaded) return;
-    let active = true;
-    setPessoasLoading(true);
-    setPessoasError(null);
-    void fetchContacts(token)
-      .then((page) => {
-        if (!active) return;
-        setPessoas(page.items);
-        setPessoasTotal(page.total);
-        setPessoasLoaded(true);
-      })
-      .catch((err) => {
-        if (!active) return;
-        if (handleSessionError(err)) return;
-        setPessoasError(
-          err instanceof ApiError ? err.message : "Não foi possível carregar as Pessoas.",
-        );
-      })
-      .finally(() => {
-        if (active) setPessoasLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [inviteOpen, token, pessoasLoaded, pessoasNonce, handleSessionError]);
-
-  const pessoasFiltradas = useMemo(() => {
-    const q = invPessoaQuery.trim().toLowerCase();
-    const base = q
-      ? pessoas.filter((p) =>
-          `${p.nome} ${p.telefone} ${p.email ?? ""}`.toLowerCase().includes(q),
-        )
-      : pessoas;
-    return base.slice(0, 50);
-  }, [pessoas, invPessoaQuery]);
+    if (pessoasLookup.error) handleSessionError(pessoasLookup.error);
+  }, [pessoasLookup.error, handleSessionError]);
 
   // Pessoas que já têm login no painel — não podem receber acesso de novo.
   const pessoasComAcesso = useMemo(
@@ -188,11 +161,12 @@ export function EquipeScreen() {
 
   const selectedInvPessoa = useMemo(() => {
     if (!invPessoaId || pessoasComAcesso.has(invPessoaId)) return null;
-    return pessoas.find((pessoa) => pessoa.id === invPessoaId) ?? null;
-  }, [invPessoaId, pessoas, pessoasComAcesso]);
+    return invPessoa?.id === invPessoaId ? invPessoa : null;
+  }, [invPessoaId, invPessoa, pessoasComAcesso]);
 
-  const selectPessoa = useCallback((p: Contact) => {
+  const selectPessoa = useCallback((p: ContactLookup) => {
     setInvPessoaId(p.id);
+    setInvPessoa(p);
     setInvNome(p.nome);
     setInvEmail(p.email ?? "");
     setInvNeedsEmail(!(p.email ?? "").trim());
@@ -204,6 +178,7 @@ export function EquipeScreen() {
     // A busca e a seleção representam passos distintos. Qualquer edição
     // volta ao passo de escolha para que um alvo oculto nunca permaneça ativo.
     setInvPessoaId(null);
+    setInvPessoa(null);
     setInvNome("");
     setInvEmail("");
     setInvNeedsEmail(false);
@@ -214,19 +189,14 @@ export function EquipeScreen() {
     setInviteOpen(false);
     setInvMode("existente");
     setInvPessoaId(null);
+    setInvPessoa(null);
     setInvPessoaQuery("");
     setInvNome("");
     setInvEmail("");
     setInvNeedsEmail(false);
     setInvError(null);
-    // invalida os caches: reabrir o convite recarrega (inclui quem/o que foi
-    // criado no meio tempo).
-    setPessoas([]);
-    setPessoasTotal(0);
-    setPessoasLoaded(false);
-    setPessoasLoading(false);
-    setPessoasError(null);
-  }, []);
+    resetPessoasPage(1);
+  }, [resetPessoasPage]);
 
   const emailValid = (email: string) => /\S+@\S+\.\S+/.test(email.trim());
   const inviteReady =
@@ -528,10 +498,7 @@ export function EquipeScreen() {
                     <button
                       type="button"
                       className="btn btn-sm"
-                      onClick={() => {
-                        setPessoasLoaded(false);
-                        setPessoasNonce((value) => value + 1);
-                      }}
+                      onClick={pessoasLookup.retry}
                       disabled={pessoasLoading}
                     >
                       Tentar novamente
@@ -604,12 +571,8 @@ export function EquipeScreen() {
                     })
                   )}
                 </div>
-                {pessoas.length < pessoasTotal ? (
-                  <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
-                    Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
-                    encontrar quem não aparece.
-                  </p>
-                ) : null}
+                <LookupPager result={pessoasLookup.result} loading={pessoasLoading} onPage={pessoasLookup.setPage} />
+                {selectedInvPessoa ? <p className="sub" role="status">Pessoa selecionada: <strong>{selectedInvPessoa.nome}</strong></p> : null}
               </div>
 
               {invPessoaId && invNeedsEmail ? (

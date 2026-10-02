@@ -169,7 +169,7 @@ significa ativa em produção.
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Exclusão de tenant e reset administrativo | `CANDIDATA LOCAL / REVISÃO E MERGE` | candidato local grava manifesto externo em audit, preserva platform admin destacado, enumera todo `public.e4b_*`, bloqueia o ledger no reset total e oferece reset e drain externos idempotentes em dry-run; URL vem de ambiente protegido ou prompt, nunca argv | A migration de `app_users.igreja_id` anulável segue o processo simples por `migrate.py`; revisar o SHA e Raniel autorizar o merge por número da PR B. Execução de banco ou provedor continua fora desta fatia |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
-| Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
+| Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos; [programa de desempenho e contratos de leitura](../performance/2026-10-02-fluidity-plan.md) | Leitor de tela, teclado, zoom, mobile e métricas de campo; backend/telemetria dependem do recibo operacional |
 | Backup e recuperação | `GATE OPERACIONAL` | Runbooks e evidências operacionais anteriores | Manter restauração periódica e incluir novas tabelas privadas |
 
 ## Situação do agente no SHA auditado

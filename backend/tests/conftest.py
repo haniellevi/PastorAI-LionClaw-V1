@@ -174,6 +174,7 @@ class FakeSession:
         self.executed_statements: list[object] = []
         # Linhas (papel, tela) da matriz do tenant, p/ testar require_screen.
         self.role_permissions = role_permissions or []
+        self.info = {}
         # SEC-3B/MEDIO-003: linha de password_reset_tokens pro fluxo de reset.
         self.reset_token = reset_token
         # Catálogo `planos` (migration 0012) p/ testar checkout/catálogo de
@@ -291,6 +292,11 @@ class FakeSession:
         if entity is AppUser:
             return _FakeResult(scalar=self.app_user)
         if entity is RolePermission:
+            if descriptions[0].get("name") == "RolePermission":
+                return _FakeResult(scalars_list=[
+                    RolePermission(igreja_id=self.app_user.igreja_id, papel=papel, tela=tela)
+                    for papel, tela in self.role_permissions
+                ])
             return _FakeResult(rows=self.role_permissions)
         if entity is PasswordResetToken:
             return _FakeResult(scalar=self.reset_token)

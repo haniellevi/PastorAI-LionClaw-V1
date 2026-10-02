@@ -7,7 +7,7 @@ import "@/components/config/administration-ux-v2.css";
  * contadores (cross-tenant), provisiona novas igrejas (US-43) e altera
  * status/plano (US-42). Clicar numa linha abre a edição.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MineralBackdrop } from "@/components/brand/MineralBackdrop";
 import { Button } from "@/components/ui/Button";
@@ -26,12 +26,14 @@ import {
 import { useAdminAuth } from "@/lib/admin-auth-context";
 import { formatAiCostUsd } from "@/lib/ai-cost";
 
-import { AuditModal } from "./AuditModal";
-import { ChurchPage } from "./ChurchPage";
-import { CreateIgrejaModal } from "./CreateIgrejaModal";
-import { JevModal } from "./JevModal";
-import { OrquestradorModal } from "./OrquestradorModal";
-import { PlanosManagerModal } from "./PlanosManagerModal";
+import dynamic from "next/dynamic";
+
+const AuditModal = dynamic(() => import("./AuditModal").then((module) => module.AuditModal));
+const ChurchPage = dynamic(() => import("./ChurchPage").then((module) => module.ChurchPage));
+const CreateIgrejaModal = dynamic(() => import("./CreateIgrejaModal").then((module) => module.CreateIgrejaModal));
+const JevModal = dynamic(() => import("./JevModal").then((module) => module.JevModal));
+const OrquestradorModal = dynamic(() => import("./OrquestradorModal").then((module) => module.OrquestradorModal));
+const PlanosManagerModal = dynamic(() => import("./PlanosManagerModal").then((module) => module.PlanosManagerModal));
 
 const STATUS_LABEL: Record<string, string> = {
   ativa: "Ativa",
@@ -72,6 +74,8 @@ export function AdminConsole() {
   const [planos, setPlanos] = useState<AdminPlano[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
+  const [metricsError, setMetricsError] = useState(false);
+  const loadGeneration = useRef(0);
   const [notice, setNotice] = useState<string>();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -96,27 +100,41 @@ export function AdminConsole() {
 
   const load = useCallback(async () => {
     if (!token) return;
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setError(undefined);
+    setMetricsError(false);
+    void fetchMetrics(token).then((metrics) => {
+      if (generation === loadGeneration.current) setMetrics(metrics);
+    }).catch((err) => {
+      if (generation !== loadGeneration.current) return;
+      if (err instanceof AdminSessionExpiredError) logout();
+      else setMetricsError(true);
+    });
     try {
-      const [list, mtr] = await Promise.all([listIgrejas(token), fetchMetrics(token)]);
+      const list = await listIgrejas(token);
+      if (generation !== loadGeneration.current) return;
       setIgrejas(list);
-      setMetrics(mtr);
     } catch (err) {
+      if (generation !== loadGeneration.current) return;
       if (err instanceof AdminSessionExpiredError) {
         logout();
         return;
       }
       setError("Não foi possível carregar as igrejas.");
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-    void loadPlanos();
-  }, [token, logout, loadPlanos]);
+  }, [token, logout]);
 
   useEffect(() => {
     void load();
+    return () => { loadGeneration.current += 1; };
   }, [load]);
+
+  useEffect(() => {
+    if (createOpen || planosOpen) void loadPlanos();
+  }, [createOpen, planosOpen, loadPlanos]);
 
   const activePlanos = planos.filter((p) => p.ativo);
 
@@ -228,6 +246,7 @@ export function AdminConsole() {
         </div>
       ) : null}
 
+      {metricsError ? <p className="error-banner" role="alert">Indicadores indisponíveis. A lista de igrejas continua disponível; use Atualizar para tentar novamente.</p> : null}
       {metrics ? (
         <section className="platform-summary" aria-label="Estados das igrejas">
           <MetricCard label="Igrejas" value={String(metrics.totalIgrejas)} />
