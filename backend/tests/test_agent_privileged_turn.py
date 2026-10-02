@@ -6,6 +6,133 @@ from uuid import UUID, uuid4
 import pytest
 
 
+@pytest.mark.parametrize(
+    ('text', 'target_code', 'target_person', 'expect_route'),
+    (
+        ('Quero confirmar minha presença na próxima reunião da minha célula.',
+         'marcar_presenca', UUID(int=104), True),
+        ('Quero confirmar minha presença na próxima reunião da minha célula.',
+         None, None, False),
+        ('Quero confirmar minha presença na próxima reunião da minha célula.',
+         'marcar_presenca', UUID(int=999), False),
+        ('Quero confirmar minha presença na próxima reunião da minha célula.',
+         'registrar_decisao', UUID(int=104), False),
+        ('Qual a próxima reunião da minha célula?',
+         'consultar_vinculo', None, False),
+    ),
+)
+def test_public_lookup_yields_only_to_current_own_attendance_target(
+    monkeypatch, text, target_code, target_person, expect_route,
+):
+    from app.agent import privileged_turn, runtime
+    from app.agent.read_only_info import canonical_public_info_request
+    from app.domain.agent_reply import AGENT_REPLY_RESERVED
+    from app.services import (
+        agent_privilege_catalog, agent_privilege_routing, cell_report_whatsapp,
+        crypto, llm, semantic_triage, whatsapp_privilege,
+    )
+    from app.services.agent_privilege_catalog import CatalogTarget
+    from app.services.agent_privilege_routing import CandidateOption, RoutingDecision, ToolOption
+    from app.services.semantic_routing import RouteChoice
+    from app.services.whatsapp_privilege import PrivilegeContext
+    from app.workers import queue_worker
+
+    # Keep the public classifier real: both phrases trigger its cell lookup.
+    assert canonical_public_info_request(text) is not None
+    context = PrivilegeContext(
+        igreja_id=UUID(int=101), conversation_id=UUID(int=102),
+        inbound_message_id=UUID(int=103), pessoa_id=UUID(int=104),
+        app_user_id=UUID(int=105), roles=frozenset(), role_snapshot=(),
+        owned_cell_ids=(), credential_fingerprint='1' * 64,
+        phone_fingerprint='2' * 64, authorization_fingerprint='3' * 64,
+        proof_id=None, proof_until=None, sensitive=False,
+        scope_fingerprint='4' * 64, context_fingerprint='5' * 64,
+    )
+    outcome = SimpleNamespace(
+        igreja_id=context.igreja_id, conversation_id=context.conversation_id,
+        inbound_message_id=context.inbound_message_id, provider_message_id='synthetic',
+        texto=text,
+    )
+    preflight = SimpleNamespace(
+        current_text=text, credential_provedor='synthetic',
+        credential_key_encrypted='synthetic', credential_model='synthetic',
+    )
+    arguments = {} if target_person is None else {
+        'pessoa_id': str(target_person), 'reuniao_id': str(UUID(int=106)),
+    }
+    target = CatalogTarget(target_code, MappingProxyType(arguments), 'Resumo sintético')
+    catalog = () if target_code is None else (
+        ToolOption(target_code, RouteChoice.RESTRITA, 'Sintético',
+                   (CandidateOption('h1', 'Resumo sintético'),)),
+    )
+    mapping = {} if target_code is None else {(target_code, 'h1'): target}
+    calls = []
+
+    class Session:
+        def execute(self, _statement):
+            return SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace())
+
+        def commit(self):
+            pass
+
+    @contextmanager
+    def session_scope(*_args, **_kwargs):
+        yield Session()
+
+    def current_catalog(_session, current):
+        assert current is context
+        calls.append('catalog')
+        return catalog, mapping
+
+    def route(_client, *, texto, catalog, deadline_monotonic):
+        assert texto == text and catalog and deadline_monotonic > 0
+        calls.append('route')
+        return RoutingDecision('selected', RouteChoice.RESTRITA, target_code, 'h1', ())
+
+    def apply(_session, current, selected, _message, *, current_text, conversation):
+        assert current is context and selected is target and current_text == text
+        calls.append('apply')
+        return True
+
+    monkeypatch.setattr(privileged_turn, '_session', session_scope)
+    monkeypatch.setattr(runtime, 'process_inbound_message',
+                        lambda *_a, **_k: SimpleNamespace(reason=None, preflight=preflight))
+    monkeypatch.setattr(runtime, '_load_tier_a_plan_state', lambda *_a, **_k: (None, None, None))
+    monkeypatch.setattr(whatsapp_privilege, 'resolve_whatsapp_privilege_context', lambda *_a, **_k: context)
+    monkeypatch.setattr(agent_privilege_catalog, 'consolidation_routing_projection', lambda *_a, **_k: None)
+    monkeypatch.setattr(agent_privilege_catalog, 'build_catalog', current_catalog)
+    monkeypatch.setattr(semantic_triage, 'tier_a_enabled_from_environment', lambda _tenant: False)
+    monkeypatch.setattr(cell_report_whatsapp, 'cell_report_enabled_from_environment', lambda _tenant: False)
+    monkeypatch.setattr(queue_worker, '_agent_reply_idempotency_key', lambda _outcome: 'synthetic-reply')
+    monkeypatch.setattr(queue_worker, '_load_agent_reply_intent', lambda *_a, **_k: None)
+    monkeypatch.setattr(queue_worker, '_reserve_agent_reply_intent', lambda *_a, **_k: object())
+    monkeypatch.setattr(queue_worker, '_persist_tier_a_handoff',
+                        Mock(side_effect=AssertionError('unexpected handoff')))
+    monkeypatch.setattr(privileged_turn, '_lock_reply',
+                        lambda *_a, **_k: SimpleNamespace(agent_reply_state=AGENT_REPLY_RESERVED))
+    monkeypatch.setattr(privileged_turn, '_local_audio_consent', lambda *_a, **_k: False)
+    monkeypatch.setattr(privileged_turn, '_local_confirmation', lambda *_a, **_k: False)
+    monkeypatch.setattr(privileged_turn, '_apply_selection', apply)
+    monkeypatch.setattr(agent_privilege_routing, 'route_privileged_message', route)
+    provider = Mock(return_value=object())
+    monkeypatch.setattr(llm, 'LLMClient', provider)
+    monkeypatch.setattr(crypto, 'decrypt_secret', lambda _value: 'synthetic')
+    monkeypatch.setattr('app.agent.masking.log_agent_event', lambda *_a, **_k: None)
+
+    result = privileged_turn._run_enabled_turn(
+        Session, Session, outcome, igreja_id=context.igreja_id,
+        turn_identity=None, uses_dedicated_agent_session=False,
+        ownership_guard=None, evolution_client=Mock(),
+    )
+    assert calls == (['catalog', 'route', 'apply'] if expect_route else ['catalog'])
+    if expect_route:
+        assert result is queue_worker.AgentRunDisposition.COMPLETED
+        provider.assert_called_once()
+    else:
+        assert result is None
+        provider.assert_not_called()
+
+
 def test_empty_privilege_flag_has_no_database_or_provider_calls(monkeypatch):
     monkeypatch.delenv('AGENT_PRIVILEGE_ENABLED_IGREJA_IDS', raising=False)
     from app.agent.privileged_turn import run_privileged_turn

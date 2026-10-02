@@ -39,7 +39,19 @@ local implementado, com validação e revisão registradas. Allowlist vazia e re
 do provedor, migration compartilhada ou deploy. A classificação do produto
 permanece inalterada; áudio pertence à PR posterior.
 
-## S3 revisada: candidato WhatsApp-first, 27/09/2026
+## Presença própria no WhatsApp, 02/10/2026
+
+O catálogo S3 aceita pedido explícito da própria presença para a próxima
+reunião inequívoca da célula do membro, inclusive sem papel ministerial.
+O UUID do titular deriva do contexto do servidor; o modelo escolhe apenas
+um alvo já autorizado. Resumo entregue e SIM atual precedem o efeito.
+O serviço de presença bloqueia e revalida ator, reunião, célula e vínculo,
+confere o horário E4 antes da escrita e usa a fonte que o painel já lê.
+Callers humanos históricos e permissões de terceiros permanecem.
+[Implementação, testes e limites](sprints/2026-10-02-mvp-own-presence.md).
+A fatia não conclui visitante/oração, o piloto real ou a V4 inteira.
+
+## S3 revisada: candidato WhatsApp-first, histórico de 27/09/2026
 
 O [plano aprovado](ops/mvp-s3-whatsapp-first-plano.md) define identidade operacional
 por vínculo único ativo, roteamento BYO com catálogo fechado e confirmação por
