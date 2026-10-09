@@ -10,12 +10,12 @@ import re
 from collections.abc import Mapping, Sequence
 
 _QUERIES = {
-    'relations': """SELECT c.relname, jsonb_build_array(c.relkind, c.relrowsecurity, c.relforcerowsecurity)
+    'relations': """SELECT c.relname, jsonb_build_array(c.relkind, c.relrowsecurity, c.relforcerowsecurity, pg_get_userbyid(c.relowner), c.reloptions)
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S')""",
     'columns': """SELECT c.relname||'.'||a.attname,
         jsonb_build_array(format_type(a.atttypid,a.atttypmod), a.attnotnull,
-            pg_get_expr(d.adbin,d.adrelid),a.attidentity,a.attgenerated)
+            pg_get_expr(d.adbin,d.adrelid),a.attidentity,a.attgenerated,a.attacl)
         FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace
         LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
@@ -35,7 +35,7 @@ _QUERIES = {
         CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 's'::"char" ELSE 'r'::"char" END,c.relowner))) a
         WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S')""",
     'functions': """SELECT p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',
-        jsonb_build_array(pg_get_functiondef(p.oid),p.prosecdef,p.proconfig,
+        jsonb_build_array(pg_get_functiondef(p.oid),p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner),
           (SELECT jsonb_agg(jsonb_build_array(CASE WHEN a.grantee=0 THEN 'public' ELSE pg_get_userbyid(a.grantee) END,
              pg_get_userbyid(a.grantor),a.privilege_type,a.is_grantable) ORDER BY CASE WHEN a.grantee=0 THEN 'public' ELSE pg_get_userbyid(a.grantee) END,a.privilege_type)
            FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a))
@@ -44,8 +44,9 @@ _QUERIES = {
     'triggers': """SELECT c.relname||'.'||t.tgname,jsonb_build_array(pg_get_triggerdef(t.oid,true),t.tgenabled)
         FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal""",
-    'indices': """SELECT c.relname,to_jsonb(pg_get_indexdef(c.oid))
+    'indices': """SELECT c.relname,jsonb_build_array(pg_get_indexdef(c.oid),table_class.relname,i.indisunique,i.indisvalid,i.indisready)
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_index i ON i.indexrelid=c.oid JOIN pg_class table_class ON table_class.oid=i.indrelid
         WHERE n.nspname='public' AND c.relkind='i'""",
     'views': """SELECT c.relname,to_jsonb(pg_get_viewdef(c.oid,true))
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -104,6 +105,8 @@ def verify_additive_compatibility(*, previous: Mapping, candidate: Mapping, live
         raise SchemaCompatibilityError('incomplete catalogue contract')
     if candidate != live:
         raise SchemaCompatibilityError('live catalogue drift')
+    if any(not isinstance(catalogue[kind], Mapping) for catalogue in (previous, candidate, live) for kind in _QUERIES):
+        raise SchemaCompatibilityError('invalid catalogue contract')
     for catalogue in (previous, candidate):
         tenant_role = catalogue['roles'].get('authenticated')
         if not isinstance(tenant_role, list) or len(tenant_role) != 7 or tenant_role[0] or tenant_role[6]:
@@ -115,14 +118,21 @@ def verify_additive_compatibility(*, previous: Mapping, candidate: Mapping, live
             raise SchemaCompatibilityError('previous schema contract changed')
     # An extra permissive policy or grant on an existing table can weaken the
     # previous contract even when every old definition still exists.
-    for kind in ('policies', 'table_acl', 'triggers'):
+    for kind in ('policies', 'table_acl', 'triggers', 'constraints'):
         for name in candidate[kind]:
             table = name.split('.', 1)[0]
             if table in previous['relations'] and name not in previous[kind]:
                 raise SchemaCompatibilityError('previous schema contract changed')
+    # Old code omits new columns on INSERT. A required value with no default
+    # breaks it, even after a successful backfill of the existing rows.
+    for name, column in candidate['columns'].items():
+        if name not in previous['columns'] and name.split('.', 1)[0] in previous['relations']:
+            if column[1] and column[2] is None and not column[3] and not column[4]:
+                raise SchemaCompatibilityError('previous schema contract changed')
+    for name, index in candidate['indices'].items():
+        if name not in previous['indices'] and index[1] in previous['relations'] and index[2]:
+            raise SchemaCompatibilityError('previous schema contract changed')
     for kind in _QUERIES:
-        if not isinstance(previous[kind], Mapping) or not isinstance(candidate[kind], Mapping):
-            raise SchemaCompatibilityError('invalid catalogue contract')
         for name, definition in previous[kind].items():
             if name not in candidate[kind] or candidate[kind][name] != definition:
                 # Definitions can contain expressions; expose a static code only.

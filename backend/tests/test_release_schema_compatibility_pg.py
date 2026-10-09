@@ -44,6 +44,11 @@ def test_additive_catalogue_supports_previous_version_but_rejects_drift(migrated
             'REVOKE SELECT ON public.pessoas FROM authenticated',
             "CREATE POLICY synthetic_unsafe_policy ON public.pessoas FOR SELECT TO authenticated USING (true)",
             'GRANT DELETE ON public.consolidation_whatsapp_activation TO authenticated',
+            'GRANT SELECT (nome) ON public.pessoas TO anon',
+            'ALTER TABLE public.igrejas ALTER COLUMN synthetic_release_revision SET NOT NULL',
+            'ALTER TABLE public.igrejas ADD CONSTRAINT synthetic_restrictive CHECK (synthetic_release_revision > 0)',
+            'CREATE UNIQUE INDEX synthetic_restrictive_index ON public.igrejas(nome)',
+            'ALTER TABLE public.igrejas OWNER TO service_role',
             'ALTER TABLE public.pessoas DROP COLUMN nome CASCADE',
             "CREATE OR REPLACE FUNCTION public.current_igreja_id() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT NULL::uuid$$",
         ):
@@ -69,4 +74,13 @@ def test_additive_catalogue_supports_previous_version_but_rejects_drift(migrated
         verify(_schema.capture_catalog(connection))
         assert set(connection.exec_driver_sql('SELECT synthetic_release_revision FROM public.igrejas').scalars()) == {1}
         connection.rollback()
-
+        # A default allows the old writer to omit the additive column. A normal
+        # non-unique index is also compatible; the legacy INSERT is exercised.
+        with connection.begin():
+            connection.exec_driver_sql('ALTER TABLE public.igrejas ADD COLUMN synthetic_default integer NOT NULL DEFAULT 0')
+            connection.exec_driver_sql('CREATE INDEX synthetic_non_unique_index ON public.igrejas(nome)')
+            connection.exec_driver_sql("INSERT INTO public.igrejas (nome) VALUES ('Escritor anterior sintético')")
+        compatible = _schema.capture_catalog(connection)
+        verify(compatible, expected=compatible)
+        assert connection.exec_driver_sql("SELECT synthetic_default FROM public.igrejas WHERE nome='Escritor anterior sintético'").scalar_one() == 0
+        connection.rollback()
