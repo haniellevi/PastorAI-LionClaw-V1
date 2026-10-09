@@ -285,7 +285,7 @@
       "fase": "F0S",
       "trilha": "principal",
       "sequencia": 4,
-      "estado": "pronta",
+      "estado": "em_andamento",
       "objetivo": "Hoje um alvo inexistente retorna 0 sem rodar testes. O script deve falhar de forma clara antes de executar qualquer ferramenta, mantendo todos, backend e frontend.",
       "criterio_aceite": [
         "Comando inválido sai com código diferente de zero e mensagem compreensível.",
@@ -296,14 +296,14 @@
       "integra_apos": [
         "T01"
       ],
-      "proxima_acao": "Abrir PR pequeno a partir da main. Pode ser implementado agora; só integra com os audits corrigidos (T01).",
+      "proxima_acao": "Implementar o teste de alvo desconhecido e a validação no script, numa worktree nova a partir de origin/main (d36ab813); abrir PR pequeno.",
       "responsavel": "Claude",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "em_andamento",
+          "nota": "Iniciada em worktree própria a partir de origin/main."
         },
         "validacao_local": {
           "status": "nao_iniciado",
