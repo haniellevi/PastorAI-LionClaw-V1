@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:25:15-03:00",
+ "gerado_em": "2026-10-09T13:26:58-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "1bf5b7c9"
+  "sha": "dcc99b47"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -122,7 +122,7 @@ window.PAINEL_DADOS = {
    ],
    "depende_de": [],
    "aguardando": "Integração na main: depende da autorização do proprietário. Esta execução não faz merge.",
-   "proxima_acao": "Proprietário autoriza e integra o #463. Em seguida, atualizar a base do #461 (T03).",
+   "proxima_acao": "Aguardando sua aprovação do merge do #463 (escopo na resposta da sessão). Depois: atualizar a base de #461, #464 e #462 e revalidar.",
    "responsavel": "proprietário (autorizar integração)",
    "pr": [
     463
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:11-03:00"
+     "consultado_em": "2026-10-09T13:26:54-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:11-03:00"
+     "consultado_em": "2026-10-09T13:26:54-03:00"
     }
    },
    "evidencias": [
@@ -181,6 +181,11 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "limite",
      "descricao": "npm audit com --omit=dev aprovado não significa zero vulnerabilidades no grafo completo: npm ci do candidato relata 11 (3 moderadas, 8 altas), contra 13 (3 moderadas, 10 altas) na base. A triagem das oito altas é a tarefa S4."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Preparo da integração, reconferido em 09/10: #463 aberto, não rascunho, MERGEABLE/CLEAN, head 9f61ba5e, base e main em d36ab813; 5 arquivos (backend/requirements.txt e .lock, frontend/package.json e package-lock.json, sprint), +176/−162; backend-tests, frontend-ci, e2e-critical, rls-integration, tooling-static e Vercel em SUCCESS. Efeitos do merge na main: reexecuta os 5 workflows de CI (push em main) e, pelo histórico do PRODUCTION-RUNBOOK, a Vercel publica Production do frontend automaticamente (muda sharp/source-map-js no build). O backend não é publicado: backend-deploy-manual.yml só roda por workflow_dispatch; requirements.lock só chega a PROD num release manual. reviewDecision vazio; proteção da branch não verificada."
     }
    ],
    "prs": [
@@ -189,8 +194,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:25:11-03:00",
-      "tentativa_em": "2026-10-09T13:25:11-03:00",
+      "consultado_em": "2026-10-09T13:26:54-03:00",
+      "tentativa_em": "2026-10-09T13:26:54-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -294,7 +299,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:09-03:00"
+     "consultado_em": "2026-10-09T13:26:52-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -308,7 +313,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:09-03:00"
+     "consultado_em": "2026-10-09T13:26:52-03:00"
     }
    },
    "evidencias": [
@@ -338,8 +343,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:25:09-03:00",
-      "tentativa_em": "2026-10-09T13:25:09-03:00",
+      "consultado_em": "2026-10-09T13:26:52-03:00",
+      "tentativa_em": "2026-10-09T13:26:52-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -464,8 +469,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:25:09-03:00",
-      "tentativa_em": "2026-10-09T13:25:09-03:00",
+      "consultado_em": "2026-10-09T13:26:52-03:00",
+      "tentativa_em": "2026-10-09T13:26:52-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -573,7 +578,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:12-03:00"
+     "consultado_em": "2026-10-09T13:26:55-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -587,7 +592,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:12-03:00"
+     "consultado_em": "2026-10-09T13:26:55-03:00"
     }
    },
    "evidencias": [
@@ -622,8 +627,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:25:12-03:00",
-      "tentativa_em": "2026-10-09T13:25:12-03:00",
+      "consultado_em": "2026-10-09T13:26:55-03:00",
+      "tentativa_em": "2026-10-09T13:26:55-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -709,7 +714,7 @@ window.PAINEL_DADOS = {
     "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
    ],
    "depende_de": [],
-   "proxima_acao": "Fatia 1 (em curso, local): validador de destino por sentido, com ipaddress e lista exata de nomes. Depois: estado do fake (exclusão), gates e descrição/sprint. Nada é enviado ao #462 sem sua autorização; a base só é atualizada depois do #463 integrado.",
+   "proxima_acao": "Fatia 2 (local): exclusão de instância deve ficar offline/ausente até recriação e endpoints (inclusive mídia) respeitarem a desconexão. Depois: gates por chamador e descrições. Atualizar a base do #462 só depois do #463 integrado; push no #462 só com autorização.",
    "responsavel": "Claude",
    "pr": [
     462
@@ -717,18 +722,18 @@ window.PAINEL_DADOS = {
    "pr_referencia": 462,
    "indicadores": {
     "implementacao": {
-     "status": "em_andamento",
-     "nota": "Worktree local t05-f2a, branch local/t05-f2a-correcoes sobre o head 08e89282 do #462. Sem push."
+     "status": "parcial",
+     "nota": "Fatia 1 (validador de destino) pronta no commit local 0ffcb754 da branch local/t05-f2a-correcoes (worktree t05-f2a), sobre o head 08e89282 do #462. Pendentes: estado do fake na exclusão/mídia, gates por chamador, corpo do PR/docstring/sprint/guia/checklist. Sem push."
     },
     "validacao_local": {
      "status": "parcial",
-     "nota": "Testes do candidato rodaram antes das correções; não valem para o aceite final."
+     "nota": "tests/test_whatsapp_simulado.py: 57 passed no commit local 0ffcb754. test_whatsapp_simulado_turno_pg.py (PostgreSQL) e a suíte completa não rodaram."
     },
     "integracao_main": {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:10-03:00"
+     "consultado_em": "2026-10-09T13:26:53-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -742,7 +747,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:25:10-03:00"
+     "consultado_em": "2026-10-09T13:26:53-03:00"
     }
    },
    "evidencias": [
@@ -768,6 +773,12 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "revisao",
      "descricao": "Dependência reclassificada: T01 não é necessária para desenvolver e testar as correções da F2a (código, testes e docs do #462 independem das versões de LangGraph/sharp). T01 só é exigida para integrar, porque os audits do CI reprovam sem ela. Por isso depende_de passou a [] e integra_apos a [T01], como na T04. T07 continua dependendo de T05 por necessidade técnica (usa o fake corrigido)."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Fatia 1 da F2a: is_internal_service_url substituída por is_simulated_destination(url, nomes) em backend/app/config.py, usada nos dois sentidos (backend→Evolution falsa: localhost, simulador-whatsapp; simulador→webhook: localhost, backend). IP literal exige ipaddress.is_loopback; outros nomes só por lista exata; recusa credenciais embutidas, porta inválida/0, 127.example.invalid, 0x7f000001, 2130706433, 167772161, IPv4 não loopback e o nome do outro sentido. 57 testes passaram em test_whatsapp_simulado.py (venv do checkout principal). Commit local 0ffcb754, não enviado.",
+     "sha": "0ffcb754"
     }
    ],
    "integra_apos": [
@@ -779,8 +790,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:25:10-03:00",
-      "tentativa_em": "2026-10-09T13:25:10-03:00",
+      "consultado_em": "2026-10-09T13:26:53-03:00",
+      "tentativa_em": "2026-10-09T13:26:53-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1853,16 +1864,24 @@ window.PAINEL_DADOS = {
    "titulo": "T05 iniciada; dependências T05/T06 reclassificadas",
    "descricao": "T05 passa a depender só de si; integra após T01. T06 depende de T05 por ordem do plano.",
    "tarefa": "T05"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "T05 fatia 1: validador de destino do simulador (local)",
+   "descricao": "Commit local 0ffcb754 com 57 testes verdes; não enviado ao #462.",
+   "tarefa": "T05",
+   "pr": 462,
+   "sha": "0ffcb754"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:25:09-03:00",
+  "tentativa_em": "2026-10-09T13:26:52-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:25:09-03:00",
-    "tentativa_em": "2026-10-09T13:25:09-03:00",
+    "consultado_em": "2026-10-09T13:26:52-03:00",
+    "tentativa_em": "2026-10-09T13:26:52-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1927,8 +1946,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:25:10-03:00",
-    "tentativa_em": "2026-10-09T13:25:10-03:00",
+    "consultado_em": "2026-10-09T13:26:53-03:00",
+    "tentativa_em": "2026-10-09T13:26:53-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -1993,8 +2012,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:25:11-03:00",
-    "tentativa_em": "2026-10-09T13:25:11-03:00",
+    "consultado_em": "2026-10-09T13:26:54-03:00",
+    "tentativa_em": "2026-10-09T13:26:54-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2059,8 +2078,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:25:12-03:00",
-    "tentativa_em": "2026-10-09T13:25:12-03:00",
+    "consultado_em": "2026-10-09T13:26:55-03:00",
+    "tentativa_em": "2026-10-09T13:26:55-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2126,8 +2145,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:25:13-03:00",
-   "tentativa_em": "2026-10-09T13:25:13-03:00",
+   "consultado_em": "2026-10-09T13:26:55-03:00",
+   "tentativa_em": "2026-10-09T13:26:55-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2139,8 +2158,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:25:14-03:00",
-    "tentativa_em": "2026-10-09T13:25:14-03:00",
+    "consultado_em": "2026-10-09T13:26:56-03:00",
+    "tentativa_em": "2026-10-09T13:26:56-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
