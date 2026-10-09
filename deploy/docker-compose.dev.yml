@@ -35,7 +35,8 @@ x-backend: &backend
     # defina DEV_WHATSAPP_TRANSPORTE=real no .env.dev.
     WHATSAPP_TRANSPORTE: ${DEV_WHATSAPP_TRANSPORTE:-simulado}
     EVOLUTION_SIMULADOR_URL: http://127.0.0.1:${DEV_SIMULADOR_PORT:-8090}
-    # Gates próprios fechados na configuração sintética (não dependem do .env.dev).
+    # No modo simulado o backend recusa ALLOW_REAL_SENDS=true. Os gates próprios
+    # abaixo ficam fechados na configuração sintética (não dependem do .env.dev).
     BREVO_SEND_MODE: ${DEV_BREVO_SEND_MODE:-off}
     ASAAS_BILLING_ENABLED: ${DEV_ASAAS_BILLING_ENABLED:-false}
   volumes:

@@ -129,9 +129,9 @@ o console.
 
 O `./dev.sh up` sobe um **simulador de WhatsApp** (Evolution falsa) em
 http://127.0.0.1:8090 (`DEV_SIMULADOR_PORT`). O backend fala só com ele
-(`WHATSAPP_TRANSPORTE=simulado`), mesmo com `ALLOW_REAL_SENDS=false`; LLM,
-agenda, cobrança e e-mail continuam desligados (o modo simulado exige
-`BREVO_SEND_MODE=off` e `ASAAS_BILLING_ENABLED=false`). Produção recusa esse
+(`WHATSAPP_TRANSPORTE=simulado`); LLM, agenda, cobrança e e-mail continuam
+desligados. O modo simulado **recusa iniciar** com `ALLOW_REAL_SENDS=true`,
+`BREVO_SEND_MODE` diferente de `off` ou `ASAAS_BILLING_ENABLED=true`. Produção recusa esse
 modo. Lembretes e avisos da fila de notificações não chegam ao simulador com o
 gate global fechado: a fila os cancela com `gate_fechado`.
 

@@ -20,8 +20,12 @@
 - Estado do fake: excluir a instância a deixa fora até recriar (antes a ausência
   voltava a significar `open`); `sendMedia` e a entrada simulada respeitam a
   desconexão. Foto de perfil e mídia base64 ficam fora do contrato do fake.
-- Gates próprios: o modo simulado exige `BREVO_SEND_MODE=off` e
-  `ASAAS_BILLING_ENABLED=false`; o compose dev fixa os dois fechados.
+- Gates: o modo simulado exige `ALLOW_REAL_SENDS=false`,
+  `BREVO_SEND_MODE=off` e `ASAAS_BILLING_ENABLED=false` (o backend recusa
+  iniciar de outra forma); o compose dev fixa Brevo e Asaas fechados. Decisão do
+  proprietário de 09/10: endurecer também o gate global. Se a F2b precisar abrir
+  um gate dentro do teste isolado para exercer o provedor falso, será uma
+  mudança explícita, com prova de contenção de destinos e de saída de rede.
 - Compose dev: serviço `simulador-whatsapp` e transporte simulado por padrão
   (`DEV_WHATSAPP_TRANSPORTE=real` volta à Evolution local).
 
@@ -34,8 +38,8 @@
   cancelar pendências com `gate_fechado`; esta fatia NÃO faz lembretes/avisos
   chegarem ao simulador. Isso exige uma fatia própria sob isolamento, sem abrir
   o gate geral como atalho.
-- O gate global `ALLOW_REAL_SENDS` não é endurecido pelo validador: o `dev.sh`
-  ainda prevê o gate aberto com o simulador (só avisa). Decisão pendente.
+- A outbox não muda: o dispatcher continua revalidando o gate global antes do
+  transporte e cancelando com `gate_fechado`.
 - Telefones sintéticos com DDD 00, aceitos pelo scanner de privacidade sem
   registro de revisão.
 

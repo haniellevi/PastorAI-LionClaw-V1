@@ -76,6 +76,17 @@ def test_producao_recusa_simulador() -> None:
         _settings(app_env="production")
 
 
+def test_simulado_exige_gate_global_fechado() -> None:
+    with pytest.raises(ValidationError, match="ALLOW_REAL_SENDS=false"):
+        _settings(allow_real_sends=True)
+
+
+def test_gate_global_aberto_so_e_recusado_no_modo_simulado() -> None:
+    # O endurecimento vale para o simulado; o transporte real não muda.
+    settings = Settings(whatsapp_transporte="real", allow_real_sends=True)
+    assert settings.external_sends_enabled is True
+
+
 @pytest.mark.parametrize("modo", ["canary", "live", "LIVE"])
 def test_simulado_exige_brevo_desligado(modo: str) -> None:
     with pytest.raises(ValidationError, match="BREVO_SEND_MODE=off"):

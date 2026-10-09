@@ -365,8 +365,12 @@ class Settings(BaseSettings):
         if transporte == "simulado":
             if self.is_production:
                 raise ValueError("WHATSAPP_TRANSPORTE=simulado é proibido em produção")
-            # Brevo e cobrança têm gates próprios, independentes de
-            # ALLOW_REAL_SENDS: a configuração sintética não pode abri-los.
+            # Configuração sintética: o gate global e os gates próprios de
+            # Brevo e cobrança (independentes de ALLOW_REAL_SENDS) ficam fechados.
+            if self.allow_real_sends:
+                raise ValueError(
+                    "WHATSAPP_TRANSPORTE=simulado exige ALLOW_REAL_SENDS=false"
+                )
             if self.brevo_send_mode.strip().lower() != "off":
                 raise ValueError(
                     "WHATSAPP_TRANSPORTE=simulado exige BREVO_SEND_MODE=off"

@@ -277,7 +277,11 @@ EOF
     aviso "login ainda desligado: preencha CLERK_* e DEV_SEED_EMAIL_* em $env_file e rode ./dev.sh seed"
   fi
   if [[ "$(env_valor ALLOW_REAL_SENDS)" == "true" ]]; then
-    aviso "ALLOW_REAL_SENDS=true: o WhatsApp local precisa ser o simulador ou o chip de teste"
+    if [[ "$(env_valor DEV_WHATSAPP_TRANSPORTE)" == "real" ]]; then
+      aviso "ALLOW_REAL_SENDS=true: o WhatsApp local precisa ser o chip de teste, nunca o número da Filadélfia"
+    else
+      aviso "ALLOW_REAL_SENDS=true com o WhatsApp simulado: o backend recusa iniciar. Feche o gate (false) ou use DEV_WHATSAPP_TRANSPORTE=real com o chip de teste"
+    fi
   fi
 }
 
