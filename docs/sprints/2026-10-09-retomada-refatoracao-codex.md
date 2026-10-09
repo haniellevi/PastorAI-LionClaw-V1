@@ -25,3 +25,9 @@ Critério corrigido para o contrato existente: indicar visitante próprio não e
 AgentReplyIntent, ReplyReadContext, consulta com fence e projeção legada em agent_reply_reader. Identidade/lock usam o mesmo algoritmo puro compartilhado em provider_identity. O turno privilegiado compõe sessão e usa leitura pública sem importar o worker para essa leitura. Áudio usa a projeção pública; worker mantém aliases internos de compatibilidade e todas as mutações existentes. Nenhum ciclo inteiro é declarado eliminado.
 
 398 testes focados, 27 testes PG (44,143 s, nenhum skip), 6431 testes backend sem RLS (53,00 s). Prova PG cobre ausência, chave histórica com sufixo, estado NULL, tenants positivos, recusa de contexto divergente e fence observado por outra transação. F2b repassou após extração. Baseline backend antes: 6431 passed; depois: 6431 passed. CI, merge e publicação permanecem pendentes.
+
+## S3: Next patch e ferramentas alinhadas
+
+Next 15.5.27 e eslint-config-next 15.5.27, sem salto de major. Alterações do lock limitadas aos 12 pacotes Next/ESLint/SWC correspondentes. Node 24.19.0: audit de produção limpo, lint, tsc, 1165 testes, build e smoke HTTP de headers aprovados. E2E e CI remoto pendentes.
+
+Fontes: [advisory SSG/ISR](https://github.com/advisories/GHSA-4jqv-mc3x-m676), [advisory cache](https://github.com/advisories/GHSA-mcj8-r9mp-w47p) e documentação Next via Context7, consultados em 09/10. Auditoria do grafo completo continua separada em S4.

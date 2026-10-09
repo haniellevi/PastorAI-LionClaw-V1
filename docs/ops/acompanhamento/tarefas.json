@@ -1093,7 +1093,7 @@
       "titulo": "Atualizar o Next.js (avisos moderados)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "pronta",
+      "estado": "em_validacao",
       "objetivo": "Corrigir os dois avisos moderados do Next 15.5.25, que ficam abaixo do limiar do audit, em patch próprio.",
       "criterio_aceite": [
         "Versão corretiva e compatibilidade verificadas no momento da execução; quatro checks aprovados.",
@@ -1102,18 +1102,18 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Depois de T01 integrado: conferir versão corretiva e abrir PR próprio.",
-      "responsavel": "Claude",
+      "proxima_acao": "Next 15.5.27 e eslint-config-next alinhados. CI/E2E pendentes; sem publicação.",
+      "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "Patch 15.5.25→15.5.27, eslint-config-next 15.5.22→15.5.27. Lock muda só Next e ferramentas correspondentes."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "Audit produção limpo, lint, tipos, 1165 testes, build e smoke de headers passaram em Node 24.19.0."
         },
         "integracao_main": {
           "status": "pendente",
@@ -1128,7 +1128,13 @@
           "nota": "Chega a PROD pelo frontend."
         }
       },
-      "evidencias": []
+      "evidencias": [
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Audit produção limpo, lint, tipos, 1165 testes, build e smoke de headers passaram em Node 24.19.0. Advisories oficiais: GHSA-4jqv-mc3x-m676 e GHSA-mcj8-r9mp-w47p; versões corrigidas verificadas no registro npm."
+        }
+      ]
     },
     {
       "id": "S4",
