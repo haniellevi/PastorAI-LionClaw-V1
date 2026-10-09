@@ -193,6 +193,10 @@ acontecia nela, e cada mudança era feita duas vezes (DEV e PROD). Agora:
         provados com PostgreSQL, fila em memória e sem policies.
       - [ ] 2b. Prova integrada: Redis real, policies reais, uma ação vertical e
         leitura pela API do painel (F2b do plano de refatoração).
+        Implementado e validado localmente em 09/10: Redis/82 migrations/RLS e API
+        reais, dois tenants, replay e rollback/retry. Checkbox aguarda CI/integração.
+        Validação pura de visitante (F1) e leitura da intenção (F5) também testadas
+        localmente; sem publicação ou ampliação do piloto.
 - [ ] **3. Chip de teste:** número próprio de teste conectado por QR à
       Evolution local. Nunca o número da Filadélfia.
 - [ ] **4. Release:** a Vercel deixa de publicar a cada merge e passa a

@@ -68,6 +68,17 @@ from app.agent.turn_identity import (
     AgentTurnIdentityError,
     build_agent_turn_identity,
 )
+from app.domain.provider_identity import (
+    agent_reply_key,
+    provider_message_lock_key as _provider_message_lock_key,
+)
+from app.services.agent_reply_reader import (
+    AgentReplyIntent as _AgentReplyIntent,
+    ReplyReadContext,
+    fenced_reply_message as _agent_reply_after_fence,
+    intent_from_message as _intent_from_message,
+    load_agent_reply_intent,
+)
 from app.config import get_settings
 from app.db.models import (
     AgentConfig,
@@ -773,12 +784,6 @@ def _is_provider_message_duplicate(exc: IntegrityError) -> bool:
     )
 
 
-def _provider_message_lock_key(igreja_id: Any, provider_message_id: str) -> int:
-    """Stable signed bigint used by Postgres transaction advisory locks."""
-    material = f"{igreja_id}:{provider_message_id}".encode("utf-8")
-    return int.from_bytes(sha256(material).digest()[:8], "big", signed=True)
-
-
 def _provider_message_exists_after_fence(
     db: Session,
     igreja_id: Any,
@@ -1009,25 +1014,7 @@ class _FailureMetadata:
 # ``ia_reservada`` is committed *before* the agent executes mutable tools;
 # ``ia_executando`` is deliberately quarantined after a crash because the
 # process may have crossed a non-transactional tool boundary already.
-_AGENT_REPLY_PROVIDER_PREFIX = "agent-reply:"
 _TIER_A_OPTOUT_SOURCE_PREFIX = "agent-reply:tier-a-optout-source:"
-
-
-@dataclass(frozen=True)
-class _AgentReplyIntent:
-    """Sanitized snapshot of one durable outbound agent intent.
-
-    ``ia_em_transporte`` is deliberately treated as unresolved by a later
-    recovery: the first process may have crossed the provider boundary before
-    crashing.  Only ``ia_pendente`` can start a new call automatically.
-    """
-
-    id: Any
-    state: str
-    response: str
-    provider_message_id: str
-    public_info_reply: bool | None
-    privileged_reply: bool = False
 
 
 @dataclass
@@ -2727,10 +2714,7 @@ def _agent_reply_idempotency_key(outcome: IngestionOutcome) -> str | None:
     if not outcome.provider_message_id or not outcome.claim_id:
         return None
     igreja_id = _require_agent_igreja_id(outcome)
-    material = (
-        f"{igreja_id}:{outcome.provider_message_id}:{outcome.claim_id}"
-    ).encode("utf-8")
-    return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}"
+    return agent_reply_key(igreja_id, outcome.provider_message_id, outcome.claim_id)
 
 
 def _tier_a_optout_source_idempotency_key(
@@ -2750,62 +2734,6 @@ def _agent_execution_lock_key(outcome: IngestionOutcome, provider_message_id: st
     return _provider_message_lock_key(
         outcome.igreja_id,
         f"agent-execution:{provider_message_id}",
-    )
-
-
-def _agent_reply_after_fence(
-    db: Session, igreja_id: Any, provider_message_id: str
-) -> Message | None:
-    """Fence one reply plan and return its existing durable row, if any.
-
-    The ``:<response-hash>`` suffix was part of the pre-single-flight key.
-    Read it only for recovery compatibility: all new plans use the exact,
-    stable claim-derived key above.
-    """
-
-    get_bind = getattr(db, "get_bind", None)
-    if get_bind is not None and get_bind().dialect.name == "postgresql":
-        db.execute(
-            select(
-                func.pg_advisory_xact_lock(
-                    _provider_message_lock_key(igreja_id, provider_message_id)
-                )
-            )
-        ).scalar_one_or_none()
-    return db.execute(
-        select(Message)
-        .where(
-            Message.igreja_id == igreja_id,
-            Message.direcao == "out",
-            or_(
-                Message.provider_message_id == provider_message_id,
-                Message.provider_message_id.like(f"{provider_message_id}:%"),
-            ),
-        )
-        .order_by(Message.criado_em.asc(), Message.id.asc())
-        .limit(1)
-    ).scalar_one_or_none()
-
-
-def _intent_from_message(message: Message) -> _AgentReplyIntent:
-    # Confirmed rows written before the dedicated state column have NULL here;
-    # their ``autor='ia'`` remains sufficient recovery evidence. Other states
-    # could never be persisted by the three-value production enum.
-    state = message.agent_reply_state
-    if state is None and message.autor == "ia":
-        state = _AGENT_REPLY_CONFIRMED
-    public_info_reply = getattr(message, "public_info_reply", None)
-    return _AgentReplyIntent(
-        id=message.id,
-        state=state or "",
-        response=message.texto or "",
-        provider_message_id=message.provider_message_id or "",
-        privileged_reply=type(getattr(message, "agent_privilege_context", None)) is dict,
-        public_info_reply=(
-            public_info_reply
-            if type(public_info_reply) is bool
-            else None
-        ),
     )
 
 
@@ -2874,12 +2802,9 @@ def _load_agent_reply_intent(
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
-        existing = _agent_reply_after_fence(
-            session,
-            outcome.igreja_id,
-            provider_message_id,
+        return load_agent_reply_intent(
+            session, ReplyReadContext(_require_agent_igreja_id(outcome), provider_message_id)
         )
-        return _intent_from_message(existing) if existing is not None else None
     finally:
         session.close()
 

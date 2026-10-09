@@ -174,7 +174,7 @@ def _turn(world, monkeypatch, *, request=False, outcome_text=None):
     monkeypatch.setattr(qw, '_scope_agent_execution_session', lambda *_a, **_k: None)
     monkeypatch.setattr(qw, '_agent_reply_idempotency_key', lambda _outcome: outbound.provider_message_id)
     monkeypatch.setattr(qw, '_reserve_agent_reply_intent', lambda *_a: outbound)
-    monkeypatch.setattr(qw, '_load_agent_reply_intent', lambda *_a:
+    monkeypatch.setattr(turn, '_read_reply', lambda *_a:
                         None if outbound.agent_reply_state == AGENT_REPLY_RESERVED
                         else SimpleNamespace(state=outbound.agent_reply_state))
     monkeypatch.setattr(semantic_triage, 'tier_a_enabled_from_environment', lambda _tenant: True)

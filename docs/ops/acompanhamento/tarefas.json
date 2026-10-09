@@ -861,7 +861,7 @@
       "fase": "F5",
       "trilha": "principal",
       "sequencia": 12,
-      "estado": "futura",
+      "estado": "em_validacao",
       "objetivo": "Mover _load_agent_reply_intent e a projeção _intent_from_message para um contrato pequeno fora do worker. Reserva, compare-and-set, entrega e callbacks ficam onde estão.",
       "criterio_aceite": [
         "Pelo menos um consumidor usa o contrato público de leitura.",
@@ -872,18 +872,18 @@
         "T07"
       ],
       "dep_nota": "No plano, F4 vem antes da extração maior; F5 pode ser preparada depois da baseline F2b e não exige operar PROD.",
-      "proxima_acao": "Depois de T07: levantar a baseline dos cenários de entrega que a extração pode afetar.",
-      "responsavel": "Claude",
+      "proxima_acao": "Candidato local validado; CI e integração pendentes. Preparar artefatos de F3/F4 sem provisionar.",
+      "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "Contrato público agent_reply_reader; composição no turno privilegiado e projeção compartilhada pelo áudio. Worker conserva mutações e aliases de compatibilidade."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "398 testes focados, 27 PG (incluindo chave histórica, NULL, tenants e fence), 6431 backend passed; 874 integrações deselected na suíte offline."
         },
         "integracao_main": {
           "status": "pendente",
@@ -898,7 +898,13 @@
           "nota": "Chega a PROD só em release."
         }
       },
-      "evidencias": []
+      "evidencias": [
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "398 testes focados, 27 PG (incluindo chave histórica, NULL, tenants e fence), 6431 backend passed; 874 integrações deselected na suíte offline. PG 44,143 s; backend 53,00 s. Sem mudança de schema, CAS, reserva, entrega, leases ou callbacks."
+        }
+      ]
     },
     {
       "id": "S1",
