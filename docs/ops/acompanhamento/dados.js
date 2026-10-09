@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:32:00-03:00",
+ "gerado_em": "2026-10-09T13:49:47-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "b0e37e4f"
+  "sha": "7aa00ae5"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:56-03:00"
+     "consultado_em": "2026-10-09T13:49:43-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:56-03:00"
+     "consultado_em": "2026-10-09T13:49:43-03:00"
     }
    },
    "evidencias": [
@@ -194,8 +194,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:31:56-03:00",
-      "tentativa_em": "2026-10-09T13:31:56-03:00",
+      "consultado_em": "2026-10-09T13:49:43-03:00",
+      "tentativa_em": "2026-10-09T13:49:43-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -299,7 +299,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:54-03:00"
+     "consultado_em": "2026-10-09T13:49:41-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -313,7 +313,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:54-03:00"
+     "consultado_em": "2026-10-09T13:49:41-03:00"
     }
    },
    "evidencias": [
@@ -343,8 +343,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:31:54-03:00",
-      "tentativa_em": "2026-10-09T13:31:54-03:00",
+      "consultado_em": "2026-10-09T13:49:41-03:00",
+      "tentativa_em": "2026-10-09T13:49:41-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -469,8 +469,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:31:54-03:00",
-      "tentativa_em": "2026-10-09T13:31:54-03:00",
+      "consultado_em": "2026-10-09T13:49:41-03:00",
+      "tentativa_em": "2026-10-09T13:49:41-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -578,7 +578,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:56-03:00"
+     "consultado_em": "2026-10-09T13:49:44-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -592,7 +592,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:56-03:00"
+     "consultado_em": "2026-10-09T13:49:44-03:00"
     }
    },
    "evidencias": [
@@ -627,8 +627,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:31:56-03:00",
-      "tentativa_em": "2026-10-09T13:31:56-03:00",
+      "consultado_em": "2026-10-09T13:49:44-03:00",
+      "tentativa_em": "2026-10-09T13:49:44-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -733,7 +733,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:55-03:00"
+     "consultado_em": "2026-10-09T13:49:42-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -747,7 +747,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:31:55-03:00"
+     "consultado_em": "2026-10-09T13:49:42-03:00"
     }
    },
    "evidencias": [
@@ -796,8 +796,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:31:55-03:00",
-      "tentativa_em": "2026-10-09T13:31:55-03:00",
+      "consultado_em": "2026-10-09T13:49:42-03:00",
+      "tentativa_em": "2026-10-09T13:49:42-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1289,7 +1289,7 @@ window.PAINEL_DADOS = {
     "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
    ],
    "depende_de": [],
-   "proxima_acao": "Proprietário informa o usuário SSH do host da API (ou executa os comandos de leitura com \"! ssh ...\"). Então: confirmar servidor, serviços e SHA implantado; ler readiness_probe_failed/error_type, erros SQL e heartbeat do cron-worker, sem alterar nada. Nenhuma correção em PROD sem aprovação prévia da causa e do impacto.",
+   "proxima_acao": "Proprietário autoriza a chave pública igreja12-ops-linux-20261004 (ou outra) no root da VPS nova, ou roda a leitura via \"! ssh\". Então, só leitura: SHA implantado, docker compose ps, readiness_probe_failed/error_type, host/porta/usuário (sem senha) da DATABASE_URL no container, heartbeat do cron-worker. Sem reinício, migration, troca de credencial ou deploy.",
    "responsavel": "proprietário (autorizar leitura em PROD)",
    "pr": [],
    "pr_referencia": null,
@@ -1312,7 +1312,7 @@ window.PAINEL_DADOS = {
     },
     "publicacao_prod": {
      "status": "desconhecido",
-     "nota": "Estado vivo do backend de PROD ainda não lido (sem SSH). Supabase lido pelo conector, somente leitura."
+     "nota": "Backend de PROD (VPS nova) ainda não lido: SSH negado. Supabase lido pelo conector, somente leitura."
     },
     "ci": {
      "status": "nao_aplicavel",
@@ -1367,9 +1367,24 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "revisao",
      "descricao": "Divergência documental: deploy/README.md indica a VPS srv1728329 (Campinas) como atual, mas api.igreja12.com.br resolve para outro IPv4. O servidor da API ainda não está identificado nominalmente; só srv1728329 foi vista no backup."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Correção de contexto informada pelo proprietário: há duas VPS e o ambiente foi transferido. NOVA e em uso: srv2031318.hstgr.cloud (SSH root). ANTIGA, origem da transferência: srv1728329.hstgr.cloud. Referências à antiga nos runbooks são anteriores à transferência. Confirmado por DNS: srv2031318 resolve para o mesmo IPv4 que api.igreja12.com.br. Logo, a divergência documental anterior está explicada e as 1.085 falhas de autenticação no pooler do Supabase partem da VPS NOVA (o host da API)."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Observação nos logs do Supavisor (mesma janela de 24 h): o pg_dump das 06:15Z autenticou a partir da VPS ANTIGA; nenhuma autenticação bem-sucedida partiu da VPS nova. A antiga ainda executa o backup noturno; não há evidência de backup bem-sucedido a partir da nova. Observação, não conclusão: o backup da nova pode não estar configurado ou estar falhando."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "limite",
+     "descricao": "ACESSO NÃO OBTIDO — SSH em root@srv2031318: as duas chaves do projeto (~/.ssh/pastorai_vps_tmp e ~/.ssh/igreja12-admin-20261004/chave) e o agente SSH recebem 'Permission denied (publickey)'; a host key conferiu com o known_hosts. Não foram tentados outros usuários nem a chave de outro projeto. Nada foi lido nem alterado na VPS."
     }
    ],
-   "aguardando": "Acesso SSH de leitura ao host que atende a API: falta o usuário SSH (há chaves locais e o host consta em known_hosts; nenhum alias ou usuário documentado). Sem isso não há como ler o erro do readiness, os logs do backend e o heartbeat do cron-worker.",
+   "aguardando": "Acesso SSH de leitura à VPS nova (srv2031318, usuário root): as chaves locais do projeto e o agente SSH foram recusados (Permission denied, publickey). Falta autorizar uma chave no root da VPS nova, ou o proprietário executar os comandos de leitura com \"! ssh ...\".",
    "prs": [],
    "dependencias_abertas": [],
    "executavel": false,
@@ -1900,16 +1915,22 @@ window.PAINEL_DADOS = {
    "titulo": "T08: opções de região, custo e executor do DEV preparadas",
    "descricao": "Recomendação e perguntas de decisão registradas; nada contratado.",
    "tarefa": "T08"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "S1: VPS nova identificada; SSH negado",
+   "descricao": "srv2031318 é o host da API (DNS). As falhas de autenticação do Supabase partem dela. Acesso SSH recusado às chaves locais; aguarda autorização de chave ou leitura via '!'.",
+   "tarefa": "S1"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:31:54-03:00",
+  "tentativa_em": "2026-10-09T13:49:41-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:31:54-03:00",
-    "tentativa_em": "2026-10-09T13:31:54-03:00",
+    "consultado_em": "2026-10-09T13:49:41-03:00",
+    "tentativa_em": "2026-10-09T13:49:41-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1974,8 +1995,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:31:55-03:00",
-    "tentativa_em": "2026-10-09T13:31:55-03:00",
+    "consultado_em": "2026-10-09T13:49:42-03:00",
+    "tentativa_em": "2026-10-09T13:49:42-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2040,8 +2061,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:31:56-03:00",
-    "tentativa_em": "2026-10-09T13:31:56-03:00",
+    "consultado_em": "2026-10-09T13:49:43-03:00",
+    "tentativa_em": "2026-10-09T13:49:43-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2106,8 +2127,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:31:56-03:00",
-    "tentativa_em": "2026-10-09T13:31:56-03:00",
+    "consultado_em": "2026-10-09T13:49:44-03:00",
+    "tentativa_em": "2026-10-09T13:49:44-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2173,8 +2194,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:31:57-03:00",
-   "tentativa_em": "2026-10-09T13:31:57-03:00",
+   "consultado_em": "2026-10-09T13:49:45-03:00",
+   "tentativa_em": "2026-10-09T13:49:45-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2186,8 +2207,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:31:58-03:00",
-    "tentativa_em": "2026-10-09T13:31:58-03:00",
+    "consultado_em": "2026-10-09T13:49:46-03:00",
+    "tentativa_em": "2026-10-09T13:49:46-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2289,7 +2310,7 @@ window.PAINEL_DADOS = {
    {
     "id": "S1",
     "titulo": "Triagem do monitor de produção (api-readiness)",
-    "motivo": "Acesso SSH de leitura ao host que atende a API: falta o usuário SSH (há chaves locais e o host consta em known_hosts; nenhum alias ou usuário documentado). Sem isso não há como ler o erro do readiness, os logs do backend e o heartbeat do cron-worker."
+    "motivo": "Acesso SSH de leitura à VPS nova (srv2031318, usuário root): as chaves locais do projeto e o agente SSH foram recusados (Permission denied, publickey). Falta autorizar uma chave no root da VPS nova, ou o proprietário executar os comandos de leitura com \"! ssh ...\"."
    }
   ],
   "contagem": {
