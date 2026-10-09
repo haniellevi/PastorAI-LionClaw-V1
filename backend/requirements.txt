@@ -14,7 +14,7 @@ redis>=5.0,<6.0
 tzdata>=2024.1
 
 # Agente Orquestrador / LLM BYO (US-08/US-27 — delta-034)
-langgraph>=1.0.10,<1.1
+langgraph>=1.2.3,<1.3
 # Security floor for LangGraph's transitive telemetry client.
 langsmith>=0.8.18,<0.9
 openai>=1.30,<2.0
