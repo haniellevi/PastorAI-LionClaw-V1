@@ -277,7 +277,7 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Aguardar os quatro checks no 992b886c. Atenção: qualquer commit novo enviado ao #461 muda o SHA e reinicia os checks; por isso os registros seguintes do acompanhamento ficam só locais até a decisão sobre o merge.",
+      "proxima_acao": "Push normal (sem force) autorizado pelo proprietário; depois exigir os quatro checks no SHA final. Sem merge: o proprietário vai revisar CLAUDE.md, AGENTS.md e .claude/agents/sarah.md antes.",
       "responsavel": "Claude",
       "pr": [
         461
@@ -318,9 +318,20 @@
           "descricao": "Push autorizado pelo proprietário e executado, normal e sem force: a242b751..992b886c em docs/passo0-regras-dev-online (17 commits enviados, remoto era ancestral do HEAD). Antes do push: diff conferido (20 arquivos contra a main, só documentação/painel/mod/.gitignore), varredura das linhas adicionadas e dos arquivos gerados sem segredos, IPs nem caminhos protegidos. Primeira leitura dos checks no novo SHA: tooling-static e Vercel Preview Comments com sucesso; backend-tests, e2e-critical, frontend-ci e rls-integration em andamento; Vercel pendente.",
           "sha": "992b886c",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461/checks"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "limite",
+          "descricao": "A main avançou com o #464 (710bd160) enquanto os checks do #461 rodavam em 992b886c, e o #461 passou a BEHIND. Na leitura: backend-tests, e2e-critical, frontend-ci e tooling-static com sucesso, rls-integration em andamento. Esse SHA não será o integrado: foi feito um segundo merge local da main (e o desversionamento de dados.js/github.json) e haverá um novo push; os quatro checks serão exigidos de novo no SHA final."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Ajuste pedido pelo proprietário: dados.js e github.json saem do versionamento (git rm --cached + .gitignore); tarefas.json segue versionado. Em checkout novo, ./acompanhar.sh offline gera o painel sem gh nem rede, com aviso explícito 'Sem leitura do GitHub neste checkout' no dados.js, no painel (Sem dados do GitHub) e no mod (sem dados do GitHub); CI/integração/publicação aparecem como desconhecidos. Testado em clone limpo com PATH sem gh: offline e online geram o painel, git status limpo. claude plugin validate passou e claude plugin test: 5 pass, 0 fail. README, plano, sprint e prompt do ./acompanhar.sh executar atualizados (removida a referência fixa à T04). Commits 503da4ca e seguinte.",
+          "sha": "503da4ca"
         }
       ],
-      "aguardando": "Checks do #461 no SHA 992b886c (backend-tests, frontend-ci, e2e-critical, rls-integration em andamento na primeira leitura). Depois, autorização do proprietário para o merge; nenhum merge nem deploy nesta etapa."
+      "aguardando": "Revisão do proprietário de CLAUDE.md, AGENTS.md e .claude/agents/sarah.md e autorização do merge, com os quatro checks no SHA final."
     },
     {
       "id": "T04",
@@ -339,7 +350,7 @@
       "integra_apos": [
         "T01"
       ],
-      "proxima_acao": "Proprietário autoriza o merge do #464 (PR pequeno, só test-local.sh, teste e sprint; sem efeito em PROD).",
+      "proxima_acao": "Aguardar o término dos CIs pós-merge na main (710bd160) e então concluir a T04.",
       "responsavel": "Claude",
       "pr": [
         464
@@ -355,8 +366,8 @@
           "nota": "Reprodução antes/depois e 2 testes locais; CI do PR verde sobre a main atual."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": ""
+          "status": "ok",
+          "nota": "PR #464 integrado por merge commit 710bd160 em 09/10 às 17:12Z, no head a2346c43, com autorização do proprietário."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -403,9 +414,22 @@
           "tipo": "ci",
           "descricao": "Estado reconferido: head do #464 = a2346c43 (branch atualizada com a main 5728ab08). backend-tests, e2e-critical, frontend-ci, rls-integration, tooling-static, Vercel e Vercel Preview Comments: todos concluídos com sucesso; mergeStateStatus CLEAN. Não há check restante pendente.",
           "sha": "a2346c43"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "pr",
+          "descricao": "Merge do #464 autorizado pelo proprietário e executado com gh pr merge --merge --match-head-commit a2346c43: merge commit 710bd160 às 17:12:38Z. Antes: head a2346c43, CLEAN, MERGEABLE, os cinco checks obrigatórios (Vercel, backend-tests, e2e-critical, frontend-ci, rls-integration) em SUCCESS. Sem deploy manual do backend.",
+          "sha": "710bd160",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "ci",
+          "descricao": "CI pós-merge na main (710bd160), leitura de 2026-10-09: Tooling Static Checks=completed/success; RLS Integration=in_progress/; E2E Critical=in_progress/; Frontend CI=completed/success; Backend Tests=completed/success. Deployment Vercel Production 6966642173 (17:13:19Z) com status success: automatismo da Vercel disparado pelo merge; o #464 só altera test-local.sh, um teste e uma sprint, então não há mudança de frontend a validar. Backend: nenhuma publicação.",
+          "sha": "710bd160"
         }
       ],
-      "aguardando": "Autorização do proprietário para o merge do #464. Esta execução não faz merge sem ela."
+      "aguardando": "CIs pós-merge na main (710bd160) ainda em andamento na leitura."
     },
     {
       "id": "T05",
@@ -1423,6 +1447,14 @@
       "tarefa": "T03",
       "pr": 461,
       "sha": "992b886c"
+    },
+    {
+      "data": "2026-10-09",
+      "titulo": "#464 integrado na main (710bd160); acompanhamento deixa de versionar dados.js/github.json",
+      "descricao": "T04 integrada. #461 recebeu novo merge da main e o desversionamento dos arquivos gerados.",
+      "tarefa": "T04",
+      "pr": 464,
+      "sha": "710bd160"
     }
   ]
 }
