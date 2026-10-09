@@ -553,14 +553,14 @@
         "Reuso do DEV histórico só depois de verificar identidade, ausência de dados reais e isolamento."
       ],
       "depende_de": [],
-      "proxima_acao": "Proprietário decide região, teto e executor. Não bloqueia as entregas locais anteriores.",
+      "proxima_acao": "Proprietário decide: região do DEV (sa-east-1 ou us-west-2), teto de custo, executor (GitHub Actions + GHCR + SSH, recomendado, ou nativo) e se o Supabase/Clerk de DEV históricos podem ser verificados para reuso. Nenhum recurso foi criado ou contratado; criar é missão separada.",
       "responsavel": "proprietário",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_aplicavel",
-          "nota": "Decisão."
+          "status": "parcial",
+          "nota": "Opções e recomendação preparadas (decisão pendente). Sem recursos criados."
         },
         "validacao_local": {
           "status": "nao_aplicavel",
@@ -579,7 +579,23 @@
           "nota": "Decisão."
         }
       },
-      "evidencias": []
+      "evidencias": [
+        {
+          "data": "2026-10-09",
+          "tipo": "revisao",
+          "descricao": "Opções preparadas por subagente de pesquisa (somente leitura; preços de páginas oficiais consultadas em 09/10 e NÃO reverificados por mim; câmbio R$ 5,50 é premissa dele). Recomendação: Supabase novo em sa-east-1 (Free, conta separada) + Hostinger KVM 1 dedicada no Brasil (~US$ 5,5–11/mês) + projeto Vercel de DEV + instância Clerk de dev nova + GitHub Actions com imagem por SHA no GHCR e SSH com flock para reserva/serialização. Custo estimado ~US$ 6–11/mês (premissas dele); teto sugerido US$ 40, alerta em US$ 15. Neon descartado para o DEV por perder paridade (o app usa Supabase Storage). Railway e Render descartados (sem região na América do Sul). Fly.io gru ~US$ 43+ por quatro máquinas, sem preço de Redis confirmado."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "revisao",
+          "descricao": "Não comprovado: RTT real da VPS até sa-east-1 e qualquer ganho em segundos (o repo só tem simulação local de ~185 ms até us-west-2 e 114–130 idas ao banco por mensagem); RAM necessária no DEV; plano atual de Vercel e de Supabase PROD (o BACKUP-FIREWALL-RUNBOOK indica Free); região e plano do Supabase DEV histórico. Região do DEV em sa-east-1 não reproduz a latência de PROD: passar no DEV não prova velocidade em PROD."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Verificado por mim com gh: o repositório haniellevi/PastorAI-LionClaw-V1 é PÚBLICO. Isso resolve a lacuna do subagente sobre franquia de minutos do Actions e cota do GHCR (a preocupação com 72% da franquia pelo production-monitor só valeria para repositório privado Free)."
+        }
+      ]
     },
     {
       "id": "T09",
@@ -1282,6 +1298,12 @@
       "tarefa": "T05",
       "pr": 462,
       "sha": "0ffcb754"
+    },
+    {
+      "data": "2026-10-09",
+      "titulo": "T08: opções de região, custo e executor do DEV preparadas",
+      "descricao": "Recomendação e perguntas de decisão registradas; nada contratado.",
+      "tarefa": "T08"
     }
   ]
 }

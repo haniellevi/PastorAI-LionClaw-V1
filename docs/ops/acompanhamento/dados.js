@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:28:18-03:00",
+ "gerado_em": "2026-10-09T13:32:00-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "f08948be"
+  "sha": "b0e37e4f"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:14-03:00"
+     "consultado_em": "2026-10-09T13:31:56-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:14-03:00"
+     "consultado_em": "2026-10-09T13:31:56-03:00"
     }
    },
    "evidencias": [
@@ -194,8 +194,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:28:14-03:00",
-      "tentativa_em": "2026-10-09T13:28:14-03:00",
+      "consultado_em": "2026-10-09T13:31:56-03:00",
+      "tentativa_em": "2026-10-09T13:31:56-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -299,7 +299,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:12-03:00"
+     "consultado_em": "2026-10-09T13:31:54-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -313,7 +313,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:12-03:00"
+     "consultado_em": "2026-10-09T13:31:54-03:00"
     }
    },
    "evidencias": [
@@ -343,8 +343,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:28:12-03:00",
-      "tentativa_em": "2026-10-09T13:28:12-03:00",
+      "consultado_em": "2026-10-09T13:31:54-03:00",
+      "tentativa_em": "2026-10-09T13:31:54-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -469,8 +469,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:28:12-03:00",
-      "tentativa_em": "2026-10-09T13:28:12-03:00",
+      "consultado_em": "2026-10-09T13:31:54-03:00",
+      "tentativa_em": "2026-10-09T13:31:54-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -578,7 +578,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:15-03:00"
+     "consultado_em": "2026-10-09T13:31:56-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -592,7 +592,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:15-03:00"
+     "consultado_em": "2026-10-09T13:31:56-03:00"
     }
    },
    "evidencias": [
@@ -627,8 +627,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:28:15-03:00",
-      "tentativa_em": "2026-10-09T13:28:15-03:00",
+      "consultado_em": "2026-10-09T13:31:56-03:00",
+      "tentativa_em": "2026-10-09T13:31:56-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -733,7 +733,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:13-03:00"
+     "consultado_em": "2026-10-09T13:31:55-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -747,7 +747,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:28:13-03:00"
+     "consultado_em": "2026-10-09T13:31:55-03:00"
     }
    },
    "evidencias": [
@@ -796,8 +796,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:28:13-03:00",
-      "tentativa_em": "2026-10-09T13:28:13-03:00",
+      "consultado_em": "2026-10-09T13:31:55-03:00",
+      "tentativa_em": "2026-10-09T13:31:55-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1001,14 +1001,14 @@ window.PAINEL_DADOS = {
     "Reuso do DEV histórico só depois de verificar identidade, ausência de dados reais e isolamento."
    ],
    "depende_de": [],
-   "proxima_acao": "Proprietário decide região, teto e executor. Não bloqueia as entregas locais anteriores.",
+   "proxima_acao": "Proprietário decide: região do DEV (sa-east-1 ou us-west-2), teto de custo, executor (GitHub Actions + GHCR + SSH, recomendado, ou nativo) e se o Supabase/Clerk de DEV históricos podem ser verificados para reuso. Nenhum recurso foi criado ou contratado; criar é missão separada.",
    "responsavel": "proprietário",
    "pr": [],
    "pr_referencia": null,
    "indicadores": {
     "implementacao": {
-     "status": "nao_aplicavel",
-     "nota": "Decisão."
+     "status": "parcial",
+     "nota": "Opções e recomendação preparadas (decisão pendente). Sem recursos criados."
     },
     "validacao_local": {
      "status": "nao_aplicavel",
@@ -1031,7 +1031,23 @@ window.PAINEL_DADOS = {
      "nota": "Sem integração na main, sem CI."
     }
    },
-   "evidencias": [],
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Opções preparadas por subagente de pesquisa (somente leitura; preços de páginas oficiais consultadas em 09/10 e NÃO reverificados por mim; câmbio R$ 5,50 é premissa dele). Recomendação: Supabase novo em sa-east-1 (Free, conta separada) + Hostinger KVM 1 dedicada no Brasil (~US$ 5,5–11/mês) + projeto Vercel de DEV + instância Clerk de dev nova + GitHub Actions com imagem por SHA no GHCR e SSH com flock para reserva/serialização. Custo estimado ~US$ 6–11/mês (premissas dele); teto sugerido US$ 40, alerta em US$ 15. Neon descartado para o DEV por perder paridade (o app usa Supabase Storage). Railway e Render descartados (sem região na América do Sul). Fly.io gru ~US$ 43+ por quatro máquinas, sem preço de Redis confirmado."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Não comprovado: RTT real da VPS até sa-east-1 e qualquer ganho em segundos (o repo só tem simulação local de ~185 ms até us-west-2 e 114–130 idas ao banco por mensagem); RAM necessária no DEV; plano atual de Vercel e de Supabase PROD (o BACKUP-FIREWALL-RUNBOOK indica Free); região e plano do Supabase DEV histórico. Região do DEV em sa-east-1 não reproduz a latência de PROD: passar no DEV não prova velocidade em PROD."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Verificado por mim com gh: o repositório haniellevi/PastorAI-LionClaw-V1 é PÚBLICO. Isso resolve a lacuna do subagente sobre franquia de minutos do Actions e cota do GHCR (a preocupação com 72% da franquia pelo production-monitor só valeria para repositório privado Free)."
+    }
+   ],
    "prs": [],
    "dependencias_abertas": [],
    "executavel": true,
@@ -1878,16 +1894,22 @@ window.PAINEL_DADOS = {
    "tarefa": "T05",
    "pr": 462,
    "sha": "0ffcb754"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "T08: opções de região, custo e executor do DEV preparadas",
+   "descricao": "Recomendação e perguntas de decisão registradas; nada contratado.",
+   "tarefa": "T08"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:28:12-03:00",
+  "tentativa_em": "2026-10-09T13:31:54-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:28:12-03:00",
-    "tentativa_em": "2026-10-09T13:28:12-03:00",
+    "consultado_em": "2026-10-09T13:31:54-03:00",
+    "tentativa_em": "2026-10-09T13:31:54-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1952,8 +1974,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:28:13-03:00",
-    "tentativa_em": "2026-10-09T13:28:13-03:00",
+    "consultado_em": "2026-10-09T13:31:55-03:00",
+    "tentativa_em": "2026-10-09T13:31:55-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2018,8 +2040,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:28:14-03:00",
-    "tentativa_em": "2026-10-09T13:28:14-03:00",
+    "consultado_em": "2026-10-09T13:31:56-03:00",
+    "tentativa_em": "2026-10-09T13:31:56-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2084,8 +2106,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:28:15-03:00",
-    "tentativa_em": "2026-10-09T13:28:15-03:00",
+    "consultado_em": "2026-10-09T13:31:56-03:00",
+    "tentativa_em": "2026-10-09T13:31:56-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2151,8 +2173,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:28:15-03:00",
-   "tentativa_em": "2026-10-09T13:28:15-03:00",
+   "consultado_em": "2026-10-09T13:31:57-03:00",
+   "tentativa_em": "2026-10-09T13:31:57-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2164,8 +2186,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:28:16-03:00",
-    "tentativa_em": "2026-10-09T13:28:16-03:00",
+    "consultado_em": "2026-10-09T13:31:58-03:00",
+    "tentativa_em": "2026-10-09T13:31:58-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
