@@ -19,6 +19,7 @@ O painel também existe como **mod do Claude Code** (`docs/ops/acompanhamento/mo
 
 ```bash
 ./acompanhar.sh mod        # abre o Claude Code com o mod carregado (claude --plugin-dir ...)
+./acompanhar.sh executar   # idem, e já manda a sessão continuar o plano, atualizando o registro
 ```
 
 No Claude Code, digite:
