@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import multiprocessing as mp
+import signal
 from pathlib import Path
 
 import pytest
@@ -119,10 +120,17 @@ def test_invalid_package_never_runs_executor(tmp_path, change):
     assert not called and not (tmp_path/'state.json').exists()
 
 
+def _interrupted_deploy(path, entered):
+    def execute(_p):
+        entered.set()
+        signal.pause()  # disposable child awaits the test's explicit signal
+    Coordinator(path).transition(package(), operation='deploy', execute=execute)
+
+
 def test_interrupted_executor_cannot_leave_false_acceptance_state(tmp_path):
     context = mp.get_context('fork')
-    entered, release = context.Event(), context.Event()
-    worker = context.Process(target=_slow_deploy, args=(tmp_path, entered, release))
+    entered = context.Event()
+    worker = context.Process(target=_interrupted_deploy, args=(tmp_path, entered))
     worker.start()
     try:
         assert entered.wait(8)
@@ -135,7 +143,6 @@ def test_interrupted_executor_cannot_leave_false_acceptance_state(tmp_path):
         Coordinator(tmp_path).record_recovery(package(), verify=lambda _p: True)
         assert Coordinator(tmp_path).reserve(owner='after-recovery')
     finally:
-        release.set()
         if worker.is_alive():
             worker.terminate()
         worker.join(8)
