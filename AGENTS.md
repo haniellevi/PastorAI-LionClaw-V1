@@ -134,13 +134,14 @@ sem ler seu conteúdo.
   `backend/migrations/README.md`. Não use `apply_migrations.py` nem os
   wrappers catalog-bound (pausados).
 - Ambientes (decisão de 08/10): edição e testes rápidos no computador;
-  validação integrada e aceite no **DEV online**, separado de PROD, com dados
-  fictícios, credenciais próprias e integrações simuladas por padrão. O DEV
-  recebe só a `main` verde, automaticamente; PROD recebe um SHA validado no DEV
-  por uma ação explícita de release. Até o DEV online existir, a stack local
+  validação integrada e aceite no **DEV online** (planejado, ainda não existe),
+  separado de PROD, com dados fictícios, credenciais próprias e integrações
+  simuladas por padrão. O alvo é o DEV receber só a `main` verde,
+  automaticamente, e PROD receber um SHA validado no DEV por uma ação explícita
+  de release. Até o DEV online existir, a stack local
   (`./dev.sh up`, `docs/ops/AMBIENTE-LOCAL.md`) é opcional, não requisito.
   Nunca copie dados ou segredos de PROD para DEV/local nem conecte o número da
-  Filadélfia neles. Plano: `docs/ops/refatoracao-modular-plano.md`.
+  Filadélfia neles. Plano único: `docs/ops/refatoracao-modular-plano.md`.
 - Revisão independente só para migration em PROD e mudanças de
   RLS/autenticação.
 - Não implemente UV ou CD a partir de placeholders antes da Fase 5.
@@ -155,3 +156,12 @@ Ao fechar uma fatia:
 2. registre a fatia em `docs/sprints/AAAA-MM-DD-titulo.md`;
 3. atualize `docs/ai/PRD-COVERAGE.md` só se a classificação de um domínio
    mudar.
+
+## Acompanhamento do plano
+
+O plano técnico é `docs/ops/refatoracao-modular-plano.md`. Ao iniciar, concluir
+ou bloquear uma tarefa dele, atualize o estado, as evidências e a próxima ação
+em `docs/ops/acompanhamento/tarefas.json` e rode `./acompanhar.sh`, que valida o
+registro e regenera o painel (`docs/ops/acompanhamento/painel.html`). Não
+registre prazo, percentual de esforço, teste executado ou publicação sem
+evidência. Procedimento: `docs/ops/acompanhamento/README.md`.

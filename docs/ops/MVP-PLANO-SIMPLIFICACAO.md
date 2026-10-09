@@ -199,14 +199,16 @@ O DEV na nuvem foi recriado em 27/09 como espelho do schema de PROD (PR #431)
 e ficou parado. Não recebe mais migrations nem testes.
 
 **Atualização de 08/10 (substitui a tabela acima no caminho ativo):** a
-migração Supabase→Neon foi cancelada, e o ambiente integrado passa a ser um
-**DEV online** separado de PROD: servidor, banco, Storage, Redis, filas e
-credenciais próprios, dados fictícios e integrações simuladas por padrão
-(WhatsApp por simulador). O DEV é publicado automaticamente a partir da `main`
-verde; PROD recebe, por uma ação explícita, o mesmo SHA validado no DEV. A
-stack local continua disponível, mas não é requisito. O DEV parado de 27/09 só
-é reaproveitado depois de verificar identidade, isolamento e capacidade.
-Desenho, diagnóstico e fatias: [plano de refatoração modular](refatoracao-modular-plano.md).
+migração Supabase→Neon foi cancelada. O ambiente integrado **planejado** é um
+**DEV online** separado de PROD (ainda não existe; região, custo e executor
+pendentes): servidor, banco, Storage, Redis, filas e credenciais próprios, dados
+fictícios e integrações simuladas por padrão (WhatsApp por simulador). O alvo é
+publicá-lo automaticamente a partir da `main` verde, com PROD recebendo, por uma
+ação explícita, a revisão validada no DEV. Até lá, valem a stack local
+(opcional) e o fluxo atual. O DEV parado de 27/09 só é reaproveitado depois de
+verificar identidade, isolamento e capacidade. Ordem, critérios e limites:
+[plano único de refatoração](refatoracao-modular-plano.md); andamento em
+[acompanhamento](acompanhamento/README.md).
 
 ---
 
@@ -628,9 +630,9 @@ UV e Capacitação, e Enviar editável.
 6. Maestri pausado até a Fase 3; trabalho direto, um agente por fatia.
 7. (27/09) Desenvolvimento e testes no ambiente local; PROD só por release
    (§3.5). A frente do DEV na nuvem foi encerrada e o DEV ficou parado.
-8. (08/10) Migração Neon cancelada. Desenvolvimento integrado em DEV online,
-   separado de PROD, com publicação automática no DEV e ação explícita para
-   PROD (§3.5, atualização de 08/10).
+8. (08/10) Migração Neon cancelada. Decisão: desenvolvimento integrado em um
+   DEV online planejado, separado de PROD, com publicação automática no DEV e
+   ação explícita para PROD. Ainda não existe (§3.5, atualização de 08/10).
 
 ## 6. Lista de bugs e lacunas (viva)
 

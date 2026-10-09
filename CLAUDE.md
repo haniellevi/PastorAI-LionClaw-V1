@@ -20,3 +20,5 @@ orientações específicas do Claude Code, sem repetir o plano do produto.
   e atualize o checklist pertinente do plano operacional.
 
 Plano de refatoração e ambientes: docs/ops/refatoracao-modular-plano.md.
+Acompanhamento visual: `./acompanhar.sh` (procedimento em AGENTS.md e
+docs/ops/acompanhamento/README.md).

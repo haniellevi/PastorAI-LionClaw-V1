@@ -1,0 +1,2032 @@
+window.PAINEL_DADOS = {
+ "gerado_em": "2026-10-09T12:20:54-03:00",
+ "git": {
+  "branch": "docs/passo0-regras-dev-online",
+  "sha": "bed02fab"
+ },
+ "repositorio": "haniellevi/PastorAI-LionClaw-V1",
+ "plano": "docs/ops/refatoracao-modular-plano.md",
+ "checks_obrigatorios": [
+  "backend-tests",
+  "frontend-ci",
+  "e2e-critical",
+  "rls-integration"
+ ],
+ "estados": {
+  "futura": "Futura",
+  "pronta": "Pronta",
+  "em_andamento": "Em andamento",
+  "em_validacao": "Em validação",
+  "bloqueada": "Bloqueada",
+  "concluida": "Concluída"
+ },
+ "indicadores": [
+  "implementacao",
+  "validacao_local",
+  "ci",
+  "integracao_main",
+  "publicacao_dev",
+  "publicacao_prod"
+ ],
+ "fases": [
+  {
+   "id": "PREP",
+   "nome": "Preparação: dependências",
+   "trilha": "principal",
+   "ordem": 1,
+   "secao": "Preparação inicial"
+  },
+  {
+   "id": "F0D",
+   "nome": "F0 · Documentação (#461)",
+   "trilha": "principal",
+   "ordem": 2,
+   "secao": "F0"
+  },
+  {
+   "id": "F0S",
+   "nome": "F0 · Script test-local.sh",
+   "trilha": "principal",
+   "ordem": 3,
+   "secao": "F0"
+  },
+  {
+   "id": "F2A",
+   "nome": "F2a · Transporte simulado (#462)",
+   "trilha": "principal",
+   "ordem": 4,
+   "secao": "F2a"
+  },
+  {
+   "id": "F1",
+   "nome": "F1 · Validação do visitante",
+   "trilha": "principal",
+   "ordem": 5,
+   "secao": "F1"
+  },
+  {
+   "id": "F2B",
+   "nome": "F2b · Prova integrada",
+   "trilha": "principal",
+   "ordem": 6,
+   "secao": "F2b"
+  },
+  {
+   "id": "F3",
+   "nome": "F3 · DEV online",
+   "trilha": "principal",
+   "ordem": 7,
+   "secao": "F3"
+  },
+  {
+   "id": "F4",
+   "nome": "F4 · Promoção e release",
+   "trilha": "principal",
+   "ordem": 8,
+   "secao": "F4"
+  },
+  {
+   "id": "F5",
+   "nome": "F5 · Extração da resposta",
+   "trilha": "principal",
+   "ordem": 9,
+   "secao": "F5"
+  },
+  {
+   "id": "PAR",
+   "nome": "Trilhas paralelas",
+   "trilha": "paralela",
+   "ordem": 10,
+   "secao": "Seções 2 e 7"
+  },
+  {
+   "id": "BKL",
+   "nome": "Backlog condicionado",
+   "trilha": "backlog",
+   "ordem": 11,
+   "secao": "Seção 6"
+  }
+ ],
+ "tarefas": [
+  {
+   "id": "T01",
+   "titulo": "Corrigir as dependências herdadas da main (PR #463)",
+   "fase": "PREP",
+   "trilha": "principal",
+   "sequencia": 1,
+   "estado": "em_validacao",
+   "objetivo": "Fazer os audits de backend e frontend voltarem a passar, atualizando só o necessário: LangGraph 1.2.14 (prebuilt 1.1.0, SDK 0.4.6), sharp 0.35.5 e source-map-js 1.2.2.",
+   "criterio_aceite": [
+    "Audits e quatro checks aprovados no candidato, sem desativar verificações nem atribuir PASS a suites que não rodaram.",
+    "Depois de integrar, #461 e #462 recebem a nova base e são revalidados."
+   ],
+   "depende_de": [],
+   "aguardando": "Integração na main: depende da autorização do proprietário. Esta execução não faz merge.",
+   "proxima_acao": "Proprietário autoriza e integra o #463. Em seguida, atualizar a base do #461 (T03).",
+   "responsavel": "proprietário (autorizar integração)",
+   "pr": [
+    463
+   ],
+   "pr_referencia": 463,
+   "indicadores": {
+    "implementacao": {
+     "status": "ok",
+     "nota": "Commit 9f61ba5e no PR #463."
+    },
+    "validacao_local": {
+     "status": "ok",
+     "nota": "pip-audit limpo nos dois locks; pytest -m \"not rls_integration\" verde; npm audit --omit=dev, lint, tsc, 1.165 testes, next build e smoke de headers verdes. Imagem Docker e rls_integration não foram reproduzidos localmente."
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": "PR aberto, não integrado.",
+     "origem": "github",
+     "consultado_em": "2026-10-09T12:20:50-03:00"
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "O DEV online ainda não existe."
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": "Sem evidência de publicação. Dependências chegam a PROD só em release."
+    },
+    "ci": {
+     "status": "ok",
+     "nota": "4 de 4 checks obrigatórios aprovados.",
+     "origem": "github",
+     "consultado_em": "2026-10-09T12:20:50-03:00"
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "pr",
+     "descricao": "PR #463 aberto sobre a base d36ab813.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
+     "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "Checks do PR: backend-tests, frontend-ci, e2e-critical, rls-integration e tooling-static aprovados (leitura do GitHub).",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463/checks"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Verificação local registrada na descrição do PR e na sprint docs/sprints/2026-10-09-dependencias-audit.md (branch do #463)."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "limite",
+     "descricao": "npm audit com --omit=dev aprovado não significa zero vulnerabilidades no grafo completo: npm ci do candidato relata 11 (3 moderadas, 8 altas), contra 13 (3 moderadas, 10 altas) na base. A triagem das oito altas é a tarefa S4."
+    }
+   ],
+   "prs": [
+    {
+     "numero": 463,
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
+     "github": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:50-03:00",
+      "tentativa_em": "2026-10-09T12:20:50-03:00",
+      "erro": null,
+      "dados": {
+       "numero": 463,
+       "titulo": "fix: atualizar dependências reprovadas pelos audits",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
+       "estado": "OPEN",
+       "rascunho": false,
+       "criado_em": "2026-10-09T14:32:46Z",
+       "atualizado_em": "2026-10-09T14:33:30Z",
+       "integrado_em": null,
+       "branch": "fix/deps-audit-20261009",
+       "base": "main",
+       "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3",
+       "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "mergeavel": "MERGEABLE",
+       "revisao": "",
+       "checks": [
+        {
+         "nome": "backend-tests",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984761/job/113868823091"
+        },
+        {
+         "nome": "e2e-critical",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984708/job/113868824514"
+        },
+        {
+         "nome": "frontend-ci",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984799/job/113868824569"
+        },
+        {
+         "nome": "rls-integration",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984710/job/113868822541"
+        },
+        {
+         "nome": "tooling-static",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984775/job/113868823007"
+        },
+        {
+         "nome": "Vercel",
+         "status": "SUCCESS",
+         "conclusao": null,
+         "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/hQFPqJ62qCnqHzWEqn1L3wBZLQtA"
+        },
+        {
+         "nome": "Vercel Preview Comments",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://vercel.com/github"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Validado — aguardando integração",
+   "estado_rotulo": "Em validação"
+  },
+  {
+   "id": "T02",
+   "titulo": "Plano consolidado e painel de acompanhamento (PR #461)",
+   "fase": "F0D",
+   "trilha": "principal",
+   "sequencia": 2,
+   "estado": "em_validacao",
+   "objetivo": "Substituir o plano versionado do #461 pelo plano consolidado, alinhar AGENTS, CLAUDE, MVP e sprint, e criar o painel de acompanhamento.",
+   "criterio_aceite": [
+    "docs/ops/refatoracao-modular-plano.md contém o plano consolidado, com links portáveis e DEV descrito como planejado.",
+    "AGENTS.md traz o procedimento curto de atualização; CLAUDE.md, MVP e sprint do Passo 0 coerentes.",
+    "Painel abre a partir dos arquivos entregues e é regenerado por ./acompanhar.sh."
+   ],
+   "depende_de": [],
+   "aguardando": "CI do PR: backend-tests e frontend-ci reprovam por audits herdados da main até a base ser atualizada (T03).",
+   "proxima_acao": "Revisar o diff do #461. A reprovação por audits desaparece quando T01 for integrado e a base atualizada (T03).",
+   "responsavel": "Claude (entrega) · proprietário (revisão)",
+   "pr": [
+    461
+   ],
+   "pr_referencia": 461,
+   "indicadores": {
+    "implementacao": {
+     "status": "ok",
+     "nota": "Plano, painel, comando e instruções no branch do #461."
+    },
+    "validacao_local": {
+     "status": "ok",
+     "nota": "Verificações do gerador (python3 docs/ops/acompanhamento/atualizar.py --verificar) e conferência visual no navegador em desktop e celular. Sem suites de produto: a mudança é só documentação e ferramenta de acompanhamento."
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": "PR aberto, não integrado.",
+     "origem": "github",
+     "consultado_em": "2026-10-09T12:20:49-03:00"
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "Documentação."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Documentação."
+    },
+    "ci": {
+     "status": "falhou",
+     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
+     "origem": "github",
+     "consultado_em": "2026-10-09T12:20:49-03:00"
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "pr",
+     "descricao": "PR #461 aberto sobre a base d36ab813, com o plano anterior.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+     "sha": "bed02fabfb43588e2fa7963727f5d4b9ee96a28c"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "No SHA bed02fab, e2e-critical, rls-integration e tooling-static passaram; backend-tests e frontend-ci falharam nos audits de dependências herdadas.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461/checks"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Painel verificado em navegador: abas, filtros, detalhes e links, em 1280 px e 375 px sem rolagem horizontal; abre também direto do arquivo (file://, Chrome headless: 22 cartões renderizados). Falha simulada do gh preservou a última evidência como desatualizada; o validador recusou tarefa concluída sem evidência. Plano sem links locais da revisão (grep). Sem suites de produto: mudança só de documentação e ferramenta."
+    }
+   ],
+   "pendencia_externa": "Resíduo Neon no guia local não rastreado docs/ops/CONFIGURACAO-DESENVOLVIMENTO.md:125 (arquivo do proprietário, fora do Git). Não alterado por esta entrega.",
+   "prs": [
+    {
+     "numero": 461,
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+     "github": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:49-03:00",
+      "tentativa_em": "2026-10-09T12:20:49-03:00",
+      "erro": null,
+      "dados": {
+       "numero": 461,
+       "titulo": "docs: consolidar regras em AGENTS.md e adotar DEV online (Passo 0)",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+       "estado": "OPEN",
+       "rascunho": false,
+       "criado_em": "2026-10-09T12:41:49Z",
+       "atualizado_em": "2026-10-09T12:42:29Z",
+       "integrado_em": null,
+       "branch": "docs/passo0-regras-dev-online",
+       "base": "main",
+       "sha": "bed02fabfb43588e2fa7963727f5d4b9ee96a28c",
+       "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "mergeavel": "MERGEABLE",
+       "revisao": "",
+       "checks": [
+        {
+         "nome": "backend-tests",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738820/job/113823871854"
+        },
+        {
+         "nome": "frontend-ci",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738745/job/113823871568"
+        },
+        {
+         "nome": "e2e-critical",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738756/job/113823871368"
+        },
+        {
+         "nome": "rls-integration",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738890/job/113823872067"
+        },
+        {
+         "nome": "tooling-static",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738857/job/113823872319"
+        },
+        {
+         "nome": "Vercel",
+         "status": "SUCCESS",
+         "conclusao": null,
+         "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/GRBq6hYz596L4fC6BaJxjbTdh27R"
+        },
+        {
+         "nome": "Vercel Preview Comments",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://vercel.com/github"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Em validação — CI reprovado",
+   "estado_rotulo": "Em validação"
+  },
+  {
+   "id": "T03",
+   "titulo": "Atualizar a base do #461 e revalidar",
+   "fase": "F0D",
+   "trilha": "principal",
+   "sequencia": 3,
+   "estado": "bloqueada",
+   "objetivo": "Levar o #461 para a main que contém o #463 e confirmar os quatro checks no novo SHA.",
+   "criterio_aceite": [
+    "Branch do #461 atualizada sobre a main com o #463 integrado, sem perder as mudanças do proprietário.",
+    "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no novo SHA."
+   ],
+   "depende_de": [
+    "T01"
+   ],
+   "bloqueio": "O #463 ainda não foi integrado (aguarda autorização do proprietário).",
+   "proxima_acao": "Depois da integração do #463: atualizar a base do #461 (merge ou rebase da main), enviar e conferir os checks.",
+   "responsavel": "Claude",
+   "pr": [
+    461
+   ],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "Documentação."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Documentação."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [
+    {
+     "numero": 461,
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+     "github": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:49-03:00",
+      "tentativa_em": "2026-10-09T12:20:49-03:00",
+      "erro": null,
+      "dados": {
+       "numero": 461,
+       "titulo": "docs: consolidar regras em AGENTS.md e adotar DEV online (Passo 0)",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+       "estado": "OPEN",
+       "rascunho": false,
+       "criado_em": "2026-10-09T12:41:49Z",
+       "atualizado_em": "2026-10-09T12:42:29Z",
+       "integrado_em": null,
+       "branch": "docs/passo0-regras-dev-online",
+       "base": "main",
+       "sha": "bed02fabfb43588e2fa7963727f5d4b9ee96a28c",
+       "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "mergeavel": "MERGEABLE",
+       "revisao": "",
+       "checks": [
+        {
+         "nome": "backend-tests",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738820/job/113823871854"
+        },
+        {
+         "nome": "frontend-ci",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738745/job/113823871568"
+        },
+        {
+         "nome": "e2e-critical",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738756/job/113823871368"
+        },
+        {
+         "nome": "rls-integration",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738890/job/113823872067"
+        },
+        {
+         "nome": "tooling-static",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738857/job/113823872319"
+        },
+        {
+         "nome": "Vercel",
+         "status": "SUCCESS",
+         "conclusao": null,
+         "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/GRBq6hYz596L4fC6BaJxjbTdh27R"
+        },
+        {
+         "nome": "Vercel Preview Comments",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://vercel.com/github"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "dependencias_abertas": [
+    "T01"
+   ],
+   "executavel": false,
+   "situacao": "Bloqueada",
+   "estado_rotulo": "Bloqueada"
+  },
+  {
+   "id": "T04",
+   "titulo": "test-local.sh rejeita alvo desconhecido",
+   "fase": "F0S",
+   "trilha": "principal",
+   "sequencia": 4,
+   "estado": "pronta",
+   "objetivo": "Hoje um alvo inexistente retorna 0 sem rodar testes. O script deve falhar de forma clara antes de executar qualquer ferramenta, mantendo todos, backend e frontend.",
+   "criterio_aceite": [
+    "Comando inválido sai com código diferente de zero e mensagem compreensível.",
+    "Comandos válidos preservam seleção e versões (Python 3.13, Node 24, umask 022).",
+    "Sem CLI nova: encaminhamento de argumentos e seleção rápida ficam para depois."
+   ],
+   "depende_de": [],
+   "integra_apos": [
+    "T01"
+   ],
+   "proxima_acao": "Abrir PR pequeno a partir da main. Pode ser implementado agora; só integra com os audits corrigidos (T01).",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "Ferramenta local."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Ferramenta local."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "A revisão reproduziu que o script atual retorna 0 sem testes para alvo inexistente (relato da revisão; não repetido nesta execução)."
+    }
+   ],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": true,
+   "situacao": "Pronta",
+   "estado_rotulo": "Pronta"
+  },
+  {
+   "id": "T05",
+   "titulo": "Concluir o transporte simulado (correções do PR #462)",
+   "fase": "F2A",
+   "trilha": "principal",
+   "sequencia": 5,
+   "estado": "futura",
+   "objetivo": "Corrigir o validador de destinos e o estado do fake e ajustar descrições do candidato, concluindo F2a: Evolution falsa, chat e WHATSAPP_TRANSPORTE=simulado.",
+   "criterio_aceite": [
+    "URL adversarial recusada nos dois sentidos (127.example.invalid, 0x7f000001, 2130706433, 167772161, IPv4 não loopback, nomes fora da lista).",
+    "APP_ENV=production recusa simulação; chave real não reutilizada.",
+    "Fake: instância excluída permanece offline até recriação; sendMedia respeita desconexão ou sai do contrato.",
+    "Webhook autenticado e segredo incorreto recusado; texto e erro programado observados no fake; transporte real preservado.",
+    "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
+   ],
+   "depende_de": [
+    "T01"
+   ],
+   "proxima_acao": "Depois de T01 integrado: atualizar a base do #462 e aplicar as correções.",
+   "responsavel": "Claude",
+   "pr": [
+    462
+   ],
+   "pr_referencia": 462,
+   "indicadores": {
+    "implementacao": {
+     "status": "parcial",
+     "nota": "Candidato aberto (08e89282) com defeitos conhecidos."
+    },
+    "validacao_local": {
+     "status": "parcial",
+     "nota": "Testes do candidato rodaram antes das correções; não valem para o aceite final."
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": "PR aberto, não integrado.",
+     "origem": "github",
+     "consultado_em": "2026-10-09T12:20:50-03:00"
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "O DEV online ainda não existe."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "O modo simulado é recusado em production."
+    },
+    "ci": {
+     "status": "falhou",
+     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
+     "origem": "github",
+     "consultado_em": "2026-10-09T12:20:50-03:00"
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "pr",
+     "descricao": "PR #462 aberto com o candidato de simulador.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+     "sha": "08e8928216da35040b3d3cc5f08edb9ca62d3b8b"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Revisão reproduziu sem rede: o validador aceita hostnames iniciados por 127. e formas IPv4 numéricas; a exclusão de instância volta a significar open."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "Quatro testes novos aprovados dentro de 866 no job rls-integration (execução 37936670113); backend-tests e frontend-ci reprovados nos audits herdados.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670113"
+    }
+   ],
+   "prs": [
+    {
+     "numero": 462,
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+     "github": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:50-03:00",
+      "tentativa_em": "2026-10-09T12:20:50-03:00",
+      "erro": null,
+      "dados": {
+       "numero": 462,
+       "titulo": "feat: simulador de WhatsApp com transporte simulado (Fatia 1)",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+       "estado": "OPEN",
+       "rascunho": false,
+       "criado_em": "2026-10-09T13:24:54Z",
+       "atualizado_em": "2026-10-09T13:25:39Z",
+       "integrado_em": null,
+       "branch": "feat/simulador-whatsapp",
+       "base": "main",
+       "sha": "08e8928216da35040b3d3cc5f08edb9ca62d3b8b",
+       "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "mergeavel": "MERGEABLE",
+       "revisao": "",
+       "checks": [
+        {
+         "nome": "backend-tests",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670182/job/113840332981"
+        },
+        {
+         "nome": "frontend-ci",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670249/job/113840332008"
+        },
+        {
+         "nome": "e2e-critical",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670153/job/113840332009"
+        },
+        {
+         "nome": "rls-integration",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670113/job/113840331677"
+        },
+        {
+         "nome": "tooling-static",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670338/job/113840332669"
+        },
+        {
+         "nome": "Vercel",
+         "status": "SUCCESS",
+         "conclusao": null,
+         "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/3swkFeQvMDbj1yZPkjBUcDECe7VG"
+        },
+        {
+         "nome": "Vercel Preview Comments",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://vercel.com/github"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "dependencias_abertas": [
+    "T01"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "T06",
+   "titulo": "Extrair a validação do nome do visitante para o domínio",
+   "fase": "F1",
+   "trilha": "principal",
+   "sequencia": 6,
+   "estado": "futura",
+   "objetivo": "Mover canonical_visitor_name e um erro puro para um módulo de domínio, atualizando propostas, serviço ministerial e o parser do catálogo.",
+   "criterio_aceite": [
+    "O serviço ministerial deixa de importar propostas do agente.",
+    "Entradas aceitas e recusadas iguais (tipo estrito, trim, limite, Unicode/controles, privacidade do erro); fluxos de proposta e SIM iguais.",
+    "ProposalContractError e HTTP 422 mantidos nas bordas; sem migration, schema, flags, locks ou autorização alterados."
+   ],
+   "depende_de": [
+    "T01"
+   ],
+   "proxima_acao": "Depois de T01 integrado: ramo novo a partir da main, testes puros e regressão de visitante/propostas.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "O DEV online ainda não existe."
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": "Chega a PROD só em release."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T01"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "T07",
+   "titulo": "Prova integrada: Redis real, RLS real e uma ação vertical",
+   "fase": "F2B",
+   "trilha": "principal",
+   "sequencia": 7,
+   "estado": "futura",
+   "objetivo": "Percorrer webhook autenticado, Redis, worker (em thread, no mesmo processo), catálogo e autorização reais, serviço, banco com policies e leitura pela API, começando pelo visitante.",
+   "criterio_aceite": [
+    "Ação autorizada e recusada sem papel; dois tenants com controles positivos e recusa cruzada sob policies reais.",
+    "Consentimento e opt-out; replay sem efeito duplicado; revogação entre proposta e SIM; falha antes do commit com efeito e recibo atômicos.",
+    "Resposta recebida no fake e visível pela API autenticada do painel.",
+    "Redis descartável no CI; sem _FilaMemoria, Redis falso ou handle_envelope direto contornando a fila."
+   ],
+   "depende_de": [
+    "T05"
+   ],
+   "dep_nota": "T06 (visitante) não é pré-requisito técnico, mas a primeira ação vertical é o visitante.",
+   "proxima_acao": "Depois de T05 concluído: acrescentar Redis ao CI que executará a prova e escrever o percurso mínimo.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "Prova de CI."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Prova de CI."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T05"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "T08",
+   "titulo": "Decidir região, teto de custo e executor do DEV online",
+   "fase": "F3",
+   "trilha": "principal",
+   "sequencia": 8,
+   "estado": "pronta",
+   "objetivo": "Registrar a decisão do proprietário que libera o provisionamento do F3.",
+   "criterio_aceite": [
+    "Região, teto de custo e executor de deploy escolhidos e registrados no plano.",
+    "Reuso do DEV histórico só depois de verificar identidade, ausência de dados reais e isolamento."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Proprietário decide região, teto e executor. Não bloqueia as entregas locais anteriores.",
+   "responsavel": "proprietário",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "validacao_local": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": true,
+   "situacao": "Pronta",
+   "estado_rotulo": "Pronta"
+  },
+  {
+   "id": "T09",
+   "titulo": "DEV online isolado com publicação automática",
+   "fase": "F3",
+   "trilha": "principal",
+   "sequencia": 9,
+   "estado": "futura",
+   "objetivo": "Provisionar banco/Storage, Redis, autenticação e segredos próprios; publicar artefatos imutáveis do SHA integrado; serializar deploy, reset e reserva de aceite.",
+   "criterio_aceite": [
+    "Merge verde chega ao DEV identificado por SHA; navegador e simulador exercitam o fluxo com API, Redis e worker nos processos reais.",
+    "Dois deploys concorrentes, reserva vigente ou expirada, reset e smoke falho não validam versão errada.",
+    "Lembretes e avisos não são aceitos enquanto seus gates continuarem fechados; /health isolado não prova disponibilidade."
+   ],
+   "depende_de": [
+    "T07",
+    "T08"
+   ],
+   "proxima_acao": "Depois da prova F2b e da decisão T08: desenhar o fluxo de publicação (artefatos, migrations antes do código, seed DEV).",
+   "responsavel": "Claude · proprietário (recursos)",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "pendente",
+     "nota": "O DEV online ainda não existe."
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Etapa de DEV."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T07",
+    "T08"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "T10",
+   "titulo": "Preparar promoção coordenada e recuperação",
+   "fase": "F4",
+   "trilha": "principal",
+   "sequencia": 10,
+   "estado": "futura",
+   "objetivo": "Criar e ensaiar o caminho que recebe a revisão validada: compatibilidade de schema entre versões, contenção de consumidores, ensaio de atualização acumulada e backend/frontend compatíveis.",
+   "criterio_aceite": [
+    "Fixtures e ensaio cobrem migration aditiva, incompatibilidade, falha de migration, falha após a troca, frontend incompatível, fila pendente, interrupção e recuperação.",
+    "Artefato final do frontend verificado contra o alvo correto, sem dados reais.",
+    "Backend promovido por digest; rollback só quando o schema suporta a versão anterior."
+   ],
+   "depende_de": [
+    "T09"
+   ],
+   "dep_nota": "Dependência derivada da sequência do plano: reaproveita artefatos imutáveis e o runner de migration empacotados no F3.",
+   "proxima_acao": "Depois de T09: fechar as quatro lacunas do plano, uma por vez.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": "Esta tarefa só prepara; não opera PROD."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T09"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "T11",
+   "titulo": "Operação de release em PROD (autorização explícita)",
+   "fase": "F4",
+   "trilha": "principal",
+   "sequencia": 11,
+   "estado": "futura",
+   "objetivo": "Executar a transição já ensaiada para um SHA validado no DEV. Fica separada da preparação e não ativa novos envios, cobranças nem amplia o piloto.",
+   "criterio_aceite": [
+    "Preflight vivo, backup restaurável, migrations selecionadas, validação do schema, saúde e smoke.",
+    "Autorização explícita do proprietário para este pacote concreto."
+   ],
+   "depende_de": [
+    "T10"
+   ],
+   "proxima_acao": "Nenhuma antes de T10. A operação exige autorização nominal do proprietário.",
+   "responsavel": "proprietário (autoriza) · Claude (executa se autorizado)",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": "Sem evidência."
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T10"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "T12",
+   "titulo": "Extrair a leitura da intenção de resposta do worker",
+   "fase": "F5",
+   "trilha": "principal",
+   "sequencia": 12,
+   "estado": "futura",
+   "objetivo": "Mover _load_agent_reply_intent e a projeção _intent_from_message para um contrato pequeno fora do worker. Reserva, compare-and-set, entrega e callbacks ficam onde estão.",
+   "criterio_aceite": [
+    "Pelo menos um consumidor usa o contrato público de leitura.",
+    "Existente/ausente, tenant A/B, chave histórica, estado nulo e fence produzem os mesmos resultados.",
+    "Baseline dos cenários antes da extração e regressão depois, incluindo perda de lease e aceitação ambígua. Sem alteração de schema."
+   ],
+   "depende_de": [
+    "T07"
+   ],
+   "dep_nota": "No plano, F4 vem antes da extração maior; F5 pode ser preparada depois da baseline F2b e não exige operar PROD.",
+   "proxima_acao": "Depois de T07: levantar a baseline dos cenários de entrega que a extração pode afetar.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": "Chega a PROD só em release."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T07"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "S1",
+   "titulo": "Triagem do monitor de produção (api-readiness)",
+   "fase": "PAR",
+   "trilha": "paralela",
+   "estado": "pronta",
+   "objetivo": "Determinar por que o Production monitor agendado falha, a partir dos registros do GitHub, sem sondagem nem intervenção em PROD.",
+   "criterio_aceite": [
+    "Causa registrada com evidência, ou lista do que falta para determiná-la.",
+    "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Ler os logs das execuções falhas (somente leitura) e registrar o resultado. O sinal está resumido no plano, seção 2.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_aplicavel",
+     "nota": "Triagem."
+    },
+    "validacao_local": {
+     "status": "nao_aplicavel",
+     "nota": "Triagem."
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": "Triagem."
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "desconhecido",
+     "nota": "Estado vivo de PROD não verificado."
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "As execuções agendadas do Production monitor falham continuamente desde 03/10 às 16:19 UTC (leitura do GitHub); o último schedule reprova o passo \"Fail workflow when production is unhealthy\" do job public-health. Causa não determinada.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/workflows/production-monitor.yml"
+    }
+   ],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": true,
+   "situacao": "Pronta",
+   "estado_rotulo": "Pronta"
+  },
+  {
+   "id": "S2",
+   "titulo": "Manutenção de worktrees (lotes nominais e recuperáveis)",
+   "fase": "PAR",
+   "trilha": "paralela",
+   "estado": "futura",
+   "objetivo": "Arquivar ou remover worktrees em lotes nominais, preservando branches, objetos, reflogs e volumes. Não é pré-requisito do desenvolvimento.",
+   "criterio_aceite": [
+    "Antes de cada lote: status, HEAD, reflogs, alcance de objetos, processos e ignorados verificados; restauração conferida.",
+    "Nada de prune global; worktrees gerenciados pelo Codex são arquivados pela ferramenta proprietária."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Marcar pendência nos quatro candidatos com commits só em reflog antes de qualquer lote. Nenhuma limpeza nesta execução.",
+   "responsavel": "proprietário (autoriza cada lote)",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "O inventário da revisão registra 153 secundários (90 registros sem pasta candidatos, oito pastas candidatas, 55 preservados), quatro vínculos inválidos e oito commits só em reflogs de quatro candidatos. Classificações condicionais de uma fotografia; não repetidas nesta execução."
+    }
+   ],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "S3",
+   "titulo": "Atualizar o Next.js (avisos moderados)",
+   "fase": "PAR",
+   "trilha": "paralela",
+   "estado": "futura",
+   "objetivo": "Corrigir os dois avisos moderados do Next 15.5.25, que ficam abaixo do limiar do audit, em patch próprio.",
+   "criterio_aceite": [
+    "Versão corretiva e compatibilidade verificadas no momento da execução; quatro checks aprovados.",
+    "Sem misturar com outras atualizações."
+   ],
+   "depende_de": [
+    "T01"
+   ],
+   "proxima_acao": "Depois de T01 integrado: conferir versão corretiva e abrir PR próprio.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": "Chega a PROD pelo frontend."
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [
+    "T01"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "S4",
+   "titulo": "Triagem das vulnerabilidades altas do grafo completo (npm ci)",
+   "fase": "PAR",
+   "trilha": "paralela",
+   "estado": "futura",
+   "objetivo": "Diagnosticar individualmente as oito altas que o npm ci ainda relata no grafo completo, incluindo dependências de desenvolvimento, fora do recorte do audit com --omit=dev.",
+   "criterio_aceite": [
+    "Cada vulnerabilidade classificada (produção ou desenvolvimento, explorável ou não) com evidência.",
+    "Não afirmar zero vulnerabilidades nem que só há avisos moderados."
+   ],
+   "depende_de": [
+    "T01"
+   ],
+   "proxima_acao": "Depois de T01 integrado: rodar npm audit no grafo completo (somente leitura) e registrar o resultado.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_aplicavel",
+     "nota": "Triagem."
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": "Triagem."
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "limite",
+     "descricao": "Números vindos de logs de CI: npm ci do #463 relata 11 vulnerabilidades (3 moderadas, 8 altas); a base relatava 13 (3 moderadas, 10 altas). Sem diagnóstico individual."
+    }
+   ],
+   "prs": [],
+   "dependencias_abertas": [
+    "T01"
+   ],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "B1",
+   "titulo": "Centralizar leitura e diagnóstico de configuração",
+   "fase": "BKL",
+   "trilha": "backlog",
+   "estado": "futura",
+   "objetivo": "Começar por diagnóstico sanitizado e parser compartilhado, preservando a leitura tardia do Jev desligado e os gates independentes.",
+   "criterio_aceite": [
+    "Configuração opcional malformada não derruba rotas que não usam a integração.",
+    "APP_ENV=development continua válido; qualquer novo valor com compatibilidade explícita."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Só abrir quando uma mudança real justificar. Condicionado a necessidade.",
+   "responsavel": "—",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "B2",
+   "titulo": "Registro de ações do agente",
+   "fase": "BKL",
+   "trilha": "backlog",
+   "estado": "futura",
+   "objetivo": "Só avança quando uma capacidade concreta mostrar ganho. Separar a refatoração de qualquer funcionalidade nova, como pedido de oração.",
+   "criterio_aceite": [
+    "Confirmação transacional, privacidade, contratos de argumentos e CHECKs atuais preservados; mudança de schema em fatia própria."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Aguardar uma capacidade concreta. Condicionado a necessidade.",
+   "responsavel": "—",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "B3",
+   "titulo": "Divergência de permissões no frontend (inbox customizado)",
+   "fase": "BKL",
+   "trilha": "backlog",
+   "estado": "futura",
+   "objetivo": "Definir e testar a visibilidade da inbox quando a matriz concede acesso customizado e a tela mantém lista fixa de papéis, sem ampliar acesso a dados.",
+   "criterio_aceite": [
+    "Teste de contrato nas permissões tocadas; sem endpoint /me alternativo.",
+    "Política de acesso decidida pelo proprietário antes da mudança."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Decisão de produto do proprietário. Divergência é estática, sem reprodução em execução.",
+   "responsavel": "proprietário (decisão)",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "B4",
+   "titulo": "Decisões de produto: opt-out no envio humano e reunião passada",
+   "fase": "BKL",
+   "trilha": "backlog",
+   "estado": "futura",
+   "objetivo": "Decidir se o envio humano deve checar opt-out e como tratar reunião passada na expectativa de visitante, sem mudar o comportamento por acidente em refatorações.",
+   "criterio_aceite": [
+    "Decisão registrada pelo proprietário antes de qualquer alteração de comportamento."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Aguardar decisão do proprietário.",
+   "responsavel": "proprietário (decisão)",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "validacao_local": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": "Decisão."
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "B5",
+   "titulo": "Avaliar código e testes candidatos à retirada, um a um",
+   "fase": "BKL",
+   "trilha": "backlog",
+   "estado": "futura",
+   "objetivo": "Examinar consumidor e finalidade de cada candidato (scripts, módulos de evidência, testes estruturais) antes de remover. Preservar frentes pausadas.",
+   "criterio_aceite": [
+    "Remoção só com consumidor e finalidade examinados e equivalente comportamental do teste identificado.",
+    "Falta de referência textual, flag desligada ou uso de hash não bastam."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Aguardar necessidade real. Condicionado.",
+   "responsavel": "—",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "pendente",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_iniciado",
+     "nota": "Sem PR de referência ainda."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  },
+  {
+   "id": "B6",
+   "titulo": "Baseline de métricas por fatia",
+   "fase": "BKL",
+   "trilha": "backlog",
+   "estado": "futura",
+   "objetivo": "Registrar uma linha por fatia: tempo até o primeiro teste útil, duração e espera do CI, ações manuais até DEV/PROD e dispersão entre módulos. Nenhum ganho está comprovado.",
+   "criterio_aceite": [
+    "Medições reais, com origem, sem converter linhas, camadas ou contagem de commits em prazo."
+   ],
+   "depende_de": [],
+   "proxima_acao": "Coletar a primeira linha na próxima fatia concluída.",
+   "responsavel": "Claude",
+   "pr": [],
+   "pr_referencia": null,
+   "indicadores": {
+    "implementacao": {
+     "status": "nao_iniciado",
+     "nota": ""
+    },
+    "validacao_local": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "integracao_main": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_dev": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "publicacao_prod": {
+     "status": "nao_aplicavel",
+     "nota": ""
+    },
+    "ci": {
+     "status": "nao_aplicavel",
+     "nota": "Sem integração na main, sem CI."
+    }
+   },
+   "evidencias": [],
+   "prs": [],
+   "dependencias_abertas": [],
+   "executavel": false,
+   "situacao": "Futura",
+   "estado_rotulo": "Futura"
+  }
+ ],
+ "historico": [
+  {
+   "data": "2026-10-09",
+   "titulo": "PR #461 aberto: regras únicas em AGENTS.md e DEV online (Passo 0)",
+   "descricao": "Consolidou as regras de trabalho em AGENTS.md, restringiu a revisão independente e registrou a decisão do DEV online. Aberto, não integrado.",
+   "tarefa": "T02",
+   "pr": 461,
+   "sha": "bed02fabfb43588e2fa7963727f5d4b9ee96a28c"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "PR #462 aberto: simulador de WhatsApp (candidato F2a)",
+   "descricao": "Evolution falsa, página de chat e modo WHATSAPP_TRANSPORTE=simulado. Aberto, com defeitos conhecidos a corrigir; não integrado.",
+   "tarefa": "T05",
+   "pr": 462,
+   "sha": "08e8928216da35040b3d3cc5f08edb9ca62d3b8b"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "PR #463 aberto: dependências reprovadas pelos audits",
+   "descricao": "LangGraph 1.2.14, sharp 0.35.5 e source-map-js 1.2.2. Checks de produto aprovados no CI e validação local registrada. Aberto, aguardando integração.",
+   "tarefa": "T01",
+   "pr": 463,
+   "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "Plano consolidado e painel de acompanhamento no #461",
+   "descricao": "O plano versionado foi substituído pelo consolidado, com links portáveis e apêndice de propostas retiradas. Painel, dados e comando de atualização criados. Aguarda revisão e CI.",
+   "tarefa": "T02",
+   "pr": 461
+  }
+ ],
+ "github": {
+  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
+  "tentativa_em": "2026-10-09T12:20:49-03:00",
+  "prs": {
+   "461": {
+    "ok": true,
+    "consultado_em": "2026-10-09T12:20:49-03:00",
+    "tentativa_em": "2026-10-09T12:20:49-03:00",
+    "erro": null,
+    "dados": {
+     "numero": 461,
+     "titulo": "docs: consolidar regras em AGENTS.md e adotar DEV online (Passo 0)",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+     "estado": "OPEN",
+     "rascunho": false,
+     "criado_em": "2026-10-09T12:41:49Z",
+     "atualizado_em": "2026-10-09T12:42:29Z",
+     "integrado_em": null,
+     "branch": "docs/passo0-regras-dev-online",
+     "base": "main",
+     "sha": "bed02fabfb43588e2fa7963727f5d4b9ee96a28c",
+     "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+     "mergeavel": "MERGEABLE",
+     "revisao": "",
+     "checks": [
+      {
+       "nome": "backend-tests",
+       "status": "COMPLETED",
+       "conclusao": "FAILURE",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738820/job/113823871854"
+      },
+      {
+       "nome": "frontend-ci",
+       "status": "COMPLETED",
+       "conclusao": "FAILURE",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738745/job/113823871568"
+      },
+      {
+       "nome": "e2e-critical",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738756/job/113823871368"
+      },
+      {
+       "nome": "rls-integration",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738890/job/113823872067"
+      },
+      {
+       "nome": "tooling-static",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738857/job/113823872319"
+      },
+      {
+       "nome": "Vercel",
+       "status": "SUCCESS",
+       "conclusao": null,
+       "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/GRBq6hYz596L4fC6BaJxjbTdh27R"
+      },
+      {
+       "nome": "Vercel Preview Comments",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://vercel.com/github"
+      }
+     ]
+    }
+   },
+   "462": {
+    "ok": true,
+    "consultado_em": "2026-10-09T12:20:50-03:00",
+    "tentativa_em": "2026-10-09T12:20:50-03:00",
+    "erro": null,
+    "dados": {
+     "numero": 462,
+     "titulo": "feat: simulador de WhatsApp com transporte simulado (Fatia 1)",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+     "estado": "OPEN",
+     "rascunho": false,
+     "criado_em": "2026-10-09T13:24:54Z",
+     "atualizado_em": "2026-10-09T13:25:39Z",
+     "integrado_em": null,
+     "branch": "feat/simulador-whatsapp",
+     "base": "main",
+     "sha": "08e8928216da35040b3d3cc5f08edb9ca62d3b8b",
+     "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+     "mergeavel": "MERGEABLE",
+     "revisao": "",
+     "checks": [
+      {
+       "nome": "backend-tests",
+       "status": "COMPLETED",
+       "conclusao": "FAILURE",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670182/job/113840332981"
+      },
+      {
+       "nome": "frontend-ci",
+       "status": "COMPLETED",
+       "conclusao": "FAILURE",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670249/job/113840332008"
+      },
+      {
+       "nome": "e2e-critical",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670153/job/113840332009"
+      },
+      {
+       "nome": "rls-integration",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670113/job/113840331677"
+      },
+      {
+       "nome": "tooling-static",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670338/job/113840332669"
+      },
+      {
+       "nome": "Vercel",
+       "status": "SUCCESS",
+       "conclusao": null,
+       "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/3swkFeQvMDbj1yZPkjBUcDECe7VG"
+      },
+      {
+       "nome": "Vercel Preview Comments",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://vercel.com/github"
+      }
+     ]
+    }
+   },
+   "463": {
+    "ok": true,
+    "consultado_em": "2026-10-09T12:20:50-03:00",
+    "tentativa_em": "2026-10-09T12:20:50-03:00",
+    "erro": null,
+    "dados": {
+     "numero": 463,
+     "titulo": "fix: atualizar dependências reprovadas pelos audits",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
+     "estado": "OPEN",
+     "rascunho": false,
+     "criado_em": "2026-10-09T14:32:46Z",
+     "atualizado_em": "2026-10-09T14:33:30Z",
+     "integrado_em": null,
+     "branch": "fix/deps-audit-20261009",
+     "base": "main",
+     "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3",
+     "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+     "mergeavel": "MERGEABLE",
+     "revisao": "",
+     "checks": [
+      {
+       "nome": "backend-tests",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984761/job/113868823091"
+      },
+      {
+       "nome": "e2e-critical",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984708/job/113868824514"
+      },
+      {
+       "nome": "frontend-ci",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984799/job/113868824569"
+      },
+      {
+       "nome": "rls-integration",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984710/job/113868822541"
+      },
+      {
+       "nome": "tooling-static",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984775/job/113868823007"
+      },
+      {
+       "nome": "Vercel",
+       "status": "SUCCESS",
+       "conclusao": null,
+       "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/hQFPqJ62qCnqHzWEqn1L3wBZLQtA"
+      },
+      {
+       "nome": "Vercel Preview Comments",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://vercel.com/github"
+      }
+     ]
+    }
+   }
+  },
+  "main": {
+   "ok": true,
+   "consultado_em": "2026-10-09T12:20:51-03:00",
+   "tentativa_em": "2026-10-09T12:20:51-03:00",
+   "erro": null,
+   "dados": {
+    "data": "2026-10-02T19:24:12Z",
+    "mensagem": "Merge pull request #458 from haniellevi/feat/mvp-own-visitor-release-20261002",
+    "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+    "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/commit/d36ab813bf45f8bc92fd605425394570e85ad3ec"
+   }
+  },
+  "monitores": {
+   "production-monitor": {
+    "ok": true,
+    "consultado_em": "2026-10-09T12:20:52-03:00",
+    "tentativa_em": "2026-10-09T12:20:52-03:00",
+    "erro": null,
+    "dados": {
+     "workflow": "production-monitor.yml",
+     "descricao": "Production monitor (agendado)",
+     "consultadas": 40,
+     "falhas_consecutivas": 27,
+     "falhas_desde": "2026-10-03T16:19:12Z",
+     "todas_falharam": false,
+     "ultimas": [
+      {
+       "id": 37936062411,
+       "conclusao": "failure",
+       "status": "completed",
+       "criado_em": "2026-10-09T13:19:49Z",
+       "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "evento": "schedule",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936062411"
+      },
+      {
+       "id": 37892253023,
+       "conclusao": "failure",
+       "status": "completed",
+       "criado_em": "2026-10-09T06:11:27Z",
+       "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "evento": "schedule",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37892253023"
+      },
+      {
+       "id": 37862292229,
+       "conclusao": "failure",
+       "status": "completed",
+       "criado_em": "2026-10-08T23:57:53Z",
+       "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "evento": "schedule",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37862292229"
+      },
+      {
+       "id": 37832223006,
+       "conclusao": "failure",
+       "status": "completed",
+       "criado_em": "2026-10-08T19:28:33Z",
+       "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "evento": "schedule",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37832223006"
+      },
+      {
+       "id": 37785171907,
+       "conclusao": "failure",
+       "status": "completed",
+       "criado_em": "2026-10-08T13:32:37Z",
+       "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "evento": "schedule",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37785171907"
+      }
+     ]
+    }
+   }
+  }
+ },
+ "resumo": {
+  "etapa_atual": {
+   "fase": "PREP",
+   "nome": "Preparação: dependências",
+   "tarefa": "T01",
+   "situacao": "Validado — aguardando integração"
+  },
+  "proxima_executavel": "T04",
+  "tambem_prontas": [
+   "T08",
+   "S1"
+  ],
+  "em_curso": [
+   "T01",
+   "T02"
+  ],
+  "bloqueios": [
+   {
+    "id": "T03",
+    "titulo": "Atualizar a base do #461 e revalidar",
+    "motivo": "O #463 ainda não foi integrado (aguarda autorização do proprietário)."
+   }
+  ],
+  "esperas": [
+   {
+    "id": "T01",
+    "titulo": "Corrigir as dependências herdadas da main (PR #463)",
+    "motivo": "Integração na main: depende da autorização do proprietário. Esta execução não faz merge."
+   },
+   {
+    "id": "T02",
+    "titulo": "Plano consolidado e painel de acompanhamento (PR #461)",
+    "motivo": "CI do PR: backend-tests e frontend-ci reprovam por audits herdados da main até a base ser atualizada (T03)."
+   }
+  ],
+  "contagem": {
+   "futura": 16,
+   "pronta": 3,
+   "em_andamento": 0,
+   "em_validacao": 2,
+   "bloqueada": 1,
+   "concluida": 0
+  },
+  "proporcao": {
+   "geral": {
+    "concluidas": 0,
+    "total": 22,
+    "texto": "0 de 22 tarefas concluídas"
+   },
+   "principal": {
+    "concluidas": 0,
+    "total": 12,
+    "texto": "0 de 12 tarefas concluídas"
+   },
+   "paralela": {
+    "concluidas": 0,
+    "total": 4,
+    "texto": "0 de 4 tarefas concluídas"
+   },
+   "backlog": {
+    "concluidas": 0,
+    "total": 6,
+    "texto": "0 de 6 tarefas concluídas"
+   },
+   "formula": "tarefas em estado Concluída ÷ tarefas cadastradas. É contagem de itens, não medida de esforço nem de prazo."
+  }
+ }
+};

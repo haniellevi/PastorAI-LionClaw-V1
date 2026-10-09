@@ -1,0 +1,279 @@
+{
+  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
+  "tentativa_em": "2026-10-09T12:20:49-03:00",
+  "prs": {
+    "461": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:49-03:00",
+      "tentativa_em": "2026-10-09T12:20:49-03:00",
+      "erro": null,
+      "dados": {
+        "numero": 461,
+        "titulo": "docs: consolidar regras em AGENTS.md e adotar DEV online (Passo 0)",
+        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
+        "estado": "OPEN",
+        "rascunho": false,
+        "criado_em": "2026-10-09T12:41:49Z",
+        "atualizado_em": "2026-10-09T12:42:29Z",
+        "integrado_em": null,
+        "branch": "docs/passo0-regras-dev-online",
+        "base": "main",
+        "sha": "bed02fabfb43588e2fa7963727f5d4b9ee96a28c",
+        "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+        "mergeavel": "MERGEABLE",
+        "revisao": "",
+        "checks": [
+          {
+            "nome": "backend-tests",
+            "status": "COMPLETED",
+            "conclusao": "FAILURE",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738820/job/113823871854"
+          },
+          {
+            "nome": "frontend-ci",
+            "status": "COMPLETED",
+            "conclusao": "FAILURE",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738745/job/113823871568"
+          },
+          {
+            "nome": "e2e-critical",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738756/job/113823871368"
+          },
+          {
+            "nome": "rls-integration",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738890/job/113823872067"
+          },
+          {
+            "nome": "tooling-static",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37931738857/job/113823872319"
+          },
+          {
+            "nome": "Vercel",
+            "status": "SUCCESS",
+            "conclusao": null,
+            "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/GRBq6hYz596L4fC6BaJxjbTdh27R"
+          },
+          {
+            "nome": "Vercel Preview Comments",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://vercel.com/github"
+          }
+        ]
+      }
+    },
+    "462": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:50-03:00",
+      "tentativa_em": "2026-10-09T12:20:50-03:00",
+      "erro": null,
+      "dados": {
+        "numero": 462,
+        "titulo": "feat: simulador de WhatsApp com transporte simulado (Fatia 1)",
+        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+        "estado": "OPEN",
+        "rascunho": false,
+        "criado_em": "2026-10-09T13:24:54Z",
+        "atualizado_em": "2026-10-09T13:25:39Z",
+        "integrado_em": null,
+        "branch": "feat/simulador-whatsapp",
+        "base": "main",
+        "sha": "08e8928216da35040b3d3cc5f08edb9ca62d3b8b",
+        "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+        "mergeavel": "MERGEABLE",
+        "revisao": "",
+        "checks": [
+          {
+            "nome": "backend-tests",
+            "status": "COMPLETED",
+            "conclusao": "FAILURE",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670182/job/113840332981"
+          },
+          {
+            "nome": "frontend-ci",
+            "status": "COMPLETED",
+            "conclusao": "FAILURE",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670249/job/113840332008"
+          },
+          {
+            "nome": "e2e-critical",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670153/job/113840332009"
+          },
+          {
+            "nome": "rls-integration",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670113/job/113840331677"
+          },
+          {
+            "nome": "tooling-static",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670338/job/113840332669"
+          },
+          {
+            "nome": "Vercel",
+            "status": "SUCCESS",
+            "conclusao": null,
+            "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/3swkFeQvMDbj1yZPkjBUcDECe7VG"
+          },
+          {
+            "nome": "Vercel Preview Comments",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://vercel.com/github"
+          }
+        ]
+      }
+    },
+    "463": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:50-03:00",
+      "tentativa_em": "2026-10-09T12:20:50-03:00",
+      "erro": null,
+      "dados": {
+        "numero": 463,
+        "titulo": "fix: atualizar dependências reprovadas pelos audits",
+        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
+        "estado": "OPEN",
+        "rascunho": false,
+        "criado_em": "2026-10-09T14:32:46Z",
+        "atualizado_em": "2026-10-09T14:33:30Z",
+        "integrado_em": null,
+        "branch": "fix/deps-audit-20261009",
+        "base": "main",
+        "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3",
+        "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+        "mergeavel": "MERGEABLE",
+        "revisao": "",
+        "checks": [
+          {
+            "nome": "backend-tests",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984761/job/113868823091"
+          },
+          {
+            "nome": "e2e-critical",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984708/job/113868824514"
+          },
+          {
+            "nome": "frontend-ci",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984799/job/113868824569"
+          },
+          {
+            "nome": "rls-integration",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984710/job/113868822541"
+          },
+          {
+            "nome": "tooling-static",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37944984775/job/113868823007"
+          },
+          {
+            "nome": "Vercel",
+            "status": "SUCCESS",
+            "conclusao": null,
+            "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/hQFPqJ62qCnqHzWEqn1L3wBZLQtA"
+          },
+          {
+            "nome": "Vercel Preview Comments",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://vercel.com/github"
+          }
+        ]
+      }
+    }
+  },
+  "main": {
+    "ok": true,
+    "consultado_em": "2026-10-09T12:20:51-03:00",
+    "tentativa_em": "2026-10-09T12:20:51-03:00",
+    "erro": null,
+    "dados": {
+      "data": "2026-10-02T19:24:12Z",
+      "mensagem": "Merge pull request #458 from haniellevi/feat/mvp-own-visitor-release-20261002",
+      "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/commit/d36ab813bf45f8bc92fd605425394570e85ad3ec"
+    }
+  },
+  "monitores": {
+    "production-monitor": {
+      "ok": true,
+      "consultado_em": "2026-10-09T12:20:52-03:00",
+      "tentativa_em": "2026-10-09T12:20:52-03:00",
+      "erro": null,
+      "dados": {
+        "workflow": "production-monitor.yml",
+        "descricao": "Production monitor (agendado)",
+        "consultadas": 40,
+        "falhas_consecutivas": 27,
+        "falhas_desde": "2026-10-03T16:19:12Z",
+        "todas_falharam": false,
+        "ultimas": [
+          {
+            "id": 37936062411,
+            "conclusao": "failure",
+            "status": "completed",
+            "criado_em": "2026-10-09T13:19:49Z",
+            "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+            "evento": "schedule",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936062411"
+          },
+          {
+            "id": 37892253023,
+            "conclusao": "failure",
+            "status": "completed",
+            "criado_em": "2026-10-09T06:11:27Z",
+            "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+            "evento": "schedule",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37892253023"
+          },
+          {
+            "id": 37862292229,
+            "conclusao": "failure",
+            "status": "completed",
+            "criado_em": "2026-10-08T23:57:53Z",
+            "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+            "evento": "schedule",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37862292229"
+          },
+          {
+            "id": 37832223006,
+            "conclusao": "failure",
+            "status": "completed",
+            "criado_em": "2026-10-08T19:28:33Z",
+            "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+            "evento": "schedule",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37832223006"
+          },
+          {
+            "id": 37785171907,
+            "conclusao": "failure",
+            "status": "completed",
+            "criado_em": "2026-10-08T13:32:37Z",
+            "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+            "evento": "schedule",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37785171907"
+          }
+        ]
+      }
+    }
+  }
+}
