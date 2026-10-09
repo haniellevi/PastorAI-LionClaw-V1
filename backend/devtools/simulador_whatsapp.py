@@ -30,7 +30,7 @@ import httpx
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.config import is_internal_service_url
+from app.config import SIMULADOR_NOMES_WEBHOOK, is_simulated_destination
 from app.domain.phone import normalize_phone
 
 NUMERO_OFICIAL_PADRAO = "5500900000000"
@@ -94,9 +94,10 @@ def create_app(
     webhook_client: httpx.Client | None = None,
 ) -> FastAPI:
     """Monta o simulador. ``webhook_client`` permite injetar o backend nos testes."""
-    if not is_internal_service_url(webhook_url):
+    if not is_simulated_destination(webhook_url, SIMULADOR_NOMES_WEBHOOK):
         raise ValueError(
-            "SIMULADOR_WEBHOOK_URL deve apontar para localhost ou serviço interno"
+            "SIMULADOR_WEBHOOK_URL deve ser http(s) em IP de loopback, localhost "
+            "ou backend, sem credenciais embutidas"
         )
     if not webhook_secret:
         raise ValueError("EVOLUTION_WEBHOOK_SECRET é obrigatório no simulador")

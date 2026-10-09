@@ -6,6 +6,7 @@ Centralizes configuration and validates required variables at startup
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from functools import lru_cache
 from urllib.parse import urlparse
@@ -23,22 +24,37 @@ _BREVO_SEND_MODES = frozenset({"off", "canary", "live"})
 _WHATSAPP_TRANSPORTES = frozenset({"real", "simulado"})
 
 
-def is_internal_service_url(url: str) -> bool:
-    """True para http(s) em loopback ou nome de serviço sem ponto (rede do compose).
+# Nomes aceitos além de IP literal em loopback, por sentido da chamada.
+SIMULADOR_NOMES_EVOLUTION = frozenset({"localhost", "simulador-whatsapp"})
+SIMULADOR_NOMES_WEBHOOK = frozenset({"localhost", "backend"})
+
+
+def is_simulated_destination(url: str, nomes_permitidos: frozenset[str]) -> bool:
+    """True só para http(s) em IP literal de loopback ou em um nome da lista exata.
 
     O simulador nunca pode ser um host público: com o modo ``simulado`` o
-    cliente Evolution envia mesmo com ``ALLOW_REAL_SENDS=false``, então o único
-    destino aceito é uma máquina que não é a rede do WhatsApp.
+    cliente Evolution envia mesmo com ``ALLOW_REAL_SENDS=false``. Por isso o IP
+    é interpretado com ``ipaddress`` (``127.example.invalid`` não é IP) e
+    qualquer outro nome precisa estar na lista, sem prefixo, sem resolução de
+    DNS e sem formas numéricas alternativas (``0x7f000001``, ``2130706433``),
+    que o resolvedor do sistema interpretaria como IPv4.
     """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
+    try:
+        parsed = urlparse(url)
+        porta = parsed.port  # ValueError para porta inválida ou fora de 0-65535
+    except ValueError:
         return False
-    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https") or porta == 0:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    host = parsed.hostname
     if not host:
         return False
-    if host in _LOOPBACK_HOSTS or host.startswith("127."):
-        return True
-    return "." not in host and ":" not in host
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in nomes_permitidos
 
 
 def _is_valid_production_origin(url: str) -> bool:
@@ -349,10 +365,12 @@ class Settings(BaseSettings):
         if transporte == "simulado":
             if self.is_production:
                 raise ValueError("WHATSAPP_TRANSPORTE=simulado é proibido em produção")
-            if not is_internal_service_url(self.evolution_simulador_url):
+            if not is_simulated_destination(
+                self.evolution_simulador_url, SIMULADOR_NOMES_EVOLUTION
+            ):
                 raise ValueError(
-                    "EVOLUTION_SIMULADOR_URL deve ser http(s) em localhost ou nome "
-                    "de serviço interno (sem domínio público)"
+                    "EVOLUTION_SIMULADOR_URL deve ser http(s) em IP de loopback, "
+                    "localhost ou simulador-whatsapp, sem credenciais embutidas"
                 )
         return self
 

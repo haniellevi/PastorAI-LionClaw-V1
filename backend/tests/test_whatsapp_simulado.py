@@ -76,25 +76,67 @@ def test_producao_recusa_simulador() -> None:
         _settings(app_env="production")
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://evolution.exemplo.com.br",
-        "http://10.0.0.5:8080",
-        "ftp://localhost:8090",
-        "",
-    ],
-)
-def test_simulador_so_aceita_host_interno(url: str) -> None:
+# Destinos que o resolvedor do sistema ou um parser frouxo trataria como interno.
+# `0x7f000001` e `2130706433` viram 127.0.0.1; `167772161` vira 10.0.0.1.
+DESTINOS_RECUSADOS = [
+    "https://evolution.exemplo.com.br",
+    "http://10.0.0.5:8080",
+    "http://192.168.0.10:8090",
+    "http://[::ffff:10.0.0.1]:8090",
+    "ftp://localhost:8090",
+    "",
+    "http://127.example.invalid:8090",
+    "http://0x7f000001:8090",
+    "http://2130706433:8090",
+    "http://167772161:8090",
+    "http://localhost.:8090",
+    "http://outro-servico:8090",
+    "http://usuario:senha@localhost:8090",
+    "http://localhost:99999",
+    "http://localhost:0",
+]
+
+
+@pytest.mark.parametrize("url", [*DESTINOS_RECUSADOS, "http://backend:8000"])
+def test_backend_so_alcanca_a_evolution_falsa(url: str) -> None:
     with pytest.raises(ValidationError, match="EVOLUTION_SIMULADOR_URL"):
         _settings(evolution_simulador_url=url)
 
 
 @pytest.mark.parametrize(
-    "url", ["http://127.0.0.1:8090", "http://localhost:8090", SIMULADOR]
+    "url",
+    [
+        "http://127.0.0.1:8090",
+        "http://127.1.2.3:8090",
+        "http://[::1]:8090",
+        "http://localhost:8090",
+        "http://LOCALHOST:8090",
+        SIMULADOR,
+    ],
 )
-def test_simulador_aceita_loopback_e_servico_do_compose(url: str) -> None:
+def test_backend_aceita_loopback_e_nome_da_lista(url: str) -> None:
     assert _settings(evolution_simulador_url=url).whatsapp_simulado is True
+
+
+@pytest.mark.parametrize(
+    "url", [*DESTINOS_RECUSADOS, "http://simulador-whatsapp:8090/whatsapp/webhook"]
+)
+def test_simulador_so_alcanca_o_backend_local(url: str) -> None:
+    with pytest.raises(ValueError, match="SIMULADOR_WEBHOOK_URL"):
+        create_app(webhook_url=url, webhook_secret=SEGREDO)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8000/whatsapp/webhook",
+        "http://[::1]:8000/whatsapp/webhook",
+        "http://localhost:8000/whatsapp/webhook",
+        "http://backend:8000/whatsapp/webhook",
+    ],
+)
+def test_simulador_aceita_loopback_e_nome_da_lista(url: str) -> None:
+    create_app(webhook_url=url, webhook_secret=SEGREDO)
 
 
 def test_simulado_nao_libera_outros_provedores() -> None:
