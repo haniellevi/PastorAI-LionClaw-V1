@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:11:30-03:00",
+ "gerado_em": "2026-10-09T13:13:50-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "a210d893"
+  "sha": "e39acecf"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:25-03:00"
+     "consultado_em": "2026-10-09T13:13:46-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:25-03:00"
+     "consultado_em": "2026-10-09T13:13:46-03:00"
     }
    },
    "evidencias": [
@@ -189,8 +189,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:11:25-03:00",
-      "tentativa_em": "2026-10-09T13:11:25-03:00",
+      "consultado_em": "2026-10-09T13:13:46-03:00",
+      "tentativa_em": "2026-10-09T13:13:46-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -294,7 +294,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:24-03:00"
+     "consultado_em": "2026-10-09T13:13:45-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -308,7 +308,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:24-03:00"
+     "consultado_em": "2026-10-09T13:13:45-03:00"
     }
    },
    "evidencias": [
@@ -338,8 +338,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:11:24-03:00",
-      "tentativa_em": "2026-10-09T13:11:24-03:00",
+      "consultado_em": "2026-10-09T13:13:45-03:00",
+      "tentativa_em": "2026-10-09T13:13:45-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -464,8 +464,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:11:24-03:00",
-      "tentativa_em": "2026-10-09T13:11:24-03:00",
+      "consultado_em": "2026-10-09T13:13:45-03:00",
+      "tentativa_em": "2026-10-09T13:13:45-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -573,7 +573,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:26-03:00"
+     "consultado_em": "2026-10-09T13:13:47-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -587,7 +587,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 0 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:26-03:00"
+     "consultado_em": "2026-10-09T13:13:47-03:00"
     }
    },
    "evidencias": [
@@ -622,8 +622,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:11:26-03:00",
-      "tentativa_em": "2026-10-09T13:11:26-03:00",
+      "consultado_em": "2026-10-09T13:13:47-03:00",
+      "tentativa_em": "2026-10-09T13:13:47-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -730,7 +730,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:24-03:00"
+     "consultado_em": "2026-10-09T13:13:45-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -744,7 +744,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:11:24-03:00"
+     "consultado_em": "2026-10-09T13:13:45-03:00"
     }
    },
    "evidencias": [
@@ -773,8 +773,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:11:24-03:00",
-      "tentativa_em": "2026-10-09T13:11:24-03:00",
+      "consultado_em": "2026-10-09T13:13:45-03:00",
+      "tentativa_em": "2026-10-09T13:13:45-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1243,7 +1243,7 @@ window.PAINEL_DADOS = {
     "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
    ],
    "depende_de": [],
-   "proxima_acao": "Proprietário autoriza uma consulta única e somente leitura ao /ready público (ou fornece logs/estado do backend). Depois, registrar a causa.",
+   "proxima_acao": "Proprietário indica o acesso permitido (logs do backend na VPS e/ou painel do banco, somente leitura) para identificar por que a conexão ao banco falha e por que o cron-worker está indisponível. Nenhuma ação corretiva em PROD sem autorização própria.",
    "responsavel": "proprietário (autorizar leitura em PROD)",
    "pr": [],
    "pr_referencia": null,
@@ -1296,9 +1296,14 @@ window.PAINEL_DADOS = {
      "tipo": "pr",
      "descricao": "Issue de incidente deduplicada #459 ('[Monitor] Produção PastorAI indisponível') aberta desde 03/10 16:19 UTC, atualizada pelo monitor, sem comentários.",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/issues/459"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Consulta única, somente leitura e sem credenciais, autorizada pelo proprietário: GET https://api.igreja12.com.br/ready → HTTP 503, 3,96 s. Corpo: status=not_ready; required: database=unavailable, redis=ok; optional: evolution=ok, billing_operations=unknown; workers: queue-worker=ok, cron-worker=unavailable, broadcast-worker=ok. Isso explica o HTTPError do probe. Em backend/app/services/readiness.py, 'unavailable' cobre qualquer exceção na conexão ou consulta ao banco; a causa não aparece."
     }
    ],
-   "bloqueio": "Causa não determinável só com os registros do GitHub: o probe descarta o código e o corpo da resposta de /ready. Falta o código HTTP e o campo \"required\" do corpo de https://api.igreja12.com.br/ready, ou logs do backend em PROD. Ambos exigem autorização do proprietário (sondagem/leitura em PROD).",
+   "bloqueio": "O sintoma está comprovado (/ready devolve 503 com database=unavailable e cron-worker=unavailable), mas o motivo da indisponibilidade do banco não: o readiness mascara qualquer exceção (conexão, timeout, consulta) como \"unavailable\". Determinar a causa exige logs do backend ou o estado do banco/projeto em PROD, o que depende de acesso autorizado pelo proprietário.",
    "prs": [],
    "dependencias_abertas": [],
    "executavel": false,
@@ -1807,12 +1812,12 @@ window.PAINEL_DADOS = {
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:11:24-03:00",
+  "tentativa_em": "2026-10-09T13:13:45-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:11:24-03:00",
-    "tentativa_em": "2026-10-09T13:11:24-03:00",
+    "consultado_em": "2026-10-09T13:13:45-03:00",
+    "tentativa_em": "2026-10-09T13:13:45-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1877,8 +1882,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:11:24-03:00",
-    "tentativa_em": "2026-10-09T13:11:24-03:00",
+    "consultado_em": "2026-10-09T13:13:45-03:00",
+    "tentativa_em": "2026-10-09T13:13:45-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -1943,8 +1948,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:11:25-03:00",
-    "tentativa_em": "2026-10-09T13:11:25-03:00",
+    "consultado_em": "2026-10-09T13:13:46-03:00",
+    "tentativa_em": "2026-10-09T13:13:46-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2009,8 +2014,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:11:26-03:00",
-    "tentativa_em": "2026-10-09T13:11:26-03:00",
+    "consultado_em": "2026-10-09T13:13:47-03:00",
+    "tentativa_em": "2026-10-09T13:13:47-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2076,8 +2081,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:11:27-03:00",
-   "tentativa_em": "2026-10-09T13:11:27-03:00",
+   "consultado_em": "2026-10-09T13:13:48-03:00",
+   "tentativa_em": "2026-10-09T13:13:48-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2089,8 +2094,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:11:28-03:00",
-    "tentativa_em": "2026-10-09T13:11:28-03:00",
+    "consultado_em": "2026-10-09T13:13:49-03:00",
+    "tentativa_em": "2026-10-09T13:13:49-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2173,7 +2178,7 @@ window.PAINEL_DADOS = {
    {
     "id": "S1",
     "titulo": "Triagem do monitor de produção (api-readiness)",
-    "motivo": "Causa não determinável só com os registros do GitHub: o probe descarta o código e o corpo da resposta de /ready. Falta o código HTTP e o campo \"required\" do corpo de https://api.igreja12.com.br/ready, ou logs do backend em PROD. Ambos exigem autorização do proprietário (sondagem/leitura em PROD)."
+    "motivo": "O sintoma está comprovado (/ready devolve 503 com database=unavailable e cron-worker=unavailable), mas o motivo da indisponibilidade do banco não: o readiness mascara qualquer exceção (conexão, timeout, consulta) como \"unavailable\". Determinar a causa exige logs do backend ou o estado do banco/projeto em PROD, o que depende de acesso autorizado pelo proprietário."
    }
   ],
   "esperas": [

@@ -739,7 +739,7 @@
         "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
       ],
       "depende_de": [],
-      "proxima_acao": "Proprietário autoriza uma consulta única e somente leitura ao /ready público (ou fornece logs/estado do backend). Depois, registrar a causa.",
+      "proxima_acao": "Proprietário indica o acesso permitido (logs do backend na VPS e/ou painel do banco, somente leitura) para identificar por que a conexão ao banco falha e por que o cron-worker está indisponível. Nenhuma ação corretiva em PROD sem autorização própria.",
       "responsavel": "proprietário (autorizar leitura em PROD)",
       "pr": [],
       "pr_referencia": null,
@@ -788,9 +788,14 @@
           "tipo": "pr",
           "descricao": "Issue de incidente deduplicada #459 ('[Monitor] Produção PastorAI indisponível') aberta desde 03/10 16:19 UTC, atualizada pelo monitor, sem comentários.",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/issues/459"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Consulta única, somente leitura e sem credenciais, autorizada pelo proprietário: GET https://api.igreja12.com.br/ready → HTTP 503, 3,96 s. Corpo: status=not_ready; required: database=unavailable, redis=ok; optional: evolution=ok, billing_operations=unknown; workers: queue-worker=ok, cron-worker=unavailable, broadcast-worker=ok. Isso explica o HTTPError do probe. Em backend/app/services/readiness.py, 'unavailable' cobre qualquer exceção na conexão ou consulta ao banco; a causa não aparece."
         }
       ],
-      "bloqueio": "Causa não determinável só com os registros do GitHub: o probe descarta o código e o corpo da resposta de /ready. Falta o código HTTP e o campo \"required\" do corpo de https://api.igreja12.com.br/ready, ou logs do backend em PROD. Ambos exigem autorização do proprietário (sondagem/leitura em PROD)."
+      "bloqueio": "O sintoma está comprovado (/ready devolve 503 com database=unavailable e cron-worker=unavailable), mas o motivo da indisponibilidade do banco não: o readiness mascara qualquer exceção (conexão, timeout, consulta) como \"unavailable\". Determinar a causa exige logs do backend ou o estado do banco/projeto em PROD, o que depende de acesso autorizado pelo proprietário."
     },
     {
       "id": "S2",
