@@ -598,13 +598,16 @@ langchain-core==1.4.7 \
     #   langgraph
     #   langgraph-checkpoint
     #   langgraph-prebuilt
+    #   langgraph-sdk
 langchain-protocol==0.0.17 \
     --hash=sha256:982a08fe152586ed10d4ff3d538c2e0b5766e5f307cdea325e10be3f2c17cae6 \
     --hash=sha256:e7cbe58c205df4b4fd87dc6d5bb23f10e13b236d0e2e1b0b9d05bc2b648f3eea
-    # via langchain-core
-langgraph==1.0.10 \
-    --hash=sha256:73bd10ee14a8020f31ef07e9cd4c1a70c35cc07b9c2b9cd637509a10d9d51e29 \
-    --hash=sha256:7c298bef4f6ea292fcf9824d6088fe41a6727e2904ad6066f240c4095af12247
+    # via
+    #   langchain-core
+    #   langgraph-sdk
+langgraph==1.2.14 \
+    --hash=sha256:5b1a72b7a7f994ac6947b7751fbbe00e949f8bb44d9ab78881604b703247ae55 \
+    --hash=sha256:e3f5f8ff4259f9281b73ff50fc9ef5cc3b025b8936b8283ecdca7cc0c4128690
     # via -r requirements.txt
 langgraph-checkpoint==4.1.1 \
     --hash=sha256:25d29144b082827218e7bc3f1e9b0566a4bb007895cd6cc26f66a8428739f56e \
@@ -612,13 +615,13 @@ langgraph-checkpoint==4.1.1 \
     # via
     #   langgraph
     #   langgraph-prebuilt
-langgraph-prebuilt==1.0.8 \
-    --hash=sha256:0cd3cf5473ced8a6cd687cc5294e08d3de57529d8dd14fdc6ae4899549efcf69 \
-    --hash=sha256:d16a731e591ba4470f3e313a319c7eee7dbc40895bcf15c821f985a3522a7ce0
+langgraph-prebuilt==1.1.0 \
+    --hash=sha256:3c579cf6eed2d17f9c157c2d0fcaddcd8688524e7022d3b22b37a3bf4589d528 \
+    --hash=sha256:51e311747d755b751d5c6b39b0c1446124d3a7643d2515017e6714b323508fc9
     # via langgraph
-langgraph-sdk==0.3.15 \
-    --hash=sha256:29e805003d2c6e296823dd71992610976fd0428cefaa8b3304fd91f2247037de \
-    --hash=sha256:3838773acf7456d158165385d49f48f1e856f28b56ccd99ea139a8f27004815d
+langgraph-sdk==0.4.6 \
+    --hash=sha256:57122b02bda41d37a97a5e09eb018aa8c9b3dc85c433880073779bd9324b7eea \
+    --hash=sha256:ea5b1749d70987d741c9b9fe2b7e1c5f7da7e4d102f64e390333c1890c9bbd5b
     # via langgraph
 langsmith==0.8.18 \
     --hash=sha256:32dde9c0e67e053e0fb738921fc8ced768af7b8fa83d7a0e3fd63597cf8776dd \
@@ -1531,6 +1534,7 @@ websockets==16.0 \
     --hash=sha256:f4a32d1bd841d4bcbffdcb3d2ce50c09c3909fbead375ab28d0181af89fd04da \
     --hash=sha256:fd3cb4adb94a2a6e2b7c0d8d05cb94e6f1c81a0cf9dc2694fb65c7e8d94c42e4
     # via
+    #   langgraph-sdk
     #   langsmith
     #   uvicorn
 xxhash==3.7.0 \
