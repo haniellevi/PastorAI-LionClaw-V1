@@ -59,7 +59,11 @@ class EstadoSimulador:
 
     def estado_de(self, instance: str) -> str:
         # Instância nunca vista conta como conectada: o DEV não tem QR real.
+        # Excluída é diferente de nunca vista: fica fora até ser recriada.
         return self.instancias.get(instance, "open")
+
+
+ESTADO_EXCLUIDA = "excluida"
 
 
 def _agora() -> str:
@@ -107,6 +111,11 @@ def create_app(
     app = FastAPI(title="Simulador de WhatsApp (Evolution)", docs_url=None, redoc_url=None)
     app.state.simulador = estado
 
+    def _exigir_existente(instance: str) -> None:
+        """Chamar com ``estado.lock``: instância excluída responde 404 até recriar."""
+        if estado.instancias.get(instance) == ESTADO_EXCLUIDA:
+            raise HTTPException(status_code=404, detail="instância não existe")
+
     def _registrar(**campos: Any) -> MensagemSimulada:
         msg = MensagemSimulada(
             id=campos.pop("id", None) or uuid.uuid4().hex.upper(),
@@ -123,18 +132,21 @@ def create_app(
     def instance_create(body: dict = Body(default_factory=dict)) -> dict:
         nome = str(body.get("instanceName") or "")
         with estado.lock:
-            estado.instancias.setdefault(nome, "open")
+            if estado.instancias.get(nome, ESTADO_EXCLUIDA) == ESTADO_EXCLUIDA:
+                estado.instancias[nome] = "open"
         return {"instance": {"instanceName": nome, "status": "created"}}
 
     @app.get("/instance/connect/{instance}")
     def instance_connect(instance: str) -> dict:
         with estado.lock:
+            _exigir_existente(instance)
             estado.instancias[instance] = "open"
         return {"instance": {"instanceName": instance, "state": "open"}}
 
     @app.put("/instance/restart/{instance}")
     def instance_restart(instance: str) -> dict:
         with estado.lock:
+            _exigir_existente(instance)
             estado.instancias[instance] = "open"
         return {"instance": {"instanceName": instance, "state": "open"}}
 
@@ -147,12 +159,14 @@ def create_app(
     @app.delete("/instance/delete/{instance}")
     def instance_delete(instance: str) -> dict:
         with estado.lock:
-            estado.instancias.pop(instance, None)
+            estado.instancias[instance] = ESTADO_EXCLUIDA
             estado.webhooks.pop(instance, None)
         return {"status": "SUCCESS", "error": False, "response": {"message": "Instance deleted"}}
 
     @app.get("/instance/fetchInstances")
     def fetch_instances(instance_name: str = Query(alias="instanceName")) -> list[dict]:
+        if estado.estado_de(instance_name) == ESTADO_EXCLUIDA:
+            return []
         return [
             {
                 "name": instance_name,
@@ -193,6 +207,8 @@ def create_app(
 
     @app.post("/message/sendMedia/{instance}")
     def send_media(instance: str, body: dict = Body(...)) -> JSONResponse:
+        if estado.estado_de(instance) != "open":
+            return JSONResponse(status_code=400, content={"error": "instância desconectada"})
         telefone = str(body.get("number") or "")
         legenda = str(body.get("caption") or "")
         msg = _registrar(
@@ -205,6 +221,7 @@ def create_app(
 
     @app.post("/chat/fetchProfilePictureUrl/{instance}")
     def profile_picture(instance: str) -> dict:
+        # Fora do contrato de desconexão: sem foto de perfil em qualquer estado.
         return {"profilePictureUrl": None}
 
     @app.post("/chat/getBase64FromMediaMessage/{instance}")
@@ -228,6 +245,8 @@ def create_app(
         texto = str(body.get("texto") or "")
         if not instance or not telefone or not texto.strip():
             raise HTTPException(status_code=422, detail="instance, telefone e texto são obrigatórios")
+        if estado.estado_de(instance) != "open":
+            raise HTTPException(status_code=409, detail="instância desconectada")
         message_id = f"SIM{uuid.uuid4().hex.upper()}"
         payload = _payload_entrada(
             instance=instance,

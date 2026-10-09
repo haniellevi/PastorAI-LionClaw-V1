@@ -219,6 +219,46 @@ def test_instancia_desconectada_nao_recebe_envio() -> None:
     assert result.error_class == "instancia_desconectada"
 
 
+def test_excluir_instancia_a_mantem_fora_ate_recriar() -> None:
+    sim = _simulador()
+    http = TestClient(sim)
+    client = _cliente_no_simulador(_settings(), sim)
+
+    assert client.delete_instance("igreja-dev") is True
+
+    # Ausência não volta a significar "open".
+    assert client.fetch_status("igreja-dev").status == "offline"
+    assert http.get("/instance/connect/igreja-dev").status_code == 404
+    assert http.put("/instance/restart/igreja-dev").status_code == 404
+    envio = client.send_agent_text("igreja-dev", "5500988887777", "oi")
+    assert envio.error_class == "instancia_desconectada"
+    assert sim.state.simulador.mensagens == []
+
+    assert http.post("/instance/create", json={"instanceName": "igreja-dev"}).status_code == 201
+    assert client.fetch_status("igreja-dev").status == "online"
+    assert client.send_text("igreja-dev", "5500988887777", "de volta") is True
+
+
+@pytest.mark.parametrize("derrubar", ["logout", "delete"])
+def test_midia_e_entrada_respeitam_instancia_desconectada(derrubar: str) -> None:
+    sim = _simulador()
+    http = TestClient(sim)
+    http.delete(f"/instance/{derrubar}/igreja-dev")
+
+    midia = http.post(
+        "/message/sendMedia/igreja-dev",
+        json={"number": "5500988887777", "mediatype": "image", "caption": "foto"},
+    )
+    entrada = http.post(
+        "/simulador/mensagens",
+        json={"instance": "igreja-dev", "telefone": "5500988887777", "texto": "oi"},
+    )
+
+    assert midia.status_code == 400
+    assert entrada.status_code == 409
+    assert sim.state.simulador.mensagens == []
+
+
 # ---- Webhook simulado passa pela autenticação real do backend -------------
 
 
