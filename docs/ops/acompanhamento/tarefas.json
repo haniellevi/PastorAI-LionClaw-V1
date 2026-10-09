@@ -268,7 +268,7 @@
       "fase": "F0D",
       "trilha": "principal",
       "sequencia": 3,
-      "estado": "em_andamento",
+      "estado": "em_validacao",
       "objetivo": "Levar o #461 para a main que contém o #463 e confirmar os quatro checks no novo SHA.",
       "criterio_aceite": [
         "Branch do #461 atualizada sobre a main com o #463 integrado, sem perder as mudanças do proprietário.",
@@ -277,16 +277,16 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Com sua autorização: git push da branch docs/passo0-regras-dev-online (fast-forward, sem force). Depois exigir backend-tests, frontend-ci, e2e-critical e rls-integration no novo SHA antes de qualquer merge.",
+      "proxima_acao": "Aguardar os quatro checks no 992b886c. Atenção: qualquer commit novo enviado ao #461 muda o SHA e reinicia os checks; por isso os registros seguintes do acompanhamento ficam só locais até a decisão sobre o merge.",
       "responsavel": "Claude",
       "pr": [
         461
       ],
-      "pr_referencia": null,
+      "pr_referencia": 461,
       "indicadores": {
         "implementacao": {
-          "status": "parcial",
-          "nota": "Preparada localmente: merge da main (5728ab08) na branch docs/passo0-regras-dev-online, commit 023125e4, sem conflito (git merge-tree antes). Os 13 commits locais do acompanhamento e os anteriores foram preservados (merge, sem rebase). Não enviado ao GitHub."
+          "status": "ok",
+          "nota": "Branch docs/passo0-regras-dev-online enviada ao GitHub, sem force, em fast-forward a242b751..992b886c (inclui o merge 023125e4 da main 5728ab08 e os commits de acompanhamento)."
         },
         "validacao_local": {
           "status": "parcial",
@@ -311,9 +311,16 @@
           "tipo": "local",
           "descricao": "Base do #461 preparada: git merge --no-ff origin/main (5728ab08) na branch local, commit 023125e4. Teste prévio com git merge-tree --write-tree: sem conflitos. Branch local fica 19 commits à frente da main e 0 atrás; o remoto ainda está em a242b751. O push é fast-forward (sem rebase nem force).",
           "sha": "023125e4"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "pr",
+          "descricao": "Push autorizado pelo proprietário e executado, normal e sem force: a242b751..992b886c em docs/passo0-regras-dev-online (17 commits enviados, remoto era ancestral do HEAD). Antes do push: diff conferido (20 arquivos contra a main, só documentação/painel/mod/.gitignore), varredura das linhas adicionadas e dos arquivos gerados sem segredos, IPs nem caminhos protegidos. Primeira leitura dos checks no novo SHA: tooling-static e Vercel Preview Comments com sucesso; backend-tests, e2e-critical, frontend-ci e rls-integration em andamento; Vercel pendente.",
+          "sha": "992b886c",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461/checks"
         }
       ],
-      "aguardando": "Autorização do proprietário para enviar (push) a branch do #461, o que dispara os checks no novo SHA. O merge do #461 não será feito sem os quatro checks aprovados nesse SHA e sem autorização."
+      "aguardando": "Checks do #461 no SHA 992b886c (backend-tests, frontend-ci, e2e-critical, rls-integration em andamento na primeira leitura). Depois, autorização do proprietário para o merge; nenhum merge nem deploy nesta etapa."
     },
     {
       "id": "T04",
@@ -1408,6 +1415,14 @@
       "tarefa": "T03",
       "pr": 461,
       "sha": "023125e4"
+    },
+    {
+      "data": "2026-10-09",
+      "titulo": "#461 enviado com a main nova; checks em andamento",
+      "descricao": "Push sem force a242b751..992b886c. Quatro checks de produto rodando no SHA 992b886c; sem merge nem deploy.",
+      "tarefa": "T03",
+      "pr": 461,
+      "sha": "992b886c"
     }
   ]
 }

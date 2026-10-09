@@ -1,11 +1,11 @@
 {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T14:09:33-03:00",
+  "tentativa_em": "2026-10-09T14:11:29-03:00",
   "prs": {
     "461": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:09:33-03:00",
-      "tentativa_em": "2026-10-09T14:09:33-03:00",
+      "consultado_em": "2026-10-09T14:11:29-03:00",
+      "tentativa_em": "2026-10-09T14:11:29-03:00",
       "erro": null,
       "dados": {
         "numero": 461,
@@ -14,50 +14,50 @@
         "estado": "OPEN",
         "rascunho": false,
         "criado_em": "2026-10-09T12:41:49Z",
-        "atualizado_em": "2026-10-09T16:05:03Z",
+        "atualizado_em": "2026-10-09T17:10:58Z",
         "integrado_em": null,
         "branch": "docs/passo0-regras-dev-online",
         "base": "main",
-        "sha": "a242b751379a93b37f04933b077e7016c54b0494",
-        "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+        "sha": "992b886c1f9b99414e1c65f5d22beb7203be5a35",
+        "sha_base": "5728ab08e24eb737ec731b430e82b3c74825780c",
         "mergeavel": "MERGEABLE",
         "revisao": "",
         "checks": [
           {
             "nome": "backend-tests",
-            "status": "COMPLETED",
-            "conclusao": "FAILURE",
-            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428263/job/113908001428"
-          },
-          {
-            "nome": "frontend-ci",
-            "status": "COMPLETED",
-            "conclusao": "FAILURE",
-            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428391/job/113908001855"
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37964441443/job/113935135557"
           },
           {
             "nome": "e2e-critical",
-            "status": "COMPLETED",
-            "conclusao": "SUCCESS",
-            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428341/job/113908001733"
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37964441523/job/113935135529"
+          },
+          {
+            "nome": "frontend-ci",
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37964441357/job/113935135182"
           },
           {
             "nome": "rls-integration",
-            "status": "COMPLETED",
-            "conclusao": "SUCCESS",
-            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428306/job/113908002018"
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37964443419/job/113935141962"
           },
           {
             "nome": "tooling-static",
             "status": "COMPLETED",
             "conclusao": "SUCCESS",
-            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428272/job/113908001869"
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37964441336/job/113935134966"
           },
           {
             "nome": "Vercel",
-            "status": "SUCCESS",
+            "status": "PENDING",
             "conclusao": null,
-            "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/FkryHQawtFqGHRTX2FQa7ecQPejp"
+            "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/G5Z2nWMQuP9N9Fnvrt7btUU4JPa7"
           },
           {
             "nome": "Vercel Preview Comments",
@@ -70,8 +70,8 @@
     },
     "462": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:09:33-03:00",
-      "tentativa_em": "2026-10-09T14:09:33-03:00",
+      "consultado_em": "2026-10-09T14:11:30-03:00",
+      "tentativa_em": "2026-10-09T14:11:30-03:00",
       "erro": null,
       "dados": {
         "numero": 462,
@@ -136,8 +136,8 @@
     },
     "463": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:09:34-03:00",
-      "tentativa_em": "2026-10-09T14:09:34-03:00",
+      "consultado_em": "2026-10-09T14:11:31-03:00",
+      "tentativa_em": "2026-10-09T14:11:31-03:00",
       "erro": null,
       "dados": {
         "numero": 463,
@@ -202,8 +202,8 @@
     },
     "464": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:09:35-03:00",
-      "tentativa_em": "2026-10-09T14:09:35-03:00",
+      "consultado_em": "2026-10-09T14:11:32-03:00",
+      "tentativa_em": "2026-10-09T14:11:32-03:00",
       "erro": null,
       "dados": {
         "numero": 464,
@@ -269,8 +269,8 @@
   },
   "main": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:09:36-03:00",
-    "tentativa_em": "2026-10-09T14:09:36-03:00",
+    "consultado_em": "2026-10-09T14:11:33-03:00",
+    "tentativa_em": "2026-10-09T14:11:33-03:00",
     "erro": null,
     "dados": {
       "data": "2026-10-09T16:59:33Z",
@@ -282,8 +282,8 @@
   "monitores": {
     "production-monitor": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:09:36-03:00",
-      "tentativa_em": "2026-10-09T14:09:36-03:00",
+      "consultado_em": "2026-10-09T14:11:33-03:00",
+      "tentativa_em": "2026-10-09T14:11:33-03:00",
       "erro": null,
       "dados": {
         "workflow": "production-monitor.yml",
