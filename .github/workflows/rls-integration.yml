@@ -34,6 +34,15 @@ jobs:
 
     # Postgres DESCARTAVEL: servico efemero do runner, destruido ao fim do job.
     services:
+      redis:
+        image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       postgres:
         image: postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
         env:
@@ -49,6 +58,7 @@ jobs:
           --health-retries 10
 
     env:
+      F2B_TEST_REDIS_URL: redis://127.0.0.1:6379/13
       # RLS_TEST_DATABASE_URL definida SOMENTE neste job, apontando para o
       # Postgres descartavel efemero (loopback literal do runner). Nunca DEV/PROD.
       RLS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/rls_disposable

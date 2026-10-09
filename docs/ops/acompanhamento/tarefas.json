@@ -614,10 +614,10 @@
       "fase": "F2B",
       "trilha": "principal",
       "sequencia": 7,
-      "estado": "futura",
+      "estado": "em_validacao",
       "objetivo": "Percorrer webhook autenticado, Redis, worker (em thread, no mesmo processo), catálogo e autorização reais, serviço, banco com policies e leitura pela API, começando pelo visitante.",
       "criterio_aceite": [
-        "Ação autorizada e recusada sem papel; dois tenants com controles positivos e recusa cruzada sob policies reais.",
+        "Visitante autorizado por vínculo e membership; recusa após revogação do vínculo; API exige papel; dois tenants positivos e recusa cruzada por RLS real. A indicação própria historicamente não exige papel de gestão.",
         "Consentimento e opt-out; replay sem efeito duplicado; revogação entre proposta e SIM; falha antes do commit com efeito e recibo atômicos.",
         "Resposta recebida no fake e visível pela API autenticada do painel.",
         "Redis descartável no CI; sem _FilaMemoria, Redis falso ou handle_envelope direto contornando a fila."
@@ -626,18 +626,18 @@
         "T05"
       ],
       "dep_nota": "T06 (visitante) não é pré-requisito técnico, mas a primeira ação vertical é o visitante.",
-      "proxima_acao": "Depois de T05 concluído: acrescentar Redis ao CI que executará a prova e escrever o percurso mínimo.",
-      "responsavel": "Claude",
+      "proxima_acao": "Prova local aprovada; executar checks no candidato remoto após autorização de push. Próxima fatia local: T12.",
+      "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "Harness Redis real/worker, 82 migrations ativas, role authenticated sem BYPASSRLS e API com JWT real. CI recebe Redis descartável."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "7 passed, 0 skipped, 25,994 s. Dois tenants, RLS read/write, replay, rollback/retry, API, consentimento, opt-out e membership revogado."
         },
         "integracao_main": {
           "status": "pendente",
@@ -652,7 +652,13 @@
           "nota": "Prova de CI."
         }
       },
-      "evidencias": []
+      "evidencias": [
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "7 passed, 0 skipped, 25,994 s. Dois tenants, RLS read/write, replay, rollback/retry, API, consentimento, opt-out e membership revogado. Teste de thread não prova supervisão/rede entre processos de F3. Somente dados sintéticos e destinos loopback."
+        }
+      ]
     },
     {
       "id": "T08",

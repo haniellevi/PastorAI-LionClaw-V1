@@ -131,7 +131,7 @@ O job `rls-integration` atual tem somente PostgreSQL como serviço. Acrescentar 
 
 Adicionar provedor LLM determinístico somente no limite externo. Ele não concede tenant, papel ou autorização; cadastro e credenciais são sintéticos. Não depender de crédito/provedor real ou Asaas sandbox. Caso um gate precise abrir dentro do teste isolado para exercer o provedor falso, comprovar contenção de destinos e saída de rede, sem bypass global de produção. Isso não é necessário para a entrega mais estreita F2a.
 
-Aceite: ação autorizada e recusada sem papel; dois tenants com controles positivos e recusa cruzada sob policies reais; consentimento e opt-out; replay sem efeito duplicado; revogação entre proposta e SIM; falha antes do commit com efeito/recibo atômicos; resposta recebida no fake e visível pelo caminho autenticado do painel.
+Aceite: ação própria autorizada por vínculo e membership, recusada após revogação; API de gestão recusada sem papel; dois tenants com controles positivos e recusa cruzada sob policies reais; consentimento e opt-out; replay sem efeito duplicado; revogação entre proposta e SIM; falha antes do commit com efeito/recibo atômicos; resposta recebida no fake e visível pelo caminho autenticado do painel.
 
 Manter a fatia pequena: primeiro tornar reproduzível esse percurso; mapear e reutilizar testes existentes de assinatura, piloto, agente inativo, retry, resultado ambíguo, lease e ownership. Acrescentar lacunas em incrementos delimitados, sem reimplementar toda regressão no mesmo E2E. Antes de F5, os cenários de entrega que sua extração pode afetar precisam estar cobertos no nível apropriado.
 
