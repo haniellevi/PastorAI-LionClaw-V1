@@ -8,6 +8,10 @@ umask 022
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 alvo="${1:-todos}"
+case "$alvo" in
+  todos|backend|frontend) ;;
+  *) echo "Alvo desconhecido: '$alvo'. Use: todos, backend ou frontend." >&2; exit 2 ;;
+esac
 
 python="${PASTORAI_PYTHON:-$root/backend/.venv-runtime/bin/python}"
 node_bin="${PASTORAI_NODE_BIN:-$HOME/.nvm/versions/node/v$(cat "$root/.nvmrc")/bin}"
