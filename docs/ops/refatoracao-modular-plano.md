@@ -231,7 +231,7 @@ O plano está consolidado e reconhece os candidatos existentes. Seus reparos, as
 
 O estado vivo do plano fica em `docs/ops/acompanhamento/`: `tarefas.json` (tarefas, dependências, estado, evidências e próxima ação), `github.json` (última leitura do GitHub, somente leitura) e um painel estático (`painel.html`). O painel é uma visualização deste plano, sem calendário nem prazos. Ele mostra cinco indicadores separados por tarefa: implementação, validação local, CI, integração na `main` e publicação em DEV/PROD. Um PR verde ainda aberto aparece como validado e aguardando integração; publicação exige evidência própria.
 
-Comando: `./acompanhar.sh` atualiza a leitura do GitHub e regenera o painel; `./acompanhar.sh servir` o serve em `http://127.0.0.1:8791/`. O painel também abre direto do arquivo. Procedimento e regras de preenchimento em `docs/ops/acompanhamento/README.md`. Quando este plano mudar de ordem ou de escopo, atualizar `tarefas.json` na mesma PR.
+Dentro do Claude Code, `./acompanhar.sh mod` abre a sessão com o mod `/plano` (pipeline, barras e atividade do Claude). Comando: `./acompanhar.sh` atualiza a leitura do GitHub e regenera o painel; `./acompanhar.sh servir` o serve em `http://127.0.0.1:8791/`. O painel também abre direto do arquivo. Procedimento e regras de preenchimento em `docs/ops/acompanhamento/README.md`. Quando este plano mudar de ordem ou de escopo, atualizar `tarefas.json` na mesma PR.
 
 ## Apêndice A. Propostas retiradas ou adiadas
 

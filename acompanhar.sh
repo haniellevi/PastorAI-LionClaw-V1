@@ -4,6 +4,7 @@
 #   ./acompanhar.sh offline    regenera sem consultar o GitHub
 #   ./acompanhar.sh verificar  só valida tarefas.json
 #   ./acompanhar.sh servir     regenera e serve em http://127.0.0.1:8791/painel.html
+#   ./acompanhar.sh mod        abre o Claude Code com o mod do painel (comando /plano)
 # O painel também abre direto do arquivo docs/ops/acompanhamento/painel.html.
 set -euo pipefail
 
@@ -22,8 +23,13 @@ case "${1:-atualizar}" in
     echo "Painel em http://127.0.0.1:${porta}/painel.html (Ctrl+C encerra)"
     exec python3 -m http.server "$porta" --bind 127.0.0.1 --directory "$dir"
     ;;
+  mod)
+    command -v claude >/dev/null || { echo "claude não encontrado"; exit 1; }
+    python3 "$dir/atualizar.py" || true
+    exec claude --plugin-dir "$dir/mod"
+    ;;
   *)
-    echo "Uso: $0 [atualizar|offline|verificar|servir]" >&2
+    echo "Uso: $0 [atualizar|offline|verificar|servir|mod]" >&2
     exit 2
     ;;
 esac

@@ -18,6 +18,9 @@
 - Acompanhamento visual em [`docs/ops/acompanhamento/`](../ops/acompanhamento/README.md):
   `tarefas.json` (registro), painel estático (`painel.html`) e `./acompanhar.sh`.
   Procedimento curto registrado em `AGENTS.md`.
+- Mod do Claude Code (`docs/ops/acompanhamento/mod/`, comandos `/plano` e
+  `/plano-faixa`): pipeline e barras de progresso dentro do Claude Code, lendo
+  `dados.js`. Não carrega com `disableAllHooks` ligado.
 
 ## Decisões
 - Primeira fatia de código: simulador de WhatsApp com modo

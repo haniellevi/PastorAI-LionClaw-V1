@@ -60,3 +60,7 @@ pastorai-deploy.tar
 # ===== Runtime de ferramentas (LionClaw / code-review-graph) — nao versionar =====
 .lionclaw/
 .codegraph/
+
+# Mod do Claude Code do acompanhamento: o Claude Code gera estes arquivos ao carregar o mod.
+/docs/ops/acompanhamento/mod/.claude-plugin/types/
+/docs/ops/acompanhamento/mod/tsconfig.json

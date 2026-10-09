@@ -1,0 +1,6 @@
+{
+  "name": "acompanhamento-plano",
+  "version": "0.1.0",
+  "description": "Pipeline e barras de progresso do plano de refatoração do Igreja12, lidos de docs/ops/acompanhamento/dados.js",
+  "author": { "name": "Igreja12" }
+}

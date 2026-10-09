@@ -13,6 +13,28 @@ Painel local que mostra o andamento de [`docs/ops/refatoracao-modular-plano.md`]
 
 O painel também abre direto do arquivo `docs/ops/acompanhamento/painel.html`, sem servidor. Só é preciso Python 3 e, para a leitura do GitHub, o `gh` autenticado. Nenhum token chega ao navegador: o `gh` roda no terminal e grava o resultado em `github.json`.
 
+## Dentro do Claude Code (mod)
+
+O painel também existe como **mod do Claude Code** (`docs/ops/acompanhamento/mod/`): um painel ao lado da conversa, com o pipeline, as barras de progresso, as tarefas, os bloqueios e o que o Claude está fazendo agora. Ele só lê `docs/ops/acompanhamento/dados.js` e se atualiza a cada poucos segundos, então acompanha o que `./acompanhar.sh` grava enquanto o Claude trabalha.
+
+```bash
+./acompanhar.sh mod        # abre o Claude Code com o mod carregado (claude --plugin-dir ...)
+```
+
+No Claude Code, digite:
+
+- `/plano`: abre o painel. Teclas: `1` Pipeline, `2` Tarefas, `3` Bloqueios; na lista, Tab até uma tarefa e Enter abre os detalhes (`b` volta); Esc fecha.
+- `/plano-faixa`: liga ou desliga uma linha de progresso fixa acima do prompt (a escolha fica salva).
+
+Requisitos e cuidados:
+
+- Claude Code v2.1.287 ou mais novo no terminal (v2.1.286 no app Desktop, aba Code).
+- **O mod não carrega se `disableAllHooks` estiver ligado** nas suas configurações (por exemplo, em `.claude/settings.local.json`). Isso desliga todos os mods e hooks de configuração; o mod não altera essa chave.
+- Um mod roda com as suas permissões. Este só lê `dados.js` (`$.fs.read`/`$.fs.exists`), guarda a escolha da faixa em `$.store`, observa as chamadas de ferramenta sem alterá-las e não escreve arquivos, não usa rede nem processos. Confira com `claude plugin validate docs/ops/acompanhamento/mod`.
+- Para usar sem o script, em outra sessão: `claude --plugin-dir /caminho/para/docs/ops/acompanhamento/mod`.
+- Testes do mod: `claude plugin test` dentro de `docs/ops/acompanhamento/mod`. Não rodam no CI do produto.
+- O desenho do pane foi validado por teste nos dois apps (terminal e Desktop). Para ver o aspecto real, abra o painel numa sessão; a vista não foi conferida a olho aqui.
+
 ## Arquivos
 
 | Arquivo | Papel | Edição |
@@ -20,7 +42,8 @@ O painel também abre direto do arquivo `docs/ops/acompanhamento/painel.html`, s
 | `tarefas.json` | Tarefas, dependências, estado, indicadores, evidências, próxima ação e histórico | Manual, versionado |
 | `github.json` | Última leitura do GitHub (PRs, checks, `main`, monitor) | Gerado por `atualizar.py` |
 | `dados.js` | Junção dos dois acima, carregada pelo painel | Gerado |
-| `painel.html`, `painel.css`, `painel.js` | Visualização | Código |
+| `painel.html`, `painel.css`, `painel.js` | Visualização no navegador | Código |
+| `mod/` | Visualização dentro do Claude Code (`/plano`) | Código |
 | `atualizar.py` | Valida, consulta o GitHub e gera `dados.js` | Código |
 
 ## Procedimento ao trabalhar numa tarefa
