@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T14:00:18-03:00",
+ "gerado_em": "2026-10-09T14:08:20-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "1b9c33a2"
+  "sha": "58601b7a"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -114,14 +114,14 @@ window.PAINEL_DADOS = {
    "fase": "PREP",
    "trilha": "principal",
    "sequencia": 1,
-   "estado": "em_validacao",
+   "estado": "concluida",
    "objetivo": "Fazer os audits de backend e frontend voltarem a passar, atualizando só o necessário: LangGraph 1.2.14 (prebuilt 1.1.0, SDK 0.4.6), sharp 0.35.5 e source-map-js 1.2.2.",
    "criterio_aceite": [
     "Audits e quatro checks aprovados no candidato, sem desativar verificações nem atribuir PASS a suites que não rodaram.",
     "Depois de integrar, #461 e #462 recebem a nova base e são revalidados."
    ],
    "depende_de": [],
-   "proxima_acao": "Conferir os CIs pós-merge na main (5728ab08) e o deployment Production da frontend na Vercel. Com os CIs verdes, concluir T01 e liberar T03: atualizar a base de #461, #464 e #462 e revalidar.",
+   "proxima_acao": "Nenhuma. Próximo: T03 (atualizar a base do #461) e revalidar #464/#462 sobre a nova main.",
    "responsavel": "proprietário (autorizar integração)",
    "pr": [
     463
@@ -140,7 +140,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "PR integrado na main.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:12-03:00"
+     "consultado_em": "2026-10-09T14:08:16-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -148,13 +148,13 @@ window.PAINEL_DADOS = {
     },
     "publicacao_prod": {
      "status": "desconhecido",
-     "nota": "O merge costuma disparar a publicação Production do frontend na Vercel; nenhum registro de deployment foi encontrado ainda e o backend não é publicado por esse merge. Nada comprovado."
+     "nota": "O status Vercel do commit 5728ab08 na main é success, mas não confirmei que é o deployment Production nem o alias. O backend não é publicado por esse merge."
     },
     "ci": {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:12-03:00"
+     "consultado_em": "2026-10-09T14:08:16-03:00"
     }
    },
    "evidencias": [
@@ -197,6 +197,12 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "ci",
      "descricao": "Pós-merge na main (5728ab08), leitura logo após o merge: Tooling Static Checks concluído com sucesso; Frontend CI, E2E Critical, RLS Integration e Backend Tests ainda em andamento. Registro de deployment da Vercel: não encontrado nessa leitura."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "Os cinco workflows pós-merge da main (5728ab08) concluíram com sucesso; status Vercel do commit: success (sem confirmar o ambiente Production).",
+     "sha": "5728ab08"
     }
    ],
    "prs": [
@@ -205,8 +211,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:00:12-03:00",
-      "tentativa_em": "2026-10-09T14:00:12-03:00",
+      "consultado_em": "2026-10-09T14:08:16-03:00",
+      "tentativa_em": "2026-10-09T14:08:16-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -273,8 +279,8 @@ window.PAINEL_DADOS = {
    ],
    "dependencias_abertas": [],
    "executavel": false,
-   "situacao": "Em validação",
-   "estado_rotulo": "Em validação"
+   "situacao": "Concluída",
+   "estado_rotulo": "Concluída"
   },
   {
    "id": "T02",
@@ -310,7 +316,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:10-03:00"
+     "consultado_em": "2026-10-09T14:08:14-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -324,7 +330,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:10-03:00"
+     "consultado_em": "2026-10-09T14:08:14-03:00"
     }
    },
    "evidencias": [
@@ -354,8 +360,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:00:10-03:00",
-      "tentativa_em": "2026-10-09T14:00:10-03:00",
+      "consultado_em": "2026-10-09T14:08:14-03:00",
+      "tentativa_em": "2026-10-09T14:08:14-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -431,7 +437,7 @@ window.PAINEL_DADOS = {
    "fase": "F0D",
    "trilha": "principal",
    "sequencia": 3,
-   "estado": "bloqueada",
+   "estado": "pronta",
    "objetivo": "Levar o #461 para a main que contém o #463 e confirmar os quatro checks no novo SHA.",
    "criterio_aceite": [
     "Branch do #461 atualizada sobre a main com o #463 integrado, sem perder as mudanças do proprietário.",
@@ -440,8 +446,7 @@ window.PAINEL_DADOS = {
    "depende_de": [
     "T01"
    ],
-   "bloqueio": "O #463 ainda não foi integrado (aguarda autorização do proprietário).",
-   "proxima_acao": "Depois da integração do #463: atualizar a base do #461 (merge ou rebase da main), enviar e conferir os checks.",
+   "proxima_acao": "Atualizar a base do #461 com a main (5728ab08) e revalidar os checks. Exige push na branch do #461; aguardo sua autorização para enviar.",
    "responsavel": "Claude",
    "pr": [
     461
@@ -480,8 +485,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:00:10-03:00",
-      "tentativa_em": "2026-10-09T14:00:10-03:00",
+      "consultado_em": "2026-10-09T14:08:14-03:00",
+      "tentativa_em": "2026-10-09T14:08:14-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -546,12 +551,10 @@ window.PAINEL_DADOS = {
      }
     }
    ],
-   "dependencias_abertas": [
-    "T01"
-   ],
-   "executavel": false,
-   "situacao": "Bloqueada",
-   "estado_rotulo": "Bloqueada"
+   "dependencias_abertas": [],
+   "executavel": true,
+   "situacao": "Pronta",
+   "estado_rotulo": "Pronta"
   },
   {
    "id": "T04",
@@ -570,7 +573,7 @@ window.PAINEL_DADOS = {
    "integra_apos": [
     "T01"
    ],
-   "proxima_acao": "Após o #463 entrar na main, atualizar a base do #464 e revalidar os quatro checks.",
+   "proxima_acao": "Proprietário autoriza o merge do #464 (PR pequeno, só test-local.sh, teste e sprint; sem efeito em PROD).",
    "responsavel": "Claude",
    "pr": [
     464
@@ -582,14 +585,14 @@ window.PAINEL_DADOS = {
      "nota": "Commit 18cef626 no PR #464 (test-local.sh + teste + sprint)."
     },
     "validacao_local": {
-     "status": "parcial",
-     "nota": "Reprodução antes/depois do alvo inválido e pytest tests/test_test_local_script.py (2 passed). Suíte completa e ruff não executados; CI do PR pendente."
+     "status": "ok",
+     "nota": "Reprodução antes/depois e 2 testes locais; CI do PR verde sobre a main atual."
     },
     "integracao_main": {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:14-03:00"
+     "consultado_em": "2026-10-09T14:08:17-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -600,10 +603,10 @@ window.PAINEL_DADOS = {
      "nota": "Ferramenta local."
     },
     "ci": {
-     "status": "falhou",
-     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
+     "status": "ok",
+     "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:14-03:00"
+     "consultado_em": "2026-10-09T14:08:17-03:00"
     }
    },
    "evidencias": [
@@ -629,17 +632,24 @@ window.PAINEL_DADOS = {
      "tipo": "ci",
      "descricao": "backend-tests e frontend-ci reprovaram só no passo de audit, antes das suites: pip-audit aponta langgraph-sdk 0.3.15 (CVE-2026-104873) e npm audit --omit=dev aponta sharp (3 altas). São as dependências herdadas da main que o #463 corrige; o diff do #464 não toca manifests. e2e-critical e rls-integration: ver painel/GitHub.",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "#464 atualizado com a main pós-#463 (head a2346c43): backend-tests, frontend-ci, e2e-critical, rls-integration, tooling-static e Vercel em SUCCESS; mergeStateStatus CLEAN. Os audits agora passam.",
+     "sha": "a2346c43",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
     }
    ],
-   "aguardando": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge.",
+   "aguardando": "Autorização do proprietário para o merge do #464. Esta execução não faz merge sem ela.",
    "prs": [
     {
      "numero": 464,
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:00:14-03:00",
-      "tentativa_em": "2026-10-09T14:00:14-03:00",
+      "consultado_em": "2026-10-09T14:08:17-03:00",
+      "tentativa_em": "2026-10-09T14:08:17-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -648,50 +658,50 @@ window.PAINEL_DADOS = {
        "estado": "OPEN",
        "rascunho": false,
        "criado_em": "2026-10-09T16:07:47Z",
-       "atualizado_em": "2026-10-09T16:08:29Z",
+       "atualizado_em": "2026-10-09T17:03:17Z",
        "integrado_em": null,
        "branch": "fix/test-local-alvo-desconhecido",
        "base": "main",
-       "sha": "18cef6267801955da657403b4f96780f3a22aa8d",
-       "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+       "sha": "a2346c435ded3d59c6b13e5ef42409eed72d9596",
+       "sha_base": "5728ab08e24eb737ec731b430e82b3c74825780c",
        "mergeavel": "MERGEABLE",
        "revisao": "",
        "checks": [
         {
          "nome": "backend-tests",
          "status": "COMPLETED",
-         "conclusao": "FAILURE",
-         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848484/job/113909423818"
-        },
-        {
-         "nome": "frontend-ci",
-         "status": "COMPLETED",
-         "conclusao": "FAILURE",
-         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187670/job/113930896217"
         },
         {
          "nome": "e2e-critical",
          "status": "COMPLETED",
          "conclusao": "SUCCESS",
-         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187681/job/113930895923"
+        },
+        {
+         "nome": "frontend-ci",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187661/job/113930895960"
         },
         {
          "nome": "rls-integration",
          "status": "COMPLETED",
          "conclusao": "SUCCESS",
-         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848343/job/113909422716"
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187925/job/113930896987"
         },
         {
          "nome": "tooling-static",
          "status": "COMPLETED",
          "conclusao": "SUCCESS",
-         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848332/job/113909422696"
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187825/job/113930896528"
         },
         {
          "nome": "Vercel",
          "status": "SUCCESS",
          "conclusao": null,
-         "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/BJuZiP1DKFnXyWZcPQU4gNgbxhNH"
+         "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/Aavmkr3U3A3V2du4JyhGYcJX8m6p"
         },
         {
          "nome": "Vercel Preview Comments",
@@ -706,7 +716,7 @@ window.PAINEL_DADOS = {
    ],
    "dependencias_abertas": [],
    "executavel": false,
-   "situacao": "Em validação — CI reprovado",
+   "situacao": "Validado — aguardando integração",
    "estado_rotulo": "Em validação"
   },
   {
@@ -744,7 +754,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:11-03:00"
+     "consultado_em": "2026-10-09T14:08:15-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -758,7 +768,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:00:11-03:00"
+     "consultado_em": "2026-10-09T14:08:15-03:00"
     }
    },
    "evidencias": [
@@ -807,8 +817,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:00:11-03:00",
-      "tentativa_em": "2026-10-09T14:00:11-03:00",
+      "consultado_em": "2026-10-09T14:08:15-03:00",
+      "tentativa_em": "2026-10-09T14:08:15-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1305,7 +1315,7 @@ window.PAINEL_DADOS = {
     "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
    ],
    "depende_de": [],
-   "proxima_acao": "Proprietário autoriza a chave pública igreja12-ops-linux-20261004 (ou outra) no root da VPS nova, ou roda a leitura via \"! ssh\". Então, só leitura: SHA implantado, docker compose ps, readiness_probe_failed/error_type, host/porta/usuário (sem senha) da DATABASE_URL no container, heartbeat do cron-worker. Sem reinício, migration, troca de credencial ou deploy.",
+   "proxima_acao": "Proprietário abre uma conexão mestre no próprio terminal (ssh -i ... -o ControlMaster=yes -o ControlPath=~/.ssh/cm-nova -o ControlPersist=30m -fN igreja12-ops@host) digitando a passphrase; Claude usa o socket, só leitura, para ler SHA, serviços, readiness_probe_failed/error_type, DATABASE_URL sem senha e heartbeat do cron-worker. Comandos que exijam sudo serão pedidos um a um.",
    "responsavel": "proprietário (autorizar leitura em PROD)",
    "pr": [],
    "pr_referencia": null,
@@ -1403,9 +1413,14 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "revisao",
      "descricao": "Identidade do Supabase de PROD confirmada pelo proprietário: projeto pffafnchtxbimpwyaczq (o mesmo lido pelo conector e documentado no PRODUCTION-RUNBOOK). É declaração do proprietário, não leitura da DATABASE_URL viva da VPS nova; essa comparação continua dependendo do SSH."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "ACESSO PARCIAL — SSH em igreja12-ops@VPS nova (srv2031318): com -v, 'Server accepts key' para a chave igreja12-ops-linux-20261004, mas a sessão não conclui em modo não interativo; ssh-keygen -y com passphrase vazia falha, logo a chave tem passphrase. Para o root a autenticação foi recusada (a chave não foi autorizada nele). Nada foi lido na VPS."
     }
    ],
-   "aguardando": "Acesso SSH de leitura à VPS nova (srv2031318, usuário root): as chaves locais do projeto e o agente SSH foram recusados (Permission denied, publickey). Falta autorizar uma chave no root da VPS nova, ou o proprietário executar os comandos de leitura com \"! ssh ...\".",
+   "aguardando": "Passphrase da chave SSH digitada pelo proprietário. A chave igreja12-ops-linux-20261004 já está autorizada no usuário igreja12-ops da VPS nova e o servidor a aceita, mas ela tem passphrase e o modo não interativo não a destrava.",
    "prs": [],
    "dependencias_abertas": [],
    "executavel": false,
@@ -1472,7 +1487,7 @@ window.PAINEL_DADOS = {
    "titulo": "Atualizar o Next.js (avisos moderados)",
    "fase": "PAR",
    "trilha": "paralela",
-   "estado": "futura",
+   "estado": "pronta",
    "objetivo": "Corrigir os dois avisos moderados do Next 15.5.25, que ficam abaixo do limiar do audit, em patch próprio.",
    "criterio_aceite": [
     "Versão corretiva e compatibilidade verificadas no momento da execução; quatro checks aprovados.",
@@ -1513,19 +1528,17 @@ window.PAINEL_DADOS = {
    },
    "evidencias": [],
    "prs": [],
-   "dependencias_abertas": [
-    "T01"
-   ],
-   "executavel": false,
-   "situacao": "Futura",
-   "estado_rotulo": "Futura"
+   "dependencias_abertas": [],
+   "executavel": true,
+   "situacao": "Pronta",
+   "estado_rotulo": "Pronta"
   },
   {
    "id": "S4",
    "titulo": "Triagem das vulnerabilidades altas do grafo completo (npm ci)",
    "fase": "PAR",
    "trilha": "paralela",
-   "estado": "futura",
+   "estado": "pronta",
    "objetivo": "Diagnosticar individualmente as oito altas que o npm ci ainda relata no grafo completo, incluindo dependências de desenvolvimento, fora do recorte do audit com --omit=dev.",
    "criterio_aceite": [
     "Cada vulnerabilidade classificada (produção ou desenvolvimento, explorável ou não) com evidência.",
@@ -1572,12 +1585,10 @@ window.PAINEL_DADOS = {
     }
    ],
    "prs": [],
-   "dependencias_abertas": [
-    "T01"
-   ],
-   "executavel": false,
-   "situacao": "Futura",
-   "estado_rotulo": "Futura"
+   "dependencias_abertas": [],
+   "executavel": true,
+   "situacao": "Pronta",
+   "estado_rotulo": "Pronta"
   },
   {
    "id": "B1",
@@ -1950,16 +1961,24 @@ window.PAINEL_DADOS = {
    "tarefa": "T01",
    "pr": 463,
    "sha": "5728ab08"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "T01 concluída; #464 verde; S1 aguarda passphrase",
+   "descricao": "#463 na main com CI verde. #464 CLEAN sobre a main nova. T03 liberada. SSH: chave aceita no usuário igreja12-ops, falta destravar a passphrase.",
+   "tarefa": "T01",
+   "pr": 463,
+   "sha": "5728ab08"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T14:00:10-03:00",
+  "tentativa_em": "2026-10-09T14:08:14-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:00:10-03:00",
-    "tentativa_em": "2026-10-09T14:00:10-03:00",
+    "consultado_em": "2026-10-09T14:08:14-03:00",
+    "tentativa_em": "2026-10-09T14:08:14-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -2024,8 +2043,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:00:11-03:00",
-    "tentativa_em": "2026-10-09T14:00:11-03:00",
+    "consultado_em": "2026-10-09T14:08:15-03:00",
+    "tentativa_em": "2026-10-09T14:08:15-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2090,8 +2109,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:00:12-03:00",
-    "tentativa_em": "2026-10-09T14:00:12-03:00",
+    "consultado_em": "2026-10-09T14:08:16-03:00",
+    "tentativa_em": "2026-10-09T14:08:16-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2156,8 +2175,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:00:14-03:00",
-    "tentativa_em": "2026-10-09T14:00:14-03:00",
+    "consultado_em": "2026-10-09T14:08:17-03:00",
+    "tentativa_em": "2026-10-09T14:08:17-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2166,50 +2185,50 @@ window.PAINEL_DADOS = {
      "estado": "OPEN",
      "rascunho": false,
      "criado_em": "2026-10-09T16:07:47Z",
-     "atualizado_em": "2026-10-09T16:08:29Z",
+     "atualizado_em": "2026-10-09T17:03:17Z",
      "integrado_em": null,
      "branch": "fix/test-local-alvo-desconhecido",
      "base": "main",
-     "sha": "18cef6267801955da657403b4f96780f3a22aa8d",
-     "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+     "sha": "a2346c435ded3d59c6b13e5ef42409eed72d9596",
+     "sha_base": "5728ab08e24eb737ec731b430e82b3c74825780c",
      "mergeavel": "MERGEABLE",
      "revisao": "",
      "checks": [
       {
        "nome": "backend-tests",
        "status": "COMPLETED",
-       "conclusao": "FAILURE",
-       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848484/job/113909423818"
-      },
-      {
-       "nome": "frontend-ci",
-       "status": "COMPLETED",
-       "conclusao": "FAILURE",
-       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187670/job/113930896217"
       },
       {
        "nome": "e2e-critical",
        "status": "COMPLETED",
        "conclusao": "SUCCESS",
-       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187681/job/113930895923"
+      },
+      {
+       "nome": "frontend-ci",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187661/job/113930895960"
       },
       {
        "nome": "rls-integration",
        "status": "COMPLETED",
        "conclusao": "SUCCESS",
-       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848343/job/113909422716"
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187925/job/113930896987"
       },
       {
        "nome": "tooling-static",
        "status": "COMPLETED",
        "conclusao": "SUCCESS",
-       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848332/job/113909422696"
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37963187825/job/113930896528"
       },
       {
        "nome": "Vercel",
        "status": "SUCCESS",
        "conclusao": null,
-       "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/BJuZiP1DKFnXyWZcPQU4gNgbxhNH"
+       "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/Aavmkr3U3A3V2du4JyhGYcJX8m6p"
       },
       {
        "nome": "Vercel Preview Comments",
@@ -2223,8 +2242,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T14:00:15-03:00",
-   "tentativa_em": "2026-10-09T14:00:15-03:00",
+   "consultado_em": "2026-10-09T14:08:18-03:00",
+   "tentativa_em": "2026-10-09T14:08:18-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-09T16:59:33Z",
@@ -2236,8 +2255,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:00:16-03:00",
-    "tentativa_em": "2026-10-09T14:00:16-03:00",
+    "consultado_em": "2026-10-09T14:08:18-03:00",
+    "tentativa_em": "2026-10-09T14:08:18-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2299,27 +2318,24 @@ window.PAINEL_DADOS = {
  },
  "resumo": {
   "etapa_atual": {
-   "fase": "PREP",
-   "nome": "Preparação: dependências",
-   "tarefa": "T01",
-   "situacao": "Em validação"
+   "fase": "F0D",
+   "nome": "F0 · Documentação (#461)",
+   "tarefa": "T02",
+   "situacao": "Em validação — CI reprovado"
   },
-  "proxima_executavel": "T08",
-  "tambem_prontas": [],
+  "proxima_executavel": "T03",
+  "tambem_prontas": [
+   "T08",
+   "S3",
+   "S4"
+  ],
   "em_curso": [
-   "T01",
    "T02",
    "T04",
    "T05",
    "S1"
   ],
-  "bloqueios": [
-   {
-    "id": "T03",
-    "titulo": "Atualizar a base do #461 e revalidar",
-    "motivo": "O #463 ainda não foi integrado (aguarda autorização do proprietário)."
-   }
-  ],
+  "bloqueios": [],
   "esperas": [
    {
     "id": "T02",
@@ -2329,32 +2345,32 @@ window.PAINEL_DADOS = {
    {
     "id": "T04",
     "titulo": "test-local.sh rejeita alvo desconhecido",
-    "motivo": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge."
+    "motivo": "Autorização do proprietário para o merge do #464. Esta execução não faz merge sem ela."
    },
    {
     "id": "S1",
     "titulo": "Triagem do monitor de produção (api-readiness)",
-    "motivo": "Acesso SSH de leitura à VPS nova (srv2031318, usuário root): as chaves locais do projeto e o agente SSH foram recusados (Permission denied, publickey). Falta autorizar uma chave no root da VPS nova, ou o proprietário executar os comandos de leitura com \"! ssh ...\"."
+    "motivo": "Passphrase da chave SSH digitada pelo proprietário. A chave igreja12-ops-linux-20261004 já está autorizada no usuário igreja12-ops da VPS nova e o servidor a aceita, mas ela tem passphrase e o modo não interativo não a destrava."
    }
   ],
   "contagem": {
-   "futura": 15,
-   "pronta": 1,
+   "futura": 13,
+   "pronta": 4,
    "em_andamento": 2,
-   "em_validacao": 3,
-   "bloqueada": 1,
-   "concluida": 0
+   "em_validacao": 2,
+   "bloqueada": 0,
+   "concluida": 1
   },
   "proporcao": {
    "geral": {
-    "concluidas": 0,
+    "concluidas": 1,
     "total": 22,
-    "texto": "0 de 22 tarefas concluídas"
+    "texto": "1 de 22 tarefas concluídas"
    },
    "principal": {
-    "concluidas": 0,
+    "concluidas": 1,
     "total": 12,
-    "texto": "0 de 12 tarefas concluídas"
+    "texto": "1 de 12 tarefas concluídas"
    },
    "paralela": {
     "concluidas": 0,

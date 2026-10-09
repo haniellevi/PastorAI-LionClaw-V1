@@ -106,14 +106,14 @@
       "fase": "PREP",
       "trilha": "principal",
       "sequencia": 1,
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Fazer os audits de backend e frontend voltarem a passar, atualizando só o necessário: LangGraph 1.2.14 (prebuilt 1.1.0, SDK 0.4.6), sharp 0.35.5 e source-map-js 1.2.2.",
       "criterio_aceite": [
         "Audits e quatro checks aprovados no candidato, sem desativar verificações nem atribuir PASS a suites que não rodaram.",
         "Depois de integrar, #461 e #462 recebem a nova base e são revalidados."
       ],
       "depende_de": [],
-      "proxima_acao": "Conferir os CIs pós-merge na main (5728ab08) e o deployment Production da frontend na Vercel. Com os CIs verdes, concluir T01 e liberar T03: atualizar a base de #461, #464 e #462 e revalidar.",
+      "proxima_acao": "Nenhuma. Próximo: T03 (atualizar a base do #461) e revalidar #464/#462 sobre a nova main.",
       "responsavel": "proprietário (autorizar integração)",
       "pr": [
         463
@@ -138,7 +138,7 @@
         },
         "publicacao_prod": {
           "status": "desconhecido",
-          "nota": "O merge costuma disparar a publicação Production do frontend na Vercel; nenhum registro de deployment foi encontrado ainda e o backend não é publicado por esse merge. Nada comprovado."
+          "nota": "O status Vercel do commit 5728ab08 na main é success, mas não confirmei que é o deployment Production nem o alias. O backend não é publicado por esse merge."
         }
       },
       "evidencias": [
@@ -181,6 +181,12 @@
           "data": "2026-10-09",
           "tipo": "ci",
           "descricao": "Pós-merge na main (5728ab08), leitura logo após o merge: Tooling Static Checks concluído com sucesso; Frontend CI, E2E Critical, RLS Integration e Backend Tests ainda em andamento. Registro de deployment da Vercel: não encontrado nessa leitura."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "ci",
+          "descricao": "Os cinco workflows pós-merge da main (5728ab08) concluíram com sucesso; status Vercel do commit: success (sem confirmar o ambiente Production).",
+          "sha": "5728ab08"
         }
       ]
     },
@@ -255,7 +261,7 @@
       "fase": "F0D",
       "trilha": "principal",
       "sequencia": 3,
-      "estado": "bloqueada",
+      "estado": "pronta",
       "objetivo": "Levar o #461 para a main que contém o #463 e confirmar os quatro checks no novo SHA.",
       "criterio_aceite": [
         "Branch do #461 atualizada sobre a main com o #463 integrado, sem perder as mudanças do proprietário.",
@@ -264,8 +270,7 @@
       "depende_de": [
         "T01"
       ],
-      "bloqueio": "O #463 ainda não foi integrado (aguarda autorização do proprietário).",
-      "proxima_acao": "Depois da integração do #463: atualizar a base do #461 (merge ou rebase da main), enviar e conferir os checks.",
+      "proxima_acao": "Atualizar a base do #461 com a main (5728ab08) e revalidar os checks. Exige push na branch do #461; aguardo sua autorização para enviar.",
       "responsavel": "Claude",
       "pr": [
         461
@@ -312,7 +317,7 @@
       "integra_apos": [
         "T01"
       ],
-      "proxima_acao": "Após o #463 entrar na main, atualizar a base do #464 e revalidar os quatro checks.",
+      "proxima_acao": "Proprietário autoriza o merge do #464 (PR pequeno, só test-local.sh, teste e sprint; sem efeito em PROD).",
       "responsavel": "Claude",
       "pr": [
         464
@@ -324,8 +329,8 @@
           "nota": "Commit 18cef626 no PR #464 (test-local.sh + teste + sprint)."
         },
         "validacao_local": {
-          "status": "parcial",
-          "nota": "Reprodução antes/depois do alvo inválido e pytest tests/test_test_local_script.py (2 passed). Suíte completa e ruff não executados; CI do PR pendente."
+          "status": "ok",
+          "nota": "Reprodução antes/depois e 2 testes locais; CI do PR verde sobre a main atual."
         },
         "integracao_main": {
           "status": "pendente",
@@ -363,9 +368,16 @@
           "tipo": "ci",
           "descricao": "backend-tests e frontend-ci reprovaram só no passo de audit, antes das suites: pip-audit aponta langgraph-sdk 0.3.15 (CVE-2026-104873) e npm audit --omit=dev aponta sharp (3 altas). São as dependências herdadas da main que o #463 corrige; o diff do #464 não toca manifests. e2e-critical e rls-integration: ver painel/GitHub.",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "ci",
+          "descricao": "#464 atualizado com a main pós-#463 (head a2346c43): backend-tests, frontend-ci, e2e-critical, rls-integration, tooling-static e Vercel em SUCCESS; mergeStateStatus CLEAN. Os audits agora passam.",
+          "sha": "a2346c43",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
         }
       ],
-      "aguardando": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge."
+      "aguardando": "Autorização do proprietário para o merge do #464. Esta execução não faz merge sem ela."
     },
     {
       "id": "T05",
@@ -803,7 +815,7 @@
         "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
       ],
       "depende_de": [],
-      "proxima_acao": "Proprietário autoriza a chave pública igreja12-ops-linux-20261004 (ou outra) no root da VPS nova, ou roda a leitura via \"! ssh\". Então, só leitura: SHA implantado, docker compose ps, readiness_probe_failed/error_type, host/porta/usuário (sem senha) da DATABASE_URL no container, heartbeat do cron-worker. Sem reinício, migration, troca de credencial ou deploy.",
+      "proxima_acao": "Proprietário abre uma conexão mestre no próprio terminal (ssh -i ... -o ControlMaster=yes -o ControlPath=~/.ssh/cm-nova -o ControlPersist=30m -fN igreja12-ops@host) digitando a passphrase; Claude usa o socket, só leitura, para ler SHA, serviços, readiness_probe_failed/error_type, DATABASE_URL sem senha e heartbeat do cron-worker. Comandos que exijam sudo serão pedidos um a um.",
       "responsavel": "proprietário (autorizar leitura em PROD)",
       "pr": [],
       "pr_referencia": null,
@@ -897,9 +909,14 @@
           "data": "2026-10-09",
           "tipo": "revisao",
           "descricao": "Identidade do Supabase de PROD confirmada pelo proprietário: projeto pffafnchtxbimpwyaczq (o mesmo lido pelo conector e documentado no PRODUCTION-RUNBOOK). É declaração do proprietário, não leitura da DATABASE_URL viva da VPS nova; essa comparação continua dependendo do SSH."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "ACESSO PARCIAL — SSH em igreja12-ops@VPS nova (srv2031318): com -v, 'Server accepts key' para a chave igreja12-ops-linux-20261004, mas a sessão não conclui em modo não interativo; ssh-keygen -y com passphrase vazia falha, logo a chave tem passphrase. Para o root a autenticação foi recusada (a chave não foi autorizada nele). Nada foi lido na VPS."
         }
       ],
-      "aguardando": "Acesso SSH de leitura à VPS nova (srv2031318, usuário root): as chaves locais do projeto e o agente SSH foram recusados (Permission denied, publickey). Falta autorizar uma chave no root da VPS nova, ou o proprietário executar os comandos de leitura com \"! ssh ...\"."
+      "aguardando": "Passphrase da chave SSH digitada pelo proprietário. A chave igreja12-ops-linux-20261004 já está autorizada no usuário igreja12-ops da VPS nova e o servidor a aceita, mas ela tem passphrase e o modo não interativo não a destrava."
     },
     {
       "id": "S2",
@@ -952,7 +969,7 @@
       "titulo": "Atualizar o Next.js (avisos moderados)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "futura",
+      "estado": "pronta",
       "objetivo": "Corrigir os dois avisos moderados do Next 15.5.25, que ficam abaixo do limiar do audit, em patch próprio.",
       "criterio_aceite": [
         "Versão corretiva e compatibilidade verificadas no momento da execução; quatro checks aprovados.",
@@ -994,7 +1011,7 @@
       "titulo": "Triagem das vulnerabilidades altas do grafo completo (npm ci)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "futura",
+      "estado": "pronta",
       "objetivo": "Diagnosticar individualmente as oito altas que o npm ci ainda relata no grafo completo, incluindo dependências de desenvolvimento, fora do recorte do audit com --omit=dev.",
       "criterio_aceite": [
         "Cada vulnerabilidade classificada (produção ou desenvolvimento, explorável ou não) com evidência.",
@@ -1351,6 +1368,14 @@
       "data": "2026-10-09",
       "titulo": "PR #463 integrado na main (5728ab08)",
       "descricao": "Dependências corrigidas (LangGraph, sharp, source-map-js). CIs pós-merge em andamento; publicação do frontend não comprovada.",
+      "tarefa": "T01",
+      "pr": 463,
+      "sha": "5728ab08"
+    },
+    {
+      "data": "2026-10-09",
+      "titulo": "T01 concluída; #464 verde; S1 aguarda passphrase",
+      "descricao": "#463 na main com CI verde. #464 CLEAN sobre a main nova. T03 liberada. SSH: chave aceita no usuário igreja12-ops, falta destravar a passphrase.",
       "tarefa": "T01",
       "pr": 463,
       "sha": "5728ab08"
