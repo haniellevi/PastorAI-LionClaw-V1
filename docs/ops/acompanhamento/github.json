@@ -1,11 +1,11 @@
 {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:13:45-03:00",
+  "tentativa_em": "2026-10-09T13:25:09-03:00",
   "prs": {
     "461": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:45-03:00",
-      "tentativa_em": "2026-10-09T13:13:45-03:00",
+      "consultado_em": "2026-10-09T13:25:09-03:00",
+      "tentativa_em": "2026-10-09T13:25:09-03:00",
       "erro": null,
       "dados": {
         "numero": 461,
@@ -70,8 +70,8 @@
     },
     "462": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:45-03:00",
-      "tentativa_em": "2026-10-09T13:13:45-03:00",
+      "consultado_em": "2026-10-09T13:25:10-03:00",
+      "tentativa_em": "2026-10-09T13:25:10-03:00",
       "erro": null,
       "dados": {
         "numero": 462,
@@ -136,8 +136,8 @@
     },
     "463": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:46-03:00",
-      "tentativa_em": "2026-10-09T13:13:46-03:00",
+      "consultado_em": "2026-10-09T13:25:11-03:00",
+      "tentativa_em": "2026-10-09T13:25:11-03:00",
       "erro": null,
       "dados": {
         "numero": 463,
@@ -202,8 +202,8 @@
     },
     "464": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:47-03:00",
-      "tentativa_em": "2026-10-09T13:13:47-03:00",
+      "consultado_em": "2026-10-09T13:25:12-03:00",
+      "tentativa_em": "2026-10-09T13:25:12-03:00",
       "erro": null,
       "dados": {
         "numero": 464,
@@ -235,14 +235,14 @@
           },
           {
             "nome": "e2e-critical",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
           },
           {
             "nome": "rls-integration",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848343/job/113909422716"
           },
           {
@@ -269,8 +269,8 @@
   },
   "main": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:13:48-03:00",
-    "tentativa_em": "2026-10-09T13:13:48-03:00",
+    "consultado_em": "2026-10-09T13:25:13-03:00",
+    "tentativa_em": "2026-10-09T13:25:13-03:00",
     "erro": null,
     "dados": {
       "data": "2026-10-02T19:24:12Z",
@@ -282,8 +282,8 @@
   "monitores": {
     "production-monitor": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:49-03:00",
-      "tentativa_em": "2026-10-09T13:13:49-03:00",
+      "consultado_em": "2026-10-09T13:25:14-03:00",
+      "tentativa_em": "2026-10-09T13:25:14-03:00",
       "erro": null,
       "dados": {
         "workflow": "production-monitor.yml",

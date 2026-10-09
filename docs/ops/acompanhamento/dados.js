@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:13:50-03:00",
+ "gerado_em": "2026-10-09T13:25:15-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "e39acecf"
+  "sha": "1bf5b7c9"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:46-03:00"
+     "consultado_em": "2026-10-09T13:25:11-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:46-03:00"
+     "consultado_em": "2026-10-09T13:25:11-03:00"
     }
    },
    "evidencias": [
@@ -189,8 +189,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:46-03:00",
-      "tentativa_em": "2026-10-09T13:13:46-03:00",
+      "consultado_em": "2026-10-09T13:25:11-03:00",
+      "tentativa_em": "2026-10-09T13:25:11-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -294,7 +294,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:45-03:00"
+     "consultado_em": "2026-10-09T13:25:09-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -308,7 +308,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:45-03:00"
+     "consultado_em": "2026-10-09T13:25:09-03:00"
     }
    },
    "evidencias": [
@@ -338,8 +338,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:45-03:00",
-      "tentativa_em": "2026-10-09T13:13:45-03:00",
+      "consultado_em": "2026-10-09T13:25:09-03:00",
+      "tentativa_em": "2026-10-09T13:25:09-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -464,8 +464,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:45-03:00",
-      "tentativa_em": "2026-10-09T13:13:45-03:00",
+      "consultado_em": "2026-10-09T13:25:09-03:00",
+      "tentativa_em": "2026-10-09T13:25:09-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -573,7 +573,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:47-03:00"
+     "consultado_em": "2026-10-09T13:25:12-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -585,9 +585,9 @@ window.PAINEL_DADOS = {
     },
     "ci": {
      "status": "falhou",
-     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 0 de 4 checks obrigatórios.",
+     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:47-03:00"
+     "consultado_em": "2026-10-09T13:25:12-03:00"
     }
    },
    "evidencias": [
@@ -622,8 +622,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:47-03:00",
-      "tentativa_em": "2026-10-09T13:13:47-03:00",
+      "consultado_em": "2026-10-09T13:25:12-03:00",
+      "tentativa_em": "2026-10-09T13:25:12-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -655,14 +655,14 @@ window.PAINEL_DADOS = {
         },
         {
          "nome": "e2e-critical",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
         },
         {
          "nome": "rls-integration",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848343/job/113909422716"
         },
         {
@@ -699,7 +699,7 @@ window.PAINEL_DADOS = {
    "fase": "F2A",
    "trilha": "principal",
    "sequencia": 5,
-   "estado": "futura",
+   "estado": "em_andamento",
    "objetivo": "Corrigir o validador de destinos e o estado do fake e ajustar descrições do candidato, concluindo F2a: Evolution falsa, chat e WHATSAPP_TRANSPORTE=simulado.",
    "criterio_aceite": [
     "URL adversarial recusada nos dois sentidos (127.example.invalid, 0x7f000001, 2130706433, 167772161, IPv4 não loopback, nomes fora da lista).",
@@ -708,10 +708,8 @@ window.PAINEL_DADOS = {
     "Webhook autenticado e segredo incorreto recusado; texto e erro programado observados no fake; transporte real preservado.",
     "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
    ],
-   "depende_de": [
-    "T01"
-   ],
-   "proxima_acao": "Depois de T01 integrado: atualizar a base do #462 e aplicar as correções.",
+   "depende_de": [],
+   "proxima_acao": "Fatia 1 (em curso, local): validador de destino por sentido, com ipaddress e lista exata de nomes. Depois: estado do fake (exclusão), gates e descrição/sprint. Nada é enviado ao #462 sem sua autorização; a base só é atualizada depois do #463 integrado.",
    "responsavel": "Claude",
    "pr": [
     462
@@ -719,8 +717,8 @@ window.PAINEL_DADOS = {
    "pr_referencia": 462,
    "indicadores": {
     "implementacao": {
-     "status": "parcial",
-     "nota": "Candidato aberto (08e89282) com defeitos conhecidos."
+     "status": "em_andamento",
+     "nota": "Worktree local t05-f2a, branch local/t05-f2a-correcoes sobre o head 08e89282 do #462. Sem push."
     },
     "validacao_local": {
      "status": "parcial",
@@ -730,7 +728,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:45-03:00"
+     "consultado_em": "2026-10-09T13:25:10-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -744,7 +742,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:13:45-03:00"
+     "consultado_em": "2026-10-09T13:25:10-03:00"
     }
    },
    "evidencias": [
@@ -765,7 +763,15 @@ window.PAINEL_DADOS = {
      "tipo": "ci",
      "descricao": "Quatro testes novos aprovados dentro de 866 no job rls-integration (execução 37936670113); backend-tests e frontend-ci reprovados nos audits herdados.",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936670113"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Dependência reclassificada: T01 não é necessária para desenvolver e testar as correções da F2a (código, testes e docs do #462 independem das versões de LangGraph/sharp). T01 só é exigida para integrar, porque os audits do CI reprovam sem ela. Por isso depende_de passou a [] e integra_apos a [T01], como na T04. T07 continua dependendo de T05 por necessidade técnica (usa o fake corrigido)."
     }
+   ],
+   "integra_apos": [
+    "T01"
    ],
    "prs": [
     {
@@ -773,8 +779,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:13:45-03:00",
-      "tentativa_em": "2026-10-09T13:13:45-03:00",
+      "consultado_em": "2026-10-09T13:25:10-03:00",
+      "tentativa_em": "2026-10-09T13:25:10-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -839,12 +845,10 @@ window.PAINEL_DADOS = {
      }
     }
    ],
-   "dependencias_abertas": [
-    "T01"
-   ],
+   "dependencias_abertas": [],
    "executavel": false,
-   "situacao": "Futura",
-   "estado_rotulo": "Futura"
+   "situacao": "Em andamento",
+   "estado_rotulo": "Em andamento"
   },
   {
    "id": "T06",
@@ -860,9 +864,9 @@ window.PAINEL_DADOS = {
     "ProposalContractError e HTTP 422 mantidos nas bordas; sem migration, schema, flags, locks ou autorização alterados."
    ],
    "depende_de": [
-    "T01"
+    "T05"
    ],
-   "proxima_acao": "Depois de T01 integrado: ramo novo a partir da main, testes puros e regressão de visitante/propostas.",
+   "proxima_acao": "Segue a T05 por ordem do plano (uma fatia por vez), não por necessidade técnica. Pode ser desenvolvida em ramo próprio a partir da main; integra depois do #463.",
    "responsavel": "Claude",
    "pr": [],
    "pr_referencia": null,
@@ -892,10 +896,19 @@ window.PAINEL_DADOS = {
      "nota": "Sem PR de referência ainda."
     }
    },
-   "evidencias": [],
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "depende_de ajustado: antes T01 (só espera de merge do #463); agora T05, que reflete a sequência única do plano. A extração pura do visitante não depende tecnicamente do simulador nem do #463; só a integração exige T01 (integra_apos)."
+    }
+   ],
+   "integra_apos": [
+    "T01"
+   ],
    "prs": [],
    "dependencias_abertas": [
-    "T01"
+    "T05"
    ],
    "executavel": false,
    "situacao": "Futura",
@@ -1236,14 +1249,14 @@ window.PAINEL_DADOS = {
    "titulo": "Triagem do monitor de produção (api-readiness)",
    "fase": "PAR",
    "trilha": "paralela",
-   "estado": "bloqueada",
+   "estado": "em_andamento",
    "objetivo": "Determinar por que o Production monitor agendado falha, a partir dos registros do GitHub, sem sondagem nem intervenção em PROD.",
    "criterio_aceite": [
     "Causa registrada com evidência, ou lista do que falta para determiná-la.",
     "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
    ],
    "depende_de": [],
-   "proxima_acao": "Proprietário indica o acesso permitido (logs do backend na VPS e/ou painel do banco, somente leitura) para identificar por que a conexão ao banco falha e por que o cron-worker está indisponível. Nenhuma ação corretiva em PROD sem autorização própria.",
+   "proxima_acao": "Proprietário informa o usuário SSH do host da API (ou executa os comandos de leitura com \"! ssh ...\"). Então: confirmar servidor, serviços e SHA implantado; ler readiness_probe_failed/error_type, erros SQL e heartbeat do cron-worker, sem alterar nada. Nenhuma correção em PROD sem aprovação prévia da causa e do impacto.",
    "responsavel": "proprietário (autorizar leitura em PROD)",
    "pr": [],
    "pr_referencia": null,
@@ -1266,7 +1279,7 @@ window.PAINEL_DADOS = {
     },
     "publicacao_prod": {
      "status": "desconhecido",
-     "nota": "Estado vivo de PROD não verificado."
+     "nota": "Estado vivo do backend de PROD ainda não lido (sem SSH). Supabase lido pelo conector, somente leitura."
     },
     "ci": {
      "status": "nao_aplicavel",
@@ -1301,14 +1314,34 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "local",
      "descricao": "Consulta única, somente leitura e sem credenciais, autorizada pelo proprietário: GET https://api.igreja12.com.br/ready → HTTP 503, 3,96 s. Corpo: status=not_ready; required: database=unavailable, redis=ok; optional: evolution=ok, billing_operations=unknown; workers: queue-worker=ok, cron-worker=unavailable, broadcast-worker=ok. Isso explica o HTTPError do probe. Em backend/app/services/readiness.py, 'unavailable' cobre qualquer exceção na conexão ou consulta ao banco; a causa não aparece."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "ACESSO OBTIDO — Supabase (conector autenticado, somente leitura): projeto pffafnchtxbimpwyaczq 'Pastor-Ai-LionClaw-v1', us-west-2, ACTIVE_HEALTHY. A identidade como PROD vem do PRODUCTION-RUNBOOK (registro), não de uma DATABASE_URL viva. ACESSO NÃO OBTIDO — SSH: falta o usuário; chaves e known_hosts existem, porta 22 responde."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "DIAGNÓSTICO (logs Supavisor, janela de 24 h: 08/10 16:24Z a 09/10 16:16Z; o Supabase só retém essa janela): 1.085 falhas 'password authentication failed for user postgres' (modo session), ~45/h constantes, 0 sucessos desse cliente. Todas partem de um único IP, o mesmo para o qual api.igreja12.com.br resolve no DNS público; nenhuma parte do IP da VPS srv1728329. O pg_dump das 06:15Z autenticou com sucesso a partir de srv1728329 (backup noturno funcional). postgres_logs sem erro de consulta, permissão ou tabela; um FATAL isolado 'password authentication failed for user u' às 16:01Z (origem não analisada)."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "HIPÓTESE, NÃO PROVADA: o host da API apresenta ao pooler uma credencial rejeitada (database=unavailable no /ready seria consequência). Não comprovado: que as falhas vêm do processo do backend (e não de outro cliente no mesmo IP), o error_type de readiness_probe_failed, o estado do heartbeat do cron-worker e a causa dos alertas desde 03/10 (fora da janela de logs). database=unavailable demonstra falha do probe, que também pode falhar depois da conexão."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Divergência documental: deploy/README.md indica a VPS srv1728329 (Campinas) como atual, mas api.igreja12.com.br resolve para outro IPv4. O servidor da API ainda não está identificado nominalmente; só srv1728329 foi vista no backup."
     }
    ],
-   "bloqueio": "O sintoma está comprovado (/ready devolve 503 com database=unavailable e cron-worker=unavailable), mas o motivo da indisponibilidade do banco não: o readiness mascara qualquer exceção (conexão, timeout, consulta) como \"unavailable\". Determinar a causa exige logs do backend ou o estado do banco/projeto em PROD, o que depende de acesso autorizado pelo proprietário.",
+   "aguardando": "Acesso SSH de leitura ao host que atende a API: falta o usuário SSH (há chaves locais e o host consta em known_hosts; nenhum alias ou usuário documentado). Sem isso não há como ler o erro do readiness, os logs do backend e o heartbeat do cron-worker.",
    "prs": [],
    "dependencias_abertas": [],
    "executavel": false,
-   "situacao": "Bloqueada",
-   "estado_rotulo": "Bloqueada"
+   "situacao": "Em andamento",
+   "estado_rotulo": "Em andamento"
   },
   {
    "id": "S2",
@@ -1808,16 +1841,28 @@ window.PAINEL_DADOS = {
    "tarefa": "T04",
    "pr": 464,
    "sha": "18cef626"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "S1: acesso Supabase obtido, SSH pendente; causa ainda não provada",
+   "descricao": "1.085 falhas de autenticação no pooler vindas do IP da API; backup de srv1728329 autentica. Hipótese de credencial rejeitada no host da API, sem prova. Falta o usuário SSH.",
+   "tarefa": "S1"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "T05 iniciada; dependências T05/T06 reclassificadas",
+   "descricao": "T05 passa a depender só de si; integra após T01. T06 depende de T05 por ordem do plano.",
+   "tarefa": "T05"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:13:45-03:00",
+  "tentativa_em": "2026-10-09T13:25:09-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:13:45-03:00",
-    "tentativa_em": "2026-10-09T13:13:45-03:00",
+    "consultado_em": "2026-10-09T13:25:09-03:00",
+    "tentativa_em": "2026-10-09T13:25:09-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1882,8 +1927,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:13:45-03:00",
-    "tentativa_em": "2026-10-09T13:13:45-03:00",
+    "consultado_em": "2026-10-09T13:25:10-03:00",
+    "tentativa_em": "2026-10-09T13:25:10-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -1948,8 +1993,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:13:46-03:00",
-    "tentativa_em": "2026-10-09T13:13:46-03:00",
+    "consultado_em": "2026-10-09T13:25:11-03:00",
+    "tentativa_em": "2026-10-09T13:25:11-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2014,8 +2059,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:13:47-03:00",
-    "tentativa_em": "2026-10-09T13:13:47-03:00",
+    "consultado_em": "2026-10-09T13:25:12-03:00",
+    "tentativa_em": "2026-10-09T13:25:12-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2047,14 +2092,14 @@ window.PAINEL_DADOS = {
       },
       {
        "nome": "e2e-critical",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
       },
       {
        "nome": "rls-integration",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848343/job/113909422716"
       },
       {
@@ -2081,8 +2126,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:13:48-03:00",
-   "tentativa_em": "2026-10-09T13:13:48-03:00",
+   "consultado_em": "2026-10-09T13:25:13-03:00",
+   "tentativa_em": "2026-10-09T13:25:13-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2094,8 +2139,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:13:49-03:00",
-    "tentativa_em": "2026-10-09T13:13:49-03:00",
+    "consultado_em": "2026-10-09T13:25:14-03:00",
+    "tentativa_em": "2026-10-09T13:25:14-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2167,18 +2212,15 @@ window.PAINEL_DADOS = {
   "em_curso": [
    "T01",
    "T02",
-   "T04"
+   "T04",
+   "T05",
+   "S1"
   ],
   "bloqueios": [
    {
     "id": "T03",
     "titulo": "Atualizar a base do #461 e revalidar",
     "motivo": "O #463 ainda não foi integrado (aguarda autorização do proprietário)."
-   },
-   {
-    "id": "S1",
-    "titulo": "Triagem do monitor de produção (api-readiness)",
-    "motivo": "O sintoma está comprovado (/ready devolve 503 com database=unavailable e cron-worker=unavailable), mas o motivo da indisponibilidade do banco não: o readiness mascara qualquer exceção (conexão, timeout, consulta) como \"unavailable\". Determinar a causa exige logs do backend ou o estado do banco/projeto em PROD, o que depende de acesso autorizado pelo proprietário."
    }
   ],
   "esperas": [
@@ -2196,14 +2238,19 @@ window.PAINEL_DADOS = {
     "id": "T04",
     "titulo": "test-local.sh rejeita alvo desconhecido",
     "motivo": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge."
+   },
+   {
+    "id": "S1",
+    "titulo": "Triagem do monitor de produção (api-readiness)",
+    "motivo": "Acesso SSH de leitura ao host que atende a API: falta o usuário SSH (há chaves locais e o host consta em known_hosts; nenhum alias ou usuário documentado). Sem isso não há como ler o erro do readiness, os logs do backend e o heartbeat do cron-worker."
    }
   ],
   "contagem": {
-   "futura": 16,
+   "futura": 15,
    "pronta": 1,
-   "em_andamento": 0,
+   "em_andamento": 2,
    "em_validacao": 3,
-   "bloqueada": 2,
+   "bloqueada": 1,
    "concluida": 0
   },
   "proporcao": {
