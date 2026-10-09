@@ -404,7 +404,7 @@ export function register(on) {
         Text({ children: [' '] }),
         corpo,
         Text({ children: [' '] }),
-        Text({ dimColor: true, wrap: 'wrap', children: ['Painel gerado em ' + quando(dados.gerado_em) + (desatualizado ? ' · GitHub desatualizado' : '') + ' · rode ./acompanhar.sh para atualizar'] }),
+        Text({ dimColor: true, wrap: 'wrap', children: ['Painel gerado em ' + quando(dados.gerado_em) + (datas.length === 0 ? ' · sem dados do GitHub' : desatualizado ? ' · GitHub desatualizado' : '') + ' · rode ./acompanhar.sh para atualizar'] }),
       ],
     })
   })

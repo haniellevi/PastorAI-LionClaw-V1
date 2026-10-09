@@ -221,7 +221,9 @@
     if (falhas.length) {
       el.appendChild(h("div", null, h("span", { class: "alerta" }, "Desatualizado"), " Falha na última consulta de " +
         falhas.map(function (f) { return f.nome; }).join(", ") + ". A última evidência foi preservada."));
-    } else if (velha || !env.length) {
+    } else if (!env.length) {
+      el.appendChild(h("div", null, h("span", { class: "alerta" }, "Sem dados do GitHub"), " Nenhuma leitura neste checkout. Rode ./acompanhar.sh com o gh autenticado."));
+    } else if (velha) {
       el.appendChild(h("div", null, h("span", { class: "alerta" }, "Pode estar desatualizado"), " Leitura com mais de 24 h. Rode ./acompanhar.sh."));
     }
     if (g.aviso) el.appendChild(h("div", null, h("span", { class: "alerta" }, "Aviso"), " " + g.aviso));

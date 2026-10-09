@@ -64,3 +64,7 @@ pastorai-deploy.tar
 # Mod do Claude Code do acompanhamento: o Claude Code gera estes arquivos ao carregar o mod.
 /docs/ops/acompanhamento/mod/.claude-plugin/types/
 /docs/ops/acompanhamento/mod/tsconfig.json
+
+# Acompanhamento: arquivos gerados por ./acompanhar.sh (tarefas.json segue versionado).
+/docs/ops/acompanhamento/dados.js
+/docs/ops/acompanhamento/github.json

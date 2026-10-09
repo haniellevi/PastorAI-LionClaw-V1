@@ -415,7 +415,7 @@ def git_info() -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sem-github", action="store_true", help="não consulta o GitHub; usa github.json")
+    ap.add_argument("--sem-github", action="store_true", help="não consulta o GitHub; usa github.json se existir (arquivo local, não versionado)")
     ap.add_argument("--verificar", action="store_true", help="só valida tarefas.json (não escreve nada)")
     args = ap.parse_args()
 
@@ -437,7 +437,10 @@ def main() -> int:
 
     anterior = ler_json(GITHUB, {})
     if args.sem_github:
-        gh_dados = anterior or {"repositorio": reg["repositorio"], "prs": {}, "main": None, "monitores": {}}
+        gh_dados = anterior or {
+            "repositorio": reg["repositorio"], "prs": {}, "main": None, "monitores": {},
+            "aviso": "Sem leitura do GitHub neste checkout (github.json ausente): CI, integração na main e monitor aparecem como desconhecidos. Rode ./acompanhar.sh com o gh autenticado.",
+        }
     else:
         gh_dados = consultar_github(reg, anterior)
         GITHUB.write_text(json.dumps(gh_dados, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

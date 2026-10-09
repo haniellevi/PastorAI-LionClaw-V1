@@ -30,8 +30,10 @@
   primeira extração de domínio é só a validação do visitante (F1).
 - `npm audit --omit=dev` aprovado não significa ausência de vulnerabilidades no
   grafo completo; a triagem das altas restantes é tarefa separada (S4).
-- O painel só mostra o que está em `tarefas.json` e `github.json`; não há
-  percentual de esforço nem prazo.
+- O painel só mostra o que está em `tarefas.json` e na última leitura do GitHub
+  (`github.json`, gerado e local); não há percentual de esforço nem prazo.
+- `dados.js` e `github.json` não são versionados: em checkout novo,
+  `./acompanhar.sh offline` gera o painel com aviso de falta de dados do GitHub.
 
 ## Pendente / próximo passo
 - Integração do #463 (dependências) pelo proprietário. Depois, atualizar a base

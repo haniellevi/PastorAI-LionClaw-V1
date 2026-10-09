@@ -11,7 +11,7 @@ Painel local que mostra o andamento de [`docs/ops/refatoracao-modular-plano.md`]
 ./acompanhar.sh servir     # regenera e serve em http://127.0.0.1:8791/painel.html
 ```
 
-O painel também abre direto do arquivo `docs/ops/acompanhamento/painel.html`, sem servidor. Só é preciso Python 3 e, para a leitura do GitHub, o `gh` autenticado. Nenhum token chega ao navegador: o `gh` roda no terminal e grava o resultado em `github.json`.
+`dados.js` e `github.json` são **gerados e locais** (ignorados pelo Git; só `tarefas.json` é versionado). Em checkout novo rode `./acompanhar.sh offline` (não precisa de `gh` nem de rede): o painel é gerado com aviso explícito "Sem dados do GitHub" e CI, integração e publicação aparecem como `desconhecido` até uma leitura online. O painel abre direto do arquivo `docs/ops/acompanhamento/painel.html`, sem servidor, depois de gerado. Só é preciso Python 3 e, para a leitura do GitHub, o `gh` autenticado. Nenhum token chega ao navegador: o `gh` roda no terminal e grava o resultado em `github.json`.
 
 ## Dentro do Claude Code (mod)
 
@@ -41,8 +41,8 @@ Requisitos e cuidados:
 | Arquivo | Papel | Edição |
 |---|---|---|
 | `tarefas.json` | Tarefas, dependências, estado, indicadores, evidências, próxima ação e histórico | Manual, versionado |
-| `github.json` | Última leitura do GitHub (PRs, checks, `main`, monitor) | Gerado por `atualizar.py` |
-| `dados.js` | Junção dos dois acima, carregada pelo painel | Gerado |
+| `github.json` | Última leitura do GitHub (PRs, checks, `main`, monitor); local, não versionado | Gerado por `atualizar.py` |
+| `dados.js` | Junção dos dois acima, carregada pelo painel; local, não versionado | Gerado |
 | `painel.html`, `painel.css`, `painel.js` | Visualização no navegador | Código |
 | `mod/` | Visualização dentro do Claude Code (`/plano`) | Código |
 | `atualizar.py` | Valida, consulta o GitHub e gera `dados.js` | Código |
@@ -53,7 +53,7 @@ Requisitos e cuidados:
 2. **Concluir uma etapa** (PR aberto, teste rodado, CI verde): registre o fato em `evidencias` (data, tipo, descrição, link ou SHA) e ajuste os `indicadores`.
 3. **Bloquear:** `estado: "bloqueada"` e o motivo em `bloqueio`. Se só está esperando uma ação externa, use `aguardando` e mantenha o estado.
 4. Rode `./acompanhar.sh`. O comando valida o registro, atualiza a leitura do GitHub e regenera o painel.
-5. Commite `tarefas.json`, `github.json` e `dados.js` junto com a mudança.
+5. Commite só `tarefas.json` junto com a mudança. `dados.js` e `github.json` ficam locais; regenerá-los não cria diff.
 
 ## Regras
 
@@ -68,7 +68,7 @@ Requisitos e cuidados:
 
 ## Quando o GitHub não responde
 
-A última leitura de cada item fica em `github.json`, marcada como desatualizada, e o painel avisa no topo. Nada é apagado.
+A última leitura de cada item fica em `github.json` (local), marcada como desatualizada, e o painel avisa no topo. Nada é apagado. Sem `github.json` (checkout novo), o painel mostra "Sem dados do GitHub" até a primeira leitura online.
 
 ## Quando o plano mudar
 
