@@ -365,6 +365,16 @@ class Settings(BaseSettings):
         if transporte == "simulado":
             if self.is_production:
                 raise ValueError("WHATSAPP_TRANSPORTE=simulado é proibido em produção")
+            # Brevo e cobrança têm gates próprios, independentes de
+            # ALLOW_REAL_SENDS: a configuração sintética não pode abri-los.
+            if self.brevo_send_mode.strip().lower() != "off":
+                raise ValueError(
+                    "WHATSAPP_TRANSPORTE=simulado exige BREVO_SEND_MODE=off"
+                )
+            if self.asaas_billing_enabled:
+                raise ValueError(
+                    "WHATSAPP_TRANSPORTE=simulado exige ASAAS_BILLING_ENABLED=false"
+                )
             if not is_simulated_destination(
                 self.evolution_simulador_url, SIMULADOR_NOMES_EVOLUTION
             ):

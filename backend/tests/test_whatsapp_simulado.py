@@ -76,6 +76,25 @@ def test_producao_recusa_simulador() -> None:
         _settings(app_env="production")
 
 
+@pytest.mark.parametrize("modo", ["canary", "live", "LIVE"])
+def test_simulado_exige_brevo_desligado(modo: str) -> None:
+    with pytest.raises(ValidationError, match="BREVO_SEND_MODE=off"):
+        _settings(brevo_send_mode=modo)
+
+
+def test_simulado_exige_cobranca_asaas_desligada() -> None:
+    with pytest.raises(ValidationError, match="ASAAS_BILLING_ENABLED=false"):
+        _settings(asaas_billing_enabled=True)
+
+
+def test_configuracao_sintetica_padrao_mantem_todos_os_gates_fechados() -> None:
+    settings = _settings()
+    assert settings.brevo_send_mode == "off"
+    assert settings.asaas_billing_enabled is False
+    assert settings.external_sends_enabled is False
+    assert settings.asaas_billing_writes_enabled is False
+
+
 # Destinos que o resolvedor do sistema ou um parser frouxo trataria como interno.
 # `0x7f000001` e `2130706433` viram 127.0.0.1; `167772161` vira 10.0.0.1.
 DESTINOS_RECUSADOS = [
