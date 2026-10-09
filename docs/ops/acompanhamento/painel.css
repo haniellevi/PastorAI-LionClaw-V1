@@ -201,3 +201,35 @@ dl.indic dd { margin: 0; overflow-wrap: anywhere; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 @media print { .filtros, .abas, dialog { display: none; } }
+
+/* pipeline visual */
+.hero { padding: 16px 18px; }
+.hero-geral { margin-bottom: 14px; }
+.hero-num { font-size: 1rem; margin-bottom: 6px; }
+.barra { display: flex; gap: 3px; height: 14px; }
+.barra .seg { flex: 1 1 0; border-radius: 3px; min-width: 6px; }
+.seg { display: inline-block; border-radius: 3px; }
+.seg.e-futura { background: var(--borda); }
+.seg.e-pronta { background: var(--andamento); opacity: .55; }
+.seg.e-em_andamento { background: var(--andamento); }
+.seg.e-em_validacao { background: #d99a00; }
+.seg.e-bloqueada { background: #cf3b3b; }
+.seg.e-concluida { background: #2f9e57; }
+.pipe { list-style: none; padding: 0; margin: 0 0 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; counter-reset: etapa; }
+.etapa { position: relative; background: var(--superficie-2); border: 1px solid var(--borda); border-top-width: 4px; border-radius: 8px; }
+.etapa.f-concluida { border-top-color: #2f9e57; }
+.etapa.f-em_validacao { border-top-color: #d99a00; }
+.etapa.f-em_andamento, .etapa.f-pronta { border-top-color: var(--andamento); }
+.etapa.f-bloqueada { border-top-color: #cf3b3b; }
+.etapa.f-futura { border-top-color: var(--borda); }
+.etapa.aqui { outline: 3px solid var(--foco); outline-offset: 1px; }
+.etapa:not(:last-child)::after { content: "→"; position: absolute; right: -9px; top: 12px; color: var(--texto-2); background: var(--bg); line-height: 1; font-size: .95rem; z-index: 1; }
+.etapa-link { display: flex; flex-direction: column; gap: 6px; padding: 10px; color: inherit; text-decoration: none; height: 100%; }
+.etapa-ordem { font-size: .75rem; font-weight: 700; color: var(--texto-2); }
+.etapa-nome { font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+.etapa-cont { font-size: .78rem; color: var(--texto-2); }
+.etapa-aqui { font-size: .72rem; font-weight: 700; color: var(--foco); text-transform: uppercase; letter-spacing: .04em; }
+.legenda { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0; margin: 6px 0; font-size: .82rem; color: var(--texto-2); }
+.legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.legenda .seg { width: 18px; height: 10px; }
+@media (max-width: 640px) { .pipe { grid-template-columns: 1fr; } .etapa:not(:last-child)::after { content: "↓"; right: auto; left: 16px; top: auto; bottom: -13px; } }

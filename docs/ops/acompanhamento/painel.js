@@ -227,6 +227,64 @@
     if (g.aviso) el.appendChild(h("div", null, h("span", { class: "alerta" }, "Aviso"), " " + g.aviso));
   }
 
+
+  /* ---------- pipeline visual: etapas e barras de progresso ---------- */
+  function estadoDaFase(ts) {
+    var e = ts.map(function (t) { return t.estado; });
+    if (e.every(function (x) { return x === "concluida"; })) return "concluida";
+    if (e.indexOf("bloqueada") !== -1) return "bloqueada";
+    if (e.indexOf("em_validacao") !== -1) return "em_validacao";
+    if (e.indexOf("em_andamento") !== -1) return "em_andamento";
+    if (e.indexOf("pronta") !== -1) return "pronta";
+    return "futura";
+  }
+  function barraSegmentada(ts, rotulo) {
+    var barra = h("div", { class: "barra", role: "img", "aria-label": rotulo });
+    ts.forEach(function (t) {
+      barra.appendChild(h("span", { class: "seg e-" + t.estado, title: t.id + " · " + t.titulo + " — " + t.estado_rotulo }));
+    });
+    return barra;
+  }
+  function pipelineVisual() {
+    var r = D.resumo;
+    var principais = D.fases.filter(function (f) { return f.trilha === "principal"; }).sort(function (a, b) { return a.ordem - b.ordem; });
+    var atual = r.etapa_atual ? r.etapa_atual.fase : null;
+    var sec = h("section", { class: "cartao larga hero", "aria-labelledby": "hero-t" },
+      h("h2", { id: "hero-t", text: "Pipeline de progresso (sequência principal)" }));
+
+    // barra geral: um segmento por tarefa, colorido pelo estado
+    var princ = D.tarefas.filter(function (t) { return t.trilha === "principal"; }).sort(function (a, b) { return a.sequencia - b.sequencia; });
+    var p = r.proporcao.principal;
+    sec.appendChild(h("div", { class: "hero-geral" },
+      h("div", { class: "hero-num" }, h("strong", { text: p.concluidas + " de " + p.total }), " tarefas concluídas (" + pct(p.concluidas, p.total) + "%)"),
+      barraSegmentada(princ, "Cada segmento é uma tarefa da sequência principal; a cor mostra o estado. " + p.texto)));
+
+    var ol = h("ol", { class: "pipe", "aria-label": "Etapas em ordem" });
+    principais.forEach(function (f) {
+      var ts = D.tarefas.filter(function (t) { return t.fase === f.id; }).sort(function (a, b) { return a.sequencia - b.sequencia; });
+      var est = estadoDaFase(ts);
+      var feitas = ts.filter(function (t) { return t.estado === "concluida"; }).length;
+      var aqui = f.id === atual;
+      ol.appendChild(h("li", { class: "etapa f-" + est + (aqui ? " aqui" : ""), "aria-current": aqui ? "step" : null },
+        h("a", { href: "#quadro?fase=" + f.id, class: "etapa-link" },
+          h("span", { class: "etapa-ordem", "aria-hidden": "true", text: String(f.ordem) }),
+          h("span", { class: "etapa-nome", text: f.nome.replace(/^F\d[a-b]? · |^F0 · /, "") }),
+          h("span", { class: "chip e-" + est }, h("span", { class: "sim", "aria-hidden": "true" }, ESTADO_SIM[est]), D.estados[est]),
+          barraSegmentada(ts, f.nome + ": " + feitas + " de " + ts.length + " tarefas concluídas"),
+          h("span", { class: "etapa-cont", text: feitas + " de " + ts.length + " concluídas" }),
+          aqui ? h("span", { class: "etapa-aqui", text: "etapa atual" }) : null)));
+    });
+    sec.appendChild(ol);
+
+    var leg = h("ul", { class: "legenda", "aria-label": "Legenda das cores" });
+    ORDEM_ESTADOS.forEach(function (e) {
+      leg.appendChild(h("li", null, h("span", { class: "seg e-" + e, "aria-hidden": "true" }), D.estados[e]));
+    });
+    sec.appendChild(leg);
+    sec.appendChild(h("p", { class: "nota", text: "Cada segmento é uma tarefa; as barras contam itens, não esforço nem prazo. As trilhas paralelas e o backlog ficam fora desta sequência (veja Pipeline)." }));
+    return sec;
+  }
+
   /* ---------- visão geral ---------- */
   function cartao(titulo, filhos, classe) {
     return h("section", { class: "cartao" + (classe ? " " + classe : "") }, h("h2", { text: titulo }), filhos);
@@ -234,6 +292,8 @@
   function visaoGeral() {
     var r = D.resumo;
     var frag = document.createDocumentFragment();
+
+    frag.appendChild(h("div", { class: "grade" }, pipelineVisual()));
 
     var grade = h("div", { class: "grade" });
     // Etapa atual
