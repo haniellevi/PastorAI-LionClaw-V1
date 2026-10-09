@@ -146,7 +146,10 @@ Nesta VM o Docker usa `fuse-overlayfs`. Antes de subir containers, o boot
 precisa de `net.bridge.bridge-nf-call-iptables=0`,
 `net.bridge.bridge-nf-call-ip6tables=0` e
 `iptables-legacy -P FORWARD ACCEPT`. Sem isso os containers não se alcançam
-e o `supabase start` falha ao inicializar o schema.
+e o `supabase start` falha ao inicializar o schema. Crie
+`.dev/local-db-identity.json` como arquivo antes do `dockerd`: containers
+com `restart=unless-stopped` transformam um bind ausente em diretório e o
+backend não sobe.
 
 Sem `CLERK_*` de desenvolvimento em `.env.dev`, a API, o seed e a tela de
 login sobem; a sessão autenticada não. Não conecte o número da Filadélfia.
