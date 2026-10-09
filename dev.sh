@@ -32,6 +32,7 @@ erro() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 env_valor() { sed -n "s/^$1=//p" "$env_file" | tail -1; }
 porta_front() { local p; p=$(env_valor DEV_FRONTEND_PORT); echo "${p:-3012}"; }
 porta_api() { local p; p=$(env_valor DEV_BACKEND_PORT); echo "${p:-8000}"; }
+porta_simulador() { local p; p=$(env_valor DEV_SIMULADOR_PORT); echo "${p:-8090}"; }
 
 # --- .env.dev ----------------------------------------------------------------
 
@@ -269,6 +270,7 @@ enderecos() {
   Console plataforma  $front/admin
   API                 $api   (documentação em $api/docs)
   Banco (Studio)      http://127.0.0.1:54323
+  WhatsApp simulado   http://127.0.0.1:$(porta_simulador)
 EOF
   if [[ -z "$(env_valor CLERK_SECRET_KEY)" ]]; then
     printf '\n'

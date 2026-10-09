@@ -125,11 +125,24 @@ correspondente:
 Se o e-mail de `PLATAFORMA` for o mesmo de outro papel, essa conta também ganha
 o console.
 
-## WhatsApp no local
+## WhatsApp no local: simulador
 
-Por enquanto o WhatsApp local aparece "offline" e `ALLOW_REAL_SENDS=false`.
-Os próximos passos do plano são um simulador de WhatsApp no navegador e o guia
-do chip de teste com a Evolution local.
+O `./dev.sh up` sobe um **simulador de WhatsApp** (Evolution falsa) em
+http://127.0.0.1:8090 (`DEV_SIMULADOR_PORT`). O backend fala só com ele
+(`WHATSAPP_TRANSPORTE=simulado`), mesmo com `ALLOW_REAL_SENDS=false`; LLM,
+agenda, cobrança e e-mail continuam desligados. Produção recusa esse modo.
+
+1. No painel, em WhatsApp, clique em conectar: o simulador responde "online".
+2. No `.env.dev`, coloque o `igreja_id` da igreja local em
+   `WHATSAPP_PILOTO_IGREJA_IDS` e rode `./dev.sh down && ./dev.sh up`.
+3. Abra o simulador, preencha a instância `igreja-<igreja_id>` e um telefone
+   com DDD 00, e mande "oi". O termo LGPD volta na conversa e tudo aparece no
+   inbox do painel.
+
+O agente só responde se a igreja tiver credencial de IA validada e o agente
+ativo, como em produção. Sem `ALLOW_REAL_SENDS`, o LLM não é chamado e valem as
+respostas fixas (termo, consultas públicas). Para usar um chip de teste na
+Evolution local, defina `DEV_WHATSAPP_TRANSPORTE=real`.
 
 **Nunca conecte o número da Filadélfia no ambiente local.** O WhatsApp aceita
 vários aparelhos no mesmo número, e aí os dois bots responderiam.

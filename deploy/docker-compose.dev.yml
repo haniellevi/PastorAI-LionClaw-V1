@@ -30,6 +30,11 @@ x-backend: &backend
     REDIS_URL: redis://127.0.0.1:${DEV_REDIS_PORT:-6380}/0
     EVOLUTION_API_URL: http://127.0.0.1:${DEV_EVOLUTION_PORT:-8080}
     EVOLUTION_WEBHOOK_CALLBACK_URL: http://127.0.0.1:${DEV_BACKEND_PORT:-8000}/whatsapp/webhook
+    # WhatsApp simulado por padrão: só o simulador abaixo é alcançado, mesmo com
+    # ALLOW_REAL_SENDS=false. Para usar um chip de teste na Evolution local,
+    # defina DEV_WHATSAPP_TRANSPORTE=real no .env.dev.
+    WHATSAPP_TRANSPORTE: ${DEV_WHATSAPP_TRANSPORTE:-simulado}
+    EVOLUTION_SIMULADOR_URL: http://127.0.0.1:${DEV_SIMULADOR_PORT:-8090}
   volumes:
     - ../backend/app:/app/app:ro
     - ../backend/migrations:/app/migrations:ro
@@ -83,3 +88,29 @@ services:
   broadcast-worker:
     <<: *backend
     command: ["watchfiles", "--filter", "python", "python -m app.workers.broadcast_worker", "/app/app"]
+
+  # Evolution falsa + página de chat (backend/devtools/simulador_whatsapp.py).
+  # Abra http://127.0.0.1:${DEV_SIMULADOR_PORT:-8090} e converse como contato.
+  simulador-whatsapp:
+    <<: *backend
+    environment:
+      SIMULADOR_WEBHOOK_URL: http://127.0.0.1:${DEV_BACKEND_PORT:-8000}/whatsapp/webhook
+    volumes:
+      - ../backend/app:/app/app:ro
+      - ../backend/devtools:/app/devtools:ro
+    depends_on: {}
+    command:
+      ["uvicorn", "devtools.simulador_whatsapp:create_app_from_env", "--factory",
+       "--host", "127.0.0.1", "--port", "${DEV_SIMULADOR_PORT:-8090}"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${DEV_SIMULADOR_PORT:-8090}/simulador/saude',timeout=3).status==200 else 1)",
+        ]
+      interval: 5s
+      timeout: 5s
+      start_period: 5s
+      retries: 20

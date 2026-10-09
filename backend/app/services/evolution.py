@@ -234,7 +234,24 @@ class EvolutionClient:
                 "ative ALLOW_REAL_SENDS para alterar a conexão"
             )
 
+    def _sends_allowed(self) -> bool:
+        """Gate desta Evolution: o global, ou o simulador validado em Settings.
+
+        No modo simulado o único destino possível é EVOLUTION_SIMULADOR_URL
+        (ver ``_require_config``), então liberar aqui não abre a rede real nem
+        os demais provedores, que continuam em ``external_sends_allowed``.
+        """
+        return self._simulado() or external_sends_allowed(self._settings)
+
+    def _simulado(self) -> bool:
+        # Fail-closed: settings sem o atributo (dublês de teste) = transporte real.
+        return getattr(self._settings, "whatsapp_simulado", False) is True
+
     def _require_config(self) -> tuple[str, str]:
+        if self._simulado():
+            base_url = self._settings.evolution_simulador_url
+            # O simulador não exige chave; nunca reaproveitar a chave real nele.
+            return base_url.rstrip("/"), "simulador"
         base_url = self._settings.evolution_api_url
         api_key = self._settings.evolution_api_key
         if not base_url or not api_key:
@@ -253,7 +270,7 @@ class EvolutionClient:
         numeric **pairing code** for that number instead of a QR-only session —
         the fallback when QR scanning fails.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             self._suppress_or_reject_mutation("connect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
@@ -295,7 +312,7 @@ class EvolutionClient:
         (a plain restart alone would 404 on a never-connected instance). When
         ``numero`` is given a numeric pairing code is requested instead of a QR.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             self._suppress_or_reject_mutation("reconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
@@ -361,7 +378,7 @@ class EvolutionClient:
         the instance so a later connect reuses it (RF-07). A missing/already
         logged-out instance is treated as success (idempotent). Returns offline.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             self._suppress_or_reject_mutation("disconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
@@ -391,7 +408,7 @@ class EvolutionClient:
         """
         if not isinstance(instance, str) or not instance.strip():
             raise EvolutionError("Identificador de instância inválido")
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             self._suppress_or_reject_mutation("delete_instance")
             return False
         base_url, api_key = self._require_config()
@@ -425,7 +442,7 @@ class EvolutionClient:
         Returns True on success. Failures are normalized to EvolutionError so the
         caller can retry; the API key is never logged.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             log_suppressed("WhatsApp", "send_text")
             return False
         base_url, api_key = self._require_config()
@@ -453,7 +470,7 @@ class EvolutionClient:
         POST may duplicate a reply: Evolution has no idempotency guarantee.
         Broadcasts retain their conservative unknown-outcome policy.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             return BroadcastSendResult(
                 status="suprimido", error_class="envio_externo_bloqueado"
             )
@@ -503,7 +520,7 @@ class EvolutionClient:
         The classified path is separate from :meth:`send_text`, whose boolean
         is false when the outbound guard suppresses a real send.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             log_suppressed("WhatsApp", "broadcast_send_text")
             return BroadcastSendResult(
                 status="suprimido", error_class="envio_externo_bloqueado"
@@ -744,7 +761,7 @@ class EvolutionClient:
         raw base64 (no `data:` prefix). Returns True on success; failures are
         normalized to EvolutionError so the caller can surface a 502.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             log_suppressed("WhatsApp", "send_media")
             return False
         base_url, api_key = self._require_config()
@@ -787,7 +804,7 @@ class EvolutionClient:
         callback URL is configured. Tries the nested v2.1+ body first, falling
         back to the flat body for older shapes. Returns True when registered.
         """
-        if not external_sends_allowed(self._settings):
+        if not self._sends_allowed():
             self._suppress_or_reject_mutation("set_webhook")
             return True
         callback = (self._settings.evolution_webhook_callback_url or "").strip()

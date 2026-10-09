@@ -10,7 +10,7 @@ import re
 from functools import lru_cache
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Minimum length (chars) for a dedicated production session secret (BAIXO-001).
@@ -20,6 +20,25 @@ MIN_SESSION_SECRET_LEN = 32
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _BREVO_CANARY_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _BREVO_SEND_MODES = frozenset({"off", "canary", "live"})
+_WHATSAPP_TRANSPORTES = frozenset({"real", "simulado"})
+
+
+def is_internal_service_url(url: str) -> bool:
+    """True para http(s) em loopback ou nome de serviço sem ponto (rede do compose).
+
+    O simulador nunca pode ser um host público: com o modo ``simulado`` o
+    cliente Evolution envia mesmo com ``ALLOW_REAL_SENDS=false``, então o único
+    destino aceito é uma máquina que não é a rede do WhatsApp.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    if host in _LOOPBACK_HOSTS or host.startswith("127."):
+        return True
+    return "." not in host and ":" not in host
 
 
 def _is_valid_production_origin(url: str) -> bool:
@@ -145,6 +164,13 @@ class Settings(BaseSettings):
     # Evolution reaches the backend at — e.g. the internal container name on the
     # shared Docker network: http://pastorai_backend:8000/whatsapp/webhook
     evolution_webhook_callback_url: str = Field(default="")
+    # Transporte do WhatsApp: ``real`` (Evolution configurada acima, sujeita a
+    # ALLOW_REAL_SENDS) ou ``simulado`` (só DEV/local/testes). No modo simulado
+    # todo acesso do EvolutionClient vai para EVOLUTION_SIMULADOR_URL, mesmo com
+    # ALLOW_REAL_SENDS=false; LLM, agenda, cobrança e e-mail continuam no gate
+    # global. Produção recusa o modo simulado na partida.
+    whatsapp_transporte: str = Field(default="real")
+    evolution_simulador_url: str = Field(default="")
 
     # ---- Worker / Filas (RNF-17) --------------------------------------------
     redis_url: str = Field(default="redis://localhost:6379/0")
@@ -308,6 +334,27 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
+
+    @property
+    def whatsapp_simulado(self) -> bool:
+        """WhatsApp aponta para o simulador (validado na construção)."""
+        return self.whatsapp_transporte == "simulado"
+
+    @model_validator(mode="after")
+    def _validate_whatsapp_transporte(self) -> "Settings":
+        transporte = self.whatsapp_transporte.strip().lower()
+        if transporte not in _WHATSAPP_TRANSPORTES:
+            raise ValueError("WHATSAPP_TRANSPORTE deve ser 'real' ou 'simulado'")
+        self.whatsapp_transporte = transporte
+        if transporte == "simulado":
+            if self.is_production:
+                raise ValueError("WHATSAPP_TRANSPORTE=simulado é proibido em produção")
+            if not is_internal_service_url(self.evolution_simulador_url):
+                raise ValueError(
+                    "EVOLUTION_SIMULADOR_URL deve ser http(s) em localhost ou nome "
+                    "de serviço interno (sem domínio público)"
+                )
+        return self
 
     @property
     def external_sends_enabled(self) -> bool:
