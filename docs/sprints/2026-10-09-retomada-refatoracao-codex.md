@@ -31,3 +31,9 @@ AgentReplyIntent, ReplyReadContext, consulta com fence e projeção legada em ag
 Next 15.5.27 e eslint-config-next 15.5.27, sem salto de major. Alterações do lock limitadas aos 12 pacotes Next/ESLint/SWC correspondentes. Node 24.19.0: audit de produção limpo, lint, tsc, 1165 testes, build e smoke HTTP de headers aprovados. E2E e CI remoto pendentes.
 
 Fontes: [advisory SSG/ISR](https://github.com/advisories/GHSA-4jqv-mc3x-m676), [advisory cache](https://github.com/advisories/GHSA-mcj8-r9mp-w47p) e documentação Next via Context7, consultados em 09/10. Auditoria do grafo completo continua separada em S4.
+
+## S4: grafo completo do frontend
+
+Auditoria inicial: 8 pacotes altos e 3 moderados. Após S3 e atualização compatível de js-yaml 4.3.2, undici 7.30.0, brace-expansion 1.1.21/5.0.12 e Vitest 4.1.11: zero moderados e cinco pacotes altos ligados ao único [advisory braces sem patch](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm). São braces, micromatch, fast-glob, eslint-config-next e @next/eslint-plugin-next, no grafo de desenvolvimento. Audit de produção sem vulnerabilidades. Não executado audit fix --force nem downgrade para Next 14.
+
+A atualização do Vitest também atualiza os transitivos permitidos de Vite/Rolldown/LightningCSS e ferramentas relacionadas; não é descrita como quatro alterações isoladas. Lint, tsc, 1165 testes, build E2E e 69 E2E Chromium passaram. Build de produção/smoke final em revalidação. O aviso residual permanece visível e exige correção upstream ou uma substituição independente justificada.
