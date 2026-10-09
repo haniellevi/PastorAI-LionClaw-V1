@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Acompanhamento do plano — Igreja12</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="painel.css">
+</head>
+<body>
+  <a class="pular" href="#principal">Ir para o conteúdo</a>
+
+  <header class="topo">
+    <div class="topo-texto">
+      <h1>Acompanhamento do plano de refatoração</h1>
+      <p class="sub">Visualização de <code>docs/ops/refatoracao-modular-plano.md</code> e de <code>tarefas.json</code>. Não é um segundo plano.</p>
+    </div>
+    <div id="frescor" class="frescor" role="status"></div>
+  </header>
+
+  <nav class="abas" aria-label="Seções do painel" id="abas"></nav>
+
+  <section class="filtros" aria-label="Busca e filtros" id="filtros">
+    <div class="campo campo-busca">
+      <label for="f-busca">Buscar</label>
+      <input id="f-busca" type="search" placeholder="Título, código, PR (ex.: #462) ou fase" autocomplete="off">
+    </div>
+    <div class="campo">
+      <label for="f-fase">Fase</label>
+      <select id="f-fase"></select>
+    </div>
+    <div class="campo">
+      <label for="f-estado">Estado</label>
+      <select id="f-estado"></select>
+    </div>
+    <div class="campo">
+      <label for="f-trilha">Trilha</label>
+      <select id="f-trilha"></select>
+    </div>
+    <button type="button" id="f-limpar" class="botao">Limpar filtros</button>
+    <p id="f-contagem" class="contagem" aria-live="polite"></p>
+  </section>
+
+  <main id="principal" tabindex="-1"></main>
+
+  <dialog id="detalhe" aria-labelledby="detalhe-titulo"></dialog>
+
+  <footer class="rodape">
+    <p>Contagens são de itens cadastrados, não de esforço ou prazo. Um PR verde e aberto é “validado, aguardando integração”; publicação em DEV ou PROD exige evidência própria.
+    Para atualizar: <code>./acompanhar.sh</code> (veja <a href="README.md">README</a>).</p>
+  </footer>
+
+  <script src="dados.js"></script>
+  <script src="painel.js"></script>
+</body>
+</html>

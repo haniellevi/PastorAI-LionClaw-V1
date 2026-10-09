@@ -198,6 +198,18 @@ acontecia nela, e cada mudança era feita duas vezes (DEV e PROD). Agora:
 O DEV na nuvem foi recriado em 27/09 como espelho do schema de PROD (PR #431)
 e ficou parado. Não recebe mais migrations nem testes.
 
+**Atualização de 08/10 (substitui a tabela acima no caminho ativo):** a
+migração Supabase→Neon foi cancelada. O ambiente integrado **planejado** é um
+**DEV online** separado de PROD (ainda não existe; região, custo e executor
+pendentes): servidor, banco, Storage, Redis, filas e credenciais próprios, dados
+fictícios e integrações simuladas por padrão (WhatsApp por simulador). O alvo é
+publicá-lo automaticamente a partir da `main` verde, com PROD recebendo, por uma
+ação explícita, a revisão validada no DEV. Até lá, valem a stack local
+(opcional) e o fluxo atual. O DEV parado de 27/09 só é reaproveitado depois de
+verificar identidade, isolamento e capacidade. Ordem, critérios e limites:
+[plano único de refatoração](refatoracao-modular-plano.md); andamento em
+[acompanhamento](acompanhamento/README.md).
+
 ---
 
 ## 4. Roteiro por fases
@@ -508,11 +520,12 @@ sem declarar as próximas verticais implementadas.
      envio humano dependem de evidência específica; nenhum gate de efeitos
      externos foi alterado.
 
-Cada item segue plano de até 40 linhas aprovado pelos conselheiros, PR, Sarah,
-merge pelos gates e deploy com gate próprio. O plano S2b já está aprovado;
-S3 e V1 também possuem planos aprovados; demais fatias exigem seus planos. Mudança backend exige aviso antes
-do merge e deploy manual; nova migration mantém backup e gate de banco.
-Nenhum merge, aprovação ou teste autoriza provedores/envios reais.
+Cada item segue as regras do §3.1: PR pequeno, os quatro checks e revisão
+independente (Sarah) só para migration em PROD e mudanças de RLS/autenticação.
+Não há plano aprovado por conselheiros nem autorização nominal de merge por
+item (revisão de 09/10; o texto anterior está no histórico do Git). Nova
+migration mantém backup e gate de banco no release. Nenhum merge, aprovação ou
+teste autoriza provedores/envios reais.
 
 #### Trilha Jev histórica (J0/sombra), 26/09
 
@@ -617,6 +630,9 @@ UV e Capacitação, e Enviar editável.
 6. Maestri pausado até a Fase 3; trabalho direto, um agente por fatia.
 7. (27/09) Desenvolvimento e testes no ambiente local; PROD só por release
    (§3.5). A frente do DEV na nuvem foi encerrada e o DEV ficou parado.
+8. (08/10) Migração Neon cancelada. Decisão: desenvolvimento integrado em um
+   DEV online planejado, separado de PROD, com publicação automática no DEV e
+   ação explícita para PROD. Ainda não existe (§3.5, atualização de 08/10).
 
 ## 6. Lista de bugs e lacunas (viva)
 

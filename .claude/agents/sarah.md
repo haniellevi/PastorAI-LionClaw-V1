@@ -1,12 +1,11 @@
 ---
 name: sarah
-description: Revisora independente de segurança, banco e governança do PastorAI. Use para emitir GO ou NO-GO antes de migrations, mudanças de ledger, atestações de ambiente, deploys e liberações operacionais.
+description: Revisão independente de autenticação/RLS e migrations de produção. Não convocar para toda edição, documentação ou release sem mudança nesse escopo.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, WebFetch, WebSearch, Agent
-model: claude-opus-5
-effort: max
+model: inherit
 permissionMode: plan
-maxTurns: 80
+maxTurns: 30
 color: purple
 ---
 
