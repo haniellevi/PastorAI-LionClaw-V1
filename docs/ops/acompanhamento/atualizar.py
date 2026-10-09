@@ -256,7 +256,11 @@ def consultar_github(reg: dict, anterior: dict) -> dict:
         print(f"aviso: gh indisponível ({e}); mantendo a última leitura", file=sys.stderr)
         anterior = json.loads(json.dumps(anterior))
         anterior["tentativa_em"] = saida["tentativa_em"]
-        anterior["aviso"] = "gh indisponível; leitura anterior preservada"
+        anterior["aviso"] = (
+            "gh indisponível; leitura anterior preservada"
+            if anterior.get("prs") or anterior.get("main")
+            else "gh indisponível e sem leitura anterior neste checkout: CI, integração na main e monitor aparecem como desconhecidos"
+        )
         envs = list(anterior.get("prs", {}).values()) + list(anterior.get("monitores", {}).values()) + ([anterior["main"]] if anterior.get("main") else [])
         for env in envs:
             env["ok"] = False
