@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T14:08:20-03:00",
+ "gerado_em": "2026-10-09T14:09:38-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "58601b7a"
+  "sha": "023125e4"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -121,7 +121,7 @@ window.PAINEL_DADOS = {
     "Depois de integrar, #461 e #462 recebem a nova base e são revalidados."
    ],
    "depende_de": [],
-   "proxima_acao": "Nenhuma. Próximo: T03 (atualizar a base do #461) e revalidar #464/#462 sobre a nova main.",
+   "proxima_acao": "Nenhuma. A publicação do backend com o lock novo é parte do próximo release manual (T10/T11), com autorização própria.",
    "responsavel": "proprietário (autorizar integração)",
    "pr": [
     463
@@ -140,21 +140,21 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "PR integrado na main.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:16-03:00"
+     "consultado_em": "2026-10-09T14:09:34-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
      "nota": "O DEV online ainda não existe."
     },
     "publicacao_prod": {
-     "status": "desconhecido",
-     "nota": "O status Vercel do commit 5728ab08 na main é success, mas não confirmei que é o deployment Production nem o alias. O backend não é publicado por esse merge."
+     "status": "parcial",
+     "nota": "FRONTEND: publicado — deployment Vercel Production 6966398866 para 5728ab08, status success (17:01Z). BACKEND: não publicado — requirements.lock/requirements.txt só chegam a PROD num release manual (backend-deploy-manual.yml, workflow_dispatch); nenhum foi disparado."
     },
     "ci": {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:16-03:00"
+     "consultado_em": "2026-10-09T14:09:34-03:00"
     }
    },
    "evidencias": [
@@ -203,6 +203,13 @@ window.PAINEL_DADOS = {
      "tipo": "ci",
      "descricao": "Os cinco workflows pós-merge da main (5728ab08) concluíram com sucesso; status Vercel do commit: success (sem confirmar o ambiente Production).",
      "sha": "5728ab08"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "publicacao_prod",
+     "descricao": "Frontend: deployment Production 6966398866 (projeto Vercel pastorai-frontend-prod) para o SHA 5728ab08, criado às 17:01:08Z, último status success (leitura da API de deployments do GitHub). O que não foi verificado: alias/domínio final e smoke do app. Backend: sem publicação; o lock novo do backend (LangGraph 1.2.14, SDK 0.4.6) só entra em PROD no próximo release manual.",
+     "sha": "5728ab08",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/deployments"
     }
    ],
    "prs": [
@@ -211,8 +218,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:08:16-03:00",
-      "tentativa_em": "2026-10-09T14:08:16-03:00",
+      "consultado_em": "2026-10-09T14:09:34-03:00",
+      "tentativa_em": "2026-10-09T14:09:34-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -316,7 +323,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:14-03:00"
+     "consultado_em": "2026-10-09T14:09:33-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -330,7 +337,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:14-03:00"
+     "consultado_em": "2026-10-09T14:09:33-03:00"
     }
    },
    "evidencias": [
@@ -360,8 +367,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:08:14-03:00",
-      "tentativa_em": "2026-10-09T14:08:14-03:00",
+      "consultado_em": "2026-10-09T14:09:33-03:00",
+      "tentativa_em": "2026-10-09T14:09:33-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -437,7 +444,7 @@ window.PAINEL_DADOS = {
    "fase": "F0D",
    "trilha": "principal",
    "sequencia": 3,
-   "estado": "pronta",
+   "estado": "em_andamento",
    "objetivo": "Levar o #461 para a main que contém o #463 e confirmar os quatro checks no novo SHA.",
    "criterio_aceite": [
     "Branch do #461 atualizada sobre a main com o #463 integrado, sem perder as mudanças do proprietário.",
@@ -446,7 +453,7 @@ window.PAINEL_DADOS = {
    "depende_de": [
     "T01"
    ],
-   "proxima_acao": "Atualizar a base do #461 com a main (5728ab08) e revalidar os checks. Exige push na branch do #461; aguardo sua autorização para enviar.",
+   "proxima_acao": "Com sua autorização: git push da branch docs/passo0-regras-dev-online (fast-forward, sem force). Depois exigir backend-tests, frontend-ci, e2e-critical e rls-integration no novo SHA antes de qualquer merge.",
    "responsavel": "Claude",
    "pr": [
     461
@@ -454,16 +461,16 @@ window.PAINEL_DADOS = {
    "pr_referencia": null,
    "indicadores": {
     "implementacao": {
-     "status": "nao_iniciado",
-     "nota": ""
+     "status": "parcial",
+     "nota": "Preparada localmente: merge da main (5728ab08) na branch docs/passo0-regras-dev-online, commit 023125e4, sem conflito (git merge-tree antes). Os 13 commits locais do acompanhamento e os anteriores foram preservados (merge, sem rebase). Não enviado ao GitHub."
     },
     "validacao_local": {
-     "status": "nao_iniciado",
-     "nota": ""
+     "status": "parcial",
+     "nota": "./acompanhar.sh verificar: 22 tarefas, 0 avisos. Diff contra a main nova: 20 arquivos, só documentação, painel/mod e .gitignore; nenhum código de backend/frontend."
     },
     "integracao_main": {
      "status": "pendente",
-     "nota": ""
+     "nota": "#461 aberto, BEHIND na leitura do GitHub (head remoto a242b751, base d36ab813). Integração exige os quatro checks no NOVO SHA e autorização do proprietário."
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -478,15 +485,23 @@ window.PAINEL_DADOS = {
      "nota": "Sem PR de referência ainda."
     }
    },
-   "evidencias": [],
+   "evidencias": [
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Base do #461 preparada: git merge --no-ff origin/main (5728ab08) na branch local, commit 023125e4. Teste prévio com git merge-tree --write-tree: sem conflitos. Branch local fica 19 commits à frente da main e 0 atrás; o remoto ainda está em a242b751. O push é fast-forward (sem rebase nem force).",
+     "sha": "023125e4"
+    }
+   ],
+   "aguardando": "Autorização do proprietário para enviar (push) a branch do #461, o que dispara os checks no novo SHA. O merge do #461 não será feito sem os quatro checks aprovados nesse SHA e sem autorização.",
    "prs": [
     {
      "numero": 461,
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:08:14-03:00",
-      "tentativa_em": "2026-10-09T14:08:14-03:00",
+      "consultado_em": "2026-10-09T14:09:33-03:00",
+      "tentativa_em": "2026-10-09T14:09:33-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -552,9 +567,9 @@ window.PAINEL_DADOS = {
     }
    ],
    "dependencias_abertas": [],
-   "executavel": true,
-   "situacao": "Pronta",
-   "estado_rotulo": "Pronta"
+   "executavel": false,
+   "situacao": "Em andamento",
+   "estado_rotulo": "Em andamento"
   },
   {
    "id": "T04",
@@ -592,7 +607,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:17-03:00"
+     "consultado_em": "2026-10-09T14:09:35-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -606,7 +621,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:17-03:00"
+     "consultado_em": "2026-10-09T14:09:35-03:00"
     }
    },
    "evidencias": [
@@ -639,6 +654,12 @@ window.PAINEL_DADOS = {
      "descricao": "#464 atualizado com a main pós-#463 (head a2346c43): backend-tests, frontend-ci, e2e-critical, rls-integration, tooling-static e Vercel em SUCCESS; mergeStateStatus CLEAN. Os audits agora passam.",
      "sha": "a2346c43",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "Estado reconferido: head do #464 = a2346c43 (branch atualizada com a main 5728ab08). backend-tests, e2e-critical, frontend-ci, rls-integration, tooling-static, Vercel e Vercel Preview Comments: todos concluídos com sucesso; mergeStateStatus CLEAN. Não há check restante pendente.",
+     "sha": "a2346c43"
     }
    ],
    "aguardando": "Autorização do proprietário para o merge do #464. Esta execução não faz merge sem ela.",
@@ -648,8 +669,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:08:17-03:00",
-      "tentativa_em": "2026-10-09T14:08:17-03:00",
+      "consultado_em": "2026-10-09T14:09:35-03:00",
+      "tentativa_em": "2026-10-09T14:09:35-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -754,7 +775,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:15-03:00"
+     "consultado_em": "2026-10-09T14:09:33-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -768,7 +789,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T14:08:15-03:00"
+     "consultado_em": "2026-10-09T14:09:33-03:00"
     }
    },
    "evidencias": [
@@ -817,8 +838,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T14:08:15-03:00",
-      "tentativa_em": "2026-10-09T14:08:15-03:00",
+      "consultado_em": "2026-10-09T14:09:33-03:00",
+      "tentativa_em": "2026-10-09T14:09:33-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1969,16 +1990,24 @@ window.PAINEL_DADOS = {
    "tarefa": "T01",
    "pr": 463,
    "sha": "5728ab08"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "Deployment Production do frontend registrado; base do #461 preparada localmente",
+   "descricao": "Deployment 6966398866 success para 5728ab08 (frontend; backend não publicado). #461: merge local 023125e4 da main, sem conflito, sem push. #464: head a2346c43 com todos os checks verdes.",
+   "tarefa": "T03",
+   "pr": 461,
+   "sha": "023125e4"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T14:08:14-03:00",
+  "tentativa_em": "2026-10-09T14:09:33-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:08:14-03:00",
-    "tentativa_em": "2026-10-09T14:08:14-03:00",
+    "consultado_em": "2026-10-09T14:09:33-03:00",
+    "tentativa_em": "2026-10-09T14:09:33-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -2043,8 +2072,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:08:15-03:00",
-    "tentativa_em": "2026-10-09T14:08:15-03:00",
+    "consultado_em": "2026-10-09T14:09:33-03:00",
+    "tentativa_em": "2026-10-09T14:09:33-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2109,8 +2138,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:08:16-03:00",
-    "tentativa_em": "2026-10-09T14:08:16-03:00",
+    "consultado_em": "2026-10-09T14:09:34-03:00",
+    "tentativa_em": "2026-10-09T14:09:34-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2175,8 +2204,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:08:17-03:00",
-    "tentativa_em": "2026-10-09T14:08:17-03:00",
+    "consultado_em": "2026-10-09T14:09:35-03:00",
+    "tentativa_em": "2026-10-09T14:09:35-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2242,8 +2271,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T14:08:18-03:00",
-   "tentativa_em": "2026-10-09T14:08:18-03:00",
+   "consultado_em": "2026-10-09T14:09:36-03:00",
+   "tentativa_em": "2026-10-09T14:09:36-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-09T16:59:33Z",
@@ -2255,8 +2284,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T14:08:18-03:00",
-    "tentativa_em": "2026-10-09T14:08:18-03:00",
+    "consultado_em": "2026-10-09T14:09:36-03:00",
+    "tentativa_em": "2026-10-09T14:09:36-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2323,14 +2352,14 @@ window.PAINEL_DADOS = {
    "tarefa": "T02",
    "situacao": "Em validação — CI reprovado"
   },
-  "proxima_executavel": "T03",
+  "proxima_executavel": "T08",
   "tambem_prontas": [
-   "T08",
    "S3",
    "S4"
   ],
   "em_curso": [
    "T02",
+   "T03",
    "T04",
    "T05",
    "S1"
@@ -2341,6 +2370,11 @@ window.PAINEL_DADOS = {
     "id": "T02",
     "titulo": "Plano consolidado e painel de acompanhamento (PR #461)",
     "motivo": "CI do PR: backend-tests e frontend-ci reprovam por audits herdados da main até a base ser atualizada (T03)."
+   },
+   {
+    "id": "T03",
+    "titulo": "Atualizar a base do #461 e revalidar",
+    "motivo": "Autorização do proprietário para enviar (push) a branch do #461, o que dispara os checks no novo SHA. O merge do #461 não será feito sem os quatro checks aprovados nesse SHA e sem autorização."
    },
    {
     "id": "T04",
@@ -2355,8 +2389,8 @@ window.PAINEL_DADOS = {
   ],
   "contagem": {
    "futura": 13,
-   "pronta": 4,
-   "em_andamento": 2,
+   "pronta": 3,
+   "em_andamento": 3,
    "em_validacao": 2,
    "bloqueada": 0,
    "concluida": 1
