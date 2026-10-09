@@ -217,6 +217,12 @@ publicá-lo automaticamente a partir da `main` verde, com PROD recebendo, por um
 ação explícita, a revisão validada no DEV. Até lá, valem a stack local
 (opcional) e o fluxo atual. O DEV parado de 27/09 só é reaproveitado depois de
 verificar identidade, isolamento e capacidade. Ordem, critérios e limites:
+Retomada Codex de 09/10: 6443 testes offline, 874 integrações mais duas novas
+provas PG separadas, 1165 testes frontend e 69 E2E aprovados localmente. F3/F4
+têm preparação parcial; recursos/executor DEV, CI e integração ainda pendentes.
+Nenhum aceite de produção foi executado. Evidências e limitações na
+[sprint da retomada](../sprints/2026-10-09-retomada-refatoracao-codex.md).
+
 [plano único de refatoração](refatoracao-modular-plano.md); andamento em
 [acompanhamento](acompanhamento/README.md).
 
