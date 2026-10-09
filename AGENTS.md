@@ -109,6 +109,13 @@ sem ler seu conteúdo.
 
 ## Contrato de mudança
 
+- Iteração local reversível com dados sintéticos: implemente, teste e apresente
+  o resultado sem pedir aprovação de cada edição. Não exigir ADR, grafo,
+  pipeline ou revisão independente para ajustes comuns.
+- Use ferramentas opcionais somente quando disponíveis e úteis. Não instalar
+  ferramentas nem criar agentes adicionais como requisito de toda tarefa.
+- A fase de desenvolvimento não suspende tenant/RLS, autenticação, proteção de
+  segredos, opt-out ou autorização de efeitos em produção.
 - Trabalhe em branch ou worktree própria, com PR pequeno, e preserve
   alterações do usuário.
 - Uma fatia vertical por vez, na ordem do plano do MVP, testada de ponta a
@@ -122,13 +129,19 @@ sem ler seu conteúdo.
   `rls-integration`. Não crie testes que congelam hash de arquivo ou leem texto
   de documento.
 - Banco: migration `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback
-  comentado, aplicada com `backend/scripts/migrate.py` (local primeiro com
-  `./dev.sh`; PROD só no release, com backup antes). Ver
+  comentado, aplicada com `backend/scripts/migrate.py` (DEV ou local
+  primeiro; PROD só no release, com backup antes). Ver
   `backend/migrations/README.md`. Não use `apply_migrations.py` nem os
   wrappers catalog-bound (pausados).
-- Desenvolva e teste no ambiente local (`./dev.sh up`, dados fictícios; guia em
-  `docs/ops/AMBIENTE-LOCAL.md`). O DEV na nuvem está parado desde 27/09. Nunca
-  copie dados de PROD para o local nem conecte o número da Filadélfia nele.
+- Ambientes (decisão de 08/10): edição e testes rápidos no computador;
+  validação integrada e aceite no **DEV online** (planejado, ainda não existe),
+  separado de PROD, com dados fictícios, credenciais próprias e integrações
+  simuladas por padrão. O alvo é o DEV receber só a `main` verde,
+  automaticamente, e PROD receber um SHA validado no DEV por uma ação explícita
+  de release. Até o DEV online existir, a stack local
+  (`./dev.sh up`, `docs/ops/AMBIENTE-LOCAL.md`) é opcional, não requisito.
+  Nunca copie dados ou segredos de PROD para DEV/local nem conecte o número da
+  Filadélfia neles. Plano único: `docs/ops/refatoracao-modular-plano.md`.
 - Revisão independente só para migration em PROD e mudanças de
   RLS/autenticação.
 - Não implemente UV ou CD a partir de placeholders antes da Fase 5.
@@ -143,3 +156,12 @@ Ao fechar uma fatia:
 2. registre a fatia em `docs/sprints/AAAA-MM-DD-titulo.md`;
 3. atualize `docs/ai/PRD-COVERAGE.md` só se a classificação de um domínio
    mudar.
+
+## Acompanhamento do plano
+
+O plano técnico é `docs/ops/refatoracao-modular-plano.md`. Ao iniciar, concluir
+ou bloquear uma tarefa dele, atualize o estado, as evidências e a próxima ação
+em `docs/ops/acompanhamento/tarefas.json` e rode `./acompanhar.sh`, que valida o
+registro e regenera o painel (`docs/ops/acompanhamento/painel.html`). Não
+registre prazo, percentual de esforço, teste executado ou publicação sem
+evidência. Procedimento: `docs/ops/acompanhamento/README.md`.
