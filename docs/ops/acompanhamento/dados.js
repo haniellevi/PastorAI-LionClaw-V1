@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:08:10-03:00",
+ "gerado_em": "2026-10-09T13:10:30-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "c01c30fd"
+  "sha": "966a8474"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:06-03:00"
+     "consultado_em": "2026-10-09T13:10:26-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:06-03:00"
+     "consultado_em": "2026-10-09T13:10:26-03:00"
     }
    },
    "evidencias": [
@@ -189,8 +189,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:06-03:00",
-      "tentativa_em": "2026-10-09T13:08:06-03:00",
+      "consultado_em": "2026-10-09T13:10:26-03:00",
+      "tentativa_em": "2026-10-09T13:10:26-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -294,7 +294,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:04-03:00"
+     "consultado_em": "2026-10-09T13:10:24-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -306,9 +306,9 @@ window.PAINEL_DADOS = {
     },
     "ci": {
      "status": "falhou",
-     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 0 de 4 checks obrigatórios.",
+     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 1 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:04-03:00"
+     "consultado_em": "2026-10-09T13:10:24-03:00"
     }
    },
    "evidencias": [
@@ -338,8 +338,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:04-03:00",
-      "tentativa_em": "2026-10-09T13:08:04-03:00",
+      "consultado_em": "2026-10-09T13:10:24-03:00",
+      "tentativa_em": "2026-10-09T13:10:24-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -377,8 +377,8 @@ window.PAINEL_DADOS = {
         },
         {
          "nome": "rls-integration",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428306/job/113908002018"
         },
         {
@@ -464,8 +464,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:04-03:00",
-      "tentativa_em": "2026-10-09T13:08:04-03:00",
+      "consultado_em": "2026-10-09T13:10:24-03:00",
+      "tentativa_em": "2026-10-09T13:10:24-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -503,8 +503,8 @@ window.PAINEL_DADOS = {
         },
         {
          "nome": "rls-integration",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428306/job/113908002018"
         },
         {
@@ -554,7 +554,7 @@ window.PAINEL_DADOS = {
    "integra_apos": [
     "T01"
    ],
-   "proxima_acao": "Acompanhar os quatro checks do #464. Integrar só depois do #463 e com autorização do proprietário. Próxima tarefa executável na ordem: nenhuma além de aguardar T01 (T05/T06 dependem dele); S1 e T08 estão prontas, mas fora da sequência principal.",
+   "proxima_acao": "Após o #463 entrar na main, atualizar a base do #464 e revalidar os quatro checks.",
    "responsavel": "Claude",
    "pr": [
     464
@@ -573,7 +573,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:07-03:00"
+     "consultado_em": "2026-10-09T13:10:27-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -584,10 +584,10 @@ window.PAINEL_DADOS = {
      "nota": "Ferramenta local."
     },
     "ci": {
-     "status": "em_andamento",
-     "nota": "Em execução. Aprovados: 0 de 4.",
+     "status": "falhou",
+     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 0 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:07-03:00"
+     "consultado_em": "2026-10-09T13:10:27-03:00"
     }
    },
    "evidencias": [
@@ -607,17 +607,23 @@ window.PAINEL_DADOS = {
      "descricao": "PR #464 aberto sobre origin/main d36ab813 (branch fix/test-local-alvo-desconhecido).",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "sha": "18cef626"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "backend-tests e frontend-ci reprovaram só no passo de audit, antes das suites: pip-audit aponta langgraph-sdk 0.3.15 (CVE-2026-104873) e npm audit --omit=dev aponta sharp (3 altas). São as dependências herdadas da main que o #463 corrige; o diff do #464 não toca manifests. e2e-critical e rls-integration: ver painel/GitHub.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
     }
    ],
-   "aguardando": "CI do PR #464 e integração na main: depende da autorização do proprietário e do #463 (audits). Esta execução não faz merge.",
+   "aguardando": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge.",
    "prs": [
     {
      "numero": 464,
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:07-03:00",
-      "tentativa_em": "2026-10-09T13:08:07-03:00",
+      "consultado_em": "2026-10-09T13:10:27-03:00",
+      "tentativa_em": "2026-10-09T13:10:27-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -626,7 +632,7 @@ window.PAINEL_DADOS = {
        "estado": "OPEN",
        "rascunho": false,
        "criado_em": "2026-10-09T16:07:47Z",
-       "atualizado_em": "2026-10-09T16:07:53Z",
+       "atualizado_em": "2026-10-09T16:08:29Z",
        "integrado_em": null,
        "branch": "fix/test-local-alvo-desconhecido",
        "base": "main",
@@ -637,21 +643,21 @@ window.PAINEL_DADOS = {
        "checks": [
         {
          "nome": "backend-tests",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848484/job/113909423818"
+        },
+        {
+         "nome": "frontend-ci",
+         "status": "COMPLETED",
+         "conclusao": "FAILURE",
+         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
         },
         {
          "nome": "e2e-critical",
          "status": "IN_PROGRESS",
          "conclusao": "",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
-        },
-        {
-         "nome": "frontend-ci",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
-         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
         },
         {
          "nome": "rls-integration",
@@ -661,13 +667,13 @@ window.PAINEL_DADOS = {
         },
         {
          "nome": "tooling-static",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848332/job/113909422696"
         },
         {
          "nome": "Vercel",
-         "status": "PENDING",
+         "status": "SUCCESS",
          "conclusao": null,
          "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/BJuZiP1DKFnXyWZcPQU4gNgbxhNH"
         },
@@ -684,7 +690,7 @@ window.PAINEL_DADOS = {
    ],
    "dependencias_abertas": [],
    "executavel": false,
-   "situacao": "Em validação",
+   "situacao": "Em validação — CI reprovado",
    "estado_rotulo": "Em validação"
   },
   {
@@ -724,7 +730,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:05-03:00"
+     "consultado_em": "2026-10-09T13:10:25-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -738,7 +744,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:08:05-03:00"
+     "consultado_em": "2026-10-09T13:10:25-03:00"
     }
    },
    "evidencias": [
@@ -767,8 +773,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:05-03:00",
-      "tentativa_em": "2026-10-09T13:08:05-03:00",
+      "consultado_em": "2026-10-09T13:10:25-03:00",
+      "tentativa_em": "2026-10-09T13:10:25-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1783,12 +1789,12 @@ window.PAINEL_DADOS = {
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:08:04-03:00",
+  "tentativa_em": "2026-10-09T13:10:24-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:08:04-03:00",
-    "tentativa_em": "2026-10-09T13:08:04-03:00",
+    "consultado_em": "2026-10-09T13:10:24-03:00",
+    "tentativa_em": "2026-10-09T13:10:24-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1826,8 +1832,8 @@ window.PAINEL_DADOS = {
       },
       {
        "nome": "rls-integration",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428306/job/113908002018"
       },
       {
@@ -1853,8 +1859,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:08:05-03:00",
-    "tentativa_em": "2026-10-09T13:08:05-03:00",
+    "consultado_em": "2026-10-09T13:10:25-03:00",
+    "tentativa_em": "2026-10-09T13:10:25-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -1919,8 +1925,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:08:06-03:00",
-    "tentativa_em": "2026-10-09T13:08:06-03:00",
+    "consultado_em": "2026-10-09T13:10:26-03:00",
+    "tentativa_em": "2026-10-09T13:10:26-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -1985,8 +1991,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:08:07-03:00",
-    "tentativa_em": "2026-10-09T13:08:07-03:00",
+    "consultado_em": "2026-10-09T13:10:27-03:00",
+    "tentativa_em": "2026-10-09T13:10:27-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -1995,7 +2001,7 @@ window.PAINEL_DADOS = {
      "estado": "OPEN",
      "rascunho": false,
      "criado_em": "2026-10-09T16:07:47Z",
-     "atualizado_em": "2026-10-09T16:07:53Z",
+     "atualizado_em": "2026-10-09T16:08:29Z",
      "integrado_em": null,
      "branch": "fix/test-local-alvo-desconhecido",
      "base": "main",
@@ -2006,21 +2012,21 @@ window.PAINEL_DADOS = {
      "checks": [
       {
        "nome": "backend-tests",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
+       "status": "COMPLETED",
+       "conclusao": "FAILURE",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848484/job/113909423818"
+      },
+      {
+       "nome": "frontend-ci",
+       "status": "COMPLETED",
+       "conclusao": "FAILURE",
+       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
       },
       {
        "nome": "e2e-critical",
        "status": "IN_PROGRESS",
        "conclusao": "",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
-      },
-      {
-       "nome": "frontend-ci",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
-       "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
       },
       {
        "nome": "rls-integration",
@@ -2030,13 +2036,13 @@ window.PAINEL_DADOS = {
       },
       {
        "nome": "tooling-static",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848332/job/113909422696"
       },
       {
        "nome": "Vercel",
-       "status": "PENDING",
+       "status": "SUCCESS",
        "conclusao": null,
        "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/BJuZiP1DKFnXyWZcPQU4gNgbxhNH"
       },
@@ -2052,8 +2058,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:08:07-03:00",
-   "tentativa_em": "2026-10-09T13:08:07-03:00",
+   "consultado_em": "2026-10-09T13:10:27-03:00",
+   "tentativa_em": "2026-10-09T13:10:27-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2065,8 +2071,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:08:08-03:00",
-    "tentativa_em": "2026-10-09T13:08:08-03:00",
+    "consultado_em": "2026-10-09T13:10:28-03:00",
+    "tentativa_em": "2026-10-09T13:10:28-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2163,7 +2169,7 @@ window.PAINEL_DADOS = {
    {
     "id": "T04",
     "titulo": "test-local.sh rejeita alvo desconhecido",
-    "motivo": "CI do PR #464 e integração na main: depende da autorização do proprietário e do #463 (audits). Esta execução não faz merge."
+    "motivo": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge."
    }
   ],
   "contagem": {

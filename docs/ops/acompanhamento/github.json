@@ -1,11 +1,11 @@
 {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:08:04-03:00",
+  "tentativa_em": "2026-10-09T13:10:24-03:00",
   "prs": {
     "461": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:04-03:00",
-      "tentativa_em": "2026-10-09T13:08:04-03:00",
+      "consultado_em": "2026-10-09T13:10:24-03:00",
+      "tentativa_em": "2026-10-09T13:10:24-03:00",
       "erro": null,
       "dados": {
         "numero": 461,
@@ -43,8 +43,8 @@
           },
           {
             "nome": "rls-integration",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428306/job/113908002018"
           },
           {
@@ -70,8 +70,8 @@
     },
     "462": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:05-03:00",
-      "tentativa_em": "2026-10-09T13:08:05-03:00",
+      "consultado_em": "2026-10-09T13:10:25-03:00",
+      "tentativa_em": "2026-10-09T13:10:25-03:00",
       "erro": null,
       "dados": {
         "numero": 462,
@@ -136,8 +136,8 @@
     },
     "463": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:06-03:00",
-      "tentativa_em": "2026-10-09T13:08:06-03:00",
+      "consultado_em": "2026-10-09T13:10:26-03:00",
+      "tentativa_em": "2026-10-09T13:10:26-03:00",
       "erro": null,
       "dados": {
         "numero": 463,
@@ -202,8 +202,8 @@
     },
     "464": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:07-03:00",
-      "tentativa_em": "2026-10-09T13:08:07-03:00",
+      "consultado_em": "2026-10-09T13:10:27-03:00",
+      "tentativa_em": "2026-10-09T13:10:27-03:00",
       "erro": null,
       "dados": {
         "numero": 464,
@@ -212,7 +212,7 @@
         "estado": "OPEN",
         "rascunho": false,
         "criado_em": "2026-10-09T16:07:47Z",
-        "atualizado_em": "2026-10-09T16:07:53Z",
+        "atualizado_em": "2026-10-09T16:08:29Z",
         "integrado_em": null,
         "branch": "fix/test-local-alvo-desconhecido",
         "base": "main",
@@ -223,21 +223,21 @@
         "checks": [
           {
             "nome": "backend-tests",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
+            "status": "COMPLETED",
+            "conclusao": "FAILURE",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848484/job/113909423818"
+          },
+          {
+            "nome": "frontend-ci",
+            "status": "COMPLETED",
+            "conclusao": "FAILURE",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
           },
           {
             "nome": "e2e-critical",
             "status": "IN_PROGRESS",
             "conclusao": "",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
-          },
-          {
-            "nome": "frontend-ci",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
-            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
           },
           {
             "nome": "rls-integration",
@@ -247,13 +247,13 @@
           },
           {
             "nome": "tooling-static",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848332/job/113909422696"
           },
           {
             "nome": "Vercel",
-            "status": "PENDING",
+            "status": "SUCCESS",
             "conclusao": null,
             "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/BJuZiP1DKFnXyWZcPQU4gNgbxhNH"
           },
@@ -269,8 +269,8 @@
   },
   "main": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:08:07-03:00",
-    "tentativa_em": "2026-10-09T13:08:07-03:00",
+    "consultado_em": "2026-10-09T13:10:27-03:00",
+    "tentativa_em": "2026-10-09T13:10:27-03:00",
     "erro": null,
     "dados": {
       "data": "2026-10-02T19:24:12Z",
@@ -282,8 +282,8 @@
   "monitores": {
     "production-monitor": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:08:08-03:00",
-      "tentativa_em": "2026-10-09T13:08:08-03:00",
+      "consultado_em": "2026-10-09T13:10:28-03:00",
+      "tentativa_em": "2026-10-09T13:10:28-03:00",
       "erro": null,
       "dados": {
         "workflow": "production-monitor.yml",

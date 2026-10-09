@@ -296,7 +296,7 @@
       "integra_apos": [
         "T01"
       ],
-      "proxima_acao": "Acompanhar os quatro checks do #464. Integrar só depois do #463 e com autorização do proprietário. Próxima tarefa executável na ordem: nenhuma além de aguardar T01 (T05/T06 dependem dele); S1 e T08 estão prontas, mas fora da sequência principal.",
+      "proxima_acao": "Após o #463 entrar na main, atualizar a base do #464 e revalidar os quatro checks.",
       "responsavel": "Claude",
       "pr": [
         464
@@ -341,9 +341,15 @@
           "descricao": "PR #464 aberto sobre origin/main d36ab813 (branch fix/test-local-alvo-desconhecido).",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
           "sha": "18cef626"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "ci",
+          "descricao": "backend-tests e frontend-ci reprovaram só no passo de audit, antes das suites: pip-audit aponta langgraph-sdk 0.3.15 (CVE-2026-104873) e npm audit --omit=dev aponta sharp (3 altas). São as dependências herdadas da main que o #463 corrige; o diff do #464 não toca manifests. e2e-critical e rls-integration: ver painel/GitHub.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464/checks"
         }
       ],
-      "aguardando": "CI do PR #464 e integração na main: depende da autorização do proprietário e do #463 (audits). Esta execução não faz merge."
+      "aguardando": "Integração do #463 (corrige os audits), depois rebase/revalidação do #464 e autorização do proprietário. Esta execução não faz merge."
     },
     {
       "id": "T05",
