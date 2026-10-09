@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:10:30-03:00",
+ "gerado_em": "2026-10-09T13:11:30-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "966a8474"
+  "sha": "a210d893"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:26-03:00"
+     "consultado_em": "2026-10-09T13:11:25-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:26-03:00"
+     "consultado_em": "2026-10-09T13:11:25-03:00"
     }
    },
    "evidencias": [
@@ -189,8 +189,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:26-03:00",
-      "tentativa_em": "2026-10-09T13:10:26-03:00",
+      "consultado_em": "2026-10-09T13:11:25-03:00",
+      "tentativa_em": "2026-10-09T13:11:25-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -294,7 +294,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:24-03:00"
+     "consultado_em": "2026-10-09T13:11:24-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -306,9 +306,9 @@ window.PAINEL_DADOS = {
     },
     "ci": {
      "status": "falhou",
-     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 1 de 4 checks obrigatórios.",
+     "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:24-03:00"
+     "consultado_em": "2026-10-09T13:11:24-03:00"
     }
    },
    "evidencias": [
@@ -338,8 +338,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:24-03:00",
-      "tentativa_em": "2026-10-09T13:10:24-03:00",
+      "consultado_em": "2026-10-09T13:11:24-03:00",
+      "tentativa_em": "2026-10-09T13:11:24-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -371,8 +371,8 @@ window.PAINEL_DADOS = {
         },
         {
          "nome": "e2e-critical",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428341/job/113908001733"
         },
         {
@@ -464,8 +464,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:24-03:00",
-      "tentativa_em": "2026-10-09T13:10:24-03:00",
+      "consultado_em": "2026-10-09T13:11:24-03:00",
+      "tentativa_em": "2026-10-09T13:11:24-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -497,8 +497,8 @@ window.PAINEL_DADOS = {
         },
         {
          "nome": "e2e-critical",
-         "status": "IN_PROGRESS",
-         "conclusao": "",
+         "status": "COMPLETED",
+         "conclusao": "SUCCESS",
          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428341/job/113908001733"
         },
         {
@@ -573,7 +573,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:27-03:00"
+     "consultado_em": "2026-10-09T13:11:26-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -587,7 +587,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 0 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:27-03:00"
+     "consultado_em": "2026-10-09T13:11:26-03:00"
     }
    },
    "evidencias": [
@@ -622,8 +622,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:27-03:00",
-      "tentativa_em": "2026-10-09T13:10:27-03:00",
+      "consultado_em": "2026-10-09T13:11:26-03:00",
+      "tentativa_em": "2026-10-09T13:11:26-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -730,7 +730,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:25-03:00"
+     "consultado_em": "2026-10-09T13:11:24-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -744,7 +744,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:10:25-03:00"
+     "consultado_em": "2026-10-09T13:11:24-03:00"
     }
    },
    "evidencias": [
@@ -773,8 +773,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:25-03:00",
-      "tentativa_em": "2026-10-09T13:10:25-03:00",
+      "consultado_em": "2026-10-09T13:11:24-03:00",
+      "tentativa_em": "2026-10-09T13:11:24-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1236,25 +1236,25 @@ window.PAINEL_DADOS = {
    "titulo": "Triagem do monitor de produção (api-readiness)",
    "fase": "PAR",
    "trilha": "paralela",
-   "estado": "pronta",
+   "estado": "bloqueada",
    "objetivo": "Determinar por que o Production monitor agendado falha, a partir dos registros do GitHub, sem sondagem nem intervenção em PROD.",
    "criterio_aceite": [
     "Causa registrada com evidência, ou lista do que falta para determiná-la.",
     "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
    ],
    "depende_de": [],
-   "proxima_acao": "Ler os logs das execuções falhas (somente leitura) e registrar o resultado. O sinal está resumido no plano, seção 2.",
-   "responsavel": "Claude",
+   "proxima_acao": "Proprietário autoriza uma consulta única e somente leitura ao /ready público (ou fornece logs/estado do backend). Depois, registrar a causa.",
+   "responsavel": "proprietário (autorizar leitura em PROD)",
    "pr": [],
    "pr_referencia": null,
    "indicadores": {
     "implementacao": {
      "status": "nao_aplicavel",
-     "nota": "Triagem."
+     "nota": "Triagem somente leitura; sem código."
     },
     "validacao_local": {
      "status": "nao_aplicavel",
-     "nota": "Triagem."
+     "nota": "Triagem somente leitura; sem código."
     },
     "integracao_main": {
      "status": "nao_aplicavel",
@@ -1279,13 +1279,31 @@ window.PAINEL_DADOS = {
      "tipo": "ci",
      "descricao": "As execuções agendadas do Production monitor falham continuamente desde 03/10 às 16:19 UTC (leitura do GitHub); o último schedule reprova o passo \"Fail workflow when production is unhealthy\" do job public-health. Causa não determinada.",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/workflows/production-monitor.yml"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "Execução 37936062411 (09/10 13:19 UTC, SHA d36ab813): api-liveness, app-public, admin-public e painel-public com 'HTTP 200 HTTPS'; apenas api-readiness falha com 'indisponivel (HTTPError)'. As duas execuções anteriores (37892253023, 37862292229) falham igualmente, segundo a listagem de execuções.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936062411"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "deploy/monitoring/external_probe.py grava 'indisponivel (<tipo da exceção>)' para qualquer exceção do urllib; HTTPError é resposta não 2xx. backend/app/services/readiness.py devolve 503 quando status='not_ready' (banco/Redis obrigatórios), mas um 502/504 de proxy produziria o mesmo HTTPError. O código e o corpo não aparecem no log: causa não comprovada."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "pr",
+     "descricao": "Issue de incidente deduplicada #459 ('[Monitor] Produção PastorAI indisponível') aberta desde 03/10 16:19 UTC, atualizada pelo monitor, sem comentários.",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/issues/459"
     }
    ],
+   "bloqueio": "Causa não determinável só com os registros do GitHub: o probe descarta o código e o corpo da resposta de /ready. Falta o código HTTP e o campo \"required\" do corpo de https://api.igreja12.com.br/ready, ou logs do backend em PROD. Ambos exigem autorização do proprietário (sondagem/leitura em PROD).",
    "prs": [],
    "dependencias_abertas": [],
-   "executavel": true,
-   "situacao": "Pronta",
-   "estado_rotulo": "Pronta"
+   "executavel": false,
+   "situacao": "Bloqueada",
+   "estado_rotulo": "Bloqueada"
   },
   {
    "id": "S2",
@@ -1789,12 +1807,12 @@ window.PAINEL_DADOS = {
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:10:24-03:00",
+  "tentativa_em": "2026-10-09T13:11:24-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:10:24-03:00",
-    "tentativa_em": "2026-10-09T13:10:24-03:00",
+    "consultado_em": "2026-10-09T13:11:24-03:00",
+    "tentativa_em": "2026-10-09T13:11:24-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1826,8 +1844,8 @@ window.PAINEL_DADOS = {
       },
       {
        "nome": "e2e-critical",
-       "status": "IN_PROGRESS",
-       "conclusao": "",
+       "status": "COMPLETED",
+       "conclusao": "SUCCESS",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428341/job/113908001733"
       },
       {
@@ -1859,8 +1877,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:10:25-03:00",
-    "tentativa_em": "2026-10-09T13:10:25-03:00",
+    "consultado_em": "2026-10-09T13:11:24-03:00",
+    "tentativa_em": "2026-10-09T13:11:24-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -1925,8 +1943,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:10:26-03:00",
-    "tentativa_em": "2026-10-09T13:10:26-03:00",
+    "consultado_em": "2026-10-09T13:11:25-03:00",
+    "tentativa_em": "2026-10-09T13:11:25-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -1991,8 +2009,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:10:27-03:00",
-    "tentativa_em": "2026-10-09T13:10:27-03:00",
+    "consultado_em": "2026-10-09T13:11:26-03:00",
+    "tentativa_em": "2026-10-09T13:11:26-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2058,8 +2076,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:10:27-03:00",
-   "tentativa_em": "2026-10-09T13:10:27-03:00",
+   "consultado_em": "2026-10-09T13:11:27-03:00",
+   "tentativa_em": "2026-10-09T13:11:27-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2071,8 +2089,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:10:28-03:00",
-    "tentativa_em": "2026-10-09T13:10:28-03:00",
+    "consultado_em": "2026-10-09T13:11:28-03:00",
+    "tentativa_em": "2026-10-09T13:11:28-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2140,9 +2158,7 @@ window.PAINEL_DADOS = {
    "situacao": "Validado — aguardando integração"
   },
   "proxima_executavel": "T08",
-  "tambem_prontas": [
-   "S1"
-  ],
+  "tambem_prontas": [],
   "em_curso": [
    "T01",
    "T02",
@@ -2153,6 +2169,11 @@ window.PAINEL_DADOS = {
     "id": "T03",
     "titulo": "Atualizar a base do #461 e revalidar",
     "motivo": "O #463 ainda não foi integrado (aguarda autorização do proprietário)."
+   },
+   {
+    "id": "S1",
+    "titulo": "Triagem do monitor de produção (api-readiness)",
+    "motivo": "Causa não determinável só com os registros do GitHub: o probe descarta o código e o corpo da resposta de /ready. Falta o código HTTP e o campo \"required\" do corpo de https://api.igreja12.com.br/ready, ou logs do backend em PROD. Ambos exigem autorização do proprietário (sondagem/leitura em PROD)."
    }
   ],
   "esperas": [
@@ -2174,10 +2195,10 @@ window.PAINEL_DADOS = {
   ],
   "contagem": {
    "futura": 16,
-   "pronta": 2,
+   "pronta": 1,
    "em_andamento": 0,
    "em_validacao": 3,
-   "bloqueada": 1,
+   "bloqueada": 2,
    "concluida": 0
   },
   "proporcao": {

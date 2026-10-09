@@ -732,25 +732,25 @@
       "titulo": "Triagem do monitor de produção (api-readiness)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "pronta",
+      "estado": "bloqueada",
       "objetivo": "Determinar por que o Production monitor agendado falha, a partir dos registros do GitHub, sem sondagem nem intervenção em PROD.",
       "criterio_aceite": [
         "Causa registrada com evidência, ou lista do que falta para determiná-la.",
         "Nenhuma ação em PROD sem autorização própria; sem atribuir causa ou código HTTP não comprovados."
       ],
       "depende_de": [],
-      "proxima_acao": "Ler os logs das execuções falhas (somente leitura) e registrar o resultado. O sinal está resumido no plano, seção 2.",
-      "responsavel": "Claude",
+      "proxima_acao": "Proprietário autoriza uma consulta única e somente leitura ao /ready público (ou fornece logs/estado do backend). Depois, registrar a causa.",
+      "responsavel": "proprietário (autorizar leitura em PROD)",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
           "status": "nao_aplicavel",
-          "nota": "Triagem."
+          "nota": "Triagem somente leitura; sem código."
         },
         "validacao_local": {
           "status": "nao_aplicavel",
-          "nota": "Triagem."
+          "nota": "Triagem somente leitura; sem código."
         },
         "integracao_main": {
           "status": "nao_aplicavel",
@@ -771,8 +771,26 @@
           "tipo": "ci",
           "descricao": "As execuções agendadas do Production monitor falham continuamente desde 03/10 às 16:19 UTC (leitura do GitHub); o último schedule reprova o passo \"Fail workflow when production is unhealthy\" do job public-health. Causa não determinada.",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/workflows/production-monitor.yml"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "ci",
+          "descricao": "Execução 37936062411 (09/10 13:19 UTC, SHA d36ab813): api-liveness, app-public, admin-public e painel-public com 'HTTP 200 HTTPS'; apenas api-readiness falha com 'indisponivel (HTTPError)'. As duas execuções anteriores (37892253023, 37862292229) falham igualmente, segundo a listagem de execuções.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37936062411"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "revisao",
+          "descricao": "deploy/monitoring/external_probe.py grava 'indisponivel (<tipo da exceção>)' para qualquer exceção do urllib; HTTPError é resposta não 2xx. backend/app/services/readiness.py devolve 503 quando status='not_ready' (banco/Redis obrigatórios), mas um 502/504 de proxy produziria o mesmo HTTPError. O código e o corpo não aparecem no log: causa não comprovada."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "pr",
+          "descricao": "Issue de incidente deduplicada #459 ('[Monitor] Produção PastorAI indisponível') aberta desde 03/10 16:19 UTC, atualizada pelo monitor, sem comentários.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/issues/459"
         }
-      ]
+      ],
+      "bloqueio": "Causa não determinável só com os registros do GitHub: o probe descarta o código e o corpo da resposta de /ready. Falta o código HTTP e o campo \"required\" do corpo de https://api.igreja12.com.br/ready, ou logs do backend em PROD. Ambos exigem autorização do proprietário (sondagem/leitura em PROD)."
     },
     {
       "id": "S2",

@@ -1,11 +1,11 @@
 {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:10:24-03:00",
+  "tentativa_em": "2026-10-09T13:11:24-03:00",
   "prs": {
     "461": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:24-03:00",
-      "tentativa_em": "2026-10-09T13:10:24-03:00",
+      "consultado_em": "2026-10-09T13:11:24-03:00",
+      "tentativa_em": "2026-10-09T13:11:24-03:00",
       "erro": null,
       "dados": {
         "numero": 461,
@@ -37,8 +37,8 @@
           },
           {
             "nome": "e2e-critical",
-            "status": "IN_PROGRESS",
-            "conclusao": "",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
             "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956428341/job/113908001733"
           },
           {
@@ -70,8 +70,8 @@
     },
     "462": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:25-03:00",
-      "tentativa_em": "2026-10-09T13:10:25-03:00",
+      "consultado_em": "2026-10-09T13:11:24-03:00",
+      "tentativa_em": "2026-10-09T13:11:24-03:00",
       "erro": null,
       "dados": {
         "numero": 462,
@@ -136,8 +136,8 @@
     },
     "463": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:26-03:00",
-      "tentativa_em": "2026-10-09T13:10:26-03:00",
+      "consultado_em": "2026-10-09T13:11:25-03:00",
+      "tentativa_em": "2026-10-09T13:11:25-03:00",
       "erro": null,
       "dados": {
         "numero": 463,
@@ -202,8 +202,8 @@
     },
     "464": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:27-03:00",
-      "tentativa_em": "2026-10-09T13:10:27-03:00",
+      "consultado_em": "2026-10-09T13:11:26-03:00",
+      "tentativa_em": "2026-10-09T13:11:26-03:00",
       "erro": null,
       "dados": {
         "numero": 464,
@@ -269,8 +269,8 @@
   },
   "main": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:10:27-03:00",
-    "tentativa_em": "2026-10-09T13:10:27-03:00",
+    "consultado_em": "2026-10-09T13:11:27-03:00",
+    "tentativa_em": "2026-10-09T13:11:27-03:00",
     "erro": null,
     "dados": {
       "data": "2026-10-02T19:24:12Z",
@@ -282,8 +282,8 @@
   "monitores": {
     "production-monitor": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:10:28-03:00",
-      "tentativa_em": "2026-10-09T13:10:28-03:00",
+      "consultado_em": "2026-10-09T13:11:28-03:00",
+      "tentativa_em": "2026-10-09T13:11:28-03:00",
       "erro": null,
       "dados": {
         "workflow": "production-monitor.yml",
