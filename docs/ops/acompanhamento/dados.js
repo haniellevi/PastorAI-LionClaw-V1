@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:26:58-03:00",
+ "gerado_em": "2026-10-09T13:28:18-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "dcc99b47"
+  "sha": "f08948be"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:54-03:00"
+     "consultado_em": "2026-10-09T13:28:14-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:54-03:00"
+     "consultado_em": "2026-10-09T13:28:14-03:00"
     }
    },
    "evidencias": [
@@ -194,8 +194,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:26:54-03:00",
-      "tentativa_em": "2026-10-09T13:26:54-03:00",
+      "consultado_em": "2026-10-09T13:28:14-03:00",
+      "tentativa_em": "2026-10-09T13:28:14-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -299,7 +299,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:52-03:00"
+     "consultado_em": "2026-10-09T13:28:12-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -313,7 +313,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:52-03:00"
+     "consultado_em": "2026-10-09T13:28:12-03:00"
     }
    },
    "evidencias": [
@@ -343,8 +343,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:26:52-03:00",
-      "tentativa_em": "2026-10-09T13:26:52-03:00",
+      "consultado_em": "2026-10-09T13:28:12-03:00",
+      "tentativa_em": "2026-10-09T13:28:12-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -469,8 +469,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:26:52-03:00",
-      "tentativa_em": "2026-10-09T13:26:52-03:00",
+      "consultado_em": "2026-10-09T13:28:12-03:00",
+      "tentativa_em": "2026-10-09T13:28:12-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -578,7 +578,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:55-03:00"
+     "consultado_em": "2026-10-09T13:28:15-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -592,7 +592,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:55-03:00"
+     "consultado_em": "2026-10-09T13:28:15-03:00"
     }
    },
    "evidencias": [
@@ -627,8 +627,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:26:55-03:00",
-      "tentativa_em": "2026-10-09T13:26:55-03:00",
+      "consultado_em": "2026-10-09T13:28:15-03:00",
+      "tentativa_em": "2026-10-09T13:28:15-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -714,7 +714,7 @@ window.PAINEL_DADOS = {
     "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
    ],
    "depende_de": [],
-   "proxima_acao": "Fatia 2 (local): exclusão de instância deve ficar offline/ausente até recriação e endpoints (inclusive mídia) respeitarem a desconexão. Depois: gates por chamador e descrições. Atualizar a base do #462 só depois do #463 integrado; push no #462 só com autorização.",
+   "proxima_acao": "Fatia 3 (local): gates por chamador (Brevo em modo off, gates global e financeiro fechados, outbox sem liberar) e prova sem rede. Fatia 4: corpo do PR, docstring, sprint, guia e checklist MVP. Base do #462 só depois do #463 integrado; push no #462 só com autorização.",
    "responsavel": "Claude",
    "pr": [
     462
@@ -723,17 +723,17 @@ window.PAINEL_DADOS = {
    "indicadores": {
     "implementacao": {
      "status": "parcial",
-     "nota": "Fatia 1 (validador de destino) pronta no commit local 0ffcb754 da branch local/t05-f2a-correcoes (worktree t05-f2a), sobre o head 08e89282 do #462. Pendentes: estado do fake na exclusão/mídia, gates por chamador, corpo do PR/docstring/sprint/guia/checklist. Sem push."
+     "nota": "Fatias 1 (validador de destino, 0ffcb754) e 2 (estado do fake, 74976280) prontas em commits locais da branch local/t05-f2a-correcoes (worktree t05-f2a) sobre o head 08e89282 do #462. Pendentes: gates por chamador e corpo do PR/docstring/sprint/guia/checklist. Sem push."
     },
     "validacao_local": {
      "status": "parcial",
-     "nota": "tests/test_whatsapp_simulado.py: 57 passed no commit local 0ffcb754. test_whatsapp_simulado_turno_pg.py (PostgreSQL) e a suíte completa não rodaram."
+     "nota": "tests/test_whatsapp_simulado.py: 60 passed na fatia 2. test_whatsapp_simulado_turno_pg.py (PostgreSQL) e a suíte completa não rodaram."
     },
     "integracao_main": {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:53-03:00"
+     "consultado_em": "2026-10-09T13:28:13-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -747,7 +747,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:26:53-03:00"
+     "consultado_em": "2026-10-09T13:28:13-03:00"
     }
    },
    "evidencias": [
@@ -779,6 +779,12 @@ window.PAINEL_DADOS = {
      "tipo": "local",
      "descricao": "Fatia 1 da F2a: is_internal_service_url substituída por is_simulated_destination(url, nomes) em backend/app/config.py, usada nos dois sentidos (backend→Evolution falsa: localhost, simulador-whatsapp; simulador→webhook: localhost, backend). IP literal exige ipaddress.is_loopback; outros nomes só por lista exata; recusa credenciais embutidas, porta inválida/0, 127.example.invalid, 0x7f000001, 2130706433, 167772161, IPv4 não loopback e o nome do outro sentido. 57 testes passaram em test_whatsapp_simulado.py (venv do checkout principal). Commit local 0ffcb754, não enviado.",
      "sha": "0ffcb754"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "local",
+     "descricao": "Fatia 2 da F2a: excluir instância passa a gravar o estado 'excluida' em vez de remover o registro; fetchInstances a omite (fetch_status → offline), connect/restart → 404, create a reabre; sendMedia → 400 e entrada simulada → 409 com instância fora de open; foto de perfil e mídia base64 documentadas fora do contrato. 60 testes passaram em test_whatsapp_simulado.py. Commit local, não enviado.",
+     "sha": "74976280"
     }
    ],
    "integra_apos": [
@@ -790,8 +796,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:26:53-03:00",
-      "tentativa_em": "2026-10-09T13:26:53-03:00",
+      "consultado_em": "2026-10-09T13:28:13-03:00",
+      "tentativa_em": "2026-10-09T13:28:13-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1876,12 +1882,12 @@ window.PAINEL_DADOS = {
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:26:52-03:00",
+  "tentativa_em": "2026-10-09T13:28:12-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:26:52-03:00",
-    "tentativa_em": "2026-10-09T13:26:52-03:00",
+    "consultado_em": "2026-10-09T13:28:12-03:00",
+    "tentativa_em": "2026-10-09T13:28:12-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1946,8 +1952,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:26:53-03:00",
-    "tentativa_em": "2026-10-09T13:26:53-03:00",
+    "consultado_em": "2026-10-09T13:28:13-03:00",
+    "tentativa_em": "2026-10-09T13:28:13-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2012,8 +2018,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:26:54-03:00",
-    "tentativa_em": "2026-10-09T13:26:54-03:00",
+    "consultado_em": "2026-10-09T13:28:14-03:00",
+    "tentativa_em": "2026-10-09T13:28:14-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2078,8 +2084,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:26:55-03:00",
-    "tentativa_em": "2026-10-09T13:26:55-03:00",
+    "consultado_em": "2026-10-09T13:28:15-03:00",
+    "tentativa_em": "2026-10-09T13:28:15-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2145,8 +2151,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:26:55-03:00",
-   "tentativa_em": "2026-10-09T13:26:55-03:00",
+   "consultado_em": "2026-10-09T13:28:15-03:00",
+   "tentativa_em": "2026-10-09T13:28:15-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2158,8 +2164,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:26:56-03:00",
-    "tentativa_em": "2026-10-09T13:26:56-03:00",
+    "consultado_em": "2026-10-09T13:28:16-03:00",
+    "tentativa_em": "2026-10-09T13:28:16-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
