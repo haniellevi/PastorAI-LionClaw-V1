@@ -1,11 +1,11 @@
 {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:53:14-03:00",
+  "tentativa_em": "2026-10-09T14:00:10-03:00",
   "prs": {
     "461": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:14-03:00",
-      "tentativa_em": "2026-10-09T13:53:14-03:00",
+      "consultado_em": "2026-10-09T14:00:10-03:00",
+      "tentativa_em": "2026-10-09T14:00:10-03:00",
       "erro": null,
       "dados": {
         "numero": 461,
@@ -70,8 +70,8 @@
     },
     "462": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:15-03:00",
-      "tentativa_em": "2026-10-09T13:53:15-03:00",
+      "consultado_em": "2026-10-09T14:00:11-03:00",
+      "tentativa_em": "2026-10-09T14:00:11-03:00",
       "erro": null,
       "dados": {
         "numero": 462,
@@ -136,23 +136,23 @@
     },
     "463": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:16-03:00",
-      "tentativa_em": "2026-10-09T13:53:16-03:00",
+      "consultado_em": "2026-10-09T14:00:12-03:00",
+      "tentativa_em": "2026-10-09T14:00:12-03:00",
       "erro": null,
       "dados": {
         "numero": 463,
         "titulo": "fix: atualizar dependências reprovadas pelos audits",
         "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
-        "estado": "OPEN",
+        "estado": "MERGED",
         "rascunho": false,
         "criado_em": "2026-10-09T14:32:46Z",
-        "atualizado_em": "2026-10-09T14:33:30Z",
-        "integrado_em": null,
+        "atualizado_em": "2026-10-09T16:59:34Z",
+        "integrado_em": "2026-10-09T16:59:34Z",
         "branch": "fix/deps-audit-20261009",
         "base": "main",
         "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3",
         "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
-        "mergeavel": "MERGEABLE",
+        "mergeavel": "UNKNOWN",
         "revisao": "",
         "checks": [
           {
@@ -202,8 +202,8 @@
     },
     "464": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:17-03:00",
-      "tentativa_em": "2026-10-09T13:53:17-03:00",
+      "consultado_em": "2026-10-09T14:00:14-03:00",
+      "tentativa_em": "2026-10-09T14:00:14-03:00",
       "erro": null,
       "dados": {
         "numero": 464,
@@ -269,21 +269,21 @@
   },
   "main": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:53:17-03:00",
-    "tentativa_em": "2026-10-09T13:53:17-03:00",
+    "consultado_em": "2026-10-09T14:00:15-03:00",
+    "tentativa_em": "2026-10-09T14:00:15-03:00",
     "erro": null,
     "dados": {
-      "data": "2026-10-02T19:24:12Z",
-      "mensagem": "Merge pull request #458 from haniellevi/feat/mvp-own-visitor-release-20261002",
-      "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
-      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/commit/d36ab813bf45f8bc92fd605425394570e85ad3ec"
+      "data": "2026-10-09T16:59:33Z",
+      "mensagem": "Merge pull request #463 from haniellevi/fix/deps-audit-20261009",
+      "sha": "5728ab08e24eb737ec731b430e82b3c74825780c",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/commit/5728ab08e24eb737ec731b430e82b3c74825780c"
     }
   },
   "monitores": {
     "production-monitor": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:18-03:00",
-      "tentativa_em": "2026-10-09T13:53:18-03:00",
+      "consultado_em": "2026-10-09T14:00:16-03:00",
+      "tentativa_em": "2026-10-09T14:00:16-03:00",
       "erro": null,
       "dados": {
         "workflow": "production-monitor.yml",

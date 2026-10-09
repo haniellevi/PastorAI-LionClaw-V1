@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:53:20-03:00",
+ "gerado_em": "2026-10-09T14:00:18-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "ec345afb"
+  "sha": "1b9c33a2"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -121,8 +121,7 @@ window.PAINEL_DADOS = {
     "Depois de integrar, #461 e #462 recebem a nova base e são revalidados."
    ],
    "depende_de": [],
-   "aguardando": "Integração na main: depende da autorização do proprietário. Esta execução não faz merge.",
-   "proxima_acao": "Aguardando sua aprovação do merge do #463 (escopo na resposta da sessão). Depois: atualizar a base de #461, #464 e #462 e revalidar.",
+   "proxima_acao": "Conferir os CIs pós-merge na main (5728ab08) e o deployment Production da frontend na Vercel. Com os CIs verdes, concluir T01 e liberar T03: atualizar a base de #461, #464 e #462 e revalidar.",
    "responsavel": "proprietário (autorizar integração)",
    "pr": [
     463
@@ -138,24 +137,24 @@ window.PAINEL_DADOS = {
      "nota": "pip-audit limpo nos dois locks; pytest -m \"not rls_integration\" verde; npm audit --omit=dev, lint, tsc, 1.165 testes, next build e smoke de headers verdes. Imagem Docker e rls_integration não foram reproduzidos localmente."
     },
     "integracao_main": {
-     "status": "pendente",
-     "nota": "PR aberto, não integrado.",
+     "status": "ok",
+     "nota": "PR integrado na main.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:16-03:00"
+     "consultado_em": "2026-10-09T14:00:12-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
      "nota": "O DEV online ainda não existe."
     },
     "publicacao_prod": {
-     "status": "pendente",
-     "nota": "Sem evidência de publicação. Dependências chegam a PROD só em release."
+     "status": "desconhecido",
+     "nota": "O merge costuma disparar a publicação Production do frontend na Vercel; nenhum registro de deployment foi encontrado ainda e o backend não é publicado por esse merge. Nada comprovado."
     },
     "ci": {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:16-03:00"
+     "consultado_em": "2026-10-09T14:00:12-03:00"
     }
    },
    "evidencias": [
@@ -186,6 +185,18 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "revisao",
      "descricao": "Preparo da integração, reconferido em 09/10: #463 aberto, não rascunho, MERGEABLE/CLEAN, head 9f61ba5e, base e main em d36ab813; 5 arquivos (backend/requirements.txt e .lock, frontend/package.json e package-lock.json, sprint), +176/−162; backend-tests, frontend-ci, e2e-critical, rls-integration, tooling-static e Vercel em SUCCESS. Efeitos do merge na main: reexecuta os 5 workflows de CI (push em main) e, pelo histórico do PRODUCTION-RUNBOOK, a Vercel publica Production do frontend automaticamente (muda sharp/source-map-js no build). O backend não é publicado: backend-deploy-manual.yml só roda por workflow_dispatch; requirements.lock só chega a PROD num release manual. reviewDecision vazio; proteção da branch não verificada."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "pr",
+     "descricao": "Merge do #463 autorizado pelo proprietário e executado com gh pr merge --merge --match-head-commit 9f61ba5e: merge commit 5728ab08 na main às 16:59Z. Antes: PR aberto, CLEAN/MERGEABLE, head 9f61ba5e, main em d36ab813, todos os checks em SUCCESS, branch main protegida.",
+     "sha": "5728ab08",
+     "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463"
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "ci",
+     "descricao": "Pós-merge na main (5728ab08), leitura logo após o merge: Tooling Static Checks concluído com sucesso; Frontend CI, E2E Critical, RLS Integration e Backend Tests ainda em andamento. Registro de deployment da Vercel: não encontrado nessa leitura."
     }
    ],
    "prs": [
@@ -194,23 +205,23 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:16-03:00",
-      "tentativa_em": "2026-10-09T13:53:16-03:00",
+      "consultado_em": "2026-10-09T14:00:12-03:00",
+      "tentativa_em": "2026-10-09T14:00:12-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
        "titulo": "fix: atualizar dependências reprovadas pelos audits",
        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
-       "estado": "OPEN",
+       "estado": "MERGED",
        "rascunho": false,
        "criado_em": "2026-10-09T14:32:46Z",
-       "atualizado_em": "2026-10-09T14:33:30Z",
-       "integrado_em": null,
+       "atualizado_em": "2026-10-09T16:59:34Z",
+       "integrado_em": "2026-10-09T16:59:34Z",
        "branch": "fix/deps-audit-20261009",
        "base": "main",
        "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3",
        "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
-       "mergeavel": "MERGEABLE",
+       "mergeavel": "UNKNOWN",
        "revisao": "",
        "checks": [
         {
@@ -262,7 +273,7 @@ window.PAINEL_DADOS = {
    ],
    "dependencias_abertas": [],
    "executavel": false,
-   "situacao": "Validado — aguardando integração",
+   "situacao": "Em validação",
    "estado_rotulo": "Em validação"
   },
   {
@@ -299,7 +310,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:14-03:00"
+     "consultado_em": "2026-10-09T14:00:10-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -313,7 +324,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:14-03:00"
+     "consultado_em": "2026-10-09T14:00:10-03:00"
     }
    },
    "evidencias": [
@@ -343,8 +354,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:14-03:00",
-      "tentativa_em": "2026-10-09T13:53:14-03:00",
+      "consultado_em": "2026-10-09T14:00:10-03:00",
+      "tentativa_em": "2026-10-09T14:00:10-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -469,8 +480,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:14-03:00",
-      "tentativa_em": "2026-10-09T13:53:14-03:00",
+      "consultado_em": "2026-10-09T14:00:10-03:00",
+      "tentativa_em": "2026-10-09T14:00:10-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -578,7 +589,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:17-03:00"
+     "consultado_em": "2026-10-09T14:00:14-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -592,7 +603,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:17-03:00"
+     "consultado_em": "2026-10-09T14:00:14-03:00"
     }
    },
    "evidencias": [
@@ -627,8 +638,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:17-03:00",
-      "tentativa_em": "2026-10-09T13:53:17-03:00",
+      "consultado_em": "2026-10-09T14:00:14-03:00",
+      "tentativa_em": "2026-10-09T14:00:14-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -733,7 +744,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:15-03:00"
+     "consultado_em": "2026-10-09T14:00:11-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -747,7 +758,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:53:15-03:00"
+     "consultado_em": "2026-10-09T14:00:11-03:00"
     }
    },
    "evidencias": [
@@ -796,8 +807,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:53:15-03:00",
-      "tentativa_em": "2026-10-09T13:53:15-03:00",
+      "consultado_em": "2026-10-09T14:00:11-03:00",
+      "tentativa_em": "2026-10-09T14:00:11-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1931,16 +1942,24 @@ window.PAINEL_DADOS = {
    "titulo": "S1: VPS nova identificada; SSH negado",
    "descricao": "srv2031318 é o host da API (DNS). As falhas de autenticação do Supabase partem dela. Acesso SSH recusado às chaves locais; aguarda autorização de chave ou leitura via '!'.",
    "tarefa": "S1"
+  },
+  {
+   "data": "2026-10-09",
+   "titulo": "PR #463 integrado na main (5728ab08)",
+   "descricao": "Dependências corrigidas (LangGraph, sharp, source-map-js). CIs pós-merge em andamento; publicação do frontend não comprovada.",
+   "tarefa": "T01",
+   "pr": 463,
+   "sha": "5728ab08"
   }
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:53:14-03:00",
+  "tentativa_em": "2026-10-09T14:00:10-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:53:14-03:00",
-    "tentativa_em": "2026-10-09T13:53:14-03:00",
+    "consultado_em": "2026-10-09T14:00:10-03:00",
+    "tentativa_em": "2026-10-09T14:00:10-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -2005,8 +2024,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:53:15-03:00",
-    "tentativa_em": "2026-10-09T13:53:15-03:00",
+    "consultado_em": "2026-10-09T14:00:11-03:00",
+    "tentativa_em": "2026-10-09T14:00:11-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2071,23 +2090,23 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:53:16-03:00",
-    "tentativa_em": "2026-10-09T13:53:16-03:00",
+    "consultado_em": "2026-10-09T14:00:12-03:00",
+    "tentativa_em": "2026-10-09T14:00:12-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
      "titulo": "fix: atualizar dependências reprovadas pelos audits",
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
-     "estado": "OPEN",
+     "estado": "MERGED",
      "rascunho": false,
      "criado_em": "2026-10-09T14:32:46Z",
-     "atualizado_em": "2026-10-09T14:33:30Z",
-     "integrado_em": null,
+     "atualizado_em": "2026-10-09T16:59:34Z",
+     "integrado_em": "2026-10-09T16:59:34Z",
      "branch": "fix/deps-audit-20261009",
      "base": "main",
      "sha": "9f61ba5e087b60d4336d21ed2d025996dff2cdc3",
      "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
-     "mergeavel": "MERGEABLE",
+     "mergeavel": "UNKNOWN",
      "revisao": "",
      "checks": [
       {
@@ -2137,8 +2156,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:53:17-03:00",
-    "tentativa_em": "2026-10-09T13:53:17-03:00",
+    "consultado_em": "2026-10-09T14:00:14-03:00",
+    "tentativa_em": "2026-10-09T14:00:14-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2204,21 +2223,21 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:53:17-03:00",
-   "tentativa_em": "2026-10-09T13:53:17-03:00",
+   "consultado_em": "2026-10-09T14:00:15-03:00",
+   "tentativa_em": "2026-10-09T14:00:15-03:00",
    "erro": null,
    "dados": {
-    "data": "2026-10-02T19:24:12Z",
-    "mensagem": "Merge pull request #458 from haniellevi/feat/mvp-own-visitor-release-20261002",
-    "sha": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
-    "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/commit/d36ab813bf45f8bc92fd605425394570e85ad3ec"
+    "data": "2026-10-09T16:59:33Z",
+    "mensagem": "Merge pull request #463 from haniellevi/fix/deps-audit-20261009",
+    "sha": "5728ab08e24eb737ec731b430e82b3c74825780c",
+    "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/commit/5728ab08e24eb737ec731b430e82b3c74825780c"
    }
   },
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:53:18-03:00",
-    "tentativa_em": "2026-10-09T13:53:18-03:00",
+    "consultado_em": "2026-10-09T14:00:16-03:00",
+    "tentativa_em": "2026-10-09T14:00:16-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
@@ -2283,7 +2302,7 @@ window.PAINEL_DADOS = {
    "fase": "PREP",
    "nome": "Preparação: dependências",
    "tarefa": "T01",
-   "situacao": "Validado — aguardando integração"
+   "situacao": "Em validação"
   },
   "proxima_executavel": "T08",
   "tambem_prontas": [],
@@ -2302,11 +2321,6 @@ window.PAINEL_DADOS = {
    }
   ],
   "esperas": [
-   {
-    "id": "T01",
-    "titulo": "Corrigir as dependências herdadas da main (PR #463)",
-    "motivo": "Integração na main: depende da autorização do proprietário. Esta execução não faz merge."
-   },
    {
     "id": "T02",
     "titulo": "Plano consolidado e painel de acompanhamento (PR #461)",

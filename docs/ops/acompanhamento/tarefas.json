@@ -113,8 +113,7 @@
         "Depois de integrar, #461 e #462 recebem a nova base e são revalidados."
       ],
       "depende_de": [],
-      "aguardando": "Integração na main: depende da autorização do proprietário. Esta execução não faz merge.",
-      "proxima_acao": "Aguardando sua aprovação do merge do #463 (escopo na resposta da sessão). Depois: atualizar a base de #461, #464 e #462 e revalidar.",
+      "proxima_acao": "Conferir os CIs pós-merge na main (5728ab08) e o deployment Production da frontend na Vercel. Com os CIs verdes, concluir T01 e liberar T03: atualizar a base de #461, #464 e #462 e revalidar.",
       "responsavel": "proprietário (autorizar integração)",
       "pr": [
         463
@@ -130,16 +129,16 @@
           "nota": "pip-audit limpo nos dois locks; pytest -m \"not rls_integration\" verde; npm audit --omit=dev, lint, tsc, 1.165 testes, next build e smoke de headers verdes. Imagem Docker e rls_integration não foram reproduzidos localmente."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto."
+          "status": "ok",
+          "nota": "PR #463 integrado por merge commit 5728ab08 em 09/10 às 16:59Z, com autorização explícita do proprietário."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
           "nota": "O DEV online ainda não existe."
         },
         "publicacao_prod": {
-          "status": "pendente",
-          "nota": "Sem evidência de publicação. Dependências chegam a PROD só em release."
+          "status": "desconhecido",
+          "nota": "O merge costuma disparar a publicação Production do frontend na Vercel; nenhum registro de deployment foi encontrado ainda e o backend não é publicado por esse merge. Nada comprovado."
         }
       },
       "evidencias": [
@@ -170,6 +169,18 @@
           "data": "2026-10-09",
           "tipo": "revisao",
           "descricao": "Preparo da integração, reconferido em 09/10: #463 aberto, não rascunho, MERGEABLE/CLEAN, head 9f61ba5e, base e main em d36ab813; 5 arquivos (backend/requirements.txt e .lock, frontend/package.json e package-lock.json, sprint), +176/−162; backend-tests, frontend-ci, e2e-critical, rls-integration, tooling-static e Vercel em SUCCESS. Efeitos do merge na main: reexecuta os 5 workflows de CI (push em main) e, pelo histórico do PRODUCTION-RUNBOOK, a Vercel publica Production do frontend automaticamente (muda sharp/source-map-js no build). O backend não é publicado: backend-deploy-manual.yml só roda por workflow_dispatch; requirements.lock só chega a PROD num release manual. reviewDecision vazio; proteção da branch não verificada."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "pr",
+          "descricao": "Merge do #463 autorizado pelo proprietário e executado com gh pr merge --merge --match-head-commit 9f61ba5e: merge commit 5728ab08 na main às 16:59Z. Antes: PR aberto, CLEAN/MERGEABLE, head 9f61ba5e, main em d36ab813, todos os checks em SUCCESS, branch main protegida.",
+          "sha": "5728ab08",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463"
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "ci",
+          "descricao": "Pós-merge na main (5728ab08), leitura logo após o merge: Tooling Static Checks concluído com sucesso; Frontend CI, E2E Critical, RLS Integration e Backend Tests ainda em andamento. Registro de deployment da Vercel: não encontrado nessa leitura."
         }
       ]
     },
@@ -1335,6 +1346,14 @@
       "titulo": "S1: VPS nova identificada; SSH negado",
       "descricao": "srv2031318 é o host da API (DNS). As falhas de autenticação do Supabase partem dela. Acesso SSH recusado às chaves locais; aguarda autorização de chave ou leitura via '!'.",
       "tarefa": "S1"
+    },
+    {
+      "data": "2026-10-09",
+      "titulo": "PR #463 integrado na main (5728ab08)",
+      "descricao": "Dependências corrigidas (LangGraph, sharp, source-map-js). CIs pós-merge em andamento; publicação do frontend não comprovada.",
+      "tarefa": "T01",
+      "pr": 463,
+      "sha": "5728ab08"
     }
   ]
 }
