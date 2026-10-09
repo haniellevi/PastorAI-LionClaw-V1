@@ -285,7 +285,7 @@
       "fase": "F0S",
       "trilha": "principal",
       "sequencia": 4,
-      "estado": "em_andamento",
+      "estado": "em_validacao",
       "objetivo": "Hoje um alvo inexistente retorna 0 sem rodar testes. O script deve falhar de forma clara antes de executar qualquer ferramenta, mantendo todos, backend e frontend.",
       "criterio_aceite": [
         "Comando inválido sai com código diferente de zero e mensagem compreensível.",
@@ -296,18 +296,20 @@
       "integra_apos": [
         "T01"
       ],
-      "proxima_acao": "Implementar o teste de alvo desconhecido e a validação no script, numa worktree nova a partir de origin/main (d36ab813); abrir PR pequeno.",
+      "proxima_acao": "Acompanhar os quatro checks do #464. Integrar só depois do #463 e com autorização do proprietário. Próxima tarefa executável na ordem: nenhuma além de aguardar T01 (T05/T06 dependem dele); S1 e T08 estão prontas, mas fora da sequência principal.",
       "responsavel": "Claude",
-      "pr": [],
-      "pr_referencia": null,
+      "pr": [
+        464
+      ],
+      "pr_referencia": 464,
       "indicadores": {
         "implementacao": {
-          "status": "em_andamento",
-          "nota": "Iniciada em worktree própria a partir de origin/main."
+          "status": "ok",
+          "nota": "Commit 18cef626 no PR #464 (test-local.sh + teste + sprint)."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "parcial",
+          "nota": "Reprodução antes/depois do alvo inválido e pytest tests/test_test_local_script.py (2 passed). Suíte completa e ruff não executados; CI do PR pendente."
         },
         "integracao_main": {
           "status": "pendente",
@@ -327,8 +329,21 @@
           "data": "2026-10-09",
           "tipo": "revisao",
           "descricao": "A revisão reproduziu que o script atual retorna 0 sem testes para alvo inexistente (relato da revisão; não repetido nesta execução)."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Reprodução: test-local.sh de origin/main com alvo 'bakend' saiu 0 sem rodar nada; com a correção saiu 2 com a mensagem 'Alvo desconhecido'. pytest tests/test_test_local_script.py: 2 passed. Suíte completa e ruff não rodaram localmente."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "pr",
+          "descricao": "PR #464 aberto sobre origin/main d36ab813 (branch fix/test-local-alvo-desconhecido).",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
+          "sha": "18cef626"
         }
-      ]
+      ],
+      "aguardando": "CI do PR #464 e integração na main: depende da autorização do proprietário e do #463 (audits). Esta execução não faz merge."
     },
     {
       "id": "T05",
@@ -1158,6 +1173,14 @@
       "descricao": "O plano versionado foi substituído pelo consolidado, com links portáveis e apêndice de propostas retiradas. Painel, dados e comando de atualização criados. Aguarda revisão e CI.",
       "tarefa": "T02",
       "pr": 461
+    },
+    {
+      "data": "2026-10-09",
+      "titulo": "PR #464 aberto: test-local.sh rejeita alvo desconhecido",
+      "descricao": "Alvo fora de todos/backend/frontend sai com 2 antes de executar qualquer ferramenta; teste e sprint incluídos. Aberto, aguardando CI e integração.",
+      "tarefa": "T04",
+      "pr": 464,
+      "sha": "18cef626"
     }
   ]
 }

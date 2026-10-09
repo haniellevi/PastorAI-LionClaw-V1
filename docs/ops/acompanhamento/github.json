@@ -1,11 +1,11 @@
 {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:05:58-03:00",
+  "tentativa_em": "2026-10-09T13:08:04-03:00",
   "prs": {
     "461": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:05:58-03:00",
-      "tentativa_em": "2026-10-09T13:05:58-03:00",
+      "consultado_em": "2026-10-09T13:08:04-03:00",
+      "tentativa_em": "2026-10-09T13:08:04-03:00",
       "erro": null,
       "dados": {
         "numero": 461,
@@ -70,8 +70,8 @@
     },
     "462": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:05:59-03:00",
-      "tentativa_em": "2026-10-09T13:05:59-03:00",
+      "consultado_em": "2026-10-09T13:08:05-03:00",
+      "tentativa_em": "2026-10-09T13:08:05-03:00",
       "erro": null,
       "dados": {
         "numero": 462,
@@ -136,8 +136,8 @@
     },
     "463": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:06:00-03:00",
-      "tentativa_em": "2026-10-09T13:06:00-03:00",
+      "consultado_em": "2026-10-09T13:08:06-03:00",
+      "tentativa_em": "2026-10-09T13:08:06-03:00",
       "erro": null,
       "dados": {
         "numero": 463,
@@ -199,12 +199,78 @@
           }
         ]
       }
+    },
+    "464": {
+      "ok": true,
+      "consultado_em": "2026-10-09T13:08:07-03:00",
+      "tentativa_em": "2026-10-09T13:08:07-03:00",
+      "erro": null,
+      "dados": {
+        "numero": 464,
+        "titulo": "fix: test-local.sh rejeita alvo desconhecido",
+        "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
+        "estado": "OPEN",
+        "rascunho": false,
+        "criado_em": "2026-10-09T16:07:47Z",
+        "atualizado_em": "2026-10-09T16:07:53Z",
+        "integrado_em": null,
+        "branch": "fix/test-local-alvo-desconhecido",
+        "base": "main",
+        "sha": "18cef6267801955da657403b4f96780f3a22aa8d",
+        "sha_base": "d36ab813bf45f8bc92fd605425394570e85ad3ec",
+        "mergeavel": "MERGEABLE",
+        "revisao": "",
+        "checks": [
+          {
+            "nome": "backend-tests",
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848484/job/113909423818"
+          },
+          {
+            "nome": "e2e-critical",
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848321/job/113909422283"
+          },
+          {
+            "nome": "frontend-ci",
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848356/job/113909423903"
+          },
+          {
+            "nome": "rls-integration",
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848343/job/113909422716"
+          },
+          {
+            "nome": "tooling-static",
+            "status": "IN_PROGRESS",
+            "conclusao": "",
+            "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/37956848332/job/113909422696"
+          },
+          {
+            "nome": "Vercel",
+            "status": "PENDING",
+            "conclusao": null,
+            "url": "https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/BJuZiP1DKFnXyWZcPQU4gNgbxhNH"
+          },
+          {
+            "nome": "Vercel Preview Comments",
+            "status": "COMPLETED",
+            "conclusao": "SUCCESS",
+            "url": "https://vercel.com/github"
+          }
+        ]
+      }
     }
   },
   "main": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:06:01-03:00",
-    "tentativa_em": "2026-10-09T13:06:01-03:00",
+    "consultado_em": "2026-10-09T13:08:07-03:00",
+    "tentativa_em": "2026-10-09T13:08:07-03:00",
     "erro": null,
     "dados": {
       "data": "2026-10-02T19:24:12Z",
@@ -216,8 +282,8 @@
   "monitores": {
     "production-monitor": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:06:02-03:00",
-      "tentativa_em": "2026-10-09T13:06:02-03:00",
+      "consultado_em": "2026-10-09T13:08:08-03:00",
+      "tentativa_em": "2026-10-09T13:08:08-03:00",
       "erro": null,
       "dados": {
         "workflow": "production-monitor.yml",
