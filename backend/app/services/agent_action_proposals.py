@@ -12,7 +12,6 @@ import json
 import uuid
 import datetime as dt
 import string
-import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -24,6 +23,7 @@ from app.db.models import AgentActionProposal, AgentActionReceipt, Conversation,
 from app.db.rls_observability import require_tenant_scope
 from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
 from app.domain.consolidation import VALID_VINCULOS
+from app.domain.visitor import VisitorNameError, canonical_visitor_name as _visitor_name
 from app.services.whatsapp_privilege import PrivilegeContext, resolve_whatsapp_privilege_context
 
 
@@ -215,15 +215,11 @@ def _canonical_assignment_revision(value: object) -> int:
 
 
 def canonical_visitor_name(value: object) -> str:
-    """Validate private nominal input without quoting it in an error."""
-    if type(value) is not str or any(
-        unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value
-    ):
-        raise ProposalContractError("nome de visitante inválido")
-    name = value.strip()
-    if not 1 <= len(name) <= 200:
-        raise ProposalContractError("nome de visitante inválido")
-    return name
+    """Compatibility boundary for callers of the closed proposal contract."""
+    try:
+        return _visitor_name(value)
+    except VisitorNameError:
+        raise ProposalContractError("nome de visitante inválido") from None
 
 
 def canonical_action_arguments(
