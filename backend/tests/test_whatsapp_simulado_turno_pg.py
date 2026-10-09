@@ -1,14 +1,23 @@
-"""Turno completo pelo simulador de WhatsApp, em PostgreSQL descartável.
+"""Turno pelo simulador de WhatsApp em PostgreSQL descartável (handler + persistência).
 
-Caminho exercitado sem dublês no meio: página do simulador → webhook com o
-segredo real do backend → ``QueueWorker.handle_envelope`` (ingestão, tenant,
-pessoa, conversa, mensagem) → ``run_agent_for_message`` (lista piloto,
+O que prova: webhook com o segredo real do backend → ``QueueWorker.handle_envelope``
+(ingestão, pessoa, conversa, mensagem) → ``run_agent_for_message`` (lista piloto,
 runtime, grafo, termo LGPD, opt-out) → ``EvolutionClient`` no modo simulado →
-resposta registrada no simulador e persistida para o inbox.
+resposta registrada no simulador e gravada em ``messages``.
 
-Fica de fora só a fila Redis (o envelope é entregue direto ao handler; a fila
-tem testes próprios em ``test_whatsapp_worker.py``) e o LLM, que continua
-bloqueado porque ``ALLOW_REAL_SENDS=false``.
+O que NÃO prova, por construção:
+
+- Redis: a fila é ``_FilaMemoria`` e o dedupe usa ``_RedisSemMemoria``; o envelope
+  entra direto no handler, sem ``enqueue``/``claim``/``ack``/lease reais.
+- RLS: o schema vem de ``Base.metadata.create_all`` (modelos ORM), sem as
+  policies das migrations; o isolamento entre igrejas não é exercitado.
+- Ação privilegiada (visitante, célula etc.): só termo LGPD, SAIR e recusas.
+- API autenticada e painel: ``_inbox`` consulta ``messages`` direto no banco.
+- LLM: segue bloqueado porque ``ALLOW_REAL_SENDS=false``.
+
+A prova integrada com Redis, policies reais e uma ação vertical é a F2b.
+O marcador ``rls_integration`` só seleciona o job com PostgreSQL; não significa
+que RLS foi verificada aqui.
 """
 
 from __future__ import annotations

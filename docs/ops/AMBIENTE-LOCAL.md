@@ -130,7 +130,10 @@ o console.
 O `./dev.sh up` sobe um **simulador de WhatsApp** (Evolution falsa) em
 http://127.0.0.1:8090 (`DEV_SIMULADOR_PORT`). O backend fala só com ele
 (`WHATSAPP_TRANSPORTE=simulado`), mesmo com `ALLOW_REAL_SENDS=false`; LLM,
-agenda, cobrança e e-mail continuam desligados. Produção recusa esse modo.
+agenda, cobrança e e-mail continuam desligados (o modo simulado exige
+`BREVO_SEND_MODE=off` e `ASAAS_BILLING_ENABLED=false`). Produção recusa esse
+modo. Lembretes e avisos da fila de notificações não chegam ao simulador com o
+gate global fechado: a fila os cancela com `gate_fechado`.
 
 1. No painel, em WhatsApp, clique em conectar: o simulador responde "online".
 2. No `.env.dev`, coloque o `igreja_id` da igreja local em
