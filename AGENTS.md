@@ -148,6 +148,25 @@ sem ler seu conteúdo.
 - Use as versões fixadas pelo projeto: Python 3.13 e Node 24 (`.nvmrc`), com
   `umask 022`.
 
+## Cloud Agent
+
+A stack local é a de `./dev.sh` (`docs/ops/AMBIENTE-LOCAL.md`). Node 24.19.0
+fica em `$HOME/.nvm/versions/node/v24.19.0`; o `PATH` da imagem pode expor
+Node 22 antes. O Python dos testes é 3.13.14 em `backend/.venv-runtime`
+(`uv`).
+
+Nesta VM o Docker usa `fuse-overlayfs`. Antes de subir containers, o boot
+precisa de `net.bridge.bridge-nf-call-iptables=0`,
+`net.bridge.bridge-nf-call-ip6tables=0` e
+`iptables-legacy -P FORWARD ACCEPT`. Sem isso os containers não se alcançam
+e o `supabase start` falha ao inicializar o schema. Crie
+`.dev/local-db-identity.json` como arquivo antes do `dockerd`: containers
+com `restart=unless-stopped` transformam um bind ausente em diretório e o
+backend não sobe.
+
+Sem `CLERK_*` de desenvolvimento em `.env.dev`, a API, o seed e a tela de
+login sobem; a sessão autenticada não. Não conecte o número da Filadélfia.
+
 ## Regra de manutenção
 
 Ao fechar uma fatia:
