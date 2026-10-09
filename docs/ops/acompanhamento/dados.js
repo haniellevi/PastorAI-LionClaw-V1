@@ -1,8 +1,8 @@
 window.PAINEL_DADOS = {
- "gerado_em": "2026-10-09T13:49:47-03:00",
+ "gerado_em": "2026-10-09T13:53:20-03:00",
  "git": {
   "branch": "docs/passo0-regras-dev-online",
-  "sha": "7aa00ae5"
+  "sha": "ec345afb"
  },
  "repositorio": "haniellevi/PastorAI-LionClaw-V1",
  "plano": "docs/ops/refatoracao-modular-plano.md",
@@ -141,7 +141,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:43-03:00"
+     "consultado_em": "2026-10-09T13:53:16-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -155,7 +155,7 @@ window.PAINEL_DADOS = {
      "status": "ok",
      "nota": "4 de 4 checks obrigatórios aprovados.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:43-03:00"
+     "consultado_em": "2026-10-09T13:53:16-03:00"
     }
    },
    "evidencias": [
@@ -194,8 +194,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/463",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:49:43-03:00",
-      "tentativa_em": "2026-10-09T13:49:43-03:00",
+      "consultado_em": "2026-10-09T13:53:16-03:00",
+      "tentativa_em": "2026-10-09T13:53:16-03:00",
       "erro": null,
       "dados": {
        "numero": 463,
@@ -299,7 +299,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:41-03:00"
+     "consultado_em": "2026-10-09T13:53:14-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -313,7 +313,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:41-03:00"
+     "consultado_em": "2026-10-09T13:53:14-03:00"
     }
    },
    "evidencias": [
@@ -343,8 +343,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:49:41-03:00",
-      "tentativa_em": "2026-10-09T13:49:41-03:00",
+      "consultado_em": "2026-10-09T13:53:14-03:00",
+      "tentativa_em": "2026-10-09T13:53:14-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -469,8 +469,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/461",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:49:41-03:00",
-      "tentativa_em": "2026-10-09T13:49:41-03:00",
+      "consultado_em": "2026-10-09T13:53:14-03:00",
+      "tentativa_em": "2026-10-09T13:53:14-03:00",
       "erro": null,
       "dados": {
        "numero": 461,
@@ -578,7 +578,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:44-03:00"
+     "consultado_em": "2026-10-09T13:53:17-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -592,7 +592,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:44-03:00"
+     "consultado_em": "2026-10-09T13:53:17-03:00"
     }
    },
    "evidencias": [
@@ -627,8 +627,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/464",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:49:44-03:00",
-      "tentativa_em": "2026-10-09T13:49:44-03:00",
+      "consultado_em": "2026-10-09T13:53:17-03:00",
+      "tentativa_em": "2026-10-09T13:53:17-03:00",
       "erro": null,
       "dados": {
        "numero": 464,
@@ -733,7 +733,7 @@ window.PAINEL_DADOS = {
      "status": "pendente",
      "nota": "PR aberto, não integrado.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:42-03:00"
+     "consultado_em": "2026-10-09T13:53:15-03:00"
     },
     "publicacao_dev": {
      "status": "nao_aplicavel",
@@ -747,7 +747,7 @@ window.PAINEL_DADOS = {
      "status": "falhou",
      "nota": "Reprovados: backend-tests, frontend-ci. Aprovados: 2 de 4 checks obrigatórios.",
      "origem": "github",
-     "consultado_em": "2026-10-09T13:49:42-03:00"
+     "consultado_em": "2026-10-09T13:53:15-03:00"
     }
    },
    "evidencias": [
@@ -796,8 +796,8 @@ window.PAINEL_DADOS = {
      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
      "github": {
       "ok": true,
-      "consultado_em": "2026-10-09T13:49:42-03:00",
-      "tentativa_em": "2026-10-09T13:49:42-03:00",
+      "consultado_em": "2026-10-09T13:53:15-03:00",
+      "tentativa_em": "2026-10-09T13:53:15-03:00",
       "erro": null,
       "dados": {
        "numero": 462,
@@ -1001,7 +1001,7 @@ window.PAINEL_DADOS = {
     "Reuso do DEV histórico só depois de verificar identidade, ausência de dados reais e isolamento."
    ],
    "depende_de": [],
-   "proxima_acao": "Proprietário decide: região do DEV (sa-east-1 ou us-west-2), teto de custo, executor (GitHub Actions + GHCR + SSH, recomendado, ou nativo) e se o Supabase/Clerk de DEV históricos podem ser verificados para reuso. Nenhum recurso foi criado ou contratado; criar é missão separada.",
+   "proxima_acao": "Proprietário decide região, teto e executor, e se o Supabase de DEV cxmjojnocigekgcxhubi será verificado para reuso (precisa de acesso somente leitura a ele: região, plano, pausa, ausência de dados reais) ou se cria um novo. Nenhum recurso foi criado ou contratado.",
    "responsavel": "proprietário",
    "pr": [],
    "pr_referencia": null,
@@ -1046,6 +1046,11 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "local",
      "descricao": "Verificado por mim com gh: o repositório haniellevi/PastorAI-LionClaw-V1 é PÚBLICO. Isso resolve a lacuna do subagente sobre franquia de minutos do Actions e cota do GHCR (a preocupação com 72% da franquia pelo production-monitor só valeria para repositório privado Free)."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Proprietário indicou o Supabase de DEV existente: projeto cxmjojnocigekgcxhubi (distinto do PROD pffafnchtxbimpwyaczq). Ele não aparece na lista do conector Supabase desta sessão (que lista só 3 projetos, nenhum com esse ref), então está em outra conta/organização ou sem acesso aqui. Região, plano, estado, dados e isolamento NÃO foram verificados; o plano F3 só permite reutilizá-lo depois de verificar identidade, ausência de dados reais e isolamento."
     }
    ],
    "prs": [],
@@ -1382,6 +1387,11 @@ window.PAINEL_DADOS = {
      "data": "2026-10-09",
      "tipo": "limite",
      "descricao": "ACESSO NÃO OBTIDO — SSH em root@srv2031318: as duas chaves do projeto (~/.ssh/pastorai_vps_tmp e ~/.ssh/igreja12-admin-20261004/chave) e o agente SSH recebem 'Permission denied (publickey)'; a host key conferiu com o known_hosts. Não foram tentados outros usuários nem a chave de outro projeto. Nada foi lido nem alterado na VPS."
+    },
+    {
+     "data": "2026-10-09",
+     "tipo": "revisao",
+     "descricao": "Identidade do Supabase de PROD confirmada pelo proprietário: projeto pffafnchtxbimpwyaczq (o mesmo lido pelo conector e documentado no PRODUCTION-RUNBOOK). É declaração do proprietário, não leitura da DATABASE_URL viva da VPS nova; essa comparação continua dependendo do SSH."
     }
    ],
    "aguardando": "Acesso SSH de leitura à VPS nova (srv2031318, usuário root): as chaves locais do projeto e o agente SSH foram recusados (Permission denied, publickey). Falta autorizar uma chave no root da VPS nova, ou o proprietário executar os comandos de leitura com \"! ssh ...\".",
@@ -1925,12 +1935,12 @@ window.PAINEL_DADOS = {
  ],
  "github": {
   "repositorio": "haniellevi/PastorAI-LionClaw-V1",
-  "tentativa_em": "2026-10-09T13:49:41-03:00",
+  "tentativa_em": "2026-10-09T13:53:14-03:00",
   "prs": {
    "461": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:49:41-03:00",
-    "tentativa_em": "2026-10-09T13:49:41-03:00",
+    "consultado_em": "2026-10-09T13:53:14-03:00",
+    "tentativa_em": "2026-10-09T13:53:14-03:00",
     "erro": null,
     "dados": {
      "numero": 461,
@@ -1995,8 +2005,8 @@ window.PAINEL_DADOS = {
    },
    "462": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:49:42-03:00",
-    "tentativa_em": "2026-10-09T13:49:42-03:00",
+    "consultado_em": "2026-10-09T13:53:15-03:00",
+    "tentativa_em": "2026-10-09T13:53:15-03:00",
     "erro": null,
     "dados": {
      "numero": 462,
@@ -2061,8 +2071,8 @@ window.PAINEL_DADOS = {
    },
    "463": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:49:43-03:00",
-    "tentativa_em": "2026-10-09T13:49:43-03:00",
+    "consultado_em": "2026-10-09T13:53:16-03:00",
+    "tentativa_em": "2026-10-09T13:53:16-03:00",
     "erro": null,
     "dados": {
      "numero": 463,
@@ -2127,8 +2137,8 @@ window.PAINEL_DADOS = {
    },
    "464": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:49:44-03:00",
-    "tentativa_em": "2026-10-09T13:49:44-03:00",
+    "consultado_em": "2026-10-09T13:53:17-03:00",
+    "tentativa_em": "2026-10-09T13:53:17-03:00",
     "erro": null,
     "dados": {
      "numero": 464,
@@ -2194,8 +2204,8 @@ window.PAINEL_DADOS = {
   },
   "main": {
    "ok": true,
-   "consultado_em": "2026-10-09T13:49:45-03:00",
-   "tentativa_em": "2026-10-09T13:49:45-03:00",
+   "consultado_em": "2026-10-09T13:53:17-03:00",
+   "tentativa_em": "2026-10-09T13:53:17-03:00",
    "erro": null,
    "dados": {
     "data": "2026-10-02T19:24:12Z",
@@ -2207,8 +2217,8 @@ window.PAINEL_DADOS = {
   "monitores": {
    "production-monitor": {
     "ok": true,
-    "consultado_em": "2026-10-09T13:49:46-03:00",
-    "tentativa_em": "2026-10-09T13:49:46-03:00",
+    "consultado_em": "2026-10-09T13:53:18-03:00",
+    "tentativa_em": "2026-10-09T13:53:18-03:00",
     "erro": null,
     "dados": {
      "workflow": "production-monitor.yml",
