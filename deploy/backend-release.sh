@@ -83,6 +83,25 @@ services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
 candidate_configuration_needed=0
 checker_override=
+compatibility_bundle=${RELEASE_SCHEMA_BUNDLE:-}
+rollback_manifest=$previous_migrations
+if [[ -n "$compatibility_bundle" ]]; then
+  [[ "$compatibility_bundle" == /*.json && ! -L "$compatibility_bundle" &&
+     "${RELEASE_SCHEMA_BUNDLE_SHA256:-}" =~ ^[0-9a-f]{64}$ &&
+     -f "$candidate/deploy/emit_schema_check.py" && -f "$candidate/deploy/schema_compatibility.py" ]] || {
+    echo "reviewed nominal compatibility bundle unavailable" >&2
+    exit 1
+  }
+  rollback_manifest=$expected_migrations
+fi
+
+emit_compatibility_check() {
+  local -a args=(--bundle "$compatibility_bundle" --sha256 "$RELEASE_SCHEMA_BUNDLE_SHA256"
+    --previous-sha "$active_release_sha" --candidate-sha "$release_sha"
+    --previous-migrations "$previous_migrations" --candidate-migrations "$expected_migrations")
+  [[ -z "${1:-}" ]] || args+=(--legacy-checker "$1")
+  python3 "$candidate/deploy/emit_schema_check.py" "${args[@]}"
+}
 
 check_compose_gates() {
   docker compose "$@" config --format json | python3 -c '
@@ -176,7 +195,19 @@ OVERRIDE
   inspect_stopped_gates backend || return 1
   container=$(docker compose ps -aq backend) || return 1
   [[ -n "$container" && "$container" != *$'\n'* ]] || return 1
-  docker cp check_backend_schema.py "$container:/tmp/backend-rollback-schema.py" || return 1
+  if [[ -n "$compatibility_bundle" ]]; then
+    local emitted
+    emitted=$(mktemp /tmp/backend-schema-verified.XXXXXXXX.py) || return 1
+    if ! emit_compatibility_check "$active/deploy/check_backend_schema.py" > "$emitted"; then
+      rm -f -- "$emitted"
+      return 1
+    fi
+    chmod 644 "$emitted" # reviewed schema metadata/code, never runtime secrets
+    docker cp "$emitted" "$container:/tmp/backend-rollback-schema.py" || { rm -f -- "$emitted"; return 1; }
+    rm -f -- "$emitted"
+  else
+    docker cp check_backend_schema.py "$container:/tmp/backend-rollback-schema.py" || return 1
+  fi
   docker compose "${checker_compose[@]}" start backend || return 1
   checker_status=$(timeout --signal=TERM --kill-after=5s 180s docker wait "$container") || return 1
   [[ "$checker_status" == 0 ]] || return 1
@@ -242,7 +273,7 @@ rollback() {
     fi
     if ! check_compose_gates ||
        ! docker compose build --build-arg "PASTORAI_RELEASE_SHA=$active_release_sha" backend ||
-       ! check_previous_schema "$previous_migrations" ||
+       ! check_previous_schema "$rollback_manifest" ||
        ! create_and_start ||
        ! check_external_gates ||
        ! curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null ||
@@ -276,7 +307,10 @@ check_compose_gates
 cd -- "$active/deploy"
 check_compose_gates
 check_external_gates
-docker compose exec -T -e "EXPECTED_MIGRATIONS=$previous_migrations" backend python - \
+if [[ -n "$compatibility_bundle" ]]; then
+  emit_compatibility_check | docker compose exec -T backend python -
+fi
+docker compose exec -T -e "EXPECTED_MIGRATIONS=$rollback_manifest" backend python - \
   < "$active/deploy/check_backend_schema.py"
 docker compose exec -T -e "EXPECTED_MIGRATIONS=$expected_migrations" backend python - \
   < "$candidate/deploy/check_backend_schema.py"

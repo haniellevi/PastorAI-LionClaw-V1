@@ -95,8 +95,9 @@ O controller não fecha o gate como estratégia de pausa.
 schema vivo deve corresponder. Só inicia o código antigo se a compatibilidade
 aditiva for provada. Não executa migrations antigas nem restaura banco. DDL
 incompatível, drift ou falha não aditiva exigem correção para frente ou operação
-de restauração separada. Não há rollback universal. O controller sintético não
-substitui o checker legado de PROD nem autoriza um release naquele ambiente.
+de restauração separada. Não há rollback universal. A opção estrita do release legado é documentada em
+[compatibilidade entre releases](COMPATIBILIDADE-RELEASE-REVISADA.md); ela exige
+bundle revisado e não autoriza um release naquele ambiente.
 
 `reserve --owner NOME --ttl 1800` retorna token vinculado ao pacote.
 `finish --owner NOME --token TOKEN` registra o aceite declarado pelo responsável.
