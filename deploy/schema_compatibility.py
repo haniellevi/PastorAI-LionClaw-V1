@@ -23,13 +23,13 @@ _QUERIES = {
     'constraints': """SELECT c.relname||'.'||k.conname, to_jsonb(pg_get_constraintdef(k.oid,true))
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'""",
-    'foreign_keys': """SELECT c.relname||'.'||k.conname,
+    'foreign_keys': """SELECT n.nspname||'.'||c.relname||'.'||k.conname,
         jsonb_build_array(target_namespace.nspname,target.relname,k.confupdtype,k.confdeltype)
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace
         JOIN pg_class target ON target.oid=k.confrelid
         JOIN pg_namespace target_namespace ON target_namespace.oid=target.relnamespace
-        WHERE n.nspname='public' AND k.contype='f'""",
+        WHERE (n.nspname='public' OR target_namespace.nspname='public') AND k.contype='f'""",
     'policies': """SELECT c.relname||'.'||p.polname,
         jsonb_build_array(p.polcmd,p.polpermissive,
             (SELECT array_agg(CASE WHEN role_id=0 THEN 'public' ELSE pg_get_userbyid(role_id) END ORDER BY CASE WHEN role_id=0 THEN 'public' ELSE pg_get_userbyid(role_id) END)

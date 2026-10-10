@@ -10,9 +10,10 @@ referências entre tabelas novas. Bundles sem esse envelope são recusados e
 precisam ser reconstruídos. Nenhuma migration de produto ou operação real foi
 executada.
 
-PostgreSQL 17 descartável exclusivo: 9 testes aprovados, zero skips, nos
+PostgreSQL 17 descartável exclusivo: 10 testes aprovados, zero skips, nos
 contratos de bundle e compatibilidade. Exercitam NO ACTION, RESTRICT, CASCADE,
-SET NULL e SET DEFAULT com exclusão real pelo caminho anterior, recusas do
+SET NULL e SET DEFAULT com exclusão real pelo caminho anterior, tabela filha
+em outro schema, recusas do
 bundle e do verificador vivo, referência nova compatível e bundle incompleto.
 Regressão do executor de release: 54 testes e 59 subtests aprovados.
 Os quatro checks e synthetic-release do novo head ainda precisam validar a

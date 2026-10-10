@@ -76,8 +76,10 @@ def test_emitted_gate_rejects_unreviewed_hash_and_disposable_target_before_conne
     assert refused.returncode!=0 and not refused.stdout
 
 
-@pytest.mark.parametrize('action', ['NO ACTION', 'RESTRICT', 'CASCADE', 'SET NULL', 'SET DEFAULT'])
-def test_new_child_foreign_key_refuses_legacy_parent_delete_recovery(migrated_factory, action):
+@pytest.mark.parametrize('action,schema', [
+    (action,'public') for action in ['NO ACTION','RESTRICT','CASCADE','SET NULL','SET DEFAULT']
+] + [('NO ACTION','synthetic_cross_schema')])
+def test_new_child_foreign_key_refuses_legacy_parent_delete_recovery(migrated_factory, action, schema):
     engine=migrated_factory.kw['bind']
     names=migration_files()
     with engine.connect() as connection:
@@ -87,15 +89,17 @@ def test_new_child_foreign_key_refuses_legacy_parent_delete_recovery(migrated_fa
         previous={'catalog':capture_catalog(connection),'migrations':names}
         connection.rollback()
         with connection.begin():
-            connection.exec_driver_sql('CREATE TABLE public.synthetic_new_child('
+            if schema!='public':
+                connection.exec_driver_sql(f'CREATE SCHEMA {schema}')
+            connection.exec_driver_sql(f'CREATE TABLE {schema}.synthetic_new_child('
                 'id integer PRIMARY KEY, parent_id integer REFERENCES public.synthetic_legacy_parent(id) '
                 f'ON DELETE {action})')
-            connection.exec_driver_sql('INSERT INTO public.synthetic_new_child VALUES (1,1)')
+            connection.exec_driver_sql(f'INSERT INTO {schema}.synthetic_new_child VALUES (1,1)')
         candidate={'catalog':capture_catalog(connection),'migrations':names}
         connection.rollback()
         bundle=dict(previous_sha='a'*40,candidate_sha='b'*40,previous=previous,candidate=candidate)
         # The real catalogue includes the referenced table and both actions.
-        reference=candidate['catalog']['foreign_keys']['synthetic_new_child.synthetic_new_child_parent_id_fkey']
+        reference=candidate['catalog']['foreign_keys'][f'{schema}.synthetic_new_child.synthetic_new_child_parent_id_fkey']
         assert reference[:2]==['public','synthetic_legacy_parent']
         assert reference[3]=={'NO ACTION':'a','RESTRICT':'r','CASCADE':'c','SET NULL':'n','SET DEFAULT':'d'}[action]
         with pytest.raises(SchemaCompatibilityError,match='previous schema contract changed'):
@@ -110,10 +114,10 @@ def test_new_child_foreign_key_refuses_legacy_parent_delete_recovery(migrated_fa
                 with pytest.raises(IntegrityError):
                     with connection.begin_nested():
                         connection.exec_driver_sql('DELETE FROM public.synthetic_legacy_parent WHERE id=1')
-                assert connection.exec_driver_sql('SELECT parent_id FROM public.synthetic_new_child').scalar_one()==1
+                assert connection.exec_driver_sql(f'SELECT parent_id FROM {schema}.synthetic_new_child').scalar_one()==1
             else:
                 connection.exec_driver_sql('DELETE FROM public.synthetic_legacy_parent WHERE id=1')
-                rows=connection.exec_driver_sql('SELECT parent_id FROM public.synthetic_new_child').all()
+                rows=connection.exec_driver_sql(f'SELECT parent_id FROM {schema}.synthetic_new_child').all()
                 assert rows==([] if action=='CASCADE' else [(None,)])
 
 
