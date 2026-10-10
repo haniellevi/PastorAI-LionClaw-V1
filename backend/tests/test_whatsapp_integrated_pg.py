@@ -71,6 +71,10 @@ def migrated_factory(rls_database_url):
             cursor.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
             if cursor.fetchone() is None:
                 cursor.execute(f"CREATE ROLE {role} NOLOGIN {'BYPASSRLS' if bypass else 'NOBYPASSRLS'}")
+            # Roles are cluster-wide: earlier isolated tests may have created
+            # service_role without BYPASSRLS. Re-establish this fixture's
+            # canonical Supabase roles only in the guarded disposable cluster.
+            cursor.execute(f"ALTER ROLE {role} NOLOGIN {'BYPASSRLS' if bypass else 'NOBYPASSRLS'}")
         cursor.execute("SELECT rolbypassrls FROM pg_roles WHERE rolname='authenticated'")
         assert cursor.fetchone() == (False,)
         cursor.execute(f"CREATE DATABASE {name}")
