@@ -23,6 +23,13 @@ _QUERIES = {
     'constraints': """SELECT c.relname||'.'||k.conname, to_jsonb(pg_get_constraintdef(k.oid,true))
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'""",
+    'foreign_keys': """SELECT n.nspname||'.'||c.relname||'.'||k.conname,
+        jsonb_build_array(target_namespace.nspname,target.relname,k.confupdtype,k.confdeltype)
+        FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_class target ON target.oid=k.confrelid
+        JOIN pg_namespace target_namespace ON target_namespace.oid=target.relnamespace
+        WHERE (n.nspname='public' OR target_namespace.nspname='public') AND k.contype='f'""",
     'policies': """SELECT c.relname||'.'||p.polname,
         jsonb_build_array(p.polcmd,p.polpermissive,
             (SELECT array_agg(CASE WHEN role_id=0 THEN 'public' ELSE pg_get_userbyid(role_id) END ORDER BY CASE WHEN role_id=0 THEN 'public' ELSE pg_get_userbyid(role_id) END)
@@ -123,6 +130,15 @@ def verify_additive_compatibility(*, previous: Mapping, candidate: Mapping, live
             table = name.split('.', 1)[0]
             if table in previous['relations'] and name not in previous[kind]:
                 raise SchemaCompatibilityError('previous schema contract changed')
+    # A new child can constrain legacy DELETE/UPDATE or mutate candidate data
+    # through a referential action, even when the parent catalogue is unchanged.
+    for name, reference in candidate['foreign_keys'].items():
+        if not isinstance(reference, list) or len(reference) != 4:
+            raise SchemaCompatibilityError('invalid foreign key contract')
+        if name not in previous['foreign_keys'] and (
+            reference[0] != 'public' or reference[1] in previous['relations']
+        ):
+            raise SchemaCompatibilityError('previous schema contract changed')
     # Old code omits new columns on INSERT. A required value with no default
     # breaks it, even after a successful backfill of the existing rows.
     for name, column in candidate['columns'].items():

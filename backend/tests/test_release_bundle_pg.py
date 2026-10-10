@@ -15,6 +15,7 @@ pytestmark=pytest.mark.rls_integration
 sys.path.insert(0,str(Path(__file__).parents[2]/'deploy'))
 import emit_schema_check as bridge
 from schema_compatibility import capture_catalog,SchemaCompatibilityError
+from sqlalchemy.exc import IntegrityError
 
 
 def test_bridge_accepts_nominal_addition_and_rejects_wrong_revision_manifest_and_live_drift(migrated_factory):
@@ -73,3 +74,71 @@ def test_emitted_gate_rejects_unreviewed_hash_and_disposable_target_before_conne
     args[args.index('--sha256')+1]='0'*64
     refused=subprocess.run(args,capture_output=True,text=True)
     assert refused.returncode!=0 and not refused.stdout
+
+
+@pytest.mark.parametrize('action,schema', [
+    (action,'public') for action in ['NO ACTION','RESTRICT','CASCADE','SET NULL','SET DEFAULT']
+] + [('NO ACTION','synthetic_cross_schema')])
+def test_new_child_foreign_key_refuses_legacy_parent_delete_recovery(migrated_factory, action, schema):
+    engine=migrated_factory.kw['bind']
+    names=migration_files()
+    with engine.connect() as connection:
+        with connection.begin():
+            connection.exec_driver_sql('CREATE TABLE public.synthetic_legacy_parent(id integer PRIMARY KEY)')
+            connection.exec_driver_sql('INSERT INTO public.synthetic_legacy_parent VALUES (1)')
+        previous={'catalog':capture_catalog(connection),'migrations':names}
+        connection.rollback()
+        with connection.begin():
+            if schema!='public':
+                connection.exec_driver_sql(f'CREATE SCHEMA {schema}')
+            connection.exec_driver_sql(f'CREATE TABLE {schema}.synthetic_new_child('
+                'id integer PRIMARY KEY, parent_id integer REFERENCES public.synthetic_legacy_parent(id) '
+                f'ON DELETE {action})')
+            connection.exec_driver_sql(f'INSERT INTO {schema}.synthetic_new_child VALUES (1,1)')
+        candidate={'catalog':capture_catalog(connection),'migrations':names}
+        connection.rollback()
+        bundle=dict(previous_sha='a'*40,candidate_sha='b'*40,previous=previous,candidate=candidate)
+        # The real catalogue includes the referenced table and both actions.
+        reference=candidate['catalog']['foreign_keys'][f'{schema}.synthetic_new_child.synthetic_new_child_parent_id_fkey']
+        assert reference[:2]==['public','synthetic_legacy_parent']
+        assert reference[3]=={'NO ACTION':'a','RESTRICT':'r','CASCADE':'c','SET NULL':'n','SET DEFAULT':'d'}[action]
+        with pytest.raises(SchemaCompatibilityError,match='previous schema contract changed'):
+            bridge.validate_bundle(bundle,'a'*40,'b'*40,names,names)
+        connection.exec_driver_sql('SET TRANSACTION READ ONLY')
+        with pytest.raises(SchemaCompatibilityError,match='previous schema contract changed'):
+            bridge.verify_bundle(connection,bundle)
+        connection.rollback()
+        # Exercise the legacy operation: it is blocked or alters new data.
+        with connection.begin():
+            if action in ('NO ACTION','RESTRICT'):
+                with pytest.raises(IntegrityError):
+                    with connection.begin_nested():
+                        connection.exec_driver_sql('DELETE FROM public.synthetic_legacy_parent WHERE id=1')
+                assert connection.exec_driver_sql(f'SELECT parent_id FROM {schema}.synthetic_new_child').scalar_one()==1
+            else:
+                connection.exec_driver_sql('DELETE FROM public.synthetic_legacy_parent WHERE id=1')
+                rows=connection.exec_driver_sql(f'SELECT parent_id FROM {schema}.synthetic_new_child').all()
+                assert rows==([] if action=='CASCADE' else [(None,)])
+
+
+def test_foreign_key_between_new_tables_keeps_legacy_contract(migrated_factory):
+    engine=migrated_factory.kw['bind']
+    names=migration_files()
+    with engine.connect() as connection:
+        previous={'catalog':capture_catalog(connection),'migrations':names}
+        connection.rollback()
+        with connection.begin():
+            connection.exec_driver_sql('CREATE TABLE public.synthetic_new_parent(id integer PRIMARY KEY)')
+            connection.exec_driver_sql('CREATE TABLE public.synthetic_new_child('
+                'id integer PRIMARY KEY, parent_id integer REFERENCES public.synthetic_new_parent(id) ON DELETE CASCADE)')
+        candidate={'catalog':capture_catalog(connection),'migrations':names}
+        connection.rollback()
+        bundle=dict(previous_sha='a'*40,candidate_sha='b'*40,previous=previous,candidate=candidate)
+        bridge.validate_bundle(bundle,'a'*40,'b'*40,names,names)
+        connection.exec_driver_sql('SET TRANSACTION READ ONLY')
+        bridge.verify_bundle(connection,bundle)
+        connection.rollback()
+        # Older bundles cannot silently omit the new referential envelope.
+        del previous['catalog']['foreign_keys']
+        with pytest.raises(SchemaCompatibilityError,match='incomplete catalogue contract'):
+            bridge.validate_bundle(bundle,'a'*40,'b'*40,names,names)

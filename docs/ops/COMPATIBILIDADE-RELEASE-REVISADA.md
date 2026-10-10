@@ -47,6 +47,14 @@ contratos anteriores devem permanecer compatíveis. Novo grant/policy/constraint
 em objeto anterior, mudança de role, ownership, coluna obrigatória sem default,
 índice único novo ou objeto anterior removido/redefinido são recusados.
 
+O catálogo inclui alvo e ações das chaves estrangeiras, inclusive referências
+entrantes de tabelas filhas em outro schema. Uma referência nova para tabela
+anterior também é recusada quando parte de uma tabela nova: ela
+pode impedir DELETE/UPDATE antigo ou alterar dados novos por CASCADE, SET NULL
+ou SET DEFAULT. Referências novas a schemas fora do catálogo público exigem
+revisão própria. Referências entre duas tabelas novas continuam aceitas.
+Bundles antigos sem esse envelope devem ser reconstruídos e revisados.
+
 Somente depois dessa prova o checker anterior recebe o manifesto completo do
 candidato, mantendo suas exigências de colunas e a recusa de migrations
 desconhecidas. Não existe um modo de aceitar extras indiscriminadamente. A
