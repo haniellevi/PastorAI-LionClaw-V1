@@ -477,8 +477,8 @@
           "nota": "Reparos de F2a preservados no candidato local 11b34410: destinos, estado do fake, gates e descrição do alcance. Integração/CI remoto pendentes."
         },
         "validacao_local": {
-          "status": "parcial",
-          "nota": "Codex: 81 testes focados (67 simulador + 14 privacidade) e 19 PG aprovados. Primeira suíte completa teve apenas falso positivo no scan de .venv-runtime; corrigido e aprovado no teste focado. Regressão completa será repetida após a extração T06."
+          "status": "ok",
+          "nota": "81 focados e 19 PG aprovados. Após correção do guard e extração T06, suíte sem RLS: 6431 passed, 866 deselected, sem falhas. Sem novo CI remoto."
         },
         "integracao_main": {
           "status": "pendente",
@@ -556,7 +556,7 @@
       "fase": "F1",
       "trilha": "principal",
       "sequencia": 6,
-      "estado": "futura",
+      "estado": "em_validacao",
       "objetivo": "Mover canonical_visitor_name e um erro puro para um módulo de domínio, atualizando propostas, serviço ministerial e o parser do catálogo.",
       "criterio_aceite": [
         "O serviço ministerial deixa de importar propostas do agente.",
@@ -566,18 +566,18 @@
       "depende_de": [
         "T05"
       ],
-      "proxima_acao": "Segue a T05 por ordem do plano (uma fatia por vez), não por necessidade técnica. Pode ser desenvolvida em ramo próprio a partir da main; integra depois do #463.",
+      "proxima_acao": "Candidato local validado; CI e integração pendentes. A próxima fatia local é T07.",
       "responsavel": "Claude",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "Regra pura e VisitorNameError em domain.visitor; serviço e parser usam domínio; propostas conservam adaptador ProposalContractError."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "149 focados, 15 visitante PG e 6431 backend sem RLS aprovados. Nome humano/HTTP e contratos de autorização preservados."
         },
         "integracao_main": {
           "status": "pendente",
@@ -597,6 +597,11 @@
           "data": "2026-10-09",
           "tipo": "revisao",
           "descricao": "depende_de ajustado: antes T01 (só espera de merge do #463); agora T05, que reflete a sequência única do plano. A extração pura do visitante não depende tecnicamente do simulador nem do #463; só a integração exige T01 (integra_apos)."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "149 testes focados, 15 PG e suíte backend sem RLS (6431 passed, 866 deselected) aprovados em Python 3.13.14. Regra preserva tipo estrito, Unicode/controles, trim, limite e erro privado; HTTP 422 e ProposalContractError mantidos."
         }
       ],
       "integra_apos": [

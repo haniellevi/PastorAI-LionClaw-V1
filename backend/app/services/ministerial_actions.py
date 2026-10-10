@@ -17,6 +17,7 @@ from app.deps import CurrentUser
 from app.domain import cell_meetings_schedule
 from app.domain.consolidation import CONNECTION_DEADLINE_HOURS, CONSOLIDATION_ROLES, VALID_VINCULOS, VINCULO_VISITANTE
 from app.domain.hierarchy import is_leader_or_superior
+from app.domain.visitor import VisitorNameError, canonical_visitor_name
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +60,9 @@ def register_own_visitor_expectation(db: Session, current_user: CurrentUser, *,
             or type(reuniao_id) is not uuid.UUID or reuniao_id.int == 0
             or observacao_oracao is not None):
             raise HTTPException(403, "Ação não autorizada")
-        from app.services.agent_action_proposals import canonical_visitor_name, ProposalContractError
         try:
             name = canonical_visitor_name(nome_visitante)
-        except ProposalContractError:
+        except VisitorNameError:
             raise HTTPException(422, "Nome de visitante inválido") from None
         actor = db.execute(select(AppUser.pessoa_id).where(
             AppUser.id == uuid.UUID(current_user.app_user_id), AppUser.igreja_id == tenant,

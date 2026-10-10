@@ -31,6 +31,7 @@ from app.deps import CurrentUser
 from app.domain import cell_meetings_schedule
 from app.domain.agent_authz import MINISTERIAL_ROLES, CONSOLIDATION_TOOL_ROLES
 from app.domain.consolidation import VALID_VINCULOS
+from app.domain.visitor import VisitorNameError, canonical_visitor_name
 from app.services.ministerial_actions import (
     can_mark_for_other, confirm_meeting_attendance, register_decision,
     register_own_visitor_expectation,
@@ -230,10 +231,9 @@ def own_visitor_command(value: object) -> tuple[bool, str | None]:
     )
     if match is None:
         return True, None
-    from app.services.agent_action_proposals import canonical_visitor_name, ProposalContractError
     try:
         return True, canonical_visitor_name(match.group('name'))
-    except ProposalContractError:
+    except VisitorNameError:
         return True, None
 
 
