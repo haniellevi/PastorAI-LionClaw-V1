@@ -245,6 +245,11 @@ exec "$@"
             "BROADCAST_ASYNC_ENABLED": "false",
         }
 
+        # Host release/Docker inputs are never implicit fixture authority.
+        for key in ("RELEASE_IMAGE_REF", "RELEASE_SCHEMA_BUNDLE", "RELEASE_SCHEMA_BUNDLE_SHA256",
+                    "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
+            self.environment.pop(key, None)
+
     def run_release(self, *, revision: str = SHA_NEW, **changes: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
             ["bash", str(DEPLOY / "backend-release.sh"), revision],
