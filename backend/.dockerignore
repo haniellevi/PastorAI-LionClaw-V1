@@ -1,26 +1,25 @@
-# Não copiar para a imagem (build leve + sem segredos)
-.venv/
-venv/
-env/
-ENV/
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-*.log
+# Runtime build context is an explicit allowlist. Administrative scripts,
+# credentials, test data, virtualenvs and backups never reach the builder.
+**
+!app/
+!app/**
+!migrations/
+!migrations/**
+!requirements.lock
+!scripts/
+!scripts/migrate.py
+!devtools/
+!devtools/**
+!Dockerfile
+!.dockerignore
 
-# Segredos — NUNCA na imagem
-.env
-.env.*
-
-# Testes não precisam ir pra runtime
-tests/
-
-# Artefatos diversos
-.git/
-.gitignore
-*.md
+# Defense in depth for nested runtime paths.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/id_rsa*
+**/id_ed25519*
+**/secrets/
+**/__pycache__/
+**/*.pyc
