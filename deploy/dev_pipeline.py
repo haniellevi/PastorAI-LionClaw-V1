@@ -119,6 +119,15 @@ class Executor:
             data = json.loads(self.runner(['docker', 'inspect', identifier]))[0]
             if (data['Config'].get('Labels') or {}).get('pastorai.scope') != 'dev-sintetico':
                 raise PipelineRefused('existing resource ownership mismatch')
+        scope={key:self.config[key] for key in ('project','profile','approved_project','backend_repository','frontend_repository')}
+        scope_path=self.state/'target.json'
+        if scope_path.exists() and json.loads(scope_path.read_text())!=scope:
+            raise PipelineRefused('controller state belongs to another nominal target')
+        if not scope_path.exists():
+            with scope_path.open('x') as output:
+                json.dump(scope,output,sort_keys=True)
+                output.flush()
+                os.fsync(output.fileno())
         if self.config['profile'] == 'rehearsal':
             self.call('up', '-d', '--wait', 'postgres', 'redis')
         else:
@@ -241,6 +250,8 @@ class Executor:
 
 
 def main():
+    if sys.version_info[:2] != (3,13):
+        raise PipelineRefused('Python 3.13 controller required')
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--config', type=Path, required=True)
     sub = parser.add_subparsers(dest='action', required=True)
