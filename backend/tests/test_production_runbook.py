@@ -61,6 +61,9 @@ def test_external_send_gate_exits_before_health_and_symlink(artifact_mode, monke
     spec.loader.exec_module(module)
     fixture = module.BackendReleaseTest()
     fixture.setUp()
+    sentinel = "synthetic-private-release-config-sentinel"
+    (fixture.old / "configuration.fixture").write_text("PRIVATE_FIXTURE=" + sentinel + "\n")
+    fixture.environment["PRIVATE_FIXTURE"] = sentinel
     try:
         changes = {"ALLOW_REAL_SENDS": "true"}
         if artifact_mode:
@@ -69,6 +72,7 @@ def test_external_send_gate_exits_before_health_and_symlink(artifact_mode, monke
             )
         result = fixture.run_release(**changes)
         assert result.returncode != 0
+        assert sentinel not in result.stdout + result.stderr
         assert "external-effect gates open or unverifiable" in result.stderr
         assert not any("compose build" in call or call.startswith("curl|")
                        for call in fixture.calls())
