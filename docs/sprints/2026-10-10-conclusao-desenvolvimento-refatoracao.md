@@ -66,3 +66,22 @@ A revisão final identificou que o release legado ainda recompilava no alvo. O m
 Testes do release e parser Compose real: 62 passed e 65 subtests passed. Incluem retorno sem build, tag/SHA/repository recusados, imagem e contenção divergentes, lock e preservação do checker/gates. O código e o runbook estão preparados; aquisição/publicação da imagem production, janela do banco, frontend/Vercel e operação do alvo real continuam sujeitos ao pacote concreto autorizado. Os candidatos #471 0b4fbd6a e #472 cb87b174 passaram nos quatro checks e no ensaio físico no GitHub.
 
 O primeiro CI do #473 identificou um teste antigo que congelava a posição textual do comando de build. O teste passou a executar o gate em fixtures locais, nos modos padrão e por digest, comprovando que envio aberto impede build, saúde e troca do link. Não remove a proteção nem lê configuração real. As fixtures também isolam inputs de release/Docker herdados do host. A prova do head corrigido permanece separada da anterior.
+
+
+## Integração sequencial autorizada em 10/10
+
+O proprietário autorizou nominalmente #462 e #465 a #473 e o efeito automático do frontend. Os nove PRs abaixo foram integrados na main após atualizar cada base, preservar a árvore da fatia e revalidar CI do novo head e da main antecessora. #473 ainda precisa validar este registro e integrar; não foi antecipado seu resultado.
+
+| PR | Head validado | Commit de merge na main |
+|---|---|---|
+| #462 | c5e9af5e467012f0db83596fb17397e21f4de0ab | 6babdf2a6d2812f1185777486060675db60ab36a |
+| #465 | ae5161f648d99460afb0e9744c588d6c92dc5d9d | 2ef4f57d61b8fef448125613cf5cba85e59c1796 |
+| #466 | 27597b430ab3c3e1091f531c1f34ebcd5f13c5d6 | fa60df7687d2efa8c37f0a6ea8acff83213c9ebc |
+| #467 | dcc53f2a1e06b366b2417df55d6a78099bfc9896 | 2ce15bd35a18fdd3848aa7408a647827d0058c1f |
+| #468 | 0cb6b9911283a52ec964eba6f5523e97d510820e | 94743953b22944cb23945339a53ba26e6b8055fd |
+| #469 | 006804dd48b5d2548b285a1a94e541305288bd9c | c0c273cf559e441dacaf8856476034b07134aef9 |
+| #470 | 47071289c4575a651b40f2c9b7799317fd16c394 | 52622a5e2310e0009c9a95223851ac5ddf8fe7ac |
+| #471 | 75221bdc2f08997dbada9b1485b6ee22a7715a12 | d818e59514d9eb3726e4836a1976647463d94016 |
+| #472 | 2c6369a8486ae8c711f8b7bc71c3793cd53d9f94 | 2076528998f9b6d6bb66219861d88586cdf27d4c |
+
+tarefas.json e o checklist sintético do MVP refletem as integrações comprovadas. T09/T10 mantêm aceite online pendente; T08/T11 e operações reais continuam sujeitos à decisão e autorização concretas. Este registro não comprova publicação frontend sem recibo próprio, nem release backend, schema remoto ou causa da indisponibilidade histórica.

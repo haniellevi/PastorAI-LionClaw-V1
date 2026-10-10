@@ -455,7 +455,7 @@
       "fase": "F2A",
       "trilha": "principal",
       "sequencia": 5,
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Corrigir o validador de destinos e o estado do fake e ajustar descrições do candidato, concluindo F2a: Evolution falsa, chat e WHATSAPP_TRANSPORTE=simulado.",
       "criterio_aceite": [
         "URL adversarial recusada nos dois sentidos (127.example.invalid, 0x7f000001, 2130706433, 167772161, IPv4 não loopback, nomes fora da lista).",
@@ -465,7 +465,7 @@
         "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
       ],
       "depende_de": [],
-      "proxima_acao": "Revisar e integrar #462 na main após autorização nominal.",
+      "proxima_acao": "Fatia integrada; preservar evidências e limites de aceite.",
       "responsavel": "Codex",
       "pr": [
         462
@@ -481,8 +481,8 @@
           "nota": "81 focados e 19 PG aprovados. Após correção do guard e extração T06, suíte sem RLS: 6431 passed, 866 deselected, sem falhas. Sem novo CI remoto."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -494,7 +494,7 @@
         },
         "ci": {
           "status": "ok",
-          "nota": "Quatro checks obrigatórios aprovados no head c5e9af5e."
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -571,6 +571,13 @@
           "tipo": "ci",
           "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
           "sha": "c5e9af5e"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #462 integrado na main em 2026-10-10T10:55:07Z, head c5e9af5e467012f0db83596fb17397e21f4de0ab, merge 6babdf2a6d2812f1185777486060675db60ab36a. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+          "sha": "6babdf2a6d2812f1185777486060675db60ab36a"
         }
       ],
       "integra_apos": [
@@ -583,7 +590,7 @@
       "fase": "F1",
       "trilha": "principal",
       "sequencia": 6,
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Mover canonical_visitor_name e um erro puro para um módulo de domínio, atualizando propostas, serviço ministerial e o parser do catálogo.",
       "criterio_aceite": [
         "O serviço ministerial deixa de importar propostas do agente.",
@@ -593,7 +600,7 @@
       "depende_de": [
         "T05"
       ],
-      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "proxima_acao": "Fatia integrada. Publicação backend em PROD permanece exclusiva da operação T11.",
       "responsavel": "Codex",
       "pr": [
         465
@@ -609,8 +616,8 @@
           "nota": "149 focados, 15 visitante PG e 6431 backend sem RLS aprovados. Nome humano/HTTP e contratos de autorização preservados."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -622,7 +629,7 @@
         },
         "ci": {
           "status": "ok",
-          "nota": "Quatro checks obrigatórios aprovados no head d71ea700."
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -653,6 +660,13 @@
           "tipo": "ci",
           "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
           "sha": "d71ea700"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #465 integrado na main em 2026-10-10T11:03:13Z, head ae5161f648d99460afb0e9744c588d6c92dc5d9d, merge 2ef4f57d61b8fef448125613cf5cba85e59c1796. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/465",
+          "sha": "2ef4f57d61b8fef448125613cf5cba85e59c1796"
         }
       ],
       "integra_apos": [
@@ -665,7 +679,7 @@
       "fase": "F2B",
       "trilha": "principal",
       "sequencia": 7,
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Percorrer webhook autenticado, Redis, worker (em thread, no mesmo processo), catálogo e autorização reais, serviço, banco com policies e leitura pela API, começando pelo visitante.",
       "criterio_aceite": [
         "Visitante autorizado por vínculo e membership; recusa após revogação do vínculo; API exige papel; dois tenants positivos e recusa cruzada por RLS real. A indicação própria historicamente não exige papel de gestão.",
@@ -677,7 +691,7 @@
         "T05"
       ],
       "dep_nota": "T06 (visitante) não é pré-requisito técnico, mas a primeira ação vertical é o visitante.",
-      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "proxima_acao": "Fatia integrada; preservar evidências e limites de aceite.",
       "responsavel": "Codex",
       "pr": [
         466
@@ -693,8 +707,8 @@
           "nota": "7 passed, 0 skipped, 25,994 s. Dois tenants, RLS read/write, replay, rollback/retry, API, consentimento, opt-out e membership revogado."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -706,7 +720,7 @@
         },
         "ci": {
           "status": "ok",
-          "nota": "Quatro checks obrigatórios aprovados no head a0c42673."
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -732,6 +746,13 @@
           "tipo": "ci",
           "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
           "sha": "a0c42673"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #466 integrado na main em 2026-10-10T11:12:35Z, head 27597b430ab3c3e1091f531c1f34ebcd5f13c5d6, merge fa60df7687d2efa8c37f0a6ea8acff83213c9ebc. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/466",
+          "sha": "fa60df7687d2efa8c37f0a6ea8acff83213c9ebc"
         }
       ]
     },
@@ -813,7 +834,7 @@
       "depende_de": [
         "T07"
       ],
-      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "proxima_acao": "Código integrado. Aguardar decisão T08, alvo exclusivo e autorização nominal para configurar e aceitar o DEV online; workflow permanece desativado.",
       "responsavel": "Codex",
       "pr": [
         468,
@@ -830,8 +851,8 @@
           "nota": "Ensaio físico no bbf52f2d passou: dois PG17 independentes, Redis persistente, API/frontend/três workers em processos separados, fila preservada, contenção, recuperação, reset e recibos. A correção 71355ea2 adiciona comentários de versões exigidos pelo CI; 3 testes focados passaram. Correção de isolamento de roles 0b4fbd6a: 2 PG aprovados."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "pendente",
@@ -842,8 +863,8 @@
           "nota": "Etapa de DEV."
         },
         "ci": {
-          "status": "em_andamento",
-          "nota": "CI do head atualizado pendente; o resultado anterior não valida o próximo push."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -870,10 +891,23 @@
           "tipo": "local",
           "descricao": "CI RLS do 71355ea2 encontrou bootstrap de fixture com service_role preexistente sem BYPASSRLS. 0b4fbd6a restabelece os papéis nominais apenas no cluster descartável; seed e regressão nova passaram em PG17, 2 passed zero skips. Guards e migration preservados.",
           "sha": "0b4fbd6a"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #468 integrado na main em 2026-10-10T11:30:26Z, head 0cb6b9911283a52ec964eba6f5523e97d510820e, merge 94743953b22944cb23945339a53ba26e6b8055fd. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/468",
+          "sha": "94743953b22944cb23945339a53ba26e6b8055fd"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #471 integrado na main em 2026-10-10T11:56:17Z, head 75221bdc2f08997dbada9b1485b6ee22a7715a12, merge d818e59514d9eb3726e4836a1976647463d94016. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/471",
+          "sha": "d818e59514d9eb3726e4836a1976647463d94016"
         }
       ],
       "bloqueio": "Ativação online aguarda decisão nominal de recursos, região, teto mensal e isolamento (T08), seguida de login e aceite do produto no alvo.",
-      "aguardando": "T08: recursos, região, teto mensal e executor. Nenhum provisionamento ou publicação executado.",
       "integra_apos": [
         "S4"
       ],
@@ -896,7 +930,7 @@
         "T09"
       ],
       "dep_nota": "Dependência derivada da sequência do plano: reaproveita artefatos imutáveis e o runner de migration empacotados no F3.",
-      "proxima_acao": "Revisar #472 e #473, aguardar CI do head final #473 e integrar sequencialmente na main após #471. Não fazer merge na base temporária. T11 exige versão implantada comprovada, pacote/imagens/frontend aceitos, backup e autorização nominal.",
+      "proxima_acao": "Consultar CI e integração do #473 no remoto. Após integração, aceite do pacote no DEV (T09), versão anterior comprovada, backup restaurável e autorização concreta da operação T11.",
       "responsavel": "Codex",
       "pr": [
         472,
@@ -913,8 +947,8 @@
           "nota": "Ensaio físico DEV PASS. 86 testes de release/controller/coordenação com 59 subtests e 2 testes novos PG17 PASS. Catálogo/ledger/SHA/hash/identidade recusam divergências. Não prova release PROD. Modo por digest: 62 testes e 65 subtests, incluindo parser Compose real, aprovados."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "parcial",
+          "nota": "#472 integrado; #473 contém este fechamento, aguardando CI e integração na main."
         },
         "publicacao_dev": {
           "status": "pendente",
@@ -926,7 +960,7 @@
         },
         "ci": {
           "status": "em_andamento",
-          "nota": "CI do head atualizado pendente; o resultado anterior não valida o próximo push."
+          "nota": "Revalidar quatro checks e synthetic-release do head final #473 após este registro; resultados anteriores não validam esta edição."
         }
       },
       "evidencias": [
@@ -953,8 +987,16 @@
           "descricao": "Modo de promoção nominal por digest e recuperação da imagem anterior real, sem build. 62 testes e 65 subtests passaram; nenhum acesso/operação PROD. CI do head final publicado é prova separada.",
           "sha": "b5d3c6f7f5ba2025c2085bb33fdc822d2e23af29",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/473"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #472 integrado na main em 2026-10-10T12:21:29Z, head 2c6369a8486ae8c711f8b7bc71c3793cd53d9f94, merge 2076528998f9b6d6bb66219861d88586cdf27d4c. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/472",
+          "sha": "2076528998f9b6d6bb66219861d88586cdf27d4c"
         }
-      ]
+      ],
+      "aguardando": "Aceite online do DEV e pacote nominal de release. A integração final do #473 deve ser conferida no remoto."
     },
     {
       "id": "T11",
@@ -1005,7 +1047,7 @@
       "fase": "F5",
       "trilha": "principal",
       "sequencia": 12,
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Mover _load_agent_reply_intent e a projeção _intent_from_message para um contrato pequeno fora do worker. Reserva, compare-and-set, entrega e callbacks ficam onde estão.",
       "criterio_aceite": [
         "Pelo menos um consumidor usa o contrato público de leitura.",
@@ -1016,7 +1058,7 @@
         "T07"
       ],
       "dep_nota": "No plano, F4 vem antes da extração maior; F5 pode ser preparada depois da baseline F2b e não exige operar PROD.",
-      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "proxima_acao": "Fatia integrada. Publicação backend em PROD permanece exclusiva da operação T11.",
       "responsavel": "Codex",
       "pr": [
         467
@@ -1032,8 +1074,8 @@
           "nota": "398 testes focados, 27 PG (incluindo chave histórica, NULL, tenants e fence), 6431 backend passed; 874 integrações deselected na suíte offline."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -1045,7 +1087,7 @@
         },
         "ci": {
           "status": "ok",
-          "nota": "Quatro checks obrigatórios aprovados no head e6e34f15."
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -1071,6 +1113,13 @@
           "tipo": "ci",
           "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
           "sha": "e6e34f15"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #467 integrado na main em 2026-10-10T11:21:24Z, head dcc53f2a1e06b366b2417df55d6a78099bfc9896, merge 2ce15bd35a18fdd3848aa7408a647827d0058c1f. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/467",
+          "sha": "2ce15bd35a18fdd3848aa7408a647827d0058c1f"
         }
       ]
     },
@@ -1261,7 +1310,7 @@
       "titulo": "Atualizar o Next.js (avisos moderados)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Corrigir os dois avisos moderados do Next 15.5.25, que ficam abaixo do limiar do audit, em patch próprio.",
       "criterio_aceite": [
         "Versão corretiva e compatibilidade verificadas no momento da execução; quatro checks aprovados.",
@@ -1270,7 +1319,7 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "proxima_acao": "Fatia integrada; preservar evidências e limites de aceite.",
       "responsavel": "Codex",
       "pr": [
         469
@@ -1286,20 +1335,20 @@
           "nota": "Audit produção limpo, lint, tipos, 1165 testes, build e smoke de headers passaram em Node 24.19.0."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
           "nota": ""
         },
         "publicacao_prod": {
-          "status": "pendente",
-          "nota": "Chega a PROD pelo frontend."
+          "status": "ok",
+          "nota": "Frontend Production deployment 6980208054, success em 2026-10-10T11:40:02Z; não prova release backend nem smoke de PROD."
         },
         "ci": {
           "status": "ok",
-          "nota": "Quatro checks obrigatórios aprovados no head a6956868."
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -1325,6 +1374,20 @@
           "tipo": "ci",
           "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
           "sha": "a6956868"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #469 integrado na main em 2026-10-10T11:38:22Z, head 006804dd48b5d2548b285a1a94e541305288bd9c, merge c0c273cf559e441dacaf8856476034b07134aef9. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/469",
+          "sha": "c0c273cf559e441dacaf8856476034b07134aef9"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "publicacao_prod",
+          "descricao": "GitHub registra deployment Production 6980208054 com state=success em 2026-10-10T11:40:02Z, SHA c0c273cf559e441dacaf8856476034b07134aef9. Publicação automática frontend autorizada; sem sondagem de PROD.",
+          "sha": "c0c273cf559e441dacaf8856476034b07134aef9",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/deployments"
         }
       ]
     },
@@ -1333,7 +1396,7 @@
       "titulo": "Triagem das vulnerabilidades altas do grafo completo (npm ci)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "em_validacao",
+      "estado": "concluida",
       "objetivo": "Diagnosticar individualmente as oito altas que o npm ci ainda relata no grafo completo, incluindo dependências de desenvolvimento, fora do recorte do audit com --omit=dev.",
       "criterio_aceite": [
         "Cada vulnerabilidade classificada (produção ou desenvolvimento, explorável ou não) com evidência.",
@@ -1342,7 +1405,7 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "proxima_acao": "Fatia integrada; preservar evidências e limites de aceite.",
       "responsavel": "Codex",
       "pr": [
         470
@@ -1358,8 +1421,8 @@
           "nota": "Audit produção: zero; grafo completo: cinco pacotes altos propagados do único advisory braces sem patch. Lint, tipos, 1165 testes e 69 E2E passaram."
         },
         "integracao_main": {
-          "status": "pendente",
-          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
+          "status": "ok",
+          "nota": "PRs integrados na main; consultar as evidências com heads e commits de merge."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -1371,7 +1434,7 @@
         },
         "ci": {
           "status": "ok",
-          "nota": "Quatro checks obrigatórios aprovados no head 9b3fd41e."
+          "nota": "Quatro checks obrigatórios aprovados nos heads registrados nas evidências de integração."
         }
       },
       "evidencias": [
@@ -1402,9 +1465,15 @@
           "tipo": "ci",
           "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
           "sha": "9b3fd41e"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "integracao_main",
+          "descricao": "PR #470 integrado na main em 2026-10-10T11:47:13Z, head 47071289c4575a651b40f2c9b7799317fd16c394, merge 52622a5e2310e0009c9a95223851ac5ddf8fe7ac. Quatro checks obrigatórios aprovados no head atualizado; sem release backend.",
+          "link": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/470",
+          "sha": "52622a5e2310e0009c9a95223851ac5ddf8fe7ac"
         }
-      ],
-      "aguardando": "Cinco alertas altos de ferramentas de desenvolvimento persistem no grafo completo, derivados do advisory braces GHSA-vfj7-8cjw-p6xm; audit produção limpo. Reconsulta 10/10 mantém o aviso; não fazer downgrade automático de eslint-config-next."
+      ]
     },
     {
       "id": "B1",
@@ -1784,6 +1853,13 @@
       "data": "2026-10-10",
       "titulo": "Promoção por artefato completa em candidato separado",
       "descricao": "#471 e #472 passaram nos quatro checks e ensaio físico. A lacuna de recompilar no alvo foi fechada pelo #473, sem operar PROD. Só a validação do novo candidato está em andamento.",
+      "tarefa": "T10",
+      "pr": 473
+    },
+    {
+      "data": "2026-10-10",
+      "titulo": "Integração sequencial autorizada: nove fatias na main",
+      "descricao": "#462 e #465 a #472 retargetados e integrados sequencialmente na main com CI do novo head e da main antecessora. #473 final em validação; operações DEV/PROD continuam separadas.",
       "tarefa": "T10",
       "pr": 473
     }

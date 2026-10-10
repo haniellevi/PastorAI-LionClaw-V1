@@ -4,6 +4,12 @@ Fonte técnica única da refatoração e dos ambientes. Consolidado em 09/10/202
 
 Os pareceres de apoio da revisão (matriz de decisões, inventário de cobertura, revisões dos PRs) não foram versionados: servem de evidência e não são normativos. As propostas retiradas ou adiadas estão resumidas no apêndice.
 
+## Atualização da integração em 10/10/2026
+
+O proprietário autorizou os merges sequenciais. #462 e #465 a #472 foram integrados na main após retarget, atualização da base e aprovação dos quatro checks no novo head, além do CI pós-merge do antecessor. #473 final recebe este registro e ainda precisa de CI e integração. Os heads e commits de merge das tarefas ficam nas evidências de tarefas.json; fotografias anteriores conservam seu caráter histórico.
+
+T05, T06, T07, T12, S3 e a triagem S4 têm integração comprovada. O grafo completo npm mantém cinco alertas altos de ferramentas ligados ao advisory braces registrado, embora o audit de produção esteja limpo. T09 e T10 têm preparação técnica entregue, com aceite online ainda pendente. T08 exige decisão do executor exclusivo, região e teto; T11 exige pacote, alvo e autorização nominal. Não houve release backend, banco remoto, abertura de gate, provisionamento ou limpeza nesta integração.
+
 ## 1. Decisão e resultado esperado
 
 Manter o monólito modular no repositório atual. Corrigir dependências por fatias pequenas, colocar o fluxo integrado sob teste e preparar DEV isolado com publicação automática. PROD recebe uma publicação explícita da revisão validada. A migração Supabase para Neon permanece cancelada.
