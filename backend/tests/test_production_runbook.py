@@ -50,20 +50,35 @@ def _posix_shell() -> str:
     pytest.skip("shell POSIX indisponível para validar o gate operacional")
 
 
-def test_external_send_gate_exits_before_health_and_symlink() -> None:
-    block = _release_activation_block()
+@pytest.mark.parametrize("artifact_mode", [False, True])
+def test_external_send_gate_exits_before_health_and_symlink(artifact_mode, monkeypatch) -> None:
+    import importlib.util
 
-    assert "services=(backend queue-worker cron-worker broadcast-worker)" in block
-    start = block.index("# Keep secrets")
-    gate = block.index("\ncheck_external_gates\n", start)
-    build = block.index('\ndocker compose build --build-arg "PASTORAI_RELEASE_SHA=$release_sha" backend\n', gate)
-    activate = block.index("\ncreate_and_start\n", build)
-    health = block.index("curl -fsS", activate)
-    symlink = block.index("ln -s --", health)
-    assert gate < build < activate < health < symlink
-    assert ":-false" not in block
-    assert "cat .env" not in block
-    assert "printenv" not in block
+    path = pathlib.Path(__file__).resolve().parents[2] / "deploy/tests/test_backend_release.py"
+    spec = importlib.util.spec_from_file_location("synthetic_release_doubles", path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.syspath_prepend(str(path.parent))
+    spec.loader.exec_module(module)
+    fixture = module.BackendReleaseTest()
+    fixture.setUp()
+    sentinel = "synthetic-private-release-config-sentinel"
+    (fixture.old / "configuration.fixture").write_text("PRIVATE_FIXTURE=" + sentinel + "\n")
+    fixture.environment["PRIVATE_FIXTURE"] = sentinel
+    try:
+        changes = {"ALLOW_REAL_SENDS": "true"}
+        if artifact_mode:
+            changes["RELEASE_IMAGE_REF"] = (
+                "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+            )
+        result = fixture.run_release(**changes)
+        assert result.returncode != 0
+        assert sentinel not in result.stdout + result.stderr
+        assert "external-effect gates open or unverifiable" in result.stderr
+        assert not any("compose build" in call or call.startswith("curl|")
+                       for call in fixture.calls())
+        assert (fixture.root / "current").resolve() == fixture.old.parent
+    finally:
+        fixture.doCleanups()
 
 
 @pytest.mark.parametrize(

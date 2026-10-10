@@ -82,3 +82,59 @@ imagem final do ensaio DEV foi validada em processo separado. Publicação
 Vercel, troca de branch de produção, autenticação/Storage online e recuperação
 dos dados de um alvo real continuam operações próprias, depois do preparo e
 da autorização. A sequência dos PRs precisa ser integrada e revalidada antes.
+
+## Promoção por digest e recuperação pela imagem anterior
+
+O modo opcional `RELEASE_IMAGE_REF` recebe somente uma referência imutável do
+repository nominal `ghcr.io/haniellevi/pastorai-lionclaw-v1-backend`, com digest
+SHA256 completo. A imagem production deve ter sido construída pelo SHA aceito
+no DEV, revisada e publicada na janela autorizada. A referência, o SHA, o
+bundle e o artefato frontend do mesmo pacote entram na autorização nominal.
+Digest e label não substituem essa procedência ou a revisão humana.
+
+O preflight exige socket Docker local, recusa overrides de endpoint e verifica
+as quatro imagens atualmente implantadas, que precisam ter o mesmo ID e label
+do SHA anterior. Projeto/layout/SHA anterior desconhecidos bloqueiam o modo.
+Os modos por digest e legado compartilham lock exclusivo de release. A aquisição
+ocorre antes de ler o release ativo; o lock permanece até concluir ativação,
+recuperação e limpeza. O executor requer `flock` disponível e acesso ao arquivo
+de lock no release root.
+
+O modo por digest reconfere o link ativo, obtém o digest candidato e exige label
+do SHA aceito. Pull não inicia aplicação. Gates, checkers e compatibilidade de
+catálogo continuam obrigatórios.
+
+Depois do schema verificado e antes de trocar a aplicação, contém fisicamente
+API e os três workers e exige estado parado. Nenhum gate muda para conseguir
+pausa. Os containers novos são criados sem build e sem pull; seus IDs reais e
+gates são conferidos ainda parados. A recuperação reutiliza o ID da imagem
+anterior capturado dos containers, repete a compatibilidade e não a recompila.
+Falha de contenção ou identidade impede início de aplicação/checker e exige
+recuperação humana. Redis/leases/filas permanecem fora da troca de imagem.
+
+Após prontidão saudável, grava somente metadata pública em
+`docker-compose.override.yml` do candidato e troca o link ativo. Essa pinagem
+mantém os quatro serviços no digest em futuros comandos Compose comuns; não
+modifica a configuração privada. Override existente no candidato é recusado,
+sem sobrescrever configuração alheia. Não executar releases concorrentes nem
+voltar ao modo de build no alvo depois de adotar esta operação por artefatos.
+
+O modo padrão legado permanece disponível para compatibilidade; não satisfaz
+por si só o requisito de promoção de pacote por digest. Dry-run do checker
+prova schema, sem comprovar imagem ou autorizar a operação. O script só executa
+release depois da operação de banco autorizada, com backup/restauração e
+consumidores contidos conforme o runbook. Não aplicar DDL incompatível contando
+com retorno automático de código.
+
+O frontend deve ser construído para o alvo e SHA aceitos, com origins públicos
+corretos, e publicado na ordem compatível com a API. Registrar deployment e
+smoke do frontend no recibo do pacote. Transição de publicação automática
+Vercel e login/Storage são parte da janela autorizada; o modo backend não
+publica frontend nem abre esse gate. Não declarar o pacote inteiro promovido
+somente pelo sucesso do script backend.
+
+Provas adicionais locais: doubles de comando exercitam promoção e recuperação
+sem build, rejeição de tag/repository/SHA divergente, consumidores inconsistentes,
+endpoint remoto, conflito de lock e imagem/estado parados incorretos. O parser
+Compose real comprova que a metadata de imagem conserva comandos/gates e o
+checker temporário. Nenhum container PROD foi acessado nessa validação.

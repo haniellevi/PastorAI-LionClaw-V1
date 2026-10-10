@@ -4,6 +4,12 @@ Fonte técnica única da refatoração e dos ambientes. Consolidado em 09/10/202
 
 Os pareceres de apoio da revisão (matriz de decisões, inventário de cobertura, revisões dos PRs) não foram versionados: servem de evidência e não são normativos. As propostas retiradas ou adiadas estão resumidas no apêndice.
 
+## Atualização da integração em 10/10/2026
+
+O proprietário autorizou os merges sequenciais. #462 e #465 a #472 foram integrados na main após retarget, atualização da base e aprovação dos quatro checks no novo head, além do CI pós-merge do antecessor. #473 final recebe este registro e ainda precisa de CI e integração. Os heads e commits de merge das tarefas ficam nas evidências de tarefas.json; fotografias anteriores conservam seu caráter histórico.
+
+T05, T06, T07, T12, S3 e a triagem S4 têm integração comprovada. O grafo completo npm mantém cinco alertas altos de ferramentas ligados ao advisory braces registrado, embora o audit de produção esteja limpo. T09 e T10 têm preparação técnica entregue, com aceite online ainda pendente. T08 exige decisão do executor exclusivo, região e teto; T11 exige pacote, alvo e autorização nominal. Não houve release backend, banco remoto, abertura de gate, provisionamento ou limpeza nesta integração.
+
 ## 1. Decisão e resultado esperado
 
 Manter o monólito modular no repositório atual. Corrigir dependências por fatias pequenas, colocar o fluxo integrado sob teste e preparar DEV isolado com publicação automática. PROD recebe uma publicação explícita da revisão validada. A migração Supabase para Neon permanece cancelada.
@@ -25,7 +31,7 @@ O resultado esperado é conseguir editar, testar, validar pelo navegador e publi
 
 ## Estado do desenvolvimento em 10/10/2026
 
-Esta atualização substitui os estados de execução da fotografia inicial, sem apagar sua rastreabilidade. #461, #463 e #464 já foram integrados; a main usada como base deste desenvolvimento é `52286af7c78a8bf9c0fcc7e0e205ac0226cf7dd1`. #462 recebeu o candidato corrigido `c5e9af5e`. As fatias seguintes estão nos drafts #465 a #472, com bases temporárias para revisão de diffs pequenos. Integrar uma por vez: após a fatia anterior chegar à main, mudar a base da próxima para main e revalidar o head final. Nunca fazer merge na base temporária.
+Esta atualização substitui os estados de execução da fotografia inicial, sem apagar sua rastreabilidade. #461, #463 e #464 já foram integrados; a main usada como base deste desenvolvimento é `52286af7c78a8bf9c0fcc7e0e205ac0226cf7dd1`. #462 recebeu o candidato corrigido `c5e9af5e`. As fatias seguintes estão nos drafts #465 a #473, com bases temporárias para revisão de diffs pequenos. Integrar uma por vez: após a fatia anterior chegar à main, mudar a base da próxima para main e revalidar o head final. Nunca fazer merge na base temporária.
 
 Desenvolvimento e testes locais de F1/F2/F3/F4/F5 foram implementados. O ensaio físico sintético de F3/F4 passou, com consumidores separados, Redis persistente, catálogo reconstruído independentemente, falha após troca, recuperação e reset. O workflow online está desativado por padrão. Provisionamento, login/Storage/aceite online, promoção entre plataformas e release PROD continuam operações pendentes. T08 exige decisão nominal de região, recursos e custo; T11 exige pacote concreto autorizado. Backlogs condicionados e limpeza recuperável permanecem fora da conclusão de desenvolvimento.
 
@@ -163,7 +169,7 @@ Aceite: merge verde chega ao DEV identificado; navegador e simulador exercitam o
 
 Separar implementação/ensaio da operação PROD. A preparação cria um caminho que recebe a revisão validada, identifica artefatos, verifica compatibilidade e executa uma transição já ensaiada. A ação de publicação deve representar o pacote completo autorizado, sem aprovações a cada comando, e continuar separada de ativar novos envios/cobranças ou ampliar o piloto.
 
-As quatro frentes abaixo foram preparadas em código e ensaio local. Catálogo/ledger/mutex/reserva estão ligados ao executor físico DEV; API e consumidores são contidos sem usar gate como pausa. O #472 acrescenta uma opção estrita de compatibilidade ao release legado, com bundle revisado, preservando o comportamento padrão. Ver [compatibilidade entre releases](COMPATIBILIDADE-RELEASE-REVISADA.md). Identidade e versão viva de PROD, promoção por artefatos nominais e publicação coordenada entre plataformas precisam do preflight e da janela autorizada:
+As quatro frentes abaixo foram preparadas em código e ensaio local. Catálogo/ledger/mutex/reserva estão ligados ao executor físico DEV; API e consumidores são contidos sem usar gate como pausa. O #472 acrescenta compatibilidade por bundle revisado; o #473 acrescenta promoção nominal por digest e recuperação pela imagem anterior real, com contenção e pinagem persistente. O comportamento padrão legado é preservado. Ver [compatibilidade entre releases](COMPATIBILIDADE-RELEASE-REVISADA.md). Identidade e versão viva de PROD, promoção por artefatos nominais e publicação coordenada entre plataformas precisam do preflight e da janela autorizada:
 
 1. **Compatibilidade de schema entre versões.** O checker atual rejeita entradas adicionais no ledger; o release executa o checker anterior com manifesto próprio. Uma migration nova pode reprovar a versão anterior mesmo sendo aditiva. Definir verificação de compatibilidade de ida/retorno, com recusas de drift, objetos incompatíveis, RLS/ACL/policies e migrations obrigatórias. Não aceitar extras indiscriminadamente nem substituir catálogo real por um teste ORM.
 2. **Pausa sem efeitos colaterais indevidos.** Em PROD e no DEV sintético, fechar `ALLOW_REAL_SENDS` não equivale a pausar consumidores: a outbox pode terminalizar pendências e a V3 pode alterar época de ativação. Preparar contenção de entrada/consumo e tratamento de operações em andamento, preservando leases, estado e retomada. Qualquer modo novo de pausa exige testes próprios. Reabrir um gate não restaura itens cancelados.

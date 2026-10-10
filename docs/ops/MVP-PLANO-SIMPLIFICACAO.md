@@ -184,17 +184,17 @@ acontecia nela, e cada mudança era feita duas vezes (DEV e PROD). Agora:
 - [x] **1. Ambiente local** (`./dev.sh`): Supabase local, backend e workers em
       Docker com recarga automática, frontend e seed fictício com duas igrejas
       ([registro](../sprints/2026-09-27-ambiente-local.md)).
-- [ ] **2. Simulador de WhatsApp:** página tipo WhatsApp que manda mensagens
+- [x] **2. Simulador de WhatsApp (prova integrada sintética):** página tipo WhatsApp que manda mensagens
       como se fossem da Evolution e mostra a resposta do bot, com o fluxo real
       (webhook, fila, agente, LLM); só a rede do WhatsApp é simulada.
       ([registro](../sprints/2026-10-09-simulador-whatsapp.md))
       - [x] 2a. Transporte simulado e contrato do fake (`WHATSAPP_TRANSPORTE=simulado`,
         sem ligar `ALLOW_REAL_SENDS`; o LLM fica desligado): handler e persistência
         provados com PostgreSQL, fila em memória e sem policies.
-      - [ ] 2b. Prova integrada: Redis real, policies reais, uma ação vertical e
+      - [x] 2b. Prova integrada: Redis real, policies reais, uma ação vertical e
         leitura pela API do painel (F2b do plano de refatoração).
         Implementado e validado localmente em 09/10: Redis/82 migrations/RLS e API
-        reais, dois tenants, replay e rollback/retry. Checkbox aguarda CI/integração.
+        reais, dois tenants, replay e rollback/retry. CI e integração comprovados nos PRs #462/#466 em 10/10.
         Validação pura de visitante (F1) e leitura da intenção (F5) também testadas
         localmente; sem publicação ou ampliação do piloto.
 - [ ] **3. Chip de teste:** número próprio de teste conectado por QR à
@@ -220,7 +220,7 @@ verificar identidade, isolamento e capacidade. Ordem, critérios e limites:
 Retomada Codex de 09/10: 6443 testes offline, 874 integrações mais duas novas
 provas PG separadas, 1165 testes frontend e 69 E2E aprovados localmente. Em 10/10, F3/F4 têm executor físico, workflows, contenção/recuperação e
 compatibilidade implementados e ensaiados localmente. #462 atualizado e
-#465 a #472 publicados para revisão; integração e recursos DEV ainda pendentes.
+#465 a #473 publicados para revisão; integração e recursos DEV ainda pendentes.
 Nenhum aceite de produção foi executado. Evidências e limitações na
 [sprint da retomada](../sprints/2026-10-09-retomada-refatoracao-codex.md) e
 [sprint de conclusão do desenvolvimento](../sprints/2026-10-10-conclusao-desenvolvimento-refatoracao.md).
