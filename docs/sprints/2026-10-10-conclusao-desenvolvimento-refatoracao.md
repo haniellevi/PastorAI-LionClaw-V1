@@ -17,7 +17,7 @@ Base integrada: `52286af7c78a8bf9c0fcc7e0e205ac0226cf7dd1`. Worktree Codex próp
 | #468 | T09: imagem allowlist | 2bd656b3 | codex/t12-leitura-resposta |
 | #469 | S3: Next patch | a6956868 | codex/t09-imagem-guardada |
 | #470 | S4: ferramentas auditadas | 9b3fd41e | codex/s3-next-patch |
-| #471 | T09: pipeline físico DEV | 71355ea2 | codex/s4-ferramentas-auditadas |
+| #471 | T09: pipeline físico DEV | 0b4fbd6a | codex/s4-ferramentas-auditadas |
 | #472 | T10: compatibilidade e registro final | conferir head final no GitHub | codex/t09-dev-pipeline |
 
 Todos os links usam `https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/NUMERO`. #465 a #472 são drafts. Não integrar na base temporária. Após integração autorizada de cada antecessor, mudar a base da próxima fatia para main, conferir o diff e revalidar o head final. Aprovação em base temporária não comprova aprovação no novo merge candidate.
@@ -49,3 +49,10 @@ Pip-audit dos dois locks sem vulnerabilidades conhecidas. Audit npm de produçã
 Decisão T08: executor exclusivo, região/teto e verificação nominal do projeto DEV. O workflow online está desativado por padrão. Depois de integrar e revalidar os candidatos, provisionar/configurar somente com autorização; executar login, duas igrejas e fluxo de produto online antes do aceite. T11 continua uma operação própria: preflight vivo, versão anterior comprovada, bundle de compatibilidade revisado, backup restaurável, consumidores contidos e publicação coordenada autorizada. S1 mantém hipótese histórica sem causa nova provada nesta execução.
 
 Guias: [pipeline DEV](../ops/DEV-PIPELINE-SINTETICO.md), [compatibilidade](../ops/COMPATIBILIDADE-RELEASE-REVISADA.md) e [plano](../ops/refatoracao-modular-plano.md).
+
+
+## Correção do isolamento observada no CI final
+
+Os checks RLS dos candidatos 71355ea2/d25ccd3c apontaram um erro na preparação do teste de seed: service_role já existia no cluster compartilhado sem BYPASSRLS. A fixture criava somente papéis ausentes e herdava essa configuração, fazendo a migration M06 recusar o bootstrap. O commit 0b4fbd6a normaliza os três papéis exclusivamente no cluster loopback rls_disposable, mantendo anon/authenticated NOBYPASSRLS e service_role BYPASSRLS. A migration e os guards permanecem inalterados.
+
+Regressão nova reproduz papel pré-existente sem bypass, aplica as migrations ativas e confere os três atributos reais. Seed e regressão passaram em PG17 descartável: 2 passed, zero skips. O ensaio físico e todos os outros checks dos candidatos anteriores passaram; o CI dos heads corrigidos é uma prova nova, a conferir antes da integração. Não usar os resultados anteriores como aprovação do head novo.

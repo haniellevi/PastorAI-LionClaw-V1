@@ -827,7 +827,7 @@
         },
         "validacao_local": {
           "status": "ok",
-          "nota": "Ensaio físico no bbf52f2d passou: dois PG17 independentes, Redis persistente, API/frontend/três workers em processos separados, fila preservada, contenção, recuperação, reset e recibos. A correção 71355ea2 adiciona comentários de versões exigidos pelo CI; 3 testes focados passaram."
+          "nota": "Ensaio físico no bbf52f2d passou: dois PG17 independentes, Redis persistente, API/frontend/três workers em processos separados, fila preservada, contenção, recuperação, reset e recibos. A correção 71355ea2 adiciona comentários de versões exigidos pelo CI; 3 testes focados passaram. Correção de isolamento de roles 0b4fbd6a: 2 PG aprovados."
         },
         "integracao_main": {
           "status": "pendente",
@@ -864,6 +864,12 @@
           "tipo": "local",
           "descricao": "Ensaio físico completo PASS; schema 0e6b1b8f8c6d51fe394b743c627f8be2ce88af440155cd2c00bb1bf5e4533685. IDs locais das imagens registrados na sprint; não são digests publicados no GHCR.",
           "sha": "bbf52f2d0d4b429af9f6f7d2f434d6e1d4e20e56"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "local",
+          "descricao": "CI RLS do 71355ea2 encontrou bootstrap de fixture com service_role preexistente sem BYPASSRLS. 0b4fbd6a restabelece os papéis nominais apenas no cluster descartável; seed e regressão nova passaram em PG17, 2 passed zero skips. Guards e migration preservados.",
+          "sha": "0b4fbd6a"
         }
       ],
       "bloqueio": "Ativação online aguarda decisão nominal de recursos, região, teto mensal e isolamento (T08), seguida de login e aceite do produto no alvo.",
