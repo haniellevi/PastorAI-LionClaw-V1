@@ -52,6 +52,14 @@ else
   release_root=/opt/pastorai-releases
   active_link=/opt/pastorai-current
 fi
+# Every release mode shares the same lock through activation, recovery and
+# cleanup. Resolve the active release only after entering this critical section.
+command -v flock >/dev/null || { echo "release lock unavailable" >&2; exit 1; }
+[[ -d "$release_root" && ! -L "$release_root/.backend-release.lock" ]] || {
+  echo "release lock path unavailable" >&2; exit 1;
+}
+exec 9>"$release_root/.backend-release.lock"
+flock -n 9 || { echo "another backend release is in progress" >&2; exit 1; }
 candidate="$release_root/$release_sha"
 active=$(readlink -f -- "$active_link")
 if [[ "$(readlink -f -- "$candidate")" != "$candidate" || -L "$candidate/deploy" ||
@@ -135,10 +143,6 @@ prepare_pinned_images() {
   [[ -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}" ]] || {
     echo "Docker endpoint override refused for image promotion" >&2; return 1;
   }
-  command -v flock >/dev/null || { echo "release lock unavailable" >&2; return 1; }
-  [[ ! -L "$release_root/.backend-release.lock" ]] || return 1
-  exec 9>"$release_root/.backend-release.lock"
-  flock -n 9 || { echo "another artifact release is in progress" >&2; return 1; }
   [[ "$(readlink -f -- "$active_link")" == "$active" ]] || {
     echo "active release changed during preflight" >&2; return 1;
   }

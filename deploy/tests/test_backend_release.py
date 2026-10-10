@@ -45,6 +45,9 @@ class BackendReleaseTest(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "docker").write_text(
             """#!/bin/sh
+if [ -n "${LOCK_TEST_FILE:-}" ] && flock -n "$LOCK_TEST_FILE" true; then
+  echo 'release lock not held during Docker operation' >&2; exit 1
+fi
 overlay=0
 state_file="$TRACE.$(basename "$(dirname "$PWD")").state"
 while [ "$1" = compose ] && [ "$2" = -f ]; do
@@ -188,6 +191,9 @@ exit 0
         )
         (bin_dir / "curl").write_text(
             """#!/bin/sh
+if [ -n "${LOCK_TEST_FILE:-}" ] && flock -n "$LOCK_TEST_FILE" true; then
+  echo 'release lock not held during health check' >&2; exit 1
+fi
 printf 'curl|%s|%s\\n' "$PWD" "$*" >> "$TRACE"
 if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${HEALTH_EXIT:-0}"; fi
 exit "${ROLLBACK_HEALTH_EXIT:-0}"
@@ -247,7 +253,7 @@ exec "$@"
 
         # Host release/Docker inputs are never implicit fixture authority.
         for key in ("RELEASE_IMAGE_REF", "RELEASE_SCHEMA_BUNDLE", "RELEASE_SCHEMA_BUNDLE_SHA256",
-                    "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
+                    "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "LOCK_TEST_FILE"):
             self.environment.pop(key, None)
 
     def run_release(self, *, revision: str = SHA_NEW, **changes: str) -> subprocess.CompletedProcess[str]:
@@ -306,16 +312,45 @@ exec "$@"
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse((self.new / "configuration.fixture").exists())
 
-    def test_concurrent_digest_release_refuses_before_pull_or_configuration(self):
+    def test_concurrent_release_refuses_both_modes_before_any_docker_or_configuration(self):
         import fcntl
         image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
         with (self.root / "releases/.backend-release.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            result = self.run_release(RELEASE_IMAGE_REF=image)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("another artifact release is in progress", result.stderr)
-        self.assertFalse(any(call.startswith("pull|") for call in self.calls()))
-        self.assertFalse((self.new / "configuration.fixture").exists())
+            for mode in ("", image):
+                with self.subTest(mode=mode):
+                    result = self.run_release(RELEASE_IMAGE_REF=mode)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("another backend release is in progress", result.stderr)
+                    self.assertFalse(self.calls())
+                    self.assertFalse((self.new / "configuration.fixture").exists())
+                    self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def _assert_lock_lifetime(self, image, fail=False):
+        import fcntl
+        path = self.root / "releases/.backend-release.lock"
+        result = self.run_release(RELEASE_IMAGE_REF=image, LOCK_TEST_FILE=str(path), HEALTH_EXIT="1" if fail else "0")
+        self.assertEqual(result.returncode, 1 if fail else 0, result.stderr)
+        self.assertNotIn("release lock not held", result.stderr)
+        self.assertEqual((self.root / "current").resolve(), self.old.parent if fail else self.new.parent)
+        if fail:
+            self.assertTrue(any(call.startswith(f"docker|{self.old}|compose start --wait") for call in self.calls()))
+        # The command double probes the real lock during every Docker call.
+        # It must be released after activation and cleanup finish.
+        with path.open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_legacy_release_holds_common_lock_until_exit(self):
+        self._assert_lock_lifetime("")
+
+    def test_digest_release_holds_common_lock_until_exit(self):
+        self._assert_lock_lifetime("ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64)
+
+    def test_legacy_recovery_holds_common_lock_until_exit(self):
+        self._assert_lock_lifetime("", fail=True)
+
+    def test_digest_recovery_holds_common_lock_until_exit(self):
+        self._assert_lock_lifetime("ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64, fail=True)
 
     def test_digest_containment_failure_never_starts_application_or_checker(self):
         image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64

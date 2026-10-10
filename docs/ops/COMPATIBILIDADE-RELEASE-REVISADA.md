@@ -95,9 +95,14 @@ Digest e label não substituem essa procedência ou a revisão humana.
 O preflight exige socket Docker local, recusa overrides de endpoint e verifica
 as quatro imagens atualmente implantadas, que precisam ter o mesmo ID e label
 do SHA anterior. Projeto/layout/SHA anterior desconhecidos bloqueiam o modo.
-Usa lock exclusivo de release, reconfere o link ativo, obtém o digest candidato
-e exige label do SHA aceito. Pull não inicia aplicação. Gates, checkers e
-compatibilidade de catálogo continuam obrigatórios.
+Os modos por digest e legado compartilham lock exclusivo de release. A aquisição
+ocorre antes de ler o release ativo; o lock permanece até concluir ativação,
+recuperação e limpeza. O executor requer `flock` disponível e acesso ao arquivo
+de lock no release root.
+
+O modo por digest reconfere o link ativo, obtém o digest candidato e exige label
+do SHA aceito. Pull não inicia aplicação. Gates, checkers e compatibilidade de
+catálogo continuam obrigatórios.
 
 Depois do schema verificado e antes de trocar a aplicação, contém fisicamente
 API e os três workers e exige estado parado. Nenhum gate muda para conseguir
