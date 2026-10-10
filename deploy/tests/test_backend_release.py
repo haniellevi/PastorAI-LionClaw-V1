@@ -237,6 +237,26 @@ exec "$@"
         config["services"]["queue-worker"]["environment"]["ALLOW_REAL_SENDS"] = "true"
         return json.dumps(config)
 
+    def test_unreviewed_compatibility_bundle_blocks_before_configuration_or_services(self):
+        bundle=self.root/'schema.json'
+        bundle.write_text('{}')
+        result=self.run_release(RELEASE_SCHEMA_BUNDLE=str(bundle))
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse(self.calls())
+        self.assertFalse((self.new/'configuration.fixture').exists())
+
+    def test_reviewed_but_invalid_bundle_never_relaxes_ledger_or_starts_candidate(self):
+        for filename in ('emit_schema_check.py','schema_compatibility.py'):
+            (self.new/filename).write_bytes((DEPLOY/filename).read_bytes())
+        bundle=self.root/'schema.json'
+        bundle.write_text('{}')
+        result=self.run_release(RELEASE_SCHEMA_BUNDLE=str(bundle),
+            RELEASE_SCHEMA_BUNDLE_SHA256=hashlib.sha256(bundle.read_bytes()).hexdigest())
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('reviewed schema verifier refused',result.stderr)
+        self.assertFalse(any('build' in call or 'restart' in call for call in self.calls()))
+        self.assertEqual((self.root/'current').resolve(),self.old.parent)
+
     def test_incompatible_timeout_blocks_before_configuration_or_services(self):
         result = self.run_release(TIMEOUT_OPTIONS_EXIT="125")
         self.assertNotEqual(result.returncode, 0)
