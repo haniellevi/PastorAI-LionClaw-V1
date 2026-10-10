@@ -124,3 +124,12 @@ def test_reset_needs_exact_confirmation_before_any_docker_call(tmp_path):
     with pytest.raises(pipeline.PipelineRefused,match='reset package confirmation'):
         executor.reset({'catalog':{},'migrations':['synthetic.sql']},'wrong-confirmation')
     assert not calls
+
+
+@pytest.mark.parametrize('base,expected',[('main','ok'),('codex/temporary','pendente'),(None,'pendente')])
+def test_temporary_base_merge_cannot_be_reported_as_main_integration(base,expected):
+    path=Path(__file__).parents[2]/'docs/ops/acompanhamento/atualizar.py'
+    spec=importlib.util.spec_from_file_location('progress_model',path)
+    model=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(model)
+    assert model.indicador_main({'ok':True,'dados':{'estado':'MERGED','base':base}})['status']==expected

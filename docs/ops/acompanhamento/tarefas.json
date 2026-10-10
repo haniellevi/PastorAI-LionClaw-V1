@@ -465,14 +465,16 @@
         "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
       ],
       "depende_de": [],
-      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
-      "responsavel": "Claude",
-      "pr": [],
-      "pr_referencia": null,
+      "proxima_acao": "Revisar e integrar #462 na main após autorização nominal.",
+      "responsavel": "Codex",
+      "pr": [
+        462
+      ],
+      "pr_referencia": 462,
       "indicadores": {
         "implementacao": {
           "status": "ok",
-          "nota": "Reparos de F2a preservados no candidato local 11b34410: destinos, estado do fake, gates e descrição do alcance. Integração/CI remoto pendentes."
+          "nota": "Validador, estado do fake e gates fechados corrigidos no head remoto c5e9af5e. Outbox conserva cancelamento com gate fechado."
         },
         "validacao_local": {
           "status": "ok",
@@ -480,7 +482,7 @@
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -491,8 +493,8 @@
           "nota": "O modo simulado é recusado em production."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados no head c5e9af5e."
         }
       },
       "evidencias": [
@@ -556,6 +558,19 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/462",
+          "sha": "c5e9af5e"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "ci",
+          "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
+          "sha": "c5e9af5e"
         }
       ],
       "integra_apos": [
@@ -578,10 +593,12 @@
       "depende_de": [
         "T05"
       ],
-      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
-      "responsavel": "Claude",
-      "pr": [],
-      "pr_referencia": null,
+      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "responsavel": "Codex",
+      "pr": [
+        465
+      ],
+      "pr_referencia": 465,
       "indicadores": {
         "implementacao": {
           "status": "ok",
@@ -593,7 +610,7 @@
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -604,8 +621,8 @@
           "nota": "Chega a PROD só em release."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados no head d71ea700."
         }
       },
       "evidencias": [
@@ -623,6 +640,19 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/465",
+          "sha": "d71ea700"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "ci",
+          "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
+          "sha": "d71ea700"
         }
       ],
       "integra_apos": [
@@ -647,10 +677,12 @@
         "T05"
       ],
       "dep_nota": "T06 (visitante) não é pré-requisito técnico, mas a primeira ação vertical é o visitante.",
-      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
+      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
       "responsavel": "Codex",
-      "pr": [],
-      "pr_referencia": null,
+      "pr": [
+        466
+      ],
+      "pr_referencia": 466,
       "indicadores": {
         "implementacao": {
           "status": "ok",
@@ -662,7 +694,7 @@
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -673,8 +705,8 @@
           "nota": "Prova de CI."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados no head a0c42673."
         }
       },
       "evidencias": [
@@ -687,6 +719,19 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/466",
+          "sha": "a0c42673"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "ci",
+          "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
+          "sha": "a0c42673"
         }
       ]
     },
@@ -758,7 +803,7 @@
       "fase": "F3",
       "trilha": "principal",
       "sequencia": 9,
-      "estado": "bloqueada",
+      "estado": "em_validacao",
       "objetivo": "Provisionar banco/Storage, Redis, autenticação e segredos próprios; publicar artefatos imutáveis do SHA integrado; serializar deploy, reset e reserva de aceite.",
       "criterio_aceite": [
         "Merge verde chega ao DEV identificado por SHA; navegador e simulador exercitam o fluxo com API, Redis e worker nos processos reais.",
@@ -766,25 +811,27 @@
         "Lembretes e avisos não são aceitos enquanto seus gates continuarem fechados; /health isolado não prova disponibilidade."
       ],
       "depende_de": [
-        "T07",
-        "T08"
+        "T07"
       ],
-      "proxima_acao": "Decidir T08; conectar o mutex/reserva, seed guardado e imagens ao executor selecionado; ensaiar migration, contenção, reset e smoke da stack, antes de publicação autorizada.",
-      "responsavel": "Codex · proprietário (decisão de recursos)",
-      "pr": [],
-      "pr_referencia": null,
+      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
+      "responsavel": "Codex",
+      "pr": [
+        468,
+        471
+      ],
+      "pr_referencia": 471,
       "indicadores": {
         "implementacao": {
-          "status": "parcial",
-          "nota": "Runner migrate.py empacotado por SHA; imagem DEV separada; seed idempotente guardado por projeto/TLS/gates; mutex flock para deploy/reset/reserva e recuperação. Executor físico e workflow ainda ausentes."
+          "status": "ok",
+          "nota": "Imagens por SHA/digest, frontend standalone, workflow desativado por padrão, executor físico, reserva/reset/recuperação e identidade nominal implementados. Nenhum recurso online provisionado."
         },
         "validacao_local": {
-          "status": "parcial",
-          "nota": "12 guards de alvo, 12 controles de coordenação, seed sobre 82 migrations PG. Imagens locais ensaiadas. Não prova Clerk/Storage online, TLS dos recursos ou stack em processos separados."
+          "status": "ok",
+          "nota": "Ensaio físico no bbf52f2d passou: dois PG17 independentes, Redis persistente, API/frontend/três workers em processos separados, fila preservada, contenção, recuperação, reset e recibos. A correção 71355ea2 adiciona comentários de versões exigidos pelo CI; 3 testes focados passaram."
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "pendente",
@@ -795,8 +842,8 @@
           "nota": "Etapa de DEV."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Sem push/CI remoto."
+          "status": "em_andamento",
+          "nota": "CI do head atualizado pendente; o resultado anterior não valida o próximo push."
         }
       },
       "evidencias": [
@@ -804,10 +851,27 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "24 testes dos controles DEV aprovados, zero skips; seed sintético/idempotência em PG17 aprovado. Interrupção de executor com SIGKILL conserva recovery_required antes do primeiro efeito e impede falso aceite. Nada conectado a recurso remoto."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/471",
+          "sha": "71355ea2"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "local",
+          "descricao": "Ensaio físico completo PASS; schema 0e6b1b8f8c6d51fe394b743c627f8be2ce88af440155cd2c00bb1bf5e4533685. IDs locais das imagens registrados na sprint; não são digests publicados no GHCR.",
+          "sha": "bbf52f2d0d4b429af9f6f7d2f434d6e1d4e20e56"
         }
       ],
-      "bloqueio": "Publicação online depende da decisão nominal da T08 e da verificação autorizada dos recursos. Código preparado ainda precisa do executor físico, workflow e smoke da stack entre processos; não existe aceite online.",
-      "aguardando": "T08: recursos, região, teto mensal e executor. Nenhum provisionamento ou publicação executado."
+      "bloqueio": "Ativação online aguarda decisão nominal de recursos, região, teto mensal e isolamento (T08), seguida de login e aceite do produto no alvo.",
+      "aguardando": "T08: recursos, região, teto mensal e executor. Nenhum provisionamento ou publicação executado.",
+      "integra_apos": [
+        "S4"
+      ],
+      "dep_nota": "T08 condiciona somente ativação/provisionamento online; não bloqueia implementação e ensaio local."
     },
     {
       "id": "T10",
@@ -815,7 +879,7 @@
       "fase": "F4",
       "trilha": "principal",
       "sequencia": 10,
-      "estado": "futura",
+      "estado": "em_validacao",
       "objetivo": "Criar e ensaiar o caminho que recebe a revisão validada: compatibilidade de schema entre versões, contenção de consumidores, ensaio de atualização acumulada e backend/frontend compatíveis.",
       "criterio_aceite": [
         "Fixtures e ensaio cobrem migration aditiva, incompatibilidade, falha de migration, falha após a troca, frontend incompatível, fila pendente, interrupção e recuperação.",
@@ -826,22 +890,24 @@
         "T09"
       ],
       "dep_nota": "Dependência derivada da sequência do plano: reaproveita artefatos imutáveis e o runner de migration empacotados no F3.",
-      "proxima_acao": "Depois da definição do executor T08/T09: integrar compatibilidade ao caminho físico de promoção e ensaiar contenção/leases/fila, frontend final, falhas e recuperação. Checker legado não foi substituído.",
+      "proxima_acao": "Revisar #472 e o bundle/runbook; integrar depois de #471 com CI no head final. Operação PROD só em T11 com versão implantada comprovada, compatibilidade do alvo, backup e autorização nominal.",
       "responsavel": "Codex",
-      "pr": [],
-      "pr_referencia": null,
+      "pr": [
+        472
+      ],
+      "pr_referencia": 472,
       "indicadores": {
         "implementacao": {
-          "status": "parcial",
-          "nota": "Comparação de catálogo nominal anterior/candidato/live e ledger exato; recusa drift, alterações RLS/ACL/functions/roles e permissões adicionais. Ainda sem promoção por digest ou contenção integrada dos consumidores."
+          "status": "ok",
+          "nota": "Compatibilidade integrada ao executor DEV e opção estrita do release legado via bundle revisado, sem aceitar migrations extras indiscriminadamente. Preparação técnica pronta; publicação coordenada real exige alvo e janela autorizados."
         },
         "validacao_local": {
-          "status": "parcial",
-          "nota": "PG17 com 82 migrations reais: alteração aditiva e backfill, drift incompatível e falha SQL transacional. Ensaio físico completo da promoção/recuperação ainda pendente."
+          "status": "ok",
+          "nota": "Ensaio físico DEV PASS. 86 testes de release/controller/coordenação com 59 subtests e 2 testes novos PG17 PASS. Catálogo/ledger/SHA/hash/identidade recusam divergências. Não prova release PROD."
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "pendente",
@@ -852,8 +918,8 @@
           "nota": "Esta tarefa só prepara; não opera PROD."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Sem push/CI remoto."
+          "status": "em_andamento",
+          "nota": "CI do head atualizado pendente; o resultado anterior não valida o próximo push."
         }
       },
       "evidencias": [
@@ -866,6 +932,13 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "Revisão d82d0d7c: ensaio PG adicional aprovado, 1 passed e zero skipped. Recusa coluna obrigatória sem default, nova restrição ou índice único em tabela antiga, ACL de coluna e mudança de dono. Comprova INSERT antigo sob coluna com default e índice comum. Não substitui ensaio físico de promoção."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/472",
+          "sha": "937d899f"
         }
       ]
     },
@@ -929,10 +1002,12 @@
         "T07"
       ],
       "dep_nota": "No plano, F4 vem antes da extração maior; F5 pode ser preparada depois da baseline F2b e não exige operar PROD.",
-      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
+      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
       "responsavel": "Codex",
-      "pr": [],
-      "pr_referencia": null,
+      "pr": [
+        467
+      ],
+      "pr_referencia": 467,
       "indicadores": {
         "implementacao": {
           "status": "ok",
@@ -944,7 +1019,7 @@
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -955,8 +1030,8 @@
           "nota": "Chega a PROD só em release."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados no head e6e34f15."
         }
       },
       "evidencias": [
@@ -969,6 +1044,19 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/467",
+          "sha": "e6e34f15"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "ci",
+          "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
+          "sha": "e6e34f15"
         }
       ]
     },
@@ -1168,10 +1256,12 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
+      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
       "responsavel": "Codex",
-      "pr": [],
-      "pr_referencia": null,
+      "pr": [
+        469
+      ],
+      "pr_referencia": 469,
       "indicadores": {
         "implementacao": {
           "status": "ok",
@@ -1183,7 +1273,7 @@
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": ""
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -1194,8 +1284,8 @@
           "nota": "Chega a PROD pelo frontend."
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados no head a6956868."
         }
       },
       "evidencias": [
@@ -1208,6 +1298,19 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/469",
+          "sha": "a6956868"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "ci",
+          "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
+          "sha": "a6956868"
         }
       ]
     },
@@ -1225,10 +1328,12 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
+      "proxima_acao": "Revisar o PR, aguardar checks do head final e integrar na main após a fatia anterior. Não fazer merge na base temporária.",
       "responsavel": "Codex",
-      "pr": [],
-      "pr_referencia": null,
+      "pr": [
+        470
+      ],
+      "pr_referencia": 470,
       "indicadores": {
         "implementacao": {
           "status": "ok",
@@ -1240,7 +1345,7 @@
         },
         "integracao_main": {
           "status": "pendente",
-          "nota": "As correções alteram o lock e ainda precisam de integração; triagem do aviso sem patch está documentada."
+          "nota": "PR aberto. Bases temporárias precisam mudar para main após integrar a fatia anterior e revalidar o head final."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -1251,8 +1356,8 @@
           "nota": ""
         },
         "ci": {
-          "status": "pendente",
-          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
+          "status": "ok",
+          "nota": "Quatro checks obrigatórios aprovados no head 9b3fd41e."
         }
       },
       "evidencias": [
@@ -1270,8 +1375,22 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/470",
+          "sha": "9b3fd41e"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "ci",
+          "descricao": "backend-tests, frontend-ci, e2e-critical e rls-integration aprovados no head remoto indicado.",
+          "sha": "9b3fd41e"
         }
-      ]
+      ],
+      "aguardando": "Cinco alertas altos de ferramentas de desenvolvimento persistem no grafo completo, derivados do advisory braces GHSA-vfj7-8cjw-p6xm; audit produção limpo. Reconsulta 10/10 mantém o aviso; não fazer downgrade automático de eslint-config-next."
     },
     {
       "id": "B1",
@@ -1639,6 +1758,12 @@
     {
       "data": "2026-10-09",
       "descricao": "Codex em branch própria concluir-refatoracao: T05/T06/T07/T12 e S3/S4 desenvolvidos e validados localmente. T09/T10 com preparação parcial; T08 ainda requer decisão. Sem push, CI remoto, merge ou operação PROD.",
+      "tarefa": "T09"
+    },
+    {
+      "data": "2026-10-10",
+      "titulo": "Desenvolvimento publicado e ensaio físico aprovado",
+      "descricao": "#462 atualizado; #465 a #472 abertos como drafts encadeados. T09/T10 deixam de ter executor/workflow pendentes de desenvolvimento. Recursos DEV, merges e operação PROD continuam separados. Falha CI #471 identificada como ausência de comentários de versão nas actions e corrigida sem desligar teste.",
       "tarefa": "T09"
     }
   ]

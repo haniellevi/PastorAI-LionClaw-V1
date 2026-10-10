@@ -320,6 +320,8 @@ def indicador_main(pr_env: dict | None) -> dict | None:
     d = pr_env["dados"]
     desat = " (leitura desatualizada)" if not pr_env.get("ok") else ""
     if d["estado"] == "MERGED":
+        if d.get("base") != "main":
+            return {"status": "pendente", "nota": "Merge em base temporária ou desconhecida; integração na main precisa de prova própria." + desat, "origem": "github", "consultado_em": pr_env.get("consultado_em")}
         return {"status": "ok", "nota": "PR integrado na main." + desat, "origem": "github", "consultado_em": pr_env.get("consultado_em")}
     if d["estado"] == "CLOSED":
         return {"status": "falhou", "nota": "PR fechado sem integração." + desat, "origem": "github", "consultado_em": pr_env.get("consultado_em")}
