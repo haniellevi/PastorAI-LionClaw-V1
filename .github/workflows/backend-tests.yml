@@ -88,6 +88,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_coordination.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_pipeline.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_schema.py -v
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_release.py -v
 
