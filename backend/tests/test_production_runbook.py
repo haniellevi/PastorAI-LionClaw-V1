@@ -51,12 +51,13 @@ def _posix_shell() -> str:
 
 
 @pytest.mark.parametrize("artifact_mode", [False, True])
-def test_external_send_gate_exits_before_health_and_symlink(artifact_mode) -> None:
+def test_external_send_gate_exits_before_health_and_symlink(artifact_mode, monkeypatch) -> None:
     import importlib.util
 
     path = pathlib.Path(__file__).resolve().parents[2] / "deploy/tests/test_backend_release.py"
     spec = importlib.util.spec_from_file_location("synthetic_release_doubles", path)
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.syspath_prepend(str(path.parent))
     spec.loader.exec_module(module)
     fixture = module.BackendReleaseTest()
     fixture.setUp()
