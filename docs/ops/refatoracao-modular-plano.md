@@ -12,7 +12,7 @@ Princípio: extrair uma responsabilidade quando isso reduz o esforço de uma mud
 
 O resultado esperado é conseguir editar, testar, validar pelo navegador e publicar uma versão identificada com menos trabalho repetido. Medir tempo até o primeiro teste útil, duração/espera do CI, ações manuais até DEV/PROD e dispersão de uma mudança entre módulos. Registrar uma linha por fatia; nenhum ganho percentual ou prazo está comprovado na revisão de 09/10.
 
-## 2. Base e alcance da revisão
+## 2. Base e alcance da revisão (fotografia inicial)
 
 - Checkout principal do proprietário: branch `chore/neon-dev-setup`, HEAD `4962c05e073e833bfba92e05e04043e32a1db35b`, com alterações locais preservadas. Na revisão inicial, as fontes de produto examinadas eram iguais às de `origin/main` local `d36ab813bf45f8bc92fd605425394570e85ad3ec`. A atualização acrescenta os objetos dos PRs identificados abaixo.
 - Os dois anexos arquiteturais iniciais são idênticos, com SHA-256 `8b8b58325124809bb78174867cc2254ea9f4887198c9c945aa29fe50b3b778c8`. O terceiro anexo é um parecer sobre os PRs #461/#462; suas conclusões foram novamente conferidas.
@@ -215,9 +215,9 @@ Ao fechar uma fatia implementada, atualizar checklist pertinente do MVP e um reg
 
 Executar uma entrega por vez nesta ordem:
 
-1. Integrar o #463 pelo fluxo autorizado: candidato de dependências revisado, com audits e quatro checks verdes; merge ainda pendente em 09/10.
-2. Substituir o plano versionado do #461 pelo consolidado, com links portáveis, estado DEV planejado e sprint coerente (feito em 09/10, com o painel de acompanhamento). Falta atualizar a base do #461 depois que o #463 for integrado, e revalidar os checks.
-3. PR pequeno para `test-local.sh` recusar alvo desconhecido.
+1. Dependências #463 integradas em 5728ab08; candidato e CI pós-merge aprovados.
+2. Plano e painel #461 integrados em 52286af7, com base atualizada e quatro checks aprovados no candidato e pós-merge.
+3. `test-local.sh` corrigido no #464, integrado em 710bd160 com CI pós-merge aprovado.
 4. Atualizar a base e corrigir #462: URLs, estado/exclusão/mídia, gates e alcance dos testes, concluindo F2a.
 5. Extrair validação pura do visitante (F1).
 6. Completar F2b com Redis no CI, policies reais e uma ação vertical, admitindo worker no mesmo processo nesta primeira prova.

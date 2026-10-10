@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 PHONE = re.compile(r"(?<![\w])\+?55[ .-]*\(?[1-9][1-9]\)?[ .-]*[2-9](?:[ .-]*\d){7,8}(?![\w])")
 EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".html", ".yaml", ".yml"}
-EXCLUDED_DIRS = {"secrets", "node_modules", ".next", "dist", "build", "dumps", "backups", "exports", "media", ".venv", "venv", "__pycache__", ".pytest_cache", ".git"}
+EXCLUDED_DIRS = {"secrets", "node_modules", ".next", "dist", "build", "dumps", "backups", "exports", "media", ".venv", ".venv-runtime", "venv", "__pycache__", ".pytest_cache", ".git"}
 REVIEW_PATH = "backend/tests/source_contact_synthetic_review.json"
 PERSONAL_PROVIDER = re.compile(r"^(?:gmail|hotmail|outlook|yahoo|live|icloud|aol|proton|protonmail)\.", re.I)
 INSTITUTIONAL_ALIASES = {"contato@igreja12.com.br", "no-reply@igreja12.com.br"}
@@ -220,6 +220,16 @@ class SourceContactPrivacyTests(unittest.TestCase):
     def test_current_tree_has_no_unreviewed_contacts(self):
         found = violations(ROOT)
         self.assertFalse(found, "Contacts requiring review (values withheld): " + ", ".join(found))
+
+    def test_runtime_dependencies_are_excluded_but_project_source_is_scanned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependency = root / "backend/.venv-runtime/lib/python3.13/site-packages/vendor.py"
+            source = root / "backend/app/example.py"
+            for path in (dependency, source):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('email = "synthetic-probe' + chr(64) + 'gmail.com"\n')
+            self.assertEqual(violations(root), ["backend/app/example.py:1"])
 
     def test_three_reported_surfaces_contain_no_contact_candidates(self):
         for name in ["frontend/src/components/legal/legal-config.ts", "frontend/src/app/legal-pages.test.tsx", "frontend/src/components/whatsapp/WhatsappScreen.tsx"]:

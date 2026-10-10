@@ -6,11 +6,12 @@ Centralizes configuration and validates required variables at startup
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from functools import lru_cache
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Minimum length (chars) for a dedicated production session secret (BAIXO-001).
@@ -20,6 +21,40 @@ MIN_SESSION_SECRET_LEN = 32
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _BREVO_CANARY_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _BREVO_SEND_MODES = frozenset({"off", "canary", "live"})
+_WHATSAPP_TRANSPORTES = frozenset({"real", "simulado"})
+
+
+# Nomes aceitos além de IP literal em loopback, por sentido da chamada.
+SIMULADOR_NOMES_EVOLUTION = frozenset({"localhost", "simulador-whatsapp"})
+SIMULADOR_NOMES_WEBHOOK = frozenset({"localhost", "backend"})
+
+
+def is_simulated_destination(url: str, nomes_permitidos: frozenset[str]) -> bool:
+    """True só para http(s) em IP literal de loopback ou em um nome da lista exata.
+
+    O simulador nunca pode ser um host público: com o modo ``simulado`` o
+    cliente Evolution envia mesmo com ``ALLOW_REAL_SENDS=false``. Por isso o IP
+    é interpretado com ``ipaddress`` (``127.example.invalid`` não é IP) e
+    qualquer outro nome precisa estar na lista, sem prefixo, sem resolução de
+    DNS e sem formas numéricas alternativas (``0x7f000001``, ``2130706433``),
+    que o resolvedor do sistema interpretaria como IPv4.
+    """
+    try:
+        parsed = urlparse(url)
+        porta = parsed.port  # ValueError para porta inválida ou fora de 0-65535
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https") or porta == 0:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in nomes_permitidos
 
 
 def _is_valid_production_origin(url: str) -> bool:
@@ -145,6 +180,13 @@ class Settings(BaseSettings):
     # Evolution reaches the backend at — e.g. the internal container name on the
     # shared Docker network: http://pastorai_backend:8000/whatsapp/webhook
     evolution_webhook_callback_url: str = Field(default="")
+    # Transporte do WhatsApp: ``real`` (Evolution configurada acima, sujeita a
+    # ALLOW_REAL_SENDS) ou ``simulado`` (só DEV/local/testes). No modo simulado
+    # todo acesso do EvolutionClient vai para EVOLUTION_SIMULADOR_URL, mesmo com
+    # ALLOW_REAL_SENDS=false; LLM, agenda, cobrança e e-mail continuam no gate
+    # global. Produção recusa o modo simulado na partida.
+    whatsapp_transporte: str = Field(default="real")
+    evolution_simulador_url: str = Field(default="")
 
     # ---- Worker / Filas (RNF-17) --------------------------------------------
     redis_url: str = Field(default="redis://localhost:6379/0")
@@ -308,6 +350,43 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
+
+    @property
+    def whatsapp_simulado(self) -> bool:
+        """WhatsApp aponta para o simulador (validado na construção)."""
+        return self.whatsapp_transporte == "simulado"
+
+    @model_validator(mode="after")
+    def _validate_whatsapp_transporte(self) -> "Settings":
+        transporte = self.whatsapp_transporte.strip().lower()
+        if transporte not in _WHATSAPP_TRANSPORTES:
+            raise ValueError("WHATSAPP_TRANSPORTE deve ser 'real' ou 'simulado'")
+        self.whatsapp_transporte = transporte
+        if transporte == "simulado":
+            if self.is_production:
+                raise ValueError("WHATSAPP_TRANSPORTE=simulado é proibido em produção")
+            # Configuração sintética: o gate global e os gates próprios de
+            # Brevo e cobrança (independentes de ALLOW_REAL_SENDS) ficam fechados.
+            if self.allow_real_sends:
+                raise ValueError(
+                    "WHATSAPP_TRANSPORTE=simulado exige ALLOW_REAL_SENDS=false"
+                )
+            if self.brevo_send_mode.strip().lower() != "off":
+                raise ValueError(
+                    "WHATSAPP_TRANSPORTE=simulado exige BREVO_SEND_MODE=off"
+                )
+            if self.asaas_billing_enabled:
+                raise ValueError(
+                    "WHATSAPP_TRANSPORTE=simulado exige ASAAS_BILLING_ENABLED=false"
+                )
+            if not is_simulated_destination(
+                self.evolution_simulador_url, SIMULADOR_NOMES_EVOLUTION
+            ):
+                raise ValueError(
+                    "EVOLUTION_SIMULADOR_URL deve ser http(s) em IP de loopback, "
+                    "localhost ou simulador-whatsapp, sem credenciais embutidas"
+                )
+        return self
 
     @property
     def external_sends_enabled(self) -> bool:

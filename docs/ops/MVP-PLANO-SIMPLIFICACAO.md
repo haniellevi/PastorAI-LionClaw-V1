@@ -187,6 +187,12 @@ acontecia nela, e cada mudança era feita duas vezes (DEV e PROD). Agora:
 - [ ] **2. Simulador de WhatsApp:** página tipo WhatsApp que manda mensagens
       como se fossem da Evolution e mostra a resposta do bot, com o fluxo real
       (webhook, fila, agente, LLM); só a rede do WhatsApp é simulada.
+      ([registro](../sprints/2026-10-09-simulador-whatsapp.md))
+      - [x] 2a. Transporte simulado e contrato do fake (`WHATSAPP_TRANSPORTE=simulado`,
+        sem ligar `ALLOW_REAL_SENDS`; o LLM fica desligado): handler e persistência
+        provados com PostgreSQL, fila em memória e sem policies.
+      - [ ] 2b. Prova integrada: Redis real, policies reais, uma ação vertical e
+        leitura pela API do painel (F2b do plano de refatoração).
 - [ ] **3. Chip de teste:** número próprio de teste conectado por QR à
       Evolution local. Nunca o número da Filadélfia.
 - [ ] **4. Release:** a Vercel deixa de publicar a cada merge e passa a

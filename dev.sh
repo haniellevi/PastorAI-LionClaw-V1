@@ -32,6 +32,7 @@ erro() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 env_valor() { sed -n "s/^$1=//p" "$env_file" | tail -1; }
 porta_front() { local p; p=$(env_valor DEV_FRONTEND_PORT); echo "${p:-3012}"; }
 porta_api() { local p; p=$(env_valor DEV_BACKEND_PORT); echo "${p:-8000}"; }
+porta_simulador() { local p; p=$(env_valor DEV_SIMULADOR_PORT); echo "${p:-8090}"; }
 
 # --- .env.dev ----------------------------------------------------------------
 
@@ -269,13 +270,18 @@ enderecos() {
   Console plataforma  $front/admin
   API                 $api   (documentação em $api/docs)
   Banco (Studio)      http://127.0.0.1:54323
+  WhatsApp simulado   http://127.0.0.1:$(porta_simulador)
 EOF
   if [[ -z "$(env_valor CLERK_SECRET_KEY)" ]]; then
     printf '\n'
     aviso "login ainda desligado: preencha CLERK_* e DEV_SEED_EMAIL_* em $env_file e rode ./dev.sh seed"
   fi
   if [[ "$(env_valor ALLOW_REAL_SENDS)" == "true" ]]; then
-    aviso "ALLOW_REAL_SENDS=true: o WhatsApp local precisa ser o simulador ou o chip de teste"
+    if [[ "$(env_valor DEV_WHATSAPP_TRANSPORTE)" == "real" ]]; then
+      aviso "ALLOW_REAL_SENDS=true: o WhatsApp local precisa ser o chip de teste, nunca o número da Filadélfia"
+    else
+      aviso "ALLOW_REAL_SENDS=true com o WhatsApp simulado: o backend recusa iniciar. Feche o gate (false) ou use DEV_WHATSAPP_TRANSPORTE=real com o chip de teste"
+    fi
   fi
 }
 
