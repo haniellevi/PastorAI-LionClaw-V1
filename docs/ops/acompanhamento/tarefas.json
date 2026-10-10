@@ -1141,7 +1141,7 @@
       "titulo": "Triagem das vulnerabilidades altas do grafo completo (npm ci)",
       "fase": "PAR",
       "trilha": "paralela",
-      "estado": "pronta",
+      "estado": "em_validacao",
       "objetivo": "Diagnosticar individualmente as oito altas que o npm ci ainda relata no grafo completo, incluindo dependências de desenvolvimento, fora do recorte do audit com --omit=dev.",
       "criterio_aceite": [
         "Cada vulnerabilidade classificada (produção ou desenvolvimento, explorável ou não) com evidência.",
@@ -1150,18 +1150,18 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Depois de T01 integrado: rodar npm audit no grafo completo (somente leitura) e registrar o resultado.",
-      "responsavel": "Claude",
+      "proxima_acao": "Revisar patch e executar CI após push autorizado; acompanhar versão corrigida do braces, sem substituir pelo downgrade sugerido pelo audit.",
+      "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_aplicavel",
-          "nota": "Triagem."
+          "status": "ok",
+          "nota": "Triagem completa e correções compatíveis: js-yaml 4.3.2, undici 7.30.0, brace-expansion 1.1.21/5.0.12 e vitest 4.1.11. Atualização resolve também transitivos de Vitest/Vite; sem force ou downgrade."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "ok",
+          "nota": "Audit produção: zero; grafo completo: cinco pacotes altos propagados do único advisory braces sem patch. Lint, tipos, 1165 testes e 69 E2E passaram."
         },
         "integracao_main": {
           "status": "nao_aplicavel",
@@ -1181,6 +1181,11 @@
           "data": "2026-10-09",
           "tipo": "limite",
           "descricao": "Números vindos de logs de CI: npm ci do #463 relata 11 vulnerabilidades (3 moderadas, 8 altas); a base relatava 13 (3 moderadas, 10 altas). Sem diagnóstico individual."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Audit produção: zero; grafo completo: cinco pacotes altos propagados do único advisory braces sem patch. Lint, tipos, 1165 testes e 69 E2E passaram. GHSA-vfj7-8cjw-p6xm sem patched version em 09/10. Os pacotes afetados restantes são ferramentas de desenvolvimento; audit --omit=dev está limpo."
         }
       ]
     },
