@@ -45,6 +45,20 @@ def _session(factory, outcome, *, dedicated=False):
         session.close()
 
 
+def _read_reply(factory, outcome):
+    from app.db.tenant_session import mark_tenant_scoped
+    from app.domain.provider_identity import agent_reply_key
+    from app.services.agent_reply_reader import ReplyReadContext, load_agent_reply_intent
+
+    if not outcome.provider_message_id or not outcome.claim_id:
+        return None
+    tenant = uuid.UUID(str(outcome.igreja_id))
+    key = agent_reply_key(tenant, outcome.provider_message_id, outcome.claim_id)
+    with factory() as session:
+        mark_tenant_scoped(session, tenant, source="privileged_reply_reader")
+        return load_agent_reply_intent(session, ReplyReadContext(tenant, key))
+
+
 def reply_metadata(
     context,
     *,
@@ -890,7 +904,7 @@ def _run_audio_local_turn(session_factory, runtime_session_factory, outcome, *,
         session.commit()
     if not local:
         return qw.AgentRunDisposition.COMPLETED
-    intent = qw._load_agent_reply_intent(session_factory, outcome)
+    intent = _read_reply(session_factory, outcome)
     if intent is not None:
         qw._deliver_agent_reply_intent(
             session_factory,
@@ -928,7 +942,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     provider_id = qw._agent_reply_idempotency_key(outcome)
     if provider_id is None:
         return qw.AgentRunDisposition.COMPLETED
-    existing = qw._load_agent_reply_intent(session_factory, outcome)
+    existing = _read_reply(session_factory, outcome)
     if existing is not None and existing.state != AGENT_REPLY_RESERVED:
         qw._deliver_agent_reply_intent(session_factory, outcome, existing,
             ownership_guard, evolution_client=evolution_client)
@@ -994,7 +1008,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     if invalid:
         return handoff('privilege_changed')
     if local:
-        intent = qw._load_agent_reply_intent(session_factory, outcome)
+        intent = _read_reply(session_factory, outcome)
         if intent is not None:
             qw._deliver_agent_reply_intent(session_factory, outcome, intent,
                 ownership_guard, evolution_client=evolution_client)
@@ -1206,7 +1220,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             CellReportStageKind.SUMMARY,
             CellReportStageKind.CLARIFY,
         }:
-            intent = qw._load_agent_reply_intent(session_factory, outcome)
+            intent = _read_reply(session_factory, outcome)
             if intent is not None:
                 qw._deliver_agent_reply_intent(
                     session_factory,
@@ -1326,7 +1340,7 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
                 session.commit()
     if invalid:
         return handoff('privilege_changed')
-    intent = qw._load_agent_reply_intent(session_factory, outcome)
+    intent = _read_reply(session_factory, outcome)
     if intent is not None:
         qw._deliver_agent_reply_intent(session_factory, outcome, intent,
             ownership_guard, evolution_client=evolution_client)

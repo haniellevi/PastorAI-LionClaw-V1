@@ -340,7 +340,7 @@ def _public_confirmation(world, monkeypatch):
     monkeypatch.setattr(qw, "_scope_agent_execution_session", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(qw, "_agent_reply_idempotency_key", lambda _outcome: "SYNTHETIC-REPLY")
     monkeypatch.setattr(qw, "_reserve_agent_reply_intent", lambda *_args: world.reply)
-    monkeypatch.setattr(qw, "_load_agent_reply_intent", lambda *_args: None if world.reply.agent_reply_state == AGENT_REPLY_RESERVED
+    monkeypatch.setattr(turn, "_read_reply", lambda *_args: None if world.reply.agent_reply_state == AGENT_REPLY_RESERVED
                         else SimpleNamespace(state=world.reply.agent_reply_state))
 
     def deliver(*_args, **_kwargs):

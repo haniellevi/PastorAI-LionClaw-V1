@@ -7,6 +7,8 @@ local transitions retain the anchor for idempotent cleanup and replay fences.
 
 from __future__ import annotations
 
+from app.services.agent_reply_reader import intent_from_message
+
 import datetime as dt
 import hashlib
 import logging
@@ -2698,7 +2700,7 @@ def _stage_audio_transcript(
                 row.lease_token = None
                 row.lease_until = None
                 session.commit()
-                return qw._intent_from_message(output)
+                return intent_from_message(output)
             session.commit()
             return None
         output = Message(
@@ -2804,7 +2806,7 @@ def _stage_audio_transcript(
         row.lease_token = None
         row.lease_until = None
         session.commit()
-        return qw._intent_from_message(output)
+        return intent_from_message(output)
     except _AudioClaimBusy:
         session.rollback()
         logger.info("Estágio de áudio V1b adiado por contenção")
@@ -3071,7 +3073,7 @@ def _complete_audio_extraction_after_provider(
             row.state = "transcrita"
             row.lease_token = None
             row.lease_until = None
-            result = qw._intent_from_message(output)
+            result = intent_from_message(output)
         elif stage.kind is CellReportStageKind.CLARIFY:
             if not isinstance(stage.response, str):
                 raise CellReportAudioServiceError("resumo de áudio indisponível")
@@ -3085,7 +3087,7 @@ def _complete_audio_extraction_after_provider(
             row.state = "transcrita"
             row.lease_token = None
             row.lease_until = None
-            result = qw._intent_from_message(output)
+            result = intent_from_message(output)
         else:
             from app.services.conversation_handoff import mark_conversation_for_handoff_locked
 
@@ -3699,7 +3701,7 @@ def _load_audio_pending_reply(
             claim_id=f"v1b-audio:{locked.id.hex}",
             inbound_message_id=locked.live_message_id,
         )
-        intent = qw._intent_from_message(output)
+        intent = intent_from_message(output)
         session.commit()
         return _AudioReplyRetry(outcome, intent, False, input_id)
     except Exception:

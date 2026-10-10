@@ -104,7 +104,7 @@ def test_public_lookup_yields_only_to_current_own_attendance_target(
     monkeypatch.setattr(semantic_triage, 'tier_a_enabled_from_environment', lambda _tenant: False)
     monkeypatch.setattr(cell_report_whatsapp, 'cell_report_enabled_from_environment', lambda _tenant: False)
     monkeypatch.setattr(queue_worker, '_agent_reply_idempotency_key', lambda _outcome: 'synthetic-reply')
-    monkeypatch.setattr(queue_worker, '_load_agent_reply_intent', lambda *_a, **_k: None)
+    monkeypatch.setattr(privileged_turn, '_read_reply', lambda *_a, **_k: None)
     monkeypatch.setattr(queue_worker, '_reserve_agent_reply_intent', lambda *_a, **_k: object())
     monkeypatch.setattr(queue_worker, '_persist_tier_a_handoff',
                         Mock(side_effect=AssertionError('unexpected handoff')))
@@ -632,7 +632,7 @@ def test_v3_turn_routes_only_an_opaque_projection_without_inbound_person_names(
         ),
     )
     monkeypatch.setattr(queue_worker, '_agent_reply_idempotency_key', lambda _outcome: 'reply-synthetic')
-    monkeypatch.setattr(queue_worker, '_load_agent_reply_intent', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(privileged_turn, '_read_reply', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(queue_worker, '_reserve_agent_reply_intent', lambda *_args, **_kwargs: object())
     monkeypatch.setattr(
         queue_worker,

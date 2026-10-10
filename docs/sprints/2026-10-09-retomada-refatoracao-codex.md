@@ -19,3 +19,9 @@ Regra pura e VisitorNameError em app/domain/visitor.py. Propostas preservam o ad
 7 passed, 0 skipped, 25,994 s. Redis com enqueue/claim/ACK/lease, QueueWorker.run em thread e banco reconstruído pelas 82 migrations ativas. Authenticated sem BYPASSRLS; dois tenants exercem ação positiva, leituras e escrita cruzadas recusadas. API verifica JWT e papel reais. Consentimento, opt-out, replay, membership revogado e falha antes do commit com rollback/retry exercitados. Saída HTTP confinada ao simulador ASGI; banco/Redis loopback e recursos por teste.
 
 Critério corrigido para o contrato existente: indicar visitante próprio não exige papel de gestão, mas vínculo e membership. O teste de ausência de papel refere-se à API de gestão. Nenhuma autorização do produto alterada para adequar o teste ao texto. Esta prova não demonstra boot/rede entre processos de F3 nem CI remoto.
+
+## T12: leitura pública da resposta persistida
+
+AgentReplyIntent, ReplyReadContext, consulta com fence e projeção legada em agent_reply_reader. Identidade/lock usam o mesmo algoritmo puro compartilhado em provider_identity. O turno privilegiado compõe sessão e usa leitura pública sem importar o worker para essa leitura. Áudio usa a projeção pública; worker mantém aliases internos de compatibilidade e todas as mutações existentes. Nenhum ciclo inteiro é declarado eliminado.
+
+398 testes focados, 27 testes PG (44,143 s, nenhum skip), 6431 testes backend sem RLS (53,00 s). Prova PG cobre ausência, chave histórica com sufixo, estado NULL, tenants positivos, recusa de contexto divergente e fence observado por outra transação. F2b repassou após extração. Baseline backend antes: 6431 passed; depois: 6431 passed. CI, merge e publicação permanecem pendentes.

@@ -385,3 +385,39 @@ def test_optout_prevents_action_and_transport(integrated_turn):
     assert not t.rows(AgentActionProposal)
     assert not t.rows(CelulaExpectativaVisitante)
     assert not [m for m in t.rows(Message) if m.direcao == "out" and m.texto]
+
+
+def test_reply_reader_legacy_tenant_and_transaction_fence(integrated_turn):
+    from app.db.rls_observability import TenantScopeVerificationError
+    from app.domain.provider_identity import provider_message_lock_key
+    from app.services.agent_reply_reader import ReplyReadContext, load_agent_reply_intent
+
+    t = integrated_turn
+    t.send(_COMMAND)
+    key = "agent-reply:synthetic-legacy-reader"
+    with t.factory.begin() as session:
+        for actor in t.users:
+            conversation = session.scalar(select(Conversation).where(Conversation.igreja_id == actor.tenant))
+            if conversation is None:
+                conversation = Conversation(igreja_id=actor.tenant, telefone=actor.phone, pessoa_id=actor.person)
+                session.add(conversation)
+                session.flush()
+            session.add(Message(igreja_id=actor.tenant, conversation_id=conversation.id,
+                                direcao="out", autor="ia", texto="Resposta sintética",
+                                provider_message_id=key + ":old-response-hash", agent_reply_state=None))
+    a, b = (u.tenant for u in t.users)
+    with t.factory() as session, t.factory() as contender:
+        mark_tenant_scoped(session, a, source="f2b-reader")
+        intent = load_agent_reply_intent(session, ReplyReadContext(a, key))
+        assert intent.state == "ia" and intent.response == "Resposta sintética"
+        assert intent.provider_message_id == key + ":old-response-hash"
+        assert load_agent_reply_intent(session, ReplyReadContext(a, key + "-absent")) is None
+        assert contender.scalar(select(func.pg_try_advisory_xact_lock(provider_message_lock_key(a, key)))) is False
+        session.rollback()
+        assert contender.scalar(select(func.pg_try_advisory_xact_lock(provider_message_lock_key(a, key)))) is True
+    with t.factory() as session:
+        mark_tenant_scoped(session, b, source="f2b-reader")
+        other = load_agent_reply_intent(session, ReplyReadContext(b, key))
+        assert other.id != intent.id
+        with pytest.raises(TenantScopeVerificationError):
+            load_agent_reply_intent(session, ReplyReadContext(a, key))
