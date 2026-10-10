@@ -20,7 +20,9 @@ Base integrada: `52286af7c78a8bf9c0fcc7e0e205ac0226cf7dd1`. Worktree Codex próp
 | #471 | T09: pipeline físico DEV | 0b4fbd6a | codex/s4-ferramentas-auditadas |
 | #472 | T10: compatibilidade e registro final | conferir head final no GitHub | codex/t09-dev-pipeline |
 
-Todos os links usam `https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/NUMERO`. #465 a #472 são drafts. Não integrar na base temporária. Após integração autorizada de cada antecessor, mudar a base da próxima fatia para main, conferir o diff e revalidar o head final. Aprovação em base temporária não comprova aprovação no novo merge candidate.
+| #473 | T10: promoção por digest | conferir head final no GitHub | codex/t10-compat-release |
+
+Todos os links usam `https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/NUMERO`. #465 a #473 são drafts. Não integrar na base temporária. Após integração autorizada de cada antecessor, mudar a base da próxima fatia para main, conferir o diff e revalidar o head final. Aprovação em base temporária não comprova aprovação no novo merge candidate.
 
 ## Provas locais
 

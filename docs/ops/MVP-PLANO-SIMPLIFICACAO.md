@@ -220,7 +220,7 @@ verificar identidade, isolamento e capacidade. Ordem, critérios e limites:
 Retomada Codex de 09/10: 6443 testes offline, 874 integrações mais duas novas
 provas PG separadas, 1165 testes frontend e 69 E2E aprovados localmente. Em 10/10, F3/F4 têm executor físico, workflows, contenção/recuperação e
 compatibilidade implementados e ensaiados localmente. #462 atualizado e
-#465 a #472 publicados para revisão; integração e recursos DEV ainda pendentes.
+#465 a #473 publicados para revisão; integração e recursos DEV ainda pendentes.
 Nenhum aceite de produção foi executado. Evidências e limitações na
 [sprint da retomada](../sprints/2026-10-09-retomada-refatoracao-codex.md) e
 [sprint de conclusão do desenvolvimento](../sprints/2026-10-10-conclusao-desenvolvimento-refatoracao.md).

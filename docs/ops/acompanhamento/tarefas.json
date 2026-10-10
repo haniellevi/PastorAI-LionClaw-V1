@@ -896,20 +896,21 @@
         "T09"
       ],
       "dep_nota": "Dependência derivada da sequência do plano: reaproveita artefatos imutáveis e o runner de migration empacotados no F3.",
-      "proxima_acao": "Revisar #472 e o bundle/runbook; integrar depois de #471 com CI no head final. Operação PROD só em T11 com versão implantada comprovada, compatibilidade do alvo, backup e autorização nominal.",
+      "proxima_acao": "Revisar #472 e #473, aguardar CI do head final #473 e integrar sequencialmente na main após #471. Não fazer merge na base temporária. T11 exige versão implantada comprovada, pacote/imagens/frontend aceitos, backup e autorização nominal.",
       "responsavel": "Codex",
       "pr": [
-        472
+        472,
+        473
       ],
-      "pr_referencia": 472,
+      "pr_referencia": 473,
       "indicadores": {
         "implementacao": {
           "status": "ok",
-          "nota": "Compatibilidade integrada ao executor DEV e opção estrita do release legado via bundle revisado, sem aceitar migrations extras indiscriminadamente. Preparação técnica pronta; publicação coordenada real exige alvo e janela autorizados."
+          "nota": "Compatibilidade por bundle revisado e promoção nominal por digest implementadas. Captura imagens anteriores reais, contém consumidores, confere imagens/gates parados, usa lock e persiste pinagem pública. Sem build no modo imutável. Preparação técnica pronta; publicação real exige pacote e janela autorizados."
         },
         "validacao_local": {
           "status": "ok",
-          "nota": "Ensaio físico DEV PASS. 86 testes de release/controller/coordenação com 59 subtests e 2 testes novos PG17 PASS. Catálogo/ledger/SHA/hash/identidade recusam divergências. Não prova release PROD."
+          "nota": "Ensaio físico DEV PASS. 86 testes de release/controller/coordenação com 59 subtests e 2 testes novos PG17 PASS. Catálogo/ledger/SHA/hash/identidade recusam divergências. Não prova release PROD. Modo por digest: 62 testes e 65 subtests, incluindo parser Compose real, aprovados."
         },
         "integracao_main": {
           "status": "pendente",
@@ -945,6 +946,13 @@
           "descricao": "Candidato publicado em PR. Integração e publicação permanecem pendentes. Evidências históricas de sem push acima referem-se aos candidatos anteriores.",
           "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/472",
           "sha": "937d899f"
+        },
+        {
+          "data": "2026-10-10",
+          "tipo": "pr",
+          "descricao": "Modo de promoção nominal por digest e recuperação da imagem anterior real, sem build. 62 testes e 65 subtests passaram; nenhum acesso/operação PROD. CI do head final publicado é prova separada.",
+          "sha": "b5d3c6f7f5ba2025c2085bb33fdc822d2e23af29",
+          "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/473"
         }
       ]
     },
@@ -1771,6 +1779,13 @@
       "titulo": "Desenvolvimento publicado e ensaio físico aprovado",
       "descricao": "#462 atualizado; #465 a #472 abertos como drafts encadeados. T09/T10 deixam de ter executor/workflow pendentes de desenvolvimento. Recursos DEV, merges e operação PROD continuam separados. Falha CI #471 identificada como ausência de comentários de versão nas actions e corrigida sem desligar teste.",
       "tarefa": "T09"
+    },
+    {
+      "data": "2026-10-10",
+      "titulo": "Promoção por artefato completa em candidato separado",
+      "descricao": "#471 e #472 passaram nos quatro checks e ensaio físico. A lacuna de recompilar no alvo foi fechada pelo #473, sem operar PROD. Só a validação do novo candidato está em andamento.",
+      "tarefa": "T10",
+      "pr": 473
     }
   ]
 }
