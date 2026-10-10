@@ -50,5 +50,6 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # default final target remains production and does not contain these tools.
 FROM base AS development
 COPY --chown=appuser:appuser devtools ./devtools
+COPY --chown=appuser:appuser scripts/dev_online.py scripts/dev_local.py ./scripts/
 
 FROM base AS production

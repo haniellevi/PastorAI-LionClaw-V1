@@ -8,6 +8,8 @@
 !requirements.lock
 !scripts/
 !scripts/migrate.py
+!scripts/dev_online.py
+!scripts/dev_local.py
 !devtools/
 !devtools/**
 !Dockerfile

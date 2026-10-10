@@ -465,12 +465,10 @@
         "BREVO_SEND_MODE=off exigido na configuração sintética; texto do PR, docstring, sprint, guia e checklist MVP sem alegar turno completo, RLS ou envio da outbox."
       ],
       "depende_de": [],
-      "proxima_acao": "Revalidar suíte completa com T06 e apresentar candidato para CI/integração autorizada.",
+      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
       "responsavel": "Claude",
-      "pr": [
-        462
-      ],
-      "pr_referencia": 462,
+      "pr": [],
+      "pr_referencia": null,
       "indicadores": {
         "implementacao": {
           "status": "ok",
@@ -491,6 +489,10 @@
         "publicacao_prod": {
           "status": "nao_aplicavel",
           "nota": "O modo simulado é recusado em production."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
         }
       },
       "evidencias": [
@@ -544,6 +546,16 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "81 testes focados aprovados. A suíte geral identificou varredura indevida de dependências em .venv-runtime; guard corrigido com teste que mantém detecção de contatos no código do projeto. Nenhuma proteção de produto desabilitada."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "limite",
+          "descricao": "#462 remoto permanece em 08e89282. Esta branch Codex contém correções locais posteriores, que não possuem PR ou CI remoto; checks do head antigo não validam nem reprovam este candidato."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
         }
       ],
       "integra_apos": [
@@ -566,7 +578,7 @@
       "depende_de": [
         "T05"
       ],
-      "proxima_acao": "Candidato local validado; CI e integração pendentes. A próxima fatia local é T07.",
+      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
       "responsavel": "Claude",
       "pr": [],
       "pr_referencia": null,
@@ -590,6 +602,10 @@
         "publicacao_prod": {
           "status": "pendente",
           "nota": "Chega a PROD só em release."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
         }
       },
       "evidencias": [
@@ -602,6 +618,11 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "149 testes focados, 15 PG e suíte backend sem RLS (6431 passed, 866 deselected) aprovados em Python 3.13.14. Regra preserva tipo estrito, Unicode/controles, trim, limite e erro privado; HTTP 422 e ProposalContractError mantidos."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
         }
       ],
       "integra_apos": [
@@ -626,7 +647,7 @@
         "T05"
       ],
       "dep_nota": "T06 (visitante) não é pré-requisito técnico, mas a primeira ação vertical é o visitante.",
-      "proxima_acao": "Prova local aprovada; executar checks no candidato remoto após autorização de push. Próxima fatia local: T12.",
+      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
       "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
@@ -650,6 +671,10 @@
         "publicacao_prod": {
           "status": "nao_aplicavel",
           "nota": "Prova de CI."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
         }
       },
       "evidencias": [
@@ -657,6 +682,11 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "7 passed, 0 skipped, 25,994 s. Dois tenants, RLS read/write, replay, rollback/retry, API, consentimento, opt-out e membership revogado. Teste de thread não prova supervisão/rede entre processos de F3. Somente dados sintéticos e destinos loopback."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
         }
       ]
     },
@@ -728,7 +758,7 @@
       "fase": "F3",
       "trilha": "principal",
       "sequencia": 9,
-      "estado": "futura",
+      "estado": "bloqueada",
       "objetivo": "Provisionar banco/Storage, Redis, autenticação e segredos próprios; publicar artefatos imutáveis do SHA integrado; serializar deploy, reset e reserva de aceite.",
       "criterio_aceite": [
         "Merge verde chega ao DEV identificado por SHA; navegador e simulador exercitam o fluxo com API, Redis e worker nos processos reais.",
@@ -739,18 +769,18 @@
         "T07",
         "T08"
       ],
-      "proxima_acao": "Depois da prova F2b e da decisão T08: desenhar o fluxo de publicação (artefatos, migrations antes do código, seed DEV).",
-      "responsavel": "Claude · proprietário (recursos)",
+      "proxima_acao": "Decidir T08; conectar o mutex/reserva, seed guardado e imagens ao executor selecionado; ensaiar migration, contenção, reset e smoke da stack, antes de publicação autorizada.",
+      "responsavel": "Codex · proprietário (decisão de recursos)",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "parcial",
+          "nota": "Runner migrate.py empacotado por SHA; imagem DEV separada; seed idempotente guardado por projeto/TLS/gates; mutex flock para deploy/reset/reserva e recuperação. Executor físico e workflow ainda ausentes."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "parcial",
+          "nota": "12 guards de alvo, 12 controles de coordenação, seed sobre 82 migrations PG. Imagens locais ensaiadas. Não prova Clerk/Storage online, TLS dos recursos ou stack em processos separados."
         },
         "integracao_main": {
           "status": "pendente",
@@ -763,9 +793,21 @@
         "publicacao_prod": {
           "status": "nao_aplicavel",
           "nota": "Etapa de DEV."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Sem push/CI remoto."
         }
       },
-      "evidencias": []
+      "evidencias": [
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "24 testes dos controles DEV aprovados, zero skips; seed sintético/idempotência em PG17 aprovado. Interrupção de executor com SIGKILL conserva recovery_required antes do primeiro efeito e impede falso aceite. Nada conectado a recurso remoto."
+        }
+      ],
+      "bloqueio": "Publicação online depende da decisão nominal da T08 e da verificação autorizada dos recursos. Código preparado ainda precisa do executor físico, workflow e smoke da stack entre processos; não existe aceite online.",
+      "aguardando": "T08: recursos, região, teto mensal e executor. Nenhum provisionamento ou publicação executado."
     },
     {
       "id": "T10",
@@ -784,18 +826,18 @@
         "T09"
       ],
       "dep_nota": "Dependência derivada da sequência do plano: reaproveita artefatos imutáveis e o runner de migration empacotados no F3.",
-      "proxima_acao": "Depois de T09: fechar as quatro lacunas do plano, uma por vez.",
-      "responsavel": "Claude",
+      "proxima_acao": "Depois da definição do executor T08/T09: integrar compatibilidade ao caminho físico de promoção e ensaiar contenção/leases/fila, frontend final, falhas e recuperação. Checker legado não foi substituído.",
+      "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
       "indicadores": {
         "implementacao": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "parcial",
+          "nota": "Comparação de catálogo nominal anterior/candidato/live e ledger exato; recusa drift, alterações RLS/ACL/functions/roles e permissões adicionais. Ainda sem promoção por digest ou contenção integrada dos consumidores."
         },
         "validacao_local": {
-          "status": "nao_iniciado",
-          "nota": ""
+          "status": "parcial",
+          "nota": "PG17 com 82 migrations reais: alteração aditiva e backfill, drift incompatível e falha SQL transacional. Ensaio físico completo da promoção/recuperação ainda pendente."
         },
         "integracao_main": {
           "status": "pendente",
@@ -808,9 +850,24 @@
         "publicacao_prod": {
           "status": "nao_aplicavel",
           "nota": "Esta tarefa só prepara; não opera PROD."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Sem push/CI remoto."
         }
       },
-      "evidencias": []
+      "evidencias": [
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "test_release_schema_compatibility_pg.py aprovado em PG17 descartável, sem skip. Novo módulo de compatibilidade permanece separado do deploy legado. Não é prova de rollback universal, snapshot vivo, contenção de filas nem release PROD."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "Revisão d82d0d7c: ensaio PG adicional aprovado, 1 passed e zero skipped. Recusa coluna obrigatória sem default, nova restrição ou índice único em tabela antiga, ACL de coluna e mudança de dono. Comprova INSERT antigo sob coluna com default e índice comum. Não substitui ensaio físico de promoção."
+        }
+      ]
     },
     {
       "id": "T11",
@@ -872,7 +929,7 @@
         "T07"
       ],
       "dep_nota": "No plano, F4 vem antes da extração maior; F5 pode ser preparada depois da baseline F2b e não exige operar PROD.",
-      "proxima_acao": "Candidato local validado; CI e integração pendentes. Preparar artefatos de F3/F4 sem provisionar.",
+      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
       "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
@@ -896,6 +953,10 @@
         "publicacao_prod": {
           "status": "pendente",
           "nota": "Chega a PROD só em release."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
         }
       },
       "evidencias": [
@@ -903,6 +964,11 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "398 testes focados, 27 PG (incluindo chave histórica, NULL, tenants e fence), 6431 backend passed; 874 integrações deselected na suíte offline. PG 44,143 s; backend 53,00 s. Sem mudança de schema, CAS, reserva, entrega, leases ou callbacks."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
         }
       ]
     },
@@ -1102,7 +1168,7 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Next 15.5.27 e eslint-config-next alinhados. CI/E2E pendentes; sem publicação.",
+      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
       "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
@@ -1126,6 +1192,10 @@
         "publicacao_prod": {
           "status": "pendente",
           "nota": "Chega a PROD pelo frontend."
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
         }
       },
       "evidencias": [
@@ -1133,6 +1203,11 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "Audit produção limpo, lint, tipos, 1165 testes, build e smoke de headers passaram em Node 24.19.0. Advisories oficiais: GHSA-4jqv-mc3x-m676 e GHSA-mcj8-r9mp-w47p; versões corrigidas verificadas no registro npm."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
         }
       ]
     },
@@ -1150,7 +1225,7 @@
       "depende_de": [
         "T01"
       ],
-      "proxima_acao": "Revisar patch e executar CI após push autorizado; acompanhar versão corrigida do braces, sem substituir pelo downgrade sugerido pelo audit.",
+      "proxima_acao": "Revisar a fatia local e publicar em PR pequeno após autorização nominal, na ordem de integração. Checks obrigatórios ainda não executados neste candidato remoto.",
       "responsavel": "Codex",
       "pr": [],
       "pr_referencia": null,
@@ -1164,8 +1239,8 @@
           "nota": "Audit produção: zero; grafo completo: cinco pacotes altos propagados do único advisory braces sem patch. Lint, tipos, 1165 testes e 69 E2E passaram."
         },
         "integracao_main": {
-          "status": "nao_aplicavel",
-          "nota": "Triagem."
+          "status": "pendente",
+          "nota": "As correções alteram o lock e ainda precisam de integração; triagem do aviso sem patch está documentada."
         },
         "publicacao_dev": {
           "status": "nao_aplicavel",
@@ -1174,6 +1249,10 @@
         "publicacao_prod": {
           "status": "nao_aplicavel",
           "nota": ""
+        },
+        "ci": {
+          "status": "pendente",
+          "nota": "Candidato local sem push nem CI remoto. Não usar os checks do #462 antigo como prova desta revisão."
         }
       },
       "evidencias": [
@@ -1186,6 +1265,11 @@
           "data": "2026-10-09",
           "tipo": "local",
           "descricao": "Audit produção: zero; grafo completo: cinco pacotes altos propagados do único advisory braces sem patch. Lint, tipos, 1165 testes e 69 E2E passaram. GHSA-vfj7-8cjw-p6xm sem patched version em 09/10. Os pacotes afetados restantes são ferramentas de desenvolvimento; audit --omit=dev está limpo."
+        },
+        {
+          "data": "2026-10-09",
+          "tipo": "local",
+          "descricao": "6443 backend offline aprovados (876 integrações deselected); 874 integrações RLS/PG/Redis aprovadas, zero skips, mais os 2 testes novos de seed/schema aprovados separadamente. Python 3.13.14. Lint, tipos, 1165 testes frontend, 69 E2E Chromium, build e headers passaram em Node 24.19.0. Locks Python e grafo de produção npm sem vulnerabilidades conhecidas."
         }
       ]
     },
@@ -1551,6 +1635,11 @@
       "descricao": "ALLOW_REAL_SENDS, Brevo e Asaas fechados no simulado; alcance real dos testes documentado. Sem push.",
       "tarefa": "T05",
       "pr": 462
+    },
+    {
+      "data": "2026-10-09",
+      "descricao": "Codex em branch própria concluir-refatoracao: T05/T06/T07/T12 e S3/S4 desenvolvidos e validados localmente. T09/T10 com preparação parcial; T08 ainda requer decisão. Sem push, CI remoto, merge ou operação PROD.",
+      "tarefa": "T09"
     }
   ]
 }

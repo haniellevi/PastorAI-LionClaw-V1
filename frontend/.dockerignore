@@ -1,0 +1,16 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!next.config.mjs
+!tsconfig.json
+!.eslintrc.json
+!src/
+!src/**
+!public/
+!public/**
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/secrets/**

@@ -127,7 +127,7 @@ Aceite: o serviço ministerial deixa de importar propostas do agente; entradas a
 
 Usar F2a corrigida para uma ação vertical concreta, começando pelo visitante. O fluxo atravessa webhook autenticado, Redis real, consumo pelo worker, roteador/catálogo e autorização reais, serviço e banco criado pelas migrations aplicáveis com policies verificadas, resposta persistida, entrega no fake e leitura pela API autenticada/painel.
 
-O job `rls-integration` atual tem somente PostgreSQL como serviço. Acrescentar Redis descartável ao CI que executará essa prova, com verificação de prontidão e limpeza isolada por teste. A primeira prova pode executar `QueueWorker.run` numa thread do processo de teste, passando por `WebhookQueue.enqueue`, `claim`, `ack` e leases reais, sem `_FilaMemoria`, Redis falso ou chamada direta de `handle_envelope` que contorne a fila. Usar sinais observáveis com prazo para prontidão/ACK; propagar falhas da thread e garantir `stop`/`join` limitado e fim do heartbeat em cleanup. Evitar sleeps arbitrários. Essa prova não demonstra boot, rede e supervisão entre processos, que ficam no smoke da stack real em F3. Processo separado não é requisito inicial de F2b.
+A base integrada tinha somente PostgreSQL no job `rls-integration`. O candidato local agora acrescenta Redis 7.4 descartável por digest, com prontidão; a prova local usa fila real e keys isoladas por teste. A configuração nova ainda não rodou no GitHub. A primeira prova pode executar `QueueWorker.run` numa thread do processo de teste, passando por `WebhookQueue.enqueue`, `claim`, `ack` e leases reais, sem `_FilaMemoria`, Redis falso ou chamada direta de `handle_envelope` que contorne a fila. Usar sinais observáveis com prazo para prontidão/ACK; propagar falhas da thread e garantir `stop`/`join` limitado e fim do heartbeat em cleanup. Evitar sleeps arbitrários. Essa prova não demonstra boot, rede e supervisão entre processos, que ficam no smoke da stack real em F3. Processo separado não é requisito inicial de F2b.
 
 Adicionar provedor LLM determinístico somente no limite externo. Ele não concede tenant, papel ou autorização; cadastro e credenciais são sintéticos. Não depender de crédito/provedor real ou Asaas sandbox. Caso um gate precise abrir dentro do teste isolado para exercer o provedor falso, comprovar contenção de destinos e saída de rede, sem bypass global de produção. Isso não é necessário para a entrega mais estreita F2a.
 
@@ -141,7 +141,7 @@ Não chamar TestClient, marcador ou presença de PostgreSQL de prova da fronteir
 
 Depois da escolha de região, teto de custo e executor, provisionar recursos próprios de banco/Storage, Redis, autenticação e segredos. Preferir API e banco próximos para reduzir latência; medir antes de atribuir benefício à modularização. O DEV histórico somente pode ser reutilizado após verificação de identidade, ausência de dados reais e isolamento.
 
-Usar artefatos imutáveis do SHA integrado com checks verdes. O compose local atual usa bind mounts, rede e portas do host; não deve ser copiado como configuração de publicação. A imagem backend atual não contém `scripts/migrate.py`: empacotar o runner e suas dependências necessárias no mesmo candidato, ou em artefato de migration vinculado ao SHA, sem copiar scripts protegidos em massa. Seed remoto terá entrada própria que valida identidade DEV, mantendo as recusas do seed local.
+Usar artefatos imutáveis do SHA integrado com checks verdes. O compose local atual usa bind mounts, rede e portas do host; não deve ser copiado como configuração de publicação. O candidato local empacota `scripts/migrate.py` e suas dependências na imagem do mesmo SHA, com allowlist de contexto; o alvo development acrescenta o simulador e a entrada de seed DEV, sem scripts protegidos. Seed nominal exige projeto DEV, TLS e gates fechados e preserva as recusas do CLI local. Build local não prova disponibilidade do recurso remoto. O executor físico e o workflow ainda dependem da T08.
 
 Ordem: obter artefatos e verificar identidade/versão; assegurar contenção apropriada dos consumidores; aplicar migrations elegíveis e verificar schema; seed idempotente sintético; iniciar API/workers novos; publicar frontend correspondente; verificar saúde, login, duas igrejas e turno completo. Novo código que depende do schema não começa antes da migration. Falha mantém o candidato sem aceite e conserva caminho conhecido de recuperação.
 
@@ -155,7 +155,7 @@ Aceite: merge verde chega ao DEV identificado; navegador e simulador exercitam o
 
 Separar implementação/ensaio da operação PROD. A preparação cria um caminho que recebe a revisão validada, identifica artefatos, verifica compatibilidade e executa uma transição já ensaiada. A ação de publicação deve representar o pacote completo autorizado, sem aprovações a cada comando, e continuar separada de ativar novos envios/cobranças ou ampliar o piloto.
 
-Quatro lacunas precisam fechar antes da primeira operação:
+Quatro lacunas precisam fechar antes da primeira operação. Preparação local em 09/10: catálogo nominal e ledger estrito ensaiados em PG17; mutex/reserva registra recuperação necessária antes dos efeitos. Esses módulos ainda não estão ligados ao executor físico nem substituem o checker legado; contenção de consumidores e promoção entre plataformas continuam pendentes:
 
 1. **Compatibilidade de schema entre versões.** O checker atual rejeita entradas adicionais no ledger; o release executa o checker anterior com manifesto próprio. Uma migration nova pode reprovar a versão anterior mesmo sendo aditiva. Definir verificação de compatibilidade de ida/retorno, com recusas de drift, objetos incompatíveis, RLS/ACL/policies e migrations obrigatórias. Não aceitar extras indiscriminadamente nem substituir catálogo real por um teste ORM.
 2. **Pausa sem efeitos colaterais indevidos.** Em PROD e no DEV sintético, fechar `ALLOW_REAL_SENDS` não equivale a pausar consumidores: a outbox pode terminalizar pendências e a V3 pode alterar época de ativação. Preparar contenção de entrada/consumo e tratamento de operações em andamento, preservando leases, estado e retomada. Qualquer modo novo de pausa exige testes próprios. Reabrir um gate não restaura itens cancelados.
@@ -218,14 +218,15 @@ Executar uma entrega por vez nesta ordem:
 1. Dependências #463 integradas em 5728ab08; candidato e CI pós-merge aprovados.
 2. Plano e painel #461 integrados em 52286af7, com base atualizada e quatro checks aprovados no candidato e pós-merge.
 3. `test-local.sh` corrigido no #464, integrado em 710bd160 com CI pós-merge aprovado.
-4. Atualizar a base e corrigir #462: URLs, estado/exclusão/mídia, gates e alcance dos testes, concluindo F2a.
-5. Extrair validação pura do visitante (F1).
-6. Completar F2b com Redis no CI, policies reais e uma ação vertical, admitindo worker no mesmo processo nesta primeira prova.
-7. Resolver custo/região/executor e executar F3; preparar F4 com ensaio e recuperação; F5 mantém sua dependência de evidência F2b. A operação PROD continua separada da preparação.
+4. F2a/T05 desenvolvida localmente com correções de URL, estado/exclusão/mídia e gates; #462 remoto ainda representa o candidato antigo. CI e integração da revisão local pendentes.
+5. F1/T06 desenvolvida e validada: nome de visitante no domínio. CI e integração pendentes.
+6. F2b/T07 desenvolvida: Redis no CI, policies das 82 migrations e turno real pela fila, com worker em thread. Prova local aprovada; CI e integração pendentes. F5/T12 também preparada após essa prova, com leitura pública escopada e regressão aprovada.
+7. Decisão T08 ainda necessária: recursos, região, teto mensal e executor. T09 possui imagens, seed guardado e coordenação local; T10 possui prova de catálogo, adição/backfill e falha SQL. Conectar os módulos ao caminho físico, ensaiar contenção/fila/frontend/recuperação e então publicar DEV autorizado. T11/PROD continua separada.
+8. S3/S4 desenvolvidas em commits de manutenção: Next patch e correções compatíveis do grafo; audit produção limpo, advisory braces em ferramentas de desenvolvimento ainda sem patch. Sem publicação.
 
 O monitor de produção merece triagem própria conforme o sinal registrado na seção 2, sem transformar a refatoração em intervenção operacional automática. Nenhuma decisão pendente de infraestrutura impede preparar as primeiras entregas locais.
 
-O plano está consolidado e reconhece os candidatos existentes. Seus reparos, as demais implementações, o ambiente integrado e a publicação permanecem trabalhos futuros com critérios explícitos de conclusão.
+A retomada local está registrada em `docs/sprints/2026-10-09-retomada-refatoracao-codex.md`: 6443 testes offline aprovados, 874 integrações aprovadas sem skips mais 2 provas PG novas separadas, 1165 testes frontend e 69 E2E. Publicação, CI do candidato e integração permanecem pendentes. T09/T10 são parciais; não declarar o plano inteiro concluído antes de seus aceites. Backlog condicionado não é escopo automático.
 
 ## 10. Acompanhamento da execução
 

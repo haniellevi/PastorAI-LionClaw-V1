@@ -1,0 +1,142 @@
+name: Publish integrated synthetic DEV
+on:
+  workflow_run:
+    workflows: [Backend Tests, Frontend CI, E2E Critical, RLS Integration, Synthetic release rehearsal]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: synthetic-dev-promotion
+  cancel-in-progress: false
+jobs:
+  eligible:
+    if: >-
+      vars.DEV_PIPELINE_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.gate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          candidate=$(python3 deploy/check_integrated_candidate.py "$CANDIDATE_SHA")
+          echo "sha=$candidate" >> "$GITHUB_OUTPUT"
+  publish:
+    needs: eligible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: dev-sintetico
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      SHA: ${{ needs.eligible.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+      API_ORIGIN: ${{ vars.DEV_API_ORIGIN }}
+      FRONTEND_ORIGIN: ${{ vars.DEV_FRONTEND_ORIGIN }}
+      SSH_HOST: ${{ vars.DEV_SSH_HOST }}
+      SSH_USER: ${{ vars.DEV_SSH_USER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.eligible.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+      - name: Validate public target before building
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          sys.path.insert(0, 'deploy')
+          from dev_coordination import package_id
+          package_id(dict(sha=os.environ['SHA'], frontend_sha=os.environ['SHA'],
+            backend_digest='sha256:'+'a'*64, frontend_digest='sha256:'+'b'*64,
+            frontend_origin=os.environ['FRONTEND_ORIGIN'], api_origin=os.environ['API_ORIGIN'],
+            schema='c'*64, seed='synthetic-v1', sequence=1, environment='dev-sintetico'))
+          assert re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,200}', os.environ['SSH_HOST'])
+          assert os.environ['SSH_HOST'] not in {'srv2031318.hstgr.cloud','srv1728329.hstgr.cloud','api.igreja12.com.br'}
+          assert re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', os.environ['SSH_USER'])
+          PY
+      - name: Build candidate artifacts
+        run: |
+          docker build --target development --build-arg PASTORAI_RELEASE_SHA="$SHA" -t synthetic-backend:release backend
+          docker build --build-arg PASTORAI_RELEASE_SHA="$SHA" --build-arg NEXT_PUBLIC_API_URL="$API_ORIGIN" \
+            --build-arg PASTORAI_FRONTEND_ORIGIN="$FRONTEND_ORIGIN" -t synthetic-frontend:release frontend
+      - name: Reconstruct independent schema in isolated reference
+        # The rehearsal frontend is an independent synthetic build, because
+        # NEXT_PUBLIC_API_URL cannot be changed after next build.
+        run: |
+          docker build --build-arg PASTORAI_RELEASE_SHA="$SHA" \
+            --build-arg NEXT_PUBLIC_API_URL=https://synthetic-api.example.test \
+            --build-arg PASTORAI_FRONTEND_ORIGIN=https://synthetic-dev.example.test -t synthetic-frontend:rehearsal frontend
+          mkdir -p bundle
+          python3 deploy/rehearse_dev_pipeline.py \
+            --backend-image "$(docker image inspect synthetic-backend:release --format '{{.Id}}')" \
+            --frontend-image "$(docker image inspect synthetic-frontend:rehearsal --format '{{.Id}}')" \
+            --sha "$SHA" --report "$RUNNER_TEMP/rehearsal.json" --schema-output bundle/schema.json
+      - name: Publish immutable registry artifacts
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          docker tag synthetic-backend:release "ghcr.io/$repository-dev-backend:$SHA"
+          docker tag synthetic-frontend:release "ghcr.io/$repository-dev-frontend:$SHA"
+          docker push "ghcr.io/$repository-dev-backend:$SHA"
+          docker push "ghcr.io/$repository-dev-frontend:$SHA"
+          docker image inspect "ghcr.io/$repository-dev-backend:$SHA" --format '{{index .RepoDigests 0}}' > bundle/backend-reference
+          docker image inspect "ghcr.io/$repository-dev-frontend:$SHA" --format '{{index .RepoDigests 0}}' > bundle/frontend-reference
+          git rev-list --count "$SHA" > bundle/sequence
+      - name: Write exact package and recheck current main
+        run: |
+          python3 deploy/check_integrated_candidate.py "$SHA"
+          python3 - <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          sys.path.insert(0,'deploy')
+          from dev_pipeline import schema_id
+          from dev_coordination import package_id
+          root=Path('bundle')
+          package=dict(sha=os.environ['SHA'],frontend_sha=os.environ['SHA'],
+            backend_digest=(root/'backend-reference').read_text().strip().split('@')[1],
+            frontend_digest=(root/'frontend-reference').read_text().strip().split('@')[1],
+            frontend_origin=os.environ['FRONTEND_ORIGIN'],api_origin=os.environ['API_ORIGIN'],
+            schema=schema_id(json.loads((root/'schema.json').read_text())),seed='synthetic-v1',
+            sequence=int((root/'sequence').read_text()),environment='dev-sintetico')
+          package_id(package)
+          (root/'package.json').write_text(json.dumps(package,sort_keys=True))
+          PY
+          cp deploy/dev_pipeline.py deploy/dev_coordination.py deploy/release_database.py deploy/schema_compatibility.py \
+            deploy/docker-compose.synthetic.yml bundle/
+      - name: Deliver reviewed controller over verified SSH
+        env:
+          SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/dev-ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/dev-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/dev-ssh/known_hosts"
+          remote="/opt/pastorai-dev-controller/candidates/$SHA"
+          ssh -i "$RUNNER_TEMP/dev-ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/dev-ssh/known_hosts" "$SSH_USER@$SSH_HOST" "mkdir -p '$remote'"
+          scp -i "$RUNNER_TEMP/dev-ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/dev-ssh/known_hosts" bundle/* "$SSH_USER@$SSH_HOST:$remote/"
+          ssh -i "$RUNNER_TEMP/dev-ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/dev-ssh/known_hosts" "$SSH_USER@$SSH_HOST" \
+            "python3 '$remote/dev_pipeline.py' --config /etc/pastorai-dev/controller.json deploy --package '$remote/package.json' --schema '$remote/schema.json'"

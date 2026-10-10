@@ -1,0 +1,86 @@
+# Immutable synthetic runtime. Runtime secrets remain on the authorized host.
+# Product source is never mounted. Only the reviewed controller is mounted in
+# the short-lived control service. Local ports require a separately set up TLS
+# reverse proxy before online activation.
+x-runtime: &runtime
+  image: ${BACKEND_IMAGE:?immutable backend image required}
+  env_file: ["${DEV_RUNTIME_ENV_FILE:?runtime configuration required}"]
+  environment: &environment
+    APP_ENV: development
+    ALLOW_REAL_SENDS: "false"
+    BREVO_SEND_MODE: "off"
+    ASAAS_BILLING_ENABLED: "false"
+    WHATSAPP_TRANSPORTE: simulado
+    EVOLUTION_SIMULADOR_URL: http://simulador-whatsapp:8090
+    EVOLUTION_API_URL: http://simulador-whatsapp:8090
+    EVOLUTION_WEBHOOK_CALLBACK_URL: http://backend:8000/whatsapp/webhook
+    REDIS_URL: redis://redis:6379/0
+    FRONTEND_URL: ${FRONTEND_ORIGIN:?frontend identity required}
+    APP_BASE_URL: ${API_ORIGIN:?API identity required}
+    RELEASE_PROFILE: ${RELEASE_PROFILE:?nominal profile required}
+    DEV_APPROVED_PROJECT: ${DEV_APPROVED_PROJECT:-}
+  read_only: true
+  tmpfs: [/tmp]
+  init: true
+  stop_grace_period: 120s
+  restart: unless-stopped
+  labels:
+    pastorai.scope: dev-sintetico
+
+services:
+  redis:
+    image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    command: [redis-server, --appendonly, "yes"]
+    volumes: [redis-data:/data]
+    labels: {pastorai.scope: dev-sintetico}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+  backend:
+    <<: *runtime
+    ports: ["127.0.0.1:${API_PORT:-18000}:8000"]
+  queue-worker:
+    <<: *runtime
+    command: [python, -m, app.workers.queue_worker]
+  cron-worker:
+    <<: *runtime
+    command: [python, -m, app.workers.cron_worker]
+  broadcast-worker:
+    <<: *runtime
+    command: [python, -m, app.workers.broadcast_worker]
+  simulador-whatsapp:
+    <<: *runtime
+    environment:
+      <<: *environment
+      SIMULADOR_WEBHOOK_URL: http://backend:8000/whatsapp/webhook
+    command: [uvicorn, "devtools.simulador_whatsapp:create_app_from_env", --factory, --host, "0.0.0.0", --port, "8090"]
+  frontend:
+    image: ${FRONTEND_IMAGE:?immutable frontend image required}
+    read_only: true
+    tmpfs: [/tmp, /app/.next/cache]
+    init: true
+    user: node
+    restart: unless-stopped
+    ports: ["127.0.0.1:${FRONTEND_PORT:-13000}:3000"]
+    labels: {pastorai.scope: dev-sintetico}
+  control:
+    <<: *runtime
+    profiles: [control]
+    restart: "no"
+    environment:
+      <<: *environment
+      PYTHONPATH: /app:/release-control
+      DEV_RESET_APPROVED_PROJECT: ${DEV_RESET_APPROVED_PROJECT:-}
+      DEV_RESET_EMPTY_SCHEMA: ${DEV_RESET_EMPTY_SCHEMA:-false}
+    volumes:
+      - ${DEV_CONTROL_DIR:?reviewed control bundle required}/release_database.py:/release-control/release_database.py:ro
+      - ${DEV_CONTROL_DIR:?reviewed control bundle required}/schema_compatibility.py:/release-control/schema_compatibility.py:ro
+      - ${DEV_RECEIPTS_DIR:?schema receipts required}:/receipts:ro
+    entrypoint: [python, /release-control/release_database.py]
+
+volumes:
+  redis-data:
+    labels: {pastorai.scope: dev-sintetico}

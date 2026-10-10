@@ -1,0 +1,33 @@
+name: Synthetic release rehearsal
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-release-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  synthetic-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+      - name: Build immutable synthetic backend
+        run: docker build --target development --build-arg PASTORAI_RELEASE_SHA="$GITHUB_SHA" -t synthetic-backend:ci backend
+      - name: Build frontend for synthetic origin
+        run: |
+          docker build --build-arg PASTORAI_RELEASE_SHA="$GITHUB_SHA" \
+            --build-arg NEXT_PUBLIC_API_URL=https://synthetic-api.example.test \
+            --build-arg PASTORAI_FRONTEND_ORIGIN=https://synthetic-dev.example.test \
+            -t synthetic-frontend:ci frontend
+      - name: Actual disposable process swap and recovery
+        run: |
+          python deploy/rehearse_dev_pipeline.py \
+            --backend-image "$(docker image inspect synthetic-backend:ci --format '{{.Id}}')" \
+            --frontend-image "$(docker image inspect synthetic-frontend:ci --format '{{.Id}}')" \
+            --sha "$GITHUB_SHA" --report "$RUNNER_TEMP/synthetic-rehearsal.json"
