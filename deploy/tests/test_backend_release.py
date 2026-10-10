@@ -47,25 +47,55 @@ class BackendReleaseTest(unittest.TestCase):
             """#!/bin/sh
 overlay=0
 state_file="$TRACE.$(basename "$(dirname "$PWD")").state"
-if [ "$1" = compose ] && [ "$2" = -f ]; then
-  python3 - "$5" <<'OVERRIDE'
+while [ "$1" = compose ] && [ "$2" = -f ]; do
+  file="$3"
+  if [ "$file" != docker-compose.yml ]; then
+  python3 - "$file" <<'OVERRIDE'
 import json, os, sys
 from pathlib import Path
-service = json.loads(Path(sys.argv[1]).read_text())["services"]["backend"]
-assert service["entrypoint"] == ["python", "/tmp/backend-rollback-schema.py"]
-assert service["command"] == []
-assert service["restart"] == "no"
-assert service["healthcheck"] == {"disable": True}
-with open(os.environ["TRACE"], "a") as out:
-    out.write("checker-override|" + sys.argv[1] + "\\n")
-    out.write("checker-manifest|" + service["environment"]["EXPECTED_MIGRATIONS"] + "\\n")
+services = json.loads(Path(sys.argv[1]).read_text())["services"]
+service = services["backend"]
+if "entrypoint" in service:
+    assert service["entrypoint"] == ["python", "/tmp/backend-rollback-schema.py"]
+    assert service["command"] == []
+    assert service["restart"] == "no"
+    assert service["healthcheck"] == {"disable": True}
+    with open(os.environ["TRACE"], "a") as out:
+        out.write("checker-override|" + sys.argv[1] + "\\n")
+        out.write("checker-manifest|" + service["environment"]["EXPECTED_MIGRATIONS"] + "\\n")
+else:
+    assert set(services) == {"backend", "queue-worker", "cron-worker", "broadcast-worker"}
+    assert len({v["image"] for v in services.values()}) == 1
+    with open(os.environ["TRACE"], "a") as out:
+        out.write("image-overlay|" + sys.argv[1] + "|" + service["image"] + "\\n")
 OVERRIDE
   [ $? = 0 ] || exit 1
-  overlay=1
-  shift 5
+  if grep -q entrypoint "$file"; then overlay=1; fi
+  fi
+  shift 3
   set -- compose "$@"
-fi
+done
 case "$*" in
+  'context inspect --format '*) printf '%s\\n' 'unix:///var/run/docker.sock'; exit 0 ;;
+  'image inspect --format '* )
+    case "$4" in
+      '{{.Id}}') printf 'sha256:%064d\\n' 2 ;;
+      *) if [ "$5" = 'sha256:'"$(printf '%064d' 1)" ]; then
+           printf '%s\\n' "${PREVIOUS_IMAGE_SHA:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}";
+         else printf '%s\\n' "${CANDIDATE_IMAGE_SHA:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"; fi ;;
+    esac
+    exit 0 ;;
+  'inspect --format {{.State.Running}} '* )
+    [ "${CONSUMER_STILL_RUNNING:-0}" = 0 ] && printf 'false\\n' || printf 'true\\n'
+    exit 0 ;;
+  'inspect --format {{.Image}} '* )
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then
+      printf 'sha256:%064d\\n' "${CREATED_IMAGE_ID:-2}";
+    elif [ "$4" = queue-worker ] && [ "${INCONSISTENT_PREVIOUS_IMAGES:-0}" = 1 ]; then
+      printf 'sha256:%064d\\n' 3;
+    else printf 'sha256:%064d\\n' 1; fi
+    exit 0 ;;
+  'pull '*) printf 'pull|%s\\n' "$2" >> "$TRACE"; exit "${PULL_EXIT:-0}" ;;
   'compose version --short') printf '%s\\n' "${COMPOSE_VERSION:-5.0.0}"; exit "${VERSION_EXIT:-0}" ;;
   'compose start --help')
     printf 'capabilities|%s\\n' "$PWD" >> "$TRACE"
@@ -236,6 +266,65 @@ exec "$@"
         config = json.loads(json.dumps(self.closed_config))
         config["services"]["queue-worker"]["environment"]["ALLOW_REAL_SENDS"] = "true"
         return json.dumps(config)
+
+    def test_digest_promotion_never_builds_and_persists_public_pin(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("compose build" in call for call in self.calls()))
+        pin = json.loads((self.new / "docker-compose.override.yml").read_text())
+        self.assertEqual({v["image"] for v in pin["services"].values()}, {image})
+        self.assertEqual({v["environment"]["PASTORAI_RELEASE_SHA"] for v in pin["services"].values()}, {SHA_NEW})
+
+    def test_digest_recovery_reuses_previous_image_without_build(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image, HEALTH_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("compose build" in call for call in self.calls()))
+        self.assertTrue(any("checker-start|" in call for call in self.calls()))
+        self.assertTrue(any("image-overlay|" in call and "sha256:" + "0" * 63 + "1" in call for call in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assertFalse((self.new / "docker-compose.override.yml").exists())
+
+    def test_mutable_wrong_repository_or_wrong_revision_digest_is_refused(self):
+        base = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend"
+        for changes in (
+            {"RELEASE_IMAGE_REF": base + ":latest"},
+            {"RELEASE_IMAGE_REF": "ghcr.io/other/backend@sha256:" + "1" * 64},
+            {"RELEASE_IMAGE_REF": base + "@sha256:" + "1" * 64, "CANDIDATE_IMAGE_SHA": SHA_OLD},
+            {"RELEASE_IMAGE_REF": base + "@sha256:" + "1" * 64, "PREVIOUS_IMAGE_SHA": "unknown"},
+            {"RELEASE_IMAGE_REF": base + "@sha256:" + "1" * 64, "INCONSISTENT_PREVIOUS_IMAGES": "1"},
+            {"RELEASE_IMAGE_REF": base + "@sha256:" + "1" * 64, "DOCKER_HOST": "tcp://remote.invalid:2375"},
+        ):
+            with self.subTest(changes=changes):
+                result = self.run_release(**changes)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.new / "configuration.fixture").exists())
+
+    def test_concurrent_digest_release_refuses_before_pull_or_configuration(self):
+        import fcntl
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        with (self.root / "releases/.backend-release.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_release(RELEASE_IMAGE_REF=image)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("another artifact release is in progress", result.stderr)
+        self.assertFalse(any(call.startswith("pull|") for call in self.calls()))
+        self.assertFalse((self.new / "configuration.fixture").exists())
+
+    def test_digest_containment_failure_never_starts_application_or_checker(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image, CONSUMER_STILL_RUNNING="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("consumer containment unverifiable", result.stderr)
+        self.assertFalse(any("compose start --wait" in call or "checker-start|" in call for call in self.calls()))
+
+    def test_stopped_digest_mismatch_never_starts_candidate(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image, CREATED_IMAGE_ID="4")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stopped container image mismatch", result.stderr)
+        self.assertFalse(any("docker|" + str(self.new) + "|compose start --wait" in call for call in self.calls()))
 
     def test_unreviewed_compatibility_bundle_blocks_before_configuration_or_services(self):
         bundle=self.root/'schema.json'
