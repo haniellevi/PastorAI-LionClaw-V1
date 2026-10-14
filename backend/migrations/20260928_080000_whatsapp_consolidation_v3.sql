@@ -287,6 +287,7 @@ create trigger trg_consolidacao_creates_fonovisita
 create or replace function public.fn_decision_opens_consolidation()
 returns trigger
 language plpgsql
+set search_path = public, pg_temp
 as $$
 declare
   v_consolidacao_id uuid;
@@ -499,3 +500,33 @@ commit;
 -- Rollback manual: fechar os gates V3, cancelar elegibilidades pendentes e
 -- preservar recibos, estados terminais e reservas. Só então revisar a remoção
 -- coordenada das relações, índices, triggers, colunas e constraints V3.
+
+-- Rollback manual (SQL comentado; executar em transação, só após o passo
+-- operacional acima e com os binários V3 parados):
+-- begin;
+-- drop trigger if exists trg_consolidation_whatsapp_activation_epoch on public.consolidation_whatsapp_activation;
+-- drop function if exists public.fn_consolidation_whatsapp_activation_epoch();
+-- revoke all privileges on table public.consolidation_whatsapp_activation from authenticated;
+-- drop table if exists public.consolidation_whatsapp_activation;
+-- drop trigger if exists trg_consolidacao_creates_fonovisita on public.consolidacoes;
+-- drop function if exists public.fn_consolidacao_creates_fonovisita();
+-- drop trigger if exists trg_consolidacoes_assignment_revision on public.consolidacoes;
+-- drop function if exists public.fn_consolidacoes_assignment_revision();
+-- -- Restaurar fn_decision_opens_consolidation() ao corpo de 0004_triggers.sql
+-- -- com o search_path de 0006_harden_function_search_path.sql.
+-- drop index if exists public.notification_outbox_work_queue_item_idx;
+-- drop index if exists public.notification_outbox_consolidacao_idx;
+-- drop index if exists public.work_queue_items_consolidacao_idx;
+-- drop index if exists public.work_queue_items_fonovisita_consolidacao_once_idx;
+-- drop index if exists public.consolidacoes_origin_decision_once_idx;
+-- -- Antes de remover colunas, drenar notification_outbox e work_queue_items
+-- -- que as referenciem. Os drop column abaixo derrubam checks/FKs que usam essas
+-- -- colunas: recriar logo depois os checks de notification_outbox da V2b
+-- -- (purpose, reference_shape, origin_kind, live_origin_identity).
+-- -- Restaurar também, às listas anteriores (V2b/V1a): agent_action_proposals
+-- -- (action_closed, target_kind_closed), agent_action_receipts
+-- -- (receipt_text_closed) e whatsapp_reminder_preferences_kind_closed.
+-- alter table public.notification_outbox drop column if exists work_queue_item_id, drop column if exists consolidacao_id;
+-- alter table public.work_queue_items drop column if exists consolidacao_id;
+-- alter table public.consolidacoes drop column if exists assignment_revision, drop column if exists origin_decision_id;
+-- commit;

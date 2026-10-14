@@ -673,3 +673,32 @@ comment on index public.whatsapp_connections_instance_uidx is
   'D1A: uma instance Evolution resolve no máximo uma igreja; NULL permanece permitido.';
 
 commit;
+
+-- Rollback manual (SQL comentado; executar em transação). ATENÇÃO: as
+-- constraints *_igreja_id_id_key são exigidas por migrations posteriores
+-- (S3, V1a, V1b, V2b, V3, d2b2, e4b). Só remova os uniques depois de reverter
+-- todas as que dependem deles; remover as FKs compostas e os índices é seguro
+-- para o aplicativo (as FKs simples históricas continuam).
+-- begin;
+-- alter table public.messages drop constraint if exists messages_tenant_enviado_por_fkey, drop constraint if exists messages_tenant_conversation_fkey;
+-- alter table public.consent_records drop constraint if exists consent_records_tenant_ator_fkey, drop constraint if exists consent_records_tenant_pessoa_fkey;
+-- alter table public.conversations drop constraint if exists conversations_tenant_assumido_por_fkey, drop constraint if exists conversations_tenant_pessoa_fkey;
+-- alter table public.user_roles drop constraint if exists user_roles_tenant_user_fkey;
+-- alter table public.app_users drop constraint if exists app_users_tenant_pessoa_fkey;
+-- alter table public.pessoas drop constraint if exists pessoas_tenant_arquivada_por_fkey, drop constraint if exists pessoas_tenant_lider_fkey;
+-- drop index if exists public.whatsapp_connections_instance_uidx;
+-- drop index if exists public.consent_records_igreja_id_ator_id_idx;
+-- drop index if exists public.consent_records_igreja_id_pessoa_id_idx;
+-- drop index if exists public.messages_igreja_id_enviado_por_idx;
+-- drop index if exists public.messages_igreja_id_conversation_id_idx;
+-- drop index if exists public.conversations_igreja_id_assumido_por_idx;
+-- drop index if exists public.conversations_igreja_id_pessoa_id_idx;
+-- drop index if exists public.user_roles_igreja_id_user_id_idx;
+-- drop index if exists public.app_users_igreja_id_pessoa_id_idx;
+-- drop index if exists public.pessoas_igreja_id_arquivada_por_idx;
+-- drop index if exists public.pessoas_igreja_id_lider_id_idx;
+-- -- Somente se nenhuma migration posterior estiver aplicada:
+-- -- alter table public.conversations drop constraint if exists conversations_igreja_id_id_key;
+-- -- alter table public.app_users drop constraint if exists app_users_igreja_id_id_key;
+-- -- alter table public.pessoas drop constraint if exists pessoas_igreja_id_id_key;
+-- commit;

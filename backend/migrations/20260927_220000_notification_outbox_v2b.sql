@@ -432,7 +432,7 @@ begin
     end if;
   end loop;
   if pg_catalog.to_regrole('authenticated') is not null then
-    execute 'revoke delete on table public.whatsapp_reminder_preferences, public.agenda_reminder_subscriptions, public.notification_outbox from authenticated';
+    execute 'revoke all privileges on table public.whatsapp_reminder_preferences, public.agenda_reminder_subscriptions, public.notification_outbox from authenticated';
     execute 'grant select, insert, update on table public.whatsapp_reminder_preferences, public.agenda_reminder_subscriptions, public.notification_outbox to authenticated';
     if pg_catalog.has_table_privilege('authenticated', 'public.whatsapp_reminder_preferences', 'delete')
       or pg_catalog.has_table_privilege('authenticated', 'public.agenda_reminder_subscriptions', 'delete')
@@ -566,3 +566,21 @@ $rls$;
 -- legados. As chaves compostas podem permanecer sem efeito funcional.
 
 commit;
+
+-- Rollback manual (SQL comentado; executar em transação, só após o passo
+-- operacional acima: gates fechados, claims drenados, recibos preservados):
+-- begin;
+-- drop trigger if exists notification_outbox_fence_legacy_evt7 on public.events;
+-- drop function if exists public.notification_outbox_fence_legacy_evt7();
+-- drop trigger if exists notification_outbox_fence_legacy_cell_report_reminder on public.cell_report_reminders;
+-- drop function if exists public.notification_outbox_fence_legacy_cell_report_reminder();
+-- revoke all privileges on table public.whatsapp_reminder_preferences, public.agenda_reminder_subscriptions, public.notification_outbox from authenticated;
+-- drop table if exists public.notification_outbox;
+-- drop table if exists public.agenda_reminder_subscriptions;
+-- drop table if exists public.whatsapp_reminder_preferences;
+-- drop index if exists public.agenda_alert_recipients_igreja_pessoa_active_uq;
+-- alter table public.agenda_alert_recipients drop column if exists pessoa_id;
+-- alter table public.events drop column if exists notification_outbox_fence_reason, drop column if exists notification_outbox_fenced_at;
+-- alter table public.igrejas drop column if exists notification_outbox_cutover_at;
+-- -- Restaurar os checks de agent_action_proposals/receipts à lista V1a.
+-- commit;

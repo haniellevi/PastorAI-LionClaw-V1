@@ -283,7 +283,7 @@ begin
     end if;
   end loop;
   if pg_catalog.to_regrole('authenticated') is not null then
-    execute 'revoke delete on table public.cell_report_drafts, public.cell_report_reminder_preferences, public.cell_report_reminders, public.cell_report_ai_daily_budgets, public.cell_report_ai_reservations from authenticated';
+    execute 'revoke all privileges on table public.cell_report_drafts, public.cell_report_reminder_preferences, public.cell_report_reminders, public.cell_report_ai_daily_budgets, public.cell_report_ai_reservations from authenticated';
     execute 'grant select, insert, update on table public.cell_report_drafts, public.cell_report_reminder_preferences, public.cell_report_reminders, public.cell_report_ai_daily_budgets, public.cell_report_ai_reservations to authenticated';
     if pg_catalog.has_table_privilege('authenticated', 'public.cell_report_drafts', 'delete')
       or pg_catalog.has_table_privilege('authenticated', 'public.cell_report_reminder_preferences', 'delete')

@@ -19,7 +19,7 @@ pytestmark = pytest.mark.rls_integration
 _MIGRATION = Path(__file__).parents[1] / "migrations" / (
     "20260927_170000_whatsapp_privilege_actions.sql"
 )
-_MIGRATION_SHA256 = "186a99ab8d9c4cd8e0ce9583c542c9c45c60555da87e6d824224f3d2cf8a1795"
+_MIGRATION_SHA256 = "b18f71ee7fa279a6f9b3a12c12a77e16ab457fedb4b8915f65e216db82b803c3"
 _EXACT_URL_ENV = "S3_MIGRATION_EXACT_DATABASE_URL"
 
 

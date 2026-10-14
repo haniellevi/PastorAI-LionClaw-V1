@@ -329,7 +329,7 @@ begin
     end if;
   end loop;
   if pg_catalog.to_regrole('authenticated') is not null then
-    execute 'revoke delete on table public.cell_report_audio_notices, public.cell_report_audio_consent_events, public.cell_report_audio_inputs, public.cell_report_audio_reservations from authenticated';
+    execute 'revoke all privileges on table public.cell_report_audio_notices, public.cell_report_audio_consent_events, public.cell_report_audio_inputs, public.cell_report_audio_reservations from authenticated';
     execute 'grant select, insert, update on table public.cell_report_audio_notices, public.cell_report_audio_consent_events, public.cell_report_audio_inputs, public.cell_report_audio_reservations to authenticated';
     if pg_catalog.has_table_privilege('authenticated', 'public.cell_report_audio_notices', 'delete')
       or pg_catalog.has_table_privilege('authenticated', 'public.cell_report_audio_consent_events', 'delete')
