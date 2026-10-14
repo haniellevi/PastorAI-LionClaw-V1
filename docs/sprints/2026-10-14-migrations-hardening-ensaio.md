@@ -40,3 +40,17 @@ app sobre o schema novo, `test_d1a_tenant_runtime_integrity_migration.py` (não 
 ## Próximo gate
 
 Aplicação em PROD: backup novo, plano de volta e autorização nominal.
+
+## Aplicação em PROD (14/10/2026, autorização nominal do usuário)
+
+- Backup antes: `pastorai-backup-20261014T201932Z.tar.gz` (sha256 conferido). Ponto de retorno.
+- `migrate.py apply` uma a uma, na ordem: `20260927_120000`, d1a, `_170000`, `_190000`,
+  `_210000`, `_220000`, `20260928_080000`, `20261002_173000`. Todas `aplicada`, sem falha.
+- Ledger 70 -> 78 (82 arquivos, 4 pendentes de propósito: `20260711_023515`,
+  `20260711_152127`, `20260925_183811`, `20260926_120446`).
+- Conferência pós (só leitura): `/ready` 200 (database, redis, evolution, billing_operations,
+  queue/cron/broadcast workers ok). `authenticated` sem DELETE/TRUNCATE/REFERENCES/TRIGGER nas
+  4 tabelas do agente e na `notification_outbox`; `fn_decision_opens_consolidation` com
+  `search_path=public, pg_temp`.
+- Não provado: tempo sob tráfego; comportamento do app sobre o schema novo além do `/ready`;
+  ACLs das demais tabelas e do schema `auth`.
