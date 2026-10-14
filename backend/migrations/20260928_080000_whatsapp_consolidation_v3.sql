@@ -521,12 +521,39 @@ commit;
 -- drop index if exists public.consolidacoes_origin_decision_once_idx;
 -- -- Antes de remover colunas, drenar notification_outbox e work_queue_items
 -- -- que as referenciem. Os drop column abaixo derrubam checks/FKs que usam essas
--- -- colunas: recriar logo depois os checks de notification_outbox da V2b
--- -- (purpose, reference_shape, origin_kind, live_origin_identity).
--- -- Restaurar também, às listas anteriores (V2b/V1a): agent_action_proposals
--- -- (action_closed, target_kind_closed), agent_action_receipts
--- -- (receipt_text_closed) e whatsapp_reminder_preferences_kind_closed.
+-- -- colunas; por isso os checks da V2b são recriados logo depois (bloco abaixo).
 -- alter table public.notification_outbox drop column if exists work_queue_item_id, drop column if exists consolidacao_id;
 -- alter table public.work_queue_items drop column if exists consolidacao_id;
 -- alter table public.consolidacoes drop column if exists assignment_revision, drop column if exists origin_decision_id;
+-- -- Recriar os checks da V2b em notification_outbox. "not valid" preserva
+-- -- recibos já gravados com finalidades V3; arquivar/cancelar essas linhas antes
+-- -- de executar "validate constraint".
+-- alter table public.notification_outbox drop constraint if exists notification_outbox_purpose_closed, drop constraint if exists notification_outbox_reference_shape_chk, drop constraint if exists notification_outbox_origin_kind_closed, drop constraint if exists notification_outbox_live_origin_identity_chk;
+-- alter table public.notification_outbox
+--   add constraint notification_outbox_purpose_closed
+--     check (purpose in ('agenda_reminder', 'agenda_evt7', 'cell_report_reminder')) not valid,
+--   add constraint notification_outbox_reference_shape_chk
+--     check (
+--       (purpose = 'agenda_reminder' and origin_kind = 'event'
+--        and reuniao_id is null and agenda_alert_recipient_id is null)
+--       or (purpose = 'agenda_evt7' and origin_kind = 'event'
+--           and reuniao_id is null and agenda_subscription_id is null)
+--       or (purpose = 'cell_report_reminder' and origin_kind = 'meeting'
+--           and event_id is null and agenda_subscription_id is null
+--           and agenda_alert_recipient_id is null)
+--     ) not valid,
+--   add constraint notification_outbox_origin_kind_closed
+--     check (origin_kind in ('event', 'meeting')) not valid,
+--   add constraint notification_outbox_live_origin_identity_chk
+--     check (
+--       (event_id is null or (origin_kind = 'event' and origin_id = event_id))
+--       and (reuniao_id is null or (origin_kind = 'meeting' and origin_id = reuniao_id))
+--     ) not valid;
+-- -- Depois de tratar as linhas V3: alter table public.notification_outbox validate constraint <nome>; para cada um dos 4.
+-- -- Restaurar também, às listas da V2b: whatsapp_reminder_preferences_kind_closed
+-- -- check (reminder_kind in ('agenda', 'cell_report')) e, em agent_action_proposals
+-- -- e agent_action_receipts, os checks action_closed, target_kind_closed e
+-- -- receipt_text_closed (definições na V2b, linhas 13-34).
+-- alter table public.whatsapp_reminder_preferences drop constraint if exists whatsapp_reminder_preferences_kind_closed;
+-- alter table public.whatsapp_reminder_preferences add constraint whatsapp_reminder_preferences_kind_closed check (reminder_kind in ('agenda', 'cell_report')) not valid;
 -- commit;

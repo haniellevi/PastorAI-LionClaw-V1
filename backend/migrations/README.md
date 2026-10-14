@@ -112,8 +112,8 @@ detalha o corte e o rollback: fechar gates, preservar históricos e não
 reativar consumo legado automaticamente. Migration/deploy/ativação continuam
 com gates próprios; flags vazias e releases None não autorizam envio.
 
-SHA256 do SQL V2b atual: `a1f875032252262c77924ea18f2ad1fed7530f48cdc4d92644a4c629b6b887c3`.
-O SQL executável é igual ao snapshot `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`; apenas o comentário de rollback mudou.
+SHA256 do SQL V2b atual: `bbec98a290a8af6b4985a807db191ed38cc993d31298981d0d161e8adfcd8ef7`.
+Relativo ao snapshot `a1f875032252262c77924ea18f2ad1fed7530f48cdc4d92644a4c629b6b887c3` (que já diferia só no comentário de rollback do snapshot `1aff8b5dcc9a18d931f3944ff6d3f808d80fb4c708e6d300f4f004bbab59cf01`), a mudança é executável: o bloco de ACL passa a `revoke all privileges ... from authenticated` antes dos grants (14/10, revisão da Sarah).
 Prova SQL local histórica: PostgreSQL 17 sintético, reaplicação real e RLS sob
 `authenticated` sem BYPASSRLS no snapshot anterior. A prova histórica não atesta aplicação compartilhada.
 
