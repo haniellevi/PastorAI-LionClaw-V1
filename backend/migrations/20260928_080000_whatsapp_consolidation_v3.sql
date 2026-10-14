@@ -287,6 +287,7 @@ create trigger trg_consolidacao_creates_fonovisita
 create or replace function public.fn_decision_opens_consolidation()
 returns trigger
 language plpgsql
+set search_path = public, pg_temp
 as $$
 declare
   v_consolidacao_id uuid;
@@ -499,3 +500,60 @@ commit;
 -- Rollback manual: fechar os gates V3, cancelar elegibilidades pendentes e
 -- preservar recibos, estados terminais e reservas. Só então revisar a remoção
 -- coordenada das relações, índices, triggers, colunas e constraints V3.
+
+-- Rollback manual (SQL comentado; executar em transação, só após o passo
+-- operacional acima e com os binários V3 parados):
+-- begin;
+-- drop trigger if exists trg_consolidation_whatsapp_activation_epoch on public.consolidation_whatsapp_activation;
+-- drop function if exists public.fn_consolidation_whatsapp_activation_epoch();
+-- revoke all privileges on table public.consolidation_whatsapp_activation from authenticated;
+-- drop table if exists public.consolidation_whatsapp_activation;
+-- drop trigger if exists trg_consolidacao_creates_fonovisita on public.consolidacoes;
+-- drop function if exists public.fn_consolidacao_creates_fonovisita();
+-- drop trigger if exists trg_consolidacoes_assignment_revision on public.consolidacoes;
+-- drop function if exists public.fn_consolidacoes_assignment_revision();
+-- -- Restaurar fn_decision_opens_consolidation() ao corpo de 0004_triggers.sql
+-- -- com o search_path de 0006_harden_function_search_path.sql.
+-- drop index if exists public.notification_outbox_work_queue_item_idx;
+-- drop index if exists public.notification_outbox_consolidacao_idx;
+-- drop index if exists public.work_queue_items_consolidacao_idx;
+-- drop index if exists public.work_queue_items_fonovisita_consolidacao_once_idx;
+-- drop index if exists public.consolidacoes_origin_decision_once_idx;
+-- -- Antes de remover colunas, drenar notification_outbox e work_queue_items
+-- -- que as referenciem. Os drop column abaixo derrubam checks/FKs que usam essas
+-- -- colunas; por isso os checks da V2b são recriados logo depois (bloco abaixo).
+-- alter table public.notification_outbox drop column if exists work_queue_item_id, drop column if exists consolidacao_id;
+-- alter table public.work_queue_items drop column if exists consolidacao_id;
+-- alter table public.consolidacoes drop column if exists assignment_revision, drop column if exists origin_decision_id;
+-- -- Recriar os checks da V2b em notification_outbox. "not valid" preserva
+-- -- recibos já gravados com finalidades V3; arquivar/cancelar essas linhas antes
+-- -- de executar "validate constraint".
+-- alter table public.notification_outbox drop constraint if exists notification_outbox_purpose_closed, drop constraint if exists notification_outbox_reference_shape_chk, drop constraint if exists notification_outbox_origin_kind_closed, drop constraint if exists notification_outbox_live_origin_identity_chk;
+-- alter table public.notification_outbox
+--   add constraint notification_outbox_purpose_closed
+--     check (purpose in ('agenda_reminder', 'agenda_evt7', 'cell_report_reminder')) not valid,
+--   add constraint notification_outbox_reference_shape_chk
+--     check (
+--       (purpose = 'agenda_reminder' and origin_kind = 'event'
+--        and reuniao_id is null and agenda_alert_recipient_id is null)
+--       or (purpose = 'agenda_evt7' and origin_kind = 'event'
+--           and reuniao_id is null and agenda_subscription_id is null)
+--       or (purpose = 'cell_report_reminder' and origin_kind = 'meeting'
+--           and event_id is null and agenda_subscription_id is null
+--           and agenda_alert_recipient_id is null)
+--     ) not valid,
+--   add constraint notification_outbox_origin_kind_closed
+--     check (origin_kind in ('event', 'meeting')) not valid,
+--   add constraint notification_outbox_live_origin_identity_chk
+--     check (
+--       (event_id is null or (origin_kind = 'event' and origin_id = event_id))
+--       and (reuniao_id is null or (origin_kind = 'meeting' and origin_id = reuniao_id))
+--     ) not valid;
+-- -- Depois de tratar as linhas V3: alter table public.notification_outbox validate constraint <nome>; para cada um dos 4.
+-- -- Restaurar também, às listas da V2b: whatsapp_reminder_preferences_kind_closed
+-- -- check (reminder_kind in ('agenda', 'cell_report')) e, em agent_action_proposals
+-- -- e agent_action_receipts, os checks action_closed, target_kind_closed e
+-- -- receipt_text_closed (definições na V2b, linhas 13-34).
+-- alter table public.whatsapp_reminder_preferences drop constraint if exists whatsapp_reminder_preferences_kind_closed;
+-- alter table public.whatsapp_reminder_preferences add constraint whatsapp_reminder_preferences_kind_closed check (reminder_kind in ('agenda', 'cell_report')) not valid;
+-- commit;

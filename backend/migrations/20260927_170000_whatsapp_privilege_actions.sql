@@ -375,6 +375,7 @@ begin
     end if;
   end loop;
   if pg_catalog.to_regrole('authenticated') is not null then
+    execute 'revoke all privileges on table public.agent_identity_challenges, public.agent_identity_proofs, public.agent_action_proposals, public.agent_action_receipts from authenticated';
     execute 'grant select, insert on table public.agent_identity_challenges, public.agent_identity_proofs to authenticated';
     execute 'grant select, insert, update on table public.agent_action_proposals to authenticated';
     execute 'grant select, insert on table public.agent_action_receipts to authenticated';
