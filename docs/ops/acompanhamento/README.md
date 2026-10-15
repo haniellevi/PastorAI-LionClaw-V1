@@ -19,8 +19,13 @@ O painel também existe como **mod do Claude Code** (`docs/ops/acompanhamento/mo
 
 ```bash
 ./acompanhar.sh mod        # abre o Claude Code com o mod carregado (claude --plugin-dir ...)
-./acompanhar.sh executar   # idem, e já manda a sessão continuar o plano, atualizando o registro
+./acompanhar.sh executar   # modo aposentado; aponta para ROADMAP.md e encerra
 ```
+
+O modo `executar` foi aposentado: somente exibe uma mensagem apontando para
+[ROADMAP.md](../../../ROADMAP.md) e encerra com código zero, sem iniciar Claude,
+atualizar o painel ou consultar o GitHub. Não exige Python nem Claude instalado.
+Os demais modos permanecem disponíveis nesta entrega.
 
 No Claude Code, digite:
 
