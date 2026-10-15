@@ -13,7 +13,7 @@
 
 ## Os 11 eventos EVT-7
 
-Eram eventos confirmados sem `notificado_em`: nunca foram notificados. A migration `_220000` os cercou para o código antigo não enviar. Não é envio ambíguo e não há risco de duplicidade. Se devem ou não ser notificados é decisão de produto, **ainda aberta**; nenhum replay foi feito.
+Eram eventos confirmados sem `notificado_em`, e a migration `_220000` os cercou (`legacy_evt7_sem_recibo`) para o código antigo não enviar. O serviço antigo só gravava `notificado_em` depois de enviar. Logo, um envio que teve sucesso e cujo processo morreu antes de gravar, ou um HTTP em voo no cutover, produziria exatamente este estado. **Classificação: entrega desconhecida**, não "nunca notificados". Enquanto não houver conciliação com o provedor ou com logs, notificá-los pode duplicar mensagem. Nenhum replay foi feito; a decisão de produto segue aberta e depende dessa conciliação.
 
 ## O que esta verificação não prova
 
@@ -23,11 +23,12 @@ Eram eventos confirmados sem `notificado_em`: nunca foram notificados. A migrati
 
 ## Veredito
 
-Entrega ambígua não contabilizada não aparece em nenhuma tabela. V2b: consistente no banco; (b) e o EVT-7 em voo seguem sem prova.
+Entrega ambígua não contabilizada não aparece nas tabelas consultadas. Não declaro o banco consistente: (a) segue pendente, e (b) e o EVT-7 em voo seguem sem prova.
 
 ## Pendências
 
-1. Verificar (b) com os valores atuais dos três gates em PROD.
-2. Decisão de produto sobre notificar ou não os 11 eventos.
+1. Fechar (a): registrar `current_user` e comparar o total com o inventário independente aprovado (passo 0 da sequência de release V2b).
+2. Verificar (b) com os valores atuais dos três gates em PROD.
+3. Conciliar os 11 eventos com provedor/logs; só então decidir notificar ou não.
 
 Relacionado: [registro V2b](2026-09-27-whatsapp-agenda-v2b.md).

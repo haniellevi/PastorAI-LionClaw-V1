@@ -483,7 +483,8 @@ sem declarar as próximas verticais implementadas.
    [Registro V2a](../sprints/2026-09-27-whatsapp-agenda-v2a.md): implementação
    autorizada; #434 foi integrada à main em `87e13da`, sem deploy ou ativação.
    [Verificação V2b pós-cutover](../sprints/2026-10-15-v2b-verificacao-pos-cutover.md):
-   banco consistente; gates (b) e os 11 eventos EVT-7 pendentes.
+   (a) visibilidade/inventário, (b) gates e os 11 eventos EVT-7
+   (entrega desconhecida) seguem pendentes.
    Desenvolvimento local e release em lote seguem a decisão de 27/09;
    #435 foi integrada em `8c6cc3c`, sem migration aplicada ou ativação.
 4. **V3: consolidação**, [plano aprovado](mvp-v3-consolidacao-whatsapp-plano.md)
