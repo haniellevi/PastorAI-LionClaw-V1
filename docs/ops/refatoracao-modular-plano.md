@@ -1,3 +1,9 @@
+> **HISTÓRICO — substituído em 15/10/2026 por [ROADMAP.md](../../ROADMAP.md).**
+> Conteúdo original preservado para rastreabilidade. Prioridades, sequências,
+> gates de processo e obrigações de sprint/painel abaixo não são instruções
+> ativas. Use o ROADMAP para planejamento, AGENTS.md para regras e os runbooks
+> específicos para operações; este histórico não autoriza efeitos externos.
+
 # Igreja12: plano único de desenvolvimento e refatoração
 
 Fonte técnica única da refatoração e dos ambientes. Consolidado em 09/10/2026 a partir dos planos e pareceres anteriores e dos candidatos dos PRs #461, #462 e #463. Este documento descreve decisões, ordem, critérios de aceite e limites de validação; não implementa correções nem opera ambientes. O estado vivo de cada tarefa (estado, evidências, próxima ação) fica em [`docs/ops/acompanhamento/`](acompanhamento/README.md), que é uma visualização deste plano, não um segundo plano.

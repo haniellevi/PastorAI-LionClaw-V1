@@ -1,3 +1,9 @@
+> **HISTÓRICO — substituído em 15/10/2026 por [ROADMAP.md](../../ROADMAP.md).**
+> Conteúdo original preservado para rastreabilidade. Prioridades, sequências,
+> gates de processo e obrigações de sprint/painel abaixo não são instruções
+> ativas. Use o ROADMAP para planejamento, AGENTS.md para regras e os runbooks
+> específicos para operações; este histórico não autoriza efeitos externos.
+
 # Igreja 12 — Plano de simplificação e caminho para o MVP
 
 Criado em 2026-09-23 sobre `origin/main` `9132d82`. **Aprovado pelo
