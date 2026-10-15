@@ -144,7 +144,9 @@ essas variáveis.
   não escrever nele nem usá-lo para decidir aplicação.
 - **Pendentes em PROD, cada uma com gate próprio e nunca em lote:**
   `20260711_023515` e `20260711_152127` (só dados, sem prova de aplicação),
-  d1a `20260827_175634`, `20260925_183811` e `20260926_120446`. Desde
+  `20260925_183811` e `20260926_120446`. A d1a `20260827_175634` e as 7 migrations
+  do WhatsApp foram aplicadas em 2026-10-14 (ledger 70 -> 78; ver
+  `docs/sprints/2026-10-14-migrations-hardening-ensaio.md`). Desde
   2026-09-27, d2a `20260827_230003`, d2b2 `20260828_045213` e d2b2b3
   `20260828_094914` estão pausadas (`OPERATIONAL_AUTHORIZATION=BLOCKED`, plano
   §3.3) e saíram do `status`.
