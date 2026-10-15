@@ -66,3 +66,11 @@ Aplicação em PROD: backup novo, plano de volta e autorização nominal.
   termina lembretes pendentes e isola escritas EVT-7 legadas; se houve worker ou HTTP de
   envio ativo, pode existir entrega ambígua não contabilizada. Pendente: o responsável pela
   aplicação registrar aqui o que foi feito e observado, ou reconciliar como não conforme.
+  **Em 14/10/2026 o proprietário informou não saber se essas verificações foram feitas:
+  estado registrado como NÃO VERIFICADO.** Reconciliação proposta, ainda não executada e
+  dependente de autorização nominal própria para consulta somente leitura em PROD:
+  (a) `select count(*) filter (where status is null), count(*) from public.app_users`
+  com `current_user = 'postgres'`; (b) confirmar que os gates de envio estão fechados (nenhum
+  envio real em curso); (c) listar na outbox as linhas terminais/ambíguas criadas desde a
+  aplicação da `_220000`, para reconciliar uma a uma. Enquanto isso não for feito, não abrir
+  gates de envio nem de agenda.
