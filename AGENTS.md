@@ -1,167 +1,99 @@
-# Igreja 12: memória operacional para agentes
+# Igreja 12 — regras compartilhadas para agentes
 
-Este arquivo é o ponto de entrada obrigatório para agentes que trabalhem neste
-repositório. Ele complementa instruções específicas da ferramenta e nunca
-autoriza um efeito externo.
+## Entrada e fontes
 
-## Bootstrap obrigatório
+- Confirme repositório, branch, SHA e alterações locais; leia [ROADMAP.md](ROADMAP.md),
+  a única fonte ativa de planejamento. Preserve trabalho alheio em branch/worktree própria.
+- Para requisitos, consulte o [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md)
+  e os trechos pertinentes de [PRD-COVERAGE](docs/ai/PRD-COVERAGE.md).
+  Para operação, leia o runbook específico. Planos, sprints, auditorias e painel
+  antigos servem como histórico; suas sequências não são instruções ativas.
+- Fatos vivos identificados por ambiente/horário prevalecem sobre registros;
+  Git/código/CI/testes do SHA exato provam apenas seu alcance. Merge ou teste
+  verde não provam deploy, migration aplicada, credencial ou gate aberto.
+  Sem prova, registre “não verificado”. Decisões aprovadas de 15/10 no ROADMAP
+  prevalecem sobre prioridades e cortes antigos, inclusive UV/CD.
 
-Antes de analisar, planejar ou alterar o projeto:
+## Produto e segurança
 
-1. confirme repositório, branch, SHA e estado do worktree;
-2. leia [`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`](docs/ops/MVP-PLANO-SIMPLIFICACAO.md):
-   ele é o guia operacional (fases, prioridades, regras e travas);
-3. leia [`docs/ai/PRD-COVERAGE.md`](docs/ai/PRD-COVERAGE.md) só quando a
-   tarefa envolver escopo ou requisito;
-4. para tarefa operacional, leia o runbook específico em `docs/ops/`.
-
-A governança de migration e consentimento (E4B, D3, D6, D2A, atestações,
-catálogo, F1/F2) e o `V1-FINALIZATION-MAP.md` estão **pausados e são
-históricos** (branch `archive/governanca-2026-09`). Não abra missão nessas
-frentes antes da Fase 5 do plano.
-
-## Ordem das fontes de verdade
-
-Quando houver divergência, use esta precedência:
-
-1. estado vivo consultado no momento da ação, com ambiente e horário
-   identificados;
-2. Git, CI, código, migrations e testes do SHA exato;
-3. PRD canônico e decisões técnicas aprovadas;
-4. `docs/audits/2026-08-27-d1-security-scope-audit.md`, seguido de
-   `docs/audits/2026-08-27-project-source-of-truth.md`, do registro pós-V1 e
-   dos runbooks em `docs/ops/`;
-5. `docs/ai/AI-BOOTSTRAP.md`, `docs/ai/PRD-COVERAGE.md`,
-   `docs/WIKI-IGREJA12.md`, `PRODUCT.md`, `SPEC.md`, `SPEC_PROGRESS.md` e Plan
-   Designer;
-6. auditorias substituídas, PRDs temáticos, sprints e planos históricos,
-   usados como intenção e rastreabilidade.
-
-Documentação prova o que foi registrado. Código prova implementação. Teste
-verde prova apenas o comportamento exercitado naquele SHA. Nenhum desses itens
-prova, isoladamente, migration aplicada, deploy, flag, credencial, fila ou dado
-de produção.
-
-## Estado de produto que deve permanecer explícito
-
-- A V1 está encerrada como piloto controlado.
-- O produto amplo WhatsApp-first ainda não está concluído.
-- O WhatsApp é a interface operacional principal. O painel existe para
-  configuração, governança, exceções e ações sensíveis.
-- O comportamento do agente é global e versionado. Memória, conhecimento,
-  configuração, dados e execução são isolados por igreja.
-- Conversas são memória privada. Elas nunca viram conhecimento institucional
-  automaticamente.
-- Registros oficiais e documentos aprovados pelo admin são as fontes de
-  conhecimento da igreja.
-- Universidade da Vida e Capacitação Destino ainda não são módulos completos.
-- A prioridade atual é o agente responder no WhatsApp da igreja piloto
-  (Filadélfia); ver as fases do plano do MVP.
-- OpenAI BYO é a credencial de IA da igreja. OpenRouter não integra o PastorAI.
-
-## Segurança, tenant e dados
-
-- Toda leitura e escrita de domínio precisa validar `igreja_id` no backend e na
-  RLS. Nunca aceite tenant, identidade, papel ou capacidade informados pelo
-  modelo.
-- Pessoa, acesso, papel e responsabilidade são conceitos distintos.
-- Ferramentas do agente reaproveitam serviços de domínio e autorizações do
-  caminho humano. Não escrevem diretamente em tabelas para contornar regras.
-- Dados vivos, como pessoas, células, agenda e formação, são consultados por
-  ferramentas tipadas. Embeddings não substituem a fonte transacional.
-- Mensagens, mídia, transcrições, resumos, checkpoints e vetores derivados são
-  dados privados. A exclusão aprovada deve alcançar todas essas camadas.
+- Piloto Filadélfia restrito à equipe interna; a decisão de 15/10 mantém o agente
+  como está, sem autorizar nova ativação ou ampliação. A V1 encerrou como piloto;
+  o produto amplo WhatsApp-first não está concluído. Siga a ordem do ROADMAP.
+- WhatsApp é a interface operacional principal; painel para configuração,
+  supervisão, exceções e ações sensíveis. Comportamento global e versionado;
+  dados, memória, conhecimento, credenciais e execução isolados por igreja.
+  OpenAI BYO por igreja; OpenRouter não integra o produto.
+- Toda leitura/escrita de domínio valida `igreja_id` no backend e na RLS.
+  Autenticação e autorização vêm do servidor, nunca do modelo; pessoa, acesso,
+  papel e responsabilidade são distintos. Revalide vínculo/capacidade no uso.
+- Ferramentas do agente reutilizam serviços e autorizações do caminho humano;
+  não escrevem tabelas para contornar regras. Dados vivos vêm de ferramentas
+  tipadas, não de embeddings. Preserve confirmação, transação, idempotência,
+  resposta após commit e recuperação; ações sensíveis exigem autenticação web.
+- Opt-out global prevalece antes de qualquer resposta. Preserve consentimento,
+  elegibilidade por finalidade/canal e handoff; não mude regras ao refatorar.
+- Conversas, mídia, transcrições, resumos, checkpoints e vetores derivados são
+  privados. Exclusão aprovada alcança todas essas camadas. Conhecimento oficial
+  vem de registros oficiais e documentos aprovados pelo admin, nunca de
+  conversas convertidas automaticamente.
 - Não copie PII, dados pastorais, segredos ou dados de produção para prompts,
   documentação, issues, logs de CI ou artefatos de revisão.
 
-## Gates e ações externas
+## Produção e efeitos externos
 
-Efeitos externos são deny-by-default. Permanecem sujeitos a autorização humana
-nominal e runbook específico:
+Produção, banco remoto, deploy, restart, canário e efeitos externos exigem
+autorização humana nominal e runbook específico. Não inferir autorização de
+merge, teste, credencial validada ou canário anterior. Preserve gates existentes:
+`ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED`, `BREVO_SEND_MODE`,
+`BROADCAST_ASYNC_ENABLED`, `AgentConfig.ativo` e listas/releases por igreja e
+finalidade. Canários de agente, broadcast, Brevo e Asaas são independentes.
 
-- `ALLOW_REAL_SENDS`;
-- `ASAAS_BILLING_ENABLED`;
-- `BREVO_SEND_MODE`;
-- `BROADCAST_ASYNC_ENABLED`;
-- `AgentConfig.ativo` por igreja;
-- chave e igrejas da triagem Jev (Console da Plataforma ou `TYPESAFE_API_KEY` +
-  `JEV_SHADOW_TRIAGE_IGREJA_IDS`; modo sombra, também sujeito a
-  `ALLOW_REAL_SENDS`; envia texto pastoral em claro a processador terceiro e
-  exige DPA antes de listar qualquer igreja).
-
-Merge, teste verde, migration criada, credencial validada ou canário anterior
-não abre gate para uma ação futura. Canários de agente, broadcast, Brevo e
-Asaas são missões independentes.
+Jev, inclusive sombra (`TYPESAFE_API_KEY`/Console e
+`JEV_SHADOW_TRIAGE_IGREJA_IDS`), envia texto pastoral em claro a terceiro:
+exige DPA antes de listar igreja, gates técnicos, avaliação e decisão nominal.
+O modo sombra também depende de `ALLOW_REAL_SENDS`.
+Não abrir gate para fazer teste passar. Fechar gate não equivale a pausar fila:
+pode cancelar pendências; contenção e retomada exigem procedimento próprio.
 
 ## Caminhos protegidos
 
-Nunca abra, resuma, imprima ou versiona:
+Nunca abra, resuma, imprima ou versione:
 
-- `.env` e `.env.*`, exceto exemplos sanitizados explicitamente autorizados;
+- `.env` e `.env.*`, salvo exemplos sanitizados explicitamente autorizados;
 - `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*` e diretórios `secrets/`;
-- `backend/scripts/clerk_*`;
-- `backend/scripts/target_users*.json`;
-- `backend/scripts/migrate_clerk_production.py`;
-- dumps, backups, exports ou mídias que possam conter dados reais.
+- `backend/scripts/clerk_*`, `backend/scripts/target_users*.json` e
+  `backend/scripts/migrate_clerk_production.py`;
+- dumps, backups, exports e mídias que possam conter dados reais.
 
-Se um caminho protegido parecer necessário, pare e solicite um gate específico
-sem ler seu conteúdo.
+Se precisar de caminho protegido, pare e solicite gate específico sem lê-lo.
+Nunca copie dados/segredos de PROD para DEV/local nem conecte o número da
+Filadélfia neles. Desenvolvimento usa dados fictícios e provedores simulados;
+DEV online é planejado, não disponível por presunção. Stack local opcional:
+[guia](docs/ops/AMBIENTE-LOCAL.md). Infraestrutura fica no final do ROADMAP.
 
-## Contrato de mudança
+## Entrega e validação
 
-- Iteração local reversível com dados sintéticos: implemente, teste e apresente
-  o resultado sem pedir aprovação de cada edição. Não exigir ADR, grafo,
-  pipeline ou revisão independente para ajustes comuns.
-- Use ferramentas opcionais somente quando disponíveis e úteis. Não instalar
-  ferramentas nem criar agentes adicionais como requisito de toda tarefa.
-- A fase de desenvolvimento não suspende tenant/RLS, autenticação, proteção de
-  segredos, opt-out ou autorização de efeitos em produção.
-- Trabalhe em branch ou worktree própria, com PR pequeno, e preserve
-  alterações do usuário.
-- Uma fatia vertical por vez, na ordem do plano do MVP, testada de ponta a
-  ponta.
-- Toda capacidade nova do agente exige ao menos um teste E2E do turno completo:
+- Uma fatia por vez, PR pequeno e refatoração sob demanda. Edição local
+  reversível com dados sintéticos: implemente, teste e apresente sem aprovação
+  de cada edição, ADR, grafo, pipeline ou agente extra obrigatório.
+- Toda capacidade nova do agente exige ao menos um E2E do turno completo:
   inbound persistido, catálogo e roteador reais, serviço de domínio e resposta
-  persistida/entregue pelo fluxo existente. Simule provedores externos, sem
-  substituir por mocks o catálogo, o roteador ou a autorização que o teste
-  pretende provar. Cubra o papel autorizado e a recusa sem permissão.
-- CI obrigatório: `backend-tests`, `frontend-ci`, `e2e-critical` e
-  `rls-integration`. Não crie testes que congelam hash de arquivo ou leem texto
-  de documento.
-- Banco: migration `AAAAMMDD_HHMMSS_slug.sql` com `igreja_id`, RLS e rollback
-  comentado, aplicada com `backend/scripts/migrate.py` (DEV ou local
-  primeiro; PROD só no release, com backup antes). Ver
-  `backend/migrations/README.md`. Não use `apply_migrations.py` nem os
-  wrappers catalog-bound (pausados).
-- Ambientes (decisão de 08/10): edição e testes rápidos no computador;
-  validação integrada e aceite no **DEV online** (planejado, ainda não existe),
-  separado de PROD, com dados fictícios, credenciais próprias e integrações
-  simuladas por padrão. O alvo é o DEV receber só a `main` verde,
-  automaticamente, e PROD receber um SHA validado no DEV por uma ação explícita
-  de release. Até o DEV online existir, a stack local
-  (`./dev.sh up`, `docs/ops/AMBIENTE-LOCAL.md`) é opcional, não requisito.
-  Nunca copie dados ou segredos de PROD para DEV/local nem conecte o número da
-  Filadélfia neles. Plano único: `docs/ops/refatoracao-modular-plano.md`.
-- Revisão independente só para migration em PROD e mudanças de
-  RLS/autenticação.
-- Não implemente UV ou CD a partir de placeholders antes da Fase 5.
-- Use as versões fixadas pelo projeto: Python 3.13 e Node 24 (`.nvmrc`), com
-  `umask 022`.
-
-## Regra de manutenção
-
-Ao fechar uma fatia:
-
-1. atualize o checklist da fase em `docs/ops/MVP-PLANO-SIMPLIFICACAO.md`;
-2. registre a fatia em `docs/sprints/AAAA-MM-DD-titulo.md`;
-3. atualize `docs/ai/PRD-COVERAGE.md` só se a classificação de um domínio
-   mudar.
-
-## Acompanhamento do plano
-
-O plano técnico é `docs/ops/refatoracao-modular-plano.md`. Ao iniciar, concluir
-ou bloquear uma tarefa dele, atualize o estado, as evidências e a próxima ação
-em `docs/ops/acompanhamento/tarefas.json` e rode `./acompanhar.sh`, que valida o
-registro e regenera o painel (`docs/ops/acompanhamento/painel.html`). Não
-registre prazo, percentual de esforço, teste executado ou publicação sem
-evidência. Procedimento: `docs/ops/acompanhamento/README.md`.
+  persistida/entregue pelo fluxo existente. Simule provedores externos;
+  não substitua por mocks catálogo, roteador ou autorização que se quer provar.
+  Cubra papel autorizado e recusa sem permissão.
+- Testes proporcionais à mudança; antes da integração são obrigatórios
+  `backend-tests`, `frontend-ci`, `e2e-critical` e `rls-integration`.
+  Não crie testes que congelam hash de arquivo ou leem texto de documento.
+- Migration: `AAAAMMDD_HHMMSS_slug.sql`, `igreja_id`, RLS e rollback comentado;
+  use `backend/scripts/migrate.py`, ambiente sintético primeiro e PROD só no
+  release com backup prévio. Consulte [migrations](backend/migrations/README.md).
+  Não use `apply_migrations.py` nem wrappers catalog-bound pausados.
+- Revisão independente só para mudanças de RLS/autenticação e migration em PROD.
+  Governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 históricos continuam
+  pausados; não reabrir por obrigação documental. UV/CD seguem o ROADMAP.
+- Use Python 3.13, Node 24 (`.nvmrc`) e `umask 022`; ferramentas opcionais só
+  quando disponíveis e úteis, sem instalação obrigatória por tarefa.
+- Registre entrega, testes e limites na descrição da PR; atualize o ROADMAP
+  quando estado/escopo mudar. Sem novos sprints, plano paralelo ou obrigação de
+  manter `tarefas.json`/painel. PRD-COVERAGE só muda se a classificação do domínio mudar.
+- Commit, push, merge e release somente quando autorizados pela solicitação.

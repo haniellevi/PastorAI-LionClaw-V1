@@ -1,24 +1,17 @@
 @AGENTS.md
 
-# Claude Code no Igreja12
+# Claude Code no Igreja 12
 
-AGENTS.md concentra as regras compartilhadas. Este arquivo contém apenas
-orientações específicas do Claude Code, sem repetir o plano do produto.
+[AGENTS.md](AGENTS.md) concentra as regras compartilhadas;
+[ROADMAP.md](ROADMAP.md) é a única fonte ativa de planejamento.
 
-- Use o checkout atual da tarefa, em branch própria; preserve trabalho alheio.
-- Explore com rg e leia somente os trechos relevantes. Grafo de código é
-  opcional: use quando disponível e atualizado, sem instalar ou bloquear a tarefa.
+- Use branch/worktree própria e preserve alterações alheias.
+- Explore com `rg` e leia só o necessário; grafo e ferramentas extras são opcionais.
 - Mudanças locais reversíveis não exigem plano longo, agente extra ou parecer.
-  Para mudanças grandes, apresente escopo e critérios antes de implementar.
-- Sarah é revisão independente para autenticação/RLS e migration de produção;
-  não é etapa obrigatória de toda correção, refatoração ou documentação.
-- Rode testes proporcionais ao comportamento alterado. Os quatro checks de
-  produto continuam obrigatórios para integrar mudanças.
-- Não faça commit, push, merge ou release automaticamente ao terminar.
-  Execute quando autorizado pela solicitação e registre o que foi feito.
-- Não escreva memória local automaticamente. Registre a entrega em docs/sprints
-  e atualize o checklist pertinente do plano operacional.
-
-Plano de refatoração e ambientes: docs/ops/refatoracao-modular-plano.md.
-Acompanhamento visual: `./acompanhar.sh` (procedimento em AGENTS.md e
-docs/ops/acompanhamento/README.md).
+- Sarah revisa autenticação/RLS e migration de produção; não é etapa de toda edição.
+- Rode verificações proporcionais. Os quatro checks de AGENTS são obrigatórios
+  antes da integração, inclusive para esta documentação.
+- Registre a entrega na descrição da PR e atualize o ROADMAP se mudar estado/escopo;
+  não crie sprint nem mantenha o painel paralelo por obrigação.
+- Não escreva memória local nem faça commit, push, merge ou release automaticamente;
+  execute essas ações quando autorizadas pela solicitação.
