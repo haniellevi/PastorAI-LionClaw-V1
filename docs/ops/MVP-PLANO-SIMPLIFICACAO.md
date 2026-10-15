@@ -11,6 +11,154 @@ Objetivo único do MVP: **uma igreja piloto conecta o WhatsApp, o agente de IA
 responde às pessoas de forma útil e os pastores acompanham tudo no painel.**
 Todo o resto vem depois.
 
+## 0. Redirecionamento de 15/10/2026 (vale sobre o restante deste plano)
+
+**Decidido por Raniel em 15/10:** banco Supabase, latência (B17, meta < 10 s)
+e infraestrutura ficam para o **final do projeto**. O foco agora é
+simplificar, desburocratizar, modularizar e continuar o desenvolvimento das
+funcionalidades.
+
+Diagnóstico de 15/10 (main `8c1e11cb`): desde 03/10 entraram 29 commits de
+documentação, 21 de correção e 7 de funcionalidade; há 306 arquivos `.md` em
+`docs/`, dois planos paralelos (este e o
+[plano de refatoração](refatoracao-modular-plano.md)), um painel de
+acompanhamento e 155 worktrees. O gargalo é o custo de registrar e provar cada
+passo, não o código.
+
+Ordem proposta:
+
+1. **Desburocratizar (uma PR de documentação).** Um `ROADMAP.md` curto
+   substitui este plano e o de refatoração, com cada funcionalidade em três
+   estados: feito, em andamento, falta. `AGENTS.md` fica só com as regras que
+   protegem algo (tenant/RLS, segredos, gates de produção, os quatro checks).
+   O registro de cada fatia passa a ser a descrição da própria PR. Documentos
+   antigos vão para arquivo, sem apagar.
+2. **Fechar o que está quase pronto:** pedido de oração (V4), proximidade de
+   células e fluxo G12 mínimo (Fase 3: ganhar, consolidar, célula).
+3. **Funcionalidades novas por área**, modularizando a área quando ela for
+   tocada (monólito modular, sem renomeio geral de pastas).
+4. **No final:** banco, latência/B17, publicação automática e backup testado.
+
+Continuam valendo: gates de efeitos externos, proteção de segredos,
+isolamento por igreja e os quatro checks obrigatórios.
+
+Respostas do proprietário (15/10):
+
+- [x] "Todas as funcionalidades" **inclui** Universidade da Vida e Capacitação
+      Destino. Elas saem da Fase 5 e entram no roteiro de funcionalidades,
+      depois do passo 2.
+- [x] O agente da Filadélfia **continua ligado** como está (decisão do
+      proprietário em 15/10, revendo a recomendação de pausa). O
+      `Production monitor` voltou a passar desde 14/10 (cinco últimas execuções
+      verdes em 15/10); os gates de PROD seguem sem conferência
+      ([verificação V2b](../sprints/2026-10-15-v2b-verificacao-pos-cutover.md)).
+- [x] Passo 1 aprovado, com uma condição: **daqui para frente existe uma única
+      fonte de plano**. Tudo que for plano, roteiro ou acompanhamento paralelo
+      sai do caminho ativo para não confundir no futuro.
+
+### 0.0 Onde estamos de verdade (fotografia de 15/10/2026, main `8c1e11cb`)
+
+**Em produção (Filadélfia, só testadores internos):**
+- Agente ligado desde 27/09; responde com LLM à mensagem, termo LGPD,
+  opt-out, passagem para humano e horário/endereço pelo cadastro. Resposta em
+  ~28 s (meta < 10 s adiada para o final).
+- Backend: último deploy registrado em 27/09 (`eb5a09b`). O workflow
+  `Backend release (manual)` nunca rodou. Versão exata em PROD:
+  **desconhecida**; tudo de S3 em diante está na main, mas não há registro de
+  que esteja rodando em PROD.
+- Banco PROD: migrations até V4/visitante aplicadas em 14/10 (ledger 78), com
+  backup. Quatro pendentes de propósito.
+- Frontend (Vercel) publicado com a UX v3 e o programa de desempenho.
+- Monitor de produção verde desde 14/10.
+
+**Na main, testado localmente, sem ativação (flags vazias):**
+agente por papel (S3), relatório de célula por WhatsApp (V1a texto, V1b
+áudio; demonstração ponta a ponta sintética aprovada em 13/10), agenda (V2a/V2b),
+consolidação (V3), presença própria e expectativa de visitante (V4), simulador
+de WhatsApp, triagem Jev (S1, sem DPA).
+
+**Falta (funcionalidades):** pedido de oração (V4), proximidade de células,
+fluxo G12 aceito com o piloto (ganhar, consolidar, célula), Enviar/
+multiplicação completo, memória e conhecimento oficial da igreja, Universidade
+da Vida e Capacitação Destino (módulos ausentes), aprovação das 20 conversas
+reais pelo pastor.
+
+**Falta (final do projeto):** release do backend atualizado, latência/B17,
+publicação automática, backup com restauração testada, conferência dos gates
+de PROD e conciliação dos 11 eventos EVT-7 da V2b.
+
+**Aproveitável fora da main** (achado na varredura de worktrees de 15/10;
+guardar, não perder):
+1. Pré-checagem de backup (`deploy/backup-preflight.py` + testes + runbook),
+   worktree Codex `vps07a-source-20261005`, não commitado. E scripts de backup
+   externo cifrado soltos no checkout principal
+   (`deploy/offsite-encrypt-backup.sh`, `deploy/pull-offsite-backup.sh`).
+2. Guarda de rede do deploy (`deploy/check_container_network.py` + testes e
+   ajustes no release), worktree Codex `vps04a-network-guard`, não commitado.
+3. `lock_timeout` no `migrate.py` + teste PG, worktree `elastic-kirch-0de4a3`
+   (a main não tem `lock_timeout` no script).
+4. Medições e harness de interpretação do agente e a demonstração V1a de
+   13/10 (`docs/medicoes/`), worktree Codex `integracao-incremental-20261013`.
+5. Auditoria de arquitetura/performance/segurança de 03/10, worktree Codex
+   `arquitetura-performance-seguranca-20261003`: vira lista de correções de
+   segurança (segredo em URL de log, escopo de igreja em cron/SLA, console
+   com MFA e logout no servidor).
+
+Itens 1 a 3 entram na etapa final; 4 e 5 no `ROADMAP.md`. O resto dos
+worktrees é governança pausada (E4B, D6, Maestri, canário antigo) ou já está
+na main: só arquivar.
+
+### 0.1 Limpeza do workspace (parte do passo 1)
+
+Fotografia de 15/10, só leitura: 156 worktrees registrados (94 sem pasta, em
+`/tmp`; 35 em `.worktrees/`; 12 em `.claude/worktrees/`; 15 em
+`~/.codex/worktrees/` e outros), 191 branches locais (119 já contidas na
+main), 89 arquivos em `backend/migrations/` e cerca de 400 arquivos em `docs/`
+(189 só em `docs/ops/`).
+
+Regra geral: nada se perde. Antes de remover, gravar o ponto de cada item
+numa referência de arquivo (`refs/archive/...` ou tag), para poder recuperar.
+
+1. **Documentos.** Fica no caminho ativo só: `ROADMAP.md` (plano único),
+   PRD canônico, `AGENTS.md`, `CLAUDE.md`, `README` e os runbooks em uso
+   (ambiente local, migrations, deploy, backup). Planos antigos (este arquivo,
+   refatoração, acompanhamento, missões, governança, sprints, decisões,
+   auditorias) saem da main e ficam numa branch/tag `archive/docs-2026-10`,
+   como foi feito com a governança em 09/2026. Testes ou scripts que leem
+   esses arquivos são ajustados na mesma PR.
+2. **Worktrees.** (a) Os 94 sem pasta: gravar o HEAD de cada um numa
+   referência de arquivo e então remover o registro. (b) Os que têm pasta:
+   remover só os limpos e cuja branch já está na main; os com mudança não
+   salva ou commit fora da main viram uma lista para o proprietário decidir
+   um a um. (c) Os do Codex (`~/.codex/worktrees`) são arquivados pela
+   ferramenta do Codex.
+3. **Branches locais.** Apagar as já contidas na main (recuperáveis pela
+   main). As demais entram na mesma lista de decisão. Branches remotas não
+   são tocadas sem ordem própria.
+
+   **Executado em 15/10 (autorizado por Raniel):** 94 registros de worktree
+   sem pasta removidos (2 commits que só existiam neles guardados em
+   `refs/archive/worktrees-20261015/`); 6 worktrees limpos e já na main
+   removidos; 95 branches locais contidas na main apagadas. Inventários
+   anteriores em `.git/inventario-worktrees-20261015.txt` e
+   `.git/inventario-branches-20261015.txt`. Restam 55 worktrees (14 do Codex)
+   e 96 branches locais. Próxima rodada, pendente de autorização: guardar o
+   trabalho não salvo de cada worktree numa referência de arquivo e remover
+   os demais, exceto os em uso.
+4. **Migrations: não apagar agora.** Elas são o histórico do banco: o
+   ledger de PROD registra 78 aplicadas e o banco local nasce delas. Apagar
+   arquivos quebra `migrate.py` e a recriação local. A limpeza certa é um
+   *baseline* (consolidar as antigas num único arquivo de partida), feito
+   junto com a etapa de banco no final do projeto. Até lá, só decidir o
+   destino das quatro pendentes de propósito (`20260711_023515`,
+   `20260711_152127`, `20260925_183811`, `20260926_120446`): aplicar no
+   release ou retirar.
+5. **Checkout principal.** A pasta `PastorAi-1.0` está na branch
+   `chore/neon-dev-setup` (Neon cancelada), 94 commits atrás. Depois que a
+   PR de documentação trouxer o que tem valor, ela volta para a `main`;
+   arquivos locais soltos (`output/`, `arquivos-temporarios.md`, scripts de
+   backup em `deploy/`) são revisados um a um, sem apagar no escuro.
+
 ---
 
 ## 1. Diagnóstico (fatos medidos no código)
@@ -663,6 +811,9 @@ UV e Capacitação, e Enviar editável.
 8. (08/10) Migração Neon cancelada. Decisão: desenvolvimento integrado em um
    DEV online planejado, separado de PROD, com publicação automática no DEV e
    ação explícita para PROD. Ainda não existe (§3.5, atualização de 08/10).
+9. (15/10) Banco, latência (B17) e infraestrutura ficam para o final do
+   projeto; foco em simplificar, modularizar e desenvolver funcionalidades
+   (§0).
 
 ## 6. Lista de bugs e lacunas (viva)
 
