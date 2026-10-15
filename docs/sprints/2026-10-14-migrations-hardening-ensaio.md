@@ -71,6 +71,10 @@ Aplicação em PROD: backup novo, plano de volta e autorização nominal.
   dependente de autorização nominal própria para consulta somente leitura em PROD:
   (a) `select count(*) filter (where status is null), count(*) from public.app_users`
   com `current_user = 'postgres'`; (b) confirmar que os gates de envio estão fechados (nenhum
-  envio real em curso); (c) listar na outbox as linhas terminais/ambíguas criadas desde a
-  aplicação da `_220000`, para reconciliar uma a uma. Enquanto isso não for feito, não abrir
-  gates de envio nem de agenda.
+  envio real em curso); (c) listar, ao redor do `notification_outbox_cutover_at` de cada
+  igreja, as três fontes de ambiguidade, com evidência do provedor/log quando houver, para
+  reconciliar uma a uma: linhas terminais/ambíguas da `notification_outbox`;
+  `cell_report_reminders` com `state = 'ambiguo'` (`terminal_reason =
+  'outbox_unificada_cutover_ambiguo'`, V1a legado, que não gera linha na outbox); e `events`
+  com `notification_outbox_fence_reason` preenchido (EVT-7 legado). Enquanto isso não for
+  feito, não abrir gates de envio nem de agenda.
