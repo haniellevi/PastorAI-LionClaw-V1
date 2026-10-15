@@ -141,10 +141,16 @@ numa referência de arquivo (`refs/archive/...` ou tag), para poder recuperar.
    `refs/archive/worktrees-20261015/`); 6 worktrees limpos e já na main
    removidos; 95 branches locais contidas na main apagadas. Inventários
    anteriores em `.git/inventario-worktrees-20261015.txt` e
-   `.git/inventario-branches-20261015.txt`. Restam 55 worktrees (14 do Codex)
-   e 96 branches locais. Próxima rodada, pendente de autorização: guardar o
-   trabalho não salvo de cada worktree numa referência de arquivo e remover
-   os demais, exceto os em uso.
+   `.git/inventario-branches-20261015.txt`.
+
+   **Segunda rodada (15/10):** o estado de 37 worktrees antigos (incluindo
+   arquivos não salvos; 1.669 só no `maestri-astra-workspace-plan`) foi
+   gravado em `refs/archive/worktrees-20261015/<nome>` e conferido arquivo por
+   arquivo (0 divergências); depois as pastas foram removidas. Para recuperar:
+   `git worktree add <pasta> refs/archive/worktrees-20261015/<nome>`. Restam
+   18 worktrees: o checkout principal, 14 do Codex (arquivar pela ferramenta
+   do Codex, depois de salvar os itens da §0.0), `elastic-kirch-0de4a3`
+   (`lock_timeout`, §0.0 item 3) e `retomada-20261015` (outra sessão).
 4. **Migrations: não apagar agora.** Elas são o histórico do banco: o
    ledger de PROD registra 78 aplicadas e o banco local nasce delas. Apagar
    arquivos quebra `migrate.py` e a recriação local. A limpeza certa é um
