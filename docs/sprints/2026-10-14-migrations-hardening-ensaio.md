@@ -1,7 +1,9 @@
 # 2026-10-14 - Endurecimento das migrations pendentes e ensaio em cópia
 
 Escopo: preparar a aplicação em PROD de `d1a` + 7 migrations do WhatsApp
-(S3, V1a, V1b, V2b, V3, `20260927_120000`, `20261002_173000`). Nada foi aplicado em PROD.
+(S3, V1a, V1b, V2b, V3, `20260927_120000`, `20261002_173000`). Nada foi aplicado em PROD
+**no momento da preparação**; a aplicação ocorreu depois, ver "Aplicação em PROD" abaixo.
+As seções anteriores a ela são o estado histórico da preparação.
 
 ## Correções (revisão independente da Sarah)
 
@@ -12,8 +14,9 @@ Escopo: preparar a aplicação em PROD de `d1a` + 7 migrations do WhatsApp
 - B5: rollback em SQL comentado em V3, V2b e d1a.
 - Teste `test_s3_migration_exact_pg.py`: hash da S3 atualizado.
 
-Migrations ainda não aplicadas em PROD, então a edição não viola a regra de não
-alterar migration aplicada.
+Na época da edição, as migrations ainda não estavam aplicadas em PROD, então a edição
+não violava a regra de não alterar migration aplicada. **Agora estão aplicadas: não
+editar mais esses arquivos; qualquer ajuste vira migration nova.**
 
 ## Evidências (executadas)
 
@@ -37,7 +40,7 @@ alterar migration aplicada.
 ACLs reais de PROD, tempo sob tráfego e no hardware do Supabase, comportamento do
 app sobre o schema novo, `test_d1a_tenant_runtime_integrity_migration.py` (não rodado).
 
-## Próximo gate
+## Próximo gate (histórico; cumprido em "Aplicação em PROD")
 
 Aplicação em PROD: backup novo, plano de volta e autorização nominal.
 
@@ -54,3 +57,12 @@ Aplicação em PROD: backup novo, plano de volta e autorização nominal.
   `search_path=public, pg_temp`.
 - Não provado: tempo sob tráfego; comportamento do app sobre o schema novo além do `/ready`;
   ACLs das demais tabelas e do schema `auth`.
+- **Cutover V2b (`_220000`) sem registro de pré-condições.** Este documento não registra o
+  resultado das verificações obrigatórias de `docs/ops/v2b-agenda-20260927/README.md`
+  (sequência da release, passos 0–2): contagem de `app_users.status` com visibilidade
+  integral (`current_user = 'postgres'`, `sem_status = 0`), parada de produtores/consumidores
+  antigos incluindo EVT-7 em andamento, identificação de claims em voo e espera do lease
+  efetivo. Sem esse registro, a virada **não está comprovada como conforme**. A `_220000`
+  termina lembretes pendentes e isola escritas EVT-7 legadas; se houve worker ou HTTP de
+  envio ativo, pode existir entrega ambígua não contabilizada. Pendente: o responsável pela
+  aplicação registrar aqui o que foi feito e observado, ou reconciliar como não conforme.
