@@ -324,7 +324,8 @@ operacional de 26/09 (registro em
    - `migrate.py status` lista 8 pendentes, **nenhuma para aplicar em lote**
      (cada uma tem gate próprio): `20260711_023515` e `20260711_152127` (só
      dados, sem prova de aplicação), d1a, d2a, d2b2, d2b2b3, `20260925_183811`
-     e `20260926_120446`.
+     e `20260926_120446`. *Estado de 26/09. Em 14/10 a d1a e 7 migrations do
+     WhatsApp foram aplicadas em PROD (ver Fase 4).*
    - Correção do plano anterior: o `main` **não** depende da
      `20260925_183811` para login, `/me` ou o Console. Sem ela, só a
      **exclusão de igreja** falha (500 com rollback se a igreja tiver admin de
@@ -625,6 +626,14 @@ dúvida de horário, opt-out, crise) têm respostas aprovadas pelo pastor.
       procedimento de recuperação P2-5 no alvo, sob missão e autorização
       específicas. Fonte/testes sintéticos não fecham esses achados nem o item
       de deploy automatizado; P2-1/2/3/4 históricos permanecem pendentes.
+- [x] Aplicadas em PROD em 14/10, com autorização nominal e backup antes
+      (`pastorai-backup-20261014T201932Z`): d1a + 7 migrations do WhatsApp
+      (S3, V1a, V1b, V2b, V3, `20260927_120000`, `20261002_173000`); ledger
+      70 -> 78, `/ready` 200. Pendentes de propósito: `20260711_023515`,
+      `20260711_152127`, `20260925_183811`, `20260926_120446`. **Em aberto:** o
+      registro não traz as verificações de pré-virada da `_220000` (V2b), então
+      essa virada não está comprovada como conforme; reconciliar.
+      [Registro](../sprints/2026-10-14-migrations-hardening-ensaio.md).
 - [ ] Backup diário verificado e restauração testada uma vez.
 
 ### Fase 5 — Endurecimento (só com o MVP rodando e usado)
