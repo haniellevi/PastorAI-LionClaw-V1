@@ -50,6 +50,7 @@ const SCREEN_MODULES = [
   "@/components/inbox/InboxScreen",
   "@/components/minha-celula/MinhaCelulaEntry",
   "@/components/profile/PerfilScreen",
+  "@/components/prayer/PrayerRequestsScreen",
   "@/components/reports/RelatoriosScreen",
   "@/components/whatsapp/WhatsappScreen",
 ].sort();
@@ -84,7 +85,7 @@ describe("fronteiras de carregamento do frontend", () => {
     }
   });
 
-  it("divide as 25 telas com loaders compartilhados e fallback acessível", () => {
+  it("divide as 26 telas com loaders compartilhados e fallback acessível", () => {
     const dynamicModules = [...screenLoaders.matchAll(/import\("([^"]+)"\)/g)]
       .map((match) => match[1]!)
       .sort();
@@ -96,7 +97,7 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(SCREEN_MODULES.every((module) => !staticModules.has(module))).toBe(true);
     expect(screenView).toContain('from "./screen-loaders"');
     expect(screenLoaders).toContain("preloadScreenModule");
-    expect(screenView.match(/loading:\s*ScreenLoading/g)).toHaveLength(25);
+    expect(screenView.match(/loading:\s*ScreenLoading/g)).toHaveLength(26);
     expect(screenView).toContain('role="status"');
     expect(screenView).toContain('aria-live="polite"');
     expect(screenView).toContain('aria-busy="true"');

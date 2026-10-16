@@ -26,6 +26,7 @@ import { isAdmin } from "@/lib/roles";
 import { SHELL_DRAWER_ID, drawerSidebarClass, isDesktopCollapsed } from "./useDrawerA11y";
 
 interface SidebarProps {
+  prayerAllowed?: boolean;
   user: SessionUser;
   route: string;
   /** Nome acessível do landmark <nav> (Gate 6.1). Default = painel operacional. */
@@ -54,6 +55,7 @@ function initials(name: string): string {
 
 export function Sidebar({
   user,
+  prayerAllowed = false,
   route,
   label = "Menu principal",
   sections = NAV_SECTIONS,
@@ -82,8 +84,10 @@ export function Sidebar({
     const s = new Set(allowedScreens(user.roles, matrix));
     // #4: só o dono (admin principal) vê a Assinatura no menu — admin não basta.
     if (!user.isOwner) s.delete("assinatura");
+    if (prayerAllowed) s.add("pedidos-oracao");
+    else s.delete("pedidos-oracao");
     return s;
-  }, [user.roles, user.isOwner, matrix]);
+  }, [user.roles, user.isOwner, matrix, prayerAllowed]);
   const visible = (target: string) => allowed.has(target);
 
   // Seções visíveis (grupos adminOnly só para admin).

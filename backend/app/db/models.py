@@ -388,6 +388,7 @@ class Celula(Base):
 
     __tablename__ = "celulas"
     __table_args__ = (
+        UniqueConstraint('igreja_id', 'id', name='celulas_igreja_id_id_key'),
         CheckConstraint(
             "bairro IS NULL OR length(bairro) <= 120",
             name="celulas_bairro_120_chk",

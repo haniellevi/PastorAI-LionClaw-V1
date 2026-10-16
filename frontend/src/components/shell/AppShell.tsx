@@ -22,6 +22,7 @@ import { JourneyStepper } from "./JourneyStepper";
 import { preloadScreenModule } from "./screen-loaders";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
+import { usePrayerAccess } from "@/components/prayer/usePrayerAccess";
 import { Topbar } from "./Topbar";
 import { useDrawerA11y } from "./useDrawerA11y";
 import { useRouteMainFocus } from "./useRouteMainFocus";
@@ -43,6 +44,7 @@ const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
 export function AppShell() {
   const { user, token, logout } = useAuth();
   const { matrix } = usePermissions();
+  const prayerAccess = usePrayerAccess(token);
   const [route, navigate] = useHashRoute();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -65,7 +67,7 @@ export function AppShell() {
   const permitted =
     ownerOk &&
     !ADMIN_ONLY_SET.has(base) &&
-    (ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false));
+    (base === "pedidos-oracao" ? prayerAccess === true : (ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false)));
   const allowed = known && permitted && !LOCKED_SCREENS.has(base);
   const resolvedBase = allowed ? base : "dashboard";
   const resolvedRoute = allowed ? route : "dashboard";
@@ -83,7 +85,7 @@ export function AppShell() {
       const targetPermitted =
         targetOwnerOk &&
         !ADMIN_ONLY_SET.has(targetBase) &&
-        (ALWAYS_ALLOWED.has(targetBase) || canSee(targetBase, user.roles, matrix));
+        (targetBase === "pedidos-oracao" ? prayerAccess === true : (ALWAYS_ALLOWED.has(targetBase) || canSee(targetBase, user.roles, matrix)));
       if (
         !(targetBase in SCREEN_META) ||
         !targetPermitted ||
@@ -95,7 +97,7 @@ export function AppShell() {
       preloadScreenModule(targetBase);
       if (token) void preloadRouteData(token, targetBase, user.roles, matrix);
     },
-    [user, token, matrix],
+    [user, token, matrix, prayerAccess],
   );
 
   // A troca/encerramento da sessão remove imediatamente snapshots que ainda
@@ -109,10 +111,11 @@ export function AppShell() {
 
   // Normaliza o hash quando a rota pedida é inválida/sem acesso.
   useEffect(() => {
+    if (base === "pedidos-oracao" && prayerAccess === null) return;
     if (route !== resolvedRoute) {
       navigate(resolvedRoute);
     }
-  }, [route, resolvedRoute, navigate]);
+  }, [route, resolvedRoute, navigate, base, prayerAccess]);
 
   // Fecha o drawer mobile a cada troca de rota.
   useEffect(() => {
@@ -151,6 +154,7 @@ export function AppShell() {
       ) : null}
       <Sidebar
         user={user}
+        prayerAllowed={prayerAccess === true}
         route={resolvedBase}
         crossSurface={adminHref ? { href: adminHref, label: "Admin" } : null}
         crossSurfacePlacement="after"

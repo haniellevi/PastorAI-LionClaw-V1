@@ -50,6 +50,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "minha-celula", label: "Minha Célula", icon: "central-celula" },
       { target: "calendario", label: "Agenda", icon: "calendar" },
       { target: "inbox", label: "Conversas", icon: "chat" },
+      { target: "pedidos-oracao", label: "Pedidos de oração", icon: "chat" },
     ],
   },
   {
@@ -199,6 +200,11 @@ export const SCREEN_META: Record<
     title: "Painel de Hoje",
     crumb: "O que precisa de atenção",
     info: "Ações, agenda e contexto dentro das suas responsabilidades.",
+  },
+  "pedidos-oracao": {
+    title: "Pedidos de oração",
+    crumb: "Acompanhamento pastoral",
+    info: "Pedidos compartilhados explicitamente com os destinatários autorizados.",
   },
   inbox: {
     title: "Conversas",

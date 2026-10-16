@@ -3,6 +3,8 @@
  * Manter a função de importação num único lugar garante que o Next reutilize o
  * mesmo chunk quando o usuário passa o mouse e quando a rota é renderizada.
  */
+export const loadPrayerRequestsScreen = () =>
+  import("@/components/prayer/PrayerRequestsScreen");
 export const loadCalendarioScreen = () =>
   import("@/components/calendario/CalendarioScreen");
 export const loadCelulasScreen = () => import("@/components/cells/CelulasScreen");
@@ -47,6 +49,7 @@ export const loadWhatsappScreen = () =>
 export const loadPerfilScreen = () => import("@/components/profile/PerfilScreen");
 
 const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
+  "pedidos-oracao": loadPrayerRequestsScreen,
   calendario: loadCalendarioScreen,
   celulas: loadCelulasScreen,
   agente: loadAgenteScreen,
