@@ -370,7 +370,7 @@ exatamente 20 arquivos: `SPEC.md`, `SPEC_PROGRESS.md`,
 `docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md`,
 `docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`, os ADRs
 D2B2b2 e D2B2b3A, esta decisão, as decisões do executor v2 e do snapshot
-confiável, o guia de revisão humana, `docs/ops/POST-V1-MISSION-REGISTER.md` e
+confiável, o guia de revisão humana, [arquivo histórico: `docs/ops/POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md) e
 `docs/ops/PRODUCTION-RUNBOOK.md`. Os 19 documentos distinguem observação
 histórica de estado vivo atual e registram a procedência das matrizes offline;
 o único arquivo de teste troca a antiga exigência em tempo presente pela

@@ -11,7 +11,7 @@ Baseline: `74951828f48994622a112d8e59eb978e5fb4f406`
 Esta decisão cria somente um formulário vazio e verificável para organizar as
 decisões humanas, jurídicas, de privacidade e operacionais que ainda bloqueiam
 o consentimento por finalidade. O arquivo
-[`d2b2b2-decision-packet.template.json`](../governance/consent/d2b2b2-decision-packet.template.json)
+[histórico: `d2b2b2-decision-packet.template.json`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/d2b2b2-decision-packet.template.json)
 é um template, não um pacote aprovado.
 
 Merge, revisão de PR, teste verde, preenchimento parcial, texto em Git ou valor

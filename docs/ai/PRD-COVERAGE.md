@@ -16,7 +16,7 @@ delimitam as provas sintéticas e gates cumulativos; não há ativação nem mud
 da classificação do domínio. O relatório confirmado permanece independente da mídia.
 
 
-Recorte V1a de 27/09/2026: o [plano aprovado do relatório de célula](../ops/mvp-v1-relatorio-celula-whatsapp-plano.md)
+Recorte V1a de 27/09/2026: o [histórico: plano aprovado do relatório de célula](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v1-relatorio-celula-whatsapp-plano.md)
 divide delta-052 em texto e áudio. O [candidato por texto](../sprints/2026-09-27-v1a-relatorio-celula-texto.md)
 foi implementado sobre a S3 e está sujeito aos gates de revisão; não reclassifica o domínio. O MVP usa o termo
 LGPD vigente, versionado e revogável como fonte de consentimento; E4B permanece
@@ -61,13 +61,13 @@ constrói reader, snapshot ou capability e permanece `NOT_ADOPTED`. A fonte
 confiável, a instância real do manifesto, o caller e a ativação continuam em
 gates futuros; não há runtime, banco, DEV ou PROD.
 
-Evidence store operacional: [plano técnico proposto](../governance/consent/evidence-store/OPERATIONAL-PLAN.md)
+Evidence store operacional: [histórico: plano técnico proposto](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-PLAN.md)
 separa desafio/evidência/recibo, reaproveita o ledger e define RLS, idempotência,
 retenção, testes PG17 e critérios de elegibilidade. Documento offline,
 sem implementação, migration ou autorização. A cadeia documental integrada
 não torna human_packet_complete, catalog_ready ou writer_eligible verdadeiros.
 
-E1 local fechada na base `d0df9a4`: [contrato operacional](../governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md).
+E1 local fechada na base `d0df9a4`: [histórico: contrato operacional](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md).
 Recusa inicial: 5 anos do registro; apresentação abandonada: 90 dias do
 abandono/expiração; recibo acompanha a evidência. Exclusão da Pessoa remove
 a cadeia completa, inclusive ledger histórico inalterado. Não existe garantia
@@ -76,7 +76,7 @@ Estratégia C aceita: E2/E3 concluídas em laboratório local, FK/desafio antes 
 do stream histórico, sem grants/policies novos em pessoas/ledger. Prova
 canônica pura separada do laboratório com pré-condições históricas explícitas;
 o writer antigo não é declarado liberado no replay puro.
-[Resultados C](../governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
+[histórico: Resultados C](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
 1.288 testes verdes, incluindo 19 PG17 declarados, zero skips.
 Sem callers, concessão ou aplicação compartilhada. Indicadores técnicos e
 operacionais continuam false.
@@ -93,10 +93,10 @@ Sucessão local do catálogo: proposta append-only
 resolvidas e três delas explicitamente complementares ao payload imutável.
 Não altera aprovação nem preenche campos nulos do payload. human_packet_complete,
 catalog_ready e writer_eligible permanecem false; sem operação ou runtime.
-Contrato e limites em [catálogo](../governance/consent/catalog/CONTRACT.md).
+Contrato e limites em [histórico: catálogo](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/catalog/CONTRACT.md).
 
 Nota local: proposta de catálogo `frozen-payload-v2` em
-[CONTRACT.md](../governance/consent/catalog/CONTRACT.md) admite registro humano
+[histórico: CONTRACT.md](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/catalog/CONTRACT.md) admite registro humano
 externo e payload congelado por referência, com pendências explícitas.
 Sem entrada real ou nova aprovação; catalog_ready=false, writer_eligible=false
 e demais indicadores técnicos falsos. Testes somente fictícios, sem runtime.
@@ -109,7 +109,7 @@ equivalente.
 ## Classificações
 
 Nota técnica local sobre a base `b3b35489436498fa234c74a6f835a572a0d89892`:
-o [contrato proposto de catálogo imutável](../governance/consent/catalog/CONTRACT.md)
+o [histórico: contrato proposto de catálogo imutável](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/catalog/CONTRACT.md)
 acrescenta somente schema documental, exemplo sintético e testes de fechamento
 de refs/digest/imutabilidade. Não constitui catálogo operacional, evidence
 store ou writer. `catalog_ready=false`, `writer_eligible=false` e aprovação
@@ -117,7 +117,7 @@ humana pendente permanecem; o schema de payload da PR #378 não é alterado.
 Esta nota não reaudita a matriz global nem atesta uma igreja real.
 
 Sobre a base `939e90f` (PR #380), há também uma
-[proposta local de evidence store](../governance/consent/evidence-store/CONTRACT.md):
+[histórico: proposta local de evidence store](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/CONTRACT.md):
 contrato/schema/exemplo sintéticos e testes documentais, sem armazenamento
 operacional. Separa apresentação/manifestação, ledger e recibo; recusa inicial
 não cria `concedido`. `catalog_ready=false`, `writer_eligible=false`, sem
@@ -146,7 +146,7 @@ significa ativa em produção.
 | Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA INTEGRADA EM MAIN E INATIVA / PROJEÇÃO PRIVADA READ-ONLY OFFLINE` | LangGraph stateless, contexto confiável D2B1, fronteira de sessão dedicada e adaptador read-only da projeção integrados localmente; a conexão dedicada é selecionada explicitamente e falha fechada sem URL, enquanto reserva V2, locks web, UoW de staging e coordenador offline fail-closed continuam sem caller | Revisão independente do manifesto; função/migration SQL da projeção, writers mínimos, atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
-| Triagem semântica Jev (TypeSafe) | `S1 CANDIDATA / ATIVAÇÃO BLOQUEADA / HOLDOUT REAL NÃO AFERIDO` | `semantic_triage.py`, runtime/worker Tier A, adaptador LLM tipado, avaliador `jev_tier_a_eval.py`; plano `docs/ops/mvp-fase2-agente-inteligente-plano.md` e relatório `docs/ops/jev-tier-a-20260926/EVALUATION.md` | Flag ativa vazia e independente de shadow; release aprovada ausente. Crise/humano/erro suprimem resposta e fazem handoff; provável opt-out apenas confirma SAIR uma vez, comando explícito persiste saída. Corpus dev/holdout congelado, Wilson95 e métricas pontuais separados. Ativação exige avaliação real revisada, DPA/decisão nominal e aceite interno; sem deploy/egress nesta preparação. Console de configuração #420 preservado; S2/S3 separados |
+| Triagem semântica Jev (TypeSafe) | `S1 CANDIDATA / ATIVAÇÃO BLOQUEADA / HOLDOUT REAL NÃO AFERIDO` | `semantic_triage.py`, runtime/worker Tier A, adaptador LLM tipado, avaliador `jev_tier_a_eval.py`; plano [arquivo histórico: `docs/ops/mvp-fase2-agente-inteligente-plano.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-fase2-agente-inteligente-plano.md) e relatório `docs/ops/jev-tier-a-20260926/EVALUATION.md` | Flag ativa vazia e independente de shadow; release aprovada ausente. Crise/humano/erro suprimem resposta e fazem handoff; provável opt-out apenas confirma SAIR uma vez, comando explícito persiste saída. Corpus dev/holdout congelado, Wilson95 e métricas pontuais separados. Ativação exige avaliação real revisada, DPA/decisão nominal e aceite interno; sem deploy/egress nesta preparação. Console de configuração #420 preservado; S2/S3 separados |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / EXECUTOR V2 LOCAL OFFLINE COM TRUST ANCHORS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; o executor v2 é candidato local fail-closed e a revisão externa ainda bloqueia DEV por divergência e PROD por evidência insuficiente | Trust anchors externos, atestações DEV/PROD separadas, revisão independente v3 e decisão humana de cutover permanecem bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA / FATIA ESPECÍFICA OFFLINE CANDIDATA` | O relatório possui envelope pendente fechado e uma UoW que pode agrupar confirmação, auditoria sem conteúdo e reply pendente numa transação externa; não existe plataforma D2C genérica nem caller | Receipts duráveis autenticados, unicidade global, consentimento, caller, commit comprovado e resposta pós-commit |
@@ -1480,7 +1480,7 @@ futuros, não correntes e não autorizados.
 - `docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`
 - `docs/decisions/2026-08-28-d2b2b3-master-governance-drafts.md`
 - `docs/audits/2026-08-27-d1-security-scope-audit.md`
-- `docs/ops/POST-V1-MISSION-REGISTER.md`
+- [arquivo histórico: `docs/ops/POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md)
 - `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md`
 - `Plan-Designer-Igreja12/01-ESTADO-ATUAL-E-GAPS.md`
 - `Plan-Designer-Igreja12/03-AGENTE-IA-WHATSAPP.md`

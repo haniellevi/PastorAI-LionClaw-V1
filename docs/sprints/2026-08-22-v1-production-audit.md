@@ -15,7 +15,7 @@ read-only e documentação
   RLS, M06/M01 e ledger íntegros; um `WARN` aceito e 75 `INFO` de performance.
 - Corrigida a evidência detalhada, que ainda se declarava
   `V1_RELEASE_READY`, e atualizado o mapa/runbook.
-- Criado `docs/ops/POST-V1-MISSION-REGISTER.md` como memória operacional para
+- Criado [arquivo histórico: `docs/ops/POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md) como memória operacional para
   as próximas missões.
 
 ## Decisões

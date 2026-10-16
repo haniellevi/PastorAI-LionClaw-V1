@@ -4,7 +4,7 @@
 
 ## O que foi feito
 
-Fatia V2a autorizada após parecer conjunto dos conselheiros sobre o [plano V2](../ops/mvp-v2-agenda-whatsapp-plano.md). A consulta usa identidade/papel do servidor, dados `Event` do próprio tenant e resposta determinística, sem ampliar o catálogo de ações mutantes S3.
+Fatia V2a autorizada após parecer conjunto dos conselheiros sobre o [histórico: plano V2](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v2-agenda-whatsapp-plano.md). A consulta usa identidade/papel do servidor, dados `Event` do próprio tenant e resposta determinística, sem ampliar o catálogo de ações mutantes S3.
 
 ## Decisões
 

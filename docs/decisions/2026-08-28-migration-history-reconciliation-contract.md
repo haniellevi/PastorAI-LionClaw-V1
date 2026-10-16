@@ -446,4 +446,4 @@ consome nem o antecipa.
 
 O procedimento reproduzível e a separação entre proprietário e pessoa revisora
 estão em
-[`migration-history-human-review-guide-v1.md`](../governance/migrations/migration-history-human-review-guide-v1.md).
+[histórico: `migration-history-human-review-guide-v1.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/migrations/migration-history-human-review-guide-v1.md).

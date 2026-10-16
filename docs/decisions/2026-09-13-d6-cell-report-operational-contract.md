@@ -20,7 +20,7 @@ webhook, banco, migration, escrita ou envio.
 O PR #362 é uma proposta exclusiva de áudio. Seu destino local é ADIADO, a PR
 remota permanece intacta, e ela não é requisito nem contrato concorrente deste
 recorte. A referência histórica está em
-`docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md`.
+[arquivo histórico: `docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/d6-cell-report-contract/PR362-DISPOSITION.md).
 
 `tarefas_operacionais` é uma precondição EXTERNA, não uma decisão inferível de
 papel, liderança, opt-out, texto inbound ou estado local. Enquanto E4B não
@@ -94,7 +94,7 @@ continua externa e ausente. Mesmo com alvo emitido, C09 e C10 permanecem
 ## Critérios de aceite do contrato
 
 - A matriz C01-C10 em
-  `docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md` possui uma única linha
+  [arquivo histórico: `docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/d6-cell-report-contract/SCENARIO-MATRIX.md) possui uma única linha
   por cenário, fonte `arquivo:linha`, evidência executada quando disponível e
   limite explícito.
 - O cenário positivo não é simulado. C09 e C10 ficam

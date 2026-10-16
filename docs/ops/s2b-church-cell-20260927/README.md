@@ -1,6 +1,6 @@
 # S2b: cadastro da igreja e células como fonte pública
 
-Plano aprovado: [dados canônicos](../mvp-s2b-dados-canonicos-plano.md).
+Plano aprovado: [histórico: dados canônicos](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-s2b-dados-canonicos-plano.md).
 Base de implementação: main `e6aafc296014770ceabc24d5ea6bd9572f33ace4`.
 Registro da entrega: [sprint S2b](../../sprints/2026-09-27-mvp-s2b-dados-canonicos.md).
 

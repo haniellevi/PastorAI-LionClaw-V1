@@ -20,9 +20,9 @@
 - Fontes lidas: `AGENTS.md`, `docs/ai/AI-BOOTSTRAP.md`,
   `docs/ai/PRD-COVERAGE.md`, `docs/WIKI-IGREJA12.md`,
   `docs/ops/MAESTRI-PERSISTENCE-MANIFEST.md`,
-  `docs/ops/MISSION-CONTROL.md`, `backend/migrations/README.md`,
+  [arquivo histórico: `docs/ops/MISSION-CONTROL.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/MISSION-CONTROL.md), `backend/migrations/README.md`,
   a ficha `docs/missions/M-2026-09-27-v2b-agenda-outbox.md` e o plano
-  aprovado `docs/ops/mvp-v2-agenda-whatsapp-plano.md`, presente no worktree
+  aprovado [arquivo histórico: `docs/ops/mvp-v2-agenda-whatsapp-plano.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v2-agenda-whatsapp-plano.md), presente no worktree
   documental da missão.
 
 Critério de sucesso: o candidato demonstra, no SHA congelado, no máximo uma

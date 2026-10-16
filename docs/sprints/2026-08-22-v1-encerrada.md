@@ -31,7 +31,7 @@
 ## Verificação
 
 - Evidência detalhada: `docs/releases/v1/v1-closure-evidence.md`.
-- Mapa atualizado: `docs/ops/V1-FINALIZATION-MAP.md` (estado `V1_ENCERRADA`).
+- Mapa atualizado: [arquivo histórico: `docs/ops/V1-FINALIZATION-MAP.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/V1-FINALIZATION-MAP.md) (estado `V1_ENCERRADA`).
 - Tag remota confirmada: `refs/tags/v1.0.0` → `08eada056490a26af758ddcf712df34c07079f99`.
 - GitHub Release confirmado: não-rascunho, não-pré-lançamento, alvo
   `281e69c2...`.

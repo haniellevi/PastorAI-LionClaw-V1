@@ -4,7 +4,7 @@
 
 ## O que foi feito
 
-Fatia de áudio implementada e validada localmente conforme [plano aprovado](../ops/mvp-v1-relatorio-celula-whatsapp-plano.md), separada da V1a congelada. Ingestão e processamento duráveis reutilizam o fluxo de relatório e comprovante da V1a/S3. Quatro tabelas privadas: aviso, eventos de aceite/revogação, tarefa de áudio e reserva de custo. A tarefa conserva a âncora de limpeza quando a mensagem, conversa ou pessoa é removida; referências vivas compostas por tenant são anuladas sem apagar o registro da purga.
+Fatia de áudio implementada e validada localmente conforme [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v1-relatorio-celula-whatsapp-plano.md), separada da V1a congelada. Ingestão e processamento duráveis reutilizam o fluxo de relatório e comprovante da V1a/S3. Quatro tabelas privadas: aviso, eventos de aceite/revogação, tarefa de áudio e reserva de custo. A tarefa conserva a âncora de limpeza quando a mensagem, conversa ou pessoa é removida; referências vivas compostas por tenant são anuladas sem apagar o registro da purga.
 
 ## Decisões
 

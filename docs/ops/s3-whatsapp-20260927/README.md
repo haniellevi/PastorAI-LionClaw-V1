@@ -1,7 +1,7 @@
 # S3: identidade e confirmação por ação no WhatsApp
 
 Candidato source-only a partir de `2e08d11`, sem deploy ou ativação.
-[Plano aprovado](../mvp-s3-whatsapp-first-plano.md). A PR426 e seu SQL ficam
+[histórico: Plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-s3-whatsapp-first-plano.md). A PR426 e seu SQL ficam
 congelados; somente a branch S3 pode receber rebase depois do merge426.
 
 ## Limites de autoridade

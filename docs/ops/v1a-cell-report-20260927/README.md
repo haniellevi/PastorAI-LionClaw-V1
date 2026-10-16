@@ -1,6 +1,6 @@
 # V1a: relatório de célula por texto
 
-Candidato implementado sobre a S3 `f2a532a`, com gates de ativação fechados. O [plano aprovado](../mvp-v1-relatorio-celula-whatsapp-plano.md) separa esta fatia do áudio, reservado à V1b. A [matriz de aceite](ACCEPTANCE.md) distingue requisitos das evidências de execução.
+Candidato implementado sobre a S3 `f2a532a`, com gates de ativação fechados. O [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v1-relatorio-celula-whatsapp-plano.md) separa esta fatia do áudio, reservado à V1b. A [matriz de aceite](ACCEPTANCE.md) distingue requisitos das evidências de execução.
 
 ## Contrato
 

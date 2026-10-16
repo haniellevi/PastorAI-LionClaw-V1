@@ -4,7 +4,7 @@ Base: `d0df9a4feaf9a234705cea256858906de528f834`.
 Estado: candidata local em revalidação C; bloqueio de desenho resolvido pela
 decisão do controlador, sem ampliar ACL. Aplicação não autorizada.
 
-O [contrato E1](../governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md)
+O [histórico: contrato E1](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md)
 fecha o desenho conforme o plano revisado e as decisões/correção do controlador
 identificadas como 2026-09-09. Esse registro não altera payload, catálogo,
 aprovação humana ou indicadores de elegibilidade.
