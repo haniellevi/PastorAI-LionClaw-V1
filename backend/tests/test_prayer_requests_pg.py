@@ -712,3 +712,40 @@ def test_new_prayer_and_s3_summaries_supersede_other_protocol(prayer):
     with prayer.factory.begin() as db:
         s3(db, another.inbound_message_id)
         assert db.execute(select(PrayerProposal)).scalar_one().state == "cancelled"
+
+
+def test_complete_turn_refuses_request_on_behalf_of_someone_else(prayer):
+    _, reply, transport = send(
+        prayer, "Peço oração pela Maria: estou preocupado com ela."
+    )
+    assert transport.calls
+    assert reply.agent_reply_state == "ia"
+    assert "pedido próprio" in reply.texto
+    with prayer.factory() as db:
+        assert db.scalar(select(func.count()).select_from(PrayerRequest)) == 0
+        assert db.scalar(select(func.count()).select_from(PrayerProposal)) == 0
+
+
+def test_incomplete_prayer_schema_blocks_approved_offboarding(prayer):
+    row = create_request(prayer)
+    with prayer.factory.begin() as db:
+        db.execute(
+            text(
+                f"drop function {_SCHEMA}.delete_prayer_requests_for_person(uuid,uuid)"
+            )
+        )
+        db.execute(delete(CelulaMembro).where(CelulaMembro.pessoa_id == prayer.person))
+    from app.services.pessoa_offboarding_service import archive_pessoa
+
+    with prayer.factory() as db:
+        person = db.get(Pessoa, prayer.person)
+        with pytest.raises(RuntimeError, match="migration is incomplete"):
+            archive_pessoa(
+                db,
+                pessoa=person,
+                actor_app_user_id=uuid.UUID(prayer.actors["admin"].app_user_id),
+                motivo="Exclusão sintética autorizada",
+            )
+        db.rollback()
+        assert db.get(Pessoa, prayer.person).arquivada_em is None
+        assert db.get(PrayerRequest, row.id) is not None
