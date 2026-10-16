@@ -1,7 +1,7 @@
 # test-local.sh rejeita alvo desconhecido (F0, T04)
 
 Data: 09/10/2026. Base: `origin/main` `d36ab813`. Tarefa T04 do
-[plano de refatoração](../ops/refatoracao-modular-plano.md).
+[plano de refatoração histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/refatoracao-modular-plano.md).
 
 ## Problema
 

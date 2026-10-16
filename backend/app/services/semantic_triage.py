@@ -23,8 +23,9 @@ Contrato do modo sombra:
     do agente nunca depende deste módulo.
 
 Ainda não está ligado ao turno. O gate D3 (testes de hash) foi removido na
-Fase 0 do plano MVP; a ligação segue a trilha Jev de
-`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`: avaliação offline primeiro
+Fase 0 do plano MVP. A sequência histórica da trilha Jev está em
+https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md
+(planejamento ativo em ROADMAP.md): avaliação offline primeiro
 (`scripts/jev_eval.py`), depois sombra chamada fora da transação do turno,
 só com DPA e termo LGPD atualizados.
 """

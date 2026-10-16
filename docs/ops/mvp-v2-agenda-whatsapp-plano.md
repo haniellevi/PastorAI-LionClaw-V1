@@ -1,5 +1,5 @@
 # V2: agenda pelo WhatsApp
-Status histórico: plano APTO COM AJUSTES por Claude + Opencoded em 27/09. V2a (#434) já foi integrada à main; V2b está na PR #435 em revisão, sem migration aplicada ou ativação. Para estado operacional atual, ver MVP-PLANO-SIMPLIFICACAO.md e o runbook V2b.
+Status histórico: plano APTO COM AJUSTES por Claude + Opencoded em 27/09. V2a (#434) já foi integrada à main; V2b está na PR #435 em revisão, sem migration aplicada ou ativação. Para planejamento atual, ver [ROADMAP.md](../../ROADMAP.md); para procedimentos operacionais, o runbook V2b. Este registro não comprova o estado vivo.
 Base histórica do plano: `3e8306e9dfd5e3dec3097f3e8a701829b4d7aa36`; o retarget posterior das PRs não altera a decisão original.
 Referências: PRD0611 delta-046/047/052, PRD-COVERAGE, MVP-PLANO e AMBIENTE-LOCAL da PR432; prevalece a decisão local/release de 27/09.
 ## V2a: consulta e autoridade (implementar agora, sem migration se possível)

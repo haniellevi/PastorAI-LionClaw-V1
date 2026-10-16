@@ -65,8 +65,9 @@ de novas gravações. A API antiga fica em leitura canônica temporária.
 
 ## Operação futura e rollback
 
-Conforme [MVP §3.5](../MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709),
-a validação usa ambiente local descartável e CI no head exato. O
+Planejamento atual: [ROADMAP.md](../../../ROADMAP.md).
+O contrato histórico de 27/09 seguia o [MVP §3.5](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709);
+a validação descrita naquele contrato usa ambiente local descartável e CI no head exato. O
 [roteiro de reconciliação DEV](RECONCILIAR-DEV-RANIEL.md) é histórico e foi
 supersedido: DEV na nuvem não é pré-requisito de merge ou migration.
 Merge exige revisão e autorização nominal da PR; migration/deploy PROD

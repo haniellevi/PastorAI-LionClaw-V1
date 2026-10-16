@@ -126,8 +126,8 @@ essas variáveis.
 
 ### Estado corrente (2026-09-26)
 
-- **Processo:** `backend/scripts/migrate.py` (`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`
-  §3.4 e `backend/migrations/README.md`): um arquivo por vez, numa transação, com o
+- **Processo:** `backend/scripts/migrate.py` ([runbook de migrations](../../backend/migrations/README.md);
+  planejamento em [ROADMAP.md](../../ROADMAP.md)): um arquivo por vez, numa transação, com o
   nome registrado no ledger na mesma transação. `apply_migrations.py` e os
   executores catalog-bound seguem pausados (`archive/governanca-2026-09`).
 - **Ledger oficial único:** `public.schema_migrations` em PROD, criado em

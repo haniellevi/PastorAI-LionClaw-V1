@@ -50,7 +50,7 @@ Pip-audit dos dois locks sem vulnerabilidades conhecidas. Audit npm de produçã
 
 Decisão T08: executor exclusivo, região/teto e verificação nominal do projeto DEV. O workflow online está desativado por padrão. Depois de integrar e revalidar os candidatos, provisionar/configurar somente com autorização; executar login, duas igrejas e fluxo de produto online antes do aceite. T11 continua uma operação própria: preflight vivo, versão anterior comprovada, bundle de compatibilidade revisado, backup restaurável, consumidores contidos e publicação coordenada autorizada. S1 mantém hipótese histórica sem causa nova provada nesta execução.
 
-Guias: [pipeline DEV](../ops/DEV-PIPELINE-SINTETICO.md), [compatibilidade](../ops/COMPATIBILIDADE-RELEASE-REVISADA.md) e [plano](../ops/refatoracao-modular-plano.md).
+Guias: [pipeline DEV](../ops/DEV-PIPELINE-SINTETICO.md), [compatibilidade](../ops/COMPATIBILIDADE-RELEASE-REVISADA.md) e [plano histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/refatoracao-modular-plano.md).
 
 
 ## Correção do isolamento observada no CI final

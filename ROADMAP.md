@@ -1,6 +1,6 @@
 # Igreja 12 — roteiro único
 
-Atualizado em 15/10/2026 sobre a `main` `e3421477`. Esta é a única fonte ativa
+Atualizado em 15/10/2026 sobre a `main` `a812b9a6`. Esta é a única fonte ativa
 de planejamento; substitui os planos de MVP e refatoração e seu acompanhamento.
 O [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md) conserva os
 requisitos. As decisões de 15/10 prevalecem sobre os cortes antigos de escopo,
@@ -26,9 +26,9 @@ O último backend registrado é `eb5a09b` (27/09); versão atual: **não verific
 
 | Entrega | Estado | O que falta |
 |---|---|---|
-| Roteiro único e regras de agentes coerentes | em andamento | Aguardando integração por PR; revisão e quatro checks obrigatórios. |
+| Roteiro único e regras de agentes coerentes | feito | [PR #480](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/480), merge `a812b9a6`; quatro checks pós-merge aprovados. Isso não conclui o produto. |
 | Registrar entregas na descrição da PR | feito | Regra definida aqui; sem novos sprints ou atualização obrigatória do painel paralelo. |
-| Arquivar documentação antiga sem perder histórico | falta | Próxima entrega: preservar referências e ajustar links, ferramentas e testes antes de retirar arquivos. Nesta entrega, os dois planos ficam completos, marcados como históricos. |
+| Arquivar documentação antiga sem perder histórico | em andamento | Primeiro lote preparado localmente: dois planos e painel preservados na referência local `archive/docs-2026-10` (`a812b9a6`), retirados do caminho ativo; `acompanhar.sh` aposentado e consumidores diretos ajustados. Faltam revisão, quatro checks e integração deste lote. Outros planos, sprints, auditorias, decisões e demais conjuntos ficam para entregas posteriores. |
 
 ## 2. Organização do checkout
 
@@ -138,9 +138,9 @@ adianta banco/infra nem impede desenvolver UV/CD após a etapa 3.
 ## Evidências e manutenção
 
 A consolidação usa os dois planos agora históricos
-([MVP](docs/ops/MVP-PLANO-SIMPLIFICACAO.md) e
-[refatoração](docs/ops/refatoracao-modular-plano.md)), os 22 itens do antigo
-acompanhamento, a [cobertura do PRD](docs/ai/PRD-COVERAGE.md) e o Git da base.
+([MVP histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md) e
+[refatoração histórica](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/refatoracao-modular-plano.md)), os 22 itens do
+[acompanhamento arquivado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/tarefas.json), a [cobertura do PRD](docs/ai/PRD-COVERAGE.md) e o Git da base.
 O [registro V2b](docs/sprints/2026-10-15-v2b-verificacao-pos-cutover.md) mantém
 explícitos os limites da consulta anterior; ele não declara o banco consistente.
 Não houve consulta à produção nesta entrega. Os documentos históricos são

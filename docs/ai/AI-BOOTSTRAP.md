@@ -6,9 +6,8 @@ last_verified: 2026-09-05
 audited_repository_sha: 64838cd3f1c6604ef091a940e19f704616d500b3
 ---
 
-> **Histórico (2026-09-24).** O guia operacional agora é
-> [`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`](../ops/MVP-PLANO-SIMPLIFICACAO.md), aprovado
-> pelo proprietário. Este documento fica como registro e não define prioridade.
+> **Histórico; referência atualizada em 15/10/2026.** O planejamento ativo está
+> em [ROADMAP.md](../../ROADMAP.md). Este documento fica como registro e não define prioridade.
 
 
 # Bootstrap canônico para agentes de IA

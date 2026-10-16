@@ -1,7 +1,7 @@
 # Histórico supersedido: reconciliação do DEV
 
 **Não executar este roteiro.** Preservado somente como registro de 27/09/2026.
-Foi supersedido por [MVP §3.5](../MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709):
+Foi supersedido, em 27/09, pelo [MVP §3.5 histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709):
 a validação ocorre em ambiente local descartável e CI; DEV na nuvem está
 parado e não recebe migrations/testes. Não é pré-requisito de merge ou migration.
 Migration/deploy PROD continuam no gate humano próprio de release, com backup
@@ -159,7 +159,7 @@ Falha de SQL: pare na primeira, preserve o nome e a classe do erro sanitizada. O
 
 Depois da sequência, conferir os objetos esperados, RLS e grants das migrations aplicadas com consultas de schema preparadas para esse conjunto exato. Fazer o smoke funcional do DEV com dados sintéticos e envios/provedores desligados. A suíte `rls_integration` cria e remove objetos: execute-a somente no PostgreSQL descartável local, nunca no DEV compartilhado.
 
-Registro histórico: o roteiro exigia SHA, horário, nomes aplicados, pendências e conferência do DEV. Esse gate foi supersedido pelo MVP §3.5; a orientação vigente é validação local descartável e CI, mantendo release/migration/deploy sob autorização própria.
+Registro histórico: o roteiro exigia SHA, horário, nomes aplicados, pendências e conferência do DEV. Esse gate foi supersedido pelo [MVP §3.5 histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md#35-ambientes-local-e-produção-decisão-de-2709). O planejamento vigente está em [ROADMAP.md](../../../ROADMAP.md); release/migration/deploy mantêm autorização própria.
 
 ```bash
 unset MIGRATION_DATABASE_URL DEV_MIGRATION DEV_SEQUENCIA DEV_INDICE

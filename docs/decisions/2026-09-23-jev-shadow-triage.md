@@ -137,7 +137,7 @@ roda como `authenticated`, que não lê a tabela.
 Atualizado em 2026-09-26. O gate D3 (testes de hash sobre `config.py`,
 `runtime.py` e `queue_worker.py`) foi removido na Fase 0 do plano MVP
 (commit `adb6b6e`), então a integração não depende mais dele. Ela segue a
-trilha Jev de `docs/ops/MVP-PLANO-SIMPLIFICACAO.md`:
+trilha Jev registrada no [MVP histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md) (sequência de 26/09, não planejamento atual):
 
 1. **J0, avaliação offline** (`backend/scripts/jev_eval.py`): corpus
    sintético pt-BR rotulado, comparação com as regras atuais, latência e

@@ -1,5 +1,9 @@
 # Passo 0: regras únicas, plano consolidado e acompanhamento — 2026-10-09
 
+> Registro histórico de 09/10: comandos e procedimentos abaixo descrevem aquela
+> entrega. O planejamento ativo está em [ROADMAP.md](../../ROADMAP.md); o painel
+> e os planos citados estão preservados nos links com SHA fixo.
+
 **Branch:** `docs/passo0-regras-dev-online`  ·  **PR:** #461  ·  **Deploy:** não
 
 ## O que foi feito
@@ -11,14 +15,14 @@
   autorização nominal por item (contradizia o §3.1); registrada a decisão de
   08/10 (Neon cancelado, DEV online planejado) no §3.5 e no §5.
 - `sarah.md`: escopo restrito a autenticação/RLS e migrations de produção.
-- [`docs/ops/refatoracao-modular-plano.md`](../ops/refatoracao-modular-plano.md)
+- [`docs/ops/refatoracao-modular-plano.md` histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/refatoracao-modular-plano.md)
   substituído pelo plano consolidado de 09/10: sequência única, critérios de
   aceite, limites de validação e apêndice das propostas retiradas. É a única
   fonte técnica versionada; o plano anterior deste PR ficou no histórico do Git.
-- Acompanhamento visual em [`docs/ops/acompanhamento/`](../ops/acompanhamento/README.md):
+- Acompanhamento visual em [`docs/ops/acompanhamento/` arquivado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/README.md):
   `tarefas.json` (registro), painel estático (`painel.html`) e `./acompanhar.sh`.
   Procedimento curto registrado em `AGENTS.md`.
-- Mod do Claude Code (`docs/ops/acompanhamento/mod/`, comandos `/plano` e
+- Mod do Claude Code ([arquivo histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/mod/hooks/register.js), comandos `/plano` e
   `/plano-faixa`): pipeline e barras de progresso dentro do Claude Code, lendo
   `dados.js`. Não carrega com `disableAllHooks` ligado.
 

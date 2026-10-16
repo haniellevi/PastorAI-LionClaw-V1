@@ -6,10 +6,9 @@ last_reviewed: 2026-09-07
 reviewed_by: Raniel
 ---
 
-> **Histórico (2026-09-24).** O guia operacional agora é
-> [`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`](MVP-PLANO-SIMPLIFICACAO.md), aprovado
-> pelo proprietário. Todas as missões abertas abaixo estão **arquivadas**
-> (governança pausada até a Fase 5).
+> **Histórico; referência atualizada em 15/10/2026.** O planejamento ativo está
+> em [ROADMAP.md](../../ROADMAP.md). Todas as missões abertas abaixo estão
+> **arquivadas**; governança permanece pausada conforme o ROADMAP.
 
 
 # Mission Control

@@ -1,5 +1,8 @@
 # Wiki do projeto Igreja 12
 
+Planejamento ativo: [ROADMAP.md](../ROADMAP.md). Os estados datados abaixo são
+registros históricos, não uma sequência atual de execução.
+
 ## Integração #435 e atualização #436, 29/09/2026
 
 #435 foi integrada à main em `8c6cc3cdb0fda0938edd43dd6988763c79872f8d`, merge commit de dois pais `87e13da` e `2b9f938`; a branch-mãe foi preservada. #436 foi retargetada explicitamente para main. A mescla local da main encontrou dois conflitos documentais e exige nova revisão Sarah do head final após CI, além de autorização nominal própria para merge. Nenhuma migration, banco, deploy ou ativação foi executada nesta atualização.
@@ -83,7 +86,7 @@ pública sai do Agente, e os novos campos dependem do suporte anunciado pela API
 Validação local registrada na [evidência](ops/s2b-church-cell-20260927/TEST-EVIDENCE.json);
 CI, revisão Sarah, merge e implantação permanecem etapas separadas.
 
-A [ordem WhatsApp-first vigente](ops/MVP-PLANO-SIMPLIFICACAO.md) revisa a S3:
+A [ordem WhatsApp-first registrada em 27/09](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md) revisava a S3:
 telefone único com vínculo ativo e confirmação por ação ministerial comum;
 Clerk para leituras sensíveis; finanças nunca por telefone. As próximas verticais
 continuam planejadas e a classificação em PRD-COVERAGE permanece inalterada.

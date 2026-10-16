@@ -5,7 +5,7 @@
 
 ## O que foi feito
 
-- **Plano do MVP aprovado** (`docs/ops/MVP-PLANO-SIMPLIFICACAO.md`). Igreja
+- **Plano do MVP aprovado à época** ([arquivo histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/MVP-PLANO-SIMPLIFICACAO.md)). Igreja
   piloto: Filadélfia.
 - **Fase 0, processo mais simples:**
   - `CLAUDE.md` e `AGENTS.md` com as regras do MVP;
