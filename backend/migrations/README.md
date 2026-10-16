@@ -1,7 +1,7 @@
 # Migrations — processo simples do MVP
 
-Processo definido em `docs/ops/MVP-PLANO-SIMPLIFICACAO.md` (§3.4). O processo
-anterior (catálogo, head, atestação, executor catalog-bound) está pausado e
+Planejamento ativo: [ROADMAP.md](../../ROADMAP.md). Este runbook mantém o
+processo simples de migrations. O processo anterior (catálogo, head, atestação, executor catalog-bound) está pausado e
 preservado na branch `archive/governanca-2026-09`.
 
 ## Criar
@@ -30,7 +30,7 @@ MIGRATION_DATABASE_URL="<url do banco>" python scripts/migrate.py apply <arquivo
 - **Local primeiro.** `./dev.sh reset` recria o banco local do zero com todas
   as migrations e os dados de teste; `./dev.sh up` aplica as pendentes
   (`docs/ops/AMBIENTE-LOCAL.md`). PROD só no release, com **backup antes**
-  (runbook de produção), anotando no registro da fatia (`docs/sprints/`) o que
+  (runbook de produção), anotando na descrição da PR/release o que
   foi aplicado e quando.
 - A URL nunca vai para argumento de linha de comando, log ou commit.
 

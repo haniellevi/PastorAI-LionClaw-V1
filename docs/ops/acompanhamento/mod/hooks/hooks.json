@@ -1,4 +1,0 @@
-{
-  "description": "Painel de acompanhamento do plano (comandos /plano e /plano-faixa)",
-  "modules": ["./register.js"]
-}

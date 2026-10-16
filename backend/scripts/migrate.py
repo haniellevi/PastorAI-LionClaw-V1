@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aplicador simples de migrations (processo do MVP, docs/ops/MVP-PLANO-SIMPLIFICACAO.md §3.4).
+"""Aplicador simples de migrations (backend/migrations/README.md; planejamento em ROADMAP.md).
 
     MIGRATION_DATABASE_URL=... python scripts/migrate.py status
     MIGRATION_DATABASE_URL=... python scripts/migrate.py apply 20261001_120000_slug.sql --yes
