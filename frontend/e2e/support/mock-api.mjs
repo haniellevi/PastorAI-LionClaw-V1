@@ -244,6 +244,13 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, profile);
       return;
     }
+    // New prayer capability stays off in the shared synthetic scenarios.
+    // Keep unknown routes at 501 and all browser safety assertions intact.
+    if (method === "GET" && pathname === "/prayer-requests/access") {
+      record.status = 200;
+      sendJson(response, 200, { allowed: false });
+      return;
+    }
     if (method === "GET" && pathname === "/roles/permissions") {
       record.status = 200;
       sendJson(response, 200, {
