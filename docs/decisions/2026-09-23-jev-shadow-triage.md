@@ -12,7 +12,7 @@ created_at: 2026-09-23
 ## Atualização de direção, 26/09/2026
 
 Este ADR registra o módulo sombra e sua avaliação histórica. A direção ativa
-foi substituída pelo [plano aprovado S1/S2/S3](../ops/mvp-fase2-agente-inteligente-plano.md):
+foi substituída pelo [histórico: plano aprovado S1/S2/S3](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-fase2-agente-inteligente-plano.md):
 tier A antes da resposta, fail-safe em erro/timeout e opt-out inferido somente
 com confirmação SAIR. Sombra não ativa decisões. A afirmação histórica de
 que todo Jev fica fora do turno descreve o código anterior à S1; ativação

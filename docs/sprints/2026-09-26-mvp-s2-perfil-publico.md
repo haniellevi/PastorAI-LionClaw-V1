@@ -63,4 +63,4 @@
 
 [Contrato e uso](../ops/s2-public-agent-profile-20260926/README.md),
 [validação detalhada](../ops/s2-public-agent-profile-20260926/VALIDATION.md) e
-[plano S1/S2/S3](../ops/mvp-fase2-agente-inteligente-plano.md).
+[histórico: plano S1/S2/S3](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-fase2-agente-inteligente-plano.md).

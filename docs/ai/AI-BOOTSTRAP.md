@@ -60,7 +60,7 @@ saídas, autoria correta, filas canônicas vazias e restauração dos gates, al�
 respostas robóticas e repetitivas. Esse relato não prova de forma independente
 isolamento cross-tenant, ausência de tool call ou ausência de mutação de
 domínio. A fonte operacional é o
-[`POST-V1-MISSION-REGISTER.md`](../ops/POST-V1-MISSION-REGISTER.md) atualizado
+[histórico: `POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md) atualizado
 nesta mesma missão.
 
 ## Arquitetura alvo aprovada
@@ -1269,7 +1269,7 @@ autorização.
 | Escopo e definição de pronto | [`docs/ai/PRD-COVERAGE.md`](PRD-COVERAGE.md) |
 | Agente WhatsApp-first | [`decisão de arquitetura`](../decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md) |
 | Consentimento por finalidade | [`decisão D2B2a`](../decisions/2026-08-28-d2b2-purpose-consent-ledger.md), [`fronteira D2B2b1`](../decisions/2026-08-28-d2b2b1-consent-security-boundary.md), [`template D2B2b2`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md) e [`rascunhos D2B2b3A`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md) |
-| Produção ou canário | `docs/ops/POST-V1-MISSION-REGISTER.md` e runbook específico |
+| Produção ou canário | [arquivo histórico: `docs/ops/POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md) e runbook específico |
 | Produto e UX | `PRODUCT.md`, PRD canônico e `Plan-Designer-Igreja12/` |
 | Banco e RLS | models, migration aplicável, policies e testes RLS |
 | História | decisões, sprints e PRDs históricos, sem tratá-los como estado atual |
@@ -1438,5 +1438,5 @@ autorizar a implementação offline
 Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
 pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
 nenhuma segunda revisão ou implementação executada. Evidência final:
-`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
+[arquivo histórico: `docs/ops/d6-cell-report-contract/FINAL-REPORT.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/d6-cell-report-contract/FINAL-REPORT.md). Único gate humano:
 Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.

@@ -1,6 +1,6 @@
 # V2a: consulta da agenda pelo WhatsApp
 
-Fatia somente de leitura, criada sobre PR433 `3e8306e` e agora atualizada contra a main pós-merge #433 `9dc28f9`. O [plano V2](../mvp-v2-agenda-whatsapp-plano.md) foi aprovado com separação entre consulta V2a e lembretes/outbox V2b. Esta entrega não ativa lembretes, não muda frontend e não cria migration.
+Fatia somente de leitura, criada sobre PR433 `3e8306e` e agora atualizada contra a main pós-merge #433 `9dc28f9`. O [histórico: plano V2](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v2-agenda-whatsapp-plano.md) foi aprovado com separação entre consulta V2a e lembretes/outbox V2b. Esta entrega não ativa lembretes, não muda frontend e não cria migration.
 
 ## Contrato de privacidade
 

@@ -54,7 +54,7 @@ Quando duas fontes divergirem, usar esta ordem:
    que ocorreu em um ambiente;
 3. PRD canônico e decisões aprovadas em `docs/decisions/`, para intenção e
    limites de produto;
-4. esta auditoria, `docs/ops/POST-V1-MISSION-REGISTER.md` e os runbooks ativos,
+4. esta auditoria, [arquivo histórico: `docs/ops/POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md) e os runbooks ativos,
    para síntese e sequência operacional;
 5. `PRODUCT.md`, `SPEC.md`, `SPEC_PROGRESS.md`, Wiki e documentação de desenho,
    para navegação e contexto;

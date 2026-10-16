@@ -9,7 +9,7 @@ registros históricos, não uma sequência atual de execução.
 
 ## V3: candidato de consolidação WhatsApp, atualizado em 29/09/2026
 
-O [plano aprovado](ops/mvp-v3-consolidacao-whatsapp-plano.md) parte do PR435
+O [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v3-consolidacao-whatsapp-plano.md) parte do PR435
 `342f0ce` e reutiliza decisão, fila, etapas, S3 e outbox. [Contrato e limites](ops/v3-consolidacao-20260928/README.md): primeiro nome somente ao responsável atual em 1:1, códigos/contagens à coordenação, detalhes no painel autenticado.
 A classificação de Consolidação permanece `PARCIAL`; implementação e testes
 sintéticos não provam migration compartilhada, ativação, envio ou deploy.
@@ -30,7 +30,7 @@ deploy, ativação ou egress real; a classificação do domínio permanece inalt
 
 ## V1a: candidato de relatório por texto, 27/09/2026
 
-O [plano V1 aprovado](ops/mvp-v1-relatorio-celula-whatsapp-plano.md) divide a
+O [histórico: plano V1 aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v1-relatorio-celula-whatsapp-plano.md) divide a
 vertical delta-052 em texto (V1a) e áudio (V1b). A V1a reutiliza a confirmação
 S3, com quatro agregados declarados, correção de resumo e comprovante após
 commit. O consentimento vem do termo LGPD vigente e versionado; E4B permanece
@@ -66,7 +66,7 @@ Candidato local validado; oração, ativação e piloto real continuam pendentes
 
 ## S3 revisada: candidato WhatsApp-first, histórico de 27/09/2026
 
-O [plano aprovado](ops/mvp-s3-whatsapp-first-plano.md) define identidade operacional
+O [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-s3-whatsapp-first-plano.md) define identidade operacional
 por vínculo único ativo, roteamento BYO com catálogo fechado e confirmação por
 ação. O candidato prova somente decisão e presença prevista de terceiro;
 leituras sensíveis usam confirmação explícita na sessão do painel vinculada ao
@@ -129,7 +129,7 @@ autodeclaradas e testes com mocks não autorizam ativação.
 Novo HTTP Jev/LLM ocorre fora de sessão/transação e lease de execução; o envio
 Evolution preserva seu protocolo legado. O alvo ponta a ponta de menos de 10s
 não está aferido. Piloto permanece somente interno, sem divulgar o número.
-[Plano e gates](ops/mvp-fase2-agente-inteligente-plano.md),
+[histórico: Plano e gates](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-fase2-agente-inteligente-plano.md),
 [avaliação e limites](ops/jev-tier-a-20260926/EVALUATION.md).
 
 S2 segue como candidato separado, descrito acima. S3 terá identidade confirmada
@@ -291,19 +291,19 @@ capability e permanece `NOT_ADOPTED`. A fonte confiável, a instância real do
 manifesto, o caller e a ativação continuam em gates futuros; nenhum runtime,
 banco, DEV ou PROD foi aberto.
 
-Próxima capacidade proposta: [evidence store operacional](governance/consent/evidence-store/OPERATIONAL-PLAN.md).
+Próxima capacidade proposta: [histórico: evidence store operacional](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-PLAN.md).
 O plano descreve prova de apresentação/manifestação, recibo durável e integração
 segura com o ledger existente. Somente documentação: sem migration, runtime,
 ativação ou envio; pacote completo e elegibilidade continuam gates separados.
 
-E1 local fechada na base `d0df9a4`: [contrato operacional](governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md).
+E1 local fechada na base `d0df9a4`: [histórico: contrato operacional](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md).
 Prazos e cascata confirmados: excluir Pessoa remove desafio, evidência, recibo
 e eventos do ledger histórico, que permanece intacto. Preservação anonimizada
 não implementada; alternativa futura com PRD/gate próprios. E2/E3 C concluídas
 em laboratório: 1.288 testes verdes, incluindo 19 PG17, sem skips, usando
 FK/desafio antes do advisory de stream, sem lock explícito ou grants novos
 em pessoas/ledger. O writer histórico mantém sua limitação no replay puro.
-[Evidência local C](governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
+[histórico: Evidência local C](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/E3-STRATEGY-C-REPORT.md):
 sem caller, concessão, banco compartilhado ou envio.
 
 Recorte histórico da PR #388 dividida: somente código isolado, testes não-PG
@@ -314,12 +314,12 @@ com compatibilidade privada A+C descrita abaixo. Os resultados PG17 acima
 continuam históricos, não prova do novo SHA nem de aplicação compartilhada.
 
 Proposta local de sucessão append-only do
-[catálogo](governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
+[histórico: catálogo](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/catalog/CONTRACT.md): entrada real revisão 2,
 com 23 referências resolvidas, preservando integralmente a revisão 1 e o
 payload aprovado. Evidências complementares não preenchem seus campos nulos.
 Pacote humano incompleto e indicadores técnicos false; sem runtime ou envio.
 
-Proposta local: o [contrato do catálogo](governance/consent/catalog/CONTRACT.md)
+Proposta local: o [histórico: contrato do catálogo](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/catalog/CONTRACT.md)
 ganha o perfil `frozen-payload-v2`, preservando o sintético v1 e o payload
 aprovado sem transformação. Custódia externa e pendências são explícitas.
 Nenhuma entrada real criada, nova aprovação ou operação liberada:
@@ -360,14 +360,14 @@ qualquer expansão do canário.
 
 ## Princípios aprovados
 
-Há uma [proposta local de catálogo imutável de consentimento](governance/consent/catalog/CONTRACT.md)
+Há uma [histórico: proposta local de catálogo imutável de consentimento](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/catalog/CONTRACT.md)
 sobre a base da PR #378 (`b3b3548`), com exemplo inteiramente fictício. Ela
 vincula referências ao conteúdo exato antes do cálculo do digest e testa
 alteração/remoção de entradas. Não aprova consentimento nem cria catálogo
 operacional: `catalog_ready=false`, `writer_eligible=false`, sem evidence
 store, writer, integração ao agente ou envio.
 
-A [proposta local de evidence store](governance/consent/evidence-store/CONTRACT.md)
+A [histórico: proposta local de evidence store](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/CONTRACT.md)
 separa prova sanitizada de apresentação/manifestação, estado do ledger e recibo.
 Inclui apenas schema, exemplo fictício e teste: entrega não prova vontade e
 recusa inicial não gera concessão. Não implementa armazenamento, aprovação,
@@ -641,7 +641,7 @@ call ou ausência de mutação de domínio.
 Esse `PASS` não é aprovação de qualidade. A avaliação humana identificou
 linguagem robótica, pergunta repetida e falta de memória e conhecimento. O
 registro operacional detalhado está em
-[`POST-V1-MISSION-REGISTER.md`](ops/POST-V1-MISSION-REGISTER.md), atualizado na
+[histórico: `POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md), atualizado na
 mesma missão documental.
 
 ## Arquitetura de destino

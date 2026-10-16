@@ -35,5 +35,5 @@ runtime, caller ou consentimento positivo.
 Encerramento D6 em 2026-09-13T19:42:10.523019-03:00: uma rodada LENTE, P1-A7 corrigido
 pela FORJA e verificado objetivamente pelo Orquestrador. Contrato entregue;
 nenhuma segunda revisão ou implementação executada. Evidência final:
-`docs/ops/d6-cell-report-contract/FINAL-REPORT.md`. Único gate humano:
+[arquivo histórico: `docs/ops/d6-cell-report-contract/FINAL-REPORT.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/d6-cell-report-contract/FINAL-REPORT.md). Único gate humano:
 Raniel autorizar nominalmente M-D6-CELL-REPORT-MEETING-TARGET-IMPLEMENTATION.

@@ -1,6 +1,6 @@
 # Igreja 12 — roteiro único
 
-Atualizado em 15/10/2026 sobre a `main` `a812b9a6`. Esta é a única fonte ativa
+Atualizado em 16/10/2026 sobre a `main` `79dfa534`. Esta é a única fonte ativa
 de planejamento; substitui os planos de MVP e refatoração e seu acompanhamento.
 O [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md) conserva os
 requisitos. As decisões de 15/10 prevalecem sobre os cortes antigos de escopo,
@@ -28,13 +28,13 @@ O último backend registrado é `eb5a09b` (27/09); versão atual: **não verific
 |---|---|---|
 | Roteiro único e regras de agentes coerentes | feito | [PR #480](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/480), merge `a812b9a6`; quatro checks pós-merge aprovados. Isso não conclui o produto. |
 | Registrar entregas na descrição da PR | feito | Regra definida aqui; sem novos sprints ou atualização obrigatória do painel paralelo. |
-| Arquivar documentação antiga sem perder histórico | em andamento | Primeiro lote preparado localmente: dois planos e painel preservados na referência local `archive/docs-2026-10` (`a812b9a6`), retirados do caminho ativo; `acompanhar.sh` aposentado e consumidores diretos ajustados. Faltam revisão, quatro checks e integração deste lote. Outros planos, sprints, auditorias, decisões e demais conjuntos ficam para entregas posteriores. |
+| Arquivar documentação antiga sem perder histórico | em andamento | Lote 1 feito: [PR #481](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/481), merge `79dfa534`. Lote 2 em andamento: 87 documentos/registros de governança, missões e planos temáticos preservados em `archive/docs-2026-10-lote2` (`79dfa534`), com referências históricas em SHA fixo. Faltam revisão, quatro checks e integração do lote 2. Insumos de verificadores, runbooks duvidosos e demais conjuntos ficam preservados para decisão. |
 
 ## 2. Organização do checkout
 
 | Entrega | Estado | O que falta |
 |---|---|---|
-| Limpeza recuperável de worktrees e branches locais | em andamento | Lotes de 15/10 registrados; resta preservar os trabalhos úteis e tratar os remanescentes. Recuperação dos arquivos nesta entrega: **não verificado**. |
+| Limpeza recuperável de worktrees e branches locais | em andamento | Recuperação dos 37 worktrees conferida em 15/10, com 0 divergências; referências `refs/archive/worktrees-20261015/`. Isso é evidência registrada daquela conferência, não uma nova validação nesta entrega. Resta preservar trabalhos úteis e tratar os remanescentes. |
 | Voltar o checkout principal à main e revisar arquivos soltos | falta | Preservar alterações de `chore/neon-dev-setup`, scripts de backup, `output/` e demais arquivos antes de qualquer troca. Não tocar em `retomada-20261015`. |
 
 Nenhum trabalho não salvo pode ser preservado apenas criando uma referência ao

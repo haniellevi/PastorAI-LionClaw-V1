@@ -4,7 +4,7 @@ Base: `d0df9a4feaf9a234705cea256858906de528f834`.
 Estado: candidata local em revalidação C; bloqueio de desenho resolvido pela
 decisão do controlador, sem ampliar ACL. Aplicação não autorizada.
 
-O [contrato E1](../governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md)
+O [histórico: contrato E1](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md)
 fecha o desenho conforme o plano revisado e as decisões/correção do controlador
 identificadas como 2026-09-09. Esse registro não altera payload, catálogo,
 aprovação humana ou indicadores de elegibilidade.
@@ -54,7 +54,7 @@ em pessoas para cumprir o lock exigido. A intent não amplia essa relação e
 o plano veda ampliar privilégios existentes. Não foi concedido acesso no
 schema canônico, removido lock ou adotado owner como alternativa.
 Testes do laboratório mínimo com grants de fixture não substituem essa prova.
-Ver E1-E3-LAB-REPORT.md e seção 9 do contrato para evidência e decisão pendente.
+Ver o [relatório histórico E1–E3](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/E1-E3-LAB-REPORT.md) e a seção 9 do [contrato histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/governance/consent/evidence-store/OPERATIONAL-CONTRACT-v1.md) para evidência e decisão pendente.
 
 ## Decisão C aceita e implementação local autorizada
 

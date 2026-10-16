@@ -73,7 +73,7 @@ Nenhuma dessas alternativas pode ser concluída nem inferida offline.
 ## P2-1 : Evidência não versionada e ficha ausente
 
 Caminhos: pacote `docs/ops/backend-predispatch-20260929/` e
-`docs/missions/M-2026-09-29-backend-predispatch-hardening.md`.
+[arquivo histórico: `docs/missions/M-2026-09-29-backend-predispatch-hardening.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/missions/M-2026-09-29-backend-predispatch-hardening.md).
 Evidência: `git ls-tree -r 5e3643f` não lista nenhum dos dois; a worktree
 candidata ficava em diretório temporário volátil.
 Correção mínima: versionar o recorte canônico em PR doc-only sanitizada, com o

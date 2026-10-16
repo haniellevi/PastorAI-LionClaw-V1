@@ -1,6 +1,6 @@
 # V3: consolidação pelo WhatsApp
 
-Fatia originalmente autorizada sobre PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`. Após o merge #435, a PR #436 foi retargetada para `main@8c6cc3cdb0fda0938edd43dd6988763c79872f8d`; a composição exige CI e nova revisão Sarah. O [plano aprovado](../mvp-v3-consolidacao-whatsapp-plano.md) e a [matriz de QA](QA-PLAN.md) definem o contrato. A validação local no commit de código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` é histórica e não atesta a composição atual.
+Fatia originalmente autorizada sobre PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`. Após o merge #435, a PR #436 foi retargetada para `main@8c6cc3cdb0fda0938edd43dd6988763c79872f8d`; a composição exige CI e nova revisão Sarah. O [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v3-consolidacao-whatsapp-plano.md) e a [matriz de QA](QA-PLAN.md) definem o contrato. A validação local no commit de código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` é histórica e não atesta a composição atual.
 
 ## Domínio e confirmação
 

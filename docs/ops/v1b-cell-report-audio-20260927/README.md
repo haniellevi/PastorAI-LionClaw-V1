@@ -1,6 +1,6 @@
 # V1b: relatório de célula por áudio
 
-Implementação inicial validada sobre `a8bf21da8d57493564d59f9923eca3ffbbc90a9c`, em `feat/whatsapp-cell-report-audio`. Em 28/09, a PR foi retargetada para `main` e atualizada sobre o merge da PR430, `a2b4d19e7d2ad37f3191624371a839f59bd4680f`; as provas históricas abaixo continuam vinculadas aos respectivos candidatos. [Plano aprovado](../mvp-v1-relatorio-celula-whatsapp-plano.md) e [matriz de aceite](ACCEPTANCE.md).
+Implementação inicial validada sobre `a8bf21da8d57493564d59f9923eca3ffbbc90a9c`, em `feat/whatsapp-cell-report-audio`. Em 28/09, a PR foi retargetada para `main` e atualizada sobre o merge da PR430, `a2b4d19e7d2ad37f3191624371a839f59bd4680f`; as provas históricas abaixo continuam vinculadas aos respectivos candidatos. [histórico: Plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v1-relatorio-celula-whatsapp-plano.md) e [matriz de aceite](ACCEPTANCE.md).
 
 ## Contrato aprovado
 
