@@ -42,7 +42,7 @@ def guided(prayer, monkeypatch):
         row.link_localizacao = "https://maps.example.test/PRIVADO"
         leader = db.get(Pessoa, row.lider_id)
         leader.nome = "LiderPrivadoSintetico"
-        leader.telefone = "5599999999999"
+        leader.telefone = "5500000000088"
     return prayer
 
 
@@ -78,7 +78,7 @@ def test_guided_one_cell_and_no_private_leak(guided):
         "Rua Proibida",
         "123",
         "LiderPrivadoSintetico",
-        "5599999999999",
+        "5500000000088",
         "https://",
         "mais próxima",
     ]:
