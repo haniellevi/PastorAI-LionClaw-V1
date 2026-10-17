@@ -461,7 +461,7 @@ def test_terminal_invitation_cannot_change(workflow_database, terminal):
             s.rollback()
 
 
-@pytest.mark.parametrize('mutation', ["update app_users set status='inativo' where id=:id", "delete from user_roles where user_id=:id", "update user_roles set papel='convidado' where user_id=:id"])
+@pytest.mark.parametrize('mutation', ["update app_users set status='inativo' where id=:id", "delete from user_roles where user_id=:id", "update user_roles set papel='convidado' where user_id=:id", "update app_users set status='convidado' where id=:id"])
 def test_invitation_rejects_revoked_or_guest_before_write(workflow_database, mutation):
     v = _seed(workflow_database)
     track, _ = _insert_track(workflow_database, v)
