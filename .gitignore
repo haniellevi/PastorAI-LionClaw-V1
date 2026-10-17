@@ -68,3 +68,21 @@ pastorai-deploy.tar
 # Acompanhamento: arquivos gerados por ./acompanhar.sh (tarefas.json segue versionado).
 /docs/ops/acompanhamento/dados.js
 /docs/ops/acompanhamento/github.json
+
+# Segredos e arquivos locais de ferramentas.
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+secrets/
+.venv-runtime/
+.claude/settings.local.json
+.claude/settings.local.json.*
+.claude/launch.json
+.worktrees/
+.playwright-mcp/
+.agy-acp/
+.reticle/
