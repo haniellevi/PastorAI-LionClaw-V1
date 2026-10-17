@@ -1575,7 +1575,9 @@ class AgentActionReceipt(Base):
             "receipt_text IN ('Registro confirmado.', 'Relatório confirmado.', "
             "'Lembrete confirmado.', 'Lembretes de consolidação ativados.', "
             "'Fonovisita confirmada.', 'Consolidação atribuída.', "
-            "'Convite registrado. Aceite pendente no painel.')",
+            "'Convite registrado. Aceite pendente no painel.', "
+            "'Convite já existente. Aceite pendente no painel.', "
+            "'Responsável já aceitou este convite.')",
             name="agent_action_receipts_receipt_text_closed",
         ),
         Index("agent_action_receipts_conversation_idx", "igreja_id", "conversation_id"),

@@ -48,6 +48,7 @@ class AssignmentResult:
     consolidacao: Consolidacao
     work_items: tuple[WorkQueueItem, ...]
     atribuicao: ConsolidacaoAtribuicao | None = None
+    invitation_created: bool = False
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,13 @@ def assign_consolidacao(
         target_id = responsavel_id
         work_items = _lock_linked_work_items(db, tenant, consolidacao.id)
         _eligible_responsible(db, tenant, target_id, work_items)
+        if whatsapp:
+            from app.services.consolidation_whatsapp import CONSOLIDATION_WHATSAPP_ROLES
+            roles = set(db.execute(select(UserRole.papel).where(
+                UserRole.igreja_id == tenant, UserRole.user_id == target_id,
+            )).scalars())
+            if not roles & CONSOLIDATION_WHATSAPP_ROLES:
+                raise HTTPException(422, "Responsável não elegível pelo WhatsApp")
     else:
         if whatsapp:
             raise TypeError("ação de fila não é permitida pelo WhatsApp")
@@ -119,6 +127,16 @@ def assign_consolidacao(
             action=work_queue_action,
         )
         _eligible_responsible(db, tenant, target_id, work_items)
+        pending = next((row for row in invitations if row.status == "atribuida"), None)
+        if work_queue_action == "assume":
+            if pending is not None and pending.responsavel_id != target_id:
+                raise HTTPException(409, "Há convite pendente para outro responsável")
+            if pending is not None:
+                raise HTTPException(409, "Responda ao convite pendente no painel")
+            if pending is None and consolidacao.responsavel_id == target_id:
+                _promote(consolidacao, work_items, target_id)
+                db.flush()
+                return AssignmentResult(consolidacao, tuple(work_items))
         if _queue_action_is_idempotent_or_conflicts(
             db,
             tenant,
@@ -159,7 +177,7 @@ def assign_consolidacao(
         _promote(consolidacao, work_items, target_id)
     db.flush()
     db.refresh(consolidacao)
-    return AssignmentResult(consolidacao, tuple(work_items), invitation)
+    return AssignmentResult(consolidacao, tuple(work_items), invitation, invitation_created=True)
 
 
 def complete_fonovisita(
@@ -638,7 +656,7 @@ def _resolve_assignment_target(
             Pessoa.id == AppUser.pessoa_id, Pessoa.igreja_id == AppUser.igreja_id,
         )).where(
             AppUser.id == responsavel_id, AppUser.igreja_id == tenant,
-            AppUser.status == "ativo", Pessoa.igreja_id == tenant,
+            or_(AppUser.status.is_(None), AppUser.status == "ativo"), Pessoa.igreja_id == tenant,
             Pessoa.arquivada_em.is_(None),
         ).with_for_update()
     ).scalar_one_or_none()

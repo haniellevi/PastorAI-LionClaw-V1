@@ -268,12 +268,8 @@ def test_accept_waiting_for_track_lock_expires_using_actual_server_clock(workflo
     v = _seed(workflow_database)
     track, queue = _insert_track(workflow_database, v)
     factory = _factory(workflow_database)
-    with _scoped(factory, v['tenant']) as s:
-        invitation = _invite(s, v, track)
-        invitation_id = invitation.id
-        s.commit()
     with workflow_database.begin() as c:
-        c.execute(text("update consolidacao_atribuicoes set criada_em=statement_timestamp()-interval '24 hours'+interval '1 second', prazo_aceite=statement_timestamp()+interval '1 second' where id=:id"), {'id': invitation_id})
+        invitation_id = c.execute(text("insert into consolidacao_atribuicoes(igreja_id,consolidacao_id,responsavel_id,atribuida_por,criada_em,prazo_aceite) values(:tenant,:track,:target_a,:actor,statement_timestamp()-interval '24 hours'+interval '1 second',statement_timestamp()+interval '1 second') returning id"), dict(v, track=track)).scalar_one()
     from app.services.consolidation_workflow import respond_consolidacao_invitation
     blocker = _scoped(factory, v['tenant'])
     blocker.execute(text('select id from consolidacoes where id=:id for update'), {'id': track})
@@ -327,51 +323,31 @@ def test_cross_tenant_foreign_keys_and_force_rls(workflow_database):
         assert c.execute(text("select has_table_privilege('authenticated','consolidacao_atribuicoes','DELETE')")).scalar_one() is False
 
 
-@pytest.mark.parametrize('revoke_reader', [False, True])
-def test_read_revalidates_scope_and_capability_after_track_lock(workflow_database, revoke_reader):
+def test_read_does_not_lock_or_write_even_with_writer_holding_track(workflow_database):
     from concurrent.futures import ThreadPoolExecutor
-    import threading
     from sqlalchemy import event
     from app.routers.consolidacao import list_assignments
-    from app.services.consolidation_workflow import _lock_consolidacao
     v = _seed(workflow_database)
     track, queue = _insert_track(workflow_database, v)
-    with workflow_database.begin() as c:
-        c.execute(text("update user_roles set papel='lider_celula' where user_id=:id"), {'id': v['target_a']})
     factory = _factory(workflow_database)
     with _scoped(factory, v['tenant']) as s:
         _invite(s, v, track)
         s.commit()
-    blocked = threading.Event()
-    def before_execute(conn, cursor, statement, parameters, context, executemany):
-        if threading.current_thread().name.startswith('invitation-reader') and 'FOR UPDATE' in statement:
-            blocked.set()
-    event.listen(workflow_database, 'before_cursor_execute', before_execute)
-    def read():
-        with _scoped(factory, v['tenant']) as s:
-            try:
-                return list_assignments(db=s, current_user=_actor(v['tenant'], v['target_a'])).items
-            except HTTPException as exc:
-                s.rollback()
-                return exc.status_code
-    try:
-        with _scoped(factory, v['tenant']) as coordinator:
-            _lock_consolidacao(coordinator, v['tenant'], track)
-            with ThreadPoolExecutor(1, thread_name_prefix='invitation-reader') as pool:
-                future = pool.submit(read)
-                try:
-                    assert blocked.wait(timeout=5)
-                    if revoke_reader:
-                        with workflow_database.begin() as c:
-                            c.execute(text("update user_roles set papel='membro' where user_id=:id"), {'id': v['target_a']})
-                    else:
-                        _invite(coordinator, v, track, 'target_b')
-                    coordinator.commit()
-                finally:
-                    coordinator.rollback()  # release a blocker even if an assertion failed
-                assert future.result(timeout=10) == (403 if revoke_reader else [])
-    finally:
-        event.remove(workflow_database, 'before_cursor_execute', before_execute)
+    statements = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.upper())
+    with _scoped(factory, v['tenant']) as blocker:
+        blocker.execute(text('select id from consolidacoes where id=:id for update'), {'id': track})
+        event.listen(workflow_database, 'before_cursor_execute', capture)
+        def read():
+            with _scoped(factory, v['tenant']) as s:
+                return list_assignments(db=s, current_user=_actor(v['tenant'], v['actor']))
+        try:
+            with ThreadPoolExecutor(1) as pool:
+                assert len(pool.submit(read).result(timeout=3).items) == 1
+            assert not any('FOR UPDATE' in sql or sql.lstrip().startswith(('UPDATE ', 'INSERT ', 'DELETE ')) for sql in statements)
+        finally:
+            event.remove(workflow_database, 'before_cursor_execute', capture)
 
 
 def test_cursor_does_not_skip_valid_invitation_when_first_fifty_expire(workflow_database):
@@ -395,7 +371,7 @@ def test_cursor_does_not_skip_valid_invitation_when_first_fifty_expire(workflow_
                                   current_user=_actor(v['tenant'], v['target_a']))
         assert [row.id for row in second.items] == [str(uuid.UUID(int=1050))]
         assert second.nextCursor is None
-        assert s.execute(text("select count(*) from consolidacao_atribuicoes where status='expirada'")).scalar_one() == 50
+        assert s.execute(text("select count(*) from consolidacao_atribuicoes where status='expirada'")).scalar_one() == 0
 
 
 @pytest.mark.parametrize('sibling_status,expected', [('aberto', ['conectar_celula','fonovisita']), ('resolvido', ['fonovisita'])])
@@ -409,3 +385,159 @@ def test_read_projects_every_active_assignment_capability(workflow_database, sib
     with _scoped(_factory(workflow_database), v['tenant']) as s:
         rows = list_assignments(db=s, current_user=_actor(v['tenant'], v['actor']))
         assert rows.items[0].tiposNecessarios == expected
+
+
+@pytest.mark.parametrize('key,open_item', [('actor', False), ('target_b', True)])
+def test_queue_cannot_cancel_pending_invitation(workflow_database, key, open_item):
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    if open_item:
+        with workflow_database.begin() as c:
+            c.execute(text("update work_queue_items set status='aberto',responsavel_id=null where id=:id"), {'id': queue})
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        invitation = _invite(s, v, track)
+        s.commit()
+        revision = s.get(Consolidacao, track).assignment_revision
+        with pytest.raises(HTTPException) as exc:
+            assign_consolidacao(s, _actor(v['tenant'], v[key]), consolidacao_id=track,
+                responsavel_id=v[key], expected_assignment_revision=None, whatsapp=False,
+                expected_work_queue_item_id=queue, work_queue_action='assume')
+        assert exc.value.status_code == 409
+        assert exc.value.detail == 'Há convite pendente para outro responsável'
+        s.rollback()
+        s.refresh(invitation)
+        assert invitation.status == 'atribuida'
+        assert s.get(Consolidacao, track).assignment_revision == revision
+        assert s.get(Consolidacao, track).responsavel_id == v['actor']
+
+
+def test_legacy_holder_assume_is_noop(workflow_database):
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        revision = s.get(Consolidacao, track).assignment_revision
+        assign_consolidacao(s, _actor(v['tenant'], v['actor']), consolidacao_id=track,
+            responsavel_id=v['actor'], expected_assignment_revision=None, whatsapp=False,
+            expected_work_queue_item_id=queue, work_queue_action='assume')
+        s.commit()
+        assert s.get(Consolidacao, track).assignment_revision == revision
+        assert s.execute(text('select count(*) from consolidacao_atribuicoes')).scalar_one() == 0
+
+
+@pytest.mark.parametrize('mutation', [
+    "responsavel_id=:target_b", "atribuida_por=:target_b",
+    "criada_em=criada_em+interval '1 hour',prazo_aceite=prazo_aceite+interval '1 hour'",
+    "prazo_aceite=prazo_aceite+interval '1 hour'", "autoatribuicao=true",
+    "igreja_id=:other_tenant", "consolidacao_id=:other_track",
+])
+def test_invitation_identity_is_immutable_for_authenticated_role(workflow_database, mutation):
+    from sqlalchemy.exc import DBAPIError
+    v = _seed(workflow_database)
+    other = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    other_track, _ = _insert_track(workflow_database, other)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        invitation = _invite(s, v, track)
+        s.commit()
+        with pytest.raises(DBAPIError, match='imutáveis'):
+            s.execute(text("update consolidacao_atribuicoes set status='aceita',respondida_em=now(),"+mutation+" where id=:id"), dict(v, id=invitation.id, other_tenant=other['tenant'], other_track=other_track))
+        s.rollback()
+
+
+@pytest.mark.parametrize('terminal', ['aceita', 'recusada', 'expirada', 'substituida'])
+def test_terminal_invitation_cannot_change(workflow_database, terminal):
+    from sqlalchemy.exc import DBAPIError
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        invitation = _invite(s, v, track)
+        s.execute(text('update consolidacao_atribuicoes set status=:status,respondida_em=now() where id=:id'), {'id': invitation.id, 'status': terminal})
+        s.commit()
+        for status in ('atribuida', 'aceita', 'recusada', 'expirada', 'substituida'):
+            with pytest.raises(DBAPIError, match='Transição'):
+                s.execute(text('update consolidacao_atribuicoes set status=:status where id=:id'), {'id': invitation.id, 'status': status})
+            s.rollback()
+
+
+@pytest.mark.parametrize('mutation', ["update app_users set status='inativo' where id=:id", "delete from user_roles where user_id=:id", "update user_roles set papel='convidado' where user_id=:id"])
+def test_invitation_rejects_revoked_or_guest_before_write(workflow_database, mutation):
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with workflow_database.begin() as c:
+        c.execute(text(mutation), {'id': v['target_a']})
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        with pytest.raises(HTTPException) as exc:
+            _invite(s, v, track)
+        assert exc.value.status_code in (404, 422)
+        assert s.execute(text('select count(*) from consolidacao_atribuicoes')).scalar_one() == 0
+
+
+def test_invitation_other_church_returns_404_before_write(workflow_database):
+    v = _seed(workflow_database)
+    other = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    v['target_a'] = other['target_a']
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        with pytest.raises(HTTPException) as exc:
+            _invite(s, v, track)
+        assert exc.value.status_code == 404
+        assert s.execute(text('select count(*) from consolidacao_atribuicoes')).scalar_one() == 0
+
+
+def test_panel_accepts_legacy_null_status(workflow_database):
+    from app.routers.consolidacao import list_assignments
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with workflow_database.begin() as c:
+        c.execute(text('alter table app_users alter column status drop not null'))
+        c.execute(text('update app_users set status=null where igreja_id=:tenant'), v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        invitation = _invite(s, v, track)
+        assert list_assignments(db=s, current_user=_actor(v['tenant'], v['target_a'])).items
+        assert _answer(s, v, track, invitation).status == 'aceita'
+
+
+def test_whatsapp_rejects_capable_cell_leader_recipient(workflow_database):
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with workflow_database.begin() as c:
+        c.execute(text("update user_roles set papel='lider_celula' where user_id=:id"), {'id': v['target_a']})
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        with pytest.raises(HTTPException) as exc:
+            assign_consolidacao(s, _actor(v['tenant'], v['actor']), consolidacao_id=track,
+                responsavel_id=v['target_a'], expected_assignment_revision=0, whatsapp=True)
+        assert exc.value.status_code == 422
+        assert s.execute(text('select count(*) from consolidacao_atribuicoes')).scalar_one() == 0
+
+
+def test_get_projects_expired_without_persisting(workflow_database, monkeypatch):
+    from app.routers.consolidacao import list_assignments
+    from app.services import consolidation_workflow as workflow
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        invitation = _invite(s, v, track)
+        s.commit()
+        monkeypatch.setattr(workflow, '_server_now', lambda db: invitation.prazo_aceite)
+        page = list_assignments(db=s, current_user=_actor(v['tenant'], v['actor']))
+        assert page.items[0].convite.status == 'expirada'
+        assert invitation.status == 'atribuida'
+        assert s.execute(text('select status from consolidacao_atribuicoes where id=:id'), {'id': invitation.id}).scalar_one() == 'atribuida'
+
+
+def test_assignment_result_distinguishes_new_pending_and_accepted(workflow_database):
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        def assign():
+            return assign_consolidacao(s, _actor(v['tenant'], v['actor']), consolidacao_id=track,
+                responsavel_id=v['target_a'], expected_assignment_revision=None, whatsapp=False)
+        new = assign()
+        assert new.invitation_created is True
+        pending = assign()
+        assert pending.invitation_created is False
+        assert pending.atribuicao.id == new.atribuicao.id
+        _answer(s, v, track, pending.atribuicao)
+        accepted = assign()
+        assert accepted.invitation_created is False
+        assert accepted.atribuicao.status == 'aceita'

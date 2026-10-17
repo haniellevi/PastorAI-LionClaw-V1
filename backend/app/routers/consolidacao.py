@@ -21,7 +21,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -191,20 +191,20 @@ def list_assignments(
     after: uuid.UUID | None = None,
     db: Session = Depends(get_db), current_user: CurrentUser = Depends(get_current_user),
 ) -> AssignmentPage:
-    """Live panel read. Expiration is lazy, serialized with answers and replacement."""
+    """Read-only panel projection; writers persist expiration under lock."""
     from app.db.models import AppUser, UserRole, WorkQueueItem, ConsolidacaoAtribuicao, ConsolidacaoEtapa
     from app.services.consolidation_workflow import (
-        _lock_consolidacao, _lock_invitations, _expire_invitations,
+        _server_now,
     )
     from app.domain.work_queue import can_resolve
     tenant = uuid.UUID(current_user.igreja_id)
     actor = uuid.UUID(current_user.app_user_id)
     def reader_profile():
-        # No account lock before track locks; repeat this read after lock waits.
+        # Revalidate the account, linked person and capabilities on each read.
         person_id = db.execute(select(AppUser.pessoa_id).join(Pessoa,
             (Pessoa.id == AppUser.pessoa_id) & (Pessoa.igreja_id == AppUser.igreja_id)
         ).where(
-            AppUser.igreja_id == tenant, AppUser.id == actor, AppUser.status == 'ativo',
+            AppUser.igreja_id == tenant, AppUser.id == actor, or_(AppUser.status.is_(None), AppUser.status == 'ativo'),
             Pessoa.arquivada_em.is_(None),
         )).scalar_one_or_none()
         roles = frozenset(db.execute(select(UserRole.papel).where(
@@ -233,17 +233,25 @@ def list_assignments(
         query = query.where(Consolidacao.id > after)
     ids = list(db.execute(query.order_by(Consolidacao.id).limit(50)).scalars())
     result = []
+    now = _server_now(db)
+    def displayed_status(row):
+        return 'expirada' if row.status == 'atribuida' and now >= row.prazo_aceite else row.status
     for track_id in ids:
-        track = _lock_consolidacao(db, tenant, track_id)
+        track = db.execute(select(Consolidacao).where(
+            Consolidacao.igreja_id == tenant, Consolidacao.id == track_id,
+        ).execution_options(populate_existing=True)).scalar_one()
         if track.concluida or track.abandonada_em is not None:
             continue
-        rows = _lock_invitations(db, tenant, track.id)
-        _expire_invitations(db, rows)
+        rows = list(db.execute(select(ConsolidacaoAtribuicao).where(
+            ConsolidacaoAtribuicao.igreja_id == tenant,
+            ConsolidacaoAtribuicao.consolidacao_id == track.id,
+        ).order_by(ConsolidacaoAtribuicao.criada_em, ConsolidacaoAtribuicao.id)
+          .execution_options(populate_existing=True)).scalars())
         if reader_profile() != profile:
             raise HTTPException(403, 'Seu acesso foi alterado. Atualize a sessão')
-        # Candidate visibility from the initial query may have changed while waiting.
+        # Candidate visibility may have changed since the initial query.
         if not coordinator and track.responsavel_id != actor and not any(
-            row.status == 'atribuida' and row.responsavel_id == actor for row in rows
+            displayed_status(row) == 'atribuida' and row.responsavel_id == actor for row in rows
         ):
             continue
         person = db.execute(select(Pessoa).where(
@@ -253,7 +261,7 @@ def list_assignments(
         result.append(AssignmentTrack(
             id=str(track.id), pessoaId=str(person.id), pessoaNome=person.nome,
             responsavelId=str(track.responsavel_id) if track.responsavel_id else None,
-            convite=_invitation_response(latest) if latest else None,
+            convite=_invitation_response(latest).model_copy(update={'status': displayed_status(latest)}) if latest else None,
             prazoConexao=track.prazo_conexao,
             tiposNecessarios=sorted({'fonovisita', *db.execute(select(WorkQueueItem.tipo).where(
                 WorkQueueItem.igreja_id == tenant, WorkQueueItem.consolidacao_id == track.id,
@@ -267,5 +275,4 @@ def list_assignments(
         ))
     if reader_profile() != profile:
         raise HTTPException(403, 'Seu acesso foi alterado. Atualize a sessão')
-    db.commit()
     return AssignmentPage(items=result, nextCursor=str(ids[-1]) if len(ids) == 50 else None)

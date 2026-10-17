@@ -355,7 +355,7 @@ def test_consolidation_mutation_execution_reuses_the_shared_human_service(
 
     effect_id = UUID('00000000-0000-0000-0000-0000000000e5')
     calls = []
-    result = SimpleNamespace(**{result_field: SimpleNamespace(id=effect_id)})
+    result = SimpleNamespace(**{result_field: SimpleNamespace(id=effect_id)}, invitation_created=True)
     if action == 'marcar_fonovisita_feita':
         monkeypatch.setattr(
             consolidation_workflow,
@@ -936,3 +936,20 @@ def test_consented_audio_inbound_stops_before_textual_turn_routing(monkeypatch):
         ownership_guard=None,
         evolution_client=Mock(),
     ) is queue_worker.AgentRunDisposition.COMPLETED
+
+
+@pytest.mark.parametrize('created,status,receipt', [
+    (True, 'atribuida', 'Convite registrado. Aceite pendente no painel.'),
+    (False, 'atribuida', 'Convite já existente. Aceite pendente no painel.'),
+    (False, 'aceita', 'Responsável já aceitou este convite.'),
+])
+def test_assignment_receipt_matches_domain_result(monkeypatch, created, status, receipt):
+    from app.agent.privileged_turn import _execute
+    from app.services import consolidation_workflow
+    result = SimpleNamespace(consolidacao=SimpleNamespace(id=UUID(int=3)),
+        invitation_created=created, atribuicao=SimpleNamespace(status=status))
+    monkeypatch.setattr(consolidation_workflow, 'assign_consolidacao', lambda *a, **kw: result)
+    execution = SimpleNamespace(action=SimpleNamespace(value='atribuir_consolidacao'),
+        privilege_context=SimpleNamespace(igreja_id=UUID(int=1), app_user_id=UUID(int=2), roles=frozenset({'pastor'})),
+        arguments={'consolidacao_id': str(UUID(int=3)), 'responsavel_id': str(UUID(int=4)), 'assignment_revision': 0})
+    assert _execute(SimpleNamespace(), execution).receipt_text == receipt

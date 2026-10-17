@@ -23,6 +23,26 @@ create table public.consolidacao_atribuicoes (
   check ((status = 'atribuida') = (respondida_em is null)),
   check (not autoatribuicao or status = 'aceita')
 );
+create function public.fn_consolidacao_atribuicoes_transition()
+returns trigger language plpgsql set search_path = public, pg_temp as $$
+begin
+  if old.status <> 'atribuida'
+     or new.status not in ('aceita','recusada','expirada','substituida') then
+    raise exception 'Transição de convite inválida';
+  end if;
+  if row(new.responsavel_id,new.atribuida_por,new.criada_em,new.prazo_aceite,
+         new.autoatribuicao,new.igreja_id,new.consolidacao_id,new.id)
+     is distinct from
+     row(old.responsavel_id,old.atribuida_por,old.criada_em,old.prazo_aceite,
+         old.autoatribuicao,old.igreja_id,old.consolidacao_id,old.id) then
+    raise exception 'Identidade e prazo do convite são imutáveis';
+  end if;
+  return new;
+end;
+$$;
+create trigger trg_consolidacao_atribuicoes_transition
+before update on public.consolidacao_atribuicoes
+for each row execute function public.fn_consolidacao_atribuicoes_transition();
 create unique index consolidacao_convite_pendente
   on public.consolidacao_atribuicoes(igreja_id, consolidacao_id)
   where status = 'atribuida';
@@ -54,7 +74,8 @@ alter table public.agent_action_receipts drop constraint agent_action_receipts_r
 alter table public.agent_action_receipts add constraint agent_action_receipts_receipt_text_closed
   check (receipt_text in ('Registro confirmado.', 'Relatório confirmado.',
     'Lembrete confirmado.', 'Fonovisita confirmada.', 'Consolidação atribuída.',
-    'Lembretes de consolidação ativados.', 'Convite registrado. Aceite pendente no painel.'));
+    'Lembretes de consolidação ativados.', 'Convite registrado. Aceite pendente no painel.',
+    'Convite já existente. Aceite pendente no painel.', 'Responsável já aceitou este convite.'));
 -- Rollback: suspender writers novos e preservar/exportar histórico privado em
 -- alvo autorizado antes de remover. Não promover candidatos nem invalidar legado.
 -- drop table public.consolidacao_atribuicoes;
@@ -72,3 +93,5 @@ alter table public.agent_action_receipts add constraint agent_action_receipts_re
 -- end;
 -- $$;
 -- Manter o check aditivo de recibos: recibos novos existentes não devem ser apagados.
+
+-- drop function public.fn_consolidacao_atribuicoes_transition();

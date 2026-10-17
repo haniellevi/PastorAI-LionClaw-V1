@@ -146,13 +146,20 @@ A evidência e o hash do candidato constam no
 
 ## G12 PR 3: aceite da fonovisita (candidata)
 
-`20261017_180000_consolidacao_atribuicoes_aceite.sql` depende da V3 e cria o
+`20261017_180100_consolidacao_atribuicoes_aceite.sql` depende da V3 e cria o
 histórico privado de convites com FKs compostas, RLS/FORCE RLS e sem DELETE
 para `authenticated`. Não altera atribuições existentes. Novos convites vencem
 em 24h corridas, verificadas pelo servidor sob lock, sem cron nem novo prazo
 operacional. Criar convite também avança a revisão de atribuição; aceitar
 promove o candidato e sincroniza tarefas na mesma transação. A autoatribuição
-pela fila grava aceite imediato. Nenhum aviso externo novo é criado.
+pela fila grava aceite imediato; repetição do responsável efetivo não cria
+histórico nem avança revisão. Convite pendente impede terceiros de assumir.
+Um trigger torna identidade/prazo imutáveis e aceita somente transições do
+convite pendente para os quatro estados finais. GET não bloqueia nem grava:
+expiração é projetada na leitura e persistida pelos writers. WhatsApp limita
+destinatários a admin/pastor/lider_consol, além da capacidade exigida. O painel
+aceita status NULL legado ou ativo, com Pessoa vinculada e capacidade.
+Nenhum aviso externo novo é criado.
 
 A tabela é usada por caminhos sem flag: uma futura release precisa aplicar a
 migration antes do backend novo. O rollback comentado exige preservar o

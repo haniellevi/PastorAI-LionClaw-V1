@@ -72,7 +72,7 @@ def _apply_acceptance(engine, url):
         connection.exec_driver_sql("create table if not exists schema_migrations(name text primary key)")
     env = dict(os.environ, MIGRATION_DATABASE_URL=url.replace("postgresql+psycopg2://", "postgresql://"))
     subprocess.run([sys.executable, "scripts/migrate.py", "apply",
-                    "20261017_180000_consolidacao_atribuicoes_aceite.sql", "--yes"],
+                    "20261017_180100_consolidacao_atribuicoes_aceite.sql", "--yes"],
                    env=env, check=True, capture_output=True, text=True)
 
 
