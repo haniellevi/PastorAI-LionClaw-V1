@@ -11,8 +11,9 @@ import datetime as dt
 from fastapi import HTTPException
 from sqlalchemy import exists, func, select
 
-from app.db.models import Celula, CelulaMembro, CelulaReuniao, CelulaVisitante, Pessoa
-from app.services.celula_membro import ensure_active_membro, assert_membro_elegivel, MembroInelegivelError
+from app.db.models import Celula, CelulaMembro, CelulaReuniao, CelulaVisitante, Pessoa, WhatsappConnection
+from app.services.celula_membro import ensure_active_membro, assert_membro_elegivel_facts, MembroInelegivelError
+from app.domain.phone import normalize_phone
 from app.visits.models import VisitEvent
 from app.visits.service import fresh_actor, person_for_update
 
@@ -35,17 +36,14 @@ def _related(db, model, tenant, ident, lock=False):
     return db.scalar(query.execution_options(populate_existing=True))
 
 
-def _describe(db, person, event):
-    tenant = person.igreja_id
-    meeting = _related(db, CelulaReuniao, tenant, event.reuniao_id)
-    visitor = _related(db, CelulaVisitante, tenant, event.visitante_id)
-    cell = _related(db, Celula, tenant, meeting.celula_id) if meeting else None
+def _describe(person, event, meeting, visitor, cell, timestamp, memberships,
+              leads_active_cell, official_phone):
     valid = bool(meeting and visitor and cell and visitor.reuniao_id == meeting.id
                  and event.origem == 'painel_lider' and meeting.status != 'cancelada')
     if valid:
         try:
             occurrence = dt.datetime.combine(meeting.data, dt.time.fromisoformat(meeting.hora or '00:00'), ZoneInfo('America/Sao_Paulo'))
-            valid = occurrence == event.data_ocorrencia and occurrence <= db.scalar(select(func.now()))
+            valid = occurrence == event.data_ocorrencia and occurrence <= timestamp
         except ValueError:
             valid = False
     reason = None
@@ -57,16 +55,13 @@ def _describe(db, person, event):
         reason = 'A célula da primeira visita está sem líder.'
     already_linked = False
     if cell:
-        memberships = db.scalars(select(CelulaMembro.celula_id).where(
-            CelulaMembro.igreja_id == tenant, CelulaMembro.pessoa_id == person.id,
-            CelulaMembro.ativo.is_(True),
-        )).all()
         already_linked = person.celula_id == cell.id and cell.id in memberships
         if any(ident != cell.id for ident in memberships) or (person.celula_id is not None and person.celula_id != cell.id):
             reason = 'Pessoa já vinculada a outra célula. Use a transferência administrativa existente.'
         if reason is None:
             try:
-                assert_membro_elegivel(db, igreja_id=tenant, celula=cell, pessoa=person)
+                assert_membro_elegivel_facts(celula=cell, pessoa=person,
+                    leads_active_cell=leads_active_cell, official_phone=official_phone)
             except MembroInelegivelError as exc:
                 reason = exc.message
     # A content revision detects changes between display and confirmation,
@@ -83,6 +78,55 @@ def _describe(db, person, event):
         data_ocorrencia=event.data_ocorrencia.isoformat(), revision=revision, blocked_reason=reason, already_linked=already_linked)
 
 
+def _by_id(db, model, tenant, ids):
+    if not ids:
+        return {}
+    return {row.id: row for row in db.scalars(select(model).where(
+        model.igreja_id == tenant, model.id.in_(ids),
+    ).execution_options(populate_existing=True))}
+
+
+def _descriptions(db, tenant, people):
+    """Constant round trips per page, including canonical eligibility facts."""
+    if not people:
+        return []
+    ids = [person.id for person in people]
+    events = db.scalars(select(VisitEvent).where(
+        VisitEvent.igreja_id == tenant, VisitEvent.pessoa_id.in_(ids),
+        VisitEvent.tipo == 'visita_celula',
+    ).distinct(VisitEvent.pessoa_id).order_by(VisitEvent.pessoa_id,
+        VisitEvent.data_ocorrencia, VisitEvent.data_registro, VisitEvent.id)
+        .execution_options(populate_existing=True)).all()
+    meetings = _by_id(db, CelulaReuniao, tenant, {e.reuniao_id for e in events})
+    visitors = _by_id(db, CelulaVisitante, tenant, {e.visitante_id for e in events})
+    cells = _by_id(db, Celula, tenant, {m.celula_id for m in meetings.values()})
+    memberships = {}
+    for person_id, cell_id in db.execute(select(CelulaMembro.pessoa_id, CelulaMembro.celula_id).where(
+        CelulaMembro.igreja_id == tenant, CelulaMembro.pessoa_id.in_(ids), CelulaMembro.ativo.is_(True),
+    )):
+        memberships.setdefault(person_id, []).append(cell_id)
+    leaders = set(db.scalars(select(Celula.lider_id).where(
+        Celula.igreja_id == tenant, Celula.lider_id.in_(ids), Celula.ativo.is_(True),
+    )))
+    official = normalize_phone(db.scalar(select(WhatsappConnection.numero).where(
+        WhatsappConnection.igreja_id == tenant,
+    )) or '')
+    timestamp = db.scalar(select(func.now()))
+    events_by_person = {event.pessoa_id: event for event in events}
+    result = []
+    for person in people:
+        event = events_by_person.get(person.id)
+        # Offboarding may remove evidence between the page and batch reads.
+        if event is None:
+            continue
+        meeting = meetings.get(event.reuniao_id)
+        result.append(_describe(person, event, meeting, visitors.get(event.visitante_id),
+            cells.get(meeting.celula_id) if meeting else None, timestamp,
+            memberships.get(person.id, []), person.id in leaders,
+            bool(official and normalize_phone(person.telefone or '') == official)))
+    return result
+
+
 def suggestion(db, actor, pessoa_id):
     actor = fresh_actor(db, actor, ROLES)
     tenant = uuid.UUID(actor.igreja_id)
@@ -91,8 +135,8 @@ def suggestion(db, actor, pessoa_id):
         raise HTTPException(404, 'Pessoa não encontrada')
     if person.arquivada_em or person.sem_interesse:
         return None
-    event = _first(db, tenant, person.id)
-    return _describe(db, person, event) if event else None
+    items = _descriptions(db, tenant, [person])
+    return items[0] if items else None
 
 
 def suggestions(db, actor, *, page, page_size):
@@ -104,7 +148,7 @@ def suggestions(db, actor, *, page, page_size):
     total = db.scalar(select(func.count()).select_from(Pessoa).where(*filters))
     people = db.scalars(select(Pessoa).where(*filters).order_by(Pessoa.nome, Pessoa.id)
         .offset((page-1)*page_size).limit(page_size)).all()
-    return dict(items=[_describe(db, p, _first(db, tenant, p.id)) for p in people],
+    return dict(items=_descriptions(db, tenant, people),
         page=page, page_size=page_size, total=total)
 
 
@@ -133,7 +177,10 @@ def confirm_link(db, actor, pessoa_id, evidence):
             or meeting.celula_id != cell.id):
         raise HTTPException(409, 'Evidência alterada. Atualize a sugestão.')
     _related(db, CelulaVisitante, tenant, first.visitante_id, True)
-    current = _describe(db, person, first)
+    descriptions = _descriptions(db, tenant, [person])
+    if not descriptions:
+        raise HTTPException(409, 'Primeira visita alterada. Atualize a sugestão.')
+    current = descriptions[0]
     if current['blocked_reason']:
         raise HTTPException(409, current['blocked_reason'])
     if any(current[key] != evidence.get(key) for key in ('evento_id', 'celula_id', 'revision')):

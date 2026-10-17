@@ -50,3 +50,14 @@ it("líder e operador não consultam sugestões", async () => {
   mocks.roles = ["lider_celula", "operador"]; await render("p1");
   expect(container.textContent).toBe(""); expect(mocks.read).not.toHaveBeenCalled();
 });
+
+it("falha ao atualizar cadastro após commit permite tentar a leitura sem repetir confirmação", async () => {
+  const onConfirmed = vi.fn().mockRejectedValueOnce(new Error("Leitura indisponível")).mockResolvedValue(undefined);
+  await act(async () => root.render(<VisitCellSuggestions personId="p1" onConfirmed={onConfirmed} />));
+  await click("Revisar vínculo"); await click("Confirmar vínculo");
+  expect(container.textContent).toContain("O vínculo foi confirmado, mas não foi possível atualizar o cadastro");
+  await click("Atualizar cadastro");
+  expect(onConfirmed).toHaveBeenCalledTimes(2);
+  expect(mocks.confirm).toHaveBeenCalledTimes(1);
+  expect(container.textContent).not.toContain("não foi possível atualizar o cadastro");
+});

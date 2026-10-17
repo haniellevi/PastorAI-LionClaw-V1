@@ -885,10 +885,10 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               canEdit={canEdit}
               onVisitConfirmed={() => {
                 if (!token || !selectedContact) return;
-                void fetchContactDetail(token, selectedContact.id).then(updated => {
+                return fetchContactDetail(token, selectedContact.id).then(updated => {
                   setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
                   setDetachedSelected(updated);
-                }).catch(handleSessionError);
+                });
               }}
               archived={selectedContact ? archivedInfo[selectedContact.id] : undefined}
               onEdit={() => {
@@ -1050,7 +1050,7 @@ function ContactDetail({
   onEdit: () => void;
   onLink: () => void;
   onArchive: () => void;
-  onVisitConfirmed: () => void;
+  onVisitConfirmed: () => void | Promise<void>;
 }) {
   if (!contact) {
     return (

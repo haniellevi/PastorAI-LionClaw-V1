@@ -260,3 +260,33 @@ def test_concurrent_cell_deactivation_prevents_partial_link(candidate):
     with p.factory() as db:
         assert db.get(Pessoa, p.person).celula_id is None
         assert db.scalar(select(func.count()).select_from(CelulaMembro).where(CelulaMembro.pessoa_id == p.person)) == 0
+
+
+def test_suggestion_page_batches_queries_independent_of_people_count(candidate):
+    from app.visits.cell_link import suggestions
+    from app.visits.service import register_cell_visit
+    from sqlalchemy import event
+    p = candidate
+    with p.factory.begin() as db:
+        for index in range(8):
+            person = Pessoa(igreja_id=TENANT, nome=f'Pessoa lote sintética {index}', telefone=f'55000000008{index:02}', tipo='contato')
+            db.add(person); db.flush()
+            register_cell_visit(db, p.actors['lider_celula'], reuniao_id=p.meeting, pessoa_id=person.id)
+    statements = []
+    def count(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(p.engine, 'before_cursor_execute', count)
+    try:
+        with p.factory() as db:
+            single = suggestions(db, p.actors['pastor'], page=1, page_size=1)
+            single_count = len(statements)
+        statements.clear()
+        with p.factory() as db:
+            page = suggestions(db, p.actors['pastor'], page=1, page_size=20)
+        assert page['total'] == len(page['items']) == 9
+        assert all(not item['blocked_reason'] for item in page['items'])
+        assert len(statements) <= 13
+        assert len(statements) == single_count
+        assert single['items'] == page['items'][:1]
+    finally:
+        event.remove(p.engine, 'before_cursor_execute', count)
