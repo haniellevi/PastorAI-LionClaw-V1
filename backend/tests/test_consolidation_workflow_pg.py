@@ -365,6 +365,10 @@ def test_v3_queue_http_keeps_legacy_role_capability_and_state(
     values = _seed(workflow_database)
     track_id, fonovisita_id = _insert_track(workflow_database, values)
     candidate_id = fonovisita_id
+    if action == "assume" and expected_status == 200:
+        # This test proves a fresh assignment; current-holder repeats are no-ops.
+        with workflow_database.begin() as connection:
+            connection.execute(text("update consolidacoes set responsavel_id=null where id=:id"), {"id": track_id})
     if item_tipo == "conectar_celula":
         candidate_id = uuid.uuid4()
         with workflow_database.begin() as connection:

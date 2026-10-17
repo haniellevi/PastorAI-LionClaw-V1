@@ -133,9 +133,7 @@ def assign_consolidacao(
                 raise HTTPException(409, "Há convite pendente para outro responsável")
             if pending is not None:
                 raise HTTPException(409, "Responda ao convite pendente no painel")
-            if pending is None and consolidacao.responsavel_id == target_id:
-                _promote(consolidacao, work_items, target_id)
-                db.flush()
+            if consolidacao.responsavel_id == target_id:
                 return AssignmentResult(consolidacao, tuple(work_items))
         if _queue_action_is_idempotent_or_conflicts(
             db,

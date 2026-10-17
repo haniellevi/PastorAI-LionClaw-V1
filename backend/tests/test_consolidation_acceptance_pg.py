@@ -416,11 +416,13 @@ def test_legacy_holder_assume_is_noop(workflow_database):
     track, queue = _insert_track(workflow_database, v)
     with _scoped(_factory(workflow_database), v['tenant']) as s:
         revision = s.get(Consolidacao, track).assignment_revision
+        before = s.execute(text('select responsavel_id,status from work_queue_items where id=:id'), {'id': queue}).one()
         assign_consolidacao(s, _actor(v['tenant'], v['actor']), consolidacao_id=track,
             responsavel_id=v['actor'], expected_assignment_revision=None, whatsapp=False,
             expected_work_queue_item_id=queue, work_queue_action='assume')
         s.commit()
         assert s.get(Consolidacao, track).assignment_revision == revision
+        assert s.execute(text('select responsavel_id,status from work_queue_items where id=:id'), {'id': queue}).one() == before
         assert s.execute(text('select count(*) from consolidacao_atribuicoes')).scalar_one() == 0
 
 
