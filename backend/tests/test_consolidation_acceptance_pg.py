@@ -411,19 +411,37 @@ def test_queue_cannot_cancel_pending_invitation(workflow_database, key, open_ite
         assert s.get(Consolidacao, track).responsavel_id == v['actor']
 
 
-def test_legacy_holder_assume_is_noop(workflow_database):
+@pytest.mark.parametrize("initial_status", ["aberto", "assumido"])
+def test_legacy_holder_assume_promotes_open_and_repeats_as_noop(workflow_database, initial_status):
     v = _seed(workflow_database)
     track, queue = _insert_track(workflow_database, v)
     with _scoped(_factory(workflow_database), v['tenant']) as s:
         revision = s.get(Consolidacao, track).assignment_revision
-        before = s.execute(text('select responsavel_id,status from work_queue_items where id=:id'), {'id': queue}).one()
+        s.execute(text('update work_queue_items set status=:status where id=:id'), {'status': initial_status, 'id': queue})
         assign_consolidacao(s, _actor(v['tenant'], v['actor']), consolidacao_id=track,
             responsavel_id=v['actor'], expected_assignment_revision=None, whatsapp=False,
             expected_work_queue_item_id=queue, work_queue_action='assume')
         s.commit()
         assert s.get(Consolidacao, track).assignment_revision == revision
-        assert s.execute(text('select responsavel_id,status from work_queue_items where id=:id'), {'id': queue}).one() == before
+        assert s.execute(text('select responsavel_id,status from work_queue_items where id=:id'), {'id': queue}).one() == (v['actor'], 'assumido')
         assert s.execute(text('select count(*) from consolidacao_atribuicoes')).scalar_one() == 0
+
+
+def test_legacy_holder_assumes_open_item_before_third_party(workflow_database):
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        assign_consolidacao(s, _actor(v['tenant'], v['actor']), consolidacao_id=track,
+            responsavel_id=v['actor'], expected_assignment_revision=None, whatsapp=False,
+            expected_work_queue_item_id=queue, work_queue_action='assume')
+        s.commit()
+        with pytest.raises(HTTPException) as exc:
+            assign_consolidacao(s, _actor(v['tenant'], v['target_a']), consolidacao_id=track,
+                responsavel_id=v['target_a'], expected_assignment_revision=None, whatsapp=False,
+                expected_work_queue_item_id=queue, work_queue_action='assume')
+        assert exc.value.status_code == 409
+        s.rollback()
+        assert s.execute(text('select responsavel_id,status from work_queue_items where id=:id'), {'id': queue}).one() == (v['actor'], 'assumido')
 
 
 @pytest.mark.parametrize('mutation', [

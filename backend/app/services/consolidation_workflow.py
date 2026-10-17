@@ -134,6 +134,13 @@ def assign_consolidacao(
             if pending is not None:
                 raise HTTPException(409, "Responda ao convite pendente no painel")
             if consolidacao.responsavel_id == target_id:
+                if any(
+                    _is_active_queue_item(item)
+                    and (item.status != "assumido" or item.responsavel_id != target_id)
+                    for item in work_items
+                ):
+                    _promote(consolidacao, work_items, target_id)
+                    db.flush()
                 return AssignmentResult(consolidacao, tuple(work_items))
         if _queue_action_is_idempotent_or_conflicts(
             db,
