@@ -278,3 +278,37 @@ def test_suppression_leaves_other_church_meeting_and_outbox_untouched(reminder_t
         rows = session.execute(select(NotificationOutbox)).scalars().all()
         assert len(rows) == 1 and rows[0].igreja_id == _IGREJA
         assert session.get(CelulaReuniao, meeting_id).relatorio_status == 'pendente'
+
+
+@pytest.mark.parametrize('closed_gate', (False, True))
+def test_offline_connection_remains_schedulable_unless_gate_is_closed(reminder_turn, monkeypatch, closed_gate):
+    from app.db.models import WhatsappConnection
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        connection = session.execute(select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == _IGREJA)).scalar_one()
+        connection.status = 'offline'
+    if closed_gate:
+        monkeypatch.setenv('ALLOW_REAL_SENDS', 'false')
+        get_settings.cache_clear()
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == int(closed_gate)
+    rows = _v1a_outbox_rows(turn)
+    if closed_gate:
+        assert len(rows) == 1 and rows[0].state == 'cancelado'
+        assert rows[0].terminal_reason == 'gate_fechado'
+    else:
+        assert rows == []
+    with turn.factory.begin() as session:
+        connection = session.execute(select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == _IGREJA)).scalar_one()
+        connection.status = 'online'
+    assert reminders.schedule_due_cell_report_reminders(turn.factory,
+        now=_NOW + dt.timedelta(minutes=1)) == int(not closed_gate)
+    rows = _v1a_outbox_rows(turn)
+    assert len(rows) == 1
+    if not closed_gate:
+        provider = _ReminderTransport(turn)
+        reminders.dispatch_cell_report_reminders(turn.factory, provider,
+            worker_id='g12-connection-recovered', now=_NOW + dt.timedelta(minutes=1))
+        assert len(provider.calls) == 1
+        assert provider.calls[0][2] == reminders.cell_report_reminder_text()

@@ -2008,6 +2008,10 @@ def _schedule_cell_report_tenant(
             )
             if not _purpose_gate_allows("cell_report_reminder", igreja_id):
                 reason = "gate_fechado"
+            elif reason == "instancia_indisponivel":
+                # Connection recovery is transient, not revoked eligibility.
+                # Preserve V1a discovery on a later tick within the same window.
+                continue
             try:
                 revalidate_cell_report_leader(
                     session,
