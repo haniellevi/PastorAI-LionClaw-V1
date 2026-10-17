@@ -210,6 +210,10 @@ for (const width of [390, 1440]) {
     const picker = page.getByRole("dialog", { name: "Conectar à célula", exact: true });
     await expect(picker.getByRole("button", { name: /Célula Inativa Laboratório/ })).toBeDisabled();
     await picker.getByRole("button", { name: /^Célula Laboratório/ }).click();
+    await expect(picker).toBeVisible();
+    expect(fixture.writes.filter((item) => item.path.endsWith("/cell"))).toEqual([]);
+    await expect(picker).toContainText("Ao confirmar, o acompanhamento será marcado como consolidado");
+    await picker.getByRole("button", { name: "Confirmar vínculo", exact: true }).click();
     await expect(picker).toBeHidden();
     await expect(marina.getByText("Em acompanhamento", { exact: true })).toBeVisible();
     expect(fixture.writes.find((item) => item.path.endsWith("/cell"))?.body).toEqual({ celulaId: CELL_ID });
@@ -280,5 +284,57 @@ for (const width of [390, 1440]) {
     ]);
     await attachJson(testInfo, "consolidation-contracts", fixture);
     expectSafety(safety, true);
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`Pessoa confirma sugestão de visita em etapa separada em ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const safety = await armBrowserSafety(page);
+    await peopleFixture(page);
+    const evidence = {
+      pessoa_id: "ux-person-1", pessoa_nome: "Marina Laboratório",
+      evento_id: "00000000-0000-4000-8000-000000000099", celula_id: CELL_ID,
+      celula_nome: "Célula Laboratório", data_ocorrencia: "2026-10-16T22:30:00Z",
+      revision: "a".repeat(64), blocked_reason: null, already_linked: false,
+    };
+    const confirmations: unknown[] = [];
+    let refreshReads = 0;
+    await page.route(`${API_URL}/contacts/ux-person-1/visit-cell-suggestion`, route => json(route, 200, evidence));
+    await page.route(`${API_URL}/contacts/ux-person-1/visit-cell-suggestion/confirm`, async route => {
+      confirmations.push(route.request().postDataJSON());
+      await json(route, 200, {confirmed: true, pessoa_id: evidence.pessoa_id, celula_id: CELL_ID});
+    });
+    await page.route(`${API_URL}/contacts/ux-person-1`, async route => {
+      if (confirmations.length && refreshReads++ === 0) {
+        await json(route, 503, {detail: "Leitura sintética temporariamente indisponível."}); return;
+      }
+      await json(route, 200, {
+        ...person(1), nome: evidence.pessoa_nome,
+        celulaId: confirmations.length ? CELL_ID : null,
+        acompanhamento: confirmations.length ? "consolidado" : null,
+      });
+    });
+    await loginThroughUi(page);
+    await page.goto("/gestao#contatos");
+    await page.getByRole("button", {name: "Abrir pessoa: Marina Laboratório", exact: true}).click();
+    const suggestions = page.getByRole("region", {name: "Sugestões de vínculo por visita"});
+    await expect(suggestions).toContainText("Primeira visita comprovada");
+    expect(confirmations).toEqual([]);
+    await suggestions.getByRole("button", {name: "Revisar vínculo"}).click();
+    const dialog = page.getByRole("dialog", {name: "Confirmar vínculo", exact: true});
+    await expect(dialog).toContainText("Ao confirmar, o acompanhamento será marcado como consolidado");
+    expect(confirmations).toEqual([]);
+    await dialog.getByRole("button", {name: "Confirmar vínculo", exact: true}).click();
+    await expect(dialog).toBeHidden();
+    await expect(suggestions).toContainText("Vínculo confirmado");
+    await expect(suggestions).toContainText("O vínculo foi confirmado, mas não foi possível atualizar o cadastro");
+    await suggestions.getByRole("button", {name: "Atualizar cadastro", exact: true}).click();
+    await expect(suggestions.getByRole("button", {name: "Atualizar cadastro", exact: true})).toHaveCount(0);
+    await expect(page.getByRole("region", {name: "Detalhes de Marina Laboratório"}).locator(".detail-list").getByText("Célula Laboratório", {exact: true})).toBeVisible();
+    expect(confirmations).toEqual([{evento_id: evidence.evento_id, celula_id: CELL_ID, revision: evidence.revision}]);
+    const expected503 = /^Failed to load resource: the server responded with a status of 503\b/;
+    expect(safety.consoleErrors.filter(error => expected503.test(error))).toHaveLength(1);
+    expectSafety({...safety, consoleErrors: safety.consoleErrors.filter(error => !expected503.test(error))});
   });
 }

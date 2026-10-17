@@ -15,6 +15,7 @@ import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Dialog } from "@/components/ds/Dialog";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
+import { VisitCellSuggestions } from "./VisitCellSuggestions";
 import { useAuth } from "@/lib/auth-context";
 import {
   archiveContact,
@@ -882,6 +883,13 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               cellName={cellName(selectedContact?.celulaId ?? null)}
               busy={busyId === selectedContact?.id}
               canEdit={canEdit}
+              onVisitConfirmed={() => {
+                if (!token || !selectedContact) return;
+                return fetchContactDetail(token, selectedContact.id).then(updated => {
+                  setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+                  setDetachedSelected(updated);
+                });
+              }}
               archived={selectedContact ? archivedInfo[selectedContact.id] : undefined}
               onEdit={() => {
                 if (!selectedContact) return;
@@ -1030,6 +1038,7 @@ function ContactDetail({
   onEdit,
   onLink,
   onArchive,
+  onVisitConfirmed,
 }: {
   contact: Contact | null;
   cellName: string;
@@ -1041,6 +1050,7 @@ function ContactDetail({
   onEdit: () => void;
   onLink: () => void;
   onArchive: () => void;
+  onVisitConfirmed: () => void | Promise<void>;
 }) {
   if (!contact) {
     return (
@@ -1079,6 +1089,7 @@ function ContactDetail({
         )}
       </div>
 
+      <VisitCellSuggestions key={contact.id} personId={contact.id} onConfirmed={onVisitConfirmed} />
       <dl className="detail-list people-context">
         <div><dt>Acompanhamento</dt><dd><StatusPill tone={status.tone}>{status.label}</StatusPill></dd></div>
         <div><dt>Célula</dt><dd>{contact.celulaId ? cellName : "Nenhuma célula vinculada"}</dd></div>
