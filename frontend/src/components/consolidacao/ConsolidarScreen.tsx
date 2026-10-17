@@ -22,6 +22,7 @@ import { computeDeadline } from "@/lib/deadline";
 import { initials } from "@/lib/g12-api";
 import { Icon, type IconKey } from "@/lib/icons";
 
+import { AssignmentPanel } from "./AssignmentPanel";
 import { AccessDenied } from "./AccessDenied";
 import { DecisionModal } from "./DecisionModal";
 import { TrackModal } from "./TrackModal";
@@ -136,6 +137,8 @@ export function ConsolidarScreen() {
           </button>
         </div>
       </div>
+
+      <AssignmentPanel />
 
       {c.error ? (
         <div className="error-banner" role="alert">

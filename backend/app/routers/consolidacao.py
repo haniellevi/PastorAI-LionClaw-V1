@@ -132,3 +132,116 @@ def launch_decision(
         if consolidacao.responsavel_id
         else None,
     )
+
+
+class InvitationResponse(BaseModel):
+    id: str
+    consolidacaoId: str
+    responsavelId: str
+    status: str
+    prazoAceite: dt.datetime
+    autoatribuicao: bool
+
+
+def _invitation_response(row) -> InvitationResponse:
+    return InvitationResponse(
+        id=str(row.id), consolidacaoId=str(row.consolidacao_id),
+        responsavelId=str(row.responsavel_id), status=row.status,
+        prazoAceite=row.prazo_aceite, autoatribuicao=row.autoatribuicao,
+    )
+
+
+class InvitationAnswer(BaseModel):
+    aceitar: bool = Field(strict=True)
+
+
+@router.post('/{consolidacao_id}/atribuicoes/{atribuicao_id}/resposta', response_model=InvitationResponse)
+def answer_invitation(
+    consolidacao_id: uuid.UUID, atribuicao_id: uuid.UUID, payload: InvitationAnswer,
+    db: Session = Depends(get_db), current_user: CurrentUser = Depends(get_current_user),
+) -> InvitationResponse:
+    from app.services.consolidation_workflow import respond_consolidacao_invitation
+    row = respond_consolidacao_invitation(
+        db, current_user, consolidacao_id=consolidacao_id,
+        atribuicao_id=atribuicao_id, aceitar=payload.aceitar,
+    )
+    result = _invitation_response(row)
+    db.commit()  # also persists expiry; an expired invitation never promotes the candidate
+    return result
+
+
+class AssignmentTrack(BaseModel):
+    id: str
+    pessoaId: str
+    pessoaNome: str
+    responsavelId: str | None
+    convite: InvitationResponse | None
+    etapasConfirmadas: list[str]
+    prazoConexao: dt.datetime | None
+
+
+@router.get('/atribuicoes', response_model=list[AssignmentTrack])
+def list_assignments(
+    offset: int = 0,
+    db: Session = Depends(get_db), current_user: CurrentUser = Depends(get_current_user),
+) -> list[AssignmentTrack]:
+    """Live panel read. Expiration is lazy, serialized with answers and replacement."""
+    from app.db.models import AppUser, UserRole, ConsolidacaoAtribuicao, ConsolidacaoEtapa
+    from app.services.consolidation_workflow import (
+        _lock_consolidacao, _lock_invitations, _expire_invitations,
+    )
+    from app.domain.work_queue import can_resolve
+    if offset < 0:
+        raise HTTPException(422, 'Página inválida')
+    tenant = uuid.UUID(current_user.igreja_id)
+    actor = uuid.UUID(current_user.app_user_id)
+    # Read authorization takes no account lock before track locks (stable lock order).
+    active = db.execute(select(AppUser.id).join(Pessoa, (Pessoa.id == AppUser.pessoa_id) &
+        (Pessoa.igreja_id == AppUser.igreja_id)).where(
+        AppUser.igreja_id == tenant, AppUser.id == actor, AppUser.status == 'ativo',
+        Pessoa.arquivada_em.is_(None),
+    )).scalar_one_or_none()
+    roles = list(db.execute(select(UserRole.papel).where(
+        UserRole.igreja_id == tenant, UserRole.user_id == actor,
+    )).scalars())
+    if active is None or not can_resolve(roles, 'fonovisita'):
+        raise HTTPException(403, 'Conta sem vínculo ou capacidade para fonovisita')
+    coordinator = bool(set(roles) & {'admin', 'pastor', 'lider_consol'})
+    query = select(Consolidacao.id).where(
+        Consolidacao.igreja_id == tenant, Consolidacao.concluida.is_(False),
+        Consolidacao.abandonada_em.is_(None),
+    )
+    if not coordinator:
+        query = query.where((Consolidacao.responsavel_id == actor) | select(
+            ConsolidacaoAtribuicao.id
+        ).where(
+            ConsolidacaoAtribuicao.igreja_id == tenant,
+            ConsolidacaoAtribuicao.consolidacao_id == Consolidacao.id,
+            ConsolidacaoAtribuicao.responsavel_id == actor,
+            ConsolidacaoAtribuicao.status == "atribuida",
+        ).exists())
+    ids = list(db.execute(query.order_by(Consolidacao.id).offset(offset).limit(50)).scalars())
+    result = []
+    for track_id in ids:
+        track = _lock_consolidacao(db, tenant, track_id)
+        if track.concluida or track.abandonada_em is not None:
+            continue
+        rows = _lock_invitations(db, tenant, track.id)
+        _expire_invitations(db, rows)
+        person = db.execute(select(Pessoa).where(
+            Pessoa.igreja_id == tenant, Pessoa.id == track.pessoa_id,
+        )).scalar_one()
+        latest = rows[-1] if rows else None
+        result.append(AssignmentTrack(
+            id=str(track.id), pessoaId=str(person.id), pessoaNome=person.nome,
+            responsavelId=str(track.responsavel_id) if track.responsavel_id else None,
+            convite=_invitation_response(latest) if latest else None,
+            prazoConexao=track.prazo_conexao,
+            etapasConfirmadas=list(db.execute(select(ConsolidacaoEtapa.etapa).where(
+                ConsolidacaoEtapa.igreja_id == tenant,
+                ConsolidacaoEtapa.consolidacao_id == track.id,
+                ConsolidacaoEtapa.concluida.is_(True),
+            ).order_by(ConsolidacaoEtapa.etapa)).scalars()),
+        ))
+    db.commit()
+    return result

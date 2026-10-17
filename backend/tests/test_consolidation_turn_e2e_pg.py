@@ -168,6 +168,8 @@ def v3_turn_database(rls_database_url: str) -> Engine:
     engine = next(generator)
     try:
         _apply_v3_migration(engine, _V3_MIGRATION.read_text())
+        from tests.test_consolidation_workflow_pg import _apply_acceptance
+        _apply_acceptance(engine, rls_database_url)
         with engine.begin() as connection:
             _install_runtime_model_columns(connection)
         Base.metadata.create_all(engine)
@@ -180,7 +182,7 @@ def v3_turn_database(rls_database_url: str) -> Engine:
                 "grant usage, select on all sequences in schema public to authenticated"
             )
             connection.exec_driver_sql(
-                "revoke delete on table public.consolidation_whatsapp_activation from authenticated"
+                "revoke delete on table public.consolidation_whatsapp_activation, public.consolidacao_atribuicoes from authenticated"
             )
         yield engine
     finally:
@@ -1164,7 +1166,7 @@ def test_consolidation_fonovisita_confirmation_executes_canonical_work_item_once
     assert len(evolution.calls) == 2
 
 
-def test_consolidation_assignment_confirmation_synchronizes_open_linked_work(
+def test_consolidation_assignment_confirmation_invites_then_panel_accepts(
     v3_turn_database: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1211,7 +1213,7 @@ def test_consolidation_assignment_confirmation_synchronizes_open_linked_work(
     with factory() as session:
         track = session.get(Consolidacao, values.consolidation)
         assert track is not None
-        assert track.responsavel_id == values.other
+        assert track.responsavel_id == values.actor
         assert track.assignment_revision == 1
         linked = session.execute(
             select(WorkQueueItem).where(
@@ -1221,15 +1223,30 @@ def test_consolidation_assignment_confirmation_synchronizes_open_linked_work(
             )
         ).scalars().all()
         assert linked
-        assert {item.responsavel_id for item in linked} == {values.other}
-        assert {item.status for item in linked} == {"assumido"}
+        assert {item.responsavel_id for item in linked} == {values.actor}
+        assert {item.status for item in linked} == {"aberto"}
         receipt = session.execute(
             select(AgentActionReceipt).where(
                 AgentActionReceipt.igreja_id == values.tenant
             )
         ).scalar_one()
-        assert receipt.receipt_text == "Consolidação atribuída."
+        assert receipt.receipt_text == "Convite registrado. Aceite pendente no painel."
     assert len(evolution.calls) == 2
+
+    from app.db.models import ConsolidacaoAtribuicao
+    from app.services.consolidation_workflow import respond_consolidacao_invitation
+    from tests.test_consolidation_workflow_pg import _actor
+    with factory.begin() as session:
+        invitation = session.execute(select(ConsolidacaoAtribuicao)).scalar_one()
+        assert invitation.status == "atribuida"
+        respond_consolidacao_invitation(session, _actor(values.tenant, values.other),
+            consolidacao_id=values.consolidation, atribuicao_id=invitation.id, aceitar=True)
+        assert session.get(Consolidacao, values.consolidation).responsavel_id == values.other
+        assert all(item.responsavel_id == values.other and item.status == "assumido"
+                   for item in session.execute(select(WorkQueueItem).where(
+                       WorkQueueItem.consolidacao_id == values.consolidation,
+                       WorkQueueItem.status.in_(("aberto", "assumido")),
+                   )).scalars())
 
 
 def test_register_decision_confirmation_opens_canonical_24h_track_and_fonovisita(

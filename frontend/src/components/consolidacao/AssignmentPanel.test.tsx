@@ -1,0 +1,53 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { AssignmentTrack } from "@/lib/consolidacao-api";
+
+const state = vi.hoisted(() => ({ self: "candidate", roles: ["lider_celula"], fetch: vi.fn(), answer: vi.fn(), assign: vi.fn(), expire: vi.fn() }));
+vi.mock("@/lib/auth-context", () => ({ useAuth: () => ({ token: "synthetic-token", user: { appUserId: state.self, roles: state.roles }, expireSession: state.expire }) }));
+vi.mock("@/lib/consolidacao-api", async original => ({ ...await original<typeof import("@/lib/consolidacao-api")>(), fetchAssignments: state.fetch, answerInvitation: state.answer, assignConsolidador: state.assign }));
+const { AssignmentPanel } = await import("./AssignmentPanel");
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+let root: Root;
+let container: HTMLDivElement;
+const track: AssignmentTrack = { id: "track", pessoaId: "person", pessoaNome: "Pessoa fictícia", responsavelId: "old", prazoConexao: null, etapasConfirmadas: [], convite: { id: "invite", consolidacaoId: "track", responsavelId: "candidate", status: "atribuida", prazoAceite: "2026-10-18T18:00:00Z", autoatribuicao: false } };
+beforeEach(() => {
+  vi.clearAllMocks();
+  state.self = "candidate"; state.roles = ["lider_celula"];
+  state.fetch.mockResolvedValue([track]);
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+});
+afterEach(() => { act(() => root.unmount()); container.remove(); });
+const render = async () => { await act(async () => { root.render(<AssignmentPanel team={[]} />); }); };
+const button = (text: string) => Array.from(container.querySelectorAll("button")).find(el => el.textContent?.includes(text));
+it.each([true, false])("destinatário responde ao convite, aceite=%s", async aceitar => {
+  state.answer.mockResolvedValue({ ...track.convite, status: aceitar ? "aceita" : "recusada" });
+  await render();
+  expect(container.textContent).toContain("Responsável atual");
+  await act(async () => { button(aceitar ? "Aceitar fonovisita" : "Recusar convite")!.click(); });
+  expect(state.answer).toHaveBeenCalledWith("synthetic-token", track.convite, aceitar);
+  expect(state.fetch).toHaveBeenCalledTimes(2);
+  expect(container.querySelector('[role="status"]')?.textContent).toContain(aceitar ? "Convite aceito" : "Convite recusado");
+});
+it("coordenação supervisiona sem aceitar pelo destinatário", async () => {
+  state.self = "coordinator"; state.roles = ["pastor"];
+  await render();
+  expect(container.textContent).toContain("Aguardando aceite");
+  expect(button("Aceitar fonovisita")).toBeUndefined();
+  expect(button("Recusar convite")).toBeUndefined();
+});
+it("resposta expirada informa coordenação sem anunciar aceite", async () => {
+  state.answer.mockResolvedValue({ ...track.convite, status: "expirada" });
+  await render();
+  await act(async () => { button("Aceitar fonovisita")!.click(); });
+  expect(container.querySelector('[role="status"]')?.textContent).toContain("O prazo de aceite expirou");
+});
+it("falha mantém o convite e oferece nova leitura", async () => {
+  state.answer.mockRejectedValue(new Error("synthetic failure"));
+  await render();
+  await act(async () => { button("Aceitar fonovisita")!.click(); });
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  expect(button("Atualizar convites")?.disabled).toBe(false);
+  expect(container.textContent).toContain("Aguardando aceite");
+});

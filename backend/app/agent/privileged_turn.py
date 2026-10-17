@@ -497,7 +497,7 @@ def _execute(session, execution):
         except (KeyError, TypeError, ValueError):
             raise ProposalExecutionDenied('domain_denied') from None
         return ActionEffect(
-            receipt_text='Consolidação atribuída.',
+            receipt_text='Convite registrado. Aceite pendente no painel.',
             opaque_effect_id=result.consolidacao.id,
         )
     from app.services.agent_privilege_catalog import execute_catalog_action

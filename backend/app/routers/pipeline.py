@@ -203,7 +203,8 @@ class AssignConsolidadorRequest(BaseModel):
 class AssignConsolidadorResponse(BaseModel):
     status: str
     consolidacaoId: str  # noqa: N815
-    responsavelId: str  # noqa: N815
+    responsavelId: str | None  # noqa: N815
+    atribuicaoId: str | None = None  # noqa: N815
 
 
 class AdvanceStageRequest(BaseModel):
@@ -448,13 +449,7 @@ def assign_consolidador(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> AssignConsolidadorResponse:
-    """Assign the responsible consolidador to a consolidation (delta-018).
-
-    Setting `responsavel_id` is what later enables that user (and only that
-    user) to confirm stages via /pipeline/advance-stage. The assigner's role
-    gates this management action; the destination may hold any accumulated
-    roles, but must be an active account in the same tenant.
-    """
+    """Invite an active, linked, capable recipient; effective ownership waits for acceptance."""
 
     if not current_user.has_any_role(CONSOLIDATION_ROLES):
         raise HTTPException(
@@ -473,9 +468,10 @@ def assign_consolidador(
     db.commit()
 
     return AssignConsolidadorResponse(
-        status="assigned",
+        status="accepted" if result.atribuicao and result.atribuicao.status == "aceita" else "invited",
         consolidacaoId=str(result.consolidacao.id),
-        responsavelId=str(result.consolidacao.responsavel_id),
+        responsavelId=str(result.consolidacao.responsavel_id) if result.consolidacao.responsavel_id else None,
+        atribuicaoId=str(result.atribuicao.id) if result.atribuicao else None,
     )
 
 

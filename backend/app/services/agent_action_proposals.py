@@ -134,6 +134,7 @@ class ActionEffect:
             "Lembrete confirmado.",
             "Fonovisita confirmada.",
             "Consolidação atribuída.",
+            "Convite registrado. Aceite pendente no painel.",
             "Lembretes de consolidação ativados.",
         }:
             raise ProposalContractError("recibo inválido")
@@ -810,6 +811,7 @@ def _require_receipt_text(value: object) -> str:
         "Lembrete confirmado.",
         "Fonovisita confirmada.",
         "Consolidação atribuída.",
+        "Convite registrado. Aceite pendente no painel.",
         "Lembretes de consolidação ativados.",
     }:
         raise ProposalContractError("recibo inválido")
@@ -1142,7 +1144,7 @@ def _new_receipt(
         AgentAction.ENVIAR_RELATORIO_CELULA.value: "Relatório confirmado.",
         AgentAction.CONFIGURAR_LEMBRETE_AGENDA.value: "Lembrete confirmado.",
         AgentAction.MARCAR_FONOVISITA_FEITA.value: "Fonovisita confirmada.",
-        AgentAction.ATRIBUIR_CONSOLIDACAO.value: "Consolidação atribuída.",
+        AgentAction.ATRIBUIR_CONSOLIDACAO.value: "Convite registrado. Aceite pendente no painel.",
         AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO.value: (
             "Lembretes de consolidação ativados."
         ),

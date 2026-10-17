@@ -22,6 +22,7 @@ import {
 } from "@/lib/consolidacao-api";
 import { Icon } from "@/lib/icons";
 
+import { AssignmentPanel } from "./AssignmentPanel";
 import { AccessDenied } from "./AccessDenied";
 import { DecisionModal } from "./DecisionModal";
 import { TrackModal } from "./TrackModal";
@@ -82,6 +83,8 @@ export function ConsolIndividualScreen() {
           </button>
         </div>
       </div>
+
+      <AssignmentPanel />
 
       {c.error ? (
         <div className="error-banner" role="alert">

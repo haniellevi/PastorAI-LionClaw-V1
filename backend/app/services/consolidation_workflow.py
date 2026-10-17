@@ -1,11 +1,10 @@
 """Transactional V3 consolidation actions shared by panel and WhatsApp.
 
-Callers own commit and rollback. Panel/S3 assignment locks the track, then the
-target account/person and role rows, then linked queue rows by id. A queue
-action locks the track and linked queue rows before its target/holder checks,
-so it can fence the candidate read that preceded the canonical lock. Completion
-locks the track and linked queue rows by id. The stable track-to-task order
-prevents assignment and fonovisita completion from splitting canonical state.
+Callers own commit and rollback. All mutations lock the track first, then
+invitation history, linked tasks by id, and the recipient account/person/roles.
+The track serializes invitations, acceptance, expiry and completion, including
+queue candidates read before the canonical lock. Deadlines use the server clock
+after lock waits; operational task deadlines are never restarted.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from app.db.models import (
     AppUser,
     Consolidacao,
     ConsolidacaoEtapa,
+    ConsolidacaoAtribuicao,
     Pessoa,
     UserRole,
     WorkQueueItem,
@@ -37,11 +37,9 @@ from app.domain.consolidation import (
 )
 from app.domain.pipeline import PIPELINE_WRITE_ROLES
 from app.domain.work_queue import can_resolve, has_tenant_queue_scope
-from app.services.consolidation_whatsapp import CONSOLIDATION_WHATSAPP_ROLES
 
 
 _ACTIVE_QUEUE_STATUSES = ("aberto", "assumido")
-_WHATSAPP_TARGET_ROLES = tuple(sorted(CONSOLIDATION_WHATSAPP_ROLES))
 _QUEUE_ACTIONS = frozenset({"assume", "assign"})
 
 
@@ -49,6 +47,7 @@ _QUEUE_ACTIONS = frozenset({"assume", "assign"})
 class AssignmentResult:
     consolidacao: Consolidacao
     work_items: tuple[WorkQueueItem, ...]
+    atribuicao: ConsolidacaoAtribuicao | None = None
 
 
 @dataclass(frozen=True)
@@ -74,7 +73,7 @@ def assign_consolidacao(
     expected_work_queue_item_id: uuid.UUID | None = None,
     work_queue_action: Literal["assume", "assign"] | None = None,
 ) -> AssignmentResult:
-    """Assign an eligible responsible and synchronize every open linked task.
+    """Invite an eligible candidate; only queue self-assignment promotes immediately.
 
     The optional revision is mandatory for confirmed WhatsApp actions and
     detects stale or ABA proposals. Panel callers pass ``None`` because their
@@ -90,16 +89,14 @@ def assign_consolidacao(
     tenant = _tenant_id(current_user)
     consolidacao = _lock_consolidacao(db, tenant, consolidacao_id)
     _ensure_open(consolidacao)
+    invitations = _lock_invitations(db, tenant, consolidacao.id)
+    _expire_invitations(db, invitations)
     _require_expected_revision(consolidacao, expected_assignment_revision)
     if work_queue_action is None:
         _require_assignment_actor(current_user)
-        target_id = _resolve_assignment_target(
-            db,
-            tenant,
-            responsavel_id,
-            whatsapp=whatsapp,
-        )
+        target_id = responsavel_id
         work_items = _lock_linked_work_items(db, tenant, consolidacao.id)
+        _eligible_responsible(db, tenant, target_id, work_items)
     else:
         if whatsapp:
             raise TypeError("ação de fila não é permitida pelo WhatsApp")
@@ -121,6 +118,7 @@ def assign_consolidacao(
             {item.tipo for item in work_items if _is_active_queue_item(item)},
             action=work_queue_action,
         )
+        _eligible_responsible(db, tenant, target_id, work_items)
         if _queue_action_is_idempotent_or_conflicts(
             db,
             tenant,
@@ -128,20 +126,40 @@ def assign_consolidacao(
             target_id,
             action=work_queue_action,
         ):
-            return AssignmentResult(
-                consolidacao=consolidacao,
-                work_items=tuple(work_items),
-            )
+            if work_queue_action != "assume" or any(
+                row.status == "aceita" and row.responsavel_id == target_id for row in invitations
+            ):
+                return AssignmentResult(consolidacao, tuple(work_items))
 
-    consolidacao.responsavel_id = target_id
-    for item in work_items:
-        if _is_active_queue_item(item):
-            item.responsavel_id = target_id
-            item.status = "assumido"
-
+    _expire_invitations(db, invitations)
+    pending = next((row for row in invitations if row.status == "atribuida"), None)
+    if pending is not None and pending.responsavel_id == target_id and work_queue_action != "assume":
+        return AssignmentResult(consolidacao, tuple(work_items), pending)
+    if pending is None and consolidacao.responsavel_id == target_id:
+        accepted = next((row for row in reversed(invitations)
+                         if row.status == "aceita" and row.responsavel_id == target_id), None)
+        if accepted is not None:
+            return AssignmentResult(consolidacao, tuple(work_items), accepted)
+    now = _server_now(db)
+    if pending is not None:
+        pending.status = "substituida"
+        pending.respondida_em = now
+        db.flush()  # release the partial unique index before the new invitation
+    immediate = work_queue_action == "assume"
+    invitation = ConsolidacaoAtribuicao(
+        igreja_id=tenant, consolidacao_id=consolidacao.id, responsavel_id=target_id,
+        atribuida_por=uuid.UUID(current_user.app_user_id), criada_em=now,
+        prazo_aceite=now + dt.timedelta(hours=24),
+        status="aceita" if immediate else "atribuida",
+        respondida_em=now if immediate else None, autoatribuicao=immediate,
+    )
+    db.add(invitation)
+    consolidacao.assignment_revision += 1
+    if immediate:
+        _promote(consolidacao, work_items, target_id)
     db.flush()
     db.refresh(consolidacao)
-    return AssignmentResult(consolidacao=consolidacao, work_items=tuple(work_items))
+    return AssignmentResult(consolidacao, tuple(work_items), invitation)
 
 
 def complete_fonovisita(
@@ -175,7 +193,9 @@ def complete_fonovisita(
             detail="Apenas o consolidador responsável pode confirmar etapas",
         )
 
+    _lock_invitations(db, tenant, consolidacao.id)
     work_items = _lock_linked_work_items(db, tenant, consolidacao.id)
+    _require_effective_acceptance(db, tenant, consolidacao, current_user, work_items)
     work_item = next(
         (
             item
@@ -256,12 +276,14 @@ def advance_consolidacao_stage(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas o consolidador responsável pode confirmar etapas",
             )
+        _lock_invitations(db, tenant, consolidacao.id)
         work_items = _lock_linked_work_items(db, tenant, consolidacao.id)
         canonical = next(
             (item for item in work_items if item.tipo == "fonovisita"),
             None,
         )
         if canonical is None:
+            _require_effective_acceptance(db, tenant, consolidacao, current_user, work_items)
             # Legacy tracks predate the V3 canonical queue item. The human
             # panel preserves its existing stage advancement without creating
             # a queue row, alert or backfill. WhatsApp remains on
@@ -391,6 +413,97 @@ def queue_manual_fonovisita(
     return item, False
 
 
+def _server_now(db: Session) -> dt.datetime:
+    # clock_timestamp, not transaction_timestamp: a lock wait may cross the deadline.
+    from sqlalchemy import func
+    return db.execute(select(func.clock_timestamp())).scalar_one()
+
+
+def _lock_invitations(db: Session, tenant: uuid.UUID, track: uuid.UUID) -> list[ConsolidacaoAtribuicao]:
+    return list(db.execute(select(ConsolidacaoAtribuicao).where(
+        ConsolidacaoAtribuicao.igreja_id == tenant,
+        ConsolidacaoAtribuicao.consolidacao_id == track,
+    ).order_by(ConsolidacaoAtribuicao.criada_em, ConsolidacaoAtribuicao.id)
+      .with_for_update().execution_options(populate_existing=True)).scalars())
+
+
+def _expire_invitations(db: Session, rows: list[ConsolidacaoAtribuicao]) -> dt.datetime:
+    now = _server_now(db)
+    for row in rows:
+        if row.status == "atribuida" and now >= row.prazo_aceite:
+            row.status = "expirada"
+            row.respondida_em = now
+    db.flush()
+    return now
+
+
+def _eligible_responsible(db: Session, tenant: uuid.UUID, user_id: uuid.UUID,
+                          items: list[WorkQueueItem]) -> None:
+    _resolve_assignment_target(db, tenant, user_id)
+    roles = list(db.execute(select(UserRole.papel).where(
+        UserRole.igreja_id == tenant, UserRole.user_id == user_id,
+    ).with_for_update()).scalars())
+    if not all(can_resolve(roles, kind) for kind in {"fonovisita"} | {
+        item.tipo for item in items if _is_active_queue_item(item)
+    }):
+        raise HTTPException(422, "Responsável sem capacidade para esta consolidação")
+
+
+def _promote(track: Consolidacao, items: list[WorkQueueItem], user_id: uuid.UUID) -> None:
+    track.responsavel_id = user_id
+    for item in items:
+        if _is_active_queue_item(item):
+            item.responsavel_id = user_id
+            item.status = "assumido"
+
+
+def respond_consolidacao_invitation(
+    db: Session, current_user: CurrentUser, *, consolidacao_id: uuid.UUID,
+    atribuicao_id: uuid.UUID, aceitar: bool,
+) -> ConsolidacaoAtribuicao:
+    """Only the authenticated recipient can answer; caller commits terminal expiry too."""
+    if type(aceitar) is not bool:
+        raise TypeError("aceitar deve ser bool")
+    tenant = _tenant_id(current_user)
+    track = _lock_consolidacao(db, tenant, consolidacao_id)
+    _ensure_open(track)
+    rows = _lock_invitations(db, tenant, track.id)
+    row = next((entry for entry in rows if entry.id == atribuicao_id), None)
+    if row is None:
+        raise HTTPException(404, "Convite não encontrado")
+    if str(row.responsavel_id) != current_user.app_user_id:
+        raise HTTPException(403, "Apenas o destinatário pode responder ao convite")
+    items = _lock_linked_work_items(db, tenant, track.id)
+    _eligible_responsible(db, tenant, row.responsavel_id, items)
+    # Recheck after all account/role/task lock waits as well.
+    transition_time = _expire_invitations(db, rows)
+    desired = "aceita" if aceitar else "recusada"
+    if row.status == desired or row.status == "expirada":
+        return row
+    if row.status != "atribuida":
+        raise HTTPException(409, "Este convite já foi encerrado")
+    row.status = desired
+    row.respondida_em = transition_time
+    if aceitar:
+        _promote(track, items, row.responsavel_id)
+    db.flush()
+    return row
+
+
+def _require_effective_acceptance(db: Session, tenant: uuid.UUID, track: Consolidacao,
+                                  actor: CurrentUser, items: list[WorkQueueItem]) -> None:
+    rows = _lock_invitations(db, tenant, track.id)
+    _expire_invitations(db, rows)
+    if track.responsavel_id is None or str(track.responsavel_id) != actor.app_user_id:
+        raise HTTPException(403, "A fonovisita exige um responsável efetivo")
+    # No accepted history means the unchanged effective holder is legacy.
+    accepted = [row for row in rows if row.status == "aceita"]
+    if accepted and not any(row.responsavel_id == track.responsavel_id for row in accepted):
+        raise HTTPException(403, "A fonovisita exige aceite válido")
+    if rows:
+        _eligible_responsible(db, tenant, track.responsavel_id, items)
+
+
 def _tenant_id(current_user: CurrentUser) -> uuid.UUID:
     return uuid.UUID(current_user.igreja_id)
 
@@ -518,67 +631,19 @@ def _lock_stage(
 
 
 def _resolve_assignment_target(
-    db: Session,
-    tenant: uuid.UUID,
-    responsavel_id: uuid.UUID,
-    *,
-    whatsapp: bool,
+    db: Session, tenant: uuid.UUID, responsavel_id: uuid.UUID,
 ) -> uuid.UUID:
-    if whatsapp:
-        target_id = db.execute(
-            select(AppUser.id)
-            .join(
-                Pessoa,
-                and_(
-                    Pessoa.id == AppUser.pessoa_id,
-                    Pessoa.igreja_id == AppUser.igreja_id,
-                ),
-            )
-            .where(
-                AppUser.id == responsavel_id,
-                AppUser.igreja_id == tenant,
-                AppUser.status == "ativo",
-                Pessoa.igreja_id == tenant,
-                Pessoa.arquivada_em.is_(None),
-            )
-            .with_for_update()
-        ).scalar_one_or_none()
-        if target_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Responsável não encontrado",
-            )
-        capable = db.execute(
-            select(UserRole.id)
-            .where(
-                UserRole.igreja_id == tenant,
-                UserRole.user_id == target_id,
-                UserRole.papel.in_(_WHATSAPP_TARGET_ROLES),
-            )
-            .with_for_update()
-            .limit(1)
-        ).scalar_one_or_none()
-        if capable is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Responsável não pode atuar na consolidação",
-            )
-        return target_id
-
     target_id = db.execute(
-        select(AppUser.id)
-        .where(
-            AppUser.id == responsavel_id,
-            AppUser.igreja_id == tenant,
-            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
-        )
-        .with_for_update()
+        select(AppUser.id).join(Pessoa, and_(
+            Pessoa.id == AppUser.pessoa_id, Pessoa.igreja_id == AppUser.igreja_id,
+        )).where(
+            AppUser.id == responsavel_id, AppUser.igreja_id == tenant,
+            AppUser.status == "ativo", Pessoa.igreja_id == tenant,
+            Pessoa.arquivada_em.is_(None),
+        ).with_for_update()
     ).scalar_one_or_none()
     if target_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Responsável não encontrado",
-        )
+        raise HTTPException(404, "Responsável não encontrado")
     return target_id
 
 

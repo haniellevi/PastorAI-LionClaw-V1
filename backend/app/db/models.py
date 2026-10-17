@@ -1574,7 +1574,8 @@ class AgentActionReceipt(Base):
         CheckConstraint(
             "receipt_text IN ('Registro confirmado.', 'Relatório confirmado.', "
             "'Lembrete confirmado.', 'Lembretes de consolidação ativados.', "
-            "'Fonovisita confirmada.', 'Consolidação atribuída.')",
+            "'Fonovisita confirmada.', 'Consolidação atribuída.', "
+            "'Convite registrado. Aceite pendente no painel.')",
             name="agent_action_receipts_receipt_text_closed",
         ),
         Index("agent_action_receipts_conversation_idx", "igreja_id", "conversation_id"),
@@ -2682,6 +2683,37 @@ class Consolidacao(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
+
+
+class ConsolidacaoAtribuicao(Base):
+    """Invitation history; the track keeps the effective responsible until acceptance."""
+
+    __tablename__ = "consolidacao_atribuicoes"
+    __table_args__ = (
+        UniqueConstraint("igreja_id", "id"),
+        ForeignKeyConstraint(("igreja_id", "consolidacao_id"),
+                             ("consolidacoes.igreja_id", "consolidacoes.id"), ondelete="CASCADE"),
+        ForeignKeyConstraint(("igreja_id", "responsavel_id"),
+                             ("app_users.igreja_id", "app_users.id")),
+        ForeignKeyConstraint(("igreja_id", "atribuida_por"),
+                             ("app_users.igreja_id", "app_users.id")),
+        CheckConstraint("status in ('atribuida','aceita','recusada','expirada','substituida')"),
+        CheckConstraint("prazo_aceite = criada_em + interval '24 hours'"),
+        CheckConstraint("(status = 'atribuida') = (respondida_em is null)"),
+        CheckConstraint("not autoatribuicao or status = 'aceita'"),
+        Index("consolidacao_convite_pendente", "igreja_id", "consolidacao_id",
+              unique=True, postgresql_where=text("status = 'atribuida'")),
+    )
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("igrejas.id", ondelete="CASCADE"))
+    consolidacao_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    responsavel_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    atribuida_por: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String, server_default=text("'atribuida'"))
+    criada_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=text("clock_timestamp()"))
+    prazo_aceite: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    respondida_em: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    autoatribuicao: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class ConsolidacaoEtapa(Base):

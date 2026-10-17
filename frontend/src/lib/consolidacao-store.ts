@@ -1,18 +1,9 @@
 "use client";
 
 /**
- * Store de sessão das consolidações abertas/atribuídas pelo painel.
- *
- * O backend não expõe um GET de consolidações com o consolidacaoId e o
- * responsavel_id por pessoa; eles vêm como retorno de api-launch-decision
- * (e de assign-consolidador). Para habilitar a confirmação de etapas
- * (que exige consolidacaoId + gate de identidade), guardamos esse vínculo em
- * memória durante a sessão — keyed por pessoaId — compartilhado entre as telas
- * #consolidar e #consol-individual.
- *
- * É um estado efêmero (não persiste em reload); reflete apenas o que foi
- * lançado/atribuído nesta navegação. A regra de identidade definitiva continua
- * garantida no backend (403/409).
+ * Cache de sessão das consolidações. A leitura autenticada de atribuições
+ * reidrata responsável e etapas do servidor após reload e resposta ao convite.
+ * A autorização definitiva continua no backend.
  */
 import { useSyncExternalStore } from "react";
 

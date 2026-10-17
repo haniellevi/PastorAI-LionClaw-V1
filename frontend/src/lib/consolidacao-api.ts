@@ -58,7 +58,8 @@ export interface LaunchDecisionResult {
 export interface AssignResult {
   status: string;
   consolidacaoId: string;
-  responsavelId: string;
+  responsavelId: string | null;
+  atribuicaoId: string | null;
 }
 
 export interface AdvanceStageResult {
@@ -110,7 +111,7 @@ export async function launchDecision(
   return (await res.json()) as LaunchDecisionResult;
 }
 
-/** Atribui o consolidador responsável (habilita a confirmação de etapas). */
+/** Convida um responsável; a troca efetiva depende do aceite no painel. */
 export async function assignConsolidador(
   token: string,
   consolidacaoId: string,
@@ -281,4 +282,37 @@ export function canConclude(stages: Set<string>): boolean {
 /** Rótulo curto de uma etapa (para mensagens de pendência). */
 export function etapaLabel(etapa: string): string {
   return TRACK_STEPS.find((s) => s.etapa === etapa)?.label ?? etapa;
+}
+
+export interface ConsolidationInvitation {
+  id: string;
+  consolidacaoId: string;
+  responsavelId: string;
+  status: "atribuida" | "aceita" | "recusada" | "expirada" | "substituida";
+  prazoAceite: string;
+  autoatribuicao: boolean;
+}
+
+export interface AssignmentTrack {
+  id: string;
+  pessoaId: string;
+  pessoaNome: string;
+  responsavelId: string | null;
+  convite: ConsolidationInvitation | null;
+  etapasConfirmadas: string[];
+  prazoConexao: string | null;
+}
+
+export async function fetchAssignments(token: string, offset = 0): Promise<AssignmentTrack[]> {
+  const res = await authedFetch(token, `/consolidacao/atribuicoes?offset=${offset}`, { cache: "no-store" });
+  if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível carregar os convites.");
+  return await res.json() as AssignmentTrack[];
+}
+
+export async function answerInvitation(token: string, invitation: ConsolidationInvitation, aceitar: boolean): Promise<ConsolidationInvitation> {
+  const res = await authedFetch(token, `/consolidacao/${invitation.consolidacaoId}/atribuicoes/${invitation.id}/resposta`, {
+    method: "POST", body: JSON.stringify({ aceitar }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível responder ao convite.");
+  return await res.json() as ConsolidationInvitation;
 }

@@ -338,7 +338,7 @@ def test_consolidation_mutation_selection_stages_only_its_closed_target(
                 'responsavel_id': str(UUID('00000000-0000-0000-0000-0000000000b2')),
                 'assignment_revision': 4,
             },
-            'Consolidação atribuída.',
+            'Convite registrado. Aceite pendente no painel.',
             'consolidacao',
         ),
     ),
