@@ -35,7 +35,8 @@ O último backend registrado é `eb5a09b` (27/09); versão atual: **não verific
 | Entrega | Estado | O que falta |
 |---|---|---|
 | Limpeza recuperável de worktrees e branches locais | em andamento | Recuperação dos 37 worktrees conferida em 15/10, com 0 divergências; referências `refs/archive/worktrees-20261015/`. Isso é evidência registrada daquela conferência, não uma nova validação nesta entrega. Resta preservar trabalhos úteis e tratar os remanescentes. |
-| Voltar o checkout principal à main e revisar arquivos soltos | falta | Preservar alterações de `chore/neon-dev-setup`, scripts de backup, `output/` e demais arquivos antes de qualquer troca. Não tocar em `retomada-20261015`. |
+| Voltar o checkout principal à main | feito | Checkout em `main` `63a1b798` em 16/10. Estado anterior preservado na referência **local** `refs/archive/checkout-principal-20261016` (`6d75e085788fc9d0612217830010433b7fa45ce6`): 23 alterações/arquivos soltos conferidos, 0 divergências, e os dois commits locais preservados por ancestralidade. `chore/neon-dev-setup` mantida. Configuração local e `output/` permanecem no disco para decisão; `output/` não foi lido nem arquivado. Outros worktrees intactos. |
+| Decidir o destino dos arquivos locais restantes | falta | Revisão do proprietário: dois exemplos de ambiente alterados somente na referência local acima; `.claude/settings.json` arquivado e mantido no disco; 18 arquivos em `output/` fora do arquivo Git e sem leitura. Artefatos locais de ferramentas também permanecem no disco, sem limpeza autorizada. |
 
 Nenhum trabalho não salvo pode ser preservado apenas criando uma referência ao
 HEAD: é preciso guardar também as alterações e arquivos novos, conferir a
@@ -128,8 +129,12 @@ dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta 
 **Preservar para esta etapa:** pré-checagem de backup em
 `vps07a-source-20261005`, guarda de rede em `vps04a-network-guard`,
 `lock_timeout` em `elastic-kirch-0de4a3` e scripts de backup externo cifrado
-soltos no checkout principal. São candidatos, com integração/recuperação
-**não verificado** nesta entrega; não são correções declaradas entregues.
+(`deploy/offsite-encrypt-backup.sh` e `deploy/pull-offsite-backup.sh`). Os scripts,
+a avaliação Jev de 26/09 e as evidências de 04/10 estão somente na referência
+local `refs/archive/checkout-principal-20261016`, nos caminhos originais;
+preservação conferida, integração e funcionamento **não verificados** nesta
+entrega. Os demais candidatos continuam sem nova conferência de recuperação;
+não são correções declaradas entregues.
 
 Governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 de governança permanecem
 pausados; reavaliação somente por necessidade e decisão próprias. Isso não
