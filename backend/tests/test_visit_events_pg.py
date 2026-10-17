@@ -24,6 +24,9 @@ def visit(prayer):
     from app.visits.models import VisitEvent
     sql = MIGRATION.read_text().replace('public.', 'msg_idemp1.')
     with prayer.engine.begin() as conn:
+        # Mirror the enum used by real migrations, not only ORM Text metadata.
+        conn.exec_driver_sql("create type msg_idemp1.visit_role_fixture as enum ('admin','pastor','lider_g12','lider_consol','lider_celula','lider_mult','membro','operador')")
+        conn.exec_driver_sql("alter table msg_idemp1.user_roles alter column papel type msg_idemp1.visit_role_fixture using papel::text::msg_idemp1.visit_role_fixture")
         conn.exec_driver_sql(sql)
     meeting = uuid.uuid4()
     with prayer.factory.begin() as db:

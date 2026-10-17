@@ -35,7 +35,7 @@ create or replace function public.visit_actor() returns uuid language sql stable
 $$;
 create or replace function public.visit_role(roles text[]) returns boolean language sql stable as $$
  select exists(select 1 from public.user_roles where igreja_id=public.current_igreja_id()
- and user_id=public.visit_actor() and papel=any(roles))
+ and user_id=public.visit_actor() and papel::text=any(roles))
 $$;
 create or replace function public.visit_leads(meeting uuid) returns boolean language sql stable as $$
  select exists(select 1 from public.celula_reuniao r join public.celulas c
