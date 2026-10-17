@@ -143,6 +143,9 @@ def suggestions(db, actor, *, page, page_size):
     actor = fresh_actor(db, actor, ROLES)
     tenant = uuid.UUID(actor.igreja_id)
     filters = [Pessoa.igreja_id == tenant, Pessoa.arquivada_em.is_(None), Pessoa.sem_interesse.is_(False),
+        Pessoa.celula_id.is_(None),
+        ~exists(select(CelulaMembro.id).where(CelulaMembro.igreja_id == tenant,
+            CelulaMembro.pessoa_id == Pessoa.id, CelulaMembro.ativo.is_(True))),
         exists(select(VisitEvent.id).where(VisitEvent.igreja_id == tenant,
             VisitEvent.pessoa_id == Pessoa.id, VisitEvent.tipo == 'visita_celula'))]
     total = db.scalar(select(func.count()).select_from(Pessoa).where(*filters))
@@ -153,17 +156,16 @@ def suggestions(db, actor, *, page, page_size):
 
 
 def confirm_link(db, actor, pessoa_id, evidence):
+    actor = fresh_actor(db, actor, ROLES)
     tenant = uuid.UUID(actor.igreja_id)
-    # Same lock order as visit registration: meeting, cell, access, person.
+    # After authorization, lock domain rows in order: meeting, cell, person.
     event = _first(db, tenant, pessoa_id)
     if event is None:
-        fresh_actor(db, actor, ROLES)
         if _related(db, Pessoa, tenant, pessoa_id) is None:
             raise HTTPException(404, 'Pessoa não encontrada')
         raise HTTPException(409, 'Primeira visita não comprovada. Atualize a sugestão.')
     meeting = _related(db, CelulaReuniao, tenant, event.reuniao_id, True)
     cell = _related(db, Celula, tenant, meeting.celula_id, True) if meeting else None
-    fresh_actor(db, actor, ROLES)
     person = person_for_update(db, tenant, pessoa_id)
     first = _first(db, tenant, pessoa_id)
     if first is None or first.id != event.id:

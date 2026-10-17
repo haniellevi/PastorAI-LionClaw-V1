@@ -52,6 +52,10 @@ def test_visit_person_central_confirmation_and_repetition(candidate):
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert all(pool.map(lambda _: confirm(p, evidence), range(2)))
     assert confirm(p, evidence)
+    assert read(p)['already_linked'] is True
+    with p.factory() as db:
+        page = suggestions(db, p.actors['admin'], page=1, page_size=1)
+        assert page['items'] == [] and page['total'] == 0
     with p.factory() as db:
         person = db.get(Pessoa, p.person)
         assert person.celula_id == p.cell
@@ -290,3 +294,43 @@ def test_suggestion_page_batches_queries_independent_of_people_count(candidate):
         assert single['items'] == page['items'][:1]
     finally:
         event.remove(p.engine, 'before_cursor_execute', count)
+
+
+@pytest.mark.parametrize('role', ['operador', 'lider_celula'])
+def test_confirm_forbidden_before_domain_reads_or_writes(candidate, role):
+    from app.visits.cell_link import confirm_link
+    from sqlalchemy import event
+    p = candidate
+    evidence = read(p)
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+
+    event.listen(p.engine, 'before_cursor_execute', record)
+    try:
+        with p.factory() as db, pytest.raises(HTTPException) as exc:
+            confirm_link(db, p.actors[role], p.person, evidence)
+        assert exc.value.status_code == 403
+        assert not any('evento_visita' in sql or 'celula_reunioes' in sql
+                       or 'celulas' in sql or 'pessoas' in sql for sql in statements)
+        assert not any(sql.lstrip().startswith(('insert', 'update', 'delete')) for sql in statements)
+    finally:
+        event.remove(p.engine, 'before_cursor_execute', record)
+
+
+@pytest.mark.parametrize('link', ['person', 'active_membership', 'inactive_membership'])
+def test_central_filters_existing_links_before_count_and_pagination(candidate, link):
+    from app.visits.cell_link import suggestions
+    p = candidate
+    with p.factory.begin() as db:
+        if link == 'person':
+            db.get(Pessoa, p.person).celula_id = p.cell
+        else:
+            db.add(CelulaMembro(igreja_id=TENANT, pessoa_id=p.person,
+                               celula_id=p.cell, ativo=link == 'active_membership'))
+    with p.factory() as db:
+        page = suggestions(db, p.actors['pastor'], page=1, page_size=1)
+        expected = 1 if link == 'inactive_membership' else 0
+        assert page['total'] == len(page['items']) == expected
+        assert suggestions(db, p.actors['pastor'], page=2, page_size=1)['items'] == []
