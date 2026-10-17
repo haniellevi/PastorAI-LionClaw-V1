@@ -262,3 +262,11 @@ def test_live_prompt_yields_real_fonovisita_command(guided):
         is None
     )
     assert transport.calls == []
+
+
+def test_unknown_location_is_not_copied_to_workflow_metadata(guided):
+    _, reply, transport = send(guided, "Indique célula no bairro Rua Proibida 123")
+    assert transport.calls
+    assert reply.agent_privilege_context["stage"] == "handoff"
+    assert reply.agent_privilege_context["bairro"] is None
+    assert "Rua Proibida" not in reply.texto

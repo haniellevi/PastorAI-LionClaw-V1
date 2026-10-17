@@ -192,6 +192,10 @@ def reply_still_authorized(db, message, *, conversation, recipient_phone, instan
     contact = _contact(db, outcome)
     if contact is None or contact.pessoa_id != person_id:
         return False
+    # Missing results contain no facts to refresh and never retain the input.
+    # A person may have typed a home address instead of a neighborhood.
+    if raw["stage"] == "handoff":
+        return raw["bairro"] is None and message.texto == catalog.MISSING
     response, stage, bairro = service.resolve(
         db, igreja_id=message.igreja_id, bairro=raw["bairro"]
     )

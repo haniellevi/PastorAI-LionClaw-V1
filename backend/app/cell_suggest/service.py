@@ -37,7 +37,7 @@ def resolve(db, *, igreja_id, bairro):
         if matches:
             # We cannot infer adjacent neighborhoods or cities from cell data.
             return catalog.AMBIGUOUS, "ask", None
-        return catalog.MISSING, "handoff", key
+        return catalog.MISSING, "handoff", None
     info = load_public_church_info(db, igreja_id=igreja_id, bairro=key)
     cells = [
         safe
@@ -51,7 +51,7 @@ def resolve(db, *, igreja_id, bairro):
         )
     ]
     if not cells:
-        return catalog.MISSING, "handoff", key
+        return catalog.MISSING, "handoff", None
     lines = ["Células com divulgação autorizada nesse bairro (até 5):"]
     for cell in cells:
         meeting = _canonical_meeting(cell)
