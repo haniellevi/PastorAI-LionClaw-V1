@@ -18,7 +18,7 @@ from tests.test_cell_report_v1a_reminder_pg import (  # noqa: F401
 pytestmark = pytest.mark.rls_integration
 
 
-@pytest.mark.parametrize('blocked', ('global', 'pilot', 's3', 'optout', 'handoff', 'refusal', 'access'))
+@pytest.mark.parametrize('blocked', ('global', 'pilot', 's3', 'optout', 'refusal', 'access'))
 def test_due_suppression_is_terminal_and_scoped_to_occurrence(reminder_turn, monkeypatch, blocked):
     from app.db.models import AppUser, CellReportReminderPreference
     turn = reminder_turn
@@ -33,8 +33,6 @@ def test_due_suppression_is_terminal_and_scoped_to_occurrence(reminder_turn, mon
             conversation = session.get(Conversation, turn.conversation_id)
             if blocked == 'optout':
                 session.get(Pessoa, conversation.pessoa_id).optout = True
-            elif blocked == 'handoff':
-                conversation.estado = 'humano'
             elif blocked == 'refusal':
                 session.add(CellReportReminderPreference(igreja_id=_IGREJA,
                     pessoa_id=conversation.pessoa_id, disabled_at=_NOW, updated_at=_NOW))
@@ -45,7 +43,7 @@ def test_due_suppression_is_terminal_and_scoped_to_occurrence(reminder_turn, mon
     rows = _v1a_outbox_rows(turn)
     assert len(rows) == 1 and rows[0].state == 'cancelado'
     expected = {'global': 'gate_fechado', 'pilot': 'gate_fechado', 's3': 'gate_fechado',
-        'optout': 'pessoa_revogada', 'handoff': 'atendimento_humano',
+        'optout': 'pessoa_revogada',
         'refusal': 'lembretes_recusados', 'access': 'lideranca_revogada'}
     assert rows[0].terminal_reason == expected[blocked]
     assert rows[0].transport_started_at is None and rows[0].sent_at is None
@@ -311,4 +309,36 @@ def test_offline_connection_remains_schedulable_unless_gate_is_closed(reminder_t
         reminders.dispatch_cell_report_reminders(turn.factory, provider,
             worker_id='g12-connection-recovered', now=_NOW + dt.timedelta(minutes=1))
         assert len(provider.calls) == 1
+        assert provider.calls[0][2] == reminders.cell_report_reminder_text()
+
+
+@pytest.mark.parametrize('closed_gate', (False, True))
+def test_handoff_remains_schedulable_unless_gate_is_closed(reminder_turn, monkeypatch, closed_gate):
+    turn = reminder_turn
+    with turn.factory.begin() as session:
+        conversation = session.get(Conversation, turn.conversation_id)
+        previous_state = conversation.estado
+        conversation.estado = 'humano'
+    if closed_gate:
+        monkeypatch.setenv('ALLOW_REAL_SENDS', 'false')
+        get_settings.cache_clear()
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=_NOW) == int(closed_gate)
+    rows = _v1a_outbox_rows(turn)
+    if closed_gate:
+        assert len(rows) == 1 and rows[0].state == 'cancelado'
+        assert rows[0].terminal_reason == 'gate_fechado'
+    else:
+        assert rows == []
+    with turn.factory.begin() as session:
+        session.get(Conversation, turn.conversation_id).estado = previous_state
+    recovered_at = _NOW + dt.timedelta(minutes=1)
+    assert reminders.schedule_due_cell_report_reminders(turn.factory, now=recovered_at) == int(not closed_gate)
+    provider = _ReminderTransport(turn)
+    reminders.dispatch_cell_report_reminders(turn.factory, provider,
+        worker_id='g12-handoff-ended', now=recovered_at)
+    rows = _v1a_outbox_rows(turn)
+    assert len(rows) == 1
+    assert rows[0].state == ('cancelado' if closed_gate else 'enviado')
+    assert len(provider.calls) == int(not closed_gate)
+    if not closed_gate:
         assert provider.calls[0][2] == reminders.cell_report_reminder_text()
