@@ -256,3 +256,11 @@ def get_health(
             for h in window
         ]
     )
+
+
+@router.get('/visit-cell-suggestions')
+def visit_cell_suggestions(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                           db: Session = Depends(get_db),
+                           current_user: CurrentUser = Depends(require_central)):
+    from app.visits.cell_link import suggestions
+    return suggestions(db, current_user, page=page, page_size=page_size)

@@ -24,6 +24,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
 import { getDashboard, type CentralDashboard } from "@/lib/cell-central-api";
 
+import { VisitCellSuggestions } from "../contacts/VisitCellSuggestions";
 import { CentralTabs } from "./CentralTabs";
 import { DashboardPanel } from "./DashboardPanel";
 import { ManageCellsPanel } from "./ManageCellsPanel";
@@ -110,6 +111,7 @@ export function CentralCelulaScreen() {
       </div>
 
       <section className="cc-workspace" aria-label="Gestão central das células">
+        {tab === "dashboard" ? <VisitCellSuggestions onConfirmed={refreshDashboard} /> : null}
         <CentralTabs active={tab} onChange={openTab} badges={badges}>
           {tab === "dashboard" && token ? (
             <DashboardPanel

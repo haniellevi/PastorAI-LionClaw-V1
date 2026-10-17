@@ -1305,3 +1305,26 @@ def reactivate_communications(
         reativada_por=str(current_user.app_user_id),
         ja_ativa=False,
     )
+
+
+class VisitCellConfirmation(BaseModel):
+    evento_id: uuid.UUID
+    celula_id: uuid.UUID
+    revision: str
+
+
+@router.get('/{contact_id}/visit-cell-suggestion')
+def visit_cell_suggestion(contact_id: uuid.UUID, db: Session = Depends(get_db),
+                          current_user: CurrentUser = Depends(require_central)):
+    from app.visits.cell_link import suggestion
+    return suggestion(db, current_user, contact_id)
+
+
+@router.post('/{contact_id}/visit-cell-suggestion/confirm')
+def confirm_visit_cell(contact_id: uuid.UUID, payload: VisitCellConfirmation,
+                       db: Session = Depends(get_db),
+                       current_user: CurrentUser = Depends(require_central)):
+    from app.visits.cell_link import confirm_link
+    result = confirm_link(db, current_user, contact_id, payload.model_dump(mode='json'))
+    db.commit()
+    return result

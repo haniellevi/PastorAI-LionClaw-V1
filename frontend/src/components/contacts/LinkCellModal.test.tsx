@@ -176,3 +176,15 @@ describe("LinkCellModal — DsDialog acessível", () => {
     });
   });
 });
+
+
+it("selecionar não grava; confirmar é uma etapa separada e explica a consolidação", () => {
+  const onLink = vi.fn();
+  act(() => root.render(<LinkCellModal cells={cells} contactName="Pessoa sintética" busy={false} error={null} onClose={vi.fn()} onLink={onLink} />));
+  fire(rowByName("Célula Alfa"), "click");
+  expect(onLink).not.toHaveBeenCalled();
+  expect(container.textContent).toContain("Ao confirmar, o acompanhamento será marcado como consolidado");
+  const confirm = Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Confirmar vínculo")!;
+  fire(confirm, "click");
+  expect(onLink).toHaveBeenCalledExactlyOnceWith("c1");
+});

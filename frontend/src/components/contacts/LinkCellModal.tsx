@@ -5,7 +5,7 @@
  * Bloqueia células inativas ou sem líder no próprio seletor (regra do backend),
  * e exibe erro inline quando o vínculo falha (ex.: 409 célula inativa).
  */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
 import { fetchCellLookupPage, type CellLookup } from "@/lib/lookup-api";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
@@ -33,6 +33,7 @@ export function LinkCellModal({
   onClose: () => void;
   onLink: (celulaId: string) => void;
 }) {
+  const [selected, setSelected] = useState<CellLookup | null>(null);
   const title = "Conectar à célula";
   const loadPage = useCallback((q: string, page: number, signal: AbortSignal) => fetchCellLookupPage(token!, {q,page,signal}), [token]);
 
@@ -56,7 +57,7 @@ export function LinkCellModal({
         </div>
       ) : null}
 
-      {token ? <PaginatedLookup<CellLookup> loadPage={loadPage} selected={null} onSelect={cell => { if (cell?.ativo && cell.liderId && !busy) onLink(cell.id); }} label="Buscar célula" inputId="link-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <div className="picker">
+      {token ? <PaginatedLookup<CellLookup> loadPage={loadPage} selected={selected} onSelect={cell => { if (!busy) setSelected(cell); }} label="Buscar célula" inputId="link-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <div className="picker">
         {cells.length === 0 ? (
           <p className="sub">Nenhuma célula cadastrada.</p>
         ) : (
@@ -71,7 +72,8 @@ export function LinkCellModal({
                 disabled={blocked || busy}
                 aria-disabled={blocked || undefined}
                 title={blocked ? `Indisponível · ${reason}` : undefined}
-                onClick={() => !blocked && onLink(c.id)}
+                aria-pressed={selected?.id === c.id}
+                onClick={() => !blocked && setSelected(c as CellLookup)}
               >
                 <span className="nm">{c.nome}</span>
                 {blocked ? (
@@ -84,6 +86,8 @@ export function LinkCellModal({
           })
         )}
       </div>}
+      {selected ? <div role="status"><p>Célula selecionada: {selected.nome}</p><p>Ao confirmar, o acompanhamento será marcado como consolidado.</p></div> : null}
+      <button type="button" className="btn btn-primary" disabled={busy || !selected} onClick={() => { if (selected && !busy) onLink(selected.id); }}>Confirmar vínculo</button>
     </DsDialog>
   );
 }
