@@ -7,6 +7,7 @@ import inspect
 import pickle
 import uuid
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -1318,6 +1319,27 @@ def test_human_writer_wins_then_agent_confirmation_conflicts(
             self.commit_calls = 0
             self.added: list[object] = []
 
+        def execute(self, statement):
+            from app.db.models import AppUser, UserRole, Pessoa
+            from app.visits.models import VisitEvent
+            entity = statement.column_descriptions[0].get("entity")
+            values = {
+                AppUser: SimpleNamespace(id=ACCESS, igreja_id=TENANT, clerk_user_id="clerk-human-writer", status="ativo"),
+                Pessoa: SimpleNamespace(id=ACTOR, igreja_id=TENANT, nome="Pessoa sintética", tipo="contato", etapa="ganhar", subetapa="novo_contato"),
+                UserRole: "lider_celula", VisitEvent: None,
+            }
+            assert entity in values
+            value = values[entity]
+            return SimpleNamespace(scalar_one_or_none=lambda: value,
+                scalars=lambda: SimpleNamespace(all=lambda: [value] if value else []))
+
+        def scalar(self, statement):
+            assert "clock_timestamp" in str(statement)
+            return dt.datetime.now(dt.timezone.utc)
+
+        def get(self, model, key):
+            return next((obj for obj in self.added if isinstance(obj,model) and obj.id==key), None)
+
         def add(self, value: object) -> None:
             if getattr(value, "id", None) is None:
                 value.id = uuid.uuid4()
@@ -1414,7 +1436,7 @@ def test_human_writer_wins_then_agent_confirmation_conflicts(
     elif writer == "register_visitor":
         cell_meetings.register_visitor(
             str(MEETING),
-            cell_meetings.RegisterVisitorRequest(nome_visitante="Visitante"),
+            cell_meetings.RegisterVisitorRequest(pessoa_id=str(ACTOR), nome_visitante="Visitante"),
             human_db,  # type: ignore[arg-type]
             current_user,
         )
@@ -1452,7 +1474,8 @@ def test_human_writer_wins_then_agent_confirmation_conflicts(
     else:
         assert meeting.relatorio_status == "pendente"
         assert meeting.relatorio_snapshot is None
-    assert human_db.flush_calls == human_db.commit_calls == 1
+    assert human_db.commit_calls == 1
+    assert human_db.flush_calls == (2 if writer == "register_visitor" else 1)
 
     agent_db = _authorized_session(meeting)
     with pytest.raises(application.CellReportApplicationError) as raised:

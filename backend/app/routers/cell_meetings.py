@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Literal, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Response, Query, APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import nulls_last, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -689,6 +689,7 @@ class SetAttendanceOut(BaseModel):
 # Schemas — visitantes presentes / expectativas
 # ---------------------------------------------------------------------------
 class RegisterVisitorRequest(BaseModel):
+    pessoa_id: str | None = None
     nome_visitante: str
     expectativa_id: str | None = None
     observacao: str | None = None
@@ -698,7 +699,7 @@ class RegisterVisitorRequest(BaseModel):
     def _nome(cls, value: str) -> str:
         return _require_text(value, _NOME_VISITANTE_MAX, "nome_visitante")
 
-    @field_validator("expectativa_id")
+    @field_validator("expectativa_id", "pessoa_id")
     @classmethod
     def _exp_uuid(cls, value: str | None) -> str | None:
         if value is None:
@@ -712,6 +713,10 @@ class RegisterVisitorRequest(BaseModel):
 
 
 class VisitorOut(BaseModel):
+    pessoa_id: str | None = None
+    origem: str | None = None
+    registrado_por: str | None = None
+    responsavel_nome: str | None = None
     id: str
     reuniao_id: str
     nome_visitante: str
@@ -839,6 +844,10 @@ class ReportVisitante(BaseModel):
     nome_visitante: str
     expectativa_id: str | None = None
     observacao: str | None = None
+    pessoa_id: str | None = None
+    origem: str | None = None
+    registrado_por: str | None = None
+    responsavel_nome: str | None = None
 
 
 class ReportRecord(BaseModel):
@@ -1321,47 +1330,66 @@ def register_visitor(
     A expectativa vinculada precisa ser da MESMA reunião no tenant (422 caso
     contrário). Bloqueado após o relatório enviado (409). 404 fora do líder/tenant.
     """
+    if payload.pessoa_id is None:
+        with _report_writer_storage_boundary(db):
+            reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+            _assert_report_open(reuniao)
+            igreja_id = uuid.UUID(current_user.igreja_id)
+
+            expectativa_uuid: uuid.UUID | None = None
+            if payload.expectativa_id is not None:
+                expectativa_uuid = uuid.UUID(payload.expectativa_id)
+                exp = db.execute(
+                    select(CelulaExpectativaVisitante).where(
+                        CelulaExpectativaVisitante.id == expectativa_uuid,
+                        CelulaExpectativaVisitante.igreja_id == igreja_id,
+                        CelulaExpectativaVisitante.reuniao_id == reuniao.id,
+                    )
+                ).scalar_one_or_none()
+                if exp is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="expectativa_id não encontrada para esta reunião",
+                    )
+
+            _invalidate_pending_agent_report_for_human_takeover(reuniao)
+            visitante = CelulaVisitante(
+                igreja_id=igreja_id,
+                reuniao_id=reuniao.id,
+                expectativa_id=expectativa_uuid,
+                nome_visitante=payload.nome_visitante,
+                observacao=payload.observacao,
+            )
+            db.add(visitante)
+            db.flush()
+            db.refresh(visitante)
+            db.commit()
+            return VisitorOut(
+                id=str(visitante.id),
+                reuniao_id=str(visitante.reuniao_id),
+                nome_visitante=visitante.nome_visitante,
+                expectativa_id=(
+                    str(visitante.expectativa_id) if visitante.expectativa_id else None
+                ),
+            )
+
+    from app.visits.service import register_cell_visit
     with _report_writer_storage_boundary(db):
-        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
-        _assert_report_open(reuniao)
-        igreja_id = uuid.UUID(current_user.igreja_id)
-
-        expectativa_uuid: uuid.UUID | None = None
-        if payload.expectativa_id is not None:
-            expectativa_uuid = uuid.UUID(payload.expectativa_id)
-            exp = db.execute(
-                select(CelulaExpectativaVisitante).where(
-                    CelulaExpectativaVisitante.id == expectativa_uuid,
-                    CelulaExpectativaVisitante.igreja_id == igreja_id,
-                    CelulaExpectativaVisitante.reuniao_id == reuniao.id,
-                )
-            ).scalar_one_or_none()
-            if exp is None:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="expectativa_id não encontrada para esta reunião",
-                )
-
-        _invalidate_pending_agent_report_for_human_takeover(reuniao)
-        visitante = CelulaVisitante(
-            igreja_id=igreja_id,
-            reuniao_id=reuniao.id,
-            expectativa_id=expectativa_uuid,
-            nome_visitante=payload.nome_visitante,
-            observacao=payload.observacao,
-        )
-        db.add(visitante)
-        db.flush()
-        db.refresh(visitante)
+        event = register_cell_visit(db, current_user, reuniao_id=reuniao_id,
+            pessoa_id=uuid.UUID(payload.pessoa_id) if payload.pessoa_id else None,
+            expectativa_id=uuid.UUID(payload.expectativa_id) if payload.expectativa_id else None,
+            observacao=payload.observacao)
+        visitor = db.get(CelulaVisitante, event.visitante_id)
         db.commit()
-        return VisitorOut(
-            id=str(visitante.id),
-            reuniao_id=str(visitante.reuniao_id),
-            nome_visitante=visitante.nome_visitante,
-            expectativa_id=(
-                str(visitante.expectativa_id) if visitante.expectativa_id else None
-            ),
-        )
+        return VisitorOut(id=str(visitor.id), reuniao_id=str(visitor.reuniao_id),
+            nome_visitante=visitor.nome_visitante,
+            expectativa_id=str(visitor.expectativa_id) if visitor.expectativa_id else None,
+            pessoa_id=str(event.pessoa_id), origem=event.origem,
+            registrado_por=str(event.registrado_por), responsavel_nome=(
+                current_user.nome if str(event.registrado_por) == current_user.app_user_id else
+                db.scalar(select(AppUser.nome).where(AppUser.id == event.registrado_por,
+                    AppUser.igreja_id == event.igreja_id))))
+
 
 
 # ---------------------------------------------------------------------------
@@ -1659,7 +1687,7 @@ def submit_report(
             db,
             uuid.UUID(current_user.igreja_id),
             reuniao,
-        ).model_dump()
+        ).model_dump(exclude={"visitantes": {"__all__": {"pessoa_id", "origem", "registrado_por", "responsavel_nome"}}})
         try:
             finalize_human_cell_report(
                 db,
@@ -1747,7 +1775,7 @@ def get_report(
                 ),
             )
         try:
-            return ReportOut(**snapshot)
+            return _with_visit_provenance(db, igreja_id, reuniao, ReportOut(**snapshot))
         except (TypeError, ValidationError):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1757,7 +1785,7 @@ def get_report(
                 },
             ) from None
 
-    return _build_report_out(db, igreja_id, reuniao)
+    return _with_visit_provenance(db, igreja_id, reuniao, _build_report_out(db, igreja_id, reuniao))
 
 
 # ---------------------------------------------------------------------------
@@ -1849,3 +1877,26 @@ def list_leader_cell_members(
             for m in rows
         ]
     )
+
+
+@router.get("/cell-meetings/{reuniao_id}/visitor-people")
+def lookup_visit_people(reuniao_id: str, response: Response, q: str = Query(default="", max_length=80),
+    page: int = Query(default=1, ge=1), pageSize: int = Query(default=20, ge=1, le=20),
+    db: Session = Depends(get_db), current_user: CurrentUser = Depends(get_current_user)):
+    from app.visits.service import lookup_people
+    response.headers["cache-control"] = "private, no-store"
+    with _report_writer_storage_boundary(db):
+        return lookup_people(db, current_user, reuniao_id=reuniao_id, q=q, page=page, page_size=pageSize)
+
+
+def _with_visit_provenance(db, tenant, meeting, report):
+    # Runtime-only projection: no new person links copied into frozen snapshots.
+    if not report.visitantes:
+        return report
+    from app.visits.models import VisitEvent
+    rows = db.execute(select(VisitEvent, AppUser.nome).join(AppUser,
+        (AppUser.id == VisitEvent.registrado_por) & (AppUser.igreja_id == VisitEvent.igreja_id)
+    ).where(VisitEvent.igreja_id == tenant, VisitEvent.reuniao_id == meeting.id)).all()
+    meta = {event.visitante_id: dict(pessoa_id=str(event.pessoa_id), origem=event.origem,
+        registrado_por=str(event.registrado_por), responsavel_nome=name) for event, name in rows}
+    return report.model_copy(update={"visitantes": [v.model_copy(update=meta.get(uuid.UUID(v.id), {})) for v in report.visitantes]})

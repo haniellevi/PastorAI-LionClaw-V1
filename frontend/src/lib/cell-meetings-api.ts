@@ -96,6 +96,7 @@ export interface SetAttendanceOut {
 }
 
 export interface RegisterVisitorInput {
+  pessoa_id?: string | null;
   nome_visitante: string;
   expectativa_id?: string | null;
   observacao?: string | null;
@@ -103,6 +104,10 @@ export interface RegisterVisitorInput {
 
 /** Visitante registrado pelo líder (VisitorOut). */
 export interface VisitorOut {
+  pessoa_id?: string | null;
+  origem?: string | null;
+  registrado_por?: string | null;
+  responsavel_nome?: string | null;
   id: string;
   reuniao_id: string;
   nome_visitante: string;
@@ -177,6 +182,10 @@ export interface ReportPresenca {
 }
 
 export interface ReportVisitante {
+  pessoa_id?: string | null;
+  origem?: string | null;
+  registrado_por?: string | null;
+  responsavel_nome?: string | null;
   id: string;
   nome_visitante: string;
   expectativa_id: string | null;
@@ -390,6 +399,7 @@ export async function registerVisitor(
   const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/visitors`, {
     method: "POST",
     body: JSON.stringify({
+      pessoa_id: input.pessoa_id,
       nome_visitante: input.nome_visitante,
       expectativa_id: input.expectativa_id ?? null,
       observacao: input.observacao ?? null,
@@ -487,4 +497,14 @@ export async function getReport(
     throw new ApiError(res.status, detail ?? "Não foi possível carregar o relatório.");
   }
   return (await res.json()) as ReportOut;
+}
+
+
+export interface VisitPerson {id: string; nome: string; telefone: string}
+export async function lookupVisitorPeople(token: string, meetingId: string,
+  params: {q?: string; page?: number; pageSize?: number; signal?: AbortSignal}) {
+  const query = new URLSearchParams({q: params.q ?? "", page: String(params.page ?? 1), pageSize: String(Math.min(params.pageSize ?? 20,20))});
+  const response = await authedFetch(token, `/cell-meetings/${meetingId}/visitor-people?${query}`, {signal:params.signal});
+  if (!response.ok) throw new ApiError(response.status, "Não foi possível buscar as pessoas desta visita.");
+  return await response.json() as {items:VisitPerson[]; page:number; pageSize:number; total:number};
 }

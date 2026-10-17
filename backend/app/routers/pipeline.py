@@ -379,9 +379,13 @@ def update_pipeline(
             status_code=status.HTTP_409_CONFLICT, detail=result.reason
         )
 
-    pessoa.etapa = payload.etapa
-    if payload.subetapa is not None:
-        pessoa.subetapa = payload.subetapa
+    if payload.subetapa == "visitante":
+        from app.visits.service import record_manual_transition
+        pessoa = record_manual_transition(db, current_user, pessoa_id=pessoa.id, etapa=payload.etapa)
+    else:
+        pessoa.etapa = payload.etapa
+        if payload.subetapa is not None:
+            pessoa.subetapa = payload.subetapa
     db.flush()  # fires trg_promote_pipeline; may auto-advance further
     db.refresh(pessoa)
     db.commit()
