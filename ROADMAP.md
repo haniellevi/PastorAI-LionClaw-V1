@@ -48,8 +48,8 @@ branches remotas sem ordem própria. Não apagar migrations para organizar pasta
 
 | Entrega | Estado | Implementação / teste | Produção |
 |---|---|---|---|
-| Pedido de oração pelo WhatsApp (V4) | em andamento | Primeira versão de texto e pedido próprio na [PR #484](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/484): implementada e testada localmente; confirmação explícita, destinatários autorizados e RLS. Desligada por igreja e por trava de release; sem produção. Inbox privado e áudio ficam para a próxima PR. | não verificado em produção |
-| Indicar células próximas | falta | Bairro já tem consulta; distância e divulgação segura de endereços residenciais ainda faltam. | não verificado |
+| Pedido de oração pelo WhatsApp (V4) | feito | Primeira versão de texto e pedido próprio integrada na main pela [PR #484](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/484), merge `2d408d92`; implementação e testes registrados. DESLIGADO por igreja e por trava de release; sem produção. Esconder no inbox e áudio ficam para depois. | não verificado em produção |
+| Indicar células próximas | em andamento | Indicação guiada somente por bairro na [PR #486](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/486): implementação e testes locais; aguarda validação final e integração. Só células ativas com divulgação autorizada, sem endereço ou dados do líder; sem cálculo de distância ou vínculo automático. DESLIGADO por igreja e por trava de release; sem produção. | não verificado em produção |
 | Fluxo G12: ganhar, consolidar e célula | em andamento | Há cadastro, fila, fonovisita, atribuição e relatório. Falta aceitar com o piloto o caminho completo: contato → visitante por evento real, vínculo com célula, decisão, acompanhamento e relatório/aviso de atraso. | Fluxo completo: não verificado |
 | Aceite pastoral do atendimento | falta | Aprovar 20 conversas reais, incluindo visitante, oração, horário, opt-out e crise; corrigir os problemas encontrados. | não verificado |
 

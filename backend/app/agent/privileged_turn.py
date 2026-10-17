@@ -100,6 +100,10 @@ def reply_metadata(
 def reply_still_authorized(session, message, *, conversation, recipient_phone, instance) -> bool:
     """Revalidate every S3 reply immediately before transport, including retry."""
     raw = message.agent_privilege_context
+    if isinstance(raw, dict) and raw.get('kind') == 'cell_suggest':
+        from app.cell_suggest.turn import reply_still_authorized as cell_authorized
+        return cell_authorized(session, message, conversation=conversation,
+                               recipient_phone=recipient_phone, instance=instance)
     if isinstance(raw, dict) and raw.get('kind') == 'prayer':
         from app.prayer.turn import reply_still_authorized as prayer_authorized
         return prayer_authorized(session, message, conversation=conversation,
@@ -266,6 +270,10 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
 
 
 def promote_delivered_proposal(session, message) -> None:
+    if isinstance(message.agent_privilege_context, dict) and message.agent_privilege_context.get('kind') == 'cell_suggest':
+        from app.cell_suggest.turn import mark_delivered
+        mark_delivered(session, message)
+        return
     if isinstance(message.agent_privilege_context, dict) and message.agent_privilege_context.get('kind') == 'prayer':
         from app.prayer.turn import mark_delivered
         mark_delivered(session, message)

@@ -546,3 +546,9 @@ def route_prayer_intent(text: str, *, pending: bool = False) -> str:
     """Own-contact V4 route; deterministic, without Jev or privileged identity."""
     from app.prayer.catalog import classify
     return classify(text, pending=pending)
+
+
+def route_cell_suggest_intent(texto, *, pending=False):
+    """Closed public-neighborhood route, without LLM or Jev."""
+    from app.cell_suggest.catalog import route
+    return route(texto, pending=pending)
