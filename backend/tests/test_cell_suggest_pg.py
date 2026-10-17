@@ -99,9 +99,14 @@ def test_multiple_cells_and_private_inactive_foreign_excluded(guided):
 
 def test_ambiguous_bairro_asks_again_then_resolves(guided):
     add_cell(guided, bairro="São João", nome="Alegria")
-    assert_reply(guided, "Quero encontrar uma célula")
-    assert "bairro completo" in assert_reply(guided, "São").lower()
-    assert "Alegria" in assert_reply(guided, "São João")
+    ask = assert_reply(guided, "Quero encontrar uma célula")
+    ambiguous = assert_reply(guided, "São")
+    assert "bairro completo" in ambiguous.lower()
+    assert "cidade" not in ask.lower()
+    assert "cidade" not in ambiguous.lower()
+    resolved = assert_reply(guided, "São João")
+    assert "Alegria" in resolved
+    assert "cidade" not in resolved.lower()
 
 
 def test_unknown_bairro_hands_off_without_inventing_neighbors(guided):
@@ -270,3 +275,56 @@ def test_unknown_location_is_not_copied_to_workflow_metadata(guided):
     assert reply.agent_privilege_context["stage"] == "handoff"
     assert reply.agent_privilege_context["bairro"] is None
     assert "Rua Proibida" not in reply.texto
+
+
+def test_new_publication_after_commit_suppresses_missing_and_handoff(guided):
+    from sqlalchemy import event, update
+    from app.db.models import Conversation
+    from app.workers import queue_worker as worker
+    from app.domain.agent_reply import AGENT_REPLY_PENDING, AGENT_REPLY_SUPPRESSED
+
+    with guided.factory.begin() as db:
+        db.get(Celula, guided.cell).divulgar_whatsapp = False
+    outcome = inbound(guided, "Indique célula no bairro São José")
+    published = []
+
+    def publish_after_missing_commit(session):
+        # Real second transaction between durable reply commit and transport.
+        if published:
+            return
+        with guided.engine.begin() as conn:
+            pending = conn.scalar(
+                select(Message.id).where(
+                    Message.igreja_id == TENANT,
+                    Message.conversation_id == guided.conv,
+                    Message.agent_reply_state == AGENT_REPLY_PENDING,
+                    Message.agent_privilege_context["stage"].astext == "handoff",
+                )
+            )
+            if pending is not None:
+                conn.execute(
+                    update(Celula)
+                    .where(
+                        Celula.id == guided.cell,
+                        Celula.igreja_id == TENANT,
+                    )
+                    .values(divulgar_whatsapp=True)
+                )
+                published.append(pending)
+
+    transport = _ClassifiedEvolution()
+    event.listen(guided.factory.class_, "after_commit", publish_after_missing_commit)
+    try:
+        worker.run_agent_for_message(
+            guided.factory, outcome, evolution_client=transport
+        )
+    finally:
+        event.remove(
+            guided.factory.class_, "after_commit", publish_after_missing_commit
+        )
+    assert len(published) == 1
+    assert transport.calls == []
+    with guided.factory() as db:
+        assert db.get(Message, published[0]).agent_reply_state == AGENT_REPLY_SUPPRESSED
+        assert db.get(Message, published[0]).agent_privilege_context["bairro"] is None
+        assert db.get(Conversation, guided.conv).estado == "ia"

@@ -7,7 +7,7 @@ from app.agent.read_only_info import (
 )
 
 ASK = "Qual é o bairro onde você procura uma célula? Informe somente o bairro, sem endereço de casa. Não calculo distância."
-AMBIGUOUS = "Informe o bairro completo e a cidade para a equipe conferir. Não consigo distinguir esses bairros com os dados públicos cadastrados."
+AMBIGUOUS = "Informe somente o bairro completo para a equipe conferir. Não consigo distinguir esses bairros com os dados públicos cadastrados."
 MISSING = "Não encontrei célula pública para esse bairro. Vou encaminhar à equipe da igreja para ajudar."
 
 

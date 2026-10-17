@@ -192,12 +192,14 @@ def reply_still_authorized(db, message, *, conversation, recipient_phone, instan
     contact = _contact(db, outcome)
     if contact is None or contact.pessoa_id != person_id:
         return False
-    # Missing results contain no facts to refresh and never retain the input.
-    # A person may have typed a home address instead of a neighborhood.
+    bairro = raw["bairro"]
     if raw["stage"] == "handoff":
-        return raw["bairro"] is None and message.texto == catalog.MISSING
+        from app.agent.nodes import route_cell_suggest_intent
+
+        # Recover only from the verified inbound; never copy unknown input.
+        _, bairro = route_cell_suggest_intent(source.texto, pending=True)
     response, stage, bairro = service.resolve(
-        db, igreja_id=message.igreja_id, bairro=raw["bairro"]
+        db, igreja_id=message.igreja_id, bairro=bairro
     )
     if raw["stage"] == "ask":
         return raw["bairro"] is None and message.texto in {
