@@ -295,7 +295,7 @@ def test_ambiguous_choice_and_confirmation_never_record_request(prayer):
 
 def test_confirmation_duplicate_and_expired_do_not_duplicate(prayer):
     create_request(prayer)
-    send(prayer, "SIM")
+    _assert_prayer_yields_sim(prayer)
     send(prayer, "Peço oração por mim: preciso de paz.")
     send(prayer, "Só pastores")
     with prayer.factory.begin() as db:
@@ -397,7 +397,7 @@ def test_handoff_cancels_old_confirmation_even_after_human_returns(prayer):
             )
         ).all()
         db.get(Conversation, prayer.conv).estado = "ia"
-    send(prayer, "SIM")
+    _assert_prayer_yields_sim(prayer)
     with prayer.factory() as db:
         assert db.scalar(select(func.count()).select_from(PrayerRequest)) == 0
 
@@ -749,3 +749,187 @@ def test_incomplete_prayer_schema_blocks_approved_offboarding(prayer):
         db.rollback()
         assert db.get(Pessoa, prayer.person).arquivada_em is None
         assert db.get(PrayerRequest, row.id) is not None
+
+
+def _enable_s3_for_prayer_contact(prayer, monkeypatch):
+    """Give only the synthetic sender an existing pastoral account for S3."""
+    from app.db.models import AgentActionProposal
+    from app.services import whatsapp_privilege
+    from tests.test_agent_privileged_turn_pg import _fake_choices
+    from tests.test_consolidacao_open_unique_concurrency import _TRIGGER_SQL
+
+    monkeypatch.setattr(
+        whatsapp_privilege, "PRIVILEGE_APPROVED_RELEASE_ID", "synthetic-only"
+    )
+    monkeypatch.setenv("AGENT_PRIVILEGE_ENABLED_IGREJA_IDS", str(TENANT))
+    uid, target = uuid.uuid4(), uuid.uuid4()
+    with prayer.engine.begin() as conn:
+        conn.exec_driver_sql(_TRIGGER_SQL)
+    with prayer.factory.begin() as db:
+        db.add(
+            AppUser(
+                id=uid,
+                igreja_id=TENANT,
+                pessoa_id=prayer.person,
+                nome="Ator S3 sintético",
+                email="s3-prayer@example.test",
+                clerk_user_id="s3-prayer-synthetic",
+                status="ativo",
+            )
+        )
+        db.flush()
+        db.add(UserRole(igreja_id=TENANT, user_id=uid, papel="pastor"))
+        db.add(
+            Pessoa(
+                id=target,
+                igreja_id=TENANT,
+                nome="Alvo Sintético",
+                telefone="5500000000099",
+            )
+        )
+        db.flush()
+        db.add(
+            CelulaMembro(
+                igreja_id=TENANT, celula_id=prayer.cell, pessoa_id=target, ativo=True
+            )
+        )
+
+    choices_seen = _fake_choices(monkeypatch, prayer, "registrar_decisao")
+    request = inbound(prayer, "Registre decisão de Alvo Sintético")
+    transport = _ClassifiedEvolution()
+    worker.run_agent_for_message(prayer.factory, request, evolution_client=transport)
+    with prayer.factory() as db:
+        proposal = db.execute(select(AgentActionProposal)).scalar_one()
+        assert proposal.state == "pendente"
+        assert proposal.delivered_at is not None
+        assert db.get(Message, proposal.summary_message_id).agent_reply_state == "ia"
+        proposal_id = proposal.id
+    assert choices_seen == ["s3_route", "s3_tool", "s3_handle"]
+    return target, proposal_id, choices_seen
+
+
+@pytest.mark.parametrize(
+    "history,prayer_enabled",
+    [
+        ("executed", True),
+        ("cancelled", True),
+        ("expired", True),
+        ("pending_expired", True),
+        ("recent_expired", True),
+        ("executed", False),
+    ],
+)
+def test_historical_prayer_does_not_capture_real_s3_confirmation(
+    prayer, monkeypatch, history, prayer_enabled
+):
+    from app.db.models import AgentActionProposal, AgentActionReceipt, Decision
+
+    if history == "executed":
+        create_request(prayer)
+    else:
+        send(prayer, "Peço oração por mim: força nesta semana.")
+        send(prayer, "Só pastores")
+        if history == "cancelled":
+            send(prayer, "NÃO")
+        else:
+            with prayer.factory.begin() as db:
+                row = db.execute(select(PrayerProposal)).scalar_one()
+                row.expires_at = dt.datetime.now(dt.UTC) - (
+                    dt.timedelta(seconds=1)
+                    if history == "recent_expired"
+                    else dt.timedelta(days=2)
+                )
+                row.state = (
+                    "pending"
+                    if history in {"pending_expired", "recent_expired"}
+                    else "expired"
+                )
+    if not prayer_enabled:
+        monkeypatch.delenv("PRAYER_REQUEST_ENABLED_IGREJA_IDS")
+    target, proposal_id, choices_seen = _enable_s3_for_prayer_contact(
+        prayer, monkeypatch
+    )
+    confirmation = inbound(prayer, "SIM")
+    transport = _ClassifiedEvolution()
+    worker.run_agent_for_message(
+        prayer.factory, confirmation, evolution_client=transport
+    )
+    assert len(transport.calls) == 1
+    assert "Comprovante:" in transport.calls[0][2]
+    assert "oração" not in transport.calls[0][2].casefold()
+    with prayer.factory() as db:
+        assert db.get(AgentActionProposal, proposal_id).state == "executada"
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Decision)
+                .where(Decision.pessoa_id == target)
+            )
+            == 1
+        )
+        receipt = db.execute(select(AgentActionReceipt)).scalar_one()
+        assert receipt.confirmation_message_id == confirmation.inbound_message_id
+        reply = (
+            db.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == prayer.conv,
+                    Message.direcao == "out",
+                )
+                .order_by(Message.criado_em.desc())
+            )
+            .scalars()
+            .first()
+        )
+        assert reply.agent_reply_state == "ia"
+        assert reply.agent_privilege_context["kind"] == "receipt"
+        assert db.scalar(select(func.count()).select_from(PrayerRequest)) == (
+            1 if history == "executed" else 0
+        )
+    assert choices_seen == ["s3_route", "s3_tool", "s3_handle"]
+
+
+def test_live_prayer_sim_remains_on_its_own_protocol(prayer):
+    from app.db.models import AgentActionProposal
+
+    row = create_request(prayer)
+    with prayer.factory() as db:
+        assert db.get(PrayerProposal, row.proposal_id).state == "executed"
+        assert db.scalar(select(func.count()).select_from(AgentActionProposal)) == 0
+
+
+def _assert_prayer_yields_sim(prayer):
+    from app.prayer.turn import run_prayer_turn
+
+    transport = _ClassifiedEvolution()
+    assert (
+        run_prayer_turn(
+            prayer.factory,
+            prayer.factory,
+            inbound(prayer, "SIM"),
+            igreja_id=TENANT,
+            uses_dedicated_agent_session=False,
+            ownership_guard=None,
+            evolution_client=transport,
+        )
+        is None
+    )
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("elapsed", [1, 61])
+def test_prayer_expiry_notice_is_bounded_to_one_minute(prayer, elapsed):
+    send(prayer, "Peço oração por mim: força.")
+    send(prayer, "Só pastores")
+    with prayer.factory.begin() as db:
+        proposal = db.execute(select(PrayerProposal)).scalar_one()
+        proposal.expires_at = service.now(db) - dt.timedelta(seconds=elapsed)
+    if elapsed == 1:
+        _, reply, transport = send(prayer, "SIM")
+        assert transport.calls
+        assert "expirou" in reply.texto
+        assert reply.agent_reply_state == "ia"
+    else:
+        _assert_prayer_yields_sim(prayer)
+    with prayer.factory() as db:
+        assert db.scalar(select(func.count()).select_from(PrayerRequest)) == 0

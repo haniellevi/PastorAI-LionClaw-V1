@@ -85,23 +85,23 @@ def _contact(db, outcome):
     )
 
 
-def _active(db, contact):
-    return db.execute(
-        select(PrayerProposal)
-        .where(
-            PrayerProposal.igreja_id == contact.igreja_id,
-            PrayerProposal.conversation_id == contact.conversation_id,
-            PrayerProposal.state.in_(("collecting", "pending")),
-        )
-        .with_for_update()
-    ).scalar_one_or_none()
+def _active(db, contact, *, include_expired=False):
+    statement = select(PrayerProposal).where(
+        PrayerProposal.igreja_id == contact.igreja_id,
+        PrayerProposal.conversation_id == contact.conversation_id,
+        PrayerProposal.state.in_(("collecting", "pending")),
+    )
+    if not include_expired:
+        statement = statement.where(PrayerProposal.expires_at > service.now(db))
+    return db.execute(statement.with_for_update()).scalar_one_or_none()
 
 
 def _handle(db, contact, inbound, reply):
     # The real current router delegates to the closed contact catalog, not Jev.
     from app.agent.nodes import route_prayer_intent
 
-    proposal = _active(db, contact)
+    # Include expired active-state rows here only to retire them before a new draft.
+    proposal = _active(db, contact, include_expired=True)
     command = route_prayer_intent(inbound.texto or "", pending=proposal is not None)
     timestamp = service.now(db)
     if proposal is not None and (
@@ -226,16 +226,11 @@ def run_prayer_turn(
             route_prayer_intent(source.texto, pending=pending is not None) != "none"
         )
         if not candidate and catalog.normalized(source.texto) == "sim":
-            candidate = (
-                db.execute(
-                    select(PrayerProposal.id)
-                    .where(
-                        PrayerProposal.igreja_id == igreja_id,
-                        PrayerProposal.conversation_id == contact.conversation_id,
-                    )
-                    .limit(1)
-                ).first()
-                is not None
+            # Keep the existing expiry notice for just one minute after timeout.
+            # Terminal proposals never reserve SIM; older timeouts yield to S3.
+            recent = _active(db, contact, include_expired=True)
+            candidate = recent is not None and recent.expires_at > (
+                service.now(db) - dt.timedelta(minutes=1)
             )
         if not candidate:
             return None
