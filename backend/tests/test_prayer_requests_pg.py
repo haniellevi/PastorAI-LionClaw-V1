@@ -31,6 +31,7 @@ from app.db.models import (
 from app.deps import CurrentUser
 from app.prayer import policy, service
 from app.prayer.models import PrayerProposal, PrayerRequest
+from app.visits.models import VisitEvent  # noqa: F401 - offboarding fixture schema
 from app.services.crypto import encrypt_secret
 from app.workers import queue_worker as worker
 from tests.conftest_rls import rls_database_url  # noqa: F401

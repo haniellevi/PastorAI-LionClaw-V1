@@ -85,6 +85,7 @@ async function fixtures(page: Page) {
       const submitMatch = path.match(/^\/cell-meetings\/(ops-meeting-[AB])\/report\/submit$/);
       if (method === "GET" && reportMatch) data = reports.get(reportMatch[1]!);
       else if (method === "GET" && /^\/cell-meetings\/ops-meeting-[AB]\/visitor-expectations$/.test(path)) data = { expectations: [] };
+      else if (method === "GET" && /^\/cell-meetings\/ops-meeting-[AB]\/visitor-people$/.test(path)) data = { items: [], page: 1, pageSize: 20, total: 0 };
       else if (method === "PUT" && attendanceMatch) {
         const body = request.postDataJSON() as { presencas: Array<{ pessoa_id: string; compareceu: boolean }> };
         writes.push({ path, body });

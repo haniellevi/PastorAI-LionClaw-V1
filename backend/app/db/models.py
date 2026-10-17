@@ -724,6 +724,7 @@ class CelulaVisitante(Base):
     """
 
     __tablename__ = "celula_visitante"
+    __table_args__ = (UniqueConstraint("igreja_id", "reuniao_id", "id", name="visitante_tenant_meeting_id"),)
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
