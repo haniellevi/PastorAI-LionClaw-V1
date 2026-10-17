@@ -50,7 +50,9 @@ from app.db.models import (
     CelulaReuniaoRegistro,
     CelulaVisitante,
     Pessoa,
+    UserRole,
 )
+from app.visits.models import VisitEvent
 from app.db.session import get_db
 from app.deps import CurrentUser
 from app.domain.cell_report_pending_proposal import (
@@ -150,6 +152,7 @@ class LiderSession:
         self.presencas = presencas or []
         self.expectativas = expectativas or []
         self.visitantes = visitantes or []
+        self.visit_events = []
         self.registros = registros or []
         self.pessoas = pessoas or []
         self.locked_access_status = locked_access_status
@@ -293,6 +296,13 @@ class LiderSession:
                 rows=rows,
                 fetch_error=lock_fetch_error,
             )
+        if name == "clock_timestamp":
+            return result(scalar=dt.datetime.now(dt.timezone.utc))
+        if ent is VisitEvent:
+            events = self._filter(self.visit_events, statement)
+            if len(descs) > 1:
+                return result(rows=[(event, self.app_user.nome) for event in events])
+            return result(scalar=events[0] if events else None, scalars=events)
         if ent is AppUser and name == "pessoa_id":
             return result(scalar=self.actor_pessoa_id)
         if ent is AppUser:
@@ -302,7 +312,7 @@ class LiderSession:
             if len(descs) >= 2:
                 return result(rows=[(p.id, p.nome) for p in self.pessoas])
             rows = self._filter(self.pessoas, statement)
-            return result(scalar=(rows[0].id if rows else None))
+            return result(scalar=((rows[0] if name == "Pessoa" else rows[0].id) if rows else None))
         if ent is Celula:
             rows = self._filter(self.cells, statement)
             if self._wants_active(statement):
@@ -361,10 +371,19 @@ class LiderSession:
             self.presencas.append(obj)
         elif isinstance(obj, CelulaExpectativaVisitante):
             self.expectativas.append(obj)
+        elif isinstance(obj, VisitEvent):
+            self.visit_events.append(obj)
         elif isinstance(obj, CelulaVisitante):
             self.visitantes.append(obj)
         elif isinstance(obj, CelulaReuniaoRegistro):
             self.registros.append(obj)
+
+    def scalar(self, statement):
+        return self.execute(statement).scalar_one_or_none()
+
+    def get(self, model, key):
+        rows = self.visitantes if model is CelulaVisitante else self.visit_events
+        return next((row for row in rows if str(row.id) == str(key)), None)
 
     def flush(self) -> None:
         if self.writer_operation_error is not None:
@@ -438,7 +457,7 @@ def make_member(
 
 
 def make_pessoa(pessoa_id: str, nome: str):
-    return SimpleNamespace(id=pessoa_id, nome=nome, lider_id=None)
+    return SimpleNamespace(id=pessoa_id, igreja_id=uuid.UUID(_TENANT), nome=nome, lider_id=None, tipo="contato", etapa="ganhar", subetapa="novo_contato", arquivada_em=None, sem_interesse=False)
 
 
 def make_reuniao(
@@ -586,7 +605,7 @@ def _wire(app, *, session, clerk=None):
 def _leader_session(**kwargs) -> LiderSession:
     """Sessão do líder _LEADER sobre a célula _CELL, com _MEMBER ativo."""
     kwargs.setdefault("app_user", make_app_user())
-    kwargs.setdefault("roles", ["lider"])
+    kwargs.setdefault("roles", ["lider_celula"])
     kwargs.setdefault("actor_pessoa_id", _LEADER)
     kwargs.setdefault("cells", [make_cell(lider_id=_LEADER)])
     kwargs.setdefault(
@@ -630,7 +649,7 @@ def _invoke_report_writer(client, writer: str):
         return client.post(
             f"/cell-meetings/{_REU}/visitors",
             headers=_AUTH,
-            json={"nome_visitante": "Visitante"},
+            json={"pessoa_id": _MEMBER, "nome_visitante": "Visitante"},
         )
     if writer == "add_record":
         return client.post(
@@ -922,11 +941,13 @@ def test_register_visitor_201(app) -> None:
     resp = _wire(app, session=session).post(
         _VIS_PATH,
         headers=_AUTH,
-        json={"nome_visitante": "  João Novo  ", "observacao": "Convidado do culto"},
+        json={"pessoa_id": _MEMBER, "nome_visitante": "  João Novo  ", "observacao": "Convidado do culto"},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["nome_visitante"] == "João Novo"  # trim
+    assert body["nome_visitante"] == "Membro Fiel"  # selected Person, not payload name
+    assert body["pessoa_id"] == _MEMBER
+    assert len(session.visit_events) == 1
     assert body["reuniao_id"] == _REU
     assert body["expectativa_id"] is None
     assert body["id"]
@@ -940,7 +961,7 @@ def test_register_visitor_links_expectativa(app) -> None:
     resp = _wire(app, session=session).post(
         _VIS_PATH,
         headers=_AUTH,
-        json={"nome_visitante": "Ana Esperada", "expectativa_id": _EXP},
+        json={"pessoa_id": _MEMBER, "nome_visitante": "Ana Esperada", "expectativa_id": _EXP},
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["expectativa_id"] == _EXP
@@ -958,7 +979,7 @@ def test_register_visitor_422_expectativa_mismatch(app) -> None:
     resp = _wire(app, session=session).post(
         _VIS_PATH,
         headers=_AUTH,
-        json={"nome_visitante": "Ana", "expectativa_id": _EXP},
+        json={"pessoa_id": _MEMBER, "nome_visitante": "Ana", "expectativa_id": _EXP},
     )
     assert resp.status_code == 422
     assert session.visitantes == []
@@ -991,7 +1012,7 @@ def test_register_visitor_404_other_leader(app) -> None:
         visitantes=[],
     )
     resp = _wire(app, session=session).post(
-        _VIS_PATH, headers=_AUTH, json={"nome_visitante": "João"}
+        _VIS_PATH, headers=_AUTH, json={"pessoa_id": _MEMBER, "nome_visitante": "João"}
     )
     assert resp.status_code == 404
 
@@ -1245,7 +1266,7 @@ def test_every_report_writer_locks_tenant_meeting_cell_and_access_in_order(
     ]
     assert [
         statement.column_descriptions[0]["entity"] for statement in locked
-    ] == [CelulaReuniao, Celula, AppUser]
+    ] == ([CelulaReuniao, Celula, AppUser, AppUser, UserRole, Pessoa] if writer == "register_visitor" else [CelulaReuniao, Celula, AppUser])
     sql = [
         str(statement.compile(dialect=postgresql.dialect()))
         for statement in locked
@@ -1502,7 +1523,7 @@ def test_visitor_sanitizes_expectation_query_failures(
     resp = _wire(app, session=session).post(
         _VIS_PATH,
         headers=_AUTH,
-        json={"nome_visitante": "Visitante", "expectativa_id": _EXP},
+        json={"pessoa_id": _MEMBER, "nome_visitante": "Visitante", "expectativa_id": _EXP},
     )
 
     assert resp.status_code == 500
@@ -2090,7 +2111,7 @@ def test_locked_report_blocks_writes(app) -> None:
     )
     assert r3.status_code == 409
     # visitante → 409
-    r4 = client.post(_VIS_PATH, headers=_AUTH, json={"nome_visitante": "João"})
+    r4 = client.post(_VIS_PATH, headers=_AUTH, json={"pessoa_id": _MEMBER, "nome_visitante": "João"})
     assert r4.status_code == 409
     # registro → 409
     r5 = client.post(

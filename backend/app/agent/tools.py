@@ -274,6 +274,13 @@ def avancar_trilha(
     igreja_uuid = _as_uuid(igreja_id)
     pessoa = _load_pessoa(session, igreja_uuid, _as_uuid(pessoa_id))
 
+    if subetapa == "visitante" and (pessoa.tipo in {"membro", "lider"} or pessoa.etapa not in {None, "ganhar"}):
+        raise ToolError("Evento de visita não permite rebaixar membro ou etapa avançada")
+    if subetapa == "visitante":
+        from app.visits.service import has_real_event
+        if not has_real_event(session, igreja_id=igreja_uuid, pessoa_id=pessoa.id):
+            raise ToolError("Promoção para visitante exige evento real comprovado; encaminhe ao painel")
+
     result = validate_transition(
         current_tipo=pessoa.tipo,
         current_etapa=pessoa.etapa,
