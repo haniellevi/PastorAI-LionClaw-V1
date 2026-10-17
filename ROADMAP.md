@@ -48,7 +48,7 @@ branches remotas sem ordem própria. Não apagar migrations para organizar pasta
 
 | Entrega | Estado | Implementação / teste | Produção |
 |---|---|---|---|
-| Pedido de oração pelo WhatsApp (V4) | falta | Preservar privacidade, confirmação e autorização. | não verificado |
+| Pedido de oração pelo WhatsApp (V4) | em andamento | Primeira versão de texto e pedido próprio na [PR #484](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/484): implementada e testada localmente; confirmação explícita, destinatários autorizados e RLS. Desligada por igreja e por trava de release; sem produção. Inbox privado e áudio ficam para a próxima PR. | não verificado em produção |
 | Indicar células próximas | falta | Bairro já tem consulta; distância e divulgação segura de endereços residenciais ainda faltam. | não verificado |
 | Fluxo G12: ganhar, consolidar e célula | em andamento | Há cadastro, fila, fonovisita, atribuição e relatório. Falta aceitar com o piloto o caminho completo: contato → visitante por evento real, vínculo com célula, decisão, acompanhamento e relatório/aviso de atraso. | Fluxo completo: não verificado |
 | Aceite pastoral do atendimento | falta | Aprovar 20 conversas reais, incluindo visitante, oração, horário, opt-out e crise; corrigir os problemas encontrados. | não verificado |

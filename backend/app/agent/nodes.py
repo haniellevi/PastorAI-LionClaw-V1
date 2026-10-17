@@ -540,3 +540,9 @@ SUBAGENTS = {
     ROUTE_ONBOARDING: onboarding_node,
     ROUTE_INTAKE: intake_node,
 }
+
+
+def route_prayer_intent(text: str, *, pending: bool = False) -> str:
+    """Own-contact V4 route; deterministic, without Jev or privileged identity."""
+    from app.prayer.catalog import classify
+    return classify(text, pending=pending)

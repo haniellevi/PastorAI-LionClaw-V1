@@ -10,6 +10,8 @@ Contrato aprovado (não hard delete de Pessoa):
     (nunca no GET de preflight, que é somente leitura).
   - Histórico, conversas, mensagens, consentimentos, decisões e presenças NÃO
     são tocados — preservados por completo.
+  - V4: pedidos de oração e propostas privadas são eliminados; isso não
+    converte o arquivamento em exclusão da conversa original.
 
 ``preflight_archive`` é reutilizado tanto pelo GET (só leitura) quanto pelo
 POST /archive (revalidado dentro da MESMA transação travada — TOCTOU fechado
@@ -569,6 +571,9 @@ def archive_pessoa(
         for cons in consolidacoes_abertas:
             cons.abandonada_em = agora
             cons.abandonada_motivo = f"Pessoa arquivada: {motivo}"
+
+        from app.prayer.service import delete_for_person
+        delete_for_person(db, igreja_id=pessoa.igreja_id, pessoa_id=pessoa.id)
 
         pessoa.arquivada_em = agora
         pessoa.arquivada_por = actor_app_user_id

@@ -242,6 +242,8 @@ def create_app() -> FastAPI:
     app.include_router(work_queue.router)
     app.include_router(consolidacao.router)
     app.include_router(multiplicacoes.router)
+    from app.prayer.router import router as prayer_router
+    app.include_router(prayer_router)
     app.include_router(whatsapp.router)
     app.include_router(conversations.router)
     app.include_router(dashboard.router)

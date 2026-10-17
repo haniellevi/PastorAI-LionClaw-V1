@@ -4518,6 +4518,15 @@ def run_agent_for_message(
 
     igreja_id = _require_agent_igreja_id(outcome)
 
+    from app.prayer.turn import run_prayer_turn
+    prayer_result = run_prayer_turn(
+        session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client,
+    )
+    if prayer_result is not None:
+        return prayer_result
+
     from app.agent.privileged_turn import run_privileged_turn
     privilege_result = run_privileged_turn(
         session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,

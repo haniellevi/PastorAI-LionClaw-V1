@@ -171,7 +171,11 @@ def offboarding_engine(rls_database_url: str) -> Iterator[Engine]:  # noqa: F811
         )
 
     tables_sem_evento = [
-        t for t in Base.metadata.sorted_tables if t.name != "pessoa_arquivamento_evento"
+        # This legacy fixture represents the pre-prayer schema. The V4 suite
+        # applies its real migration and proves offboarding erases its content;
+        # create_all alone would create private tables without the erase function.
+        t for t in Base.metadata.sorted_tables
+        if t.name not in {"pessoa_arquivamento_evento", "pedido_oracao", "pedido_oracao_proposta"}
     ]
     Base.metadata.create_all(engine, tables=tables_sem_evento)
 
