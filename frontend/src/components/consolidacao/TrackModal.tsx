@@ -75,7 +75,7 @@ export function TrackModal({
 
   const consolidacaoId = session?.consolidacaoId ?? null;
   const responsavelId = session?.responsavelId ?? null;
-  const isResponsavel = !responsavelId || responsavelId === selfId;
+  const isResponsavel = Boolean(responsavelId) && responsavelId === selfId;
 
   const canAct = Boolean(consolidacaoId) && !concluida && isResponsavel;
 

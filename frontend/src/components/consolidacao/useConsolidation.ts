@@ -8,7 +8,7 @@
  * (api-launch-decision) e avançar/concluir etapa (api-pipeline / advance-stage).
  *
  * Os vínculos consolidacaoId/responsável vivem na sessão (consolidacao-store),
- * pois o backend não expõe leitura de consolidação por pessoa.
+ * revalidados pela leitura autenticada de atribuições no painel.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

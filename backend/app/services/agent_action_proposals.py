@@ -134,6 +134,9 @@ class ActionEffect:
             "Lembrete confirmado.",
             "Fonovisita confirmada.",
             "Consolidação atribuída.",
+            "Convite registrado. Aceite pendente no painel.",
+            "Convite já existente. Aceite pendente no painel.",
+            "Responsável já aceitou este convite.",
             "Lembretes de consolidação ativados.",
         }:
             raise ProposalContractError("recibo inválido")
@@ -810,6 +813,9 @@ def _require_receipt_text(value: object) -> str:
         "Lembrete confirmado.",
         "Fonovisita confirmada.",
         "Consolidação atribuída.",
+        "Convite registrado. Aceite pendente no painel.",
+        "Convite já existente. Aceite pendente no painel.",
+        "Responsável já aceitou este convite.",
         "Lembretes de consolidação ativados.",
     }:
         raise ProposalContractError("recibo inválido")
@@ -1142,12 +1148,16 @@ def _new_receipt(
         AgentAction.ENVIAR_RELATORIO_CELULA.value: "Relatório confirmado.",
         AgentAction.CONFIGURAR_LEMBRETE_AGENDA.value: "Lembrete confirmado.",
         AgentAction.MARCAR_FONOVISITA_FEITA.value: "Fonovisita confirmada.",
-        AgentAction.ATRIBUIR_CONSOLIDACAO.value: "Consolidação atribuída.",
+        AgentAction.ATRIBUIR_CONSOLIDACAO.value: (
+            "Convite registrado. Aceite pendente no painel.",
+            "Convite já existente. Aceite pendente no painel.",
+            "Responsável já aceitou este convite.",
+        ),
         AgentAction.CONFIGURAR_LEMBRETE_CONSOLIDACAO.value: (
             "Lembretes de consolidação ativados."
         ),
     }.get(proposal.action)
-    if receipt_text != expected_receipt:
+    if receipt_text not in (expected_receipt if isinstance(expected_receipt, tuple) else (expected_receipt,)):
         raise ProposalContractError("recibo inválido")
     return AgentActionReceipt(
         igreja_id=proposal.igreja_id,

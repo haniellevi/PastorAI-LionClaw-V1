@@ -27,6 +27,8 @@ vi.mock("@/lib/cells-api", async (original) => ({
   ...await original<typeof import("@/lib/cells-api")>(), fetchCellsFull: api.fetchCellsFull,
 }));
 
+vi.mock("../consolidacao/AssignmentPanel", () => ({ AssignmentPanel: () => null }));
+
 const { ApiError } = await import("@/lib/dashboard-api");
 const { ContatosScreen } = await import("./ContatosScreen");
 const { GanharScreen } = await import("./GanharScreen");

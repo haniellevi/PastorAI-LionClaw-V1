@@ -51,6 +51,8 @@ def privileged_database(rls_database_url: str):
     engine = next(generator)
     try:
         _apply_v3_migration(engine, _V3_MIGRATION.read_text())
+        from tests.test_consolidation_workflow_pg import _apply_acceptance
+        _apply_acceptance(engine, rls_database_url)
         with engine.begin() as connection:
             connection.exec_driver_sql(
                 "alter table pessoas add column if not exists nome text "

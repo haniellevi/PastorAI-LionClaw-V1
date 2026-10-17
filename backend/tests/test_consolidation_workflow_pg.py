@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import os
+import subprocess
+import sys
 import threading
 from urllib.parse import urlsplit
 import uuid
@@ -61,6 +63,17 @@ def _workflow_database_url() -> str:
 @pytest.fixture
 def rls_database_url() -> str:
     return _workflow_database_url()
+
+
+def _apply_acceptance(engine, url):
+    """Only callers with a disposable database guard may use the real runner."""
+    assert_disposable_database(url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("create table if not exists schema_migrations(name text primary key)")
+    env = dict(os.environ, MIGRATION_DATABASE_URL=url.replace("postgresql+psycopg2://", "postgresql://"))
+    subprocess.run([sys.executable, "scripts/migrate.py", "apply",
+                    "20261017_180100_consolidacao_atribuicoes_aceite.sql", "--yes"],
+                   env=env, check=True, capture_output=True, text=True)
 
 
 @pytest.fixture
@@ -131,6 +144,7 @@ def workflow_database(rls_database_url: str):
                 grant select on celulas, celula_membro to authenticated;
                 """
             )
+        _apply_acceptance(engine, rls_database_url)
         yield engine
     finally:
         try:
@@ -351,6 +365,10 @@ def test_v3_queue_http_keeps_legacy_role_capability_and_state(
     values = _seed(workflow_database)
     track_id, fonovisita_id = _insert_track(workflow_database, values)
     candidate_id = fonovisita_id
+    if action == "assume" and expected_status == 200:
+        # This test proves a fresh assignment; current-holder repeats are no-ops.
+        with workflow_database.begin() as connection:
+            connection.execute(text("update consolidacoes set responsavel_id=null where id=:id"), {"id": track_id})
     if item_tipo == "conectar_celula":
         candidate_id = uuid.uuid4()
         with workflow_database.begin() as connection:
@@ -397,7 +415,7 @@ def test_v3_queue_http_keeps_legacy_role_capability_and_state(
         session.close()
 
     assert response.status_code == expected_status, response.text
-    expected_responsavel = values[target_key]
+    expected_responsavel = values[target_key] if action == "assume" else values["actor"]
     with workflow_database.connect() as connection:
         assert connection.execute(
             text("select responsavel_id from consolidacoes where id=:track"),
@@ -410,7 +428,7 @@ def test_v3_queue_http_keeps_legacy_role_capability_and_state(
             ),
             {"item": candidate_id},
         ).one()
-    if expected_status == 200:
+    if expected_status == 200 and action == "assume":
         assert item_state == (expected_responsavel, "assumido")
     else:
         assert item_state == (values["actor"], "aberto")
@@ -526,7 +544,7 @@ def test_assignment_syncs_linked_tasks_and_fences_aba(workflow_database) -> None
     assert {
         (responsible, item_status)
         for _, responsible, item_status in _track_rows(workflow_database, track_id)
-    } == {(values["target_a"], "assumido")}
+    } == {(values["actor"], "aberto")}
 
     for target, revision in (("target_b", 1), ("target_a", 2)):
         session = _scoped(factory, values["tenant"])
@@ -563,7 +581,7 @@ def test_assignment_syncs_linked_tasks_and_fences_aba(workflow_database) -> None
     assert {
         (responsible, item_status)
         for _, responsible, item_status in _track_rows(workflow_database, track_id)
-    } == {(values["target_a"], "assumido")}
+    } == {(values["actor"], "aberto")}
 
 
 def test_concurrent_assignment_allows_one_current_revision(workflow_database) -> None:
@@ -829,7 +847,7 @@ def test_whatsapp_fonovisita_rejects_a_current_responsible_member(workflow_datab
         ).scalar_one() == "aberto"
 
 
-def test_whatsapp_target_is_stricter_than_existing_web_assignment(workflow_database) -> None:
+def test_new_panel_and_whatsapp_invitations_require_active_link_and_capability(workflow_database) -> None:
     values = _seed(workflow_database, include_legacy_target=True)
     track_id, _ = _insert_track(workflow_database, values)
     factory = _factory(workflow_database)
@@ -886,16 +904,14 @@ def test_whatsapp_target_is_stricter_than_existing_web_assignment(workflow_datab
 
     web = _scoped(factory, values["tenant"])
     try:
-        result = assign_consolidacao(
-            web,
-            _actor(values["tenant"], values["actor"]),
-            consolidacao_id=track_id,
-            responsavel_id=values["legacy_target"],
-            expected_assignment_revision=None,
-            whatsapp=False,
-        )
-        assert result.consolidacao.responsavel_id == values["legacy_target"]
-        web.commit()
+        with pytest.raises(HTTPException) as rejected:
+            assign_consolidacao(
+                web, _actor(values["tenant"], values["actor"]), consolidacao_id=track_id,
+                responsavel_id=values["legacy_target"], expected_assignment_revision=None,
+                whatsapp=False,
+            )
+        assert rejected.value.status_code == 404
+        web.rollback()
     finally:
         web.close()
 
@@ -1067,8 +1083,8 @@ def test_linked_work_queue_assignment_uses_workflow_and_enforces_actor(
             session,
             _actor(values["tenant"], values["actor"]),
         )
-        assert response.status == "assumido"
-        assert response.responsavelId == str(values["target_a"])
+        assert response.status == "aberto"
+        assert response.responsavelId == str(values["actor"])
     finally:
         session.close()
 
@@ -1098,14 +1114,14 @@ def test_linked_work_queue_assignment_uses_workflow_and_enforces_actor(
         assert connection.execute(
             text("select responsavel_id from consolidacoes where id=:track"),
             {"track": track_id},
-        ).scalar_one() == values["target_a"]
-        assert connection.execute(
+        ).scalar_one() == values["actor"]
+        assert set(connection.execute(
             text(
                 "select distinct responsavel_id,status from work_queue_items "
                 "where consolidacao_id=:track"
             ),
             {"track": track_id},
-        ).all() == [(values["target_a"], "assumido")]
+        ).all()) == {(values["actor"], "aberto"), (None, "aberto")}
 
 
 @pytest.mark.parametrize(

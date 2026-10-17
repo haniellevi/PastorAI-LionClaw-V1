@@ -280,6 +280,12 @@ const server = createServer(async (request, response) => {
       });
       return;
     }
+    if (method === "GET" && pathname === "/consolidacao/atribuicoes") {
+      record.status = 200;
+      sendJson(response, 200, { items: [], nextCursor: null });
+      return;
+    }
+
     if (method === "GET" && pathname === "/work-queue") {
       record.status = 200;
       sendJson(

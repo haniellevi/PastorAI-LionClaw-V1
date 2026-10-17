@@ -129,6 +129,7 @@ export interface OverviewStats {
 }
 
 export interface QueueActionResult {
+  conviteId?: string;
   status: string;
   itemId: string;
   responsavelId: string | null;

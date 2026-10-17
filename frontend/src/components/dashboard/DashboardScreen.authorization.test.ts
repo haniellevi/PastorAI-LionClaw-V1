@@ -510,7 +510,7 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     await renderScreen();
 
     expect(buttonWithText("Atualizar")?.getAttribute("aria-busy")).toBe("true");
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(Array.from(container.querySelectorAll('[role="status"]')).map(node => node.textContent).join(" ")).toContain(
       "Atualizando as informações de hoje.",
     );
 
@@ -518,7 +518,7 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     await flush();
 
     expect(buttonWithText("Atualizar")?.hasAttribute("aria-busy")).toBe(false);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(Array.from(container.querySelectorAll('[role="status"]')).map(node => node.textContent).join(" ")).toContain(
       "1 ação disponível.",
     );
   });

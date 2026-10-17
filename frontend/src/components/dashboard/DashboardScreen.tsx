@@ -26,6 +26,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
+import { AssignmentPanel } from "@/components/consolidacao/AssignmentPanel";
 import { DiamondMark } from "@/components/brand/DiamondMark";
 import { MineralBackdrop } from "@/components/brand/MineralBackdrop";
 import { DsBanner } from "@/components/ds/Banner";
@@ -798,7 +799,7 @@ export function DashboardScreen() {
           (currentModal.kind === "assign" && currentModal.item.id === item.id);
         patchItem(item.id, { status: res.status, responsavelId: res.responsavelId });
         const name = memberById.get(responsavelId)?.nome ?? "responsável";
-        flashToast({ kind: "ok", text: `Atribuído a ${name}.` });
+        flashToast({ kind: "ok", text: res.conviteId ? `Convite registrado para ${name}. Aguardando aceite no painel.` : `Atribuído a ${name}.` });
         setModal((current) =>
           current?.kind === "assign" && current.item.id === item.id ? null : current,
         );
@@ -932,6 +933,7 @@ export function DashboardScreen() {
 
   return (
     <div className="screen dashboard dh" key="dashboard">
+      {user?.roles.some(role => ["admin", "pastor", "lider_consol", "lider_g12", "lider_celula"].includes(role)) ? <AssignmentPanel team={members} onChanged={() => { if (operationsKey) void loadOperations("retry", operationsKey); }} /> : null}
       {/* Farol compacto: calor pastoral, estado real do dia e uma ação quieta. */}
       <header
         data-mineral-surface

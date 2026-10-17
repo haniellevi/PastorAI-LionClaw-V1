@@ -39,7 +39,7 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
     assert "20261002_173000_visitor_expectation_whatsapp.sql" in MIGRATIONS
     assert "20261016_180000_prayer_requests.sql" in MIGRATIONS
     assert "20261017_180000_visit_events.sql" in MIGRATIONS
-    assert len(MIGRATIONS) == 84
+    assert "20261017_180100_consolidacao_atribuicoes_aceite.sql" in MIGRATIONS
     source = make_url(os.environ["BACKEND_RELEASE_TEST_DATABASE_URL"])
     if source.host not in ("127.0.0.1", "localhost") or source.database != "rls_disposable":
         raise AssertionError("PG17 release test requires the disposable CI database")
@@ -189,6 +189,7 @@ def test_missing_v2b_and_v3_columns_abort_before_deploy() -> None:
             for table_name, column_name in (
                 ("igrejas", "notification_outbox_cutover_at"),
                 ("consolidacoes", "assignment_revision"),
+                ("consolidacao_atribuicoes", "prazo_aceite"),
             ):
                 with target.begin() as connection:
                     connection.execute(

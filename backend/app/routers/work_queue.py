@@ -111,6 +111,7 @@ class ActionResponse(BaseModel):
     status: str
     itemId: str  # noqa: N815
     responsavelId: str | None = None  # noqa: N815
+    conviteId: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class MessageRequest(BaseModel):
@@ -290,6 +291,7 @@ def act_on_item(
             status=item.status or "aberto",
             itemId=str(item.id),
             responsavelId=str(item.responsavel_id) if item.responsavel_id else None,
+            conviteId=str(result.atribuicao.id) if result.atribuicao and result.atribuicao.status == "atribuida" else None,
         )
 
     item = _get_item_for_update(db, item_id, current_user)
