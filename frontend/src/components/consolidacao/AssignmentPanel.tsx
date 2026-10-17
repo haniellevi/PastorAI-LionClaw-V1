@@ -27,27 +27,27 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const coordinator = canConsolidate(user?.roles ?? []);
   const handleError = useCallback((err: unknown) => {
     if (err instanceof SessionExpiredError) expireSession();
     else setError(err instanceof ApiError ? err.message : "Não foi possível atualizar os convites.");
   }, [expireSession]);
-  const load = useCallback(async (offset = 0) => {
+  const load = useCallback(async (after?: string) => {
     if (!token) return;
     const request = ++generation.current;
     setBusy(true);
     setError(null);
     try {
-      const page = await fetchAssignments(token, offset);
+      const page = await fetchAssignments(token, after);
       if (request !== generation.current) return;
-      for (const track of page) upsertConsolidation({
+      for (const track of page.items) upsertConsolidation({
         pessoaId: track.pessoaId, consolidacaoId: track.id, responsavelId: track.responsavelId,
         prazoConexao: track.prazoConexao, vinculo: track.prazoConexao ? "visitante" : "celula",
         confirmedStages: track.etapasConfirmadas, concluida: false,
       });
-      setRows(current => offset ? [...current, ...page] : page);
-      setHasMore(page.length === 50);
+      setRows(current => after ? [...current, ...page.items] : page.items);
+      setNextCursor(page.nextCursor);
     } catch (err) { if (request === generation.current) handleError(err); }
     finally { if (request === generation.current) setBusy(false); }
   }, [token, handleError]);
@@ -78,14 +78,14 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
     finally { setBusy(false); }
   }
   const eligibleMembers = (team ?? members).filter(member => member.pessoaId && member.tiposFila.includes("fonovisita"));
-  const name = (id: string | null) => (team ?? members).find(member => member.usuarioId === id)?.nome ?? (id === user?.appUserId ? "Você" : id ? "Responsável atual" : "Sem responsável efetivo");
+  const name = (id: string | null) => id === user?.appUserId ? "Você" : (team ?? members).find(member => member.usuarioId === id)?.nome ?? (id ? "Responsável atual" : "Sem responsável efetivo");
   return <section className="card" aria-label="Aceite da fonovisita">
     <div className="panel-title"><span>Aceite da fonovisita</span><button type="button" className="btn btn-sm" disabled={busy} onClick={() => void load()}>Atualizar convites</button></div>
     <p className="people-meta">O convite vale por 24 horas corridas. O prazo da fonovisita continua o mesmo. Recusa ou expiração volta à coordenação.</p>
     {error ? <p role="alert">{error}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
     {busy && rows.length === 0 ? <p role="status">Carregando convites…</p> : null}
-    {!busy && !error && rows.length === 0 ? <p>Nenhuma consolidação disponível para aceite.</p> : null}
+    {!busy && !error && rows.length === 0 ? <p>{nextCursor ? "Há mais registros. Carregue a próxima página." : "Nenhuma consolidação disponível para aceite."}</p> : null}
     <div className="queue">{rows.map(row => <div className="qitem" key={row.id}>
       <div className="qbody">
         <strong>{row.pessoaNome}</strong>
@@ -104,6 +104,6 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
         </div> : null}
       </div>
     </div>)}</div>
-    {hasMore ? <button type="button" className="btn" disabled={busy} onClick={() => void load(rows.length)}>Carregar mais convites</button> : null}
+    {nextCursor ? <button type="button" className="btn" disabled={busy} onClick={() => void load(nextCursor)}>Carregar mais convites</button> : null}
   </section>;
 }

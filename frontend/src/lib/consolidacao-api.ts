@@ -303,10 +303,16 @@ export interface AssignmentTrack {
   prazoConexao: string | null;
 }
 
-export async function fetchAssignments(token: string, offset = 0): Promise<AssignmentTrack[]> {
-  const res = await authedFetch(token, `/consolidacao/atribuicoes?offset=${offset}`, { cache: "no-store" });
+export interface AssignmentPage {
+  items: AssignmentTrack[];
+  nextCursor: string | null;
+}
+
+export async function fetchAssignments(token: string, after?: string): Promise<AssignmentPage> {
+  const query = after ? `?after=${encodeURIComponent(after)}` : "";
+  const res = await authedFetch(token, `/consolidacao/atribuicoes${query}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível carregar os convites.");
-  return await res.json() as AssignmentTrack[];
+  return await res.json() as AssignmentPage;
 }
 
 export async function answerInvitation(token: string, invitation: ConsolidationInvitation, aceitar: boolean): Promise<ConsolidationInvitation> {

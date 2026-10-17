@@ -180,33 +180,41 @@ class AssignmentTrack(BaseModel):
     prazoConexao: dt.datetime | None
 
 
-@router.get('/atribuicoes', response_model=list[AssignmentTrack])
+class AssignmentPage(BaseModel):
+    items: list[AssignmentTrack]
+    nextCursor: str | None
+
+
+@router.get('/atribuicoes', response_model=AssignmentPage)
 def list_assignments(
-    offset: int = 0,
+    after: uuid.UUID | None = None,
     db: Session = Depends(get_db), current_user: CurrentUser = Depends(get_current_user),
-) -> list[AssignmentTrack]:
+) -> AssignmentPage:
     """Live panel read. Expiration is lazy, serialized with answers and replacement."""
     from app.db.models import AppUser, UserRole, ConsolidacaoAtribuicao, ConsolidacaoEtapa
     from app.services.consolidation_workflow import (
         _lock_consolidacao, _lock_invitations, _expire_invitations,
     )
     from app.domain.work_queue import can_resolve
-    if offset < 0:
-        raise HTTPException(422, 'Página inválida')
     tenant = uuid.UUID(current_user.igreja_id)
     actor = uuid.UUID(current_user.app_user_id)
-    # Read authorization takes no account lock before track locks (stable lock order).
-    active = db.execute(select(AppUser.id).join(Pessoa, (Pessoa.id == AppUser.pessoa_id) &
-        (Pessoa.igreja_id == AppUser.igreja_id)).where(
-        AppUser.igreja_id == tenant, AppUser.id == actor, AppUser.status == 'ativo',
-        Pessoa.arquivada_em.is_(None),
-    )).scalar_one_or_none()
-    roles = list(db.execute(select(UserRole.papel).where(
-        UserRole.igreja_id == tenant, UserRole.user_id == actor,
-    )).scalars())
-    if active is None or not can_resolve(roles, 'fonovisita'):
-        raise HTTPException(403, 'Conta sem vínculo ou capacidade para fonovisita')
-    coordinator = bool(set(roles) & {'admin', 'pastor', 'lider_consol'})
+    def reader_profile():
+        # No account lock before track locks; repeat this read after lock waits.
+        person_id = db.execute(select(AppUser.pessoa_id).join(Pessoa,
+            (Pessoa.id == AppUser.pessoa_id) & (Pessoa.igreja_id == AppUser.igreja_id)
+        ).where(
+            AppUser.igreja_id == tenant, AppUser.id == actor, AppUser.status == 'ativo',
+            Pessoa.arquivada_em.is_(None),
+        )).scalar_one_or_none()
+        roles = frozenset(db.execute(select(UserRole.papel).where(
+            UserRole.igreja_id == tenant, UserRole.user_id == actor,
+        )).scalars())
+        if person_id is None or not can_resolve(roles, 'fonovisita'):
+            raise HTTPException(403, 'Conta sem vínculo ou capacidade para fonovisita')
+        return person_id, roles
+
+    profile = reader_profile()
+    coordinator = bool(profile[1] & {'admin', 'pastor', 'lider_consol'})
     query = select(Consolidacao.id).where(
         Consolidacao.igreja_id == tenant, Consolidacao.concluida.is_(False),
         Consolidacao.abandonada_em.is_(None),
@@ -220,7 +228,9 @@ def list_assignments(
             ConsolidacaoAtribuicao.responsavel_id == actor,
             ConsolidacaoAtribuicao.status == "atribuida",
         ).exists())
-    ids = list(db.execute(query.order_by(Consolidacao.id).offset(offset).limit(50)).scalars())
+    if after is not None:
+        query = query.where(Consolidacao.id > after)
+    ids = list(db.execute(query.order_by(Consolidacao.id).limit(50)).scalars())
     result = []
     for track_id in ids:
         track = _lock_consolidacao(db, tenant, track_id)
@@ -228,6 +238,13 @@ def list_assignments(
             continue
         rows = _lock_invitations(db, tenant, track.id)
         _expire_invitations(db, rows)
+        if reader_profile() != profile:
+            raise HTTPException(403, 'Seu acesso foi alterado. Atualize a sessão')
+        # Candidate visibility from the initial query may have changed while waiting.
+        if not coordinator and track.responsavel_id != actor and not any(
+            row.status == 'atribuida' and row.responsavel_id == actor for row in rows
+        ):
+            continue
         person = db.execute(select(Pessoa).where(
             Pessoa.igreja_id == tenant, Pessoa.id == track.pessoa_id,
         )).scalar_one()
@@ -243,5 +260,7 @@ def list_assignments(
                 ConsolidacaoEtapa.concluida.is_(True),
             ).order_by(ConsolidacaoEtapa.etapa)).scalars()),
         ))
+    if reader_profile() != profile:
+        raise HTTPException(403, 'Seu acesso foi alterado. Atualize a sessão')
     db.commit()
-    return result
+    return AssignmentPage(items=result, nextCursor=str(ids[-1]) if len(ids) == 50 else None)

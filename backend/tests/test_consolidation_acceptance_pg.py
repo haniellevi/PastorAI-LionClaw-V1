@@ -250,7 +250,7 @@ def test_panel_http_persists_invitation_and_answer_across_sessions(workflow_data
         invitation_id = invited.json()['atribuicaoId']
         listed = client.get('/consolidacao/atribuicoes')
         assert listed.status_code == 200, listed.text
-        assert listed.json()[0]['convite']['id'] == invitation_id
+        assert listed.json()['items'][0]['convite']['id'] == invitation_id
         url = f'/consolidacao/{track}/atribuicoes/{invitation_id}/resposta'
         assert client.post(url, json={'aceitar': True}).status_code == 403
         app.dependency_overrides[get_current_user] = lambda: _actor(v['tenant'], v['target_a'])
@@ -259,7 +259,7 @@ def test_panel_http_persists_invitation_and_answer_across_sessions(workflow_data
         assert answered.status_code == 200, answered.text
         assert answered.json()['status'] == 'aceita'
         listed = client.get('/consolidacao/atribuicoes').json()
-        assert listed[0]['responsavelId'] == str(v['target_a'])
+        assert listed['items'][0]['responsavelId'] == str(v['target_a'])
 
 
 def test_accept_waiting_for_track_lock_expires_using_actual_server_clock(workflow_database):
@@ -325,3 +325,74 @@ def test_cross_tenant_foreign_keys_and_force_rls(workflow_database):
     with workflow_database.connect() as c:
         assert c.execute(text("select relrowsecurity,relforcerowsecurity from pg_class where oid='consolidacao_atribuicoes'::regclass")).one() == (True, True)
         assert c.execute(text("select has_table_privilege('authenticated','consolidacao_atribuicoes','DELETE')")).scalar_one() is False
+
+
+@pytest.mark.parametrize('revoke_reader', [False, True])
+def test_read_revalidates_scope_and_capability_after_track_lock(workflow_database, revoke_reader):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from sqlalchemy import event
+    from app.routers.consolidacao import list_assignments
+    from app.services.consolidation_workflow import _lock_consolidacao
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    with workflow_database.begin() as c:
+        c.execute(text("update user_roles set papel='lider_celula' where user_id=:id"), {'id': v['target_a']})
+    factory = _factory(workflow_database)
+    with _scoped(factory, v['tenant']) as s:
+        _invite(s, v, track)
+        s.commit()
+    blocked = threading.Event()
+    def before_execute(conn, cursor, statement, parameters, context, executemany):
+        if threading.current_thread().name.startswith('invitation-reader') and 'FOR UPDATE' in statement:
+            blocked.set()
+    event.listen(workflow_database, 'before_cursor_execute', before_execute)
+    def read():
+        with _scoped(factory, v['tenant']) as s:
+            try:
+                return list_assignments(db=s, current_user=_actor(v['tenant'], v['target_a'])).items
+            except HTTPException as exc:
+                s.rollback()
+                return exc.status_code
+    try:
+        with _scoped(factory, v['tenant']) as coordinator:
+            _lock_consolidacao(coordinator, v['tenant'], track)
+            with ThreadPoolExecutor(1, thread_name_prefix='invitation-reader') as pool:
+                future = pool.submit(read)
+                try:
+                    assert blocked.wait(timeout=5)
+                    if revoke_reader:
+                        with workflow_database.begin() as c:
+                            c.execute(text("update user_roles set papel='membro' where user_id=:id"), {'id': v['target_a']})
+                    else:
+                        _invite(coordinator, v, track, 'target_b')
+                    coordinator.commit()
+                finally:
+                    coordinator.rollback()  # release a blocker even if an assertion failed
+                assert future.result(timeout=10) == (403 if revoke_reader else [])
+    finally:
+        event.remove(workflow_database, 'before_cursor_execute', before_execute)
+
+
+def test_cursor_does_not_skip_valid_invitation_when_first_fifty_expire(workflow_database):
+    from app.routers.consolidacao import list_assignments
+    v = _seed(workflow_database)
+    with workflow_database.begin() as c:
+        c.execute(text("update user_roles set papel='lider_celula' where user_id=:id"), {'id': v['target_a']})
+        for index in range(51):
+            person, track = uuid.uuid4(), uuid.UUID(int=1000 + index)
+            params = {'person': person, 'track': track, 'tenant': v['tenant'],
+                      'recipient': v['target_a'], 'author': v['actor'], 'age': 25 if index < 50 else 0}
+            c.execute(text('insert into pessoas(id,igreja_id,telefone) values(:person,:tenant,:phone)'),
+                      dict(params, phone=f'55000000{index:05d}'))
+            c.execute(text("insert into consolidacoes(id,igreja_id,pessoa_id,tipo,responsavel_id,progresso,concluida) values(:track,:tenant,:person,'individual',null,0,false)"), params)
+            c.execute(text("insert into consolidacao_atribuicoes(igreja_id,consolidacao_id,responsavel_id,atribuida_por,criada_em,prazo_aceite) values(:tenant,:track,:recipient,:author,statement_timestamp()-:age * interval '1 hour',statement_timestamp()-:age * interval '1 hour'+interval '24 hours')"), params)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        first = list_assignments(db=s, current_user=_actor(v['tenant'], v['target_a']))
+        assert first.items == []
+        assert first.nextCursor == str(uuid.UUID(int=1049))
+        second = list_assignments(after=uuid.UUID(first.nextCursor), db=s,
+                                  current_user=_actor(v['tenant'], v['target_a']))
+        assert [row.id for row in second.items] == [str(uuid.UUID(int=1050))]
+        assert second.nextCursor is None
+        assert s.execute(text("select count(*) from consolidacao_atribuicoes where status='expirada'")).scalar_one() == 50

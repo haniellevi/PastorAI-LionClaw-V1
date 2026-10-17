@@ -15,7 +15,7 @@ const track: AssignmentTrack = { id: "track", pessoaId: "person", pessoaNome: "P
 beforeEach(() => {
   vi.clearAllMocks();
   state.self = "candidate"; state.roles = ["lider_celula"];
-  state.fetch.mockResolvedValue([track]);
+  state.fetch.mockResolvedValue({ items: [track], nextCursor: null });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -50,4 +50,14 @@ it("falha mantém o convite e oferece nova leitura", async () => {
   expect(container.querySelector('[role="alert"]')).not.toBeNull();
   expect(button("Atualizar convites")?.disabled).toBe(false);
   expect(container.textContent).toContain("Aguardando aceite");
+});
+
+it("cursor do servidor alcança convite válido após página expirada vazia", async () => {
+  state.fetch.mockResolvedValueOnce({ items: [], nextCursor: "stable-cursor" })
+    .mockResolvedValueOnce({ items: [track], nextCursor: null });
+  await render();
+  expect(container.textContent).toContain("Há mais registros");
+  await act(async () => { button("Carregar mais convites")!.click(); });
+  expect(state.fetch).toHaveBeenLastCalledWith("synthetic-token", "stable-cursor");
+  expect(button("Aceitar fonovisita")).toBeDefined();
 });

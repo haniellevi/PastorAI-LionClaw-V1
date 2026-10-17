@@ -282,7 +282,7 @@ const server = createServer(async (request, response) => {
     }
     if (method === "GET" && pathname === "/consolidacao/atribuicoes") {
       record.status = 200;
-      sendJson(response, 200, []);
+      sendJson(response, 200, { items: [], nextCursor: null });
       return;
     }
 
