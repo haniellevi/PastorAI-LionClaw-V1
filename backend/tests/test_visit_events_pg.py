@@ -348,3 +348,51 @@ def test_duplicate_after_leader_change_preserves_original_responsible(visit):
             pessoa_id=str(visit.person),nome_visitante='Ignorado'),db,replacement)
         assert result.registrado_por == visit.actors['lider_celula'].app_user_id
         assert result.responsavel_nome == 'lider_celula'
+
+
+def test_duplicate_links_compatible_expectation_without_new_event(visit):
+    from app.db.models import CelulaExpectativaVisitante
+    from app.visits.models import VisitEvent
+    first = register(visit)
+    expected = uuid.uuid4()
+    with visit.factory.begin() as db:
+        db.add(CelulaExpectativaVisitante(id=expected,igreja_id=TENANT,reuniao_id=visit.meeting,
+            pessoa_id=visit.person,nome_visitante='Nome não é identidade'))
+    assert register(visit,expectativa_id=expected) == first
+    assert register(visit,expectativa_id=expected) == first
+    with visit.factory() as db:
+        event=db.get(VisitEvent,first)
+        assert db.get(CelulaVisitante,event.visitante_id).expectativa_id == expected
+        assert db.scalar(select(func.count()).select_from(VisitEvent)) == 1
+        assert db.scalar(select(func.count()).select_from(CelulaVisitante)) == 1
+
+
+def test_duplicate_still_rejects_expectation_from_another_meeting(visit):
+    from app.db.models import CelulaExpectativaVisitante
+    first=register(visit)
+    other_meeting,expected=uuid.uuid4(),uuid.uuid4()
+    with visit.factory.begin() as db:
+        db.add(CelulaReuniao(id=other_meeting,igreja_id=TENANT,celula_id=visit.cell,data=dt.date.today()-dt.timedelta(days=3)))
+        db.flush()
+        db.add(CelulaExpectativaVisitante(id=expected,igreja_id=TENANT,reuniao_id=other_meeting,
+            pessoa_id=visit.person,nome_visitante='Expectativa de outra reunião'))
+    with pytest.raises(HTTPException) as error:
+        register(visit,expectativa_id=expected)
+    assert error.value.status_code == 422
+    assert register(visit) == first
+
+
+def test_duplicate_cannot_replace_existing_expectation(visit):
+    from app.db.models import CelulaExpectativaVisitante
+    from app.visits.models import VisitEvent
+    first_expected,second_expected=uuid.uuid4(),uuid.uuid4()
+    with visit.factory.begin() as db:
+        for expected in [first_expected,second_expected]:
+            db.add(CelulaExpectativaVisitante(id=expected,igreja_id=TENANT,reuniao_id=visit.meeting,
+                pessoa_id=visit.person,nome_visitante='Expectativa sintética'))
+    first=register(visit,expectativa_id=first_expected)
+    with pytest.raises(HTTPException) as error:
+        register(visit,expectativa_id=second_expected)
+    assert error.value.status_code == 409
+    with visit.factory() as db:
+        assert db.get(CelulaVisitante,db.get(VisitEvent,first).visitante_id).expectativa_id == first_expected

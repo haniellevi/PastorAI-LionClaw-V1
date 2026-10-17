@@ -72,8 +72,6 @@ def register_cell_visit(db, actor, *, reuniao_id, pessoa_id, expectativa_id=None
         VisitEvent.igreja_id == meeting.igreja_id, VisitEvent.reuniao_id == meeting.id,
         VisitEvent.pessoa_id == person.id,
     )).scalar_one_or_none()
-    if existing is not None:
-        return existing
     if expectativa_id is not None:
         expected = db.execute(select(CelulaExpectativaVisitante.id).where(
             CelulaExpectativaVisitante.id == expectativa_id,
@@ -82,6 +80,16 @@ def register_cell_visit(db, actor, *, reuniao_id, pessoa_id, expectativa_id=None
         )).scalar_one_or_none()
         if expected is None:
             raise HTTPException(422, 'Expectativa de outra reunião ou igreja')
+    if existing is not None:
+        if expectativa_id is not None:
+            visitor = db.get(CelulaVisitante, existing.visitante_id)
+            if visitor.expectativa_id not in (None, expectativa_id):
+                raise HTTPException(409, 'Presença já vinculada a outra expectativa')
+            if visitor.expectativa_id is None:
+                _invalidate_pending_agent_report_for_human_takeover(meeting)
+                visitor.expectativa_id = expectativa_id
+                db.flush()
+        return existing
     _invalidate_pending_agent_report_for_human_takeover(meeting)
     visitor = CelulaVisitante(igreja_id=meeting.igreja_id, reuniao_id=meeting.id,
         expectativa_id=expectativa_id, nome_visitante=person.nome, observacao=observacao)
