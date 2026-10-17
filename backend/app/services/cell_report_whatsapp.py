@@ -185,12 +185,15 @@ def _approved_release() -> bool:
     )
 
 
-def cell_report_enabled_from_environment(igreja_id: object) -> bool:
-    """Require both reviewed V1a and already-closed S3 activation gates."""
+def cell_report_release_includes(igreja_id: object) -> bool:
+    """Bound V1a occurrence records to its reviewed release and tenant list.
+
+    This is a recording scope, never permission to execute or transport.
+    """
 
     if type(igreja_id) is not uuid.UUID or igreja_id.int == 0:
         return False
-    if not _approved_release() or not privilege_enabled_from_environment(igreja_id):
+    if not _approved_release():
         return False
     raw = os.environ.get("CELL_REPORT_ENABLED_IGREJA_IDS", "")
     if type(raw) is not str or not raw.strip():
@@ -203,6 +206,15 @@ def cell_report_enabled_from_environment(igreja_id: object) -> bool:
     except (AttributeError, ValueError):
         return False
     return len(allowlist) == len(set(allowlist)) and igreja_id in allowlist
+
+
+def cell_report_enabled_from_environment(igreja_id: object) -> bool:
+    """Require both reviewed V1a and already-closed S3 activation gates."""
+
+    return (
+        cell_report_release_includes(igreja_id)
+        and privilege_enabled_from_environment(igreja_id)
+    )
 
 
 def current_v1a_lgpd_acceptance(
