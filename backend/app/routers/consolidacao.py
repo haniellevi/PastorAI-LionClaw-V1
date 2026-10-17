@@ -178,6 +178,7 @@ class AssignmentTrack(BaseModel):
     convite: InvitationResponse | None
     etapasConfirmadas: list[str]
     prazoConexao: dt.datetime | None
+    tiposNecessarios: list[str]
 
 
 class AssignmentPage(BaseModel):
@@ -191,7 +192,7 @@ def list_assignments(
     db: Session = Depends(get_db), current_user: CurrentUser = Depends(get_current_user),
 ) -> AssignmentPage:
     """Live panel read. Expiration is lazy, serialized with answers and replacement."""
-    from app.db.models import AppUser, UserRole, ConsolidacaoAtribuicao, ConsolidacaoEtapa
+    from app.db.models import AppUser, UserRole, WorkQueueItem, ConsolidacaoAtribuicao, ConsolidacaoEtapa
     from app.services.consolidation_workflow import (
         _lock_consolidacao, _lock_invitations, _expire_invitations,
     )
@@ -254,6 +255,10 @@ def list_assignments(
             responsavelId=str(track.responsavel_id) if track.responsavel_id else None,
             convite=_invitation_response(latest) if latest else None,
             prazoConexao=track.prazo_conexao,
+            tiposNecessarios=sorted({'fonovisita', *db.execute(select(WorkQueueItem.tipo).where(
+                WorkQueueItem.igreja_id == tenant, WorkQueueItem.consolidacao_id == track.id,
+                WorkQueueItem.status.in_(('aberto', 'assumido')),
+            )).scalars()}),
             etapasConfirmadas=list(db.execute(select(ConsolidacaoEtapa.etapa).where(
                 ConsolidacaoEtapa.igreja_id == tenant,
                 ConsolidacaoEtapa.consolidacao_id == track.id,

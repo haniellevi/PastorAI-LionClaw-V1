@@ -78,6 +78,7 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
     finally { setBusy(false); }
   }
   const eligibleMembers = (team ?? members).filter(member => member.pessoaId && member.tiposFila.includes("fonovisita"));
+  const candidatesFor = (row: AssignmentTrack) => eligibleMembers.filter(member => row.tiposNecessarios.every(kind => member.tiposFila.includes(kind)));
   const name = (id: string | null) => id === user?.appUserId ? "Você" : (team ?? members).find(member => member.usuarioId === id)?.nome ?? (id ? "Responsável atual" : "Sem responsável efetivo");
   return <section className="card" aria-label="Aceite da fonovisita">
     <div className="panel-title"><span>Aceite da fonovisita</span><button type="button" className="btn btn-sm" disabled={busy} onClick={() => void load()}>Atualizar convites</button></div>
@@ -95,12 +96,12 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void act(row, true)}>Aceitar fonovisita de {row.pessoaNome}</button>
           <button type="button" className="btn" disabled={busy} onClick={() => void act(row, false)}>Recusar convite</button>
         </div> : null}
-        {coordinator && eligibleMembers.length > 0 ? <div className="actions">
+        {coordinator && candidatesFor(row).length > 0 ? <div className="actions">
           <label>Convidar responsável para {row.pessoaNome}<select value={selected[row.id] ?? ""} disabled={busy} onChange={event => setSelected(current => ({ ...current, [row.id]: event.target.value }))}>
             <option value="">Selecione uma pessoa da equipe</option>
-            {eligibleMembers.map(member => <option key={member.usuarioId} value={member.usuarioId}>{member.nome}</option>)}
+            {candidatesFor(row).map(member => <option key={member.usuarioId} value={member.usuarioId}>{member.nome}</option>)}
           </select></label>
-          <button type="button" className="btn btn-sm" disabled={busy || !selected[row.id]} onClick={() => void act(row)}>Registrar convite no painel</button>
+          <button type="button" className="btn btn-sm" disabled={busy || !candidatesFor(row).some(member => member.usuarioId === selected[row.id])} onClick={() => void act(row)}>Registrar convite no painel</button>
         </div> : null}
       </div>
     </div>)}</div>

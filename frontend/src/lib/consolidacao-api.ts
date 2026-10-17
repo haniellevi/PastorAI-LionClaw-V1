@@ -300,6 +300,7 @@ export interface AssignmentTrack {
   responsavelId: string | null;
   convite: ConsolidationInvitation | null;
   etapasConfirmadas: string[];
+  tiposNecessarios: string[];
   prazoConexao: string | null;
 }
 

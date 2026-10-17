@@ -396,3 +396,16 @@ def test_cursor_does_not_skip_valid_invitation_when_first_fifty_expire(workflow_
         assert [row.id for row in second.items] == [str(uuid.UUID(int=1050))]
         assert second.nextCursor is None
         assert s.execute(text("select count(*) from consolidacao_atribuicoes where status='expirada'")).scalar_one() == 50
+
+
+@pytest.mark.parametrize('sibling_status,expected', [('aberto', ['conectar_celula','fonovisita']), ('resolvido', ['fonovisita'])])
+def test_read_projects_every_active_assignment_capability(workflow_database, sibling_status, expected):
+    from app.routers.consolidacao import list_assignments
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    with workflow_database.begin() as c:
+        c.execute(text("insert into work_queue_items(igreja_id,consolidacao_id,tipo,titulo,pessoa_id,status,prioridade) values(:tenant,:track,'conectar_celula','Conexão sintética',:person,:status,1)"),
+                  {'tenant': v['tenant'], 'track': track, 'person': v['person'], 'status': sibling_status})
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        rows = list_assignments(db=s, current_user=_actor(v['tenant'], v['actor']))
+        assert rows.items[0].tiposNecessarios == expected

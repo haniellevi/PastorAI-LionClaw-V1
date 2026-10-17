@@ -19,7 +19,7 @@ test("destinatário aceita no painel e o responsável efetivo permanece após re
       accepted = true;
       await route.fulfill({ headers, json: { ...invitation, status: "aceita" } });
     } else {
-      await route.fulfill({ headers, json: { items: [{ id: trackId, pessoaId: "synthetic-person", pessoaNome: "Pessoa fictícia do aceite", responsavelId: accepted ? actorId : null, prazoConexao: null, etapasConfirmadas: [], convite: invitation }], nextCursor: null } });
+      await route.fulfill({ headers, json: { items: [{ id: trackId, pessoaId: "synthetic-person", pessoaNome: "Pessoa fictícia do aceite", responsavelId: accepted ? actorId : null, prazoConexao: null, etapasConfirmadas: [], tiposNecessarios: ["fonovisita"], convite: invitation }], nextCursor: null } });
     }
   });
   await loginThroughUi(page);
