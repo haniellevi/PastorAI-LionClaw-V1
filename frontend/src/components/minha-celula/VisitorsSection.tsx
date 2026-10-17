@@ -4,7 +4,7 @@
  * US-08 — visitantes da reunião (líder). Dois caminhos:
  *   1) Confirmar um visitante ESPERADO (expectativa indicada por um membro),
  *      vinculando expectativa_id ao registro de presença;
- *   2) Registrar presença vinculada à Pessoa selecionada por ID.
+ *   2) Registrar por nome ou vincular à Pessoa selecionada por ID.
  * Lista os visitantes já registrados. Bloqueado após o relatório enviado.
  */
 import { useCallback, useEffect, useState } from "react";
@@ -40,7 +40,15 @@ export function VisitorsSection({
 }) {
   const [person, setPerson] = useState<VisitPerson | null>(null);
   const loadPeople = useCallback((q: string, page: number, signal: AbortSignal) => lookupVisitorPeople(token,reuniaoId,{q,page,signal}),[token,reuniaoId]);
-  useEffect(() => setPerson(null), [token,reuniaoId]);
+  const [expectedPeople, setExpectedPeople] = useState<Record<string, VisitPerson | null>>({});
+  const [mode, setMode] = useState("person");
+  const [name, setName] = useState("");
+  useEffect(() => {
+    setPerson(null);
+    setExpectedPeople({});
+    setName("");
+    setObs("");
+  }, [token,reuniaoId]);
   const [obs, setObs] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -51,13 +59,14 @@ export function VisitorsSection({
   );
 
   async function confirmExpected(exp: VisitorExpectationItem) {
-    if (locked || busy || pendingId || !person) return;
+    if (locked || busy || pendingId) return;
+    const chosen = expectedPeople[exp.id];
     setPendingId(exp.id);
     setError(null);
     try {
       await registerVisitor(token, reuniaoId, {
-        pessoa_id: person.id,
-        nome_visitante: person.nome,
+        ...(chosen ? { pessoa_id: chosen.id } : {}),
+        nome_visitante: chosen?.nome ?? exp.nome_visitante,
         expectativa_id: exp.id,
       });
       onToast({ kind: "ok", text: `Visitante confirmado: ${exp.nome_visitante}.` });
@@ -73,21 +82,23 @@ export function VisitorsSection({
   }
 
   async function registerNew() {
-    const trimmed = person?.nome ?? "";
+    if (locked || busy || pendingId) return;
+    const trimmed = mode === "person" ? person?.nome ?? "" : name.trim();
     if (!trimmed) {
-      setError("Selecione a pessoa e confira o telefone antes de registrar.");
+      setError("Selecione a pessoa ou informe o nome do visitante novo.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
       await registerVisitor(token, reuniaoId, {
-        pessoa_id: person!.id,
+        ...(mode === "person" && person ? { pessoa_id: person.id } : {}),
         nome_visitante: trimmed,
         observacao: obs.trim() || null,
       });
       onToast({ kind: "ok", text: `Visitante registrado: ${trimmed}.` });
       setPerson(null);
+      setName("");
       setObs("");
       onChanged();
     } catch (err) {
@@ -114,12 +125,6 @@ export function VisitorsSection({
       ) : null}
 
       <div className="section-body">
-        {!locked ? <>
-          <PaginatedLookup<VisitPerson> loadPage={loadPeople} selected={person} onSelect={setPerson}
-            label="Buscar pessoa por nome ou telefone (mínimo 3 caracteres)" inputId={`visit-person-${reuniaoId}`}
-            getLabel={p=>p.nome} getDescription={p=>p.telefone} disabled={busy || pendingId !== null} allowClear />
-          <p className="muted-note">Confira o final do telefone. Nomes iguais não são associados automaticamente; esta seleção também vale para confirmar um esperado.</p>
-        </> : null}
         {/* Esperados a confirmar */}
         <div className="subhead">Esperados</div>
         {pendingExpectations.length === 0 ? (
@@ -132,15 +137,23 @@ export function VisitorsSection({
                   <div className="nm">{e.nome_visitante}</div>
                 </div>
                 {!locked ? (
-                  <DsButton
-                    variant="secondary"
-                    onClick={() => void confirmExpected(e)}
-                    loading={pendingId === e.id}
-                    disabled={!person || busy || (pendingId !== null && pendingId !== e.id)}
-                  >
-                    <Icon name="check" />
-                    <span>{pendingId === e.id ? "Confirmando…" : "Confirmar presente"}</span>
-                  </DsButton>
+                  <div>
+                    <PaginatedLookup<VisitPerson> loadPage={loadPeople} selected={expectedPeople[e.id] ?? null}
+                      onSelect={p => setExpectedPeople(prev => ({...prev, [e.id]: p}))}
+                      label={`Pessoa para ${e.nome_visitante} (opcional)`} inputId={`visit-expected-${e.id}`}
+                      getLabel={p=>p.nome} getDescription={p=>p.telefone} disabled={busy || pendingId !== null} allowClear />
+                    <DsButton
+                      variant="secondary"
+                      onClick={() => void confirmExpected(e)}
+                      loading={pendingId === e.id}
+                      disabled={busy || pendingId !== null}
+                    >
+                      <Icon name="check" />
+                      <span>{pendingId === e.id ? "Confirmando…" : expectedPeople[e.id]
+                        ? `Confirmar ${e.nome_visitante} como ${expectedPeople[e.id]!.nome}`
+                        : `Confirmar ${e.nome_visitante} só pelo nome (não muda a etapa)`}</span>
+                    </DsButton>
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -180,6 +193,20 @@ export function VisitorsSection({
             }}
           >
             <div className="subhead">Registrar visitante presente</div>
+            <fieldset disabled={busy || pendingId !== null}>
+              <legend>Como registrar</legend>
+              <label><input type="radio" name={`visit-mode-${reuniaoId}`} value="person" checked={mode === "person"} onChange={() => setMode("person")} /> Pessoa já cadastrada</label>
+              <label><input type="radio" name={`visit-mode-${reuniaoId}`} value="name" checked={mode === "name"} onChange={() => setMode("name")} /> Visitante novo (só nome, não muda a etapa)</label>
+            </fieldset>
+            {mode === "person" ? <>
+              <PaginatedLookup<VisitPerson> loadPage={loadPeople} selected={person} onSelect={setPerson}
+                label="Buscar pessoa por nome ou telefone (mínimo 3 caracteres)" inputId={`visit-person-${reuniaoId}`}
+                getLabel={p=>p.nome} getDescription={p=>p.telefone} disabled={busy || pendingId !== null} allowClear />
+              <p className="muted-note">Confira o final do telefone. Esta seleção registra a visita e pode mudar a etapa da Pessoa.</p>
+            </> : <div className="field">
+              <label htmlFor={`vis-name-${reuniaoId}`}>Nome do visitante</label>
+              <input id={`vis-name-${reuniaoId}`} value={name} onChange={e => setName(e.target.value)} maxLength={120} disabled={busy || pendingId !== null} />
+            </div>}
             <div className="field">
               <label htmlFor={`vis-obs-${reuniaoId}`}>Observação (opcional)</label>
               <textarea
@@ -197,7 +224,7 @@ export function VisitorsSection({
                 type="submit"
                 variant="primary"
                 loading={busy}
-                disabled={!person}
+                disabled={pendingId !== null || (mode === "person" ? !person : !name.trim())}
               >
                 <Icon name="plus" />
                 <span>{busy ? "Registrando visitante…" : "Registrar visitante"}</span>

@@ -151,7 +151,8 @@ def lookup_people(db, actor, *, reuniao_id, q, page, page_size):
     if len(digits) >= 3:
         name_or_phone.append(phone.contains(digits))
     filters = [Pessoa.igreja_id == meeting.igreja_id, Pessoa.arquivada_em.is_(None),
-        Pessoa.sem_interesse.is_(False), or_(*name_or_phone)]
+        Pessoa.sem_interesse.is_(False),
+        or_(Pessoa.tipo.is_(None), Pessoa.tipo.in_(("contato", "visitante"))), or_(*name_or_phone)]
     total = db.scalar(select(func.count()).select_from(Pessoa).where(*filters))
     rows = db.execute(select(Pessoa.id, Pessoa.nome, Pessoa.telefone).where(*filters)
         .order_by(Pessoa.nome, Pessoa.id).offset((page-1)*page_size).limit(page_size)).all()

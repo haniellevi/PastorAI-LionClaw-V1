@@ -96,7 +96,7 @@ export interface SetAttendanceOut {
 }
 
 export interface RegisterVisitorInput {
-  pessoa_id: string;
+  pessoa_id?: string | null;
   nome_visitante: string;
   expectativa_id?: string | null;
   observacao?: string | null;

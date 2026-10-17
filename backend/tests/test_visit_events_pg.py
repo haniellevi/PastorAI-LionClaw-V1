@@ -271,8 +271,14 @@ def test_panel_http_explicit_identity_provenance_and_snapshot(visit):
     app.dependency_overrides[get_current_user] = lambda: actor
     url = f'/cell-meetings/{visit.meeting}'
     with TestClient(app) as client:
-        missing = client.post(url+'/visitors', json={'nome_visitante':'Nome não é identidade'})
-        assert missing.status_code == 422
+        missing = client.post(url+'/visitors', json={'nome_visitante':'Nome não é identidade','observacao':'Primeira visita sintética'})
+        assert missing.status_code == 201
+        assert missing.json()['pessoa_id'] is None
+        from app.visits.models import VisitEvent
+        with visit.factory() as db:
+            assert db.scalar(select(func.count()).select_from(VisitEvent)) == 0
+            assert db.get(Pessoa, visit.person).subetapa == 'novo_contato'
+            assert db.scalars(select(CelulaVisitante)).one().observacao == 'Primeira visita sintética'
         response = client.post(url+'/visitors', json={
             'nome_visitante':'Nome enviado não é autoridade', 'pessoa_id':str(visit.person),
         })
@@ -283,12 +289,13 @@ def test_panel_http_explicit_identity_provenance_and_snapshot(visit):
         assert row['nome_visitante'] == 'Contato sintético'
         live = client.get(url+'/report')
         assert live.status_code == 200, live.text
-        assert live.json()['visitantes'][0]['pessoa_id'] == str(visit.person)
+        assert len(live.json()['visitantes']) == 2
+        assert any(v['pessoa_id'] == str(visit.person) for v in live.json()['visitantes'])
         sent = client.post(url+'/report/submit')
         assert sent.status_code == 200, sent.text
         frozen = client.get(url+'/report')
         assert frozen.status_code == 200, frozen.text
-        assert frozen.json()['visitantes'][0]['pessoa_id'] == str(visit.person)
+        assert any(v['pessoa_id'] == str(visit.person) for v in frozen.json()['visitantes'])
     with visit.factory() as db:
         snapshot = db.get(CelulaReuniao, visit.meeting).relatorio_snapshot
         assert 'pessoa_id' not in snapshot['visitantes'][0]
@@ -396,3 +403,26 @@ def test_duplicate_cannot_replace_existing_expectation(visit):
     assert error.value.status_code == 409
     with visit.factory() as db:
         assert db.get(CelulaVisitante,db.get(VisitEvent,first).visitante_id).expectativa_id == first_expected
+
+
+def test_lookup_hides_member_of_another_cell_and_ineligible_people(visit):
+    from app.visits.service import lookup_people
+    from app.db.models import CelulaMembro
+    other_cell = uuid.uuid4()
+    with visit.factory.begin() as db:
+        db.add(Celula(id=other_cell, igreja_id=TENANT, nome='Outra célula sintética',
+            cobertura_espiritual=db.get(Celula,visit.cell).cobertura_espiritual))
+        db.flush()
+        for index, tipo in enumerate(['membro', 'lider', 'contato', 'visitante', None]):
+            person = Pessoa(id=uuid.uuid4(),igreja_id=TENANT,nome=f'Busca Sintética {index}',
+                telefone=f'55000000001{index:02}',tipo=tipo)
+            db.add(person)
+            db.flush()
+            if tipo == 'membro':
+                db.add(CelulaMembro(igreja_id=TENANT,celula_id=other_cell,pessoa_id=person.id))
+        for index, kwargs in enumerate([{'sem_interesse':True},{'arquivada_em':dt.datetime.now(dt.timezone.utc)}]):
+            db.add(Pessoa(igreja_id=TENANT,nome='Busca Sintética oculta',telefone=f'55000000002{index:02}',tipo='contato',**kwargs))
+    with visit.factory() as db:
+        result=lookup_people(db,visit.actors['lider_celula'],reuniao_id=str(visit.meeting),q='Busca',page=1,page_size=20)
+        assert result['total'] == 3
+        assert {p['nome'] for p in result['items']} == {f'Busca Sintética {i}' for i in [2,3,4]}

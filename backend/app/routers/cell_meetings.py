@@ -1330,6 +1330,49 @@ def register_visitor(
     A expectativa vinculada precisa ser da MESMA reunião no tenant (422 caso
     contrário). Bloqueado após o relatório enviado (409). 404 fora do líder/tenant.
     """
+    if payload.pessoa_id is None:
+        with _report_writer_storage_boundary(db):
+            reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+            _assert_report_open(reuniao)
+            igreja_id = uuid.UUID(current_user.igreja_id)
+
+            expectativa_uuid: uuid.UUID | None = None
+            if payload.expectativa_id is not None:
+                expectativa_uuid = uuid.UUID(payload.expectativa_id)
+                exp = db.execute(
+                    select(CelulaExpectativaVisitante).where(
+                        CelulaExpectativaVisitante.id == expectativa_uuid,
+                        CelulaExpectativaVisitante.igreja_id == igreja_id,
+                        CelulaExpectativaVisitante.reuniao_id == reuniao.id,
+                    )
+                ).scalar_one_or_none()
+                if exp is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="expectativa_id não encontrada para esta reunião",
+                    )
+
+            _invalidate_pending_agent_report_for_human_takeover(reuniao)
+            visitante = CelulaVisitante(
+                igreja_id=igreja_id,
+                reuniao_id=reuniao.id,
+                expectativa_id=expectativa_uuid,
+                nome_visitante=payload.nome_visitante,
+                observacao=payload.observacao,
+            )
+            db.add(visitante)
+            db.flush()
+            db.refresh(visitante)
+            db.commit()
+            return VisitorOut(
+                id=str(visitante.id),
+                reuniao_id=str(visitante.reuniao_id),
+                nome_visitante=visitante.nome_visitante,
+                expectativa_id=(
+                    str(visitante.expectativa_id) if visitante.expectativa_id else None
+                ),
+            )
+
     from app.visits.service import register_cell_visit
     with _report_writer_storage_boundary(db):
         event = register_cell_visit(db, current_user, reuniao_id=reuniao_id,
