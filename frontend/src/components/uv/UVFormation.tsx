@@ -21,7 +21,7 @@ function Formation({ enrollment: m, turma, disabled, request, run, reload }: Act
   return <article className="uv-student"><h4>{m.nome}</h4>
     {(["encontro", "batismo"] as const).map(tipo => {
       const record = m.marcos?.find(v => v.tipo === tipo);
-      return record ? <p key={tipo}>{tipo === "encontro" ? "Encontro" : "Batismo"}: {record.data} · {record.anterior_turma ? "Anterior à turma" : "Durante a turma"} · Validado por {record.validada_por} em {record.validada_em}</p>
+      return record ? <p key={tipo}>{tipo === "encontro" ? "Encontro" : "Batismo"}: {record.data} · {record.anterior_turma ? "Anterior à turma de origem" : "Durante a turma de origem"}: {record.turma_nome} · Validado por {record.validada_por} em {record.validada_em}</p>
         : <Milestone key={tipo} tipo={tipo} base={base} disabled={disabled || !!m.conclusao} request={request} run={run} reload={reload} />;
     })}
     {m.conclusao ? <p role="status">UV concluída em {m.conclusao.confirmada_em} por {m.conclusao.confirmada_por}. Jornada: {m.conclusao.etapa_anterior ?? "Sem etapa"} → {m.conclusao.etapa_resultante}. Aptidão à próxima CD: {m.conclusao.origem_aptidao}. Sem matrícula automática.</p>

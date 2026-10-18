@@ -4,7 +4,7 @@ export interface Turma { id: string; nome: string; encerrada: boolean }
 export interface Atividade { ordem: number; tipo: "aula" | "encontro"; aula: number | null; data: string }
 export interface Presenca { aula: number; presente: boolean; modalidade: "regular" | "reposicao"; registro_id: string; registrada_por: string; registrada_em: string }
 export interface PresencaRevisao extends Omit<Presenca, "aula"> { anterior_id: string | null }
-export interface MarcoUV { id: string; tipo: "encontro" | "batismo"; data: string; anterior_turma: boolean; validada_por: string; validada_em: string }
+export interface MarcoUV { id: string; turma_id: string; turma_nome: string; tipo: "encontro" | "batismo"; data: string; anterior_turma: boolean; validada_por: string; validada_em: string }
 export interface ConclusaoUV { id: string; confirmada_por: string; confirmada_em: string; etapa_anterior: string | null; etapa_resultante: string; origem_aptidao: "legado" | "conclusao_uv" }
 export interface MatriculaUV { id: string; pessoa_id: string; nome: string; conexao_celula_pendente: boolean; aulas_cumpridas: number[]; aulas_pendentes: number[]; presencas: Presenca[]; marcos: MarcoUV[]; conclusao: ConclusaoUV | null }
 export interface TurmaDetalhe extends Turma {

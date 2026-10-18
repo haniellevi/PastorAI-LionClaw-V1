@@ -41,6 +41,7 @@ function StudentAttendance({ detail, busy, request, run, reload, student }: Prop
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (student.conclusao || busy || detail.encerrada || !available) return;
     void run(async () => {
       const intent = JSON.stringify({ aula, presente, modalidade, anterior_id: current?.registro_id ?? null });
       if (key.current?.intent !== intent) key.current = { intent, id: crypto.randomUUID() };
@@ -58,7 +59,7 @@ function StudentAttendance({ detail, busy, request, run, reload, student }: Prop
     </select></label>
     {current ? <p>Registro atual: {current.presente ? "Presente" : "Ausente"} · {current.modalidade === "reposicao" ? "Reposição" : "Regular"}</p> : <p>Sem registro nesta aula.</p>}
     <form onSubmit={submit}>
-      <fieldset disabled={busy || detail.encerrada || !available}>
+      <fieldset disabled={busy || detail.encerrada || !available || !!student.conclusao}>
         <legend>{current ? "Correção explícita do registro" : "Registrar chamada"}</legend>
         <label>Situação<select value={String(presente)} onChange={e => { setPresente(e.target.value === "true"); reset(); }}><option value="true">Presente</option><option value="false">Ausente</option></select></label>
         <label>Modalidade<select aria-label="Modalidade da presença" value={modalidade} onChange={e => { setModalidade(e.target.value as typeof modalidade); reset(); }}><option value="regular">Regular</option><option value="reposicao">Reposição</option></select></label>
@@ -66,6 +67,7 @@ function StudentAttendance({ detail, busy, request, run, reload, student }: Prop
         <button className="btn btn-primary" disabled={!!current && !confirmed}>{current ? "Salvar correção" : "Registrar presença"}</button>
       </fieldset>
     </form>
+    {student.conclusao ? <p>UV concluída: chamada disponível somente para consulta.</p> : null}
     {detail.encerrada ? <p>Turma encerrada: chamada disponível para consulta.</p> : !available ? <p>Defina o calendário desta aula para lançar presença.</p> : null}
     <button className="btn" type="button" disabled={busy} onClick={() => void run(async () => { setHistory(await request<PresencaRevisao[]>(`${path}/historico`)); })}>Consultar histórico da aula {aula}</button>
     {notice ? <p role="status">{notice}</p> : null}

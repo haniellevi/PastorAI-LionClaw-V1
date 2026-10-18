@@ -263,3 +263,31 @@ def test_formation_lifecycle_denials(database,seeded,state,operation):
             if operation=='finish': uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))
             else: uv.milestone(s,principal(v),tid,mid,'batismo',marco())
         assert exc.value.status_code==409
+
+
+def test_completion_freezes_attendance_but_preserves_receipt_replay(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        first=uv.get_turma(s,principal(v),tid)['matriculas'][0]['presencas'][0]
+        uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))
+        with pytest.raises(HTTPException) as exc:
+            uv.attendance(s,principal(v),tid,mid,1,attendance_payload(presente=False,anterior_id=first['registro_id']))
+        assert exc.value.status_code==409
+        receipt=uv.attendance(s,principal(v),tid,mid,1,attendance_payload(id=first['registro_id'],modalidade='reposicao'))
+        assert receipt['presente'] is True
+        student=uv.get_turma(s,principal(v),tid)['matriculas'][0]
+        assert student['aulas_pendentes']==[] and student['conclusao']
+        assert s.execute(text('select count(*) from uv_presencas_historico')).scalar_one()==8
+
+
+def test_reused_milestone_exposes_origin_turma(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=setup(s,v)
+        uv.milestone(s,principal(v),tid,mid,'batismo',marco(anterior_turma=False))
+        other,other_mid=setup(s,v)
+        result=uv.get_turma(s,principal(v),other)['matriculas'][0]['marcos'][0]
+        assert result['turma_id']==tid and result['turma_id']!=other
+        assert result['turma_nome']=='Turma sintética'
+        assert result['anterior_turma'] is False  # Relative to origin, never the displayed turma.

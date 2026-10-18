@@ -192,3 +192,16 @@ it("consulta conclusão persistida com autor, transição e origem legada sem pe
   expect(button("Concluir UV")).toBeUndefined();
   expect(button("Validar batismo")).toBeUndefined();
 });
+
+it("conclusão bloqueia a chamada e marcos reutilizados identificam a turma de origem", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+    atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [],
+      presencas: [{ aula: 1, registro_id: "previous", presente: true, modalidade: "regular" }],
+      marcos: [{ id: "b", tipo: "batismo", data: "2020-01-01", anterior_turma: false, turma_id: "outra-turma", turma_nome: "Primeira turma", validada_por: "equipe", validada_em: "2026-10-17" }],
+      conclusao: { id: "c", confirmada_por: "equipe", confirmada_em: "2026-10-17", etapa_anterior: "consolidar", etapa_resultante: "discipular", origem_aptidao: "conclusao_uv" } }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("Durante a turma de origem: Primeira turma");
+  expect(button("Salvar correção")!.closest("fieldset")!.disabled).toBe(true);
+  expect(button("Consultar histórico")!.disabled).toBe(false);
+});

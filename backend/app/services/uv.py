@@ -102,7 +102,9 @@ def get_turma(db, user, turma_id):
         where m.igreja_id=:t and m.turma_id=:id and m.ativa and p.arquivada_em is null order by m.criada_em,m.id''', t=t, id=turma_id)
     attendance_rows = rows(db, '''select matricula_id,aula,presente,modalidade,registro_id,registrada_por,registrada_em
         from uv_presencas where igreja_id=:t and turma_id=:id order by aula''', t=t, id=turma_id)
-    milestones = rows(db, '''select v.* from uv_marcos v where v.igreja_id=:t and exists
+    milestones = rows(db, '''select v.*,origin.nome as turma_nome from uv_marcos v
+        join uv_turmas origin on origin.igreja_id=v.igreja_id and origin.id=v.turma_id
+        where v.igreja_id=:t and exists
         (select 1 from uv_matriculas m where m.igreja_id=v.igreja_id and m.pessoa_id=v.pessoa_id and m.turma_id=:id and m.ativa)''', t=t,id=turma_id)
     completions = rows(db, '''select v.* from uv_conclusoes v where v.igreja_id=:t and exists
         (select 1 from uv_matriculas m where m.igreja_id=v.igreja_id and m.pessoa_id=v.pessoa_id and m.turma_id=:id and m.ativa)''', t=t,id=turma_id)
@@ -298,12 +300,17 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
         return {k: r[k] for k in ('registro_id','anterior_id','presente','modalidade','registrada_por','registrada_em')}
     if current_turma['encerrada']:
         raise HTTPException(409, 'Turma encerrada')
-    enrollment = rows(db, '''select m.id from uv_matriculas m join pessoas p
+    enrollment = rows(db, '''select m.id,m.pessoa_id from uv_matriculas m join pessoas p
         on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
         where m.igreja_id=:t and m.turma_id=:tid and m.id=:mid and m.ativa and p.arquivada_em is null
         for share of m,p''', t=t, tid=turma_id, mid=matricula_id)
     if not enrollment:
         raise HTTPException(409, 'Matrícula ativa não encontrada nesta turma')
+    # The shared person lock above serializes this check with completion in
+    # any turma. Receipt replay above stays read-only after completion.
+    if rows(db, 'select id from uv_conclusoes where igreja_id=:t and pessoa_id=:p',
+            t=t,p=enrollment[0]['pessoa_id']):
+        raise HTTPException(409, 'UV já concluída: presença disponível somente para consulta')
     activity = rows(db, '''select id from uv_atividades where igreja_id=:t and turma_id=:tid
         and tipo='aula' and aula=:a''', t=t, tid=turma_id, a=aula)
     if not activity:
