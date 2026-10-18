@@ -53,7 +53,7 @@ def test_history_idempotency_summary(database,seeded):
         with scoped(database,v['t']) as s, pytest.raises(ProgrammingError): s.execute(text(sql))
 
 
-@pytest.mark.parametrize('state',['unlinked','removed','revoked','cancelled','future','closed','other_lesson','invalid_replacement'])
+@pytest.mark.parametrize('state',['other_tenant','unlinked','removed','revoked','cancelled','future','closed','other_lesson','invalid_replacement'])
 def test_guards(database,seeded,state):
     v=seeded
     with scoped(database,v['t']) as s:
@@ -66,9 +66,12 @@ def test_guards(database,seeded,state):
         if state=='other_lesson': a=uuid4()
         s.commit()
     with database.begin() as c:
+        if state=='other_tenant':
+            c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:u,'ativo','Outro sintético','other@example.test')"),dict(u=v['other']))
+            c.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:u,:u,'admin')"),dict(u=v['other']))
         if state=='revoked': c.execute(text("update app_users set status='revogado' where id=:u"),dict(u=v['leader']))
-    with scoped(database,v['t']) as s:
-        u=principal(v,'leader') if state in {'unlinked','removed','revoked'} else principal(v,tenant='other') if state=='other_tenant' else principal(v)
+    with scoped(database,v['other'] if state=='other_tenant' else v['t']) as s:
+        u=principal(v,'leader') if state in {'unlinked','removed','revoked'} else principal(v,'other',tenant='other') if state=='other_tenant' else principal(v)
         expected=404 if state in {'unlinked','removed','other_tenant'} else 403 if state=='revoked' else 422 if state in {'other_lesson','invalid_replacement'} else 409
         p=payload(presente=False,modalidade='reposicao') if state=='invalid_replacement' else payload()
         denied(lambda:cd.attendance(s,u,tid,mid,a,p),expected)
@@ -212,3 +215,53 @@ def test_calendar_cannot_move_recorded_lesson_to_future(database,seeded,presente
         assert cd.get_turma(s,principal(v),tid)['calendario']==detail['calendario']
         corrected=cd.attendance(s,principal(v),tid,mid,a,payload(anterior_id=first.id,presente=not presente))
         assert corrected['presente']==(not presente)
+
+
+@pytest.mark.parametrize('state', ['cancelled', 'archived'])
+def test_summary_visibility_and_archived_history(database, seeded, state):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid, mid, a = setup(s, v)
+        cd.attendance(s, principal(v), tid, mid, a, payload())
+        if state == 'cancelled':
+            cd.cancel_enrollment(s, principal(v), tid, mid)
+            assert len(cd.attendance_history(s, principal(v), tid, mid, a)) == 1
+        else:
+            s.execute(text('update pessoas set arquivada_em=now() where id=:p'), dict(p=v['p']))
+            denied(lambda: cd.attendance_history(s, principal(v), tid, mid, a), 404)
+        assert cd.attendance_summary(s, principal(v), tid) == []
+
+
+def test_correction_races_cancellation(database, seeded):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid, mid, a = setup(s, v)
+        first = payload(presente=False)
+        cd.attendance(s, principal(v), tid, mid, a, first)
+        s.commit()
+    barrier = Barrier(2)
+    def attempt(cancel):
+        with scoped(database, v['t']) as s:
+            barrier.wait(timeout=10)
+            try:
+                if cancel:
+                    cd.cancel_enrollment(s, principal(v), tid, mid)
+                else:
+                    cd.attendance(s, principal(v), tid, mid, a, payload(anterior_id=first.id))
+                s.commit()
+                return 200
+            except HTTPException as exc:
+                s.rollback()
+                return exc.status_code
+    with ThreadPoolExecutor(2) as pool:
+        corrected, cancelled = list(pool.map(attempt, [False, True]))
+    assert cancelled == 200 and corrected in (200, 409)
+    with scoped(database, v['t']) as s:
+        assert not cd.list_enrollments(s, principal(v), tid)[0]['ativa']
+        history = cd.attendance_history(s, principal(v), tid, mid, a)
+        assert len(history) == (2 if corrected == 200 else 1)
+        assert history[-1]['presente'] == (corrected == 200)
+        assert s.execute(text("""select count(*) from cd_presencas p left join cd_matriculas m
+            on m.igreja_id=p.igreja_id and m.id=p.matricula_id where m.id is null""")).scalar_one() == 0
+        denied(lambda: cd.attendance(s, principal(v), tid, mid, a,
+            payload(anterior_id=history[-1]['registro_id'])), 409)

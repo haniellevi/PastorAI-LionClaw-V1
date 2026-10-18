@@ -315,6 +315,11 @@ def attendance_history(db, user, turma_id, matricula_id, aula_id):
     t, uid, roles = actor(db, user)
     turma(db, t, turma_id)
     require_scope(db, t, uid, roles, turma_id)
+    if not rows(db, '''select m.id from cd_matriculas m join pessoas p
+        on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
+        where m.igreja_id=:t and m.turma_id=:tid and m.id=:mid and p.arquivada_em is null''',
+        t=t, tid=turma_id, mid=matricula_id):
+        raise HTTPException(404, 'Matrícula não encontrada')
     return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em,
         coalesce(person.nome,u.nome,'Usuário da equipe') as registrada_por_nome
         from cd_presencas_historico h join cd_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
@@ -381,11 +386,17 @@ def attendance(db, user, turma_id, matricula_id, aula_id, payload):
 
 
 def attendance_summary(db, user, tid):
-    """Only completed lesson IDs; completion/certification belongs to PR 5."""
+    """PR 5 input: active enrollments of visible people, fulfilled lesson IDs only.
+
+    Regular presence and replacement count equally. This is not a completion;
+    PR 5 must revalidate the complete calendar and human confirmation under lock.
+    Cancelled enrollments stay in history; archived people have no history API.
+    """
     t, _, _ = enrollment_scope(db, user, tid)
     return rows(db, """select m.id as matricula_id,
         coalesce(array_agg(p.aula_id order by a.numero) filter(where p.presente),array[]::uuid[]) as aulas_cumpridas
         from cd_matriculas m
+        join pessoas person on person.igreja_id=m.igreja_id and person.id=m.pessoa_id
         left join cd_presencas p on p.igreja_id=m.igreja_id and p.matricula_id=m.id
         left join cd_aulas a on a.igreja_id=p.igreja_id and a.id=p.aula_id
-        where m.igreja_id=:t and m.turma_id=:tid group by m.id order by m.id""", t=t,tid=tid)
+        where m.igreja_id=:t and m.turma_id=:tid and m.ativa and person.arquivada_em is null group by m.id order by m.id""", t=t,tid=tid)
