@@ -265,3 +265,17 @@ def test_correction_races_cancellation(database, seeded):
             on m.igreja_id=p.igreja_id and m.id=p.matricula_id where m.id is null""")).scalar_one() == 0
         denied(lambda: cd.attendance(s, principal(v), tid, mid, a,
             payload(anterior_id=history[-1]['registro_id'])), 409)
+
+
+def test_cancellation_committed_before_correction_returns_conflict(database, seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid,a=setup(s,v); first=payload(presente=False)
+        cd.attendance(s,principal(v),tid,mid,a,first); s.commit()
+    with scoped(database,v['t']) as s:
+        cd.cancel_enrollment(s,principal(v),tid,mid); s.commit()
+    with scoped(database,v['t']) as s:
+        denied(lambda:cd.attendance(s,principal(v),tid,mid,a,payload(anterior_id=first.id)),409)
+        history=cd.attendance_history(s,principal(v),tid,mid,a)
+        assert len(history)==1 and history[0]['presente'] is False
+        assert not cd.list_enrollments(s,principal(v),tid)[0]['ativa']

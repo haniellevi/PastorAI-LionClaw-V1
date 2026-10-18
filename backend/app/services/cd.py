@@ -1,5 +1,6 @@
 """CD panel domain services. Callers commit; no agent tools."""
 from fastapi import HTTPException
+from app.services.formation_errors import AttendanceChanged
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -243,8 +244,12 @@ def list_enrollments(db, user, tid):
         from cd_matriculas m join pessoas p on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
         where m.igreja_id=:t and m.turma_id=:tid
         order by p.nome,m.id''', t=t, tid=tid)
+    _, _, roles = actor(db, user)
+    columns = 'id,matricula_id,origem,confirmada_por,confirmada_em'
+    if roles & COORDINATION_ROLES:
+        columns += ',evidencia,origem_equivalencia'
     completions = {r['matricula_id']: r for r in rows(db,
-        'select * from cd_conclusoes where igreja_id=:t and turma_id=:tid', t=t,tid=tid)}
+        f'select {columns} from cd_conclusoes where igreja_id=:t and turma_id=:tid', t=t,tid=tid)}
     for m in result:
         m['conclusao'] = completions.get(m['id'])
     return result
@@ -386,7 +391,7 @@ def attendance(db, user, turma_id, matricula_id, aula_id, payload):
     current = rows(db, '''select registro_id from cd_presencas where igreja_id=:t
         and matricula_id=:mid and aula_id=:a''', t=t, mid=matricula_id, a=aula_id)
     if (current[0]['registro_id'] if current else None) != payload.anterior_id:
-        raise HTTPException(409, 'Presença já registrada ou corrigida. Atualize e faça uma correção explícita')
+        raise AttendanceChanged()
     params = dict(t=t, tid=turma_id, mid=matricula_id, a=aula_id,
                   id=payload.id, anterior=payload.anterior_id, presente=payload.presente,
                   modalidade=payload.modalidade, u=uid)

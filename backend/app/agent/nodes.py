@@ -557,3 +557,8 @@ def route_cell_suggest_intent(texto, *, pending=False):
 def route_uv_intent(text, *, pending=False):
     from app.uv_whatsapp.catalog import route
     return route(text, pending=pending)
+
+
+def route_cd_intent(text, *, pending=False):
+    from app.cd_whatsapp.catalog import route
+    return route(text, pending=pending)

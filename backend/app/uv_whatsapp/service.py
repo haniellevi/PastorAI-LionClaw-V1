@@ -21,7 +21,7 @@ def actor(db, contact):
 
 
 def choose(items, name):
-    found = [r for r in items if normalized(r['nome']) == normalized(name)]
+    found = [r for r in items if " ".join(normalized(r['nome']).split()) == " ".join(normalized(name).split())]
     if len(found) != 1:
         raise HTTPException(422, 'Nome não encontrado ou ambíguo. Consulte o painel')
     return found[0]

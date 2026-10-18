@@ -32,6 +32,7 @@ def execute(db, user, proposal):
     from uuid import UUID
     from app.routers.uv import PresencaInput
     from app.services import uv
+    from app.services.formation_errors import AttendanceChanged
     from fastapi import HTTPException
     # The panel writer holds this same turma lock and compares registro_id atomically.
     try:
@@ -40,6 +41,6 @@ def execute(db, user, proposal):
                 modalidade=proposal['modalidade'], anterior_id=(UUID(proposal['anterior_id'])
                     if proposal['anterior_id'] else None)))
     except HTTPException as exc:
-        if exc.status_code == 409 and 'correção explícita' in str(exc.detail):
+        if getattr(exc, 'code', None) == AttendanceChanged.code:
             raise HTTPException(409, 'Registro alterado. Faça uma nova proposta.') from None
         raise

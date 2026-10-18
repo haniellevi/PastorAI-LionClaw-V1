@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from uuid import UUID
 
 from fastapi import HTTPException
+from app.services.formation_errors import AttendanceChanged
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -338,7 +339,7 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
     current = rows(db, '''select registro_id from uv_presencas where igreja_id=:t
         and matricula_id=:mid and aula=:a''', t=t, mid=matricula_id, a=aula)
     if (current[0]['registro_id'] if current else None) != payload.anterior_id:
-        raise HTTPException(409, 'Presença já registrada ou corrigida. Atualize e faça uma correção explícita')
+        raise AttendanceChanged()
     params = dict(t=t, tid=turma_id, mid=matricula_id, a=aula, atividade=activity[0]['id'],
                   id=payload.id, anterior=payload.anterior_id, presente=payload.presente,
                   modalidade=payload.modalidade, u=uid)

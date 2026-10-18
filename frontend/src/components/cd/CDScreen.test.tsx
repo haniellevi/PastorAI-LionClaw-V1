@@ -247,3 +247,18 @@ it("mantém certificados de pessoa arquivada consultáveis, sem emissão nova", 
   expect(button("Revogar certificado")).toBeDefined();
   expect(button("Emitir certificado")).toBeUndefined();
 });
+
+
+it.each(["admin", "pastor", "lider_consol"])("restringe evidência de equivalência à coordenação: %s", async (role) => {
+  state.roles = [role];
+  const normal = state.request.getMockImplementation()!;
+  state.request.mockImplementation((...args) => args[1].endsWith("/matriculas") ? Promise.resolve([{
+    id: "mat", pessoa_id: "p", nome: "Aluno", ativa: true, origem_aptidao: "legado",
+    conclusao: { id: "done", origem: "equivalencia", confirmada_em: "2026-10-01T12:00:00Z",
+      evidencia: "Documento restrito", origem_equivalencia: "Curso restrito" },
+  }]) : normal(...args));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("Conclusão por equivalência");
+  expect(container.textContent?.includes("Documento restrito")).toBe(role !== "lider_consol");
+  expect(container.textContent?.includes("Curso restrito")).toBe(role !== "lider_consol");
+});
