@@ -16,7 +16,7 @@ def require_scope(db, t, uid, roles, turma_id):
         return
     if not rows(db, '''select id from cd_responsaveis where igreja_id=:t
         and turma_id=:id and usuario_id=:u and ativo''', t=t,id=turma_id,u=uid):
-        raise HTTPException(403, 'Turma fora da sua responsabilidade')
+        raise HTTPException(404, 'Turma não encontrada')
 
 
 def turma(db, t, tid, lock=False):
@@ -124,7 +124,7 @@ def create_turma(db,user,payload):
 
 def get_turma(db,user,tid):
     t,uid,roles=actor(db,user)
-    result=turma(db,t,tid); require_scope(db,t,uid,roles,tid)
+    require_scope(db,t,uid,roles,tid); result=turma(db,t,tid)
     current=catalog(db,t,result['curriculo_id'])
     result['versao']=current['versao']
     result['modulo']=next(m for m in current['modulos'] if m['id']==result['modulo_id'])
@@ -161,8 +161,9 @@ def calendar(db,user,tid,payload):
     try:
         with db.begin_nested():
             for a in payload.aulas:
-                db.execute(text('''insert into cd_calendario(igreja_id,turma_id,modulo_id,aula_id,data,criada_por)
-                    values(:t,:id,:m,:a,:d,:u) on conflict(igreja_id,turma_id,aula_id) do update set data=excluded.data'''),
+                db.execute(text('''insert into cd_calendario(igreja_id,turma_id,modulo_id,aula_id,data,criada_por,atualizada_por)
+                    values(:t,:id,:m,:a,:d,:u,:u) on conflict(igreja_id,turma_id,aula_id) do update
+                    set data=excluded.data,atualizada_por=excluded.atualizada_por,atualizada_em=clock_timestamp()'''),
                     dict(t=t,id=tid,m=current['modulo_id'],a=a.aula_id,d=a.data,u=uid))
     except IntegrityError as exc: raise HTTPException(409,'Calendário conflitante') from exc
     return get_turma(db,user,tid)

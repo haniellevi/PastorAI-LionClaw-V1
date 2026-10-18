@@ -257,6 +257,11 @@ exige o GUC de igreja fixado pelo backend. O login de conexão do backend deve
 ser distinto desses logins de cliente; SET ROLE authenticated continua sujeito
 à RLS. Claim Clerk preservado no backend não libera acesso direto. Papel,
 responsabilidade e autoria são validados somente pelo caminho FastAPI.
+`service_role` também tem todos os privilégios revogados nas sete tabelas CD;
+o backend SQL usa o papel `authenticated` (a chave service_role é usada apenas
+no Storage). O calendário registra autor e horário da última gravação no
+upsert, preservando o criador. Turma encerrada exige autor e horário de
+encerramento; o par permanece completo após reabertura.
 
 Aplicar pelo runner antes de publicar callers `/cd`: não há flag para ausência
 de schema. Somente PostgreSQL 17 local descartável, dados sintéticos e cadeia

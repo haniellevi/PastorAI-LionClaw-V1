@@ -92,7 +92,7 @@ def test_no_link_or_unauthorized_role(database,seeded,key):
         tid=create(s,v); user=principal(v,key)
         if key=='leader': assert cd.list_turmas(s,user)==[]
         else: denied(lambda:cd.list_turmas(s,user))
-        denied(lambda:cd.get_turma(s,user,tid))
+        denied(lambda:cd.get_turma(s,user,tid),404 if key=='leader' else 403)
         denied(lambda:cd.list_curriculos(s,user))
         denied(lambda:cd.options(s,user))
         denied(lambda:cd.create_curriculo(s,user,CurriculoInput(id=uuid4(),nome='X',versao='X')))
@@ -116,7 +116,7 @@ def test_responsible_live_scope_and_readonly(database,seeded,revocation):
         if revocation=='status': conn.execute(text("update app_users set status='revogado' where id=:u"),dict(u=v['leader']))
         if revocation=='role': conn.execute(text('delete from user_roles where user_id=:u'),dict(u=v['leader']))
         if revocation=='screen': conn.execute(text("insert into role_permissions(igreja_id,papel,tela) values(:t,'lider_consol','dashboard')"),dict(t=v['t']))
-    with scoped(database,v['t']) as s: denied(lambda:cd.get_turma(s,principal(v,'leader'),tid))
+    with scoped(database,v['t']) as s: denied(lambda:cd.get_turma(s,principal(v,'leader'),tid),404 if revocation=='link' else 403)
 
 
 @pytest.mark.parametrize('key',['outsider','other'])
@@ -192,7 +192,7 @@ def test_rls_and_minimal_grants(database,seeded,table):
                 # WITH CHECK evaluated on a clone with a new generated id.
                 cols={'cd_niveis':'igreja_id,curriculo_id,numero,nome','cd_modulos':'igreja_id,curriculo_id,numero,nome',
                     'cd_aulas':'igreja_id,modulo_id,numero,nome','cd_turmas':'id,igreja_id,curriculo_id,modulo_id,nome,criada_por',
-                    'cd_calendario':'igreja_id,turma_id,modulo_id,aula_id,data,criada_por','cd_responsaveis':'igreja_id,turma_id,usuario_id,atribuido_por'}[table]
+                    'cd_calendario':'igreja_id,turma_id,modulo_id,aula_id,data,criada_por,atualizada_por','cd_responsaveis':'igreja_id,turma_id,usuario_id,atribuido_por'}[table]
                 # Read synthetic source under provisioning, then insert in the wrong scope.
                 with database.connect() as conn: source=dict(conn.execute(text(f'select {cols} from {table} limit 1')).mappings().one())
                 if 'id' in source: source['id']=uuid4()
@@ -217,7 +217,7 @@ def test_cross_tenant_fks(database,seeded,edge):
             'modulo':"insert into cd_modulos(igreja_id,curriculo_id,numero,nome) values(:t,:c,1,'X')",
             'aula':"insert into cd_aulas(igreja_id,modulo_id,numero,nome) values(:t,:m,1,'X')",
             'turma':"insert into cd_turmas(id,igreja_id,curriculo_id,modulo_id,nome,criada_por) values(:id,:t,:c,:m,'X',:u)",
-            'calendario':"insert into cd_calendario(igreja_id,turma_id,modulo_id,aula_id,data,criada_por) values(:t,:tid,:m,:a,current_date,:u)",
+            'calendario':"insert into cd_calendario(igreja_id,turma_id,modulo_id,aula_id,data,criada_por,atualizada_por) values(:t,:tid,:m,:a,current_date,:u,:u)",
             'responsavel':"insert into cd_responsaveis(igreja_id,turma_id,usuario_id,atribuido_por) values(:t,:tid,:u,:u)",
             'autor':"insert into cd_curriculos(id,igreja_id,versao,nome,criada_por) values(:id,:t,'other','X',:u)"}
         with pytest.raises(IntegrityError) as exc: s.execute(text(statements[edge]),params)
@@ -241,7 +241,7 @@ def test_same_church_structure_integrity(database,seeded,edge):
         queries={
             'nivel_version':"insert into cd_modulos(igreja_id,curriculo_id,nivel_id,numero,nome) values(:t,:other,:nivel,7,'X')",
             'turma_version':"insert into cd_turmas(id,igreja_id,curriculo_id,modulo_id,nome,criada_por) values(:id,:t,:other,:m,'X',:u)",
-            'calendar_module':"insert into cd_calendario(igreja_id,turma_id,modulo_id,aula_id,data,criada_por) values(:t,:tid,:m,:a,current_date,:u)",
+            'calendar_module':"insert into cd_calendario(igreja_id,turma_id,modulo_id,aula_id,data,criada_por,atualizada_por) values(:t,:tid,:m,:a,current_date,:u,:u)",
             'module_unique':"insert into cd_modulos(igreja_id,curriculo_id,numero,nome) values(:t,:c,1,'X')",
             'lesson_unique':"insert into cd_aulas(igreja_id,modulo_id,numero,nome) values(:t,:m,1,'X')"}
         with pytest.raises(IntegrityError) as exc: s.execute(text(queries[edge]),params)
@@ -298,7 +298,7 @@ def test_http_refuses_scope_and_coordination_operations(database,seeded,key):
     app.dependency_overrides[get_current_user]=lambda:principal(v,key)
     with TestClient(app) as client:
         assert client.get('/cd/curriculos').status_code==403
-        assert client.get(f'/cd/turmas/{tid}').status_code==403
+        assert client.get(f'/cd/turmas/{tid}').status_code==(404 if key=='leader' else 403)
         assert client.post('/cd/turmas',json=dict(id=str(uuid4()),nome='X',curriculo_id=str(c['id']),modulo_id=str(c['modulos'][0]['id']))).status_code==403
         assert client.post(f'/cd/turmas/{tid}/encerrar').status_code==403
 
@@ -345,7 +345,7 @@ def test_direct_clerk_sessions_cannot_bypass_domain_service(database,seeded,tabl
               'cd_modulos':'igreja_id,curriculo_id,numero,nome',
               'cd_aulas':'igreja_id,modulo_id,numero,nome',
               'cd_turmas':'id,igreja_id,curriculo_id,modulo_id,nome,criada_por',
-              'cd_calendario':'igreja_id,turma_id,modulo_id,aula_id,data,criada_por',
+              'cd_calendario':'igreja_id,turma_id,modulo_id,aula_id,data,criada_por,atualizada_por',
               'cd_responsaveis':'igreja_id,turma_id,usuario_id,atribuido_por'}[table]
         with database.connect() as conn:
             source=dict(conn.execute(text(f'select {cols} from {table} limit 1')).mappings().one())
@@ -380,3 +380,57 @@ def test_jwt_without_backend_pin_cannot_access_cd_even_with_privileged_login(dat
         for table in TABLES: assert s.execute(text(f'select count(*) from {table}')).scalar()==0
         with pytest.raises(ProgrammingError):
             s.execute(text("insert into cd_curriculos(id,igreja_id,versao,nome,criada_por) values(:id,:t,'forged','X',:u)"),dict(id=uuid4(),t=v['t'],u=v['uid']))
+
+
+def test_unlinked_turma_is_indistinguishable_from_missing(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid=create(s,v)
+        errors=[]
+        for target in (tid,uuid4()):
+            with pytest.raises(HTTPException) as exc:
+                cd.get_turma(s,principal(v,'leader'),target)
+            errors.append((exc.value.status_code,exc.value.detail))
+        assert errors==[(404,'Turma não encontrada')]*2
+        assert cd.get_turma(s,principal(v),tid)['id']==tid
+        denied(lambda:cd.get_turma(s,principal(v),uuid4()),404)
+
+
+@pytest.mark.parametrize('table',TABLES)
+def test_service_role_has_no_mutation_privileges(database,table):
+    with database.connect() as conn:
+        assert not conn.execute(text("select has_table_privilege('service_role',:t,'DELETE')"),dict(t=table)).scalar()
+        assert not conn.execute(text("select has_any_column_privilege('service_role',:t,'UPDATE')"),dict(t=table)).scalar()
+
+
+def test_calendar_tracks_latest_author_and_time(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid=create(s,v); cal=schedule(cd.get_turma(s,principal(v),tid))
+        cd.calendar(s,principal(v),tid,cal)
+        before=s.execute(text('select criada_por,atualizada_por,atualizada_em from cd_calendario where turma_id=:id'),dict(id=tid)).mappings().all()
+        assert all(r['criada_por']==r['atualizada_por']==v['uid'] and r['atualizada_em'] for r in before)
+        s.commit()
+    with database.begin() as conn:
+        conn.execute(text("update user_roles set papel='pastor' where user_id=:u"),dict(u=v['leader']))
+    with scoped(database,v['t']) as s:
+        cd.calendar(s,principal(v,'leader'),tid,cal)
+        after=s.execute(text('select criada_por,atualizada_por,atualizada_em from cd_calendario where turma_id=:id'),dict(id=tid)).mappings().all()
+        assert all(r['criada_por']==v['uid'] and r['atualizada_por']==v['leader'] for r in after)
+        assert min(r['atualizada_em'] for r in after)>max(r['atualizada_em'] for r in before)
+
+
+@pytest.mark.parametrize('fields',[
+    'encerrada=true',
+    'encerrada=true,encerrada_por=:u',
+    'encerrada=true,encerrada_em=clock_timestamp()',
+    'encerrada_por=:u',
+    'encerrada_em=clock_timestamp()',
+])
+def test_closure_metadata_must_be_coherent(database,seeded,fields):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid=create(s,v)
+        with pytest.raises(IntegrityError) as exc:
+            s.execute(text(f'update cd_turmas set {fields} where id=:id'),dict(id=tid,u=v['uid']))
+        assert exc.value.orig.pgcode=='23514'

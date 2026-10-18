@@ -57,7 +57,10 @@ def migrated_database(rls_database_url):
             c.exec_driver_sql(f"alter role {role} {'bypassrls' if bypass else 'nobypassrls'}")
         c.exec_driver_sql('grant usage on schema public to anon, authenticated, service_role')
         for obj in ('tables', 'sequences', 'functions'):
-            c.exec_driver_sql(f"alter default privileges in schema public grant all on {obj} to anon, authenticated, service_role")
+            c.exec_driver_sql(f"alter default privileges in schema public grant all on {obj} to anon, authenticated")
+            # Recreate Supabase's broad service grants too: CD must explicitly
+            # revoke them in the migration, even though this role bypasses RLS.
+            c.exec_driver_sql(f"alter default privileges in schema public grant all on {obj} to service_role")
         c.exec_driver_sql('create table public.schema_migrations(name text primary key)')
     env = dict(os.environ, MIGRATION_DATABASE_URL=rls_database_url.replace('postgresql+psycopg2:', 'postgresql:'))
     for filename in migrate.migration_files():

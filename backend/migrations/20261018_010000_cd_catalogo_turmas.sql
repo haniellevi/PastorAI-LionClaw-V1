@@ -50,6 +50,8 @@ create table public.cd_turmas (
  criada_em timestamptz not null default now(),
  encerrada_por uuid, encerrada_em timestamptz,
  reaberta_por uuid, reaberta_em timestamptz,
+ check ((encerrada_por is null) = (encerrada_em is null)),
+ check (not encerrada or (encerrada_por is not null and encerrada_em is not null)),
  unique(igreja_id,id), unique(igreja_id,id,modulo_id),
  foreign key(igreja_id,curriculo_id,modulo_id) references public.cd_modulos(igreja_id,curriculo_id,id),
  foreign key(igreja_id,criada_por) references public.app_users(igreja_id,id),
@@ -62,10 +64,13 @@ create table public.cd_calendario (
  turma_id uuid not null, modulo_id uuid not null, aula_id uuid not null,
  data date not null,
  criada_por uuid not null,
+ atualizada_por uuid not null,
+ atualizada_em timestamptz not null default clock_timestamp(),
  unique(igreja_id,id), unique(igreja_id,turma_id,aula_id),
  foreign key(igreja_id,turma_id,modulo_id) references public.cd_turmas(igreja_id,id,modulo_id) on delete cascade,
  foreign key(igreja_id,modulo_id,aula_id) references public.cd_aulas(igreja_id,modulo_id,id),
- foreign key(igreja_id,criada_por) references public.app_users(igreja_id,id)
+ foreign key(igreja_id,criada_por) references public.app_users(igreja_id,id),
+ foreign key(igreja_id,atualizada_por) references public.app_users(igreja_id,id)
 );
 create table public.cd_responsaveis (
  id uuid primary key default gen_random_uuid(),
@@ -94,7 +99,7 @@ do $$ declare t text; begin
  with check(igreja_id=public.current_igreja_id()
    and igreja_id=nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
    and session_user not in ('authenticator','authenticated','anon'))$policy$,t);
- execute format('revoke all on public.%I from public,anon,authenticated',t);
+ execute format('revoke all on public.%I from public,anon,authenticated,service_role',t);
  execute format('grant select on public.%I to authenticated',t);
  end loop;
 end $$;
@@ -103,11 +108,11 @@ grant insert(igreja_id,curriculo_id,numero,nome) on public.cd_niveis to authenti
 grant insert(igreja_id,curriculo_id,nivel_id,numero,nome) on public.cd_modulos to authenticated;
 grant insert(igreja_id,modulo_id,numero,nome) on public.cd_aulas to authenticated;
 grant insert(id,igreja_id,curriculo_id,modulo_id,nome,criada_por) on public.cd_turmas to authenticated;
-grant insert(igreja_id,turma_id,modulo_id,aula_id,data,criada_por) on public.cd_calendario to authenticated;
+grant insert(igreja_id,turma_id,modulo_id,aula_id,data,criada_por,atualizada_por) on public.cd_calendario to authenticated;
 grant insert(igreja_id,turma_id,usuario_id,atribuido_por) on public.cd_responsaveis to authenticated;
 grant update(nome) on public.cd_curriculos,public.cd_niveis,public.cd_modulos,public.cd_aulas to authenticated;
 grant update(nome,encerrada,encerrada_por,encerrada_em,reaberta_por,reaberta_em) on public.cd_turmas to authenticated;
-grant update(data) on public.cd_calendario to authenticated;
+grant update(data,atualizada_por,atualizada_em) on public.cd_calendario to authenticated;
 grant update(ativo,atribuido_por,atribuida_em,removido_por,removida_em) on public.cd_responsaveis to authenticated;
 -- Rollback: revert callers and preserve catalog/calendar/responsibility records first.
 -- drop table public.cd_responsaveis,public.cd_calendario,public.cd_turmas,
