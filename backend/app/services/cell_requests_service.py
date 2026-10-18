@@ -22,6 +22,7 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     AppUser,
@@ -696,7 +697,6 @@ def resubmit(
         raise
     try:
         de = solicitacao.status
-        solicitacao.payload_proposto = new_payload
         if solicitacao.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
             assert_pessoas_nao_arquivadas(db, igreja_id=solicitacao.igreja_id,
                 pessoa_ids=referenced_pessoa_ids(solicitacao.tipo, new_payload))
@@ -704,6 +704,9 @@ def resubmit(
                 uuid.UUID(new_payload["novo_lider_id"]), "novo_lider_id")
             solicitacao.candidato_id = uuid.UUID(new_payload["novo_lider_id"])
             solicitacao.versao_proposta += 1
+        # Assign payload and typed candidate together after validation queries:
+        # autoflush between them would violate nomeacao_payload_chk.
+        solicitacao.payload_proposto = new_payload
         solicitacao.status = STATUS_AGUARDANDO
         solicitacao.updated_at = _now()
         _append_event(
@@ -717,6 +720,11 @@ def resubmit(
         )
         db.flush()
         db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "uq_celula_solicitacao_abertura_candidato":
+            raise HTTPException(409, "Já existe uma solicitação de abertura para este candidato") from exc
+        raise
     except Exception:
         db.rollback()
         raise

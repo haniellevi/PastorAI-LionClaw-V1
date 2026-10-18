@@ -14,12 +14,18 @@ alter table public.celula_solicitacao
     and payload_proposto->>'novo_lider_id'=candidato_id::text
     and (tipo='abrir_celula' or (payload_atual is not null and payload_atual ? 'lider_id')))
    or (tipo not in ('nomear_lider','abrir_celula') and candidato_id is null));
+-- NULL origins do not conflict in the old per-cell unique index. One open
+-- opening per candidate/tenant also covers retry and proposal resubmission.
+create unique index uq_celula_solicitacao_abertura_candidato
+ on public.celula_solicitacao(igreja_id,candidato_id)
+ where tipo='abrir_celula' and status in ('aguardando','ajuste_solicitado');
 -- Existing composite (igreja_id,celula_id) and candidate FKs remain in force;
 -- only opening may omit origin. Existing tenant RLS and event audit preserved.
 revoke all on public.celula_solicitacao from public,anon,service_role;
 -- Rollback: restore callers first; preserve opening requests/events externally
 -- through the approved privacy procedure before restoring NOT NULL/type checks.
 -- Never delete opening history or demote leaders to make rollback pass.
+-- drop index public.uq_celula_solicitacao_abertura_candidato;
 -- alter table public.celula_solicitacao drop constraint abertura_origem_chk;
 -- alter table public.celula_solicitacao alter column celula_id set not null;
 -- Restore celula_solicitacao_tipo_chk and nomeacao_payload_chk from

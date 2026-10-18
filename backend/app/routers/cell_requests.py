@@ -274,9 +274,10 @@ def _has_open_conflict(
     db: Session,
     *,
     igreja_id: uuid.UUID,
-    celula_id: uuid.UUID,
+    celula_id: uuid.UUID | None,
     tipo: str,
     pessoa_id: str | None,
+    candidato_id: uuid.UUID | None = None,
 ) -> bool:
     """Matriz E13 (§6.8): já existe solicitação ABERTA conflitante nesta célula?
 
@@ -290,7 +291,10 @@ def _has_open_conflict(
         CelulaSolicitacao.celula_id == celula_id,
         CelulaSolicitacao.status.in_(list(OPEN_STATUSES)),
     ]
-    if tipo in MEMBER_TIPOS:
+    if tipo == TIPO_ABRIR_CELULA:
+        filters.append(CelulaSolicitacao.tipo == tipo)
+        filters.append(CelulaSolicitacao.candidato_id == candidato_id)
+    elif tipo in MEMBER_TIPOS:
         filters.append(CelulaSolicitacao.tipo.in_(list(MEMBER_TIPOS)))
         filters.append(CelulaSolicitacao.pessoa_id == uuid.UUID(str(pessoa_id)))
     else:
@@ -391,10 +395,11 @@ def create_cell_request(
             candidato_id=uuid.UUID(payload["novo_lider_id"]),
             app_user_id=uuid.UUID(current_user.app_user_id))
     pessoa_id = conflict_pessoa_id(body.tipo, payload)
-    if cell is not None and _has_open_conflict(
+    if _has_open_conflict(
         db,
         igreja_id=igreja_id,
-        celula_id=cell.id,
+        celula_id=cell.id if cell else None,
+        candidato_id=uuid.UUID(payload["novo_lider_id"]) if body.tipo == TIPO_ABRIR_CELULA else None,
         tipo=body.tipo,
         pessoa_id=pessoa_id,
     ):

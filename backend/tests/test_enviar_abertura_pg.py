@@ -190,3 +190,54 @@ def test_opening_role_removed_during_lock_is_revalidated(nomination):
         future.result(timeout=10)
     with scoped(v) as s:assert s.get(Celula,v['cell']).lider_id==v['leader']
 
+
+
+def test_duplicate_opening_retries_and_concurrent_creation_are_rejected(nomination):
+    from concurrent.futures import ThreadPoolExecutor
+    v=nomination
+    body={'tipo':'abrir_celula','payload_proposto':dict(nome='Nova sintética',cobertura_espiritual='Teste',novo_lider_id=str(v['p']))}
+    with ThreadPoolExecutor(2) as pool:
+        responses=list(pool.map(lambda _:v['client'].post('/cell-requests',json=body),range(2)))
+    assert sorted(r.status_code for r in responses)==[201,409]
+    assert v['client'].post('/cell-requests',json=body).status_code==409
+    row=next(r.json() for r in responses if r.status_code==201)
+    assert v['client'].post(f"/cell-requests/{row['id']}/cancel").status_code==200
+    assert v['client'].post('/cell-requests',json=body).status_code==201
+    with scoped(v) as s:
+        assert s.scalar(text("select count(*) from celula_solicitacao where tipo='abrir_celula' and status='aguardando'"))==1
+        assert s.scalar(text('select count(*) from celulas'))==1
+
+
+def test_resubmit_cannot_compete_with_open_request_for_candidate(nomination):
+    from uuid import uuid4
+    v=nomination; first=create(v); second_person=uuid4()
+    with v['factory'].begin() as s:
+        s.add(Pessoa(id=second_person,igreja_id=v['t'],nome='Outro candidato',telefone=str(second_person)))
+    second=create(v,novo_lider_id=str(second_person))
+    decider(v)
+    assert v['client'].post(f"/cell-requests/{second['id']}/request-adjustment",json={'observacao_central':'Rever candidato'}).status_code==200
+    v['who']=actor(v)
+    response=v['client'].put(f"/cell-requests/{second['id']}/resubmit",json={'payload_proposto':first['payload_proposto']})
+    assert response.status_code==409,response.text
+    with scoped(v) as s:
+        row=s.get(CelulaSolicitacao,second['id'])
+        assert row.status=='ajuste_solicitado' and row.candidato_id==second_person and row.versao_proposta==1
+
+
+@pytest.mark.parametrize('tipo', ['abrir_celula','nomear_lider'])
+def test_resubmit_changes_typed_candidate_and_payload_atomically(nomination,tipo):
+    from uuid import uuid4
+    from tests.test_enviar_nomeacao_pg import create as create_nomination
+    v=nomination; row=create(v) if tipo=='abrir_celula' else create_nomination(v)
+    candidate=uuid4()
+    with v['factory'].begin() as s:
+        s.add(Pessoa(id=candidate,igreja_id=v['t'],nome='Candidato revisado',telefone=str(candidate)))
+    decider(v)
+    assert v['client'].post(f"/cell-requests/{row['id']}/request-adjustment",json={'observacao_central':'Rever candidato'}).status_code==200
+    v['who']=actor(v)
+    response=v['client'].put(f"/cell-requests/{row['id']}/resubmit",json={'payload_proposto':row['payload_proposto']|{'novo_lider_id':str(candidate)}})
+    assert response.status_code==200,response.text
+    assert response.json()['candidato_id']==str(candidate) and response.json()['versao_proposta']==2
+    with scoped(v) as s:
+        stored=s.get(CelulaSolicitacao,row['id'])
+        assert stored.candidato_id==candidate and stored.payload_proposto['novo_lider_id']==str(candidate)
