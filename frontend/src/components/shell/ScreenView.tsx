@@ -28,8 +28,8 @@ import {
   loadCadastroIgrejaScreen,
   loadInboxScreen,
   loadIntegracoesScreen,
-  loadLockedScreen,
   loadUVScreen,
+  loadCDScreen,
   loadMinhaCelulaEntry,
   loadPerfilScreen,
   loadPermissoesScreen,
@@ -123,11 +123,9 @@ const ConsolidarScreen = dynamic(
   () => loadConsolidarScreen().then((m) => m.ConsolidarScreen),
   { loading: ScreenLoading },
 );
+const CDScreen = dynamic(() => loadCDScreen().then(m => m.CDScreen), { loading: ScreenLoading });
 const UVScreen = dynamic(() => loadUVScreen().then(m => m.UVScreen), { loading: ScreenLoading });
-const LockedScreen = dynamic(
-  () => loadLockedScreen().then((m) => m.LockedScreen),
-  { loading: ScreenLoading },
-);
+
 const ContatosScreen = dynamic(
   () => loadContatosScreen().then((m) => m.ContatosScreen),
   { loading: ScreenLoading },
@@ -265,7 +263,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return <UVScreen />;
   }
   if (route === "capacitacao") {
-    return <LockedScreen variant="capacitacao" />;
+    return <CDScreen />;
   }
   if (route === "perfil") {
     return <PerfilScreen />;

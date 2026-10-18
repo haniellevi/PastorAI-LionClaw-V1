@@ -131,3 +131,11 @@ def test_uv_navigation_is_available_only_with_current_authorized_permission():
         assert 'universidade-vida' not in suggest_screens('Universidade da Vida', revoked)
     forbidden=allowed_screens_for_roles({'operador': ['universidade-vida']}, ['operador'])
     assert 'universidade-vida' not in suggest_screens('Universidade da Vida', forbidden)
+
+
+def test_cd_navigation_respects_role_and_current_permission():
+    assert suggest_screens('Capacitação Destino', allowed_screens_for_roles({}, ['admin']))==['capacitacao']
+    for role in ('pastor','lider_consol','operador','lider_g12','lider_celula'):
+        allowed=allowed_screens_for_roles({role:['capacitacao']},[role])
+        assert ('capacitacao' in allowed)==(role in {'pastor','lider_consol'})
+        assert 'capacitacao' not in allowed_screens_for_roles({role:['dashboard']},[role])

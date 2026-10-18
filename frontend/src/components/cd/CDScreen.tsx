@@ -1,0 +1,142 @@
+"use client";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { ApiError } from "@/lib/dashboard-api";
+import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD } from "@/lib/cd-api";
+import { Dialog } from "@/components/ds/Dialog";
+import "@/components/uv/uv.css";
+
+type Choice = { id: string; nome: string };
+export function CDScreen() {
+  const { token, user } = useAuth();
+  if (!token || !user?.roles.some(r => ["admin", "pastor", "lider_consol"].includes(r))) return <section className="card"><h1>Capacitação Destino</h1><p role="alert">Acesso restrito à coordenação e aos responsáveis autorizados.</p></section>;
+  return <CDPanel key={`${user.churchId}:${user.appUserId}:${token}`} token={token} coordination={user.roles.some(r => ["admin", "pastor"].includes(r))} />;
+}
+function CDPanel({ token, coordination }: { token: string; coordination: boolean }) {
+  const [catalogs, setCatalogs] = useState<CurriculoCD[]>([]);
+  const [turmas, setTurmas] = useState<TurmaCD[]>([]);
+  const [detail, setDetail] = useState<DetalheCD | null>(null);
+  const [options, setOptions] = useState<Choice[]>([]);
+  const [selected, setSelected] = useState("");
+  const [moduleId, setModuleId] = useState("");
+  const [nome, setNome] = useState("");
+  const [catalogName, setCatalogName] = useState("");
+  const [version, setVersion] = useState("");
+  const [levels, setLevels] = useState<{ nome: string; modulos: number[] }[]>([]);
+  const [dates, setDates] = useState<Record<string, string>>({});
+  const [responsibles, setResponsibles] = useState<string[]>([]);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [closing, setClosing] = useState(false);
+  const controller = useRef<AbortController | null>(null);
+  const createKey = useRef<{ intent: string; id: string } | null>(null);
+  const request = <T,>(path: string, method = "GET", payload?: unknown) => cdRequest<T>(token, path, method, payload, controller.current?.signal);
+  function key(intent: unknown) {
+    const text = JSON.stringify(intent);
+    if (createKey.current?.intent !== text) createKey.current = { intent: text, id: crypto.randomUUID() };
+    return createKey.current.id;
+  }
+  async function refresh() {
+    setTurmas(await request<TurmaCD[]>("/turmas"));
+    if (coordination) setCatalogs(await request<CurriculoCD[]>("/curriculos"));
+  }
+  async function load(id: string) {
+    const value = await request<DetalheCD>(`/turmas/${id}`);
+    setDetail(value); setDates(Object.fromEntries(value.calendario.map(a => [a.aula_id, a.data])));
+    setResponsibles(value.responsaveis.filter(r => r.elegivel).map(r => r.usuario_id));
+    setOptions(coordination && !value.encerrada ? await request<Choice[]>("/opcoes") : []);
+  }
+  async function run(action: () => Promise<void>) {
+    setBusy(true); setError(""); setNotice("");
+    try { await action(); }
+    catch (err) {
+      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); }
+      if (!controller.current?.signal.aborted) setError(err instanceof Error ? err.message : "Falha ao carregar CD.");
+    } finally { if (!controller.current?.signal.aborted) setBusy(false); }
+  }
+  useEffect(() => {
+    const abort = new AbortController(); controller.current = abort;
+    void Promise.all([cdRequest<TurmaCD[]>(token, "/turmas", "GET", undefined, abort.signal), coordination ? cdRequest<CurriculoCD[]>(token, "/curriculos", "GET", undefined, abort.signal) : Promise.resolve([])])
+      .then(([list, curricula]) => { if (!abort.signal.aborted) { setTurmas(list); setCatalogs(curricula); } })
+      .catch(err => { if (!abort.signal.aborted) setError(err instanceof Error ? err.message : "Falha ao carregar CD."); })
+      .finally(() => { if (!abort.signal.aborted) setBusy(false); });
+    return () => abort.abort();
+  }, [token, coordination]);
+  const submit = (action: () => Promise<void>) => (event: FormEvent) => { event.preventDefault(); void run(action); };
+  const current = catalogs.find(c => c.id === selected);
+  async function rename(cid: string, kind: string, id: string, value: string) {
+    await request(`/curriculos/${cid}/${kind}/${id}`, "PUT", { nome: value }); await refresh(); setNotice("Nome atualizado.");
+  }
+  return <section className="screen uv-screen" aria-busy={busy}>
+    <header><h1>Capacitação Destino</h1><p>Currículos versionados, turmas e calendário de aulas.</p></header>
+    {error ? <p role="alert">{error}</p> : null}{notice ? <p role="status">{notice}</p> : null}{busy ? <p role="status">Carregando…</p> : null}
+    <button className="btn" disabled={busy} onClick={() => void run(async () => { await refresh(); if (detail) await load(detail.id); })}>Atualizar</button>
+    {coordination ? <>
+      <form className="card" onSubmit={submit(async () => {
+        const intent = { nome: catalogName, versao: version, niveis: levels };
+        await request("/curriculos", "POST", { ...intent, id: key(intent) }); createKey.current = null;
+        setCatalogName(""); setVersion(""); setLevels([]); await refresh(); setNotice("Currículo criado com 6 módulos de 10 aulas.");
+      })}><h2>Novo currículo</h2><fieldset disabled={busy}>
+        <label>Nome do currículo<input required maxLength={120} value={catalogName} onChange={e => setCatalogName(e.target.value)} /></label>
+        <label>Versão<input required maxLength={80} value={version} onChange={e => setVersion(e.target.value)} /></label>
+        <p>Estrutura inicial: 6 módulos de 10 aulas. Níveis são opcionais; quando usados, distribua todos os módulos uma vez.</p>
+        {levels.map((level, i) => <fieldset key={i}><legend>Nível {i + 1}</legend>
+          <label>Nome do nível<input required maxLength={120} value={level.nome} onChange={e => setLevels(ls => ls.map((l, j) => i === j ? { ...l, nome: e.target.value } : l))} /></label>
+          {[1, 2, 3, 4, 5, 6].map(n => <label key={n}><input type="checkbox" checked={level.modulos.includes(n)} onChange={e => setLevels(ls => ls.map((l, j) => i === j ? { ...l, modulos: e.target.checked ? [...l.modulos, n] : l.modulos.filter(m => m !== n) } : l))} />Módulo {n}</label>)}
+          <button type="button" className="btn" onClick={() => setLevels(ls => ls.filter((_, j) => i !== j))}>Remover nível {i + 1}</button>
+        </fieldset>)}
+        <button type="button" className="btn" disabled={levels.length >= 6} onClick={() => setLevels(ls => [...ls, { nome: "", modulos: [] }])}>Adicionar nível</button>
+        <button className="btn btn-primary">Criar currículo</button>
+      </fieldset></form>
+      <div className="card"><h2>Catálogo</h2><label>Currículo<select value={selected} disabled={busy} onChange={e => { setSelected(e.target.value); setModuleId(""); }}><option value="">Selecione uma versão</option>{catalogs.map(c => <option key={c.id} value={c.id}>{c.nome} · {c.versao}</option>)}</select></label>
+        {current ? <><p>Para mudar a estrutura, crie outra versão. Os nomes podem ser editados.</p>
+          <Rename key={current.id + current.nome} label="Nome do currículo" value={current.nome} busy={busy} save={value => run(() => rename(current.id, "curriculo", current.id, value))} />
+          {current.niveis.map(n => <Rename key={n.id + n.nome} label={`Nome do nível ${n.numero}`} value={n.nome} busy={busy} save={value => run(() => rename(current.id, "nivel", n.id, value))} />)}
+          {current.modulos.map(m => <details key={m.id}><summary>{m.nome}{m.nivel_id ? ` · ${current.niveis.find(n => n.id === m.nivel_id)?.nome}` : ""}</summary>
+            <Rename key={m.id + m.nome} label={`Nome do módulo ${m.numero}`} value={m.nome} busy={busy} save={value => run(() => rename(current.id, "modulo", m.id, value))} />
+            {m.aulas.map(a => <Rename key={a.id + a.nome} label={`Nome da aula ${a.numero}`} value={a.nome} busy={busy} save={value => run(() => rename(current.id, "aula", a.id, value))} />)}
+          </details>)}
+        </> : <p>Selecione um currículo ou crie a primeira versão.</p>}
+      </div>
+      <form className="card" onSubmit={submit(async () => {
+        const intent = { nome, curriculo_id: selected, modulo_id: moduleId };
+        const created = await request<TurmaCD>("/turmas", "POST", { ...intent, id: key(intent) });
+        createKey.current = null; setNome(""); await refresh(); await load(created.id); setNotice("Turma criada.");
+      })}><h2>Nova turma</h2><fieldset disabled={busy}>
+        <label>Nome da turma<input required maxLength={120} value={nome} onChange={e => setNome(e.target.value)} /></label>
+        <label>Módulo da versão selecionada<select required value={moduleId} onChange={e => setModuleId(e.target.value)}><option value="">Selecione um módulo</option>{current?.modulos.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select></label>
+        <button className="btn btn-primary" disabled={!moduleId || !nome.trim()}>Criar turma</button>
+      </fieldset></form>
+    </> : null}
+    <nav className="actions" aria-label="Turmas CD">{turmas.map(t => <button className="btn" key={t.id} disabled={busy} aria-pressed={detail?.id === t.id} onClick={() => void run(() => load(t.id))}>{t.nome}{t.encerrada ? " · Encerrada" : ""}</button>)}</nav>
+    {!busy && !error && !turmas.length ? <p>Nenhuma turma disponível.</p> : null}
+    {detail ? <article className="uv-detail"><h2>{detail.nome}{detail.encerrada ? " · Encerrada" : ""}</h2><p>{detail.modulo.nome} · Versão {detail.versao}</p>
+      {coordination && !detail.encerrada ? <Rename key={detail.id + detail.nome} label="Alterar nome da turma" value={detail.nome} busy={busy} save={value => run(async () => { await request(`/turmas/${detail.id}`, "PUT", { nome: value }); await refresh(); await load(detail.id); })} /> : null}
+      <form className="card" onSubmit={submit(async () => {
+        await request(`/turmas/${detail.id}/calendario`, "PUT", { aulas: detail.modulo.aulas.map(a => ({ aula_id: a.id, data: dates[a.id] })) }); await load(detail.id); setNotice("Calendário salvo.");
+      })}><h3>Calendário</h3><fieldset disabled={busy || !coordination || detail.encerrada}>
+        {detail.modulo.aulas.map(a => <label key={a.id}>{a.numero}. {a.nome}<input type="date" required value={dates[a.id] ?? ""} onChange={e => setDates(ds => ({ ...ds, [a.id]: e.target.value }))} /></label>)}
+        {coordination ? <button className="btn btn-primary">Salvar calendário</button> : null}
+      </fieldset></form>
+      <div className="card"><h3>Responsáveis</h3>{detail.responsaveis.map(r => <p key={r.usuario_id}>{r.nome}{r.elegivel ? "" : " · Acesso indisponível"}</p>)}
+        {coordination ? <form onSubmit={submit(async () => {
+          await request(`/turmas/${detail.id}/responsaveis`, "PUT", { usuarios: responsibles }); await load(detail.id); setNotice("Responsáveis salvos.");
+        })}><fieldset disabled={busy || detail.encerrada}><legend>Usuários ativos e autorizados</legend>
+          {options.map(u => <label key={u.id}><input type="checkbox" checked={responsibles.includes(u.id)} onChange={e => setResponsibles(rs => e.target.checked ? [...rs, u.id] : rs.filter(id => id !== u.id))} />{u.nome}</label>)}
+          <button className="btn btn-primary">Salvar responsáveis</button>
+        </fieldset></form> : null}
+      </div>
+      {coordination ? detail.encerrada ? <button className="btn" disabled={busy} onClick={() => void run(async () => { await request(`/turmas/${detail.id}/reabrir`, "POST"); await refresh(); await load(detail.id); })}>Reabrir turma</button> : <button className="btn" disabled={busy} onClick={() => setClosing(true)}>Encerrar turma</button> : null}
+      <Dialog open={closing} onClose={() => { if (!busy) setClosing(false); }} title="Encerrar turma?" description="A turma ficará disponível para consulta. A coordenação poderá reabri-la.">
+        <button className="btn" disabled={busy} onClick={() => setClosing(false)}>Cancelar</button><button className="btn btn-primary" disabled={busy} onClick={() => void run(async () => {
+          await request(`/turmas/${detail.id}/encerrar`, "POST"); setClosing(false); await refresh(); await load(detail.id);
+        })}>Confirmar encerramento</button>
+      </Dialog>
+    </article> : null}
+  </section>;
+}
+function Rename({ label, value, busy, save }: { label: string; value: string; busy: boolean; save: (value: string) => Promise<void> }) {
+  const [name, setName] = useState(value);
+  return <form onSubmit={e => { e.preventDefault(); void save(name); }}><label>{label}<input required maxLength={120} value={name} disabled={busy} onChange={e => setName(e.target.value)} /></label><button className="btn" disabled={busy || !name.trim() || name === value}>Salvar nome</button></form>;
+}

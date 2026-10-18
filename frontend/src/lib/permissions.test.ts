@@ -153,3 +153,10 @@ it("UV não recebe concessão de papel não autorizado na matriz persistida", ()
   expect(canSee("universidade-vida", ["lider_g12"], { lider_g12: ["universidade-vida"] })).toBe(false);
   expect(canSee("universidade-vida", ["lider_consol"])).toBe(true);
 });
+
+it("CD restringe concessões legadas e permite coordenação/responsável", () => {
+  expect(canSee("capacitacao", ["lider_consol"])).toBe(true);
+  expect(canSee("capacitacao", ["pastor"])).toBe(true);
+  expect(canSee("capacitacao", ["operador"], { operador: ["capacitacao"] })).toBe(false);
+  expect(canSee("capacitacao", ["lider_g12"], { lider_g12: ["capacitacao"] })).toBe(false);
+});

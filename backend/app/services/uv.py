@@ -30,20 +30,20 @@ def rows(db, sql, **params):
     return [dict(r) for r in db.execute(text(sql), params).mappings()]
 
 
-def actor(db: Session, user: CurrentUser) -> tuple[UUID, UUID, set[str]]:
+def actor(db: Session, user: CurrentUser, *, screen='universidade-vida') -> tuple[UUID, UUID, set[str]]:
     tenant, uid = UUID(user.igreja_id), UUID(user.app_user_id)
     result = rows(db, """select r.papel from app_users u join user_roles r
         on r.igreja_id=u.igreja_id and r.user_id=u.id
         where u.igreja_id=:t and u.id=:u and u.status='ativo' for share of u,r""", t=tenant, u=uid)
     roles = {r['papel'] for r in result} & UV_ROLES
     if not roles:
-        raise HTTPException(403, 'Sem permissão para Universidade da Vida')
+        raise HTTPException(403, 'Sem permissão para Universidade da Vida' if screen == 'universidade-vida' else 'Sem permissão para Capacitação Destino')
     if 'admin' not in roles:
         permissions = rows(db, 'select papel,tela from role_permissions where igreja_id=:t', t=tenant)
         matrix: dict[str, set[str]] = {}
         for permission in permissions:
             matrix.setdefault(permission['papel'], set()).add(permission['tela'])
-        if not can_access_screen(frozenset(roles), 'universidade-vida', matrix):
+        if not can_access_screen(frozenset(roles), screen, matrix):
             raise HTTPException(403, 'Você não tem acesso a esta tela')
     return tenant, uid, roles
 
@@ -164,17 +164,23 @@ def responsaveis(db, user, turma_id, payload):
             for share''', t=t, u=uid)
         if not eligible:
             raise HTTPException(422, 'Responsável deve ser usuário ativo e autorizado da igreja')
-    db.execute(text('''update uv_responsaveis set ativo=false,removido_por=:autor,removida_em=clock_timestamp()
+    sync_responsaveis(db, t, autor, turma_id, payload.usuarios)
+    return {'status': 'salvo'}
+
+
+def sync_responsaveis(db, t, autor, tid, usuarios, *, table='uv_responsaveis'):
+    if table not in {'uv_responsaveis', 'cd_responsaveis'}:
+        raise ValueError('Tabela de formação inválida')
+    db.execute(text(f'''update {table} set ativo=false,removido_por=:autor,removida_em=clock_timestamp()
         where igreja_id=:t and turma_id=:id and ativo and not (usuario_id=any(cast(:usuarios as uuid[])))'''),
-        dict(t=t, id=turma_id, autor=autor, usuarios=payload.usuarios))
-    for uid in payload.usuarios:
-        db.execute(text('''insert into uv_responsaveis(igreja_id,turma_id,usuario_id,atribuido_por)
+        dict(t=t, id=tid, autor=autor, usuarios=usuarios))
+    for uid in usuarios:
+        db.execute(text(f'''insert into {table}(igreja_id,turma_id,usuario_id,atribuido_por)
             values(:t,:id,:u,:autor) on conflict (igreja_id,turma_id,usuario_id) do update set ativo=true,
             atribuido_por=excluded.atribuido_por,atribuida_em=clock_timestamp(),
             removido_por=null,removida_em=null
-            where not uv_responsaveis.ativo'''),
-            dict(t=t, id=turma_id, u=uid, autor=autor))
-    return {'status': 'salvo'}
+            where not {table}.ativo'''),
+            dict(t=t, id=tid, u=uid, autor=autor))
 
 
 def enroll(db, user, turma_id, payload):
