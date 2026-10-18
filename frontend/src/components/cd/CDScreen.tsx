@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
-import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD, type MatriculaCD, type PresencaCD } from "@/lib/cd-api";
+import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD, type MatriculaCD, type PresencaCD, type ProgressoCD, type CertificadoCD } from "@/lib/cd-api";
 import { Dialog } from "@/components/ds/Dialog";
 import "@/components/uv/uv.css";
 
@@ -26,6 +26,13 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
   const [calling, setCalling] = useState<MatriculaCD | null>(null);
   const [lesson, setLesson] = useState("");
   const [history, setHistory] = useState<PresencaCD[]>([]);
+  const [finishing, setFinishing] = useState<{ person: MatriculaCD; equivalence: boolean } | null>(null);
+  const [evidence, setEvidence] = useState("");
+  const [certPerson, setCertPerson] = useState<MatriculaCD | null>(null);
+  const [progress, setProgress] = useState<ProgressoCD | null>(null);
+  const [issuing, setIssuing] = useState(false);
+  const [revoking, setRevoking] = useState<CertificadoCD | null>(null);
+  const [reason, setReason] = useState("");
   const [canceling, setCanceling] = useState<MatriculaCD | null>(null);
   const [selected, setSelected] = useState("");
   const [moduleId, setModuleId] = useState("");
@@ -52,11 +59,11 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
     if (coordination) setCatalogs(await request<CurriculoCD[]>("/curriculos"));
   }
   async function load(id: string) {
-    setCalling(null); setHistory([]);
+    setCalling(null); setHistory([]); setFinishing(null); setCertPerson(null); setProgress(null); setIssuing(false); setRevoking(null);
     const value = await request<DetalheCD>(`/turmas/${id}`);
     const [matriculas, pessoas] = await Promise.all([
       request<MatriculaCD[]>(`/turmas/${id}/matriculas`),
-      !value.encerrada && value.modulo.numero === 1 ? request<Choice[]>(`/turmas/${id}/elegiveis`) : Promise.resolve([]),
+      !value.encerrada ? request<Choice[]>(`/turmas/${id}/elegiveis`) : Promise.resolve([]),
     ]);
     setSearch(""); setSearchQuery(""); setOffset(0);
     setEnrollments(matriculas); setEligible(pessoas); setPersonId("");
@@ -73,7 +80,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
     setBusy(true); setError(""); setNotice("");
     try { await action(); }
     catch (err) {
-      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); setEnrollments([]); setEligible([]); setCanceling(null); setCalling(null); setHistory([]); }
+      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); setEnrollments([]); setEligible([]); setCanceling(null); setCalling(null); setHistory([]); setFinishing(null); setCertPerson(null); setProgress(null); setIssuing(false); setRevoking(null); }
       if (!controller.current?.signal.aborted) setError(err instanceof Error ? err.message : "Falha ao carregar CD.");
     } finally { if (!controller.current?.signal.aborted) setBusy(false); }
   }
@@ -102,6 +109,11 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
       id: key(intent), presente, modalidade, anterior_id: intent.anterior_id,
     });
     await loadHistory(calling, lesson); createKey.current = null; setNotice("Frequência registrada.");
+  }
+  async function loadCertificates(m: MatriculaCD) {
+    if (!detail) return;
+    const value = await request<ProgressoCD>(`/pessoas/${m.pessoa_id}/curriculos/${detail.curriculo_id}`);
+    setCertPerson(m); setProgress(value);
   }
   return <section className="screen uv-screen" aria-busy={busy}>
     <header><h1>Capacitação Destino</h1><p>Currículos versionados, turmas e calendário de aulas.</p></header>
@@ -156,7 +168,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
       </fieldset></form>
       <div className="card"><h3>Matrículas</h3>
         <p>Ingresso explícito para pessoas aptas por UV concluída ou legado. Os demais módulos exigem conclusão registrada dos anteriores.</p>
-        {!detail.encerrada && detail.modulo.numero === 1 ? <>
+        {!detail.encerrada ? <>
           <form onSubmit={submit(() => searchPeople(search, 0))}><label>Buscar pessoa por nome<input type="search" maxLength={120} value={search} disabled={busy} onChange={e => setSearch(e.target.value)} /></label><button className="btn" disabled={busy}>Buscar pessoas</button></form>
           <div className="actions"><button className="btn" disabled={busy || offset === 0} onClick={() => void run(() => searchPeople(searchQuery, Math.max(0, offset - 100)))}>Página anterior</button><button className="btn" disabled={busy || eligible.length < 100} onClick={() => void run(() => searchPeople(searchQuery, offset + 100))}>Próxima página</button></div>
           <form onSubmit={submit(async () => {
@@ -169,11 +181,55 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
           <button className="btn btn-primary" disabled={!personId}>Matricular</button>
         </fieldset></form></> : null}
         {!enrollments.length ? <p>Nenhuma matrícula registrada.</p> : null}
-        {enrollments.map(m => <div key={m.id}><p>{m.nome}{m.pessoa_arquivada ? " · Pessoa arquivada" : ""} · {m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
-          <button className="btn" disabled={busy || !detail.modulo.aulas.length} onClick={() => { const first = detail.modulo.aulas[0]; if (first) void run(() => loadHistory(m, first.id)); }}>Chamada de {m.nome}</button>
-          {m.ativa && !detail.encerrada ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
+        {enrollments.map(m => <div key={m.id}><p>{m.nome}{m.pessoa_arquivada ? " · Pessoa arquivada" : ""} · {m.conclusao ? "Concluída" : m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
+          <button className="btn" disabled={busy || m.pessoa_arquivada || !detail.modulo.aulas.length} onClick={() => { const first = detail.modulo.aulas[0]; if (first) void run(() => loadHistory(m, first.id)); }}>Chamada de {m.nome}</button>
+          {m.ativa && !m.conclusao && !detail.encerrada ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
+          {m.conclusao ? <p>Conclusão por {m.conclusao.origem === "equivalencia" ? "equivalência" : "frequência"} · {new Date(m.conclusao.confirmada_em).toLocaleString("pt-BR")}{m.conclusao.evidencia ? ` · ${m.conclusao.evidencia}` : ""}</p> : null}
+          {m.ativa && !m.conclusao && !m.pessoa_arquivada && !detail.encerrada ? <>
+            <button className="btn" disabled={busy} onClick={() => { setEvidence(""); setFinishing({ person: m, equivalence: false }); }}>Concluir módulo de {m.nome}</button>
+            {coordination ? <button className="btn" disabled={busy} onClick={() => { setEvidence(""); setFinishing({ person: m, equivalence: true }); }}>Registrar equivalência de {m.nome}</button> : null}
+          </> : null}
+          {coordination && !m.pessoa_arquivada ? <button className="btn" disabled={busy} onClick={() => void run(() => loadCertificates(m))}>Certificados de {m.nome}</button> : null}
         </div>)}
       </div>
+      <Dialog open={finishing !== null} onClose={() => { if (!busy) setFinishing(null); }} title={finishing?.equivalence ? "Confirmar equivalência?" : "Concluir módulo?"} description={finishing ? `Confirme a conclusão de ${finishing.person.nome}. O registro será definitivo e a matrícula não aceitará mais frequência ou cancelamento.` : ""}>
+        {error ? <p role="alert">{error}</p> : null}
+        {finishing?.equivalence ? <label>Evidência da equivalência<textarea required maxLength={300} value={evidence} aria-describedby="cd-evidence-help" disabled={busy} onChange={e => setEvidence(e.target.value)} /></label> : <p>Todas as aulas devem estar cumpridas por presença ou reposição. Sua identidade será registrada na confirmação.</p>}
+        {finishing?.equivalence ? <p id="cd-evidence-help">Descreva brevemente o documento ou critério conferido, sem dados pessoais adicionais.</p> : null}
+        <button className="btn" disabled={busy} onClick={() => setFinishing(null)}>Voltar</button>
+        <button className="btn btn-primary" disabled={busy || (finishing?.equivalence && !evidence.trim())} onClick={() => void run(async () => {
+          if (!finishing) return;
+          const path = `/turmas/${detail.id}/matriculas/${finishing.person.id}/${finishing.equivalence ? "equivalencia" : "conclusao"}`;
+          const data = { confirmado: true, ...(finishing.equivalence ? { evidencia: evidence.trim() } : {}) };
+          await request(path, "POST", { id: key({ path, ...data }), ...data });
+          await load(detail.id); createKey.current = null; setNotice("Conclusão registrada.");
+        })}>{finishing?.equivalence ? "Confirmar equivalência" : "Confirmar conclusão"}</button>
+      </Dialog>
+      <Dialog open={certPerson !== null} onClose={() => { if (!busy) { setCertPerson(null); setProgress(null); setIssuing(false); setRevoking(null); } }} title={certPerson ? `Certificados de ${certPerson.nome}` : "Certificados"} description="Certificados registram a formação. Aptidão de liderança, nomeação e Enviar são independentes.">
+        {error ? <p role="alert">{error}</p> : null}
+        <p>{progress?.conclusoes.length ?? 0} módulos concluídos · {progress?.niveis_concluidos.length ?? 0} níveis concluídos.</p>
+        {progress?.certificados.map(c => <div className="card" key={c.id}><p>{c.nome_pessoa} · {c.nome_curriculo} · Versão {c.versao_curriculo}</p>
+          <p>Código: {c.codigo} · {new Date(c.emitida_em).toLocaleString("pt-BR")} · {c.revogada ? "Revogado" : "Ativo"}</p>
+          {c.revogada ? <p>{c.motivo_revogacao} · {c.revogada_em ? new Date(c.revogada_em).toLocaleString("pt-BR") : ""}</p> : <button className="btn" disabled={busy || issuing || !!revoking} onClick={() => { setReason(""); setRevoking(c); }}>Revogar certificado</button>}
+        </div>)}
+        {!progress?.certificados.some(c => !c.revogada) && !issuing && !revoking ? <button className="btn" disabled={busy} onClick={() => setIssuing(true)}>Emitir certificado</button> : null}
+        {issuing ? <><p>Confirmo a emissão após todos os módulos obrigatórios. O certificado guardará os nomes atuais da pessoa e do currículo.</p>
+          <button className="btn" disabled={busy} onClick={() => setIssuing(false)}>Voltar</button>
+          <button className="btn btn-primary" disabled={busy} onClick={() => void run(async () => {
+            if (!certPerson) return;
+            const path = `/pessoas/${certPerson.pessoa_id}/curriculos/${detail.curriculo_id}/certificados`;
+            await request(path, "POST", { id: key({ path }), confirmado: true });
+            await loadCertificates(certPerson); createKey.current = null; setIssuing(false); setNotice("Certificado emitido.");
+          })}>Confirmar emissão</button></> : null}
+        {revoking ? <><label>Motivo da revogação<textarea required maxLength={300} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} /></label>
+          <button className="btn" disabled={busy} onClick={() => setRevoking(null)}>Voltar</button>
+          <button className="btn btn-primary" disabled={busy || !reason.trim()} onClick={() => void run(async () => {
+            if (!certPerson) return;
+            await request(`/certificados/${revoking.id}/revogar`, "POST", { motivo: reason.trim() });
+            await loadCertificates(certPerson); setRevoking(null); setNotice("Certificado revogado.");
+          })}>Confirmar revogação</button></> : null}
+        <button className="btn" disabled={busy} onClick={() => { setCertPerson(null); setProgress(null); setIssuing(false); setRevoking(null); }}>Fechar certificados</button>
+      </Dialog>
       <Dialog open={calling !== null} onClose={() => { if (!busy) { setCalling(null); setHistory([]); } }} title={calling ? `Chamada de ${calling.nome}` : "Chamada"} description="Presenças e reposições cumprem a aula. Correções preservam o histórico anterior.">
         <label>Aula da chamada<select value={lesson} disabled={busy} onChange={e => { const value = e.target.value; if (calling) void run(() => loadHistory(calling, value)); }}>
           {detail.modulo.aulas.map(a => <option key={a.id} value={a.id}>{a.numero}. {a.nome}</option>)}
@@ -183,7 +239,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
         {!history.length ? <p>Nenhum lançamento nesta aula.</p> : <ol>{history.map(h => <li key={h.registro_id}>{h.presente ? h.modalidade === "reposicao" ? "Reposição" : "Presente" : "Ausente"} · {h.registrada_por_nome} · {new Date(h.registrada_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</li>)}</ol>}
         <button className="btn" disabled={busy} onClick={() => { if (calling) void run(() => loadHistory(calling, lesson)); }}>Atualizar histórico</button>
         {history.length ? <p>A alteração corrigirá o último lançamento exibido.</p> : null}
-        <fieldset disabled={busy || detail.encerrada || !calling?.ativa}>
+        <fieldset disabled={busy || detail.encerrada || !calling?.ativa || !!calling?.conclusao}>
           <legend>Registrar frequência</legend>
           <button className="btn" onClick={() => void run(() => record(true, "regular"))}>Registrar presença</button>
           <button className="btn" onClick={() => void run(() => record(false, "regular"))}>Registrar ausência</button>

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
-from app.domain.cd import AULAS_POR_MODULO, CurriculoCD
+from app.domain.cd import AULAS_POR_MODULO, CurriculoCD, EVIDENCIA_MAX_CARACTERES
 from app.routers.uv import Input, TurmaInput as NamedInput, ResponsaveisInput, MatriculaInput, PresencaInput
 from app.services import cd
 
@@ -162,3 +162,52 @@ def attendance_history(tid: UUID, mid: UUID, aula_id: UUID, db: Session=DB, user
 @router.get('/turmas/{tid}/frequencia')
 def attendance_summary(tid: UUID, db: Session=DB, user: CurrentUser=USER):
     return cd.attendance_summary(db,user,tid)
+
+
+class ConclusaoInput(Input):
+    id: UUID
+    confirmado: bool = Field(strict=True)
+
+
+class EquivalenciaInput(ConclusaoInput):
+    evidencia: str = Field(min_length=1,max_length=EVIDENCIA_MAX_CARACTERES)
+
+    @field_validator('evidencia')
+    @classmethod
+    def evidence(cls,value):
+        from app.domain.cd import evidencia_equivalencia
+        return evidencia_equivalencia(value)
+
+
+class RevogacaoInput(Input):
+    motivo: str = Field(min_length=1,max_length=EVIDENCIA_MAX_CARACTERES)
+
+    @field_validator('motivo')
+    @classmethod
+    def reason(cls,value):
+        return EquivalenciaInput.evidence(value)
+
+
+@router.post('/turmas/{tid}/matriculas/{mid}/conclusao')
+def finish(tid: UUID, mid: UUID, payload: ConclusaoInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.finish(db,user,tid,mid,payload); db.commit(); return result
+
+
+@router.post('/turmas/{tid}/matriculas/{mid}/equivalencia')
+def equivalence(tid: UUID, mid: UUID, payload: EquivalenciaInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.finish(db,user,tid,mid,payload,equivalence=True); db.commit(); return result
+
+
+@router.get('/pessoas/{pid}/curriculos/{cid}')
+def progress(pid: UUID, cid: UUID, db: Session=DB, user: CurrentUser=USER):
+    return cd.person_progress(db,user,pid,cid)
+
+
+@router.post('/pessoas/{pid}/curriculos/{cid}/certificados')
+def issue_certificate(pid: UUID, cid: UUID, payload: ConclusaoInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.issue_certificate(db,user,pid,cid,payload); db.commit(); return result
+
+
+@router.post('/certificados/{cert_id}/revogar')
+def revoke_certificate(cert_id: UUID, payload: RevogacaoInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.revoke_certificate(db,user,cert_id,payload); db.commit(); return result

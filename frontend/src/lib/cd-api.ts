@@ -10,6 +10,10 @@ export async function cdRequest<T>(token: string, path: string, method = "GET", 
   return response.json() as Promise<T>;
 }
 
-export interface MatriculaCD { id: string; pessoa_id: string; nome: string; pessoa_arquivada: boolean; ativa: boolean; origem_aptidao: "legado" | "conclusao_uv"; criada_por: string; criada_em: string; cancelada_por: string | null; cancelada_em: string | null }
+export interface MatriculaCD { id: string; pessoa_id: string; nome: string; pessoa_arquivada: boolean; ativa: boolean; origem_aptidao: "legado" | "conclusao_uv"; criada_por: string; criada_em: string; cancelada_por: string | null; cancelada_em: string | null; conclusao: ConclusaoCD | null }
 
 export interface PresencaCD { registro_id: string; anterior_id: string | null; presente: boolean; modalidade: "regular" | "reposicao"; registrada_por_nome: string; registrada_em: string }
+
+export interface ConclusaoCD { id: string; origem: "frequencia" | "equivalencia"; evidencia: string | null; confirmada_por: string; confirmada_em: string }
+export interface CertificadoCD { id: string; codigo: string; nome_pessoa: string; nome_curriculo: string; versao_curriculo: string; emitida_por: string; emitida_em: string; revogada: boolean; revogada_por: string | null; revogada_em: string | null; motivo_revogacao: string | null; conclusoes_ids: string[] }
+export interface ProgressoCD { conclusoes: ConclusaoCD[]; niveis_concluidos: string[]; certificados: CertificadoCD[] }
