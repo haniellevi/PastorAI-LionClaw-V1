@@ -371,6 +371,10 @@ def advance_consolidacao_stage(
                     "etapasPendentes": sorted(pending_mandatory(confirmed)),
                 },
             )
+        # This closes the individual operational follow-up, not UV formation.
+        # The approved UV contract (domain.uv) requires eight lessons, Encontro,
+        # baptism and responsible approval before NEW CD eligibility is granted.
+        # Preserve existing Pessoa stage/eligibility; no retroactive UV award.
         consolidacao.concluida = True
         consolidacao.progresso = 100
 
