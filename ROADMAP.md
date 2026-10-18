@@ -133,7 +133,7 @@ CD PR 5 — candidata encadeada sobre `feat/cd-presenca-v1` (`e8f66510`, PR #499
 conclusão definitiva por matrícula ativa com todas as aulas do módulo/calendário
 cumpridas e confirmação identificada do responsável ativo ou coordenação; nunca
 automática. Equivalência somente admin/pastor, com evidência curta obrigatória,
-origem, autor e data. Regras provisórias centralizadas em `app/domain/cd.py`,
+tipo `equivalencia`, origem específica separada, autor e data. Regras provisórias centralizadas em `app/domain/cd.py`,
 aguardando confirmação pastoral antes do merge. Módulo N exige conclusões dos
 módulos 1..N-1 do mesmo currículo, revalidadas na matrícula sob lock. Matrícula
 concluída preserva histórico e não aceita novos lançamentos ou cancelamento.
@@ -141,7 +141,9 @@ Níveis opcionais são derivados das conclusões dos respectivos módulos.
 Certificado emitido pela coordenação após todos os módulos obrigatórios,
 com ids das conclusões, currículo/versão, emissor/horário, código único por igreja
 e snapshot dos nomes da pessoa e do currículo. Revogação definitiva com motivo,
-autor e horário; reemissão usa novo registro. Sem DELETE, sem mudar `apto_lider`,
+autor e horário; reemissão usa novo registro. Consulta histórica e revogação
+continuam disponíveis à coordenação após arquivar a pessoa; conclusão e nova
+emissão exigem pessoa não arquivada. Sem DELETE, sem mudar `apto_lider`,
 etapa, nomeação ou Enviar. API autenticada e painel para concluir, registrar
 equivalência, consultar progresso/certificados, emitir e revogar.
 Migration candidata `20261018_040000_cd_conclusoes_certificados.sql`, com FKs

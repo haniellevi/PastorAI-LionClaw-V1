@@ -11,10 +11,12 @@ create table public.cd_conclusoes (
  matricula_id uuid not null,
  origem text not null check(origem in ('frequencia','equivalencia')),
  evidencia text,
+ origem_equivalencia text,
  confirmada_por uuid not null,
  confirmada_em timestamptz not null default clock_timestamp(),
- check((origem='frequencia' and evidencia is null) or
-       (origem='equivalencia' and evidencia is not null and length(btrim(evidencia)) between 1 and 300)),
+ check((origem='frequencia' and evidencia is null and origem_equivalencia is null) or
+       (origem='equivalencia' and evidencia is not null and length(btrim(evidencia)) between 1 and 300
+        and origem_equivalencia is not null and length(btrim(origem_equivalencia)) between 1 and 120)),
  unique(igreja_id,id),
  unique(igreja_id,matricula_id),
  unique(igreja_id,pessoa_id,curriculo_id,modulo_id),
@@ -100,7 +102,7 @@ do $$ declare t text; begin
   execute format('grant select on public.%I to authenticated',t);
  end loop;
 end $$;
-grant insert(id,igreja_id,pessoa_id,curriculo_id,modulo_id,turma_id,matricula_id,origem,evidencia,confirmada_por) on public.cd_conclusoes to authenticated;
+grant insert(id,igreja_id,pessoa_id,curriculo_id,modulo_id,turma_id,matricula_id,origem,evidencia,origem_equivalencia,confirmada_por) on public.cd_conclusoes to authenticated;
 grant insert(id,igreja_id,pessoa_id,curriculo_id,nome_pessoa,nome_curriculo,versao_curriculo,emitida_por) on public.cd_certificados to authenticated;
 grant update(revogada,revogada_por,motivo_revogacao) on public.cd_certificados to authenticated;
 grant insert(igreja_id,certificado_id,conclusao_id,pessoa_id,curriculo_id) on public.cd_certificado_conclusoes to authenticated;

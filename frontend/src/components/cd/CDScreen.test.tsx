@@ -197,13 +197,18 @@ it("registra equivalência com evidência curta após confirmação", async () =
   completionFixture(); await render(); await act(async () => { button("Turma teste")!.click(); });
   await act(async () => { button("Registrar equivalência de Aluno")!.click(); });
   expect(button("Confirmar equivalência")!.disabled).toBe(true);
+  const source = container.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(source, "Curso anterior");
+    source.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   const input = container.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Documento conferido");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => { button("Confirmar equivalência")!.click(); });
-  expect(state.request).toHaveBeenCalledWith("synthetic", "/turmas/turma/matriculas/mat/equivalencia", "POST", { id: expect.any(String), confirmado: true, evidencia: "Documento conferido" }, expect.any(AbortSignal));
+  expect(state.request).toHaveBeenCalledWith("synthetic", "/turmas/turma/matriculas/mat/equivalencia", "POST", { id: expect.any(String), confirmado: true, evidencia: "Documento conferido", origem_equivalencia: "Curso anterior" }, expect.any(AbortSignal));
 });
 it("emite certificado somente após confirmação e envia revogação com motivo", async () => {
   completionFixture(true);
@@ -229,4 +234,16 @@ it("emite certificado somente após confirmação e envia revogação com motivo
   });
   await act(async () => { button("Confirmar revogação")!.click(); });
   expect(state.request).toHaveBeenCalledWith("synthetic", "/certificados/cert/revogar", "POST", { motivo: "Correção administrativa" }, expect.any(AbortSignal));
+});
+
+it("mantém certificados de pessoa arquivada consultáveis, sem emissão nova", async () => {
+  completionFixture(true);
+  const normal = state.request.getMockImplementation()!;
+  state.request.mockImplementation((...args) => args[1].endsWith("/matriculas") ? Promise.resolve([{ id: "mat", pessoa_id: "p", nome: "Aluno", pessoa_arquivada: true, ativa: true, origem_aptidao: "legado", conclusao: { id: "done" } }]) : args[1] === "/turmas/turma" ? Promise.resolve({ ...detail, curriculo_id: "c" }) : normal(...args));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Chamada de Aluno")!.disabled).toBe(true);
+  await act(async () => { button("Certificados de Aluno")!.click(); });
+  expect(container.textContent).toContain("Nome no certificado");
+  expect(button("Revogar certificado")).toBeDefined();
+  expect(button("Emitir certificado")).toBeUndefined();
 });

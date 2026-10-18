@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
-from app.domain.cd import AULAS_POR_MODULO, CurriculoCD, EVIDENCIA_MAX_CARACTERES
+from app.domain.cd import AULAS_POR_MODULO, CurriculoCD, EVIDENCIA_MAX_CARACTERES, ORIGEM_EQUIVALENCIA_MAX_CARACTERES
 from app.routers.uv import Input, TurmaInput as NamedInput, ResponsaveisInput, MatriculaInput, PresencaInput
 from app.services import cd
 
@@ -170,6 +170,14 @@ class ConclusaoInput(Input):
 
 
 class EquivalenciaInput(ConclusaoInput):
+    origem_equivalencia: str = Field(min_length=1,max_length=ORIGEM_EQUIVALENCIA_MAX_CARACTERES)
+
+    @field_validator('origem_equivalencia')
+    @classmethod
+    def source(cls,value):
+        from app.domain.cd import validar_origem_equivalencia
+        return validar_origem_equivalencia(value)
+
     evidencia: str = Field(min_length=1,max_length=EVIDENCIA_MAX_CARACTERES)
 
     @field_validator('evidencia')

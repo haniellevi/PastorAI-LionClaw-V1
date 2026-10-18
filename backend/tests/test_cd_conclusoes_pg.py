@@ -19,7 +19,8 @@ pytestmark = pytest.mark.rls_integration
 
 def finish(s,v,tid,mid,*,equivalence=False,id=None,key='uid'):
     return cd.finish(s,principal(v,key),tid,mid,DTO(id=id or uuid4(),confirmado=True,
-        evidencia='Documento institucional conferido' if equivalence else None),equivalence=equivalence)
+        evidencia='Documento institucional conferido' if equivalence else None,
+        origem_equivalencia='Curso anterior' if equivalence else None),equivalence=equivalence)
 
 
 def fulfill(s,v,tid,mid):
@@ -93,6 +94,7 @@ def test_progression_levels_certification_snapshots_reissue_and_no_promotion(dat
         before=s.execute(text('select apto_lider,etapa,subetapa from pessoas where id=:p'),dict(p=v['p'])).one()
         r1=finish(s,v,t1,m1,equivalence=True)
         assert r1['origem']=='equivalencia' and r1['evidencia']
+        assert r1['origem_equivalencia']=='Curso anterior'
         assert cd.eligible(s,principal(v),t1)==[]
         assert len(cd.eligible(s,principal(v),t2))==1
         denied(lambda:issue(s,v,c['id']),422)
@@ -179,7 +181,8 @@ def test_tenants_idor_rls_and_constraints(database,seeded):
                     assert not c.execute(text('select has_table_privilege(:r,:t,:p)'),dict(r=role,t=table,p=privilege)).scalar_one()
 
 
-def test_http_completion_and_equivalence(database,seeded):
+@pytest.mark.parametrize('equivalence',[False,True])
+def test_http_completion_and_equivalence(database,seeded,equivalence):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from app.deps import get_current_user
@@ -196,7 +199,8 @@ def test_http_completion_and_equivalence(database,seeded):
         path=f'/cd/turmas/{tid}/matriculas/{mid}'
         assert client.post(path+'/conclusao',json=dict(id=str(uuid4()),confirmado=False)).status_code==422
         assert client.post(path+'/equivalencia',json=dict(id=str(uuid4()),confirmado=True,evidencia='  ')).status_code==422
-        r=client.post(path+'/conclusao',json=dict(id=str(uuid4()),confirmado=True))
+        r=client.post(path+('/equivalencia' if equivalence else '/conclusao'),json=dict(id=str(uuid4()),confirmado=True,
+            **(dict(evidencia='Documento conferido',origem_equivalencia='Curso anterior') if equivalence else {})))
         assert r.status_code==200,r.text
         cid=client.get(f'/cd/turmas/{tid}').json()['curriculo_id']
         assert len(client.get(f'/cd/pessoas/{v["p"]}/curriculos/{cid}').json()['conclusoes'])==1
@@ -221,7 +225,7 @@ def test_equivalence_evidence_bounds_and_identity_conflicts(database,seeded):
         for evidence in (None,'\t\n','x'*301):
             denied(lambda:cd.finish(s,principal(v),tid,mid,DTO(id=uuid4(),confirmado=True,evidencia=evidence),equivalence=True),422)
         rid=uuid4(); finish(s,v,tid,mid,equivalence=True,id=rid)
-        denied(lambda:cd.finish(s,principal(v),tid,mid,DTO(id=rid,confirmado=True,evidencia='Outra evidência'),equivalence=True),409)
+        denied(lambda:cd.finish(s,principal(v),tid,mid,DTO(id=rid,confirmado=True,evidencia='Outra evidência',origem_equivalencia='Curso anterior'),equivalence=True),409)
         denied(lambda:finish(s,v,tid,mid,id=rid),409)
 
 
@@ -301,3 +305,33 @@ def test_http_certificate_revoke_reissue_and_no_enviar_side_effect(database,seed
     with scoped(database,v['t']) as s:
         assert {table:s.execute(text(f'select count(*) from {table} where igreja_id=:t'),dict(t=v['t'])).scalar_one() for table in before}==before
         assert s.execute(text('select apto_lider,etapa,subetapa from pessoas where id=:p'),dict(p=v['p'])).one()==person_before
+
+
+
+def test_archived_certificate_history_and_revocation_remain_available(database,seeded):
+    from tests.test_cd_matriculas_pg import legacy
+    v=seeded
+    with scoped(database,v['t']) as s:
+        legacy(s,v); c=short_course(s,v)
+        for module in c['modulos']:
+            tid=cd.create_turma(s,principal(v),TurmaInput(id=uuid4(),nome='Turma',curriculo_id=c['id'],modulo_id=module['id']))['id']
+            mid=cd.enroll(s,principal(v),tid,command(v))['id']; finish(s,v,tid,mid,equivalence=True)
+        cert=issue(s,v,c['id'])
+        s.execute(text('update pessoas set arquivada_em=now() where id=:p'),dict(p=v['p']))
+        assert cd.person_progress(s,principal(v),v['p'],c['id'])['certificados']==[cert]
+        revoked=cd.revoke_certificate(s,principal(v),cert['id'],DTO(motivo='Revogação após arquivamento'))
+        assert revoked['revogada']
+        denied(lambda:issue(s,v,c['id']),404)
+        denied(lambda:finish(s,v,tid,mid,equivalence=True),404)
+
+
+def test_equivalence_requires_distinct_source(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid,a=setup(s,v)
+        for source in (None,'  ','x'*121):
+            denied(lambda:cd.finish(s,principal(v),tid,mid,DTO(id=uuid4(),confirmado=True,
+                evidencia='Documento conferido',origem_equivalencia=source),equivalence=True),422)
+        rid=uuid4(); finish(s,v,tid,mid,id=rid,equivalence=True)
+        denied(lambda:cd.finish(s,principal(v),tid,mid,DTO(id=rid,confirmado=True,
+            evidencia='Documento institucional conferido',origem_equivalencia='Outra origem'),equivalence=True),409)

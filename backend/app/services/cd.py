@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.domain.cd import CurriculoCD, modulo_cumprido, evidencia_equivalencia, EXIGIR_CONFIRMACAO_MODULO, PROGRESSAO_LINEAR
+from app.domain.cd import CurriculoCD, modulo_cumprido, evidencia_equivalencia, validar_origem_equivalencia, EXIGIR_CONFIRMACAO_MODULO, PROGRESSAO_LINEAR
 from app.services.uv import actor as formation_actor, rows, require_coordination, COORDINATION_ROLES, sync_responsaveis, today_sao_paulo
 
 
@@ -427,8 +427,9 @@ def attendance_summary(db, user, tid):
 
 
 
-def visible_person(db, t, pid, *, lock=False):
-    found = rows(db, 'select id,nome from pessoas where igreja_id=:t and id=:p and arquivada_em is null'
+def visible_person(db, t, pid, *, lock=False, include_archived=False):
+    found = rows(db, 'select id,nome from pessoas where igreja_id=:t and id=:p'
+                 + ('' if include_archived else ' and arquivada_em is null')
                  + (' for update' if lock else ''),t=t,p=pid)
     if not found:
         raise HTTPException(404, 'Pessoa não encontrada')
@@ -442,10 +443,12 @@ def finish(db, user, tid, mid, payload, *, equivalence=False):
         require_coordination(roles)
         try:
             evidence = evidencia_equivalencia(payload.evidencia)
+            source = validar_origem_equivalencia(getattr(payload,'origem_equivalencia',None))
         except ValueError as exc:
             raise HTTPException(422,str(exc)) from exc
     else:
         evidence = None
+        source = None
     if EXIGIR_CONFIRMACAO_MODULO and payload.confirmado is not True:
         raise HTTPException(422, 'Conclusão exige confirmação humana identificada')
     found = rows(db, 'select pessoa_id,ativa from cd_matriculas where igreja_id=:t and turma_id=:tid and id=:mid', t=t,tid=tid,mid=mid)
@@ -454,11 +457,11 @@ def finish(db, user, tid, mid, payload, *, equivalence=False):
     pid = found[0]['pessoa_id']
     visible_person(db,t,pid,lock=True)
     params=dict(t=t,id=payload.id,p=pid,c=current['curriculo_id'],m=current['modulo_id'],tid=tid,mid=mid,u=uid,
-                origem='equivalencia' if equivalence else 'frequencia',e=evidence)
+                origem='equivalencia' if equivalence else 'frequencia',e=evidence,source=source)
     existing = rows(db, 'select * from cd_conclusoes where igreja_id=:t and (id=:id or matricula_id=:mid)', **params)
     if existing:
         r=existing[0]
-        if (r['id'],r['matricula_id'],r['confirmada_por'],r['origem'],r['evidencia']) != (payload.id,mid,uid,params['origem'],evidence):
+        if (r['id'],r['matricula_id'],r['confirmada_por'],r['origem'],r['evidencia'],r['origem_equivalencia']) != (payload.id,mid,uid,params['origem'],evidence,source):
             raise HTTPException(409,'Matrícula já concluída ou identificador reutilizado')
         return r
     if current['encerrada'] or not found[0]['ativa']:
@@ -472,8 +475,8 @@ def finish(db, user, tid, mid, payload, *, equivalence=False):
             raise HTTPException(422,'Conclusão exige todas as aulas do módulo e calendário cumpridas')
     try:
         with db.begin_nested():
-            return rows(db, """insert into cd_conclusoes(id,igreja_id,pessoa_id,curriculo_id,modulo_id,turma_id,matricula_id,origem,evidencia,confirmada_por)
-                values(:id,:t,:p,:c,:m,:tid,:mid,:origem,:e,:u) returning *""",**params)[0]
+            return rows(db, """insert into cd_conclusoes(id,igreja_id,pessoa_id,curriculo_id,modulo_id,turma_id,matricula_id,origem,evidencia,origem_equivalencia,confirmada_por)
+                values(:id,:t,:p,:c,:m,:tid,:mid,:origem,:e,:source,:u) returning *""",**params)[0]
     except IntegrityError as exc:
         raise HTTPException(409,'Conclusão ou identificador indisponível') from exc
 
@@ -487,7 +490,7 @@ def certificates(db,t,pid,cid):
 
 def person_progress(db,user,pid,cid):
     t,_,roles=actor(db,user); require_coordination(roles)
-    visible_person(db,t,pid)
+    visible_person(db,t,pid,include_archived=True)
     current=catalog(db,t,cid)
     completions=rows(db,'select * from cd_conclusoes where igreja_id=:t and pessoa_id=:p and curriculo_id=:c order by confirmada_em,id',t=t,p=pid,c=cid)
     completed={r['modulo_id'] for r in completions}
@@ -535,7 +538,7 @@ def revoke_certificate(db,user,cert_id,payload):
     if not found:
         raise HTTPException(404,'Certificado não encontrado')
     pid,cid=found[0]['pessoa_id'],found[0]['curriculo_id']
-    visible_person(db,t,pid,lock=True)
+    visible_person(db,t,pid,lock=True,include_archived=True)
     current=next(c for c in certificates(db,t,pid,cid) if c['id']==cert_id)
     if current['revogada']:
         if (current['revogada_por'],current['motivo_revogacao']) != (uid,reason):
