@@ -84,7 +84,16 @@ do $$ declare t text; begin
  foreach t in array array['cd_curriculos','cd_niveis','cd_modulos','cd_aulas','cd_turmas','cd_calendario','cd_responsaveis'] loop
  execute format('alter table public.%I enable row level security',t);
  execute format('alter table public.%I force row level security',t);
- execute format('create policy tenant_isolation on public.%I for all to authenticated using(igreja_id=public.current_igreja_id()) with check(igreja_id=public.current_igreja_id())',t);
+ -- CD has no PostgREST interface: every operation must traverse FastAPI's
+ -- live actor/scope checks and turma locks. session_user is the connection
+ -- login (unchanged by SET ROLE), so a JWT cannot impersonate this boundary.
+ execute format($policy$create policy tenant_isolation on public.%I for all to authenticated
+ using(igreja_id=public.current_igreja_id()
+   and igreja_id=nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
+   and session_user not in ('authenticator','authenticated','anon'))
+ with check(igreja_id=public.current_igreja_id()
+   and igreja_id=nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
+   and session_user not in ('authenticator','authenticated','anon'))$policy$,t);
  execute format('revoke all on public.%I from public,anon,authenticated',t);
  execute format('grant select on public.%I to authenticated',t);
  end loop;

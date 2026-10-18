@@ -313,3 +313,70 @@ def test_curriculum_input_rejects_invalid_structure(payload,rls_database_url):
     from pydantic import ValidationError
     data=dict(id=uuid4(),nome='X',versao='1'); data.update(payload)
     with pytest.raises(ValidationError): CurriculoInput(**data)
+
+
+@pytest.mark.parametrize('table',TABLES)
+@pytest.mark.parametrize('claims_format',['json','legacy'])
+def test_direct_clerk_sessions_cannot_bypass_domain_service(database,seeded,table,claims_format):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        c=curriculum(s,v,niveis=[dict(nome='Grupo',modulos=[1,2,3,4,5,6])]); tid=create(s,v,c)
+        cd.calendar(s,principal(v),tid,schedule(cd.get_turma(s,principal(v),tid)))
+        cd.responsaveis(s,principal(v),tid,ResponsaveisInput(usuarios=[v['leader']]))
+        s.commit()
+    with database.begin() as conn:
+        conn.exec_driver_sql("do $$ begin if not exists(select 1 from pg_roles where rolname='authenticator') then create role authenticator nologin; end if; end $$")
+        conn.exec_driver_sql('grant authenticated to authenticator')
+    # A PostgREST session must not use backend table grants, even within the
+    # correct church and even if claims identify a coordinator. All CD access
+    # goes through the authenticated FastAPI service, with locks/live checks.
+    with scoped(database,v['t']) as s:
+        s.execute(text('set local session authorization authenticator'))
+        s.execute(text('set local role authenticated'))
+        if claims_format=='json':
+            s.execute(text("select set_config('request.jwt.claims',:claims,true)"),dict(claims='{"sub":"synthetic-clerk","role":"authenticated"}'))
+        else:
+            s.execute(text("select set_config('request.jwt.claim.sub','synthetic-clerk',true)"))
+        assert s.execute(text(f'select count(*) from {table}')).scalar()==0
+        col='ativo' if table=='cd_responsaveis' else 'data' if table=='cd_calendario' else 'nome'
+        assert s.execute(text(f'update {table} set {col}={col}')).rowcount==0
+        cols={'cd_curriculos':'id,igreja_id,versao,nome,criada_por',
+              'cd_niveis':'igreja_id,curriculo_id,numero,nome',
+              'cd_modulos':'igreja_id,curriculo_id,numero,nome',
+              'cd_aulas':'igreja_id,modulo_id,numero,nome',
+              'cd_turmas':'id,igreja_id,curriculo_id,modulo_id,nome,criada_por',
+              'cd_calendario':'igreja_id,turma_id,modulo_id,aula_id,data,criada_por',
+              'cd_responsaveis':'igreja_id,turma_id,usuario_id,atribuido_por'}[table]
+        with database.connect() as conn:
+            source=dict(conn.execute(text(f'select {cols} from {table} limit 1')).mappings().one())
+        if 'id' in source: source['id']=uuid4()
+        with pytest.raises(ProgrammingError):
+            s.execute(text(f"insert into {table}({cols}) values({','.join(':'+x for x in cols.split(','))})"),source)
+
+
+def test_backend_clerk_seed_preserved_and_live_authorization(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        # get_current_user seeds JWT before pinning the resolved tenant. Claims
+        # remain present on a real FastAPI request; backend access must work.
+        s.execute(text("select set_config('request.jwt.claims',:claims,true)"),dict(claims='{"sub":"synthetic-clerk"}'))
+        tid=create(s,v)
+        assert cd.get_turma(s,principal(v),tid)['id']==tid
+        denied(lambda:cd.get_turma(s,principal(v,'outsider'),tid))
+
+
+@pytest.mark.parametrize('claims_format',['json','legacy'])
+def test_jwt_without_backend_pin_cannot_access_cd_even_with_privileged_login(database,seeded,claims_format):
+    v=seeded
+    with scoped(database,v['t']) as s: create(s,v); s.commit()
+    with database.begin() as conn:
+        conn.execute(text("update app_users set clerk_user_id='synthetic-clerk' where id=:u"),dict(u=v['uid']))
+    with Session(database) as s:
+        s.execute(text('set local role authenticated'))
+        guc='request.jwt.claims' if claims_format=='json' else 'request.jwt.claim.sub'
+        value='{"sub":"synthetic-clerk"}' if claims_format=='json' else 'synthetic-clerk'
+        s.execute(text('select set_config(:g,:v,true)'),dict(g=guc,v=value))
+        assert s.execute(text('select current_igreja_id()')).scalar()==v['t']
+        for table in TABLES: assert s.execute(text(f'select count(*) from {table}')).scalar()==0
+        with pytest.raises(ProgrammingError):
+            s.execute(text("insert into cd_curriculos(id,igreja_id,versao,nome,criada_por) values(:id,:t,'forged','X',:u)"),dict(id=uuid4(),t=v['t'],u=v['uid']))

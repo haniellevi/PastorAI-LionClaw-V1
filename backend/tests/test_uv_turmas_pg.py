@@ -52,6 +52,9 @@ def migrated_database(rls_database_url):
                 if not exists(select 1 from pg_roles where rolname='{role}') then
                     create role {role} nologin {'bypassrls' if bypass else 'nobypassrls'};
                 end if; end $$""")
+            # Other PG suites share cluster roles across isolated databases.
+            # Reassert the synthetic Supabase bootstrap, not only existence.
+            c.exec_driver_sql(f"alter role {role} {'bypassrls' if bypass else 'nobypassrls'}")
         c.exec_driver_sql('grant usage on schema public to anon, authenticated, service_role')
         for obj in ('tables', 'sequences', 'functions'):
             c.exec_driver_sql(f"alter default privileges in schema public grant all on {obj} to anon, authenticated, service_role")

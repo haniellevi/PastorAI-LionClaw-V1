@@ -251,7 +251,12 @@ aulas, sem nomes de livros ou níveis pré-definidos. A estrutura de cada versã
 é estável; a coordenação edita nomes e cria outra versão para outra estrutura.
 FKs compostas impedem trocar igreja, versão, módulo ou aula nas relações.
 RLS ENABLE/FORCE com USING/WITH CHECK; grants de coluna mínimos, sem DELETE
-nem UPDATE das identidades. Autores são usuários da mesma igreja.
+nem UPDATE das identidades. Autores são usuários da mesma igreja. CD não é
+exposta por PostgREST: RLS nega os logins authenticator/authenticated/anon e
+exige o GUC de igreja fixado pelo backend. O login de conexão do backend deve
+ser distinto desses logins de cliente; SET ROLE authenticated continua sujeito
+à RLS. Claim Clerk preservado no backend não libera acesso direto. Papel,
+responsabilidade e autoria são validados somente pelo caminho FastAPI.
 
 Aplicar pelo runner antes de publicar callers `/cd`: não há flag para ausência
 de schema. Somente PostgreSQL 17 local descartável, dados sintéticos e cadeia
