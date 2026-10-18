@@ -180,7 +180,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return <ContatosScreen selectedId={param ?? null} />;
   }
   if (route === "celulas") {
-    return <CelulasScreen key={identityKey} />;
+    return <CelulasScreen key={identityKey} initialCellId={param ?? null} />;
   }
   if (route === "g12") {
     return (

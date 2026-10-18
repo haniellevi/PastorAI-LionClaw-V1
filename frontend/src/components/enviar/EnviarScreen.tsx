@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { PaginatedLookup } from "../lookups/PaginatedLookup";
 import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
+import { AberturaForm } from "./AberturaForm";
 import { NomeacaoForm } from "./NomeacaoForm";
 import { MyRequestsList } from "../minha-celula/MyRequestsList";
 import { AvaliacaoPanel } from "./AvaliacaoPanel";
@@ -122,6 +123,7 @@ export function EnviarScreen() {
       </section> : null}
 
       {canRequest && token ? <section className="card card-pad" aria-label="Nomeações">
+        <AberturaForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
         <NomeacaoForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
         {requestNotice ? <p role="status">{requestNotice}</p> : null}
         <MyRequestsList token={token} reloadToken={requestsReload} onToast={notice => setRequestNotice(notice.text)} />

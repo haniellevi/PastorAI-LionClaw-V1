@@ -22,10 +22,10 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     AppUser,
-    EnviarAvaliacao,
     UserRole,
     Celula,
     CelulaMembro,
@@ -52,11 +52,15 @@ from app.domain.cell_requests import (
     TIPO_ALTERAR_HORARIO,
     TIPO_MULTIPLICACAO,
     TIPO_NOMEAR_LIDER,
+    TIPO_ABRIR_CELULA,
     TIPO_REMOVER_MEMBRO,
     TIPO_TRANSFERIR_MEMBRO,
     referenced_pessoa_ids,
 )
 from app.services.cell_multiplication_service import execute_multiplication
+from app.services.cells import new_cell
+from app.services.enviar_avaliacoes import aptidao_vigente, _latest
+from app.domain.cell_meetings_schedule import dia_reuniao_for_storage
 from app.services.cell_leadership import set_cell_leadership, _lock_leadership_identities
 from app.services.celula_membro import (
     MembroInelegivelError,
@@ -114,19 +118,41 @@ def _nomination_authority(db, solicitacao, app_user_id, expected_pessoa_id=None)
         app_user_id=app_user_id, solicitacao=solicitacao, expected_pessoa_id=expected_pessoa_id)
 
 
+def lock_opening_author(db, *, igreja_id, candidato_id, app_user_id):
+    """Abertura não tem origem: coordenação direta ou líder efetivo solicita."""
+    person = db.execute(select(AppUser.pessoa_id).where(AppUser.id == app_user_id,
+        AppUser.igreja_id == igreja_id)).scalar_one_or_none()
+    if person is None:
+        raise HTTPException(403, "Vincule o acesso a uma Pessoa antes de solicitar")
+    _lock_leadership_identities(db, igreja_id=igreja_id,
+        pessoa_ids={person, candidato_id}, additional_app_user_ids={app_user_id})
+    leads = db.execute(select(Celula.id).where(Celula.igreja_id == igreja_id,
+        Celula.lider_id == person, Celula.ativo.is_(True)).limit(1)).scalar_one_or_none()
+    return revalidate_nomination_actor(db, igreja_id=igreja_id, app_user_id=app_user_id,
+        expected_pessoa_id=person, allowed_leader_id=person if leads else None)
+
+
+def create_opening_cell(db, solicitacao):
+    """Constrói a célula; liderança e commit pertencem ao fluxo de decisão."""
+    payload = solicitacao.payload_proposto
+    cell = new_cell(igreja_id=solicitacao.igreja_id, nome=payload["nome"],
+        cobertura_espiritual=payload["cobertura_espiritual"],
+        dia_reuniao=dia_reuniao_for_storage(payload.get("dia_reuniao")), horario=payload.get("horario"),
+        endereco=payload.get("endereco"), bairro=payload.get("bairro"),
+        divulgar_whatsapp=False)
+    db.add(cell)
+    return cell
+
+
 def _apply_nomination(db, solicitacao, cell):
     if solicitacao.candidato_id == cell.lider_id:
         raise HTTPException(409, "O candidato já é o líder desta célula")
     pessoa = db.execute(select(Pessoa).where(Pessoa.id == solicitacao.candidato_id,
         Pessoa.igreja_id == solicitacao.igreja_id).with_for_update()
         .execution_options(populate_existing=True)).scalar_one_or_none()
-    latest = db.execute(select(EnviarAvaliacao).where(
-        EnviarAvaliacao.igreja_id == solicitacao.igreja_id,
-        EnviarAvaliacao.pessoa_id == solicitacao.candidato_id)
-        .order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc())
-        .limit(1)).scalar_one_or_none()
-    if pessoa is None or not pessoa.apto_lider or latest is None or latest.decisao != "apto":
+    if not aptidao_vigente(db, pessoa):
         raise HTTPException(409, "Nomeação exige avaliação de aptidão vigente; solicite revisão pastoral")
+    latest = _latest(db, pessoa)
     set_cell_leadership(db, igreja_id=solicitacao.igreja_id, cell=cell,
         new_leader_id=solicitacao.candidato_id, new_active=True)
     return dict(solicitacao.payload_proposto or {}, versao_proposta=solicitacao.versao_proposta,
@@ -358,7 +384,7 @@ def approve(
     db: Session,
     *,
     solicitacao: CelulaSolicitacao,
-    cell: Celula,
+    cell: Celula | None,
     actor_pessoa_id: uuid.UUID | None,
     approver_app_user_id: uuid.UUID | None,
     idempotency_key: str | None,
@@ -387,7 +413,7 @@ def approve(
     # (fecha o TOCTOU check→apply). O lock é mantido até o commit/rollback abaixo.
     db.refresh(solicitacao, with_for_update=True)
 
-    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+    if solicitacao.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
         try:
             if not confirmar_execucao:
                 raise HTTPException(422, "Confirme explicitamente a execução imediata da nomeação")
@@ -399,9 +425,9 @@ def approve(
             if approver_person is None:
                 raise HTTPException(403, "Vincule o decisor a uma Pessoa antes de decidir")
             if solicitacao.status != STATUS_APROVADA:
-                cell = _lock_origin_cell(db, solicitacao)
+                cell = _lock_origin_cell(db, solicitacao) if solicitacao.tipo != TIPO_ABRIR_CELULA else None
                 _lock_leadership_identities(db, igreja_id=solicitacao.igreja_id,
-                    pessoa_ids={p for p in (cell.lider_id, solicitacao.candidato_id, approver_person) if p is not None},
+                    pessoa_ids={p for p in (cell.lider_id if cell else None, solicitacao.candidato_id, approver_person) if p is not None},
                     additional_app_user_ids={approver_app_user_id} if approver_app_user_id else set())
             actor_pessoa_id = _nomination_authority(db, solicitacao, approver_app_user_id, approver_person)
         except Exception:
@@ -428,7 +454,7 @@ def approve(
         )
 
     try:
-        cell = _lock_origin_cell(db, solicitacao)
+        cell = _lock_origin_cell(db, solicitacao) if solicitacao.tipo != TIPO_ABRIR_CELULA else None
     except HTTPException:
         db.rollback()
         raise
@@ -474,8 +500,13 @@ def approve(
 
     try:
         nomination_snapshot = None
-        if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        if solicitacao.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
+            if solicitacao.tipo == TIPO_ABRIR_CELULA:
+                cell = create_opening_cell(db, solicitacao)
             nomination_snapshot = _apply_nomination(db, solicitacao, cell)
+            if solicitacao.tipo == TIPO_ABRIR_CELULA:
+                db.flush()
+                nomination_snapshot.update(efeito="celula_aberta", celula_criada_id=str(cell.id))
         elif solicitacao.tipo == TIPO_MULTIPLICACAO:
             execute_multiplication(
                 db,
@@ -531,7 +562,7 @@ def reject(
     (lost update). A 2ª a chegar espera o lock, relê o estado já decidido e cai no 409.
     """
     db.refresh(solicitacao, with_for_update=True)
-    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+    if solicitacao.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
         try:
             actor_pessoa_id = _nomination_authority(db, solicitacao, approver_app_user_id)
         except Exception:
@@ -582,7 +613,7 @@ def request_adjustment(
     `aguardando` — a 2ª transição relê o estado já decidido e recebe 409.
     """
     db.refresh(solicitacao, with_for_update=True)
-    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+    if solicitacao.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
         try:
             actor_pessoa_id = _nomination_authority(db, solicitacao, approver_app_user_id)
         except Exception:
@@ -640,7 +671,12 @@ def resubmit(
             detail="Só é possível reenviar solicitação em ajuste_solicitado",
         )
     try:
-        if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        if solicitacao.tipo == TIPO_ABRIR_CELULA:
+            current_author = lock_opening_author(db, igreja_id=solicitacao.igreja_id,
+                candidato_id=uuid.UUID(new_payload["novo_lider_id"]), app_user_id=author_app_user_id)
+            if current_author != solicitacao.solicitante_id:
+                raise HTTPException(403, "Somente o autor pode reenviar a proposta")
+        elif solicitacao.tipo == TIPO_NOMEAR_LIDER:
             target = db.execute(select(Celula).where(Celula.id == solicitacao.celula_id,
                 Celula.igreja_id == solicitacao.igreja_id).with_for_update()
                 .execution_options(populate_existing=True)).scalar_one_or_none()
@@ -658,14 +694,16 @@ def resubmit(
         raise
     try:
         de = solicitacao.status
-        solicitacao.payload_proposto = new_payload
-        if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        if solicitacao.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
             assert_pessoas_nao_arquivadas(db, igreja_id=solicitacao.igreja_id,
                 pessoa_ids=referenced_pessoa_ids(solicitacao.tipo, new_payload))
             _assert_pessoa_in_tenant(db, solicitacao.igreja_id,
                 uuid.UUID(new_payload["novo_lider_id"]), "novo_lider_id")
             solicitacao.candidato_id = uuid.UUID(new_payload["novo_lider_id"])
             solicitacao.versao_proposta += 1
+        # Assign payload and typed candidate together after validation queries:
+        # autoflush between them would violate nomeacao_payload_chk.
+        solicitacao.payload_proposto = new_payload
         solicitacao.status = STATUS_AGUARDANDO
         solicitacao.updated_at = _now()
         _append_event(
@@ -679,6 +717,11 @@ def resubmit(
         )
         db.flush()
         db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "uq_celula_solicitacao_abertura_candidato":
+            raise HTTPException(409, "Já existe uma solicitação de abertura para este candidato") from exc
+        raise
     except Exception:
         db.rollback()
         raise

@@ -326,7 +326,6 @@ def test_create_cell_sets_new_fields(app) -> None:
             horario="20:00",
             endereco="Rua A, 100",
             linkGrupo="https://chat.whatsapp.com/x",
-            liderId=_P1,
         ),
     )
     assert resp.status_code == 200, resp.text
@@ -528,9 +527,10 @@ def test_create_cell_rejects_lider_nao_apto(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
-    assert resp.status_code == 422
-    assert "Reencontro" in resp.json()["detail"]
+    assert resp.status_code == 409, resp.text
+    assert "solicitação de abertura" in resp.json()["detail"]
     assert session.committed is False
+    assert session.added == []
 
 
 def test_create_cell_rejects_lider_csim(app) -> None:
@@ -542,10 +542,10 @@ def test_create_cell_rejects_lider_csim(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
-    assert resp.status_code == 422
-    # FECH-07/ROTULO-1: rótulo visível é "fora da igreja" (valor técnico
-    # sem_interesse/CSIM inalterado no modelo).
-    assert "fora da igreja" in resp.json()["detail"]
+    assert resp.status_code == 409, resp.text
+    assert "solicitação de abertura" in resp.json()["detail"]
+    assert session.committed is False
+    assert session.added == []
 
 
 def test_create_cell_rejects_lider_que_ja_lidera_ativa(app) -> None:
@@ -558,11 +558,13 @@ def test_create_cell_rejects_lider_que_ja_lidera_ativa(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
-    assert resp.status_code == 409
-    assert "já lidera" in resp.json()["detail"]
+    assert resp.status_code == 409, resp.text
+    assert "solicitação de abertura" in resp.json()["detail"]
+    assert session.committed is False
+    assert session.added == []
 
 
-def test_create_cell_accepts_apto_sem_celula(app) -> None:
+def test_create_cell_apto_also_requires_opening_request(app) -> None:
     session = CellSession(
         app_user=make_app_user(),
         roles=["pastor"],
@@ -571,8 +573,10 @@ def test_create_cell_accepts_apto_sem_celula(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
-    assert resp.status_code == 200, resp.text
-    assert session.committed is True
+    assert resp.status_code == 409, resp.text
+    assert "solicitação de abertura" in resp.json()["detail"]
+    assert session.committed is False
+    assert session.added == []
 
 
 def test_edit_cell_keeping_same_leader_passes(app) -> None:
@@ -683,9 +687,9 @@ def test_create_cell_rejects_lider_arquivado(app) -> None:
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert "solicitação de abertura" in resp.json()["detail"]
     assert session.committed is False
-    assert session.added == [], "nenhuma célula pode ter sido criada"
+    assert session.added == []
 
 
 def test_edit_cell_rejects_lider_arquivado_ao_atribuir(app) -> None:
@@ -775,7 +779,7 @@ def test_edit_cell_rejects_auxiliar_arquivado(app) -> None:
 
 def test_create_cell_accepts_todas_pessoas_ativas(app) -> None:
     """Regressão: pessoa ATIVA (arquivada_em=None) continua funcionando em
-    liderId/anfitriaoId/auxiliarId — o novo guard não produz falso-positivo."""
+    anfitriaoId/auxiliarId — cadastro direto continua disponível sem líder."""
     session = CellSession(
         app_user=make_app_user(),
         roles=["pastor"],
@@ -788,20 +792,17 @@ def test_create_cell_accepts_todas_pessoas_ativas(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells",
         headers=_AUTH,
-        json=_full_payload(liderId=_P1, anfitriaoId=_P2, auxiliarId=_P3),
+        json=_full_payload(anfitriaoId=_P2, auxiliarId=_P3),
     )
     assert resp.status_code == 200, resp.text
     assert session.committed is True
 
 
-def test_create_cell_lider_de_outra_igreja_ainda_e_422_por_tenant(app) -> None:
-    """Cross-tenant continua recusado pelo padrão atual (422, `_assert_pessoa_
-    tenant`) — o guard novo não muda essa ordem nem esse contrato. Em produção
-    a RLS torna uma pessoa de outra igreja invisível à query (sem filtro
-    explícito de igreja_id em `_assert_pessoa_tenant`, que confia na RLS); o
-    fake reproduz isso não incluindo a pessoa em `pessoas=[]` — dar-lhe um
-    `igreja_id` diferente não testaria a RLS de verdade, só o predicado do
-    fake, que a query real não tem."""
+def test_create_cell_foreign_leader_also_requires_request(app) -> None:
+    """Qualquer líder no cadastro direto exige solicitação, inclusive ID externo.
+
+    Isolamento real do candidato é provado na abertura pela suite PG.
+    """
     session = CellSession(
         app_user=make_app_user(),
         roles=["pastor"],
@@ -810,9 +811,10 @@ def test_create_cell_lider_de_outra_igreja_ainda_e_422_por_tenant(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
-    assert resp.status_code == 422, resp.text
-    assert "não encontrada nesta igreja" in resp.json()["detail"]
+    assert resp.status_code == 409, resp.text
+    assert "solicitação de abertura" in resp.json()["detail"]
     assert session.committed is False
+    assert session.added == []
 
 
 # ---- sensitive-field guard (decisão 3.2) ----------------------------------

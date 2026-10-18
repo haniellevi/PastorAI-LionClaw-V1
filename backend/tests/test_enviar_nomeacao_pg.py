@@ -72,8 +72,8 @@ def test_full_decision_confirmation_version_and_idempotency(nomination):
         assert s.scalar(text("select count(*) from celula_solicitacao_evento where solicitacao_id=:id and acao='aprovada'"),dict(id=row['id']))==1
 
 
-@pytest.mark.parametrize('state', ['candidate','unlinked','removed_role','revoked_actor','not_apt','csim','archived','revoked_evidence','other_leadership','unusable_access'])
-def test_guards_leave_legacy_untouched(nomination,state):
+@pytest.mark.parametrize('state,expected', [('candidate',403),('unlinked',403),('removed_role',403),('revoked_actor',403),('not_apt',409),('csim',409),('archived',409),('revoked_evidence',409),('other_leadership',409),('unusable_access',409)])
+def test_guards_leave_legacy_untouched(nomination,state,expected):
     v=nomination;row=create(v);u,p=decider(v)
     with v['factory'].begin() as s:
         if state=='candidate':s.get(AppUser,u).pessoa_id=v['p']
@@ -89,7 +89,7 @@ def test_guards_leave_legacy_untouched(nomination,state):
         from tests.test_enviar_avaliacoes_pg import command
         with scoped(v) as s:decide(s,v,command(decisao='nao_apto',origem='avaliacao'),who=v['who']);s.commit()
     response=approve(v,row)
-    assert response.status_code in (403,409,422),response.text
+    assert response.status_code == expected,response.text
     with scoped(v) as s:
         assert s.get(Celula,v['cell']).lider_id==v['leader']
         assert s.get(Celula,v['cell']).ativo

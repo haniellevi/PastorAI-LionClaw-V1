@@ -143,7 +143,7 @@ export function CellFormModal({
     onSubmit({
       id: cell?.id ?? null,
       nome: nome.trim(),
-      liderId: liderId || null,
+      liderId: editing ? liderId || null : null,
       diaReuniao: validatePublicDay ? canonicalDay : diaReuniao || null,
       horario: horario || null,
       coberturaEspiritual: cobertura.trim(),
@@ -206,6 +206,7 @@ export function CellFormModal({
           </datalist>
           {coverageLookup.error ? <p role="alert" className="sub">Sugestões de cobertura indisponíveis. <button type="button" className="btn btn-sm" onClick={coverageLookup.retry}>Tentar novamente</button></p> : null}
 
+          {!editing ? <p role="note">Este cadastro cria uma célula sem líder. Para abrir com líder, solicite a abertura na área Enviar e aguarde a decisão da Central.</p> : (
           <div className="row">
             <div className="field">
               <label htmlFor="cf-lider">Líder da célula</label>
@@ -266,6 +267,8 @@ export function CellFormModal({
               ) : null}
             </div>
           </div>
+
+          )}
 
           <div className="row">
             <div className="field">

@@ -790,6 +790,11 @@ class CelulaSolicitacao(Base):
             ["igreja_id", "celula_id"], ["celulas.igreja_id", "celulas.id"],
             name="nomeacao_celula_tenant_fk", ondelete="CASCADE",
         ),
+        Index(
+            "uq_celula_solicitacao_abertura_candidato", "igreja_id", "candidato_id",
+            unique=True,
+            postgresql_where=text("tipo = 'abrir_celula' AND status IN ('aguardando', 'ajuste_solicitado')"),
+        ),
         Index("enviar_solicitacao_tenant_id", "igreja_id", "id", unique=True),
         Index(
             "uq_celula_solicitacao_aberta_tipo",
@@ -821,9 +826,9 @@ class CelulaSolicitacao(Base):
         ForeignKey("igrejas.id", ondelete="CASCADE"),
         nullable=False,
     )
-    celula_id: Mapped[uuid.UUID] = mapped_column(
+    celula_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        nullable=False,
+        nullable=True,
     )
     solicitante_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True

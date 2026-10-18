@@ -12,7 +12,7 @@ Tipos de solicitação (`celula_solicitacao.tipo`):
   - multiplicacao
   - nomear_lider (célula alvo existente)
 
-`celula_id` da solicitação é sempre a ORIGEM; nunca confiar em "origem" vinda do
+`celula_id` é nulo exclusivamente em abrir_celula; nos demais tipos é a ORIGEM; nunca confiar em "origem" vinda do
 payload (SPEC §6.3).
 """
 
@@ -22,7 +22,7 @@ import datetime as dt
 import re
 import uuid
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Constantes de tipo / status / ação
@@ -36,6 +36,7 @@ TIPO_TRANSFERIR_MEMBRO = "transferir_membro"
 TIPO_REMOVER_MEMBRO = "remover_membro"
 TIPO_MULTIPLICACAO = "multiplicacao"
 TIPO_NOMEAR_LIDER = "nomear_lider"
+TIPO_ABRIR_CELULA = "abrir_celula"
 
 SENSITIVE_TIPOS: frozenset[str] = frozenset(
     {
@@ -49,7 +50,7 @@ SENSITIVE_TIPOS: frozenset[str] = frozenset(
 MEMBER_TIPOS: frozenset[str] = frozenset(
     {TIPO_TRANSFERIR_MEMBRO, TIPO_REMOVER_MEMBRO}
 )
-VALID_TIPOS: frozenset[str] = SENSITIVE_TIPOS | MEMBER_TIPOS | {TIPO_MULTIPLICACAO, TIPO_NOMEAR_LIDER}
+VALID_TIPOS: frozenset[str] = SENSITIVE_TIPOS | MEMBER_TIPOS | {TIPO_MULTIPLICACAO, TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}
 
 # celula_solicitacao.status
 STATUS_AGUARDANDO = "aguardando"
@@ -178,6 +179,32 @@ class RemoverMembroPayload(_StrictModel):
         return _optional_text(v, _MOTIVO_MAX, "motivo")
 
 
+class AbrirCelulaPayload(_StrictModel):
+    nome: str = Field(min_length=1, max_length=200)
+    cobertura_espiritual: str = Field(min_length=1, max_length=200)
+    novo_lider_id: uuid.UUID
+    dia_reuniao: str | None = Field(default=None, max_length=40)
+    horario: str | None = None
+    endereco: str | None = Field(default=None, max_length=400)
+    bairro: str | None = Field(default=None, max_length=120)
+
+    @field_validator("nome", "cobertura_espiritual")
+    @classmethod
+    def _required(cls, v: str) -> str:
+        return _require_text(v, 200, "nome/cobertura_espiritual")
+
+    @field_validator("dia_reuniao")
+    @classmethod
+    def _day(cls, v: str | None) -> str | None:
+        from app.domain.cell_meetings_schedule import canonical_weekday_label
+        return canonical_weekday_label(v) if v is not None else None
+
+    @field_validator("horario")
+    @classmethod
+    def _hour(cls, v: str | None) -> str | None:
+        return _valid_hora(v) if v else None
+
+
 class NomearLiderPayload(_StrictModel):
     novo_lider_id: uuid.UUID
 
@@ -263,6 +290,7 @@ _PAYLOAD_MODELS: dict[str, type[_StrictModel]] = {
     TIPO_REMOVER_MEMBRO: RemoverMembroPayload,
     TIPO_MULTIPLICACAO: MultiplicacaoPayload,
     TIPO_NOMEAR_LIDER: NomearLiderPayload,
+    TIPO_ABRIR_CELULA: AbrirCelulaPayload,
 }
 
 
@@ -314,7 +342,7 @@ def referenced_pessoa_ids(tipo: str, payload: dict) -> list[str]:
         value = payload.get("auxiliar_id")
         if value:
             ids.append(str(value))
-    elif tipo == TIPO_NOMEAR_LIDER:
+    elif tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA}:
         ids.append(str(payload["novo_lider_id"]))
     elif tipo == TIPO_MULTIPLICACAO:
         for key in ("novo_lider_id", "anfitriao_id", "auxiliar_id"):

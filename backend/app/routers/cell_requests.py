@@ -49,6 +49,7 @@ from app.domain.cell_requests import (
     OPEN_STATUSES,
     STATUS_AGUARDANDO,
     TIPO_NOMEAR_LIDER,
+    TIPO_ABRIR_CELULA,
     InvalidPayload,
     conflict_pessoa_id,
     referenced_pessoa_ids,
@@ -87,7 +88,7 @@ class CreateCellRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    celula_id: str
+    celula_id: str | None = None
     tipo: str
     payload_proposto: dict | None = None
     motivo: str | None = None
@@ -124,9 +125,10 @@ class DecisionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 class CellRequestOut(BaseModel):
     id: str
-    celula_id: str
+    celula_id: str | None = None
     solicitante_id: str | None = None
     pessoa_id: str | None = None
+    celula_criada_id: str | None = None
     celula_nome: str | None = None
     candidato_nome: str | None = None
     candidato_id: str | None = None
@@ -145,15 +147,22 @@ class CellRequestOut(BaseModel):
     @classmethod
     def from_model(cls, s: CelulaSolicitacao, db: Session | None = None) -> "CellRequestOut":
         names = {}
-        if s.tipo == TIPO_NOMEAR_LIDER and db is not None:
+        if s.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA} and db is not None:
             names = dict(
                 celula_nome=db.execute(select(Celula.nome).where(Celula.id == s.celula_id, Celula.igreja_id == s.igreja_id)).scalar_one_or_none(),
                 candidato_nome=db.execute(select(Pessoa.nome).where(Pessoa.id == s.candidato_id, Pessoa.igreja_id == s.igreja_id)).scalar_one_or_none(),
             )
+        if s.tipo == TIPO_ABRIR_CELULA and s.status == "aprovada" and db is not None:
+            event = db.execute(select(CelulaSolicitacaoEvento).where(
+                CelulaSolicitacaoEvento.igreja_id == s.igreja_id,
+                CelulaSolicitacaoEvento.solicitacao_id == s.id,
+                CelulaSolicitacaoEvento.acao == "aprovada",
+            )).scalar_one_or_none()
+            names['celula_criada_id'] = (event.payload_snapshot or {}).get('celula_criada_id') if event else None
         return cls(
             **names,
             id=str(s.id),
-            celula_id=str(s.celula_id),
+            celula_id=str(s.celula_id) if s.celula_id else None,
             solicitante_id=str(s.solicitante_id) if s.solicitante_id else None,
             pessoa_id=str(s.pessoa_id) if s.pessoa_id else None,
             candidato_id=str(s.candidato_id) if s.candidato_id else None,
@@ -273,9 +282,10 @@ def _has_open_conflict(
     db: Session,
     *,
     igreja_id: uuid.UUID,
-    celula_id: uuid.UUID,
+    celula_id: uuid.UUID | None,
     tipo: str,
     pessoa_id: str | None,
+    candidato_id: uuid.UUID | None = None,
 ) -> bool:
     """Matriz E13 (§6.8): já existe solicitação ABERTA conflitante nesta célula?
 
@@ -289,7 +299,10 @@ def _has_open_conflict(
         CelulaSolicitacao.celula_id == celula_id,
         CelulaSolicitacao.status.in_(list(OPEN_STATUSES)),
     ]
-    if tipo in MEMBER_TIPOS:
+    if tipo == TIPO_ABRIR_CELULA:
+        filters.append(CelulaSolicitacao.tipo == tipo)
+        filters.append(CelulaSolicitacao.candidato_id == candidato_id)
+    elif tipo in MEMBER_TIPOS:
         filters.append(CelulaSolicitacao.tipo.in_(list(MEMBER_TIPOS)))
         filters.append(CelulaSolicitacao.pessoa_id == uuid.UUID(str(pessoa_id)))
     else:
@@ -338,7 +351,13 @@ def create_cell_request(
 
     # Ownership: só o líder da célula de origem abre a solicitação (404 senão).
     igreja_id = uuid.UUID(current_user.igreja_id)
-    if body.tipo == TIPO_NOMEAR_LIDER and current_user.has_any_role(["pastor"]):
+    if body.tipo == TIPO_ABRIR_CELULA:
+        if body.celula_id is not None:
+            raise HTTPException(422, "Abertura não tem célula de origem")
+        cell = None
+    elif body.celula_id is None:
+        raise HTTPException(422, "celula_id é obrigatório para este tipo")
+    elif body.tipo == TIPO_NOMEAR_LIDER and current_user.has_any_role(["pastor"]):
         try:
             cell_id = uuid.UUID(body.celula_id)
         except ValueError as exc:
@@ -368,6 +387,12 @@ def create_cell_request(
         db, igreja_id=igreja_id, pessoa_ids=referenced_pessoa_ids(body.tipo, payload)
     )
 
+    if body.tipo == TIPO_ABRIR_CELULA:
+        cell_requests_service._assert_pessoa_in_tenant(db, igreja_id,
+            uuid.UUID(payload["novo_lider_id"]), "novo_lider_id")
+        cell_requests_service.lock_opening_author(db, igreja_id=igreja_id,
+            candidato_id=uuid.UUID(payload["novo_lider_id"]),
+            app_user_id=uuid.UUID(current_user.app_user_id))
     if body.tipo == TIPO_NOMEAR_LIDER:
         cell_requests_service._assert_pessoa_in_tenant(db, igreja_id,
             uuid.UUID(payload["novo_lider_id"]), "novo_lider_id")
@@ -381,7 +406,8 @@ def create_cell_request(
     if _has_open_conflict(
         db,
         igreja_id=igreja_id,
-        celula_id=cell.id,
+        celula_id=cell.id if cell else None,
+        candidato_id=uuid.UUID(payload["novo_lider_id"]) if body.tipo == TIPO_ABRIR_CELULA else None,
         tipo=body.tipo,
         pessoa_id=pessoa_id,
     ):
@@ -396,14 +422,14 @@ def create_cell_request(
 
     solicitacao = CelulaSolicitacao(
         igreja_id=igreja_id,
-        celula_id=cell.id,
+        celula_id=cell.id if cell else None,
         solicitante_id=solicitante_id,
         pessoa_id=uuid.UUID(pessoa_id) if pessoa_id else None,
         tipo=body.tipo,
         status=STATUS_AGUARDANDO,
         payload_proposto=payload,
         versao_proposta=1,
-        candidato_id=uuid.UUID(payload["novo_lider_id"]) if body.tipo == TIPO_NOMEAR_LIDER else None,
+        candidato_id=uuid.UUID(payload["novo_lider_id"]) if body.tipo in {TIPO_NOMEAR_LIDER, TIPO_ABRIR_CELULA} else None,
         payload_atual={"lider_id": str(cell.lider_id) if cell.lider_id else None} if body.tipo == TIPO_NOMEAR_LIDER else None,
         motivo=motivo,
     )
@@ -606,7 +632,7 @@ def approve_cell_request(
 
     solicitacao = _load_solicitacao(db, igreja_id, request_id)
     _assert_not_author(db, solicitacao, current_user)
-    cell = _load_solicitacao_cell(db, igreja_id, solicitacao)
+    cell = None if solicitacao.tipo == TIPO_ABRIR_CELULA else _load_solicitacao_cell(db, igreja_id, solicitacao)
 
     actor_pessoa_id = _actor_uuid(db, current_user)
     body_key = (body.idempotency_key if body else None) or ""

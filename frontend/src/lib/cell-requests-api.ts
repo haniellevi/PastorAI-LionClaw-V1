@@ -40,7 +40,8 @@ export type CellRequestType =
   | "transferir_membro"
   | "remover_membro"
   | "multiplicacao"
-  | "nomear_lider";
+  | "nomear_lider"
+  | "abrir_celula";
 
 /** Status do ciclo da solicitação. */
 export type CellRequestStatus =
@@ -53,7 +54,8 @@ export type CellRequestStatus =
 /** Solicitação (CellRequestOut). `payload_proposto` mantém o snake_case do backend. */
 export interface CellRequest {
   id: string;
-  celula_id: string;
+  celula_id: string | null;
+  celula_criada_id?: string | null;
   solicitante_id: string | null;
   pessoa_id: string | null;
   celula_nome?: string | null;
@@ -92,7 +94,7 @@ export interface CellRequestDetail extends CellRequest {
 
 /** Payload de criação (CreateCellRequest). */
 export interface CreateCellRequestInput {
-  celula_id: string;
+  celula_id?: string | null;
   tipo: CellRequestType | string;
   payload_proposto?: Record<string, unknown> | null;
   motivo?: string | null;

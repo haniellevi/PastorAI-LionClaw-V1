@@ -41,7 +41,8 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, CelulaMembro, Multiplicacao, Pessoa
 from app.domain.multiplication import STATUS_CONCLUIDA
 from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
-from app.services.cell_leadership import set_cell_leadership
+from app.services.cell_leadership import set_cell_leadership, _load_candidate_for_update
+from app.services.enviar_avaliacoes import aptidao_vigente
 
 # Papel do vínculo em celula_membro — o enum celula_membro_papel só aceita
 # membro/auxiliar/anfitriao ('lider' NÃO existe: liderança é celulas.lider_id).
@@ -133,6 +134,9 @@ def execute_multiplication(
     # 3. Nova célula (herda cobertura_espiritual — NOT NULL — da origem).
     #    O serviço de liderança valida aptidão + exatamente um acesso ativo e
     #    cria o papel derivado na MESMA transação auditada da aprovação.
+    candidate = _load_candidate_for_update(db, igreja_id=igreja_id, pessoa_id=novo_lider_id)
+    if not aptidao_vigente(db, candidate):
+        raise HTTPException(409, "Multiplicação exige avaliação de aptidão vigente; solicite revisão pastoral")
     nova_celula = Celula(
         igreja_id=igreja_id,
         nome=str(payload["nome_nova_celula"]),

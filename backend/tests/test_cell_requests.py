@@ -35,6 +35,7 @@ from app.db.models import (
     CelulaSolicitacao,
     CelulaSolicitacaoEvento,
     Multiplicacao,
+    EnviarAvaliacao,
     Pessoa,
     UserRole,
 )
@@ -127,6 +128,7 @@ class ReqSession:
         self.solicitacoes = solicitacoes or []
         self.eventos = eventos or []
         self.multiplicacoes = multiplicacoes or []
+        self.avaliacoes = []
         self.accesses = list(accesses) if accesses is not None else [
             SimpleNamespace(
                 id=uuid.uuid5(uuid.NAMESPACE_URL, f"access:{p.id}"),
@@ -206,6 +208,9 @@ class ReqSession:
             if name == "id":
                 ids = [row.id for row in rows]
                 return _Res(scalar=(ids[0] if ids else None), scalars=ids)
+            return _Res(scalar=(rows[0] if rows else None), scalars=rows)
+        if ent is EnviarAvaliacao:
+            rows = self._order(self._filter(self.avaliacoes, statement), statement)
             return _Res(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is Pessoa:
             rows = self._filter(self.pessoas, statement)
@@ -333,7 +338,8 @@ def make_pessoa(
     return SimpleNamespace(
         id=pessoa_id,
         nome=nome,
-        igreja_id=_TENANT,
+        igreja_id=uuid.UUID(_TENANT),
+        arquivada_em=None,
         celula_id=celula_id,
         lider_id=None,
         apto_lider=apto_lider,
@@ -873,7 +879,10 @@ def _multiplication_session() -> ReqSession:
         make_pessoa(_MEMBER, "Novo Líder"),
         make_pessoa(_MEMBER2, "Membro 2"),
     ]
-    return _central_session(cells=[cell], membros=membros, pessoas=pessoas)
+    session = _central_session(cells=[cell], membros=membros, pessoas=pessoas)
+    session.avaliacoes = [SimpleNamespace(id=uuid.uuid4(), igreja_id=uuid.UUID(_TENANT),
+        pessoa_id=_MEMBER, decisao='apto', criada_em=dt.datetime.now(dt.timezone.utc))]
+    return session
 
 
 def test_approve_multiplication_leader_is_not_a_member(app) -> None:
@@ -1188,6 +1197,8 @@ def test_approve_multiplication_accepts_external_leader(app) -> None:
     session = _multiplication_session()
     externo = make_pessoa(_OUTSIDER, "Apto Sem Célula", celula_id=None)
     session.pessoas.append(externo)
+    session.avaliacoes.append(SimpleNamespace(id=uuid.uuid4(), igreja_id=uuid.UUID(_TENANT),
+        pessoa_id=_OUTSIDER, decisao='apto', criada_em=dt.datetime.now(dt.timezone.utc)))
     session.accesses.append(
         SimpleNamespace(
             id=uuid.uuid5(uuid.NAMESPACE_URL, f"access:{_OUTSIDER}"),

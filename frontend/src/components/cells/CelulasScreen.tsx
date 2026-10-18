@@ -53,7 +53,7 @@ export function canAddMemberInLegacy(roles: readonly Role[]): boolean {
   return roles.some((role) => role === "admin" || role === "pastor");
 }
 
-export function CelulasScreen() {
+export function CelulasScreen({ initialCellId = null }: { initialCellId?: string | null }) {
   const { token, user, expireSession } = useAuth();
 
   const [cells, setCells] = useState<CellSummary[]>([]);
@@ -210,6 +210,14 @@ export function CelulasScreen() {
     },
     [token, cells, handleSessionError],
   );
+
+  const openedFromLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (token && initialCellId && openedFromLink.current !== initialCellId) {
+      openedFromLink.current = initialCellId;
+      void openDetail(initialCellId);
+    }
+  }, [token, initialCellId, openDetail]);
 
   const handleSave = useCallback(
     async (input: UpsertCellInput) => {

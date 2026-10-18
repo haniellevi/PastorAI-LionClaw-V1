@@ -30,6 +30,7 @@ from app.db.session import get_db
 from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central, resolve_actor_pessoa_id
 from app.domain.cell_meetings_schedule import (
     InvalidDiaReuniao,
+    dia_reuniao_for_storage as _dia_reuniao_for_storage,
     canonical_weekday_label,
     now_in_sao_paulo,
 )
@@ -39,6 +40,7 @@ from app.services.celula_membro import (
     assert_pessoas_nao_arquivadas,
     ensure_active_membro,
 )
+from app.services.cells import new_cell
 from app.services.cell_leadership import set_cell_leadership
 from app.services.cell_member_management import remover_membro, transferir_membro
 
@@ -480,16 +482,6 @@ def _assert_referenced_pessoas_nao_arquivadas(
     )
 
 
-def _dia_reuniao_for_storage(value: str | None) -> str | None:
-    """Canonicalize one accepted weekday without rejecting legacy draft data."""
-
-    if value is None:
-        return None
-    try:
-        return canonical_weekday_label(value)
-    except InvalidDiaReuniao:
-        return value
-
 
 def _same_dia_reuniao(left: str | None, right: str | None) -> bool:
     """Treat two recognized aliases as one weekday; unknown legacy text is exact."""
@@ -802,15 +794,14 @@ def upsert_cell(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas a Central de Células pode cadastrar células",
             )
-        # TODO(Enviar fatia 5): abertura inicial via solicitação sem célula de origem.
+        if payload.liderId is not None:
+            raise HTTPException(409, "Para abrir célula com líder, envie solicitação de abertura na área Enviar")
         _validate_pessoa_refs(db, payload)
         _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
         dia_reuniao = _dia_reuniao_for_storage(payload.diaReuniao)
-        cell = Celula(
+        cell = new_cell(
             igreja_id=uuid.UUID(current_user.igreja_id),
             nome=payload.nome,
-            # Liderança/estado são aplicados pelo serviço derivado abaixo.
-            lider_id=None,
             cobertura_espiritual=payload.coberturaEspiritual,
             dia_reuniao=dia_reuniao,
             horario=payload.horario,
@@ -822,7 +813,6 @@ def upsert_cell(
             mensagem_convite=payload.mensagemConvite,
             bairro=payload.bairro,
             divulgar_whatsapp=payload.divulgarWhatsapp,
-            ativo=False,
         )
         try:
             set_cell_leadership(
