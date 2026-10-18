@@ -9,3 +9,5 @@ export async function cdRequest<T>(token: string, path: string, method = "GET", 
   if (!response.ok) throw new ApiError(response.status, (await readDetail(response)) ?? "Não foi possível atualizar a CD.");
   return response.json() as Promise<T>;
 }
+
+export interface MatriculaCD { id: string; pessoa_id: string; nome: string; pessoa_arquivada: boolean; ativa: boolean; origem_aptidao: "legado" | "conclusao_uv"; criada_por: string; criada_em: string; cancelada_por: string | null; cancelada_em: string | null }
