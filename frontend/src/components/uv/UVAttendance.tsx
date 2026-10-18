@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { MatriculaUV, PresencaRevisao, TurmaDetalhe } from "@/lib/uv-api";
 
 type Props = {
@@ -28,6 +28,13 @@ function StudentAttendance({ detail, busy, request, run, reload, student }: Prop
   const [notice, setNotice] = useState("");
   const key = useRef<{ intent: string; id: string } | null>(null);
   const current = student.presencas?.find(p => p.aula === aula);
+  useEffect(() => {
+    setPresente(current?.presente ?? true);
+    setModalidade(current?.modalidade ?? "regular");
+    setConfirmed(false);
+    setHistory(null);
+    key.current = null;
+  }, [aula, current?.registro_id, current?.presente, current?.modalidade]);
   const path = `/${detail.id}/matriculas/${student.id}/presencas/${aula}`;
   const available = detail.atividades.some(a => a.tipo === "aula" && a.aula === aula);
   const reset = () => { key.current = null; setConfirmed(false); setHistory(null); setNotice(""); };

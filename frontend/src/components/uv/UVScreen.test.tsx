@@ -114,3 +114,35 @@ it("falha de transporte preserva a chave da chamada na repetição", async () =>
   expect(posts).toHaveLength(2);
   expect(posts[0]![3].id).toBe(posts[1]![3].id);
 });
+
+it("inicia a correção com o registro atual e sincroniza ao trocar de aula", async () => {
+  const records = [
+    { aula: 1, registro_id: "first", presente: false, modalidade: "reposicao", registrada_por: "equipe", registrada_em: "2026-10-17T12:00:00Z" },
+    { aula: 2, registro_id: "second", presente: true, modalidade: "regular", registrada_por: "equipe", registrada_em: "2026-10-17T13:00:00Z" },
+  ];
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+    atividades: records.map(r => ({ ordem: r.aula, tipo: "aula", aula: r.aula, data: "2026-10-01" })),
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [2], aulas_pendentes: [1,3,4,5,6,7,8], presencas: records }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  const status = () => container.querySelector<HTMLSelectElement>('.uv-student fieldset select:not([aria-label])')!;
+  const modality = () => container.querySelector<HTMLSelectElement>('select[aria-label="Modalidade da presença"]')!;
+  expect(status().value).toBe("false");
+  expect(modality().value).toBe("reposicao");
+  const lesson = container.querySelector<HTMLSelectElement>('select[aria-label="Aula da chamada"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(lesson, "2");
+    lesson.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(status().value).toBe("true");
+  expect(modality().value).toBe("regular");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(lesson, "1");
+    lesson.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(status().value).toBe("false");
+  expect(modality().value).toBe("reposicao");
+  const checkbox = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(c => c.parentElement?.textContent?.includes("Confirmo a correção"))!;
+  await act(async () => { checkbox.click(); });
+  await act(async () => { button("Salvar correção")!.click(); });
+  expect(state.request.mock.calls.find(c => c[2] === "POST")?.[3]).toMatchObject({ presente: false, modalidade: "reposicao", anterior_id: "first" });
+});
