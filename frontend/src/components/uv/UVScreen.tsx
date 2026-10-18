@@ -6,6 +6,7 @@ import { uvRequest, type Turma, type TurmaDetalhe, type UVOpcoes, type Atividade
 import { ApiError } from "@/lib/dashboard-api";
 import { Dialog } from "@/components/ds/Dialog";
 
+import { UVFormation } from "./UVFormation";
 import { UVAttendance } from "./UVAttendance";
 import "./uv.css";
 
@@ -137,6 +138,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
         {detail.matriculas.length ? <ul>{detail.matriculas.map(m => <li key={m.id}>{m.nome}{m.conexao_celula_pendente ? " · Conexão à célula pendente" : ""}</li>)}</ul> : <p>Nenhuma pessoa matriculada.</p>}
       </div>
       <UVAttendance key={detail.id} detail={detail} busy={busy} request={request} run={run} reload={() => loadDetail(detail.id)} />
+      <UVFormation key={`formation:${detail.id}`} detail={detail} busy={busy} request={request} run={run} reload={() => loadDetail(detail.id)} />
       {coordination && !detail.encerrada ? <button type="button" className="btn" disabled={busy} onClick={() => setClosing(true)}>Encerrar turma</button> : null}
       <Dialog open={closing} onClose={() => { if (!busy) setClosing(false); }} title="Encerrar turma?" description="A turma ficará disponível para consulta e não aceitará novas matrículas ou alterações.">
         <button className="btn" disabled={busy} onClick={() => setClosing(false)}>Cancelar</button>

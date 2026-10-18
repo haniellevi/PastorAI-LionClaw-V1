@@ -22,7 +22,7 @@ afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 it("consulta turma e expõe nove datas, pendência e matrícula explícita", async () => {
   await render(); await act(async () => { button("Turma teste")!.click(); });
-  expect(container.querySelectorAll('input[type="date"]')).toHaveLength(9);
+  expect(container.querySelectorAll('fieldset input[type="date"]:not([name])')).toHaveLength(9);
   expect(container.textContent).toContain("Conexão à célula pendente");
   expect(button("Matricular pessoa")?.disabled).toBe(true);
   expect(state.request.mock.calls.every(call => call[2] === "GET")).toBe(true);
@@ -145,4 +145,50 @@ it("inicia a correção com o registro atual e sincroniza ao trocar de aula", as
   await act(async () => { checkbox.click(); });
   await act(async () => { button("Salvar correção")!.click(); });
   expect(state.request.mock.calls.find(c => c[2] === "POST")?.[3]).toMatchObject({ presente: false, modalidade: "reposicao", anterior_id: "first" });
+});
+
+it("marcos exigem validação humana e conclusão exige os quatro critérios", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [], presencas: [],
+      marcos: [{ id: "e", tipo: "encontro", data: "2020-01-01", anterior_turma: true, validada_por: "equipe", validada_em: "2026-10-17" }], conclusao: null }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("Marcos e conclusão");
+  expect(container.textContent).toContain("Anterior à turma");
+  expect(button("Concluir UV")!.disabled).toBe(true);
+  expect(button("Validar batismo")!.disabled).toBe(true);
+  const form = button("Validar batismo")!.closest("form")!;
+  const date = form.querySelector<HTMLInputElement>('input[type="date"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2020-02-01");
+    date.dispatchEvent(new Event("input", { bubbles: true }));
+    date.dispatchEvent(new Event("change", { bubbles: true }));
+    form.querySelector<HTMLInputElement>('input[type="checkbox"][name="confirmado"]')!.click();
+  });
+  await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(state.request.mock.calls.some(c => c[2] === "POST" && c[1].endsWith("/marcos/batismo") && c[3].confirmado === true)).toBe(true);
+});
+
+it("conclusão pede confirmação explícita e mostra o histórico na Pessoa", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [], presencas: [],
+      marcos: ["encontro","batismo"].map(tipo => ({ id: tipo, tipo, data: "2020-01-01", anterior_turma: true, validada_por: "equipe", validada_em: "2026-10-17" })), conclusao: null }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Concluir UV")!.disabled).toBe(true);
+  const confirm = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(c => c.parentElement?.textContent?.includes("Confirmo a conclusão"))!;
+  await act(async () => { confirm.click(); });
+  await act(async () => { button("Concluir UV")!.click(); });
+  expect(state.request.mock.calls.some(c => c[2] === "POST" && c[1].endsWith("/concluir") && c[3].confirmado === true)).toBe(true);
+});
+
+it("consulta conclusão persistida com autor, transição e origem legada sem pedir batismo de novo", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [], presencas: [],
+      marcos: ["encontro","batismo"].map(tipo => ({ id: tipo, tipo, data: "2020-01-01", anterior_turma: true, validada_por: "equipe", validada_em: "2026-10-17" })),
+      conclusao: { id: "conclusao", confirmada_por: "equipe", confirmada_em: "2026-10-17", etapa_anterior: "enviar", etapa_resultante: "enviar", origem_aptidao: "legado" } }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("UV concluída em 2026-10-17 por equipe");
+  expect(container.textContent).toContain("enviar → enviar");
+  expect(container.textContent).toContain("Aptidão à próxima CD: legado");
+  expect(button("Concluir UV")).toBeUndefined();
+  expect(button("Validar batismo")).toBeUndefined();
 });

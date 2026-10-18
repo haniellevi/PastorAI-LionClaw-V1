@@ -27,8 +27,8 @@ def completo():
 def test_entrada_exige_decisao_e_responsavel(decisao, responsavel):
     result = avaliar_uv(replace(completo(), decisao_registrada=decisao, responsavel_id=responsavel))
     assert not result.pode_ingressar
-    assert not result.concluida
-    assert not result.apto_proxima_cd
+    # Entry prerequisites do not add a fifth completion criterion.
+    assert result.concluida
 
 
 def test_celula_e_pendencia_sem_bloquear_entrada_ou_conclusao():
@@ -57,8 +57,9 @@ def test_conclusao_exige_evidencias_e_confirmacao(campo):
     assert not avaliar_uv(replace(completo(), **{campo: None})).concluida
 
 
-def test_confirmacao_de_outro_nao_substitui_responsavel():
-    assert not avaliar_uv(replace(completo(), confirmado_por=VALIDADOR)).concluida
+def test_confirmacao_humana_autorizada_pelo_servico_independe_do_consolidador():
+    assert avaliar_uv(replace(completo(), confirmado_por=VALIDADOR)).concluida
+    assert not avaliar_uv(replace(completo(), confirmado_por="sem-identidade")).concluida
 
 
 def test_eventos_anteriores_validados_valem_sem_repeticao():

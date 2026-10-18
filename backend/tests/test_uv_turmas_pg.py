@@ -143,7 +143,7 @@ def test_complete_panel_api_and_idempotent_calendar(database, seeded):
         detail=client.get(f'/uv/turmas/{tid}').json()
         assert len(detail['matriculas'])==1
         assert detail['matriculas'][0]['conexao_celula_pendente'] is True
-        assert set(detail['matriculas'][0])=={'id','pessoa_id','nome','conexao_celula_pendente','aulas_cumpridas','aulas_pendentes','presencas'}
+        assert set(detail['matriculas'][0])=={'id','pessoa_id','nome','conexao_celula_pendente','aulas_cumpridas','aulas_pendentes','presencas','marcos','conclusao'}
         assert len(client.get('/uv/turmas').json())==1
         assert client.post(f'/uv/turmas/{tid}/encerrar').status_code==200
         assert client.post(f'/uv/turmas/{tid}/matriculas',json=matricula(v).model_dump(mode='json')).status_code==409
@@ -268,7 +268,7 @@ def test_service_cross_tenant_and_grants(database,seeded):
             assert not s.execute(text("select has_table_privilege(current_user,:t,'DELETE')"),dict(t=table)).scalar_one()
     with database.connect() as c:
         flags=c.execute(text("select relrowsecurity,relforcerowsecurity from pg_class where relname like 'uv_%' and relkind='r'")).all()
-        assert len(flags)==6 and all(a and b for a,b in flags)
+        assert len(flags)==8 and all(a and b for a,b in flags)
 
 
 @pytest.mark.parametrize('role', ['admin','pastor','lider_consol'])

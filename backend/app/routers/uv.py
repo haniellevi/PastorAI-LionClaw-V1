@@ -1,4 +1,4 @@
-"""Authenticated minimal UV API; attendance without milestones or WhatsApp."""
+"""Authenticated UV panel API: attendance, validated milestones and completion."""
 from datetime import date
 from typing import Literal
 from uuid import UUID
@@ -144,3 +144,31 @@ def attendance(turma_id: UUID, matricula_id: UUID, aula: int, payload: PresencaI
 def attendance_history(turma_id: UUID, matricula_id: UUID, aula: int,
                        db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
     return uv.attendance_history(db, user, turma_id, matricula_id, aula)
+
+
+class MarcoInput(Input):
+    id: UUID
+    data: date
+    anterior_turma: bool = Field(strict=True)
+    confirmado: bool = Field(strict=True)
+
+
+class ConclusaoInput(Input):
+    id: UUID
+    confirmado: bool = Field(strict=True)
+
+
+@router.post('/{turma_id}/matriculas/{matricula_id}/marcos/{tipo}')
+def milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['encontro','batismo'], payload: MarcoInput,
+              db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
+    result = uv.milestone(db,user,turma_id,matricula_id,tipo,payload)
+    db.commit()
+    return result
+
+
+@router.post('/{turma_id}/matriculas/{matricula_id}/concluir')
+def finish(turma_id: UUID, matricula_id: UUID, payload: ConclusaoInput,
+           db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
+    result = uv.finish(db,user,turma_id,matricula_id,payload)
+    db.commit()
+    return result

@@ -71,7 +71,10 @@ class ResultadoUV:
 
 
 def avaliar_uv(situacao: SituacaoUV) -> ResultadoUV:
-    """Require all eight lessons, Encontro, baptism and responsible approval.
+    """Require all eight lessons, Encontro, baptism and identified human approval.
+
+    The service authorizes the active turma responsible or coordination; this
+    human need not be the individual consolidation responsible.
 
     Cell connection remains an independent follow-up task, with no attendance
     percentage. Legacy CD eligibility never supplies missing UV evidence.
@@ -80,9 +83,9 @@ def avaliar_uv(situacao: SituacaoUV) -> ResultadoUV:
     presentes = {aula.numero for aula in situacao.aulas}
     pendentes = tuple(n for n in range(1, 9) if n not in presentes)
     concluida = (
-        pode_ingressar and not pendentes
+        not pendentes
         and situacao.encontro is not None and situacao.batismo is not None
-        and situacao.confirmado_por == situacao.responsavel_id
+        and isinstance(situacao.confirmado_por, UUID)
     )
     origem = (
         OrigemAptidao.LEGADO if situacao.apto_cd_legado
