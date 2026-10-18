@@ -59,7 +59,7 @@ from app.domain.cell_requests import (
 )
 from app.services.cell_multiplication_service import execute_multiplication
 from app.services.cells import new_cell
-from app.services.enviar_avaliacoes import aptidao_vigente, _latest
+from app.services.enviar_avaliacoes import aptidao_vigente, _latest, snapshot_aptidao
 from app.domain.cell_meetings_schedule import dia_reuniao_for_storage
 from app.services.cell_leadership import set_cell_leadership, _lock_leadership_identities
 from app.services.celula_membro import (
@@ -157,6 +157,7 @@ def _apply_nomination(db, solicitacao, cell):
         new_leader_id=solicitacao.candidato_id, new_active=True)
     return dict(solicitacao.payload_proposto or {}, versao_proposta=solicitacao.versao_proposta,
         avaliacao_id=str(latest.id), versao_regras=latest.versao_regras,
+        aptidao=snapshot_aptidao(db, pessoa),
         lider_anterior=(solicitacao.payload_atual or {}).get("lider_id"),
         efeito="lider_nomeado", confirmar_execucao=True)
 
@@ -517,6 +518,12 @@ def approve(
                 idempotency_key=(idempotency_key or "").strip(),
                 approver_app_user_id=approver_app_user_id,
             )
+            # execute_multiplication revalidated and holds the candidate lock.
+            candidate = db.execute(select(Pessoa).where(
+                Pessoa.id == uuid.UUID(solicitacao.payload_proposto['novo_lider_id']),
+                Pessoa.igreja_id == solicitacao.igreja_id)).scalar_one()
+            nomination_snapshot = dict(solicitacao.payload_proposto,
+                aptidao=snapshot_aptidao(db, candidate))
         else:
             _apply_payload(db, solicitacao=solicitacao, cell=cell)
 

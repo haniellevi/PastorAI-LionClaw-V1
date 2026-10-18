@@ -881,7 +881,7 @@ def _multiplication_session() -> ReqSession:
     ]
     session = _central_session(cells=[cell], membros=membros, pessoas=pessoas)
     session.avaliacoes = [SimpleNamespace(id=uuid.uuid4(), igreja_id=uuid.UUID(_TENANT),
-        pessoa_id=_MEMBER, decisao='apto', criada_em=dt.datetime.now(dt.timezone.utc))]
+        pessoa_id=_MEMBER, decisao='apto', versao_regras='enviar-v1-provisoria', criada_em=dt.datetime.now(dt.timezone.utc))]
     return session
 
 
@@ -1198,7 +1198,7 @@ def test_approve_multiplication_accepts_external_leader(app) -> None:
     externo = make_pessoa(_OUTSIDER, "Apto Sem Célula", celula_id=None)
     session.pessoas.append(externo)
     session.avaliacoes.append(SimpleNamespace(id=uuid.uuid4(), igreja_id=uuid.UUID(_TENANT),
-        pessoa_id=_OUTSIDER, decisao='apto', criada_em=dt.datetime.now(dt.timezone.utc)))
+        pessoa_id=_OUTSIDER, decisao='apto', versao_regras='enviar-v1-provisoria', criada_em=dt.datetime.now(dt.timezone.utc)))
     session.accesses.append(
         SimpleNamespace(
             id=uuid.uuid5(uuid.NAMESPACE_URL, f"access:{_OUTSIDER}"),

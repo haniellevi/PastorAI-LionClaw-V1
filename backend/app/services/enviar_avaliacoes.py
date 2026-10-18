@@ -51,6 +51,22 @@ def aptidao_vigente(db: Session, pessoa: Pessoa | None) -> bool:
         and ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id).motivo is None)
 
 
+def snapshot_aptidao(db: Session, pessoa: Pessoa) -> dict:
+    """Caller holds Pessoa through commit, as every evaluation writer does.
+
+    Whitelist only decision identity/date, rules and current criterion states.
+    Never copy motive, author, personal data or arbitrary evidence payloads.
+    """
+    latest = _latest(db, pessoa)
+    if latest is None:
+        raise HTTPException(409, 'Avaliação de aptidão indisponível')
+    result = ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id)
+    states = {p.criterio: p.estado.value for p in result.pendencias}
+    return dict(avaliacao_id=str(latest.id), avaliada_em=latest.criada_em.isoformat(),
+        versao_regras=latest.versao_regras,
+        criterios={c: states.get(c, EstadoEvidencia.COMPROVADA.value) for c in CRITERIOS_PROVISORIOS})
+
+
 def _snapshot(pessoa):
     result = ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id)
     # No official references are supplied by this adapter yet. Absence of a
