@@ -552,3 +552,8 @@ def route_cell_suggest_intent(texto, *, pending=False):
     """Closed public-neighborhood route, without LLM or Jev."""
     from app.cell_suggest.catalog import route
     return route(texto, pending=pending)
+
+
+def route_uv_intent(text, *, pending=False):
+    from app.uv_whatsapp.catalog import route
+    return route(text, pending=pending)
