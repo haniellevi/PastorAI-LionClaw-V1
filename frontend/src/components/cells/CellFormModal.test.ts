@@ -85,8 +85,15 @@ function render(
 }
 
 describe("CellFormModal: liderança e ativação", () => {
+  it("cadastro direto não oferece líder e aponta para a solicitação de abertura", () => {
+    render(true);
+    expect(container.querySelector("#cf-lider")).toBeNull();
+    expect(container.textContent).toContain("Este cadastro cria uma célula sem líder");
+    expect(container.textContent).toContain("área Enviar");
+  });
+
   it("fora da Central deixa líder e status somente leitura com orientação", () => {
-    render(false);
+    render(false, { cell: currentCell });
 
     expect((container.querySelector("#cf-lider") as HTMLSelectElement).disabled).toBe(true);
     expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(true);
@@ -95,7 +102,7 @@ describe("CellFormModal: liderança e ativação", () => {
   });
 
   it("na Central habilita os controles e mostra por que um candidato está bloqueado", () => {
-    render(true);
+    render(true, { cell: currentCell });
 
     const select = container.querySelector("#cf-lider") as HTMLSelectElement;
     const blocked = select.querySelector('option[value="p-invited"]') as HTMLOptionElement;

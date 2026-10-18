@@ -8,8 +8,8 @@ import type { CellRequest } from '@/lib/cell-requests-api';
 const mocks=vi.hoisted(()=>({approve:vi.fn(),list:vi.fn()}));
 vi.mock('@/lib/cell-requests-api',()=>({approveRequest:mocks.approve,listRequests:mocks.list}));
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
-it('nomeação exige confirmação explícita e envia a versão exibida',async()=>{
- const request={id:'req',tipo:'nomear_lider',status:'aguardando',versao_proposta:3,payload_proposto:{novo_lider_id:'candidate'}} as unknown as CellRequest;
+it.each(['nomear_lider','abrir_celula'])('%s exige confirmação explícita e envia a versão exibida',async(tipo)=>{
+ const request={id:'req',tipo,status:'aguardando',versao_proposta:3,payload_proposto:{novo_lider_id:'candidate'}} as unknown as CellRequest;
  mocks.approve.mockResolvedValue({...request,status:'aprovada'});
  const el=document.createElement('div');document.body.append(el);const root=createRoot(el);
  try {

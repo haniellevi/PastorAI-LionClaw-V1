@@ -821,9 +821,9 @@ class CelulaSolicitacao(Base):
         ForeignKey("igrejas.id", ondelete="CASCADE"),
         nullable=False,
     )
-    celula_id: Mapped[uuid.UUID] = mapped_column(
+    celula_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        nullable=False,
+        nullable=True,
     )
     solicitante_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True

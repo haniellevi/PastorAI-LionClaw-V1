@@ -36,6 +36,7 @@ const TYPE_LABELS: Record<string, string> = {
   remover_membro: "Remover membro",
   multiplicacao: "Multiplicação",
   nomear_lider: "Nomeação de líder",
+  abrir_celula: "Abertura de célula",
 };
 
 const STATUS_META: Record<string, { label: string; tone: PillTone }> = {
@@ -93,7 +94,8 @@ export function RequestDecisionPanel({
   const [busy, setBusy] = useState<null | "approve" | "reject" | "adjust">(null);
 
   const status = STATUS_META[request.status] ?? { label: request.status, tone: "muted" as PillTone };
-  const isNomeacao = request.tipo === "nomear_lider";
+  const isAbertura = request.tipo === "abrir_celula";
+  const isNomeacao = request.tipo === "nomear_lider" || isAbertura;
   const isMultiplicacao = request.tipo === "multiplicacao";
   const payloadEntries = Object.entries(request.payload_proposto ?? {});
 
@@ -181,7 +183,7 @@ export function RequestDecisionPanel({
           </p>
         ) : null}
 
-        {isNomeacao ? <p><strong>{request.candidato_nome ?? request.candidato_id}</strong> para liderar <strong>{request.celula_nome ?? request.celula_id}</strong>. Proposta {request.versao_proposta}.</p> : null}
+        {isNomeacao ? <p><strong>{request.candidato_nome ?? request.candidato_id}</strong> para liderar <strong>{request.celula_nome ?? String(request.payload_proposto.nome ?? request.celula_id)}</strong>. Proposta {request.versao_proposta}.</p> : null}
         {/* Payload proposto — LEITURA apenas (Central não edita). */}
         <dl className="payload-view">
           {payloadEntries.length === 0 ? (
@@ -208,7 +210,7 @@ export function RequestDecisionPanel({
 
         {isNomeacao && request.status === "aguardando" ? <label>
           <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} disabled={anyBusy} />
-          Confirmo que aprovar executa imediatamente a troca de líder desta célula.
+          {isAbertura ? "Confirmo que aprovar cria a célula e nomeia o líder imediatamente." : "Confirmo que aprovar executa imediatamente a troca de líder desta célula."}
         </label> : null}
         {mode ? (
           <div style={{ marginTop: "var(--s3)" }}>

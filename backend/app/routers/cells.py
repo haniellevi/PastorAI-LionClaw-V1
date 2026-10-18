@@ -39,6 +39,7 @@ from app.services.celula_membro import (
     assert_pessoas_nao_arquivadas,
     ensure_active_membro,
 )
+from app.services.cells import new_cell
 from app.services.cell_leadership import set_cell_leadership
 from app.services.cell_member_management import remover_membro, transferir_membro
 
@@ -802,15 +803,14 @@ def upsert_cell(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas a Central de Células pode cadastrar células",
             )
-        # TODO(Enviar fatia 5): abertura inicial via solicitação sem célula de origem.
+        if payload.liderId is not None:
+            raise HTTPException(409, "Para abrir célula com líder, envie solicitação de abertura na área Enviar")
         _validate_pessoa_refs(db, payload)
         _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
         dia_reuniao = _dia_reuniao_for_storage(payload.diaReuniao)
-        cell = Celula(
+        cell = new_cell(
             igreja_id=uuid.UUID(current_user.igreja_id),
             nome=payload.nome,
-            # Liderança/estado são aplicados pelo serviço derivado abaixo.
-            lider_id=None,
             cobertura_espiritual=payload.coberturaEspiritual,
             dia_reuniao=dia_reuniao,
             horario=payload.horario,
@@ -822,7 +822,6 @@ def upsert_cell(
             mensagem_convite=payload.mensagemConvite,
             bairro=payload.bairro,
             divulgar_whatsapp=payload.divulgarWhatsapp,
-            ativo=False,
         )
         try:
             set_cell_leadership(

@@ -30,6 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
   remover_membro: "Remover membro",
   multiplicacao: "Multiplicação",
   nomear_lider: "Nomeação de líder",
+  abrir_celula: "Abertura de célula",
 };
 
 function typeLabel(tipo: string): string {
