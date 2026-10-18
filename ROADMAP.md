@@ -116,11 +116,12 @@ dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta 
 CD PR 4 — candidata encadeada sobre `feat/cd-matricula-v1` (`a8349e00`, PR #498):
 frequência por aula do calendário, reposição com presença, correção explícita com
 revisão anterior, idempotência e histórico privado imutável com autor/horário.
+Aula com frequência registrada não pode ser remarcada para o futuro.
 API e chamada no painel reutilizam autorização viva e lock da turma; FKs
 compostas e RLS seguem o padrão CD. Só o resumo de aulas cumpridas por matrícula
 é exposto para a conclusão futura (PR 5); não certifica nem conclui módulos.
 Validação em PostgreSQL local descartável com cadeia real de migrations e dados
-sintéticos: 299 testes PG CD/UV, 6.535 backend offline e 1.218 frontend aprovados;
+sintéticos: 301 testes PG CD/UV, 6.535 backend offline e 1.218 frontend aprovados;
 lint/typecheck aprovados. Integração depende dos quatro checks;
 aplicação remota/produção não verificada. Nenhum gate operacional alterado.
 

@@ -158,6 +158,14 @@ def calendar(db,user,tid,payload):
     if set(dates)!={a['id'] for a in lessons}: raise HTTPException(422,'Calendário exige todas as aulas deste módulo')
     ordered=[dates[a['id']] for a in lessons]
     if ordered!=sorted(ordered): raise HTTPException(422,'Datas devem seguir a ordem das aulas')
+    # The turma lock also serializes attendance. Never strand a recorded
+    # revision behind the future-date guard, including an absence to correct.
+    today = today_sao_paulo()
+    for lesson in payload.aulas:
+        if lesson.data > today and rows(db, """select id from cd_presencas
+            where igreja_id=:t and turma_id=:tid and aula_id=:a limit 1""",
+            t=t, tid=tid, a=lesson.aula_id):
+            raise HTTPException(409, 'Aula com frequência registrada não pode ser movida para o futuro')
     try:
         with db.begin_nested():
             for a in payload.aulas:

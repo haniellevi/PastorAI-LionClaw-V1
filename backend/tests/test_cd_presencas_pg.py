@@ -198,3 +198,17 @@ def test_clock_and_direct_revision_guards(database,seeded,monkeypatch):
             monkeypatch.setattr(cd,'today_sao_paulo',lambda:date(2021,1,1))
             cd.attendance(s,principal(v),tid,mid,lesson['id'],payload(modalidade='reposicao'))
         assert len(cd.attendance_summary(s,principal(v),tid)[0]['aulas_cumpridas'])==10
+
+
+@pytest.mark.parametrize('presente',[True,False])
+def test_calendar_cannot_move_recorded_lesson_to_future(database,seeded,presente):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid,a=setup(s,v); first=payload(presente=presente)
+        cd.attendance(s,principal(v),tid,mid,a,first)
+        detail=cd.get_turma(s,principal(v),tid)
+        future=CalendarioInput(aulas=[dict(aula_id=lesson['id'],data=date(2100,1,1)+timedelta(days=i)) for i,lesson in enumerate(detail['modulo']['aulas'])])
+        denied(lambda:cd.calendar(s,principal(v),tid,future),409)
+        assert cd.get_turma(s,principal(v),tid)['calendario']==detail['calendario']
+        corrected=cd.attendance(s,principal(v),tid,mid,a,payload(anterior_id=first.id,presente=not presente))
+        assert corrected['presente']==(not presente)
