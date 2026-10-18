@@ -1,4 +1,4 @@
-"""CD catalog and turma panel. Callers commit; no enrollment or agent tools."""
+"""CD catalog and turma panel. Callers commit; no agent tools."""
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -197,3 +197,101 @@ def options(db,user):
         where u.igreja_id=:t and u.status='ativo' and exists(select 1 from user_roles r
         where r.igreja_id=u.igreja_id and r.user_id=u.id and r.papel in ('admin','pastor','lider_consol'))
         order by nome,u.id limit 100''',t=t)
+
+
+def enrollment_scope(db, user, tid, *, lock=False):
+    t, uid, roles = actor(db, user)
+    # Hide existing and missing out-of-scope turmas alike before acquiring locks.
+    require_scope(db, t, uid, roles, tid)
+    current = turma(db, t, tid, lock)
+    # Responsible edits and closure also lock the turma. Recheck after waiting.
+    require_scope(db, t, uid, roles, tid)
+    return t, uid, current
+
+
+def require_first_module(db, t, current):
+    """PR 5 extension: validate recorded prior completions in this curriculum.
+
+    Until completions/equivalences exist, only the first ordered module is safe.
+    """
+    first = rows(db, '''select id,numero from cd_modulos where igreja_id=:t
+        and curriculo_id=:c order by numero limit 1''', t=t, c=current['curriculo_id'])[0]
+    if first['id'] != current['modulo_id']:
+        raise HTTPException(409, 'Módulo exige pré-requisito: conclusão registrada dos módulos anteriores')
+    return first['numero']
+
+
+def list_enrollments(db, user, tid):
+    t, _, _ = enrollment_scope(db, user, tid)
+    return rows(db, '''select m.id,m.pessoa_id,p.nome,m.ativa,m.origem_aptidao,
+        m.criada_por,m.criada_em,m.cancelada_por,m.cancelada_em
+        from cd_matriculas m join pessoas p on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
+        where m.igreja_id=:t and m.turma_id=:tid and p.arquivada_em is null
+        order by p.nome,m.id''', t=t, tid=tid)
+
+
+def eligible(db, user, tid):
+    t, _, current = enrollment_scope(db, user, tid)
+    if current['encerrada']:
+        return []
+    numero = require_first_module(db, t, current)
+    return rows(db, '''select p.id,p.nome from pessoas p where p.igreja_id=:t
+        and p.arquivada_em is null and p.apto_proxima_cd
+        and p.origem_aptidao_cd in ('legado','conclusao_uv')
+        and not exists(select 1 from cd_matriculas m where m.igreja_id=p.igreja_id
+            and m.pessoa_id=p.id and m.modulo_numero=:n and m.ativa)
+        order by p.nome,p.id limit 100''', t=t, n=numero)
+
+
+def enroll(db, user, tid, payload):
+    t, uid, current = enrollment_scope(db, user, tid, lock=True)
+    if current['encerrada']:
+        raise HTTPException(409, 'Turma encerrada')
+    numero = require_first_module(db, t, current)
+    people = rows(db, '''select id,apto_proxima_cd,origem_aptidao_cd from pessoas
+        where igreja_id=:t and id=:p and arquivada_em is null for update''', t=t, p=payload.pessoa_id)
+    if not people:
+        raise HTTPException(404, 'Pessoa não encontrada')
+    person = people[0]
+    if not person['apto_proxima_cd'] or person['origem_aptidao_cd'] not in {'legado','conclusao_uv'}:
+        raise HTTPException(422, 'Matrícula exige aptidão à CD com origem identificada')
+    params = dict(t=t, tid=tid, p=payload.pessoa_id, id=payload.id, u=uid,
+                  m=current['modulo_id'], n=numero, origem=person['origem_aptidao_cd'])
+    existing = rows(db, 'select id,turma_id,pessoa_id,ativa from cd_matriculas where igreja_id=:t and id=:id', **params)
+    if existing and (existing[0]['turma_id'], existing[0]['pessoa_id']) != (tid, payload.pessoa_id):
+        raise HTTPException(409, 'Identificador reutilizado com outros dados')
+    active = rows(db, '''select id from cd_matriculas where igreja_id=:t
+        and pessoa_id=:p and modulo_numero=:n and ativa''', **params)
+    if active:
+        if existing and active[0]['id'] == payload.id:
+            return {'id': payload.id}  # Retry of the same explicit request.
+        raise HTTPException(409, 'Pessoa já possui matrícula ativa neste módulo')
+    previous = rows(db, '''select id from cd_matriculas where igreja_id=:t
+        and turma_id=:tid and pessoa_id=:p''', **params)
+    if previous and previous[0]['id'] != payload.id:
+        raise HTTPException(409, 'Reativação exige o identificador da matrícula existente')
+    try:
+        with db.begin_nested():
+            if previous:
+                # Same turma retains its identity; reactivation requires current eligibility.
+                params['previous'] = previous[0]['id']
+                db.execute(text('''update cd_matriculas set ativa=true,origem_aptidao=:origem,
+                    criada_por=:u,criada_em=clock_timestamp(),cancelada_por=null,cancelada_em=null
+                    where igreja_id=:t and id=:previous'''), params)
+                return {'id': previous[0]['id']}
+            return rows(db, '''insert into cd_matriculas(id,igreja_id,turma_id,modulo_id,modulo_numero,
+                pessoa_id,origem_aptidao,criada_por) values(:id,:t,:tid,:m,:n,:p,:origem,:u)
+                returning id''', **params)[0]
+    except IntegrityError as exc:
+        raise HTTPException(409, 'Matrícula ou identificador indisponível') from exc
+
+
+def cancel_enrollment(db, user, tid, mid):
+    t, uid, _ = enrollment_scope(db, user, tid, lock=True)
+    found = rows(db, 'select pessoa_id from cd_matriculas where igreja_id=:t and turma_id=:tid and id=:mid', t=t, tid=tid, mid=mid)
+    if not found:
+        raise HTTPException(404, 'Matrícula não encontrada')
+    rows(db, 'select id from pessoas where igreja_id=:t and id=:p for update', t=t, p=found[0]['pessoa_id'])
+    db.execute(text('''update cd_matriculas set ativa=false,cancelada_por=:u,cancelada_em=clock_timestamp()
+        where igreja_id=:t and turma_id=:tid and id=:mid and ativa'''), dict(t=t, tid=tid, mid=mid, u=uid))
+    return {'status': 'cancelada'}

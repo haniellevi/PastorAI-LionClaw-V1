@@ -269,3 +269,24 @@ real de migrations constituem a prova desta entrega. Nada foi aplicado em
 banco remoto; deploy e gates continuam sem autorização. Reverter callers e
 preservar os registros antes do rollback comentado. Não cria matrícula,
 presença, conclusão, certificado, ferramenta WhatsApp ou aptidão para liderança.
+
+## CD PR 3: matrícula explícita (candidata)
+
+`20261018_020000_cd_matriculas.sql` depende da CD PR 2 (`20261018_010000`).
+Cria matrículas e eventos imutáveis de matrícula/cancelamento/reativação, com
+FKs compostas por igreja, RLS ENABLE/FORCE e a mesma restrição backend-only
+por `session_user` e GUC das tabelas CD. Grants de coluna mínimos; sem DELETE
+nem escrita direta nos eventos. O índice parcial limita uma matrícula ativa
+por Pessoa/número de módulo, inclusive entre versões de currículo.
+
+Coordenação ou responsável ativo matricula explicitamente a Pessoa válida,
+revalidando aptidão/origem sob lock. Só o primeiro módulo está disponível;
+conclusões e equivalências dos demais módulos aguardam a PR 5. Reativar usa o
+identificador existente, revalida os requisitos e limpa o estado de cancelamento;
+os eventos conservam os autores, horários e origens anteriores.
+
+Aplicar via `backend/scripts/migrate.py` antes dos novos callers `/cd`; não há
+flag de compatibilidade de schema. Prova somente em PostgreSQL 17 local
+com cadeia real e dados sintéticos. Aplicação remota, deploy e gates não
+foram autorizados. Reverter callers e preservar os eventos antes do rollback
+comentado. Nenhuma matrícula automática, ferramenta WhatsApp ou liderança.

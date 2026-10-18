@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
-import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD } from "@/lib/cd-api";
+import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD, type MatriculaCD } from "@/lib/cd-api";
 import { Dialog } from "@/components/ds/Dialog";
 import "@/components/uv/uv.css";
 
@@ -17,6 +17,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
   const [turmas, setTurmas] = useState<TurmaCD[]>([]);
   const [detail, setDetail] = useState<DetalheCD | null>(null);
   const [options, setOptions] = useState<Choice[]>([]);
+  const [enrollments, setEnrollments] = useState<MatriculaCD[]>([]);
+  const [eligible, setEligible] = useState<Choice[]>([]);
+  const [personId, setPersonId] = useState("");
+  const [canceling, setCanceling] = useState<MatriculaCD | null>(null);
   const [selected, setSelected] = useState("");
   const [moduleId, setModuleId] = useState("");
   const [nome, setNome] = useState("");
@@ -43,6 +47,11 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
   }
   async function load(id: string) {
     const value = await request<DetalheCD>(`/turmas/${id}`);
+    const [matriculas, pessoas] = await Promise.all([
+      request<MatriculaCD[]>(`/turmas/${id}/matriculas`),
+      !value.encerrada && value.modulo.numero === 1 ? request<Choice[]>(`/turmas/${id}/elegiveis`) : Promise.resolve([]),
+    ]);
+    setEnrollments(matriculas); setEligible(pessoas); setPersonId("");
     setDetail(value); setDates(Object.fromEntries(value.calendario.map(a => [a.aula_id, a.data])));
     setResponsibles(value.responsaveis.filter(r => r.elegivel).map(r => r.usuario_id));
     setOptions(coordination && !value.encerrada ? await request<Choice[]>("/opcoes") : []);
@@ -51,7 +60,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
     setBusy(true); setError(""); setNotice("");
     try { await action(); }
     catch (err) {
-      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); }
+      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); setEnrollments([]); setEligible([]); setCanceling(null); }
       if (!controller.current?.signal.aborted) setError(err instanceof Error ? err.message : "Falha ao carregar CD.");
     } finally { if (!controller.current?.signal.aborted) setBusy(false); }
   }
@@ -119,6 +128,30 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
         {detail.modulo.aulas.map(a => <label key={a.id}>{a.numero}. {a.nome}<input type="date" required value={dates[a.id] ?? ""} onChange={e => setDates(ds => ({ ...ds, [a.id]: e.target.value }))} /></label>)}
         {coordination ? <button className="btn btn-primary">Salvar calendário</button> : null}
       </fieldset></form>
+      <div className="card"><h3>Matrículas</h3>
+        <p>Ingresso explícito para pessoas aptas por UV concluída ou legado. Os demais módulos exigem conclusão registrada dos anteriores.</p>
+        {!detail.encerrada && detail.modulo.numero === 1 ? <form onSubmit={submit(async () => {
+          const intent = { turma: detail.id, pessoa_id: personId };
+          await request(`/turmas/${detail.id}/matriculas`, "POST", { id: enrollments.find(m => m.pessoa_id === personId && !m.ativa)?.id ?? key(intent), pessoa_id: personId });
+          createKey.current = null; await load(detail.id); setNotice("Matrícula registrada.");
+        })}><fieldset disabled={busy}>
+          <label>Pessoa elegível<select required value={personId} onChange={e => setPersonId(e.target.value)}><option value="">Selecione uma pessoa</option>{eligible.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+          {!eligible.length ? <p>Nenhuma pessoa elegível disponível.</p> : null}
+          <button className="btn btn-primary" disabled={!personId}>Matricular</button>
+        </fieldset></form> : null}
+        {!enrollments.length ? <p>Nenhuma matrícula registrada.</p> : null}
+        {enrollments.map(m => <div key={m.id}><p>{m.nome} · {m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
+          {m.ativa ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
+        </div>)}
+      </div>
+      <Dialog open={canceling !== null} onClose={() => { if (!busy) setCanceling(null); }} title="Cancelar matrícula?" description={canceling ? `A matrícula de ${canceling.nome} será cancelada. O registro será preservado.` : ""}>
+        <button className="btn" disabled={busy} onClick={() => setCanceling(null)}>Voltar</button>
+        <button className="btn btn-primary" disabled={busy} onClick={() => void run(async () => {
+          if (!canceling) return;
+          await request(`/turmas/${detail.id}/matriculas/${canceling.id}/cancelar`, "POST");
+          setCanceling(null); await load(detail.id); setNotice("Matrícula cancelada.");
+        })}>Confirmar cancelamento</button>
+      </Dialog>
       <div className="card"><h3>Responsáveis</h3>{detail.responsaveis.map(r => <p key={r.usuario_id}>{r.nome}{r.elegivel ? "" : " · Acesso indisponível"}</p>)}
         {coordination ? <form onSubmit={submit(async () => {
           await request(`/turmas/${detail.id}/responsaveis`, "PUT", { usuarios: responsibles }); await load(detail.id); setNotice("Responsáveis salvos.");

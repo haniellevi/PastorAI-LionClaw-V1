@@ -1,4 +1,4 @@
-"""Authenticated CD panel: catalog and turmas only."""
+"""Authenticated CD panel: catalog, turmas and explicit enrollment."""
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.domain.cd import AULAS_POR_MODULO, CurriculoCD
-from app.routers.uv import Input, TurmaInput as NamedInput, ResponsaveisInput
+from app.routers.uv import Input, TurmaInput as NamedInput, ResponsaveisInput, MatriculaInput
 from app.services import cd
 
 router=APIRouter(prefix='/cd',tags=['cd'])
@@ -124,3 +124,23 @@ def close(tid: UUID,db: Session=DB,user: CurrentUser=USER):
 @router.post('/turmas/{tid}/reabrir')
 def reopen(tid: UUID,db: Session=DB,user: CurrentUser=USER):
     result=cd.close(db,user,tid,reopen=True); db.commit(); return result
+
+
+@router.get('/turmas/{tid}/matriculas')
+def enrollments(tid: UUID, db: Session=DB, user: CurrentUser=USER):
+    return cd.list_enrollments(db, user, tid)
+
+
+@router.get('/turmas/{tid}/elegiveis')
+def eligible(tid: UUID, db: Session=DB, user: CurrentUser=USER):
+    return cd.eligible(db, user, tid)
+
+
+@router.post('/turmas/{tid}/matriculas')
+def enroll(tid: UUID, payload: MatriculaInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.enroll(db, user, tid, payload); db.commit(); return result
+
+
+@router.post('/turmas/{tid}/matriculas/{mid}/cancelar')
+def cancel_enrollment(tid: UUID, mid: UUID, db: Session=DB, user: CurrentUser=USER):
+    result=cd.cancel_enrollment(db, user, tid, mid); db.commit(); return result
