@@ -3,6 +3,8 @@
 Turma locks serialize calendar, responsible changes, closure and enrollment.
 Only explicit DTO fields leave this service; no conversation or pastoral notes.
 """
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -14,6 +16,11 @@ from app.deps import CurrentUser
 from app.domain.uv import AulaConcluida, ModalidadeAula, SituacaoUV, avaliar_uv
 from app.domain.permissions import can_access_screen
 from app.domain.work_queue import can_resolve, TIPO_RESOLVER_ROLES
+
+
+def today_sao_paulo() -> date:
+    return datetime.now(ZoneInfo('America/Sao_Paulo')).date()
+
 
 UV_ROLES = {'admin', 'pastor', 'lider_consol'}
 COORDINATION_ROLES = {'admin', 'pastor'}
@@ -102,7 +109,15 @@ def get_turma(db, user, turma_id):
         where m.igreja_id=:t and m.turma_id=:id and m.ativa and p.arquivada_em is null order by m.criada_em,m.id''', t=t, id=turma_id)
     attendance_rows = rows(db, '''select matricula_id,aula,presente,modalidade,registro_id,registrada_por,registrada_em
         from uv_presencas where igreja_id=:t and turma_id=:id order by aula''', t=t, id=turma_id)
+    milestones = rows(db, '''select v.*,origin.nome as turma_nome from uv_marcos v
+        join uv_turmas origin on origin.igreja_id=v.igreja_id and origin.id=v.turma_id
+        where v.igreja_id=:t and exists
+        (select 1 from uv_matriculas m where m.igreja_id=v.igreja_id and m.pessoa_id=v.pessoa_id and m.turma_id=:id and m.ativa)''', t=t,id=turma_id)
+    completions = rows(db, '''select v.* from uv_conclusoes v where v.igreja_id=:t and exists
+        (select 1 from uv_matriculas m where m.igreja_id=v.igreja_id and m.pessoa_id=v.pessoa_id and m.turma_id=:id and m.ativa)''', t=t,id=turma_id)
     for enrollment in row['matriculas']:
+        enrollment['marcos'] = [m for m in milestones if m['pessoa_id'] == enrollment['pessoa_id']]
+        enrollment['conclusao'] = next((c for c in completions if c['pessoa_id'] == enrollment['pessoa_id']), None)
         records = [p for p in attendance_rows if p['matricula_id'] == enrollment['id']]
         result = avaliar_uv(SituacaoUV(aulas=tuple(AulaConcluida(p['aula'], ModalidadeAula(p['modalidade']))
             for p in records if p['presente'])))
@@ -155,7 +170,8 @@ def responsaveis(db, user, turma_id, payload):
     for uid in payload.usuarios:
         db.execute(text('''insert into uv_responsaveis(igreja_id,turma_id,usuario_id,atribuido_por)
             values(:t,:id,:u,:autor) on conflict (igreja_id,turma_id,usuario_id) do update set ativo=true,
-            atribuido_por=excluded.atribuido_por,atribuida_em=clock_timestamp()
+            atribuido_por=excluded.atribuido_por,atribuida_em=clock_timestamp(),
+            removido_por=null,removida_em=null
             where not uv_responsaveis.ativo'''),
             dict(t=t, id=turma_id, u=uid, autor=autor))
     return {'status': 'salvo'}
@@ -266,8 +282,11 @@ def attendance_history(db, user, turma_id, matricula_id, aula):
     t, uid, roles = actor(db, user)
     turma(db, t, turma_id)
     require_scope(db, t, uid, roles, turma_id)
-    return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em
+    return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em,
+        coalesce(person.nome,u.nome,'Usuário da equipe') as registrada_por_nome
         from uv_presencas_historico h join uv_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
+        join app_users u on u.igreja_id=h.igreja_id and u.id=h.registrada_por
+        left join pessoas person on person.igreja_id=u.igreja_id and person.id=u.pessoa_id
         where p.igreja_id=:t and p.turma_id=:tid and p.matricula_id=:mid and p.aula=:a
         order by h.registrada_em,h.registro_id''', t=t, tid=turma_id, mid=matricula_id, a=aula)
 
@@ -291,16 +310,25 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
         return {k: r[k] for k in ('registro_id','anterior_id','presente','modalidade','registrada_por','registrada_em')}
     if current_turma['encerrada']:
         raise HTTPException(409, 'Turma encerrada')
-    enrollment = rows(db, '''select m.id from uv_matriculas m join pessoas p
+    enrollment = rows(db, '''select m.id,m.pessoa_id from uv_matriculas m join pessoas p
         on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
         where m.igreja_id=:t and m.turma_id=:tid and m.id=:mid and m.ativa and p.arquivada_em is null
         for share of m,p''', t=t, tid=turma_id, mid=matricula_id)
     if not enrollment:
         raise HTTPException(409, 'Matrícula ativa não encontrada nesta turma')
-    activity = rows(db, '''select id from uv_atividades where igreja_id=:t and turma_id=:tid
+    # The shared person lock above serializes this check with completion in
+    # any turma. Receipt replay above stays read-only after completion.
+    if rows(db, 'select id from uv_conclusoes where igreja_id=:t and pessoa_id=:p',
+            t=t,p=enrollment[0]['pessoa_id']):
+        raise HTTPException(409, 'UV já concluída: presença disponível somente para consulta')
+    if payload.modalidade == 'reposicao' and not payload.presente:
+        raise HTTPException(422, 'Reposição exige presença')
+    activity = rows(db, '''select id,data from uv_atividades where igreja_id=:t and turma_id=:tid
         and tipo='aula' and aula=:a''', t=t, tid=turma_id, a=aula)
     if not activity:
         raise HTTPException(422, 'Defina o calendário da aula antes da chamada')
+    if activity[0]['data'] > today_sao_paulo():
+        raise HTTPException(409, 'Não é possível registrar presença em aula futura')
     current = rows(db, '''select registro_id from uv_presencas where igreja_id=:t
         and matricula_id=:mid and aula=:a''', t=t, mid=matricula_id, a=aula)
     if (current[0]['registro_id'] if current else None) != payload.anterior_id:
@@ -314,7 +342,7 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
         with db.begin_nested():
             if current:
                 db.execute(text('''update uv_presencas set presente=:presente,modalidade=:modalidade,
-                    registro_id=:id,anterior_id=:anterior,registrada_por=:u,registrada_em=clock_timestamp()
+                    registro_id=:id,anterior_id=:anterior,registrada_por=:u
                     where igreja_id=:t and matricula_id=:mid and aula=:a'''), params)
             else:
                 db.execute(text('''insert into uv_presencas(igreja_id,turma_id,matricula_id,atividade_id,aula,
@@ -322,5 +350,100 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
                     values(:t,:tid,:mid,:atividade,:a,:presente,:modalidade,:id,:u)'''), params)
     except IntegrityError as exc:
         raise HTTPException(409, 'Identificador de presença indisponível') from exc
-    return next(r for r in attendance_history(db, user, turma_id, matricula_id, aula)
-                if r['registro_id'] == payload.id)
+    receipt = next(r for r in attendance_history(db, user, turma_id, matricula_id, aula)
+                   if r['registro_id'] == payload.id)
+    return {k: value for k, value in receipt.items() if k != 'registrada_por_nome'}
+
+
+def formation_person(db, user, turma_id, matricula_id):
+    """Lock order: live actor, turma, enrollment, person (across turmas)."""
+    t, uid, roles = actor(db, user)
+    current = turma(db, t, turma_id, lock=True)
+    require_scope(db, t, uid, roles, turma_id)
+    enrollment = rows(db, '''select pessoa_id from uv_matriculas where igreja_id=:t
+        and turma_id=:tid and id=:mid and ativa for share''', t=t, tid=turma_id, mid=matricula_id)
+    if not enrollment:
+        raise HTTPException(409, 'Matrícula ativa não encontrada nesta turma')
+    people = rows(db, '''select id,tipo,etapa,presencas_celula,aceitou_jesus,
+        apto_proxima_cd,origem_aptidao_cd from pessoas where igreja_id=:t and id=:p
+        and arquivada_em is null for update''', t=t, p=enrollment[0]['pessoa_id'])
+    if not people:
+        raise HTTPException(409, 'Pessoa indisponível')
+    return t, uid, roles, current, people[0]
+
+
+def milestone(db, user, turma_id, matricula_id, tipo, payload):
+    if tipo not in {'encontro','batismo'}:
+        raise HTTPException(422, 'Marco inválido')
+    t, uid, _, current, person = formation_person(db,user,turma_id,matricula_id)
+    if not payload.confirmado:
+        raise HTTPException(422, 'Confirme a validação humana do marco')
+    params = dict(id=payload.id,t=t,p=person['id'],tid=turma_id,mid=matricula_id,
+                  tipo=tipo,data=payload.data,anterior=payload.anterior_turma,u=uid)
+    existing = rows(db, '''select * from uv_marcos where igreja_id=:t
+        and (id=:id or (pessoa_id=:p and tipo=:tipo))''', **params)
+    if existing:
+        r=existing[0]
+        if (r['id'],r['pessoa_id'],r['turma_id'],r['matricula_id'],r['tipo'],r['data'],r['anterior_turma'],r['validada_por']) != (
+                payload.id,person['id'],turma_id,matricula_id,tipo,payload.data,payload.anterior_turma,uid):
+            raise HTTPException(409, 'Marco já validado ou identificador reutilizado. Batismo não se repete')
+        return r
+    if current['encerrada']:
+        raise HTTPException(409, 'Turma encerrada')
+    if payload.data > today_sao_paulo():
+        raise HTTPException(422, 'Marco não pode ter data futura')
+    try:
+        with db.begin_nested():
+            return rows(db, '''insert into uv_marcos(id,igreja_id,pessoa_id,turma_id,matricula_id,
+                tipo,data,anterior_turma,validada_por) values(:id,:t,:p,:tid,:mid,:tipo,:data,:anterior,:u)
+                returning *''', **params)[0]
+    except IntegrityError as exc:
+        raise HTTPException(409, 'Identificador de marco indisponível') from exc
+
+
+def finish(db, user, turma_id, matricula_id, payload):
+    from app.domain.pipeline import PIPELINE_PROMOTE_ROLES, etapa_rank, validate_transition
+    from app.domain.uv import EvidenciaValidada
+    t, uid, roles, current, person = formation_person(db,user,turma_id,matricula_id)
+    if not payload.confirmado:
+        raise HTTPException(422, 'Conclusão exige confirmação humana')
+    if not roles & ({'admin'} | set(PIPELINE_PROMOTE_ROLES)):
+        raise HTTPException(403, 'Sem permissão para mover pessoas na jornada')
+    params=dict(id=payload.id,t=t,p=person['id'],tid=turma_id,mid=matricula_id,u=uid)
+    existing=rows(db, '''select * from uv_conclusoes where igreja_id=:t
+        and (id=:id or pessoa_id=:p)''', **params)
+    if existing:
+        r=existing[0]
+        if (r['id'],r['pessoa_id'],r['turma_id'],r['matricula_id'],r['confirmada_por']) != (
+                payload.id,person['id'],turma_id,matricula_id,uid):
+            raise HTTPException(409, 'Pessoa já concluiu UV ou identificador reutilizado')
+        return r
+    if current['encerrada']:
+        raise HTTPException(409, 'Turma encerrada')
+    lessons=rows(db, '''select aula,modalidade from uv_presencas where igreja_id=:t
+        and matricula_id=:mid and presente''', **params)
+    milestones={r['tipo']:EvidenciaValidada(r['validada_por'],r['anterior_turma']) for r in rows(db,
+        'select tipo,validada_por,anterior_turma from uv_marcos where igreja_id=:t and pessoa_id=:p', **params)}
+    result=avaliar_uv(SituacaoUV(
+        aulas=tuple(AulaConcluida(r['aula'],ModalidadeAula(r['modalidade'])) for r in lessons),
+        encontro=milestones.get('encontro'),batismo=milestones.get('batismo'),confirmado_por=uid,
+        apto_cd_legado=person['apto_proxima_cd'] and person['origem_aptidao_cd'] != 'conclusao_uv'))
+    if not result.concluida:
+        raise HTTPException(422, 'Conclusão exige oito aulas cumpridas, Encontro e batismo validados')
+    target = person['etapa'] if etapa_rank(person['etapa']) >= etapa_rank('discipular') else 'discipular'
+    transition=validate_transition(current_tipo=person['tipo'],current_etapa=person['etapa'],
+        target_etapa=target,target_subetapa=None,presencas_celula=person['presencas_celula'],aceitou_jesus=person['aceitou_jesus'])
+    if not transition.allowed:
+        raise HTTPException(409, transition.reason)
+    # Savepoint rolls back both writes even if a caller catches the exception.
+    try:
+        with db.begin_nested():
+            updated=rows(db, '''update pessoas set etapa=:target,apto_proxima_cd=true,
+                origem_aptidao_cd=case when apto_proxima_cd then coalesce(origem_aptidao_cd,:origem) else :origem end where igreja_id=:t and id=:p
+                returning etapa,origem_aptidao_cd''', **params,target=target,origem=result.origem_aptidao.value)[0]
+            return rows(db, '''insert into uv_conclusoes(id,igreja_id,pessoa_id,turma_id,matricula_id,
+                confirmada_por,etapa_anterior,etapa_resultante,origem_aptidao)
+                values(:id,:t,:p,:tid,:mid,:u,:antes,:depois,:origem) returning *''', **params,
+                antes=person['etapa'],depois=updated['etapa'],origem=updated['origem_aptidao_cd'])[0]
+    except IntegrityError as exc:
+        raise HTTPException(409, 'Identificador de conclusão indisponível') from exc

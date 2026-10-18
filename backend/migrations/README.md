@@ -198,7 +198,9 @@ aplicação, preenchido por trigger na mesma transação. FKs compostas garantem
 igreja/turma/matrícula/atividade consistentes; Encontro não admite presença.
 RLS ENABLE/FORCE, USING/WITH CHECK e grants de coluna preservam identidades,
 sem DELETE nem escrita direta no histórico. Correção exige versão anterior;
-autoria e horário são gerados pelo servidor. O serviço revalida usuário, papel,
+a autoria é gerada pela aplicação a partir do usuário autenticado; a hora é
+gerada pelo banco em trigger BEFORE INSERT/UPDATE com `clock_timestamp()`,
+sem grant de UPDATE de `registrada_em`. O serviço revalida usuário, papel,
 permissão de tela e vínculo atual, serializando alterações por turma.
 
 Aplicar pelo runner antes do backend novo; não há flag de compatibilidade do
@@ -206,3 +208,35 @@ schema. A validação usa a cadeia real em PostgreSQL 17 local descartável,
 somente com dados sintéticos. Nenhuma aplicação remota, publicação ou gate
 está autorizada. Reverter callers e preservar registros antes do rollback
 comentado. Não conclui UV, altera etapa da Pessoa ou concede aptidão à CD.
+
+## UV PR 4: marcos e conclusão (candidata)
+
+`20261017_230000_uv_marcos_conclusao.sql` depende das PRs 2/3 e cria marcos
+únicos de Encontro/batismo por Pessoa e conclusão única por Pessoa/matrícula.
+São registros somente de acréscimo, com data, autor, FKs compostas, RLS/FORCE,
+USING/WITH CHECK e grants mínimos de coluna sem UPDATE/DELETE. Exclusão
+aprovada da Pessoa/igreja alcança os novos registros.
+
+A origem da aptidão fica em `pessoas.origem_aptidao_cd`, pois a flag já pertence
+à Pessoa e pode existir sem conclusão UV. O backfill marca somente flags já
+verdadeiras como `legado`; um trigger identifica concessões de callers legados
+posteriores, sem criar conclusão. Ao revogar a aptidão, o trigger limpa a origem;
+um CHECK mantém flag e origem coerentes. Conclusão nova registra `conclusao_uv`, ou
+preserva `legado`, junto com etapa anterior/resultante e confirmador no histórico
+`uv_conclusoes`. O serviço revalida coordenação/responsável ativo da turma,
+matrícula e Pessoa, serializa por turma e Pessoa e usa a mesma transação para
+aptidão, etapa e conclusão. Não há matrícula em CD nem escrita por WhatsApp.
+
+Aplicar pelo runner antes do backend novo: leitura UV usa as tabelas sem flag
+de compatibilidade. Validado somente em PostgreSQL 17 local descartável com a
+cadeia real e dados sintéticos. Produção, banco remoto, deploy e gates não
+foram autorizados. Rollback comentado exige reverter callers e preservar os
+marcos e históricos antes de remover o schema.
+
+
+Riscos aceitos da PR 4 (P2-2/P2-4): o backfill de origem e cada conclusão
+atualizam `pessoas` e disparam `trg_subscription_autoupgrade` (recontagem de
+membros). Avaliado como inócuo, como em `20260706_221311` (linha 34). Antes do
+release, conferir se alguma igreja está acima do limite do plano.
+`uv_conclusoes` confia no serviço como único escritor: risco aceito. Se um dia
+for exposta ao cliente, usar uma função `security definer` para a escrita.
