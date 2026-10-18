@@ -85,7 +85,6 @@ export const NAV_SECTIONS: NavSection[] = [
             target: "capacitacao",
             label: "Capacitação Destino",
             icon: "capacitacao",
-            locked: true,
           },
           { target: "g12", label: "G12 · Descendências", icon: "g12" },
           { target: "central-celula", label: "Central de Célula", icon: "central-celula" },
@@ -252,8 +251,8 @@ export const SCREEN_META: Record<
   },
   capacitacao: {
     title: "Capacitação Destino",
-    crumb: "Em breve",
-    info: "Trilha de capacitação de líderes (em breve).",
+    crumb: "Currículo e turmas",
+    info: "Currículos versionados, turmas e calendário da Capacitação Destino.",
   },
   g12: {
     title: "G12 · Descendências",

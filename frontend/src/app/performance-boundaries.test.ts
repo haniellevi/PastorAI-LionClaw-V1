@@ -41,7 +41,7 @@ const SCREEN_MODULES = [
   "@/components/config/SetupChecklistScreen",
   "@/components/consolidacao/ConsolIndividualScreen",
   "@/components/consolidacao/ConsolidarScreen",
-  "@/components/consolidacao/LockedScreen",
+  "@/components/cd/CDScreen",
   "@/components/contacts/ContatosScreen",
   "@/components/contacts/GanharScreen",
   "@/components/dashboard/DashboardScreen",

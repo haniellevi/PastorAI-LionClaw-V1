@@ -33,6 +33,7 @@ KNOWN_SCREENS: frozenset[str] = frozenset(
         "consolidar",
         "consol-individual",
         "universidade-vida",
+        "capacitacao",
         "g12",
         "central-celula",
         "enviar",
@@ -47,13 +48,14 @@ KNOWN_SCREENS: frozenset[str] = frozenset(
 )
 
 # Screens locked in the MVP — never suggested even when the role could see them.
-LOCKED_SCREENS: frozenset[str] = frozenset({"capacitacao"})
+LOCKED_SCREENS: frozenset[str] = frozenset()
 
 # Intent keywords mapped to the screen they best resolve. Ordered by screen so
 # the suggestion list is stable; matching is accent-insensitive and lowercased.
 _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "inbox": ("chat", "conversa", "mensagem", "whatsapp do contato", "atendimento"),
     "ganhar": ("visitante", "novo contato", "ganhar", "captar", "primeiro contato"),
+    "capacitacao": ("capacitação destino", "capacitacao destino", "turma cd", "currículo cd"),
     "universidade-vida": ("universidade da vida", "turma uv", "matrícula uv", "matricula uv"),
     "consolidar": ("consolidar", "consolidacao", "consolidação", "decisao", "decisão"),
     "consol-individual": ("acompanhamento", "1:1", "individual", "fonovisita"),
@@ -110,7 +112,7 @@ def allowed_screens_for_roles(
             # Só o papel `pastor` contribui com uma tela Central-only.
             if not is_central and tela in CENTRAL_ONLY:
                 continue
-            if tela == "universidade-vida" and role not in {"pastor", "lider_consol"}:
+            if tela in {"universidade-vida", "capacitacao"} and role not in {"pastor", "lider_consol"}:
                 continue
             allowed.add(tela)
     # dashboard is available to any authenticated panel user (delta-010).

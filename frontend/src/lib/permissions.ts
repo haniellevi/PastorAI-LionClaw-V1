@@ -122,6 +122,7 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "consolidar",
     "consol-individual",
     "universidade-vida",
+    "capacitacao",
     "calendario",
   ],
   lider_celula: [
@@ -179,7 +180,7 @@ export function allowedScreens(
     for (const screen of perms[role] ?? []) {
       // Só o papel `pastor` pode contribuir com uma tela Central-only.
       if (!isCentral && CENTRAL_ONLY_SET.has(screen)) continue;
-      if (screen === "universidade-vida" && !["pastor", "lider_consol"].includes(role)) continue;
+      if (["universidade-vida", "capacitacao"].includes(screen) && !["pastor", "lider_consol"].includes(role)) continue;
       set.add(screen);
     }
   }

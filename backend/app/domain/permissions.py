@@ -60,7 +60,7 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
     "lider_consol": frozenset(
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-            "universidade-vida", "calendario",
+            "universidade-vida", "capacitacao", "calendario",
         }
     ),
     "lider_celula": frozenset(
@@ -97,7 +97,7 @@ def screens_for_role(role: str, tenant_matrix: dict[str, set[str]]) -> frozenset
     # Papéis não-admin nunca recebem telas administrativas pela matriz. O
     # `admin` é tratado antes e não passa por esta função.
     if role not in {"pastor", "lider_consol"}:
-        screens -= {"universidade-vida"}
+        screens -= {"universidade-vida", "capacitacao"}
     screens -= ADMIN_ONLY
     if role != CENTRAL_ROLE:
         screens -= CENTRAL_ONLY

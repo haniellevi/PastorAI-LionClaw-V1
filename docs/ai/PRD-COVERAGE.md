@@ -160,7 +160,7 @@ significa ativa em produção.
 | Agenda | `PARCIAL` | CRUD, visões, confirmações, importação Google e alertas internos | Operação WhatsApp, envio futuro unificado e semântica de entrega |
 | Consolidação | `PARCIAL` | decisões, etapas, responsáveis, SLA e conclusão manual | Máquina de estados e read model duráveis, transações e elegibilidade |
 | Universidade da Vida | `AUSENTE COMO MÓDULO` | Placeholder e referências históricas | PRD, turmas, aulas, presenças, Encontro, batismo, papéis e APIs |
-| Capacitação Destino | `AUSENTE COMO MÓDULO` | Placeholder e flag histórica | PRD, módulos, turmas, frequência, pré-requisitos e certificação |
+| Capacitação Destino | `PARCIAL / CANDIDATA ENCADEADA` | Contrato puro (#495), catálogo versionado, turmas, calendário e responsáveis com API/painel mínimos na branch CD PR 2, dependente da UV #494; cadeia real em PostgreSQL local sintético | Integração, matrícula, presença, conclusão/certificação e WhatsApp; aplicação remota/produção não verificadas |
 | Enviar e multiplicação | `PARCIAL` | célula, solicitações e multiplicação têm partes implementadas | Jornada de aptidão, aprovação sensível e integração com formação |
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
@@ -429,10 +429,15 @@ um módulo completo no código.
 
 ### Capacitação Destino
 
-O planejamento histórico indica seis livros ou módulos, dez aulas por módulo,
-turmas simultâneas, frequência, pré-requisitos, aptidão para liderança e
-certificação. Currículo, limiares de assiduidade, papéis e estados precisam ser
-fechados no PRD próprio antes do schema.
+As decisões de 15/10 registradas no ROADMAP substituem o corte histórico.
+A candidata CD PR 2 acrescenta persistência de catálogo versionado (padrão
+provisório de seis módulos de dez aulas, níveis opcionais sem nomes inventados),
+turmas por módulo/versão, calendário e responsáveis. Admin/pastor coordenam;
+lider_consol consulta somente turma com vínculo atual. Os serviços revalidam
+ator, permissão de tela e vínculo; RLS e FKs compostas isolam igrejas.
+Matrícula, frequência, conclusões, certificação e WhatsApp permanecem nas
+fatias seguintes. Código encadeado e prova local não demonstram integração
+em main, aplicação remota ou operação em produção.
 
 ## Ordem de execução para a visão completa
 

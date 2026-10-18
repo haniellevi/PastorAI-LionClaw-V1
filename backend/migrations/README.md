@@ -240,3 +240,22 @@ membros). Avaliado como inócuo, como em `20260706_221311` (linha 34). Antes do
 release, conferir se alguma igreja está acima do limite do plano.
 `uv_conclusoes` confia no serviço como único escritor: risco aceito. Se um dia
 for exposta ao cliente, usar uma função `security definer` para a escrita.
+
+## CD PR 2: catálogo versionado e turmas (candidata)
+
+`20261018_010000_cd_catalogo_turmas.sql` depende da cadeia UV até
+`20261017_230000`. Cria currículo/versionamento por igreja, níveis opcionais,
+módulos, aulas, turmas, calendário e vínculos de responsáveis. O currículo
+inicial usa as constantes provisórias do contrato CD: seis módulos de dez
+aulas, sem nomes de livros ou níveis pré-definidos. A estrutura de cada versão
+é estável; a coordenação edita nomes e cria outra versão para outra estrutura.
+FKs compostas impedem trocar igreja, versão, módulo ou aula nas relações.
+RLS ENABLE/FORCE com USING/WITH CHECK; grants de coluna mínimos, sem DELETE
+nem UPDATE das identidades. Autores são usuários da mesma igreja.
+
+Aplicar pelo runner antes de publicar callers `/cd`: não há flag para ausência
+de schema. Somente PostgreSQL 17 local descartável, dados sintéticos e cadeia
+real de migrations constituem a prova desta entrega. Nada foi aplicado em
+banco remoto; deploy e gates continuam sem autorização. Reverter callers e
+preservar os registros antes do rollback comentado. Não cria matrícula,
+presença, conclusão, certificado, ferramenta WhatsApp ou aptidão para liderança.
