@@ -244,6 +244,14 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, profile);
       return;
     }
+    // Shared scenarios have no proven visits. Dedicated visit fixtures can
+    // supply evidence; these reads never simulate a domain write.
+    if (method === "GET" && /^\/contacts\/[^/]+\/visit-cell-suggestion$/.test(pathname)) {
+      record.status = 200; sendJson(response, 200, null); return;
+    }
+    if (method === "GET" && pathname === "/cell-central/visit-cell-suggestions") {
+      record.status = 200; sendJson(response, 200, {items: [], page: Number(url.searchParams.get("page") ?? 1), page_size: 20, total: 0}); return;
+    }
     // New prayer capability stays off in the shared synthetic scenarios.
     // Keep unknown routes at 501 and all browser safety assertions intact.
     if (method === "GET" && pathname === "/prayer-requests/access") {

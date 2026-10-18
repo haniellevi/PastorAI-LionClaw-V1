@@ -69,20 +69,13 @@ class TransferenciaNaoAutorizadaError(ValueError):
         super().__init__(message)
 
 
-def assert_membro_elegivel(
-    db: Session,
-    *,
-    igreja_id: uuid.UUID,
-    celula: Celula,
-    pessoa: Pessoa,
+def assert_membro_elegivel_facts(
+    *, celula: Celula, pessoa: Pessoa,
+    leads_active_cell: bool = False, official_phone: bool = False,
 ) -> None:
-    """Recusa (``MembroInelegivelError``) uma pessoa inelegível a membro de célula.
+    """Shared eligibility rules for preloaded read projections.
 
-    Guarda COMPARTILHADA: concentrada aqui para valer em TODOS os pontos de
-    escrita (seam ``ensure_active_membro``, solicitações, multiplicação e tool do
-    agente), sem duplicar a regra.
-    Usa ``getattr`` porque os fakes de teste modelam a pessoa/célula como
-    ``SimpleNamespace`` parcial; em produção os atributos são colunas reais.
+    Writers use ``assert_membro_elegivel`` below to obtain fresh database facts.
     """
     if getattr(pessoa, "arquivada_em", None) is not None:
         raise MembroInelegivelError(
@@ -103,6 +96,24 @@ def assert_membro_elegivel(
             "O líder da célula não pode ser membro da própria célula.",
         )
 
+    if leads_active_cell:
+        raise MembroInelegivelError(
+            "active_leader_cannot_be_member",
+            "Pessoa que lidera uma célula ativa não pode ser adicionada como membro.",
+        )
+
+    if official_phone:
+        raise MembroInelegivelError(
+            "numero_whatsapp_nao_participa",
+            "O número conectado ao WhatsApp da igreja não pode participar de célula.",
+        )
+
+
+def assert_membro_elegivel(
+    db: Session, *, igreja_id: uuid.UUID, celula: Celula, pessoa: Pessoa,
+) -> None:
+    """Canonical write guard: query live facts, never trust a read projection."""
+    assert_membro_elegivel_facts(celula=celula, pessoa=pessoa)
     leads_active_cell = db.execute(
         select(Celula.id)
         .where(
@@ -112,19 +123,13 @@ def assert_membro_elegivel(
         )
         .limit(1)
     ).scalar_one_or_none()
-    if leads_active_cell is not None:
-        raise MembroInelegivelError(
-            "active_leader_cannot_be_member",
-            "Pessoa que lidera uma célula ativa não pode ser adicionada como membro.",
-        )
-
-    if phone_matches_active_whatsapp(
-        db, igreja_id=igreja_id, telefone=getattr(pessoa, "telefone", None)
-    ):
-        raise MembroInelegivelError(
-            "numero_whatsapp_nao_participa",
-            "O número conectado ao WhatsApp da igreja não pode participar de célula.",
-        )
+    assert_membro_elegivel_facts(
+        celula=celula, pessoa=pessoa,
+        leads_active_cell=leads_active_cell is not None,
+        official_phone=(leads_active_cell is None and phone_matches_active_whatsapp(
+            db, igreja_id=igreja_id, telefone=getattr(pessoa, "telefone", None),
+        )),
+    )
 
 
 def assert_pessoas_nao_arquivadas(
