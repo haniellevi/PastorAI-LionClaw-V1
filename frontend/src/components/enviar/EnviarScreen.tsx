@@ -8,14 +8,17 @@ import "../cells/operations-ux-v2.css";
  * O fluxo de multiplicação foi unificado no módulo Células (PR3–PR9): a
  * multiplicação NASCE como solicitação na tela "Minha Célula" (líder) e é
  * DECIDIDA na "Central de Célula" (pastor/admin). Esta tela do estágio Enviar
- * mostra o panorama consolidado — pendentes (solicitações aguardando) e
- * registradas (já efetivadas) — sem ações de escrita.
+ * mostra o panorama consolidado de multiplicações e permite à coordenação
+ * registrar avaliações humanas de aptidão, sem nomear líderes.
  *
  * GET /multiplicacoes é superfície da Central; para papéis sem esse acesso a
  * tela mostra um aviso apontando para onde a multiplicação acontece.
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { PaginatedLookup } from "../lookups/PaginatedLookup";
+import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
+import { AvaliacaoPanel } from "./AvaliacaoPanel";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -42,7 +45,11 @@ function payloadName(p: MultiplicacaoPendente): string {
 }
 
 export function EnviarScreen() {
-  const { token, expireSession } = useAuth();
+  const { token, user, expireSession } = useAuth();
+  const canEvaluate = user?.roles.some(role => role === "admin" || role === "pastor") ?? false;
+  const [candidate, setCandidate] = useState<ContactLookup | null>(null);
+  const loadCandidates = useCallback((q: string, page: number, signal: AbortSignal) =>
+    fetchContactLookupPage(token!, { q, page, pageSize: 25, signal }), [token]);
 
   const [data, setData] = useState<MultiplicacoesListOut | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +106,15 @@ export function EnviarScreen() {
           <em>Central de Célula</em>. Aqui você acompanha o panorama.
         </span>
       </div>
+
+      {canEvaluate && token ? <section className="card card-pad" aria-label="Avaliar aptidão">
+        <h3>Aptidão à liderança</h3>
+        <p>Selecione uma pessoa para consultar pendências e registrar a decisão da coordenação.</p>
+        <PaginatedLookup label="Pessoa para avaliação" inputId="enviar-pessoa" loadPage={loadCandidates}
+          selected={candidate} onSelect={setCandidate} getLabel={person => person.nome}
+          onSessionExpired={expireSession} />
+        {candidate ? <AvaliacaoPanel key={candidate.id} pessoaId={candidate.id} token={token} onExpired={expireSession} /> : null}
+      </section> : null}
 
       {error ? (
         <div className="error-banner" role="alert">

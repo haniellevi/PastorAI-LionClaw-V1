@@ -168,125 +168,28 @@ aditivo de recibos deve continuar aceitando os recibos já gravados. Somente
 PostgreSQL local descartável foi autorizado nesta entrega. Banco remoto,
 publicação, restart e gates continuam sem autorização.
 
-## UV PR 2: turmas e matrículas (candidata)
+## Enviar PR 2: avaliação humana (candidata)
 
-`20261017_210500_uv_turmas.sql` cria turmas, atividades, vínculos de responsáveis
-com usuários existentes e matrículas da Pessoa canônica. As quatro tabelas têm
-FKs compostas, RLS/FORCE RLS, `USING`/`WITH CHECK` por igreja e somente
-SELECT/INSERT e UPDATE apenas nas colunas operacionais para `authenticated`.
-Identidades permanecem imutáveis. Autoria é preenchida pelo servidor com FKs
-compostas para usuários, sem cascade; igrejas, Pessoas e turmas propagam a
-exclusão aprovada. Só admin/pastor alteram responsáveis e encerram/reabrem;
-a reabertura preserva os últimos registros de encerramento e reabertura.
-Alunos arquivados ficam fora da consulta sem apagar a matrícula.
-Matrícula ativa é única por
-igreja/turma/Pessoa. O calendário compreende oito aulas e Encontro, sem presença,
-marco validado ou conclusão. A API valida as capacidades atuais no servidor.
+`20261018_050000_enviar_avaliacoes.sql` acrescenta avaliações e eventos privados,
+com FKs compostas, RLS/FORCE RLS e grants de leitura/inserção mínimos. Não faz
+backfill: a origem legada é derivada de `apto_lider` quando ainda não há decisão.
+Cada inserção de avaliação cria um evento via trigger; ambos recusam UPDATE e
+DELETE, inclusive pelo owner. O endpoint decide sob lock da Pessoa e atualiza a
+projeção na mesma transação; CSIM registra uma decisão de sistema negativa.
 
-Aplicar pelo runner antes de publicar o backend que expõe `/uv/turmas`; não há
-flag para esconder ausência do schema. A prova desta PR é somente PostgreSQL 17
-local descartável, com dados sintéticos. Banco remoto, deploy e ativação não
-estão autorizados. O rollback comentado exige primeiro reverter os callers e
-preservar os registros; não é autorização para excluir dados reais.
+Aplicar antes dos novos callers em uma futura release, usando `scripts/migrate.py`.
+Somente PostgreSQL 17 descartável foi exercitado nesta fatia; aplicação remota,
+deploy e gates não foram autorizados. O rollback comentado exige preservar o
+histórico e restaurar os callers. Exclusão aprovada desses registros privados
+exige procedimento de manutenção específico; o papel da aplicação não apaga
+avaliações nem eventos. A exclusão de igreja já aprovada pelo console remove
+esses dados pela cascata Pessoa → avaliação → evento, atomicamente. Somente
+a cascata de um pai já removido em sessão privilegiada admite DELETE; chamadas
+diretas, UPDATE e cascatas no papel de tenant continuam recusados.
 
-
-## UV PR 3: presença e reposição (candidata)
-
-`20261017_220000_uv_presencas.sql` depende da PR 2 (`20261017_210500`).
-Cria presença única por matrícula/aula (1–8) e histórico imutável para a
-aplicação, preenchido por trigger na mesma transação. FKs compostas garantem
-igreja/turma/matrícula/atividade consistentes; Encontro não admite presença.
-RLS ENABLE/FORCE, USING/WITH CHECK e grants de coluna preservam identidades,
-sem DELETE nem escrita direta no histórico. Correção exige versão anterior;
-a autoria é gerada pela aplicação a partir do usuário autenticado; a hora é
-gerada pelo banco em trigger BEFORE INSERT/UPDATE com `clock_timestamp()`,
-sem grant de UPDATE de `registrada_em`. O serviço revalida usuário, papel,
-permissão de tela e vínculo atual, serializando alterações por turma.
-
-Aplicar pelo runner antes do backend novo; não há flag de compatibilidade do
-schema. A validação usa a cadeia real em PostgreSQL 17 local descartável,
-somente com dados sintéticos. Nenhuma aplicação remota, publicação ou gate
-está autorizada. Reverter callers e preservar registros antes do rollback
-comentado. Não conclui UV, altera etapa da Pessoa ou concede aptidão à CD.
-
-## UV PR 4: marcos e conclusão (candidata)
-
-`20261017_230000_uv_marcos_conclusao.sql` depende das PRs 2/3 e cria marcos
-únicos de Encontro/batismo por Pessoa e conclusão única por Pessoa/matrícula.
-São registros somente de acréscimo, com data, autor, FKs compostas, RLS/FORCE,
-USING/WITH CHECK e grants mínimos de coluna sem UPDATE/DELETE. Exclusão
-aprovada da Pessoa/igreja alcança os novos registros.
-
-A origem da aptidão fica em `pessoas.origem_aptidao_cd`, pois a flag já pertence
-à Pessoa e pode existir sem conclusão UV. O backfill marca somente flags já
-verdadeiras como `legado`; um trigger identifica concessões de callers legados
-posteriores, sem criar conclusão. Ao revogar a aptidão, o trigger limpa a origem;
-um CHECK mantém flag e origem coerentes. Conclusão nova registra `conclusao_uv`, ou
-preserva `legado`, junto com etapa anterior/resultante e confirmador no histórico
-`uv_conclusoes`. O serviço revalida coordenação/responsável ativo da turma,
-matrícula e Pessoa, serializa por turma e Pessoa e usa a mesma transação para
-aptidão, etapa e conclusão. Não há matrícula em CD nem escrita por WhatsApp.
-
-Aplicar pelo runner antes do backend novo: leitura UV usa as tabelas sem flag
-de compatibilidade. Validado somente em PostgreSQL 17 local descartável com a
-cadeia real e dados sintéticos. Produção, banco remoto, deploy e gates não
-foram autorizados. Rollback comentado exige reverter callers e preservar os
-marcos e históricos antes de remover o schema.
-
-
-Riscos aceitos da PR 4 (P2-2/P2-4): o backfill de origem e cada conclusão
-atualizam `pessoas` e disparam `trg_subscription_autoupgrade` (recontagem de
-membros). Avaliado como inócuo, como em `20260706_221311` (linha 34). Antes do
-release, conferir se alguma igreja está acima do limite do plano.
-`uv_conclusoes` confia no serviço como único escritor: risco aceito. Se um dia
-for exposta ao cliente, usar uma função `security definer` para a escrita.
-
-## CD PR 2: catálogo versionado e turmas (candidata)
-
-`20261018_010000_cd_catalogo_turmas.sql` depende da cadeia UV até
-`20261017_230000`. Cria currículo/versionamento por igreja, níveis opcionais,
-módulos, aulas, turmas, calendário e vínculos de responsáveis. O currículo
-inicial usa as constantes provisórias do contrato CD: seis módulos de dez
-aulas, sem nomes de livros ou níveis pré-definidos. A estrutura de cada versão
-é estável; a coordenação edita nomes e cria outra versão para outra estrutura.
-FKs compostas impedem trocar igreja, versão, módulo ou aula nas relações.
-RLS ENABLE/FORCE com USING/WITH CHECK; grants de coluna mínimos, sem DELETE
-nem UPDATE das identidades. Autores são usuários da mesma igreja. CD não é
-exposta por PostgREST: RLS nega os logins authenticator/authenticated/anon e
-exige o GUC de igreja fixado pelo backend. O login de conexão do backend deve
-ser distinto desses logins de cliente; SET ROLE authenticated continua sujeito
-à RLS. Claim Clerk preservado no backend não libera acesso direto. Papel,
-responsabilidade e autoria são validados somente pelo caminho FastAPI.
-`service_role` também tem todos os privilégios revogados nas sete tabelas CD;
-o backend SQL usa o papel `authenticated` (a chave service_role é usada apenas
-no Storage). O calendário registra autor e horário da última gravação no
-upsert, preservando o criador. Turma encerrada exige autor e horário de
-encerramento; o par permanece completo após reabertura.
-
-Aplicar pelo runner antes de publicar callers `/cd`: não há flag para ausência
-de schema. Somente PostgreSQL 17 local descartável, dados sintéticos e cadeia
-real de migrations constituem a prova desta entrega. Nada foi aplicado em
-banco remoto; deploy e gates continuam sem autorização. Reverter callers e
-preservar os registros antes do rollback comentado. Não cria matrícula,
-presença, conclusão, certificado, ferramenta WhatsApp ou aptidão para liderança.
-
-## CD PR 3: matrícula explícita (candidata)
-
-`20261018_020000_cd_matriculas.sql` depende da CD PR 2 (`20261018_010000`).
-Cria matrículas e eventos imutáveis de matrícula/cancelamento/reativação, com
-FKs compostas por igreja, RLS ENABLE/FORCE e a mesma restrição backend-only
-por `session_user` e GUC das tabelas CD. Grants de coluna mínimos; sem DELETE
-nem escrita direta nos eventos. O índice parcial limita uma matrícula ativa
-por Pessoa/número de módulo, inclusive entre versões de currículo.
-
-Coordenação ou responsável ativo matricula explicitamente a Pessoa válida,
-revalidando aptidão/origem sob lock. Só o primeiro módulo está disponível;
-conclusões e equivalências dos demais módulos aguardam a PR 5. Reativar usa o
-identificador existente, revalida os requisitos e limpa o estado de cancelamento;
-os eventos conservam os autores, horários e origens anteriores.
-
-Aplicar via `backend/scripts/migrate.py` antes dos novos callers `/cd`; não há
-flag de compatibilidade de schema. Prova somente em PostgreSQL 17 local
-com cadeia real e dados sintéticos. Aplicação remota, deploy e gates não
-foram autorizados. Reverter callers e preservar os eventos antes do rollback
-comentado. Nenhuma matrícula automática, ferramenta WhatsApp ou liderança.
+O dono das funções SECURITY DEFINER dos gatilhos desta migration precisa
+ignorar RLS: conferir BYPASSRLS (ou superusuário/owner quando aplicável).
+Como estas tabelas usam FORCE ROW LEVEL SECURITY, ser apenas owner da tabela
+não basta. O runbook da futura release deve conferir o proprietário de cada
+função e sua capacidade efetiva de ignorar RLS antes de aplicar/usar os callers;
+sem essa conferência, o pré-requisito permanece não verificado.

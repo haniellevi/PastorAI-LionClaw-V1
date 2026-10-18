@@ -837,12 +837,15 @@ def update_contact(
         select(Pessoa).where(
             Pessoa.id == pessoa_uuid,
             Pessoa.igreja_id == igreja_uuid,
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
         )
+
+    if "aptoLider" in payload.model_fields_set:
+        raise HTTPException(409, "Use POST /enviar/pessoas/{id}/avaliacoes para decidir a aptidão")
 
     if payload.telefone is not None:
         normalized = normalize_phone(payload.telefone)
@@ -892,22 +895,16 @@ def update_contact(
                     "antes de marcar sem interesse"
                 ),
             )
+        registrar_evento_csim = payload.semInteresse and (not pessoa.sem_interesse or pessoa.apto_lider)
         pessoa.sem_interesse = payload.semInteresse
         if not payload.semInteresse:
             pessoa.sem_interesse_motivo = None
         else:
-            pessoa.apto_lider = False
+            if registrar_evento_csim:
+                from app.services.enviar_avaliacoes import registrar_csim
+                registrar_csim(db, pessoa, current_user)
             if payload.semInteresseMotivo is not None:
                 pessoa.sem_interesse_motivo = payload.semInteresseMotivo
-
-    # Aptidão (Reencontro): flag administrativa; CSIM não pode ser apto.
-    if payload.aptoLider is not None:
-        if payload.aptoLider and pessoa.sem_interesse:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Pessoa fora da igreja não pode ser apta a liderar",
-            )
-        pessoa.apto_lider = payload.aptoLider
 
     db.flush()
     db.refresh(pessoa)

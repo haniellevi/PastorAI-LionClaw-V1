@@ -39,6 +39,7 @@ async function peopleFixture(page: Page) {
   const archived = { ...person(99), nome: "Pessoa Arquivada Laboratório", arquivada: true };
   const reads: Array<{ page: number; pageSize: number; view: string }> = [];
   const writes: Array<{ path: string; body: unknown }> = [];
+  const avaliacoes = new Map<string, Record<string, unknown>[]>();
   let createAttempts = 0;
   let decisionAttempts = 0;
   let stageAttempts = 0;
@@ -52,6 +53,28 @@ async function peopleFixture(page: Page) {
     const path = url.pathname;
     const method = request.method();
     if (method === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    const evaluationMatch = /^\/enviar\/pessoas\/(ux-person-\d+)\/avaliacoes$/.exec(path);
+    if (evaluationMatch && (method === "GET" || method === "POST")) {
+      const id = evaluationMatch[1]!;
+      const candidate = people.find(person => person.id === id)!;
+      const history = avaliacoes.get(id) ?? [];
+      const evidencias = { uv: { estado: "indisponivel_nesta_base", referencia: null }, cd: { estado: "indisponivel_nesta_base", referencia: null }, reencontro: { estado: "pendente", referencia: null } };
+      if (method === "POST") {
+        const input = request.postDataJSON();
+        writes.push({ path, body: input });
+        const row = { ...input, pessoa_id: id, autor_id: ACTOR_ID, criada_em: "2026-10-18T12:00:00Z", versao_regras: "enviar-v1-provisoria", evidencias };
+        history.unshift(row); avaliacoes.set(id, history);
+        candidate.aptoLider = input.decisao === "apto";
+        await json(route, 201, row); return;
+      }
+      await json(route, 200, {
+        pessoa_id: id, nome: candidate.nome, apto_lider: candidate.aptoLider,
+        origem: history[0]?.origem ?? (candidate.aptoLider ? "legado" : null),
+        pendencias: { situacao: "pendente", status_regras: "aguarda confirmação pastoral", aviso_legado: candidate.aptoLider ? "origem legada, comprovação pendente" : null,
+          pendencias: [{ criterio: "uv", descricao: "UV: indisponível nesta base" }, { criterio: "cd", descricao: "CD certificado: indisponível nesta base" }, { criterio: "reencontro", descricao: "Reencontro confirmado: comprovação pendente" }] },
+        avaliacoes: history,
+      }); return;
+    }
     if (path === "/contacts" && method === "GET") {
       const pageNumber = Number(url.searchParams.get("page") ?? 1);
       const pageSize = Number(url.searchParams.get("pageSize") ?? 200);
@@ -338,3 +361,24 @@ for (const width of [390, 1440]) {
     expectSafety({...safety, consoleErrors: safety.consoleErrors.filter(error => !expected503.test(error))});
   });
 }
+
+
+test("Coordenação registra avaliação motivada e consulta o histórico no cadastro", async ({ page }) => {
+  const safety = await armBrowserSafety(page);
+  const fixture = await peopleFixture(page);
+  await loginThroughUi(page);
+  await page.goto("/gestao#contatos");
+  await page.getByRole("button", { name: "Abrir pessoa: Marina Laboratório", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Avaliação de aptidão à liderança", exact: true });
+  await expect(panel.getByText("UV: indisponível nesta base", { exact: true })).toBeVisible();
+  await expect(panel.getByLabel("Decisão", { exact: true })).toHaveValue("nao_apto");
+  await panel.getByLabel("Motivo obrigatório").fill("Revisão sintética: formação ainda pendente");
+  expect(fixture.writes).toEqual([]);
+  await panel.getByRole("button", { name: "Registrar decisão", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("Decisão registrada");
+  await panel.locator("summary").click();
+  await expect(panel.getByText("Revisão sintética: formação ainda pendente", { exact: true })).toBeVisible();
+  expect(fixture.writes).toHaveLength(1);
+  expect(fixture.writes[0]).toMatchObject({ path: "/enviar/pessoas/ux-person-1/avaliacoes", body: { decisao: "nao_apto", origem: "avaliacao", motivo: "Revisão sintética: formação ainda pendente" } });
+  expectSafety(safety);
+});

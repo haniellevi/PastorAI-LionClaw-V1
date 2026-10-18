@@ -13,7 +13,7 @@ import { Field } from "@/components/ui/Field";
 import type { Contact, UpdateContactInput } from "@/lib/contacts-api";
 
 // "Líder" saiu dos tipos manuais: líder de célula é derivado do vínculo com
-// célula ativa (regra 2026-07-06); a aptidão (Reencontro) é o toggle abaixo.
+// célula ativa (regra 2026-07-06); a aptidão é decidida pela coordenação em avaliação própria.
 const TIPOS = [
   { value: "contato", label: "Contato" },
   { value: "visitante", label: "Visitante" },
@@ -42,10 +42,9 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
   const [tipo, setTipo] = useState(contact.tipo ?? "");
   const [semInteresse, setSemInteresse] = useState(contact.semInteresse);
   const [csimMotivo, setCsimMotivo] = useState(contact.semInteresseMotivo ?? "");
-  const [aptoLider, setAptoLider] = useState(contact.aptoLider);
   const [touched, setTouched] = useState(false);
   const [discardRequested, setDiscardRequested] = useState(false);
-  const dirty = nome !== contact.nome || telefone !== contact.telefone || email !== (contact.email ?? "") || genero !== (contact.genero === "m" || contact.genero === "f" ? contact.genero : "") || tipo !== (contact.tipo ?? "") || semInteresse !== contact.semInteresse || csimMotivo !== (contact.semInteresseMotivo ?? "") || aptoLider !== contact.aptoLider;
+  const dirty = nome !== contact.nome || telefone !== contact.telefone || email !== (contact.email ?? "") || genero !== (contact.genero === "m" || contact.genero === "f" ? contact.genero : "") || tipo !== (contact.tipo ?? "") || semInteresse !== contact.semInteresse || csimMotivo !== (contact.semInteresseMotivo ?? "");
   const requestClose = () => {
     if (busy) return;
     if (dirty) setDiscardRequested(true);
@@ -75,9 +74,6 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
     if (semInteresse && motivoNorm !== (contact.semInteresseMotivo ?? null)) {
       input.semInteresseMotivo = motivoNorm;
     }
-    // Aptidão (Reencontro): CSIM nunca é apto — força false ao marcar CSIM.
-    const aptoFinal = semInteresse ? false : aptoLider;
-    if (aptoFinal !== contact.aptoLider) input.aptoLider = aptoFinal;
     if (Object.keys(input).length === 0) {
       onClose();
       return;
@@ -155,7 +151,6 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
                   // sem_interesse e mantém o tipo real por baixo.
                   if (v === "csim") {
                     setSemInteresse(true);
-                    setAptoLider(false); // CSIM fica fora da visão: nunca apto
                   } else {
                     setSemInteresse(false);
                     setTipo(v);
@@ -182,18 +177,7 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
             />
           ) : null}
 
-          {/* Aptidão (Reencontro) — modal já é admin-only; CSIM não pode ser apto. */}
-          <div className="field">
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={aptoLider && !semInteresse}
-                disabled={busy || semInteresse}
-                onChange={(e) => setAptoLider(e.target.checked)}
-              />
-              <span>Apto a liderar (Reencontro)</span>
-            </label>
-          </div>
+          <p>A aptidão à liderança é decidida pela coordenação no painel de avaliação do cadastro.</p>
 
           <div className="modal-foot" hidden={discardRequested}>
             <button type="button" className="btn btn-sm" onClick={requestClose} disabled={busy}>

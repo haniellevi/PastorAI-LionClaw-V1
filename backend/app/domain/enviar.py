@@ -17,6 +17,7 @@ AVISO_LEGADO: Final = "origem legada, comprovação pendente"
 
 
 class EstadoEvidencia(StrEnum):
+    NAO_INFORMADA = "nao_informada"
     COMPROVADA = "comprovada"
     PENDENTE = "pendente"
     INDISPONIVEL = "indisponivel_nesta_base"
@@ -68,6 +69,7 @@ def avaliar_aptidao(evidencias: EvidenciasEnviar) -> ResultadoEnviar:
     """
     rotulos = {"uv": "UV", "cd": "CD certificado", "reencontro": "Reencontro confirmado"}
     descricoes = {
+        EstadoEvidencia.NAO_INFORMADA: "referência não informada",
         EstadoEvidencia.PENDENTE: "comprovação pendente",
         EstadoEvidencia.INDISPONIVEL: "indisponível nesta base",
         EstadoEvidencia.REVOGADA: "evidência revogada",
