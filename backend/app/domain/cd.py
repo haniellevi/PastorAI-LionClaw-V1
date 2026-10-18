@@ -187,7 +187,7 @@ def avaliar_cd(curriculo: CurriculoCD, situacao: SituacaoCD) -> ResultadoCD:
     certificar = ingresso and len(concluidos) == total and situacao.confirmado_por is not None
     certificado = situacao.certificado
     valido = bool(
-        certificar and certificado is not None and certificado.revogado_em is None
+        len(concluidos) == total and certificado is not None and certificado.revogado_em is None
         and set(certificado.conclusoes_usadas) == ids
     )
     return ResultadoCD(ingresso, tuple(concluidos), disponiveis, certificar, valido)

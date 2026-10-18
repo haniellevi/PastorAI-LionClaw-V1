@@ -162,3 +162,11 @@ def test_certificado_exige_proveniencia_e_datas(config):
 def test_modalidade_desconhecida_recusada():
     with pytest.raises(ValueError):
         AulaCD(1, 'dispensa')
+
+
+def test_certificado_emitido_independe_da_elegibilidade_atual():
+    estado = replace(completa(), certificado=certificado(), confirmado_por=None,
+                     apto_proxima_cd=False, origem_aptidao=None)
+    result = avaliar_cd(CURRICULO, estado)
+    assert not result.pode_certificar
+    assert result.certificado_valido
