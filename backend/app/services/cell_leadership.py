@@ -36,6 +36,7 @@ def _load_candidate_for_update(
         select(Pessoa)
         .where(Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -160,6 +161,7 @@ def _lock_leadership_identities(
     *,
     igreja_id: uuid.UUID,
     pessoa_ids: set[uuid.UUID],
+    additional_app_user_ids: set[uuid.UUID] | None = None,
 ) -> None:
     """Trava Pessoas e AppUsers antigos/novos em ordem determinística.
 
@@ -176,18 +178,16 @@ def _lock_leadership_identities(
         ).scalar_one_or_none()
         if found is None:
             raise _conflict("A liderança referencia uma pessoa inconsistente")
-    for pessoa_id in ordered_people:
-        # Trava também convidado/revogado: uma transição de status concorrente
-        # não pode passar entre a decisão de liderança e a sincronização do role.
-        db.execute(
-            select(AppUser)
-            .where(
-                AppUser.igreja_id == igreja_id,
-                AppUser.pessoa_id == pessoa_id,
-            )
-            .order_by(AppUser.id.asc())
-            .with_for_update(of=AppUser)
-        ).scalars().all()
+    # Include the decision maker in the same globally ordered access lock set.
+    # Crossed candidate/approver nominations must never lock A->B and B->A.
+    db.execute(
+        select(AppUser)
+        .where(AppUser.igreja_id == igreja_id,
+            or_(AppUser.pessoa_id.in_(ordered_people),
+                AppUser.id.in_(additional_app_user_ids or set())))
+        .order_by(AppUser.id.asc())
+        .with_for_update(of=AppUser)
+    ).scalars().all()
 
 
 def _remove_leader_roles_if_unused(

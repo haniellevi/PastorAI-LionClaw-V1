@@ -29,6 +29,7 @@ const TYPE_LABELS: Record<string, string> = {
   transferir_membro: "Transferir membro",
   remover_membro: "Remover membro",
   multiplicacao: "Multiplicação",
+  nomear_lider: "Nomeação de líder",
 };
 
 function typeLabel(tipo: string): string {
@@ -128,7 +129,7 @@ export function RequestsPanel({
               >
                 <span style={{ minWidth: 0 }}>
                   <span className="nm" style={{ display: "block" }}>
-                    {typeLabel(req.tipo)}
+                    {typeLabel(req.tipo)}{req.tipo === "nomear_lider" ? ` · ${req.candidato_nome ?? "Candidato"} → ${req.celula_nome ?? "Célula"}` : ""}
                   </span>
                   {req.created_at ? (
                     <span className="sub">{formatPublishedAt(req.created_at)}</span>
@@ -143,7 +144,7 @@ export function RequestsPanel({
 
       {selected ? (
         <RequestDecisionPanel
-          key={selected.id}
+          key={`${selected.id}:${selected.versao_proposta ?? 1}`}
           token={token}
           request={selected}
           onDecided={handleDecided}

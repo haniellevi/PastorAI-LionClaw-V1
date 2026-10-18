@@ -14,6 +14,7 @@ export interface AvaliacaoPessoa {
   pessoa_id: string;
   nome: string;
   apto_lider: boolean;
+  revisao_pastoral_pendente?: boolean;
   origem: string | null;
   pendencias: {
     situacao: string;

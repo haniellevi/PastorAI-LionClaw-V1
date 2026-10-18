@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import (
+    Pessoa,
     Celula,
     CelulaSolicitacao,
     CelulaSolicitacaoEvento,
@@ -47,6 +48,7 @@ from app.domain.cell_requests import (
     MEMBER_TIPOS,
     OPEN_STATUSES,
     STATUS_AGUARDANDO,
+    TIPO_NOMEAR_LIDER,
     InvalidPayload,
     conflict_pessoa_id,
     referenced_pessoa_ids,
@@ -105,6 +107,8 @@ class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     idempotency_key: str | None = None
+    confirmar_execucao: bool = False
+    versao_proposta: int | None = None
 
 
 class DecisionRequest(BaseModel):
@@ -123,6 +127,10 @@ class CellRequestOut(BaseModel):
     celula_id: str
     solicitante_id: str | None = None
     pessoa_id: str | None = None
+    celula_nome: str | None = None
+    candidato_nome: str | None = None
+    candidato_id: str | None = None
+    versao_proposta: int = 1
     tipo: str
     status: str
     payload_proposto: dict
@@ -135,12 +143,21 @@ class CellRequestOut(BaseModel):
     updated_at: dt.datetime | None = None
 
     @classmethod
-    def from_model(cls, s: CelulaSolicitacao) -> "CellRequestOut":
+    def from_model(cls, s: CelulaSolicitacao, db: Session | None = None) -> "CellRequestOut":
+        names = {}
+        if s.tipo == TIPO_NOMEAR_LIDER and db is not None:
+            names = dict(
+                celula_nome=db.execute(select(Celula.nome).where(Celula.id == s.celula_id, Celula.igreja_id == s.igreja_id)).scalar_one_or_none(),
+                candidato_nome=db.execute(select(Pessoa.nome).where(Pessoa.id == s.candidato_id, Pessoa.igreja_id == s.igreja_id)).scalar_one_or_none(),
+            )
         return cls(
+            **names,
             id=str(s.id),
             celula_id=str(s.celula_id),
             solicitante_id=str(s.solicitante_id) if s.solicitante_id else None,
             pessoa_id=str(s.pessoa_id) if s.pessoa_id else None,
+            candidato_id=str(s.candidato_id) if s.candidato_id else None,
+            versao_proposta=s.versao_proposta,
             tipo=s.tipo,
             status=s.status,
             payload_proposto=s.payload_proposto or {},
@@ -186,8 +203,9 @@ class CellRequestDetailOut(CellRequestOut):
         cls,
         s: CelulaSolicitacao,
         eventos: list[CelulaSolicitacaoEvento],
+        db: Session | None = None,
     ) -> "CellRequestDetailOut":
-        base = CellRequestOut.from_model(s)
+        base = CellRequestOut.from_model(s, db)
         return cls(
             **base.model_dump(),
             eventos=[CellRequestEventOut.from_model(e) for e in eventos],
@@ -319,8 +337,19 @@ def create_cell_request(
     """
 
     # Ownership: só o líder da célula de origem abre a solicitação (404 senão).
-    cell = get_current_cell_for_leader(db, current_user, body.celula_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
+    if body.tipo == TIPO_NOMEAR_LIDER and current_user.has_any_role(["pastor"]):
+        try:
+            cell_id = uuid.UUID(body.celula_id)
+        except ValueError as exc:
+            raise HTTPException(404, "Célula não encontrada") from exc
+        cell = db.execute(select(Celula).where(Celula.id == cell_id,
+            Celula.igreja_id == igreja_id).with_for_update()
+            .execution_options(populate_existing=True)).scalar_one_or_none()
+        if cell is None or not cell.ativo:
+            raise HTTPException(404, "Célula não encontrada")
+    else:
+        cell = get_current_cell_for_leader(db, current_user, body.celula_id)
 
     # Membro (transferir/remover) é gerido pela Central, não pela tela do líder.
     _reject_member_tipo(body.tipo)
@@ -339,6 +368,15 @@ def create_cell_request(
         db, igreja_id=igreja_id, pessoa_ids=referenced_pessoa_ids(body.tipo, payload)
     )
 
+    if body.tipo == TIPO_NOMEAR_LIDER:
+        cell_requests_service._assert_pessoa_in_tenant(db, igreja_id,
+            uuid.UUID(payload["novo_lider_id"]), "novo_lider_id")
+        db.refresh(cell, with_for_update=True)
+        if not cell.ativo:
+            raise HTTPException(409, "Célula indisponível")
+        cell_requests_service.lock_nomination_author(db, cell=cell,
+            candidato_id=uuid.UUID(payload["novo_lider_id"]),
+            app_user_id=uuid.UUID(current_user.app_user_id))
     pessoa_id = conflict_pessoa_id(body.tipo, payload)
     if _has_open_conflict(
         db,
@@ -364,6 +402,9 @@ def create_cell_request(
         tipo=body.tipo,
         status=STATUS_AGUARDANDO,
         payload_proposto=payload,
+        versao_proposta=1,
+        candidato_id=uuid.UUID(payload["novo_lider_id"]) if body.tipo == TIPO_NOMEAR_LIDER else None,
+        payload_atual={"lider_id": str(cell.lider_id) if cell.lider_id else None} if body.tipo == TIPO_NOMEAR_LIDER else None,
         motivo=motivo,
     )
     db.add(solicitacao)
@@ -398,7 +439,7 @@ def create_cell_request(
                 detail="Já existe uma solicitação aberta conflitante para esta célula",
             ) from exc
         raise
-    return CellRequestOut.from_model(solicitacao)
+    return CellRequestOut.from_model(solicitacao, db)
 
 
 @router.get("", response_model=Page[CellRequestOut])
@@ -443,7 +484,7 @@ def list_cell_requests(
     ).scalars().all()
 
     return Page[CellRequestOut](
-        items=[CellRequestOut.from_model(s) for s in rows],
+        items=[CellRequestOut.from_model(s, db) for s in rows],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
@@ -476,7 +517,7 @@ def get_cell_request(
             )
 
     eventos = _load_events(db, solicitacao)
-    return CellRequestDetailOut.from_models(solicitacao, eventos)
+    return CellRequestDetailOut.from_models(solicitacao, eventos, db)
 
 
 # ---------------------------------------------------------------------------
@@ -514,8 +555,9 @@ def resubmit_cell_request(
         solicitacao=solicitacao,
         actor_pessoa_id=actor_pessoa_id,
         new_payload=new_payload,
+        author_app_user_id=uuid.UUID(current_user.app_user_id),
     )
-    return CellRequestOut.from_model(updated)
+    return CellRequestOut.from_model(updated, db)
 
 
 @router.post(
@@ -537,7 +579,7 @@ def cancel_cell_request(
     updated = cell_requests_service.cancel(
         db, solicitacao=solicitacao, actor_pessoa_id=actor_pessoa_id
     )
-    return CellRequestOut.from_model(updated)
+    return CellRequestOut.from_model(updated, db)
 
 
 # ---------------------------------------------------------------------------
@@ -578,8 +620,10 @@ def approve_cell_request(
         actor_pessoa_id=actor_pessoa_id,
         approver_app_user_id=uuid.UUID(current_user.app_user_id),
         idempotency_key=idempotency_key,
+        confirmar_execucao=body.confirmar_execucao if body else False,
+        versao_proposta=body.versao_proposta if body else None,
     )
-    return CellRequestOut.from_model(updated)
+    return CellRequestOut.from_model(updated, db)
 
 
 @router.post(
@@ -609,8 +653,9 @@ def reject_cell_request(
         solicitacao=solicitacao,
         actor_pessoa_id=actor_pessoa_id,
         observacao_central=observacao,
+        approver_app_user_id=uuid.UUID(current_user.app_user_id),
     )
-    return CellRequestOut.from_model(updated)
+    return CellRequestOut.from_model(updated, db)
 
 
 @router.post(
@@ -640,8 +685,9 @@ def request_adjustment_cell_request(
         solicitacao=solicitacao,
         actor_pessoa_id=actor_pessoa_id,
         observacao_central=observacao,
+        approver_app_user_id=uuid.UUID(current_user.app_user_id),
     )
-    return CellRequestOut.from_model(updated)
+    return CellRequestOut.from_model(updated, db)
 
 
 # ---------------------------------------------------------------------------

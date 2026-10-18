@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from app.db.models import AppUser, CelulaSolicitacao, EnviarAvaliacao, Pessoa, UserRole
+from app.db.models import AppUser, Celula, CelulaSolicitacao, EnviarAvaliacao, Pessoa, UserRole
 from app.deps import CENTRAL_ROLES, CurrentUser
 from app.domain.enviar import CRITERIOS_PROVISORIOS, EstadoEvidencia, SituacaoEnviar, VERSAO_REGRAS
 from app.services.enviar_read import ler_pendencias_pessoa
@@ -70,6 +70,15 @@ def _append(db, pessoa, *, id, decisao, origem, motivo, autor_id, solicitacao_id
 def registrar_avaliacao(db: Session, user: CurrentUser, pessoa_id: UUID, payload) -> EnviarAvaliacao:
     if not user.has_any_role(CENTRAL_ROLES):
         raise HTTPException(403, "Ação restrita à Central de Células")
+    # A linked decision inserts a request FK. Match approval's lock order:
+    # request -> Pessoa -> access, avoiding request/person inversion at flush.
+    if payload.solicitacao_id is not None:
+        db.execute(select(CelulaSolicitacao.id).where(
+            CelulaSolicitacao.id == payload.solicitacao_id,
+            CelulaSolicitacao.igreja_id == UUID(user.igreja_id),
+        ).with_for_update()).scalar_one_or_none()
+        # Missing references are rejected below, after the existing segregation
+        # checks; do not disclose their existence to a forbidden request author.
     pessoa = _pessoa(db, user, pessoa_id, lock=True)
     # Authority must be current after any wait for the person lock.
     actor = _coord(db, user)
@@ -135,7 +144,14 @@ def historico_pessoa(db, user, pessoa_id):
     origem = rows[0].origem if rows else 'legado' if pessoa.apto_lider else None
     if origem != 'legado':
         pendencias['aviso_legado'] = None
+    # A negative decision opens a visible review of existing responsibility;
+    # it never removes a legacy/current leader or changes the derived role.
+    review = bool(rows and rows[0].decisao == 'nao_apto' and db.execute(
+        select(Celula.id).where(Celula.igreja_id == pessoa.igreja_id,
+            Celula.lider_id == pessoa.id, Celula.ativo.is_(True)).limit(1)
+    ).scalar_one_or_none() is not None)
     return dict(pessoa_id=pessoa.id, nome=pessoa.nome, apto_lider=pessoa.apto_lider,
+        revisao_pastoral_pendente=review,
         origem=origem, pendencias=pendencias, avaliacoes=[avaliacao_out(r) for r in rows])
 
 

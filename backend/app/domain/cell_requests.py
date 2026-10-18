@@ -10,6 +10,7 @@ Tipos de solicitação (`celula_solicitacao.tipo`):
     alterar_anfitriao / alterar_auxiliar
   - membros: transferir_membro / remover_membro
   - multiplicacao
+  - nomear_lider (célula alvo existente)
 
 `celula_id` da solicitação é sempre a ORIGEM; nunca confiar em "origem" vinda do
 payload (SPEC §6.3).
@@ -34,6 +35,7 @@ TIPO_ALTERAR_AUXILIAR = "alterar_auxiliar"
 TIPO_TRANSFERIR_MEMBRO = "transferir_membro"
 TIPO_REMOVER_MEMBRO = "remover_membro"
 TIPO_MULTIPLICACAO = "multiplicacao"
+TIPO_NOMEAR_LIDER = "nomear_lider"
 
 SENSITIVE_TIPOS: frozenset[str] = frozenset(
     {
@@ -47,7 +49,7 @@ SENSITIVE_TIPOS: frozenset[str] = frozenset(
 MEMBER_TIPOS: frozenset[str] = frozenset(
     {TIPO_TRANSFERIR_MEMBRO, TIPO_REMOVER_MEMBRO}
 )
-VALID_TIPOS: frozenset[str] = SENSITIVE_TIPOS | MEMBER_TIPOS | {TIPO_MULTIPLICACAO}
+VALID_TIPOS: frozenset[str] = SENSITIVE_TIPOS | MEMBER_TIPOS | {TIPO_MULTIPLICACAO, TIPO_NOMEAR_LIDER}
 
 # celula_solicitacao.status
 STATUS_AGUARDANDO = "aguardando"
@@ -176,6 +178,10 @@ class RemoverMembroPayload(_StrictModel):
         return _optional_text(v, _MOTIVO_MAX, "motivo")
 
 
+class NomearLiderPayload(_StrictModel):
+    novo_lider_id: uuid.UUID
+
+
 class MultiplicacaoPayload(_StrictModel):
     """Payload de `tipo='multiplicacao'` (SPEC §6.3, E7).
 
@@ -256,6 +262,7 @@ _PAYLOAD_MODELS: dict[str, type[_StrictModel]] = {
     TIPO_TRANSFERIR_MEMBRO: TransferirMembroPayload,
     TIPO_REMOVER_MEMBRO: RemoverMembroPayload,
     TIPO_MULTIPLICACAO: MultiplicacaoPayload,
+    TIPO_NOMEAR_LIDER: NomearLiderPayload,
 }
 
 
@@ -307,6 +314,8 @@ def referenced_pessoa_ids(tipo: str, payload: dict) -> list[str]:
         value = payload.get("auxiliar_id")
         if value:
             ids.append(str(value))
+    elif tipo == TIPO_NOMEAR_LIDER:
+        ids.append(str(payload["novo_lider_id"]))
     elif tipo == TIPO_MULTIPLICACAO:
         for key in ("novo_lider_id", "anfitriao_id", "auxiliar_id"):
             value = payload.get(key)

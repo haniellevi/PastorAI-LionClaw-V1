@@ -39,7 +39,8 @@ export type CellRequestType =
   | "alterar_auxiliar"
   | "transferir_membro"
   | "remover_membro"
-  | "multiplicacao";
+  | "multiplicacao"
+  | "nomear_lider";
 
 /** Status do ciclo da solicitação. */
 export type CellRequestStatus =
@@ -55,6 +56,10 @@ export interface CellRequest {
   celula_id: string;
   solicitante_id: string | null;
   pessoa_id: string | null;
+  celula_nome?: string | null;
+  candidato_nome?: string | null;
+  candidato_id?: string | null;
+  versao_proposta?: number;
   tipo: string;
   status: string;
   payload_proposto: Record<string, unknown>;
@@ -212,10 +217,11 @@ export async function approveRequest(
   token: string,
   requestId: string,
   idempotencyKey?: string,
+  nomeacao?: { confirmar_execucao: boolean; versao_proposta: number },
 ): Promise<CellRequest> {
   const res = await authedFetch(token, `/cell-requests/${requestId}/approve`, {
     method: "POST",
-    body: JSON.stringify({ idempotency_key: idempotencyKey ?? null }),
+    body: JSON.stringify({ idempotency_key: idempotencyKey ?? null, ...nomeacao }),
   });
   if (!res.ok) {
     throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível aprovar a solicitação."));

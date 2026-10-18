@@ -42,6 +42,7 @@ import { MeetingReportForm } from "./MeetingReportForm";
 import { DisciplesList } from "./DisciplesList";
 import { CellNoticeForm } from "./CellNoticeForm";
 import { LeaderNoticesFeed } from "./LeaderNoticesFeed";
+import { NomeacaoForm } from "../enviar/NomeacaoForm";
 import { MyRequestsList } from "./MyRequestsList";
 import {
   SensitiveFieldRequestModal,
@@ -386,6 +387,7 @@ export function MinhaCelulaLider() {
 
               {activeArea === "solicitacoes" ? (
                 <div className="mc-area-panel">
+                  {token && cellId ? <NomeacaoForm token={token} cellId={cellId} onCreated={() => setRequestsReload(n => n + 1)} /> : null}
                   <MyRequestsList
                     token={token!}
                     reloadToken={requestsReload}
