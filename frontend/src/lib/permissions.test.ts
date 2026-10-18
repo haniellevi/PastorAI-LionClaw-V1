@@ -147,3 +147,9 @@ describe("CENTRAL_ONLY — filtro POR PAPEL, não por ator", () => {
     expect(canSee(RELATORIOS, ["admin", "operador"], FINDING)).toBe(true);
   });
 });
+
+it("UV não recebe concessão de papel não autorizado na matriz persistida", () => {
+  expect(canSee("universidade-vida", ["operador"], { operador: ["universidade-vida"] })).toBe(false);
+  expect(canSee("universidade-vida", ["lider_g12"], { lider_g12: ["universidade-vida"] })).toBe(false);
+  expect(canSee("universidade-vida", ["lider_consol"])).toBe(true);
+});

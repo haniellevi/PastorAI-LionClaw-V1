@@ -40,6 +40,7 @@ from app.routers import (
     cells,
     church,
     consolidacao,
+    uv,
     contacts,
     conversations,
     dashboard,
@@ -241,6 +242,7 @@ def create_app() -> FastAPI:
     app.include_router(pipeline.router)
     app.include_router(work_queue.router)
     app.include_router(consolidacao.router)
+    app.include_router(uv.router)
     app.include_router(multiplicacoes.router)
     from app.prayer.router import router as prayer_router
     app.include_router(prayer_router)

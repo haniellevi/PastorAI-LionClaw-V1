@@ -29,6 +29,7 @@ import {
   loadInboxScreen,
   loadIntegracoesScreen,
   loadLockedScreen,
+  loadUVScreen,
   loadMinhaCelulaEntry,
   loadPerfilScreen,
   loadPermissoesScreen,
@@ -122,6 +123,7 @@ const ConsolidarScreen = dynamic(
   () => loadConsolidarScreen().then((m) => m.ConsolidarScreen),
   { loading: ScreenLoading },
 );
+const UVScreen = dynamic(() => loadUVScreen().then(m => m.UVScreen), { loading: ScreenLoading });
 const LockedScreen = dynamic(
   () => loadLockedScreen().then((m) => m.LockedScreen),
   { loading: ScreenLoading },
@@ -260,7 +262,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return <IntegracoesScreen />;
   }
   if (route === "universidade-vida") {
-    return <LockedScreen variant="universidade-vida" />;
+    return <UVScreen />;
   }
   if (route === "capacitacao") {
     return <LockedScreen variant="capacitacao" />;

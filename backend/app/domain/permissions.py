@@ -96,6 +96,8 @@ def screens_for_role(role: str, tenant_matrix: dict[str, set[str]]) -> frozenset
         screens = DEFAULT_PERMISSIONS.get(role, frozenset()) | {DASHBOARD}
     # Papéis não-admin nunca recebem telas administrativas pela matriz. O
     # `admin` é tratado antes e não passa por esta função.
+    if role not in {"pastor", "lider_consol"}:
+        screens -= {"universidade-vida"}
     screens -= ADMIN_ONLY
     if role != CENTRAL_ROLE:
         screens -= CENTRAL_ONLY

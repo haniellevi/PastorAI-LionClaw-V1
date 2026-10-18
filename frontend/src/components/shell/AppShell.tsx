@@ -28,7 +28,7 @@ import { useDrawerA11y } from "./useDrawerA11y";
 import { useRouteMainFocus } from "./useRouteMainFocus";
 
 /** Telas bloqueadas no MVP (locked-em-breve): não renderizam conteúdo. */
-const LOCKED_SCREENS = new Set(["universidade-vida", "capacitacao"]);
+const LOCKED_SCREENS = new Set(["capacitacao"]);
 
 /** Telas acessíveis a qualquer usuário, fora da matriz de permissões (ex.: o
  *  próprio perfil — todo mundo edita os próprios dados). */

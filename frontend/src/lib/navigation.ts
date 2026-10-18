@@ -74,7 +74,6 @@ export const NAV_SECTIONS: NavSection[] = [
             target: "universidade-vida",
             label: "Universidade da Vida",
             icon: "university",
-            locked: true,
           },
         ],
       },
@@ -248,8 +247,8 @@ export const SCREEN_META: Record<
   },
   "universidade-vida": {
     title: "Universidade da Vida",
-    crumb: "Em breve",
-    info: "Trilha de discipulado da Universidade da Vida (em breve).",
+    crumb: "Turmas e calendário",
+    info: "Turmas, atividades, responsáveis e matrículas da Universidade da Vida.",
   },
   capacitacao: {
     title: "Capacitação Destino",

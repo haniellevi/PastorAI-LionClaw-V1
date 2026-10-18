@@ -167,3 +167,18 @@ histórico e restaurar a função V3 de revisão sem reduzir o contador; o check
 aditivo de recibos deve continuar aceitando os recibos já gravados. Somente
 PostgreSQL local descartável foi autorizado nesta entrega. Banco remoto,
 publicação, restart e gates continuam sem autorização.
+
+## UV PR 2: turmas e matrículas (candidata)
+
+`20261017_210500_uv_turmas.sql` cria turmas, atividades, vínculos de responsáveis
+com usuários existentes e matrículas da Pessoa canônica. As quatro tabelas têm
+FKs compostas, RLS/FORCE RLS, `USING`/`WITH CHECK` por igreja e somente
+SELECT/INSERT/UPDATE para `authenticated`. Matrícula ativa é única por
+igreja/turma/Pessoa. O calendário compreende oito aulas e Encontro, sem presença,
+marco validado ou conclusão. A API valida as capacidades atuais no servidor.
+
+Aplicar pelo runner antes de publicar o backend que expõe `/uv/turmas`; não há
+flag para esconder ausência do schema. A prova desta PR é somente PostgreSQL 17
+local descartável, com dados sintéticos. Banco remoto, deploy e ativação não
+estão autorizados. O rollback comentado exige primeiro reverter os callers e
+preservar os registros; não é autorização para excluir dados reais.
