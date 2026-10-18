@@ -1,4 +1,4 @@
-"""Authenticated minimal UV API; no attendance, milestones or WhatsApp."""
+"""Authenticated minimal UV API; attendance without milestones or WhatsApp."""
 from datetime import date
 from typing import Literal
 from uuid import UUID
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.services import uv
+from app.domain.uv import ModalidadeAula
 
 router = APIRouter(prefix='/uv/turmas', tags=['uv'])
 
@@ -122,3 +123,24 @@ def reopen(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = De
     result = uv.reopen(db, user, turma_id)
     db.commit()
     return result
+
+
+class PresencaInput(Input):
+    id: UUID
+    presente: bool = Field(strict=True)
+    modalidade: ModalidadeAula
+    anterior_id: UUID | None = None
+
+
+@router.post('/{turma_id}/matriculas/{matricula_id}/presencas/{aula}')
+def attendance(turma_id: UUID, matricula_id: UUID, aula: int, payload: PresencaInput,
+               db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
+    result = uv.attendance(db, user, turma_id, matricula_id, aula, payload)
+    db.commit()
+    return result
+
+
+@router.get('/{turma_id}/matriculas/{matricula_id}/presencas/{aula}/historico')
+def attendance_history(turma_id: UUID, matricula_id: UUID, aula: int,
+                       db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
+    return uv.attendance_history(db, user, turma_id, matricula_id, aula)

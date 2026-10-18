@@ -66,3 +66,51 @@ it("responsável consulta sem buscar equipe nem oferecer ações de coordenaçã
   expect(button("Encerrar turma")).toBeUndefined();
   expect(state.request.mock.calls.some(call => String(call[1]).includes("finalidade=usuarios"))).toBe(false);
 });
+
+it("mostra chamada só das oito aulas e registra reposição explícita", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+    atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }, { ordem: 5, tipo: "encontro", aula: null, data: "2026-10-15" }],
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [] }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("Chamada de presença");
+  expect(container.textContent).toContain("Pendentes: 1, 2, 3, 4, 5, 6, 7, 8");
+  const lesson = container.querySelector<HTMLSelectElement>('select[aria-label="Aula da chamada"]')!;
+  expect(Array.from(lesson.options).map(o => o.textContent)).not.toContain("Encontro");
+  const modality = container.querySelector<HTMLSelectElement>('select[aria-label="Modalidade da presença"]')!;
+  await act(async () => { const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!; setter.call(modality, "reposicao"); modality.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(async () => { button("Registrar presença")!.click(); });
+  expect(state.request.mock.calls.some(c => c[1] === "/turma/matriculas/m/presencas/1" && c[2] === "POST" && c[3].modalidade === "reposicao" && c[3].presente === true)).toBe(true);
+});
+
+it("correção exige confirmação e envia a versão anterior; consulta mostra auditoria", async () => {
+  const revision = { aula: 1, registro_id: "previous", presente: false, modalidade: "regular", registrada_por: "equipe", registrada_em: "2026-10-17T12:00:00Z" };
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : String(path).endsWith("/historico") ? [{ ...revision, anterior_id: null }] : { ...detail,
+    atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
+    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [revision] }] }));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Salvar correção")!.disabled).toBe(true);
+  const checkbox = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(c => c.parentElement?.textContent?.includes("Confirmo a correção"))!;
+  await act(async () => { checkbox.click(); });
+  await act(async () => { button("Salvar correção")!.click(); });
+  expect(state.request.mock.calls.some(c => c[2] === "POST" && c[3]?.anterior_id === "previous")).toBe(true);
+  await act(async () => { button("Consultar histórico")!.click(); });
+  expect(container.textContent).toContain("Registro inicial: Ausente");
+  expect(container.textContent).toContain("Usuário equipe");
+});
+
+it("falha de transporte preserva a chave da chamada na repetição", async () => {
+  let failed = false;
+  state.request.mockImplementation((_token, path, method) => {
+    if (method === "POST" && !failed) { failed = true; return Promise.reject(new Error("Falha de conexão")); }
+    return Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
+      atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
+      matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [] }] });
+  });
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => { button("Registrar presença")!.click(); });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Falha de conexão");
+  await act(async () => { button("Registrar presença")!.click(); });
+  const posts = state.request.mock.calls.filter(c => c[2] === "POST");
+  expect(posts).toHaveLength(2);
+  expect(posts[0][3].id).toBe(posts[1][3].id);
+});

@@ -7,10 +7,11 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.deps import CurrentUser
-from app.domain.uv import SituacaoUV, avaliar_uv
+from app.domain.uv import AulaConcluida, ModalidadeAula, SituacaoUV, avaliar_uv
 from app.domain.permissions import can_access_screen
 from app.domain.work_queue import can_resolve, TIPO_RESOLVER_ROLES
 
@@ -99,6 +100,15 @@ def get_turma(db, user, turma_id):
         (p.celula_id is null) as conexao_celula_pendente
         from uv_matriculas m join pessoas p on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
         where m.igreja_id=:t and m.turma_id=:id and m.ativa and p.arquivada_em is null order by m.criada_em,m.id''', t=t, id=turma_id)
+    attendance_rows = rows(db, '''select matricula_id,aula,presente,modalidade,registro_id,registrada_por,registrada_em
+        from uv_presencas where igreja_id=:t and turma_id=:id order by aula''', t=t, id=turma_id)
+    for enrollment in row['matriculas']:
+        records = [p for p in attendance_rows if p['matricula_id'] == enrollment['id']]
+        result = avaliar_uv(SituacaoUV(aulas=tuple(AulaConcluida(p['aula'], ModalidadeAula(p['modalidade']))
+            for p in records if p['presente'])))
+        enrollment['aulas_pendentes'] = list(result.aulas_pendentes)
+        enrollment['aulas_cumpridas'] = [n for n in range(1,9) if n not in result.aulas_pendentes]
+        enrollment['presencas'] = [{k: value for k, value in p.items() if k != 'matricula_id'} for p in records]
     return row
 
 
@@ -244,3 +254,73 @@ def options(db, user, search, purpose='pessoas'):
           and c.abandonada_em is null order by c.created_at desc,c.id desc limit 1))
         order by p.nome,p.id limit 50""", t=t, holder_roles=sorted(TIPO_RESOLVER_ROLES['fonovisita'] | {'admin'}), q='%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%')
     return {'pessoas': people, 'usuarios': []}
+
+
+def lesson_number(aula):
+    if type(aula) is not int or not 1 <= aula <= 8:
+        raise HTTPException(422, 'Presença exige aula de 1 a 8; Encontro é um marco separado')
+
+
+def attendance_history(db, user, turma_id, matricula_id, aula):
+    lesson_number(aula)
+    t, uid, roles = actor(db, user)
+    turma(db, t, turma_id)
+    require_scope(db, t, uid, roles, turma_id)
+    return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em
+        from uv_presencas_historico h join uv_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
+        where p.igreja_id=:t and p.turma_id=:tid and p.matricula_id=:mid and p.aula=:a
+        order by h.registrada_em,h.registro_id''', t=t, tid=turma_id, mid=matricula_id, a=aula)
+
+
+def attendance(db, user, turma_id, matricula_id, aula, payload):
+    lesson_number(aula)
+    t, uid, roles = actor(db, user)
+    current_turma = turma(db, t, turma_id, lock=True)
+    require_scope(db, t, uid, roles, turma_id)
+    # Replayed receipts are read only and cannot restore responsibility or undo
+    # corrections. The same UUID with any other intent fails closed.
+    previous = rows(db, '''select p.turma_id,p.matricula_id,p.aula,h.registro_id,h.anterior_id,
+        h.presente,h.modalidade,h.registrada_por,h.registrada_em
+        from uv_presencas_historico h join uv_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
+        where h.igreja_id=:t and h.registro_id=:id''', t=t, id=payload.id)
+    if previous:
+        r = previous[0]
+        if (r['turma_id'],r['matricula_id'],r['aula'],r['presente'],r['modalidade'],r['anterior_id'],r['registrada_por']) != (
+                turma_id,matricula_id,aula,payload.presente,payload.modalidade,payload.anterior_id,uid):
+            raise HTTPException(409, 'Identificador reutilizado com outros dados')
+        return {k: r[k] for k in ('registro_id','anterior_id','presente','modalidade','registrada_por','registrada_em')}
+    if current_turma['encerrada']:
+        raise HTTPException(409, 'Turma encerrada')
+    enrollment = rows(db, '''select m.id from uv_matriculas m join pessoas p
+        on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
+        where m.igreja_id=:t and m.turma_id=:tid and m.id=:mid and m.ativa and p.arquivada_em is null
+        for share of m,p''', t=t, tid=turma_id, mid=matricula_id)
+    if not enrollment:
+        raise HTTPException(409, 'Matrícula ativa não encontrada nesta turma')
+    activity = rows(db, '''select id from uv_atividades where igreja_id=:t and turma_id=:tid
+        and tipo='aula' and aula=:a''', t=t, tid=turma_id, a=aula)
+    if not activity:
+        raise HTTPException(422, 'Defina o calendário da aula antes da chamada')
+    current = rows(db, '''select registro_id from uv_presencas where igreja_id=:t
+        and matricula_id=:mid and aula=:a''', t=t, mid=matricula_id, a=aula)
+    if (current[0]['registro_id'] if current else None) != payload.anterior_id:
+        raise HTTPException(409, 'Presença já registrada ou corrigida. Atualize e faça uma correção explícita')
+    params = dict(t=t, tid=turma_id, mid=matricula_id, a=aula, atividade=activity[0]['id'],
+                  id=payload.id, anterior=payload.anterior_id, presente=payload.presente,
+                  modalidade=payload.modalidade, u=uid)
+    # Cross-turma key collisions are possible even while each turma is locked.
+    # A savepoint preserves the request transaction and turns these into 409.
+    try:
+        with db.begin_nested():
+            if current:
+                db.execute(text('''update uv_presencas set presente=:presente,modalidade=:modalidade,
+                    registro_id=:id,anterior_id=:anterior,registrada_por=:u,registrada_em=clock_timestamp()
+                    where igreja_id=:t and matricula_id=:mid and aula=:a'''), params)
+            else:
+                db.execute(text('''insert into uv_presencas(igreja_id,turma_id,matricula_id,atividade_id,aula,
+                    presente,modalidade,registro_id,registrada_por)
+                    values(:t,:tid,:mid,:atividade,:a,:presente,:modalidade,:id,:u)'''), params)
+    except IntegrityError as exc:
+        raise HTTPException(409, 'Identificador de presença indisponível') from exc
+    return next(r for r in attendance_history(db, user, turma_id, matricula_id, aula)
+                if r['registro_id'] == payload.id)
