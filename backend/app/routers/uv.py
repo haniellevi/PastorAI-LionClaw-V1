@@ -80,8 +80,8 @@ def create(payload: TurmaInput, db: Session = Depends(get_db), user: CurrentUser
 
 
 @router.get('/opcoes')
-def options(q: str = Query(default='', max_length=120), db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
-    return uv.options(db, user, q)
+def options(q: str = Query(default='', max_length=120), finalidade: Literal['pessoas', 'usuarios'] = 'pessoas', db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
+    return uv.options(db, user, q, finalidade)
 
 
 @router.get('/{turma_id}')
@@ -113,5 +113,12 @@ def enroll(turma_id: UUID, payload: MatriculaInput, db: Session = Depends(get_db
 @router.post('/{turma_id}/encerrar')
 def close(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     result = uv.close(db, user, turma_id)
+    db.commit()
+    return result
+
+
+@router.post('/{turma_id}/reabrir')
+def reopen(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
+    result = uv.reopen(db, user, turma_id)
     db.commit()
     return result

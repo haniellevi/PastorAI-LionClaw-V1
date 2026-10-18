@@ -68,8 +68,8 @@ def list_turmas(db, user):
 def create_turma(db, user, payload):
     t, uid, roles = actor(db, user)
     # Request UUID is an opaque idempotency key; conflicts never overwrite intent.
-    inserted = db.execute(text('''insert into uv_turmas(id,igreja_id,nome) values(:id,:t,:nome)
-        on conflict (id) do nothing returning id'''), dict(id=payload.id, t=t, nome=payload.nome)).scalar_one_or_none()
+    inserted = db.execute(text('''insert into uv_turmas(id,igreja_id,nome,criada_por) values(:id,:t,:nome,:autor)
+        on conflict (id) do nothing returning id'''), dict(id=payload.id, t=t, nome=payload.nome, autor=uid)).scalar_one_or_none()
     row = turma(db, t, payload.id, lock=True)
     if row['nome'] != payload.nome:
         raise HTTPException(409, 'Identificador reutilizado com outros dados')
@@ -77,8 +77,8 @@ def create_turma(db, user, payload):
         require_scope(db, t, uid, roles, payload.id)
     else:
         # Only the first creation grants the link. A retry cannot restore removal.
-        db.execute(text('''insert into uv_responsaveis(igreja_id,turma_id,usuario_id)
-            values(:t,:id,:u)'''), dict(t=t, id=payload.id, u=uid))
+        db.execute(text('''insert into uv_responsaveis(igreja_id,turma_id,usuario_id,atribuido_por)
+            values(:t,:id,:u,:autor)'''), dict(t=t, id=payload.id, u=uid, autor=uid))
     return row
 
 
@@ -98,7 +98,7 @@ def get_turma(db, user, turma_id):
     row['matriculas'] = rows(db, '''select m.id,m.pessoa_id,p.nome,
         (p.celula_id is null) as conexao_celula_pendente
         from uv_matriculas m join pessoas p on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
-        where m.igreja_id=:t and m.turma_id=:id and m.ativa order by m.criada_em,m.id''', t=t, id=turma_id)
+        where m.igreja_id=:t and m.turma_id=:id and m.ativa and p.arquivada_em is null order by m.criada_em,m.id''', t=t, id=turma_id)
     return row
 
 
@@ -115,14 +115,21 @@ def calendar(db, user, turma_id, payload):
     t = writable(db, user, turma_id)
     # Fixed positions keep activity identity stable when dates change.
     for a in payload.atividades:
-        db.execute(text('''insert into uv_atividades(igreja_id,turma_id,ordem,tipo,aula,data)
-            values(:t,:id,:ordem,:tipo,:aula,:data)
+        db.execute(text('''insert into uv_atividades(igreja_id,turma_id,ordem,tipo,aula,data,criada_por)
+            values(:t,:id,:ordem,:tipo,:aula,:data,:autor)
             on conflict (igreja_id,turma_id,ordem) do update set data=excluded.data'''),
-            dict(t=t, id=turma_id, **a.model_dump()))
+            dict(t=t, id=turma_id, autor=UUID(user.app_user_id), **a.model_dump()))
     return get_turma(db, user, turma_id)
 
 
+def require_coordination(roles):
+    if not roles & COORDINATION_ROLES:
+        raise HTTPException(403, 'Ação restrita à coordenação')
+
+
 def responsaveis(db, user, turma_id, payload):
+    _, autor, roles = actor(db, user)
+    require_coordination(roles)
     t = writable(db, user, turma_id)
     # Lock live accounts/roles before granting links. No stale CurrentUser roles.
     for uid in sorted(payload.usuarios, key=str):
@@ -132,11 +139,15 @@ def responsaveis(db, user, turma_id, payload):
             for share''', t=t, u=uid)
         if not eligible:
             raise HTTPException(422, 'Responsável deve ser usuário ativo e autorizado da igreja')
-    db.execute(text('update uv_responsaveis set ativo=false where igreja_id=:t and turma_id=:id'), dict(t=t, id=turma_id))
+    db.execute(text('''update uv_responsaveis set ativo=false,removido_por=:autor,removida_em=clock_timestamp()
+        where igreja_id=:t and turma_id=:id and ativo and not (usuario_id=any(cast(:usuarios as uuid[])))'''),
+        dict(t=t, id=turma_id, autor=autor, usuarios=payload.usuarios))
     for uid in payload.usuarios:
-        db.execute(text('''insert into uv_responsaveis(igreja_id,turma_id,usuario_id)
-            values(:t,:id,:u) on conflict (igreja_id,turma_id,usuario_id) do update set ativo=true'''),
-            dict(t=t, id=turma_id, u=uid))
+        db.execute(text('''insert into uv_responsaveis(igreja_id,turma_id,usuario_id,atribuido_por)
+            values(:t,:id,:u,:autor) on conflict (igreja_id,turma_id,usuario_id) do update set ativo=true,
+            atribuido_por=excluded.atribuido_por,atribuida_em=clock_timestamp()
+            where not uv_responsaveis.ativo'''),
+            dict(t=t, id=turma_id, u=uid, autor=autor))
     return {'status': 'salvo'}
 
 
@@ -175,9 +186,9 @@ def enroll(db, user, turma_id, payload):
     if rows(db, '''select id from uv_matriculas where igreja_id=:t and turma_id=:id
             and pessoa_id=:p and ativa''', t=t, id=turma_id, p=payload.pessoa_id):
         raise HTTPException(409, 'Pessoa já matriculada nesta turma')
-    inserted = db.execute(text('''insert into uv_matriculas(id,igreja_id,turma_id,pessoa_id)
-        values(:id,:t,:turma,:p) on conflict (id) do nothing returning id'''),
-        dict(id=payload.id, t=t, turma=turma_id, p=payload.pessoa_id)).scalar_one_or_none()
+    inserted = db.execute(text('''insert into uv_matriculas(id,igreja_id,turma_id,pessoa_id,criada_por)
+        values(:id,:t,:turma,:p,:autor) on conflict (id) do nothing returning id'''),
+        dict(id=payload.id, t=t, turma=turma_id, p=payload.pessoa_id, autor=uid)).scalar_one_or_none()
     if inserted is None:
         raise HTTPException(409, 'Identificador de matrícula indisponível')
     return {'id': payload.id}
@@ -185,28 +196,51 @@ def enroll(db, user, turma_id, payload):
 
 def close(db, user, turma_id):
     t, uid, roles = actor(db, user)
+    require_coordination(roles)
     turma(db, t, turma_id, lock=True)
     require_scope(db, t, uid, roles, turma_id)
-    db.execute(text('update uv_turmas set encerrada=true where igreja_id=:t and id=:id'), dict(t=t, id=turma_id))
+    db.execute(text('''update uv_turmas set encerrada=true,encerrada_por=:u,encerrada_em=clock_timestamp()
+        where igreja_id=:t and id=:id and not encerrada'''), dict(t=t, id=turma_id, u=uid))
     return {'status': 'encerrada'}
 
 
-def options(db, user, search):
-    t, _, _ = actor(db, user)
+def reopen(db, user, turma_id):
+    t, uid, roles = actor(db, user)
+    require_coordination(roles)
+    turma(db, t, turma_id, lock=True)
+    db.execute(text('''update uv_turmas set encerrada=false,reaberta_por=:u,reaberta_em=clock_timestamp()
+        where igreja_id=:t and id=:id and encerrada'''), dict(t=t, id=turma_id, u=uid))
+    return {'status': 'reaberta'}
+
+
+def options(db, user, search, purpose='pessoas'):
+    t, uid, roles = actor(db, user)
+    if not roles & COORDINATION_ROLES:
+        linked = rows(db, """select r.id from uv_responsaveis r
+            join uv_turmas t on t.igreja_id=r.igreja_id and t.id=r.turma_id
+            where r.igreja_id=:t and r.usuario_id=:u and r.ativo
+            and not t.encerrada limit 1""", t=t, u=uid)
+        if not linked:
+            raise HTTPException(403, 'Nenhuma turma ativa sob sua responsabilidade')
+    if purpose == 'usuarios':
+        require_coordination(roles)
+        users = rows(db, """select u.id,coalesce(p.nome,'Usuário da equipe') as nome from app_users u
+            left join pessoas p on p.igreja_id=u.igreja_id and p.id=u.pessoa_id
+            where u.igreja_id=:t and u.status='ativo'
+            and exists(select 1 from user_roles r where r.igreja_id=u.igreja_id and r.user_id=u.id
+              and r.papel in ('admin','pastor','lider_consol')) order by nome,u.id limit 100""", t=t)
+        return {'pessoas': [], 'usuarios': users}
+    if purpose != 'pessoas':
+        raise HTTPException(422, 'Finalidade inválida')
     # Explicit enrollment picker: minimal identity only, bounded and searchable.
     people = rows(db, """select p.id,p.nome from pessoas p where p.igreja_id=:t
         and p.arquivada_em is null and p.nome ilike :q
         and exists(select 1 from decisions d where d.igreja_id=p.igreja_id and d.pessoa_id=p.id)
         and exists(select 1 from app_users holder where holder.igreja_id=p.igreja_id
           and holder.status='ativo' and exists(select 1 from user_roles hr where
-            hr.igreja_id=holder.igreja_id and hr.user_id=holder.id and hr.papel=any(:holder_roles))
+            hr.igreja_id=holder.igreja_id and hr.user_id=holder.id and hr.papel::text=any(:holder_roles))
           and holder.id=(select c.responsavel_id from consolidacoes c
           where c.igreja_id=p.igreja_id and c.pessoa_id=p.id and c.tipo='individual'
           and c.abandonada_em is null order by c.created_at desc,c.id desc limit 1))
         order by p.nome,p.id limit 50""", t=t, holder_roles=sorted(TIPO_RESOLVER_ROLES['fonovisita'] | {'admin'}), q='%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%')
-    users = rows(db, """select u.id,coalesce(p.nome,'Usuário da equipe') as nome from app_users u
-        left join pessoas p on p.igreja_id=u.igreja_id and p.id=u.pessoa_id
-        where u.igreja_id=:t and u.status='ativo'
-        and exists(select 1 from user_roles r where r.igreja_id=u.igreja_id and r.user_id=u.id
-          and r.papel in ('admin','pastor','lider_consol')) order by nome,u.id limit 100""", t=t)
-    return {'pessoas': people, 'usuarios': users}
+    return {'pessoas': people, 'usuarios': []}

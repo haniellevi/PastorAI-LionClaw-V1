@@ -173,7 +173,13 @@ publicação, restart e gates continuam sem autorização.
 `20261017_210500_uv_turmas.sql` cria turmas, atividades, vínculos de responsáveis
 com usuários existentes e matrículas da Pessoa canônica. As quatro tabelas têm
 FKs compostas, RLS/FORCE RLS, `USING`/`WITH CHECK` por igreja e somente
-SELECT/INSERT/UPDATE para `authenticated`. Matrícula ativa é única por
+SELECT/INSERT e UPDATE apenas nas colunas operacionais para `authenticated`.
+Identidades permanecem imutáveis. Autoria é preenchida pelo servidor com FKs
+compostas para usuários, sem cascade; igrejas, Pessoas e turmas propagam a
+exclusão aprovada. Só admin/pastor alteram responsáveis e encerram/reabrem;
+a reabertura preserva os últimos registros de encerramento e reabertura.
+Alunos arquivados ficam fora da consulta sem apagar a matrícula.
+Matrícula ativa é única por
 igreja/turma/Pessoa. O calendário compreende oito aulas e Encontro, sem presença,
 marco validado ou conclusão. A API valida as capacidades atuais no servidor.
 

@@ -15,7 +15,7 @@ const button = (text: string) => Array.from(container.querySelectorAll("button")
 async function render() { await act(async () => { root.render(h(UVScreen)); }); }
 beforeEach(() => {
   state.roles = ["admin"]; state.request.mockReset();
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : path === "/opcoes" ? { pessoas: [], usuarios: [] } : detail));
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : detail));
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -41,7 +41,7 @@ it("erro recuperável mantém atualização disponível", async () => {
 });
 
 it("turma encerrada mantém consulta e desabilita formulários", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [{ ...turma, encerrada: true }] : path === "/opcoes" ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true }));
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [{ ...turma, encerrada: true }] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true }));
   await render(); await act(async () => { button("Turma teste")!.click(); });
   expect(Array.from(container.querySelectorAll("fieldset")).every(f => f.disabled)).toBe(true);
   expect(button("Matricular pessoa")?.disabled).toBe(true);
@@ -55,4 +55,14 @@ it("encerramento exige confirmação e só depois envia mutação", async () => 
   expect(state.request.mock.calls.some(call => call[2] === "POST")).toBe(false);
   await act(async () => { button("Confirmar encerramento")!.click(); });
   expect(state.request).toHaveBeenCalledWith("synthetic", "/turma/encerrar", "POST", undefined, expect.any(AbortSignal));
+});
+
+it("responsável consulta sem buscar equipe nem oferecer ações de coordenação", async () => {
+  state.roles = ["lider_consol"];
+  await render();
+  expect(state.request.mock.calls.some(call => String(call[1]).includes("opcoes"))).toBe(false);
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Salvar responsáveis")).toBeUndefined();
+  expect(button("Encerrar turma")).toBeUndefined();
+  expect(state.request.mock.calls.some(call => String(call[1]).includes("finalidade=usuarios"))).toBe(false);
 });

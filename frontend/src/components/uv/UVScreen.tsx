@@ -16,10 +16,10 @@ export function UVScreen() {
   if (!token || !user?.roles.some(r => ["admin", "pastor", "lider_consol"].includes(r))) {
     return <section className="card"><h1>Universidade da Vida</h1><p role="alert">Acesso restrito à coordenação e aos responsáveis autorizados.</p></section>;
   }
-  return <UVPanel key={`${user.churchId}:${user.appUserId}:${token}`} token={token} />;
+  return <UVPanel key={`${user.churchId}:${user.appUserId}:${token}`} token={token} coordination={user.roles.some(r => ["admin", "pastor"].includes(r))} />;
 }
 
-function UVPanel({ token }: { token: string }) {
+function UVPanel({ token, coordination }: { token: string; coordination: boolean }) {
   const [turmas, setTurmas] = useState<Turma[]>([]);
   const [detail, setDetail] = useState<TurmaDetalhe | null>(null);
   const [options, setOptions] = useState<UVOpcoes>({ pessoas: [], usuarios: [] });
@@ -41,6 +41,12 @@ function UVPanel({ token }: { token: string }) {
 
   async function loadDetail(id: string) {
     const value = await request<TurmaDetalhe>(`/${id}`);
+    setOptions({ pessoas: [], usuarios: [] });
+    if (!value.encerrada) {
+      const people = await request<UVOpcoes>("/opcoes");
+      const team = coordination ? await request<UVOpcoes>("/opcoes?finalidade=usuarios") : { usuarios: [] };
+      setOptions({ pessoas: people.pessoas, usuarios: team.usuarios });
+    }
     setDetail(value);
     setResponsibles(value.responsaveis.filter(r => r.elegivel).map(r => r.usuario_id));
     setDates(curriculum.map((_, index) => value.atividades.find(a => a.ordem === index + 1)?.data ?? ""));
@@ -58,10 +64,8 @@ function UVPanel({ token }: { token: string }) {
 
   useEffect(() => {
     const abort = new AbortController(); controller.current = abort;
-    void Promise.all([
-      uvRequest<Turma[]>(token, "", "GET", undefined, abort.signal),
-      uvRequest<UVOpcoes>(token, "/opcoes", "GET", undefined, abort.signal),
-    ]).then(([list, choices]) => { if (!abort.signal.aborted) { setTurmas(list); setOptions(choices); } })
+    void uvRequest<Turma[]>(token, "", "GET", undefined, abort.signal)
+      .then(list => { if (!abort.signal.aborted) setTurmas(list); })
       .catch(err => { if (!abort.signal.aborted) setError(err instanceof Error ? err.message : "Falha ao carregar turmas."); })
       .finally(() => { if (!abort.signal.aborted) setBusy(false); });
     return () => abort.abort();
@@ -103,7 +107,7 @@ function UVPanel({ token }: { token: string }) {
           <button className="btn btn-primary">Salvar calendário</button>
         </fieldset>
       </form>
-      <form className="card" onSubmit={submit(async () => {
+      {coordination ? <form className="card" onSubmit={submit(async () => {
         await request(`/${detail.id}/responsaveis`, "PUT", { usuarios: responsibles });
         // Saving can remove this user's own access. Clear cached identities first.
         setDetail(null); setTurmas(await request<Turma[]>()); setNotice("Responsáveis salvos.");
@@ -114,10 +118,10 @@ function UVPanel({ token }: { token: string }) {
           {options.usuarios.map(u => <label key={u.id}><input type="checkbox" checked={responsibles.includes(u.id)} onChange={e => setResponsibles(current => e.target.checked ? [...current, u.id] : current.filter(id => id !== u.id))} />{u.nome}</label>)}
           <button className="btn btn-primary">Salvar responsáveis</button>
         </fieldset>
-      </form>
+      </form> : null}
       <div className="card"><h3>Matrículas</h3>
         <p>A matrícula exige decisão registrada e responsável na consolidação. A conexão à célula é acompanhada como pendência.</p>
-        <form onSubmit={submit(async () => { setOptions(await request<UVOpcoes>(`/opcoes?q=${encodeURIComponent(search)}`)); setPerson(""); })}>
+        <form onSubmit={submit(async () => { setOptions(current => ({ ...current, pessoas: [] })); const choices = await request<UVOpcoes>(`/opcoes?q=${encodeURIComponent(search)}`); setOptions(current => ({ ...current, pessoas: choices.pessoas })); setPerson(""); })}>
           <label>Buscar pessoa elegível<input value={search} maxLength={120} disabled={busy || detail.encerrada} onChange={e => setSearch(e.target.value)} /></label>
           <button className="btn" disabled={busy || detail.encerrada}>Buscar pessoa</button>
         </form>
@@ -131,7 +135,7 @@ function UVPanel({ token }: { token: string }) {
         </form>
         {detail.matriculas.length ? <ul>{detail.matriculas.map(m => <li key={m.id}>{m.nome}{m.conexao_celula_pendente ? " · Conexão à célula pendente" : ""}</li>)}</ul> : <p>Nenhuma pessoa matriculada.</p>}
       </div>
-      {!detail.encerrada ? <button type="button" className="btn" disabled={busy} onClick={() => setClosing(true)}>Encerrar turma</button> : null}
+      {coordination && !detail.encerrada ? <button type="button" className="btn" disabled={busy} onClick={() => setClosing(true)}>Encerrar turma</button> : null}
       <Dialog open={closing} onClose={() => { if (!busy) setClosing(false); }} title="Encerrar turma?" description="A turma ficará disponível para consulta e não aceitará novas matrículas ou alterações.">
         <button className="btn" disabled={busy} onClick={() => setClosing(false)}>Cancelar</button>
         <button className="btn btn-primary" disabled={busy} onClick={() => void run(async () => {

@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = '20261017_210500_uv_turmas.sql'
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def rls_database_url():
     url = os.environ.get('UV_TURMAS_DATABASE_URL', '').strip()
     if not url:
@@ -38,49 +38,43 @@ def rls_database_url():
     return url
 
 
-@pytest.fixture
-def database(rls_database_url):
+@pytest.fixture(scope='module')
+def migrated_database(rls_database_url):
+    from scripts import migrate
     assert_disposable_database(rls_database_url)
     engine = create_engine(rls_database_url)
+    # Only the Supabase platform bootstrap is synthetic; all domain DDL and
+    # current_igreja_id come unchanged from the complete active migration chain.
     with engine.begin() as c:
-        c.exec_driver_sql('''drop schema public cascade; create schema public;
-        do $$ begin
-          if not exists(select 1 from pg_roles where rolname='authenticated') then
-            create role authenticated nologin nobypassrls; end if;
-          if not exists(select 1 from pg_roles where rolname='anon') then
-            create role anon nologin nobypassrls; end if;
-        end $$;
-        create table schema_migrations(name text primary key);
-        grant usage on schema public to authenticated;
-        create function current_igreja_id() returns uuid language sql stable as
-          $$ select nullif(current_setting('app.tenant_igreja_id',true),'')::uuid $$;
-        create table igrejas(id uuid primary key);
-        create table pessoas(id uuid primary key, igreja_id uuid not null references igrejas,
-          nome text not null, celula_id uuid, arquivada_em timestamptz, unique(igreja_id,id));
-        create table app_users(id uuid primary key, igreja_id uuid not null references igrejas,
-          pessoa_id uuid, status text not null, unique(igreja_id,id));
-        create table user_roles(id uuid primary key default gen_random_uuid(), igreja_id uuid not null,
-          user_id uuid not null, papel text not null);
-        create table role_permissions(id uuid primary key default gen_random_uuid(),
-          igreja_id uuid not null, papel text not null, tela text not null);
-        alter table role_permissions enable row level security;
-        alter table role_permissions force row level security;
-        create policy tenant_isolation on role_permissions for all to authenticated
-          using(igreja_id=current_igreja_id()) with check(igreja_id=current_igreja_id());
-        grant select on role_permissions to authenticated;
-        create table decisions(id uuid primary key default gen_random_uuid(), igreja_id uuid not null,
-          pessoa_id uuid not null);
-        create table consolidacoes(id uuid primary key default gen_random_uuid(), igreja_id uuid not null,
-          pessoa_id uuid not null, responsavel_id uuid, tipo text default 'individual',
-          abandonada_em timestamptz, created_at timestamptz default now());
-        grant select,insert,update on pessoas,app_users,user_roles,decisions,consolidacoes to authenticated;
-        ''')
-    # Use the same official runner authorized for deployments; no raw apply.
+        c.exec_driver_sql("drop schema public cascade; create schema public")
+        for role, bypass in (("anon", False), ("authenticated", False), ("service_role", True)):
+            c.exec_driver_sql(f"""do $$ begin
+                if not exists(select 1 from pg_roles where rolname='{role}') then
+                    create role {role} nologin {'bypassrls' if bypass else 'nobypassrls'};
+                end if; end $$""")
+        c.exec_driver_sql('grant usage on schema public to anon, authenticated, service_role')
+        for obj in ('tables', 'sequences', 'functions'):
+            c.exec_driver_sql(f"alter default privileges in schema public grant all on {obj} to anon, authenticated, service_role")
+        c.exec_driver_sql('create table public.schema_migrations(name text primary key)')
     env = dict(os.environ, MIGRATION_DATABASE_URL=rls_database_url.replace('postgresql+psycopg2:', 'postgresql:'))
-    subprocess.run([sys.executable, str(ROOT/'scripts/migrate.py'), 'apply', MIGRATION, '--yes'],
-                   env=env, check=True, capture_output=True)
+    for filename in migrate.migration_files():
+        body = (migrate.MIGRATIONS_DIR / filename).read_text()
+        concurrent = any('index concurrently' in line.lower() for line in body.splitlines()
+                         if not line.lstrip().startswith('--'))
+        command = [sys.executable, str(ROOT/'scripts/migrate.py'), 'apply', filename, '--yes']
+        if concurrent:
+            command.append('--no-transaction')
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        assert result.returncode == 0, f"{filename}: {result.stderr}"
     yield engine
     engine.dispose()
+
+
+@pytest.fixture
+def database(migrated_database):
+    with migrated_database.begin() as c:
+        c.exec_driver_sql("delete from igrejas")
+    return migrated_database
 
 
 @pytest.fixture
@@ -88,13 +82,13 @@ def seeded(database):
     t, other, uid, leader, outsider, p = [uuid4() for _ in range(6)]
     with database.begin() as c:
         for tenant in (t, other):
-            c.execute(text('insert into igrejas values(:t)'), dict(t=tenant))
+            c.execute(text("insert into igrejas(id,nome) values(:t,'Igreja sintética')"), dict(t=tenant))
         for u, role in ((uid,'admin'), (leader,'lider_consol'), (outsider,'operador')):
-            c.execute(text("insert into app_users(id,igreja_id,status) values(:u,:t,'ativo')"), dict(u=u,t=t))
+            c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Equipe sintética','synthetic@example.test')"), dict(u=u,t=t))
             c.execute(text('insert into user_roles(igreja_id,user_id,papel) values(:t,:u,:r)'), dict(t=t,u=u,r=role))
-        c.execute(text("insert into pessoas(id,igreja_id,nome) values(:p,:t,'Aluno sintético')"), dict(p=p,t=t))
-        c.execute(text('insert into decisions(igreja_id,pessoa_id) values(:t,:p)'), dict(p=p,t=t))
-        c.execute(text('insert into consolidacoes(igreja_id,pessoa_id,responsavel_id) values(:t,:p,:u)'), dict(p=p,t=t,u=uid))
+        c.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:p,:t,'Aluno sintético','550000000001')"), dict(p=p,t=t))
+        c.execute(text("insert into decisions(igreja_id,pessoa_id,vinculo) values(:t,:p,'visitante')"), dict(p=p,t=t))
+        c.execute(text("update consolidacoes set responsavel_id=:u where igreja_id=:t and pessoa_id=:p and tipo='individual'"), dict(p=p,t=t,u=uid))
     return dict(t=t, other=other, uid=uid, leader=leader, outsider=outsider, p=p)
 
 
@@ -232,7 +226,8 @@ def test_rls_isolation_using_and_with_check(database,seeded,table):
         tid=create(s,v); uv.calendar(s,principal(v),tid,schedule()); uv.enroll(s,principal(v),tid,matricula(v)); s.commit()
     with scoped(database,v['other']) as s:
         assert s.execute(text(f'select count(*) from {table}')).scalar_one()==0
-        assert s.execute(text(f'update {table} set igreja_id=:t'),dict(t=v['other'])).rowcount==0
+        column = {'uv_turmas':'encerrada','uv_atividades':'data','uv_responsaveis':'ativo','uv_matriculas':'ativa'}[table]
+        assert s.execute(text(f'update {table} set {column}={column}')).rowcount==0
         with pytest.raises(ProgrammingError):
             if table=='uv_turmas':
                 s.execute(text("insert into uv_turmas(id,igreja_id,nome) values(:id,:t,'X')"), dict(id=uuid4(),t=v['t']))
@@ -251,8 +246,8 @@ def test_composite_foreign_keys(database,seeded,edge):
     with database.begin() as c:
         ot=uuid4(); ou=uuid4(); op=uuid4()
         c.execute(text("insert into uv_turmas(id,igreja_id,nome) values(:id,:t,'Outra')"),dict(id=ot,t=v['other']))
-        c.execute(text("insert into app_users(id,igreja_id,status) values(:id,:t,'ativo')"),dict(id=ou,t=v['other']))
-        c.execute(text("insert into pessoas(id,igreja_id,nome) values(:id,:t,'Outra')"),dict(id=op,t=v['other']))
+        c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:id,:t,'ativo','Equipe sintética','synthetic@example.test')"),dict(id=ou,t=v['other']))
+        c.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:id,:t,'Outra','550000000002')"),dict(id=op,t=v['other']))
     with scoped(database,v['t']) as s:
         with pytest.raises(IntegrityError) as exc:
             if edge=='activity_turma':
@@ -302,7 +297,7 @@ def test_service_isolates_even_with_bypassrls_connection(database,seeded):
     v=seeded
     with scoped(database,v['t']) as s: tid=create(s,v); s.commit()
     with database.begin() as c:
-        c.execute(text("insert into app_users(id,igreja_id,status) values(:u,:t,'ativo')"),dict(u=v['other'],t=v['other']))
+        c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Equipe sintética','synthetic@example.test')"),dict(u=v['other'],t=v['other']))
         c.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:t,:u,'admin')"),dict(u=v['other'],t=v['other']))
     with Session(database) as s:
         other_user=principal(v,key='other',tenant='other')
@@ -396,7 +391,7 @@ def test_rls_rejects_moving_visible_record_to_other_tenant(database,seeded,table
 def test_legacy_cross_tenant_person_responsible_cannot_authorize_enrollment(database,seeded):
     v=seeded
     with database.begin() as c:
-        c.execute(text("insert into app_users(id,igreja_id,status) values(:u,:t,'ativo')"),dict(u=v['other'],t=v['other']))
+        c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Equipe sintética','synthetic@example.test')"),dict(u=v['other'],t=v['other']))
         c.execute(text('update consolidacoes set responsavel_id=:u'),dict(u=v['other']))
     with scoped(database,v['t']) as s:
         tid=create(s,v)
@@ -452,3 +447,192 @@ def test_person_responsible_live_capability(database,seeded,role):
         else:
             assert uv.options(s,principal(v),'')['pessoas']
             assert uv.enroll(s,principal(v),tid,matricula(v))
+
+
+@pytest.mark.parametrize('state', ['absent', 'inactive', 'closed', 'active'])
+def test_options_require_live_responsibility(database, seeded, state):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        if state != 'absent':
+            tid = create(s, v, 'leader')
+            if state == 'inactive':
+                uv.responsaveis(s, principal(v), tid, ResponsaveisInput(usuarios=[]))
+            if state == 'closed':
+                uv.close(s, principal(v), tid)
+        if state == 'active':
+            result = uv.options(s, principal(v, 'leader'), '')
+            assert result['pessoas'] == [dict(id=v['p'], nome='Aluno sintético')]
+            assert result['usuarios'] == []
+        else:
+            with pytest.raises(HTTPException) as exc:
+                uv.options(s, principal(v, 'leader'), '')
+            assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize('operation', ['responsaveis', 'close'])
+def test_responsible_cannot_coordinate(database, seeded, operation):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v, 'leader')
+        with pytest.raises(HTTPException) as exc:
+            if operation == 'close':
+                uv.close(s, principal(v, 'leader'), tid)
+            else:
+                uv.responsaveis(s, principal(v, 'leader'), tid, ResponsaveisInput(usuarios=[]))
+        assert exc.value.status_code == 403
+        assert uv.get_turma(s, principal(v, 'leader'), tid)['encerrada'] is False
+
+
+@pytest.mark.parametrize('table,column', [
+    ('uv_turmas','igreja_id'), ('uv_atividades','turma_id'),
+    ('uv_responsaveis','turma_id'), ('uv_responsaveis','usuario_id'),
+    ('uv_matriculas','turma_id'), ('uv_matriculas','pessoa_id'),
+    ('uv_matriculas','igreja_id'),
+])
+def test_authenticated_cannot_update_identity(database, seeded, table, column):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v)
+        uv.calendar(s, principal(v), tid, schedule())
+        uv.enroll(s, principal(v), tid, matricula(v))
+        with pytest.raises(ProgrammingError) as exc:
+            s.execute(text(f'update {table} set {column}={column}'))
+        assert exc.value.orig.pgcode == '42501'
+
+
+@pytest.mark.parametrize('role', ['admin', 'pastor', 'lider_consol'])
+@pytest.mark.parametrize('users', [[], ['outsider']])
+def test_only_coordination_assigns_and_removes(database, seeded, role, users):
+    v = seeded
+    with database.begin() as c:
+        c.execute(text('update user_roles set papel=:r where user_id=:u'), dict(r=role, u=v['leader']))
+        c.execute(text("update user_roles set papel='pastor' where user_id=:u"), dict(u=v['outsider']))
+    with scoped(database, v['t']) as s:
+        tid = create(s, v, 'leader')
+        payload = ResponsaveisInput(usuarios=[v[k] for k in users])
+        if role == 'lider_consol':
+            with pytest.raises(HTTPException) as exc:
+                uv.responsaveis(s, principal(v, 'leader'), tid, payload)
+            assert exc.value.status_code == 403
+        else:
+            uv.responsaveis(s, principal(v, 'leader'), tid, payload)
+            links = uv.get_turma(s, principal(v, 'leader'), tid)['responsaveis']
+            assert {r['usuario_id'] for r in links} == set(payload.usuarios)
+
+
+@pytest.mark.parametrize('role', ['admin', 'pastor', 'lider_consol'])
+def test_closure_reopening_audit_and_api(database, seeded, role):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v, 'leader')
+        uv.close(s, principal(v), tid)
+        s.commit()
+    with database.begin() as c:
+        c.execute(text('update user_roles set papel=:r where user_id=:u'), dict(r=role, u=v['leader']))
+    app = FastAPI(); app.include_router(router)
+    def db():
+        with scoped(database, v['t']) as s: yield s
+    app.dependency_overrides[get_db] = db
+    app.dependency_overrides[get_current_user] = lambda: principal(v, 'leader')
+    with TestClient(app) as client:
+        response = client.post(f'/uv/turmas/{tid}/reabrir')
+        assert response.status_code == (403 if role == 'lider_consol' else 200)
+        response = client.post(f'/uv/turmas/{tid}/encerrar')
+        assert response.status_code == (403 if role == 'lider_consol' else 200)
+    with scoped(database, v['t']) as s:
+        row = s.execute(text('select * from uv_turmas where id=:id'), dict(id=tid)).mappings().one()
+        assert row['encerrada'] is True
+        assert row['encerrada_por'] == (v['uid'] if role == 'lider_consol' else v['leader'])
+        assert row['encerrada_em'] is not None
+        if role != 'lider_consol':
+            assert row['reaberta_por'] == v['leader']
+            assert row['reaberta_em'] is not None
+            uv.reopen(s, principal(v, 'leader'), tid)
+            after = s.execute(text('select * from uv_turmas where id=:id'), dict(id=tid)).mappings().one()
+            assert after['encerrada_por'] == row['encerrada_por']
+            assert after['encerrada_em'] == row['encerrada_em']
+            assert after['encerrada'] is False
+
+
+def test_server_authorship_and_archived_student(database, seeded):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v)
+        uv.calendar(s, principal(v), tid, schedule())
+        uv.enroll(s, principal(v), tid, matricula(v))
+        uv.responsaveis(s, principal(v), tid, ResponsaveisInput(usuarios=[v['leader']]))
+        for table in ('uv_turmas', 'uv_atividades', 'uv_matriculas'):
+            assert set(s.execute(text(f'select criada_por from {table}')).scalars()) == {v['uid']}
+        links = s.execute(text('select usuario_id,atribuido_por,removido_por from uv_responsaveis')).mappings().all()
+        assert all(r['atribuido_por'] == v['uid'] for r in links)
+        assert next(r for r in links if r['usuario_id'] == v['uid'])['removido_por'] == v['uid']
+        s.execute(text('update pessoas set arquivada_em=now() where id=:p'), dict(p=v['p']))
+        assert uv.get_turma(s, principal(v, 'leader'), tid)['matriculas'] == []
+        assert s.execute(text('select count(*) from uv_matriculas')).scalar_one() == 1
+
+
+def test_picker_http_scope_and_purpose(database, seeded):
+    v = seeded
+    app = FastAPI(); app.include_router(router)
+    def db():
+        with scoped(database, v['t']) as s: yield s
+    app.dependency_overrides[get_db] = db
+    app.dependency_overrides[get_current_user] = lambda: principal(v, 'leader')
+    with TestClient(app) as client:
+        denied = client.get('/uv/turmas/opcoes')
+        assert denied.status_code == 403
+        assert 'Aluno sintético' not in denied.text
+        with scoped(database, v['t']) as s:
+            create(s, v, 'leader'); s.commit()
+        allowed = client.get('/uv/turmas/opcoes')
+        assert allowed.status_code == 200
+        assert allowed.json() == {'pessoas': [{'id': str(v['p']), 'nome': 'Aluno sintético'}], 'usuarios': []}
+        assert client.get('/uv/turmas/opcoes?finalidade=usuarios').status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: principal(v)
+        team = client.get('/uv/turmas/opcoes?finalidade=usuarios')
+        assert team.status_code == 200
+        assert team.json()['pessoas'] == []
+        assert len(team.json()['usuarios']) == 2
+        assert all(set(row) == {'id', 'nome'} for row in team.json()['usuarios'])
+
+
+@pytest.mark.parametrize('table,column', [
+    ('uv_turmas', 'criada_por'), ('uv_atividades', 'criada_por'),
+    ('uv_matriculas', 'criada_por'), ('uv_responsaveis', 'atribuido_por'),
+    ('uv_responsaveis', 'removido_por'), ('uv_turmas', 'encerrada_por'),
+    ('uv_turmas', 'reaberta_por'),
+])
+def test_audit_actor_fk_is_tenant_bound(database, seeded, table, column):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v)
+        uv.calendar(s, principal(v), tid, schedule())
+        uv.enroll(s, principal(v), tid, matricula(v))
+        s.commit()
+    with database.begin() as c:
+        c.execute(text("insert into app_users(id,igreja_id,nome,email,status) values(:u,:t,'Outra equipe','other@example.test','ativo')"), dict(u=v['other'], t=v['other']))
+    with database.connect() as c:
+        with pytest.raises(IntegrityError) as exc:
+            c.execute(text(f'update {table} set {column}=:u'), dict(u=v['other']))
+        assert exc.value.orig.pgcode == '23503'
+
+
+@pytest.mark.parametrize('target', ['pessoas', 'igrejas', 'app_users'])
+def test_approved_deletion_cascades_except_users(database, seeded, target):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v)
+        uv.calendar(s, principal(v), tid, schedule())
+        uv.enroll(s, principal(v), tid, matricula(v))
+        s.commit()
+    with database.begin() as c:
+        if target == 'app_users':
+            with pytest.raises(IntegrityError) as exc:
+                c.execute(text('delete from app_users where id=:u'), dict(u=v['uid']))
+            assert exc.value.orig.pgcode == '23503'
+            return
+        key = v['p'] if target == 'pessoas' else v['t']
+        c.execute(text(f'delete from {target} where id=:id'), dict(id=key))
+        assert c.execute(text('select count(*) from uv_matriculas')).scalar_one() == 0
+        for table in ('uv_turmas', 'uv_atividades', 'uv_responsaveis'):
+            assert c.execute(text(f'select count(*) from {table}')).scalar_one() == (0 if target == 'igrejas' else (9 if table == 'uv_atividades' else 1))
