@@ -145,7 +145,10 @@ def test_first_chronological_visit_blocks_without_falling_back(candidate, change
         other = Celula(igreja_id=TENANT, nome='Segunda célula sintética', ativo=True, lider_id=db.get(Celula, p.cell).lider_id, cobertura_espiritual='Teste')
         db.add(other)
         db.flush()
-        db.add(CelulaReuniao(id=meeting_id, igreja_id=TENANT, celula_id=other.id, data=dt.date.today(), hora='00:00', status='planejada', relatorio_status='pendente'))
+        # Keep the second visit after the first and in the past even when
+        # the runner's UTC date is a day ahead of São Paulo.
+        first = db.get(CelulaReuniao, p.meeting)
+        db.add(CelulaReuniao(id=meeting_id, igreja_id=TENANT, celula_id=other.id, data=first.data, hora='20:00', status='planejada', relatorio_status='pendente'))
     with p.factory.begin() as db:
         register_cell_visit(db, p.actors['lider_celula'], reuniao_id=meeting_id, pessoa_id=p.person)
     with p.factory.begin() as db:
