@@ -61,6 +61,13 @@ def database(rls_database_url):
           pessoa_id uuid, status text not null, unique(igreja_id,id));
         create table user_roles(id uuid primary key default gen_random_uuid(), igreja_id uuid not null,
           user_id uuid not null, papel text not null);
+        create table role_permissions(id uuid primary key default gen_random_uuid(),
+          igreja_id uuid not null, papel text not null, tela text not null);
+        alter table role_permissions enable row level security;
+        alter table role_permissions force row level security;
+        create policy tenant_isolation on role_permissions for all to authenticated
+          using(igreja_id=current_igreja_id()) with check(igreja_id=current_igreja_id());
+        grant select on role_permissions to authenticated;
         create table decisions(id uuid primary key default gen_random_uuid(), igreja_id uuid not null,
           pessoa_id uuid not null);
         create table consolidacoes(id uuid primary key default gen_random_uuid(), igreja_id uuid not null,
@@ -396,3 +403,52 @@ def test_legacy_cross_tenant_person_responsible_cannot_authorize_enrollment(data
         assert uv.options(s,principal(v),'')['pessoas']==[]
         with pytest.raises(HTTPException) as exc: uv.enroll(s,principal(v),tid,matricula(v))
         assert exc.value.status_code==422
+
+
+@pytest.mark.parametrize('operation',['list','detail','calendar','enroll','create','close','responsible','options'])
+def test_live_screen_permission_revocation_blocks_service(database,seeded,operation):
+    v=seeded
+    with scoped(database,v['t']) as s: tid=create(s,v,'leader'); s.commit()
+    with database.begin() as c:
+        c.execute(text("insert into role_permissions(igreja_id,papel,tela) values(:t,'lider_consol','dashboard')"),dict(t=v['t']))
+    with scoped(database,v['t']) as s:
+        u=principal(v,'leader')
+        calls=dict(list=lambda:uv.list_turmas(s,u), detail=lambda:uv.get_turma(s,u,tid),
+            calendar=lambda:uv.calendar(s,u,tid,schedule()), enroll=lambda:uv.enroll(s,u,tid,matricula(v)),
+            create=lambda:create(s,v,'leader'), close=lambda:uv.close(s,u,tid),
+            responsible=lambda:uv.responsaveis(s,u,tid,ResponsaveisInput(usuarios=[])),
+            options=lambda:uv.options(s,u,''))
+        with pytest.raises(HTTPException) as exc: calls[operation]()
+        assert exc.value.status_code==403
+
+
+def test_live_screen_permission_revocation_blocks_http(database,seeded):
+    from dataclasses import replace
+    v=seeded
+    with database.begin() as c:
+        c.execute(text("insert into role_permissions(igreja_id,papel,tela) values(:t,'lider_consol','dashboard')"),dict(t=v['t']))
+    app=FastAPI(); app.include_router(router)
+    def db():
+        with scoped(database,v['t']) as s: yield s
+    app.dependency_overrides[get_db]=db
+    app.dependency_overrides[get_current_user]=lambda:replace(principal(v,'leader'),roles=frozenset({'lider_consol'}))
+    with TestClient(app) as client:
+        assert client.get('/uv/turmas').status_code==403
+        assert client.post('/uv/turmas',json=dict(id=str(uuid4()),nome='Negada')).status_code==403
+
+
+@pytest.mark.parametrize('role',['operador','membro','lider_celula','lider_g12'])
+def test_person_responsible_live_capability(database,seeded,role):
+    v=seeded
+    with database.begin() as c:
+        c.execute(text('update consolidacoes set responsavel_id=:u'),dict(u=v['leader']))
+        c.execute(text('update user_roles set papel=:r where user_id=:u'),dict(r=role,u=v['leader']))
+    with scoped(database,v['t']) as s:
+        tid=create(s,v)
+        if role in {'operador','membro'}:
+            assert uv.options(s,principal(v),'')['pessoas']==[]
+            with pytest.raises(HTTPException) as exc: uv.enroll(s,principal(v),tid,matricula(v))
+            assert exc.value.status_code==422
+        else:
+            assert uv.options(s,principal(v),'')['pessoas']
+            assert uv.enroll(s,principal(v),tid,matricula(v))

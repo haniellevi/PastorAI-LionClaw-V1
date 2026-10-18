@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.deps import CurrentUser, require_screen
 from app.services import uv
 
 router = APIRouter(prefix='/uv/turmas', tags=['uv'])
@@ -68,50 +68,50 @@ class MatriculaInput(Input):
 
 
 @router.get('')
-def list_turmas(db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def list_turmas(db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     return uv.list_turmas(db, user)
 
 
 @router.post('')
-def create(payload: TurmaInput, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def create(payload: TurmaInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     result = uv.create_turma(db, user, payload)
     db.commit()
     return result
 
 
 @router.get('/opcoes')
-def options(q: str = Query(default='', max_length=120), db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def options(q: str = Query(default='', max_length=120), db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     return uv.options(db, user, q)
 
 
 @router.get('/{turma_id}')
-def detail(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def detail(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     return uv.get_turma(db, user, turma_id)
 
 
 @router.put('/{turma_id}/calendario')
-def calendar(turma_id: UUID, payload: CalendarioInput, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def calendar(turma_id: UUID, payload: CalendarioInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     result = uv.calendar(db, user, turma_id, payload)
     db.commit()
     return result
 
 
 @router.put('/{turma_id}/responsaveis')
-def responsible(turma_id: UUID, payload: ResponsaveisInput, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def responsible(turma_id: UUID, payload: ResponsaveisInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     result = uv.responsaveis(db, user, turma_id, payload)
     db.commit()
     return result
 
 
 @router.post('/{turma_id}/matriculas')
-def enroll(turma_id: UUID, payload: MatriculaInput, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def enroll(turma_id: UUID, payload: MatriculaInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     result = uv.enroll(db, user, turma_id, payload)
     db.commit()
     return result
 
 
 @router.post('/{turma_id}/encerrar')
-def close(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+def close(turma_id: UUID, db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen("universidade-vida"))):
     result = uv.close(db, user, turma_id)
     db.commit()
     return result

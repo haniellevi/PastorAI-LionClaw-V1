@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.deps import CurrentUser
 from app.domain.uv import SituacaoUV, avaliar_uv
+from app.domain.permissions import can_access_screen
+from app.domain.work_queue import can_resolve, TIPO_RESOLVER_ROLES
 
 UV_ROLES = {'admin', 'pastor', 'lider_consol'}
 COORDINATION_ROLES = {'admin', 'pastor'}
@@ -28,6 +30,13 @@ def actor(db: Session, user: CurrentUser) -> tuple[UUID, UUID, set[str]]:
     roles = {r['papel'] for r in result} & UV_ROLES
     if not roles:
         raise HTTPException(403, 'Sem permissão para Universidade da Vida')
+    if 'admin' not in roles:
+        permissions = rows(db, 'select papel,tela from role_permissions where igreja_id=:t', t=tenant)
+        matrix: dict[str, set[str]] = {}
+        for permission in permissions:
+            matrix.setdefault(permission['papel'], set()).add(permission['tela'])
+        if not can_access_screen(frozenset(roles), 'universidade-vida', matrix):
+            raise HTTPException(403, 'Você não tem acesso a esta tela')
     return tenant, uid, roles
 
 
@@ -155,8 +164,11 @@ def enroll(db, user, turma_id, payload):
     responsible_id = tracks[0]['responsavel_id'] if tracks else None
     responsible = rows(db, """select id from app_users where igreja_id=:t
         and id=:id and status='ativo' for share""", t=t, id=responsible_id)
+    responsible_roles = rows(db, 'select papel from user_roles where igreja_id=:t and user_id=:id for share',
+                             t=t, id=responsible_id)
+    capable = can_resolve([r['papel'] for r in responsible_roles], 'fonovisita')
     result = avaliar_uv(SituacaoUV(decisao_registrada=bool(decision),
-        responsavel_id=responsible_id if responsible else None,
+        responsavel_id=responsible_id if responsible and capable else None,
         conectado_celula=person[0]['celula_id'] is not None))
     if not result.pode_ingressar:
         raise HTTPException(422, 'Matrícula exige decisão registrada e responsável definido na consolidação')
@@ -186,10 +198,12 @@ def options(db, user, search):
         and p.arquivada_em is null and p.nome ilike :q
         and exists(select 1 from decisions d where d.igreja_id=p.igreja_id and d.pessoa_id=p.id)
         and exists(select 1 from app_users holder where holder.igreja_id=p.igreja_id
-          and holder.status='ativo' and holder.id=(select c.responsavel_id from consolidacoes c
+          and holder.status='ativo' and exists(select 1 from user_roles hr where
+            hr.igreja_id=holder.igreja_id and hr.user_id=holder.id and hr.papel=any(:holder_roles))
+          and holder.id=(select c.responsavel_id from consolidacoes c
           where c.igreja_id=p.igreja_id and c.pessoa_id=p.id and c.tipo='individual'
           and c.abandonada_em is null order by c.created_at desc,c.id desc limit 1))
-        order by p.nome,p.id limit 50""", t=t, q='%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%')
+        order by p.nome,p.id limit 50""", t=t, holder_roles=sorted(TIPO_RESOLVER_ROLES['fonovisita'] | {'admin'}), q='%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%')
     users = rows(db, """select u.id,coalesce(p.nome,'Usuário da equipe') as nome from app_users u
         left join pessoas p on p.igreja_id=u.igreja_id and p.id=u.pessoa_id
         where u.igreja_id=:t and u.status='ativo'

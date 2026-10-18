@@ -120,3 +120,14 @@ def test_never_suggests_contatos_for_non_admin_even_with_legacy_grant() -> None:
     assert "contatos" not in allowed
     telas = suggest_screens("preciso do cadastro de pessoa", allowed)
     assert "contatos" not in telas
+
+
+def test_uv_navigation_is_available_only_with_current_authorized_permission():
+    assert 'universidade-vida' in suggest_screens('Universidade da Vida', allowed_screens_for_roles({}, ['admin']))
+    for role in ('pastor', 'lider_consol'):
+        allowed=allowed_screens_for_roles({role: ['universidade-vida']}, [role])
+        assert suggest_screens('Turma UV', allowed)==['universidade-vida']
+        revoked=allowed_screens_for_roles({role: ['dashboard']}, [role])
+        assert 'universidade-vida' not in suggest_screens('Universidade da Vida', revoked)
+    forbidden=allowed_screens_for_roles({'operador': ['universidade-vida']}, ['operador'])
+    assert 'universidade-vida' not in suggest_screens('Universidade da Vida', forbidden)
