@@ -112,5 +112,5 @@ it("falha de transporte preserva a chave da chamada na repetição", async () =>
   await act(async () => { button("Registrar presença")!.click(); });
   const posts = state.request.mock.calls.filter(c => c[2] === "POST");
   expect(posts).toHaveLength(2);
-  expect(posts[0][3].id).toBe(posts[1][3].id);
+  expect(posts[0]![3].id).toBe(posts[1]![3].id);
 });
