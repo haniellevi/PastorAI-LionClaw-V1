@@ -130,6 +130,7 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "inbox",
     "ganhar",
     "minha-celula",
+    "enviar",
     "capacitacao",
     "calendario",
     "celulas",

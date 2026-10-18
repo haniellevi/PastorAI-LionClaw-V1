@@ -103,7 +103,7 @@ export function EnviarScreen() {
           <h2>Enviar</h2>
           <p>Acompanhe pedidos e registros que fortalecem a próxima geração.</p>
         </div>
-        <div className="actions"><button type="button" className="btn" disabled={loading} onClick={() => void load()}><Icon name="refresh" /> Atualizar</button></div>
+        <div className="actions"><button type="button" className="btn" disabled={loading} onClick={() => { setRequestsReload(n => n + 1); void load(); }}><Icon name="refresh" /> Atualizar</button></div>
       </div>
       <div className="info-banner" role="note">
         <Icon name="info" />
@@ -114,7 +114,7 @@ export function EnviarScreen() {
         </span>
       </div>
 
-      {canRequest && token ? <EnviarPanorama token={token} onExpired={expireSession} canDecide={canEvaluate} /> : null}
+      {canRequest && token ? <EnviarPanorama token={token} onExpired={expireSession} canDecide={canEvaluate} reloadToken={requestsReload} /> : null}
 
       {canEvaluate && token ? <section className="card card-pad" aria-label="Avaliar aptidão">
         <h3>Aptidão à liderança</h3>
@@ -122,7 +122,7 @@ export function EnviarScreen() {
         <PaginatedLookup label="Pessoa para avaliação" inputId="enviar-pessoa" loadPage={loadCandidates}
           selected={candidate} onSelect={setCandidate} getLabel={person => person.nome}
           onSessionExpired={expireSession} />
-        {candidate ? <AvaliacaoPanel key={candidate.id} pessoaId={candidate.id} token={token} onExpired={expireSession} /> : null}
+        {candidate ? <AvaliacaoPanel key={candidate.id} pessoaId={candidate.id} token={token} onExpired={expireSession} onSaved={() => setRequestsReload(n => n + 1)} /> : null}
       </section> : null}
 
       {canRequest && token ? <section id="enviar-pedidos" tabIndex={-1} className="card card-pad" aria-label="Nomeações">

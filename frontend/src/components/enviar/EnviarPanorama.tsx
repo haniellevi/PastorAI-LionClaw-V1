@@ -9,7 +9,7 @@ const situation = { apto_para_avaliacao: 'Apto para avaliação', pendente: 'For
 const status: Record<string, string> = { aguardando: 'Aguardando decisão', ajuste_solicitado: 'Ajuste solicitado', aprovada: 'Aprovada', rejeitada: 'Rejeitada', cancelada: 'Cancelada' };
 function date(value: string) { return new Date(value).toLocaleDateString('pt-BR', { timeZone: 'UTC' }); }
 
-export function EnviarPanorama({ token, onExpired, canDecide }: { token: string; onExpired: () => void; canDecide: boolean }) {
+export function EnviarPanorama({ token, onExpired, canDecide, reloadToken = 0 }: { token: string; onExpired: () => void; canDecide: boolean; reloadToken?: number }) {
   const [view, setView] = useState<View>('pendentes');
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
@@ -28,7 +28,7 @@ export function EnviarPanorama({ token, onExpired, canDecide }: { token: string;
       else setError(err instanceof Error ? err.message : 'Não foi possível consultar Enviar.');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [token, q, page, view, reload, onExpired]);
+  }, [token, q, page, view, reload, reloadToken, onExpired]);
   return <section className="card card-pad" aria-label="Pessoas e histórico de Enviar">
     <h3>Pessoas e histórico</h3>
     <p>A avaliação de aptidão não nomeia líderes. Legados preservam sua situação; formação pendente exige conferência pastoral.</p>

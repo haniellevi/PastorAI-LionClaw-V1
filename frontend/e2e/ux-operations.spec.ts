@@ -29,7 +29,7 @@ const pendingReport: ReportItem = { id: "ops-meeting-B", celulaId: cell.id, celu
 function pageOf<T>(items: T[]): ApiPage<T> { return { items, page: 1, pageSize: 200, total: items.length }; }
 
 const permissions: PermissionMatrix = {
-  lider_celula: ["dashboard", "minha-celula", "calendario"],
+  lider_celula: ["dashboard", "minha-celula", "calendario", "enviar"],
   membro: ["dashboard", "minha-celula", "calendario"],
 };
 
@@ -431,6 +431,22 @@ test("Enviar consulta aptos, pendências e histórico sem efetuar decisões", as
   await panorama.getByRole('link', { name: 'Iniciar nomeação ou abertura', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Nomeações', exact: true })).toBeFocused();
   expect(page.url()).toContain('#enviar');
+  expect(fixture.writes).toEqual([]);
+  expectCleanBrowser(safety);
+});
+
+test('líder de célula alcança Enviar e consulta panorama sem decisão da Central', async ({ page }) => {
+  const safety = await armBrowserSafety(page);
+  await loginThroughUi(page);
+  const fixture = await fixtures(page);
+  fixture.controls.leader = true;
+  await page.reload();
+  await page.goto('/#enviar');
+  const panorama = page.getByRole('region', { name: 'Pessoas e histórico de Enviar' });
+  await expect(panorama).toBeVisible();
+  await expect(panorama.getByText('Nenhuma pessoa neste filtro.', { exact: true })).toBeVisible();
+  await expect(panorama.getByRole('link', { name: 'Decidir na Central de Célula', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Avaliar aptidão', exact: true })).toHaveCount(0);
   expect(fixture.writes).toEqual([]);
   expectCleanBrowser(safety);
 });

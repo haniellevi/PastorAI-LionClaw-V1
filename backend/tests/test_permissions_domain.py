@@ -38,3 +38,8 @@ def test_uv_cannot_be_granted_to_other_roles_by_legacy_matrix():
     assert not can_access_screen(frozenset({'operador'}), 'universidade-vida', {'operador': {'universidade-vida'}})
     assert not can_access_screen(frozenset({'lider_g12'}), 'universidade-vida', {'lider_g12': {'universidade-vida'}})
     assert can_access_screen(frozenset({'lider_consol'}), 'universidade-vida', {})
+
+
+def test_enviar_cell_leader_default_preserves_custom_matrix():
+    assert can_access_screen(frozenset({'lider_celula'}), 'enviar', {})
+    assert not can_access_screen(frozenset({'lider_celula'}), 'enviar', {'lider_celula': {'dashboard'}})
