@@ -61,8 +61,11 @@ def _append(db, pessoa, *, id, decisao, origem, motivo, autor_id, solicitacao_id
 
 
 def registrar_avaliacao(db: Session, user: CurrentUser, pessoa_id: UUID, payload) -> EnviarAvaliacao:
-    actor = _coord(db, user)
+    if not user.has_any_role(CENTRAL_ROLES):
+        raise HTTPException(403, "Ação restrita à Central de Células")
     pessoa = _pessoa(db, user, pessoa_id, lock=True)
+    # Authority must be current after any wait for the person lock.
+    actor = _coord(db, user)
     if actor.pessoa_id == pessoa.id:
         raise HTTPException(403, 'Não é permitido avaliar a própria aptidão')
     # Do not let omitting the request id bypass segregation. Pending requests

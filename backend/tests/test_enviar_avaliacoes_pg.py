@@ -199,3 +199,27 @@ def test_lock_revalidates_after_competing_negative_decision(sample):
     with scoped(v) as s:
         assert not s.get(Pessoa,v['p']).apto_lider
         assert s.scalar(text('select count(*) from enviar_avaliacoes'))==1
+
+
+def test_waiting_decision_revalidates_authorization_after_person_lock(sample,monkeypatch):
+    """A revoked coordinator cannot use authority cached before waiting for a lock."""
+    from threading import Event
+    from app.services import enviar_avaliacoes as service
+    v=sample; reached_lock=Event(); real_load=service._pessoa
+    def instrumented_load(*args,**kwargs):
+        if kwargs.get('lock'): reached_lock.set()
+        return real_load(*args,**kwargs)
+    monkeypatch.setattr(service,'_pessoa',instrumented_load)
+    def waiting():
+        with scoped(v) as s: denied(lambda:decide(s,v),403)
+    with scoped(v) as holder,ThreadPoolExecutor(1) as pool:
+        holder.execute(text('select id from pessoas where id=:p for update'),dict(p=v['p']))
+        future=pool.submit(waiting)
+        try:
+            assert reached_lock.wait(3)
+            with v['factory'].begin() as admin:
+                admin.execute(text("update app_users set status='revogado' where id=:u"),dict(u=v['u']))
+        finally:
+            holder.rollback()
+        future.result(timeout=10)
+    with scoped(v) as s: assert s.scalar(text('select count(*) from enviar_avaliacoes'))==0
