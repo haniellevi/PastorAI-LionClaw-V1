@@ -1926,7 +1926,10 @@ def _schedule_cell_report_tenant(
         cell_report_reminder_is_obsolete,
     )
 
-    if limit <= 0 or not _purpose_gate_allows("cell_report_reminder", igreja_id):
+    from app.services.cell_report_whatsapp import cell_report_release_includes
+
+    # Scope records before evaluating send gates; unlisted churches stay untouched.
+    if limit <= 0 or not cell_report_release_includes(igreja_id):
         return 0
     session = session_factory()
     try:
@@ -1995,7 +1998,7 @@ def _schedule_cell_report_tenant(
             )
             if due_at is None or due_at > now:
                 continue
-            context, _reason = _recipient_transport_context(
+            _context, reason = _recipient_transport_context(
                 session,
                 igreja_id=igreja_id,
                 pessoa=pessoa,
@@ -2003,7 +2006,11 @@ def _schedule_cell_report_tenant(
                 purpose="cell_report_reminder",
                 now=now,
             )
-            if context is None:
+            if not _purpose_gate_allows("cell_report_reminder", igreja_id):
+                reason = "gate_fechado"
+            elif reason in {"instancia_indisponivel", "atendimento_humano"}:
+                # Connection recovery and human handoff are transient, not revoked eligibility.
+                # Preserve V1a discovery on a later tick within the same window.
                 continue
             try:
                 revalidate_cell_report_leader(
@@ -2013,7 +2020,7 @@ def _schedule_cell_report_tenant(
                     ator_pessoa_id=pessoa_id,
                 )
             except CellReportApplicationError:
-                continue
+                reason = reason or "lideranca_revogada"
             fingerprint = _meeting_fingerprint(meeting)
             if fingerprint is None:
                 continue
@@ -2084,7 +2091,7 @@ def _schedule_cell_report_tenant(
                 occurrence_at=due_at,
                 origin_fingerprint=fingerprint,
                 purpose="cell_report_reminder",
-                state="pendente",
+                state="cancelado" if reason is not None else "pendente",
                 due_at=due_at,
                 delivery_reservation_day=None,
                 claim_token=None,
@@ -2093,7 +2100,7 @@ def _schedule_cell_report_tenant(
                 attempts=0,
                 transport_started_at=None,
                 sent_at=None,
-                terminal_reason=None,
+                terminal_reason=reason,
                 created_at=now,
                 updated_at=now,
             )
