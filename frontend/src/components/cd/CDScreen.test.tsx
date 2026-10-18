@@ -141,7 +141,7 @@ it("preserva revisão e chave quando a atualização após gravação falha", as
   expect(container.textContent).toContain("Ana Sintética");
   await act(async () => { button("Registrar reposição")!.click(); });
   const posts = state.request.mock.calls.filter(c => c[2] === "POST");
-  expect(posts).toHaveLength(2); expect(posts[1][3]).toEqual(posts[0][3]);
+  expect(posts).toHaveLength(2); expect(posts[1]![3]).toEqual(posts[0]![3]);
 });
 
 it.each(["encerrada", "cancelada"])("mantém histórico para consulta com turma/matrícula %s", async (status) => {

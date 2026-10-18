@@ -170,7 +170,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
         </fieldset></form></> : null}
         {!enrollments.length ? <p>Nenhuma matrícula registrada.</p> : null}
         {enrollments.map(m => <div key={m.id}><p>{m.nome}{m.pessoa_arquivada ? " · Pessoa arquivada" : ""} · {m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
-          <button className="btn" disabled={busy || !detail.modulo.aulas.length} onClick={() => void run(() => loadHistory(m, detail.modulo.aulas[0].id))}>Chamada de {m.nome}</button>
+          <button className="btn" disabled={busy || !detail.modulo.aulas.length} onClick={() => { const first = detail.modulo.aulas[0]; if (first) void run(() => loadHistory(m, first.id)); }}>Chamada de {m.nome}</button>
           {m.ativa && !detail.encerrada ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
         </div>)}
       </div>
