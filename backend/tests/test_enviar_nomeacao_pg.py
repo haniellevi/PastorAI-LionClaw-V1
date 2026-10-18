@@ -373,3 +373,18 @@ def test_linked_negative_evaluation_and_approval_do_not_deadlock(nomination,monk
         finally:proceed.set()
         evaluating.result(timeout=15);approving.result(timeout=15)
     with scoped(v) as s:assert s.get(Celula,v['cell']).lider_id==v['leader']
+
+
+def test_legacy_null_access_status_keeps_nomination_workflow_usable(nomination):
+    v=nomination
+    with v['factory'].begin() as s:s.get(AppUser,v['u']).status=None
+    row=create(v)
+    u,p=decider(v)
+    with v['factory'].begin() as s:s.get(AppUser,u).status=None
+    adjustment=v['client'].post(f"/cell-requests/{row['id']}/request-adjustment",json={'observacao_central':'Revisar'})
+    assert adjustment.status_code==200,adjustment.text
+    v['who']=actor(v)
+    resubmit=v['client'].put(f"/cell-requests/{row['id']}/resubmit",json={'payload_proposto':row['payload_proposto']})
+    assert resubmit.status_code==200,resubmit.text
+    v['who']=replace(actor(v),app_user_id=str(u),clerk_user_id=str(u))
+    assert approve(v,resubmit.json()).status_code==200

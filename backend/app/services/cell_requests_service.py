@@ -81,7 +81,7 @@ def revalidate_nomination_actor(db, *, igreja_id, app_user_id, solicitacao=None,
     actor = db.execute(select(AppUser).where(AppUser.id == app_user_id,
         AppUser.igreja_id == igreja_id).with_for_update(of=AppUser)
         .execution_options(populate_existing=True)).scalar_one_or_none()
-    if actor is None or actor.status != "ativo" or actor.pessoa_id != linked_person:
+    if actor is None or actor.status not in (None, "ativo") or actor.pessoa_id != linked_person:
         raise HTTPException(403, "A decisão exige acesso ativo vinculado a uma Pessoa")
     person = db.execute(select(Pessoa.id).where(Pessoa.id == actor.pessoa_id,
         Pessoa.igreja_id == igreja_id, Pessoa.arquivada_em.is_(None))).scalar_one_or_none()
