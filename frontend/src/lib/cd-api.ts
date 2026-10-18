@@ -11,3 +11,5 @@ export async function cdRequest<T>(token: string, path: string, method = "GET", 
 }
 
 export interface MatriculaCD { id: string; pessoa_id: string; nome: string; pessoa_arquivada: boolean; ativa: boolean; origem_aptidao: "legado" | "conclusao_uv"; criada_por: string; criada_em: string; cancelada_por: string | null; cancelada_em: string | null }
+
+export interface PresencaCD { registro_id: string; anterior_id: string | null; presente: boolean; modalidade: "regular" | "reposicao"; registrada_por_nome: string; registrada_em: string }

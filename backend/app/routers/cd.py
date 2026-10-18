@@ -1,4 +1,4 @@
-"""Authenticated CD panel: catalog, turmas and explicit enrollment."""
+"""Authenticated CD panel: catalog, turmas, enrollment and attendance."""
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.domain.cd import AULAS_POR_MODULO, CurriculoCD
-from app.routers.uv import Input, TurmaInput as NamedInput, ResponsaveisInput, MatriculaInput
+from app.routers.uv import Input, TurmaInput as NamedInput, ResponsaveisInput, MatriculaInput, PresencaInput
 from app.services import cd
 
 router=APIRouter(prefix='/cd',tags=['cd'])
@@ -147,3 +147,18 @@ def enroll(tid: UUID, payload: MatriculaInput, db: Session=DB, user: CurrentUser
 @router.post('/turmas/{tid}/matriculas/{mid}/cancelar')
 def cancel_enrollment(tid: UUID, mid: UUID, db: Session=DB, user: CurrentUser=USER):
     result=cd.cancel_enrollment(db, user, tid, mid); db.commit(); return result
+
+
+@router.post('/turmas/{tid}/matriculas/{mid}/presencas/{aula_id}')
+def attendance(tid: UUID, mid: UUID, aula_id: UUID, payload: PresencaInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.attendance(db,user,tid,mid,aula_id,payload); db.commit(); return result
+
+
+@router.get('/turmas/{tid}/matriculas/{mid}/presencas/{aula_id}/historico')
+def attendance_history(tid: UUID, mid: UUID, aula_id: UUID, db: Session=DB, user: CurrentUser=USER):
+    return cd.attendance_history(db,user,tid,mid,aula_id)
+
+
+@router.get('/turmas/{tid}/frequencia')
+def attendance_summary(tid: UUID, db: Session=DB, user: CurrentUser=USER):
+    return cd.attendance_summary(db,user,tid)
