@@ -53,7 +53,7 @@ def test_http_lifecycle_and_provenance(database,seeded,origin):
         assert client.get(base+'/elegiveis').json()==[]
         receipt=client.get(base+'/matriculas').json()[0]
         assert receipt['origem_aptidao']==origin and receipt['criada_por']==str(v['leader'])
-        assert set(receipt)=={'id','pessoa_id','nome','pessoa_arquivada','ativa','origem_aptidao','criada_por','criada_em','cancelada_por','cancelada_em'}
+        assert set(receipt)=={'id','pessoa_id','nome','pessoa_arquivada','ativa','origem_aptidao','criada_por','criada_em','cancelada_por','cancelada_em','conclusao'}
         for _ in range(2): assert client.post(base+f"/matriculas/{receipt['id']}/cancelar").status_code==200
         cancelled=client.get(base+'/matriculas').json()[0]
         assert not cancelled['ativa'] and cancelled['cancelada_por']==str(v['leader']) and cancelled['cancelada_em']

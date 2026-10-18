@@ -19,6 +19,28 @@ PROGRESSAO_LINEAR = True
 MATRICULAS_ATIVAS_POR_MODULO = 1  # Per person, including across curriculum versions.
 EXIGIR_CONFIRMACAO_COORDENACAO = True  # Certification only; never grants leadership.
 
+# Provisional pastoral policy shared by API validation and transactional services.
+EXIGIR_CONFIRMACAO_MODULO = True
+EVIDENCIA_MAX_CARACTERES = 300
+ORIGEM_EQUIVALENCIA_MAX_CARACTERES = 120
+
+
+def modulo_cumprido(aulas_modulo, calendario, presencas):
+    """Every curriculum lesson must be scheduled and fulfilled; replacement counts."""
+    return bool(aulas_modulo) and set(aulas_modulo) == set(calendario) == set(presencas)
+
+
+def evidencia_equivalencia(texto):
+    if not isinstance(texto, str) or not 1 <= len(texto.strip()) <= EVIDENCIA_MAX_CARACTERES:
+        raise ValueError('Equivalência exige evidência curta, sem dados pessoais adicionais')
+    return texto.strip()
+
+
+def validar_origem_equivalencia(texto):
+    if not isinstance(texto, str) or not 1 <= len(texto.strip()) <= ORIGEM_EQUIVALENCIA_MAX_CARACTERES:
+        raise ValueError('Equivalência exige origem específica curta')
+    return texto.strip()
+
 
 def _identidade(valor: UUID) -> None:
     if not isinstance(valor, UUID):
