@@ -83,7 +83,7 @@ it("mostra chamada só das oito aulas e registra reposição explícita", async 
 });
 
 it("correção exige confirmação e envia a versão anterior; consulta mostra auditoria", async () => {
-  const revision = { aula: 1, registro_id: "previous", presente: false, modalidade: "regular", registrada_por: "equipe", registrada_em: "2026-10-17T12:00:00Z" };
+  const revision = { registrada_por_nome: "Equipe sintética", aula: 1, registro_id: "previous", presente: false, modalidade: "regular", registrada_por: "equipe", registrada_em: "2026-10-17T12:00:00Z" };
   state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : String(path).endsWith("/historico") ? [{ ...revision, anterior_id: null }] : { ...detail,
     atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
     matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [revision] }] }));
@@ -95,7 +95,7 @@ it("correção exige confirmação e envia a versão anterior; consulta mostra a
   expect(state.request.mock.calls.some(c => c[2] === "POST" && c[3]?.anterior_id === "previous")).toBe(true);
   await act(async () => { button("Consultar histórico")!.click(); });
   expect(container.textContent).toContain("Registro inicial: Ausente");
-  expect(container.textContent).toContain("Usuário equipe");
+  expect(container.textContent).toContain("Equipe sintética");
 });
 
 it("falha de transporte preserva a chave da chamada na repetição", async () => {
@@ -204,4 +204,16 @@ it("conclusão bloqueia a chamada e marcos reutilizados identificam a turma de o
   expect(container.textContent).toContain("Durante a turma de origem: Primeira turma");
   expect(button("Salvar correção")!.closest("fieldset")!.disabled).toBe(true);
   expect(button("Consultar histórico")!.disabled).toBe(false);
+});
+
+
+it("histórico mostra nome do autor mesmo sem vínculo atual de responsável", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).endsWith("/historico") ? [
+    { registro_id: "r", anterior_id: null, presente: true, modalidade: "regular", registrada_por: "00000000-0000-4000-8000-000000000001", registrada_por_nome: "Autora sintética", registrada_em: "2026-10-17T12:00:00Z" }
+  ] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : detail));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => { button("Consultar histórico")!.click(); });
+  const history=container.querySelector(".uv-student ol")!;
+  expect(history.textContent).toContain("Autora sintética");
+  expect(history.textContent).not.toContain("00000000-0000-4000-8000-000000000001");
 });

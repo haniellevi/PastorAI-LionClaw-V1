@@ -71,6 +71,6 @@ function StudentAttendance({ detail, busy, request, run, reload, student }: Prop
     {detail.encerrada ? <p>Turma encerrada: chamada disponível para consulta.</p> : !available ? <p>Defina o calendário desta aula para lançar presença.</p> : null}
     <button className="btn" type="button" disabled={busy} onClick={() => void run(async () => { setHistory(await request<PresencaRevisao[]>(`${path}/historico`)); })}>Consultar histórico da aula {aula}</button>
     {notice ? <p role="status">{notice}</p> : null}
-    {history ? history.length ? <ol>{history.map(h => <li key={h.registro_id}>{h.anterior_id ? "Correção" : "Registro inicial"}: {h.presente ? "Presente" : "Ausente"} · {h.modalidade === "reposicao" ? "Reposição" : "Regular"} · {new Date(h.registrada_em).toLocaleString("pt-BR")} · Usuário {h.registrada_por}</li>)}</ol> : <p>Nenhum registro nesta aula.</p> : null}
+    {history ? history.length ? <ol>{history.map(h => <li key={h.registro_id}>{h.anterior_id ? "Correção" : "Registro inicial"}: {h.presente ? "Presente" : "Ausente"} · {h.modalidade === "reposicao" ? "Reposição" : "Regular"} · {new Date(h.registrada_em).toLocaleString("pt-BR")} · {h.registrada_por_nome || "Usuário da equipe"}</li>)}</ol> : <p>Nenhum registro nesta aula.</p> : null}
   </article>;
 }

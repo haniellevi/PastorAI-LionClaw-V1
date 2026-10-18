@@ -291,3 +291,47 @@ def test_reused_milestone_exposes_origin_turma(database,seeded):
         assert result['turma_id']==tid and result['turma_id']!=other
         assert result['turma_nome']=='Turma sintética'
         assert result['anterior_turma'] is False  # Relative to origin, never the displayed turma.
+
+
+def test_revoked_eligibility_clears_origin_and_completion_recalculates(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        s.execute(text('update pessoas set apto_proxima_cd=true where id=:p'),dict(p=v['p']))
+        s.execute(text('update pessoas set apto_proxima_cd=false where id=:p'),dict(p=v['p']))
+        assert s.execute(text('select origem_aptidao_cd from pessoas where id=:p'),dict(p=v['p'])).scalar_one() is None
+        tid,mid=complete(s,v)
+        result=uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))
+        assert result['origem_aptidao']=='conclusao_uv'
+
+
+def test_eligibility_origin_check(database,seeded):
+    from sqlalchemy.exc import IntegrityError
+    # Bypass only the normalization trigger to prove the independent constraint.
+    with database.begin() as c:
+        c.exec_driver_sql('alter table pessoas disable trigger uv_origem_aptidao')
+        try:
+            for eligible,origin in [(False,'legado'),(True,None)]:
+                with pytest.raises(IntegrityError), c.begin_nested():
+                    c.execute(text('update pessoas set apto_proxima_cd=:a,origem_aptidao_cd=:o where id=:p'),dict(a=eligible,o=origin,p=seeded['p']))
+        finally: c.exec_driver_sql('alter table pessoas enable trigger uv_origem_aptidao')
+
+
+@pytest.mark.parametrize('day,status', [('2026-10-17',200),('2026-10-18',422)])
+def test_milestone_sao_paulo_day(database,seeded,monkeypatch,day,status):
+    from datetime import datetime, timezone
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None): return datetime(2026,10,18,1,0,tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(uv,'datetime',Clock,raising=False)
+    import datetime as dt
+    class ServerDate(date):
+        @classmethod
+        def today(cls): return date(2026,10,18)
+    monkeypatch.setattr(dt,'date',ServerDate)
+    with scoped(database,seeded['t']) as s:
+        tid,mid=setup(s,seeded)
+        command=marco(data=date.fromisoformat(day))
+        if status==200: uv.milestone(s,principal(seeded),tid,mid,'batismo',command)
+        else:
+            with pytest.raises(HTTPException) as exc: uv.milestone(s,principal(seeded),tid,mid,'batismo',command)
+            assert exc.value.status_code==status

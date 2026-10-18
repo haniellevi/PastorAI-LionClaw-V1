@@ -3,6 +3,8 @@
 Turma locks serialize calendar, responsible changes, closure and enrollment.
 Only explicit DTO fields leave this service; no conversation or pastoral notes.
 """
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -14,6 +16,11 @@ from app.deps import CurrentUser
 from app.domain.uv import AulaConcluida, ModalidadeAula, SituacaoUV, avaliar_uv
 from app.domain.permissions import can_access_screen
 from app.domain.work_queue import can_resolve, TIPO_RESOLVER_ROLES
+
+
+def today_sao_paulo() -> date:
+    return datetime.now(ZoneInfo('America/Sao_Paulo')).date()
+
 
 UV_ROLES = {'admin', 'pastor', 'lider_consol'}
 COORDINATION_ROLES = {'admin', 'pastor'}
@@ -275,8 +282,11 @@ def attendance_history(db, user, turma_id, matricula_id, aula):
     t, uid, roles = actor(db, user)
     turma(db, t, turma_id)
     require_scope(db, t, uid, roles, turma_id)
-    return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em
+    return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em,
+        coalesce(person.nome,u.nome,'Usuário da equipe') as registrada_por_nome
         from uv_presencas_historico h join uv_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
+        join app_users u on u.igreja_id=h.igreja_id and u.id=h.registrada_por
+        left join pessoas person on person.igreja_id=u.igreja_id and person.id=u.pessoa_id
         where p.igreja_id=:t and p.turma_id=:tid and p.matricula_id=:mid and p.aula=:a
         order by h.registrada_em,h.registro_id''', t=t, tid=turma_id, mid=matricula_id, a=aula)
 
@@ -311,10 +321,14 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
     if rows(db, 'select id from uv_conclusoes where igreja_id=:t and pessoa_id=:p',
             t=t,p=enrollment[0]['pessoa_id']):
         raise HTTPException(409, 'UV já concluída: presença disponível somente para consulta')
-    activity = rows(db, '''select id from uv_atividades where igreja_id=:t and turma_id=:tid
+    if payload.modalidade == 'reposicao' and not payload.presente:
+        raise HTTPException(422, 'Reposição exige presença')
+    activity = rows(db, '''select id,data from uv_atividades where igreja_id=:t and turma_id=:tid
         and tipo='aula' and aula=:a''', t=t, tid=turma_id, a=aula)
     if not activity:
         raise HTTPException(422, 'Defina o calendário da aula antes da chamada')
+    if activity[0]['data'] > today_sao_paulo():
+        raise HTTPException(409, 'Não é possível registrar presença em aula futura')
     current = rows(db, '''select registro_id from uv_presencas where igreja_id=:t
         and matricula_id=:mid and aula=:a''', t=t, mid=matricula_id, a=aula)
     if (current[0]['registro_id'] if current else None) != payload.anterior_id:
@@ -328,7 +342,7 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
         with db.begin_nested():
             if current:
                 db.execute(text('''update uv_presencas set presente=:presente,modalidade=:modalidade,
-                    registro_id=:id,anterior_id=:anterior,registrada_por=:u,registrada_em=clock_timestamp()
+                    registro_id=:id,anterior_id=:anterior,registrada_por=:u
                     where igreja_id=:t and matricula_id=:mid and aula=:a'''), params)
             else:
                 db.execute(text('''insert into uv_presencas(igreja_id,turma_id,matricula_id,atividade_id,aula,
@@ -336,8 +350,9 @@ def attendance(db, user, turma_id, matricula_id, aula, payload):
                     values(:t,:tid,:mid,:atividade,:a,:presente,:modalidade,:id,:u)'''), params)
     except IntegrityError as exc:
         raise HTTPException(409, 'Identificador de presença indisponível') from exc
-    return next(r for r in attendance_history(db, user, turma_id, matricula_id, aula)
-                if r['registro_id'] == payload.id)
+    receipt = next(r for r in attendance_history(db, user, turma_id, matricula_id, aula)
+                   if r['registro_id'] == payload.id)
+    return {k: value for k, value in receipt.items() if k != 'registrada_por_nome'}
 
 
 def formation_person(db, user, turma_id, matricula_id):
@@ -375,8 +390,7 @@ def milestone(db, user, turma_id, matricula_id, tipo, payload):
         return r
     if current['encerrada']:
         raise HTTPException(409, 'Turma encerrada')
-    from datetime import date
-    if payload.data > date.today():
+    if payload.data > today_sao_paulo():
         raise HTTPException(422, 'Marco não pode ter data futura')
     try:
         with db.begin_nested():
@@ -425,7 +439,7 @@ def finish(db, user, turma_id, matricula_id, payload):
     try:
         with db.begin_nested():
             updated=rows(db, '''update pessoas set etapa=:target,apto_proxima_cd=true,
-                origem_aptidao_cd=coalesce(origem_aptidao_cd,:origem) where igreja_id=:t and id=:p
+                origem_aptidao_cd=case when apto_proxima_cd then coalesce(origem_aptidao_cd,:origem) else :origem end where igreja_id=:t and id=:p
                 returning etapa,origem_aptidao_cd''', **params,target=target,origem=result.origem_aptidao.value)[0]
             return rows(db, '''insert into uv_conclusoes(id,igreja_id,pessoa_id,turma_id,matricula_id,
                 confirmada_por,etapa_anterior,etapa_resultante,origem_aptidao)

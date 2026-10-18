@@ -11,12 +11,17 @@ language plpgsql set search_path=pg_catalog,public as $$
 begin
   if new.apto_proxima_cd and new.origem_aptidao_cd is null then
     new.origem_aptidao_cd := 'legado';
+  elsif not new.apto_proxima_cd then
+    new.origem_aptidao_cd := null;
   end if;
   return new;
 end $$;
 revoke all on function public.uv_origem_aptidao() from public,anon,authenticated;
 create trigger uv_origem_aptidao before insert or update on public.pessoas
   for each row execute function public.uv_origem_aptidao();
+
+alter table public.pessoas add constraint uv_aptidao_origem_coerente
+  check (apto_proxima_cd = (origem_aptidao_cd is not null));
 
 alter table public.uv_matriculas add constraint uv_matricula_pessoa_key unique(igreja_id,turma_id,id,pessoa_id);
 create table public.uv_marcos (
@@ -71,4 +76,5 @@ grant insert(id,igreja_id,pessoa_id,turma_id,matricula_id,confirmada_por,etapa_a
 -- alter table public.uv_matriculas drop constraint uv_matricula_pessoa_key;
 -- drop trigger uv_origem_aptidao on public.pessoas;
 -- drop function public.uv_origem_aptidao();
+-- alter table public.pessoas drop constraint uv_aptidao_origem_coerente;
 -- alter table public.pessoas drop column origem_aptidao_cd;

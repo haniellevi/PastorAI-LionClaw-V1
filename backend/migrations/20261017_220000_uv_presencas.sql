@@ -37,6 +37,17 @@ create table public.uv_presencas_historico (
   foreign key(igreja_id,registrada_por) references public.app_users(igreja_id,id),
   foreign key(igreja_id,anterior_id) references public.uv_presencas_historico(igreja_id,registro_id)
 );
+-- Database clock owns both the current record and the immutable revision.
+create function public.uv_horario_presenca() returns trigger
+language plpgsql set search_path = pg_catalog, public as $$
+begin
+  new.registrada_em := clock_timestamp();
+  return new;
+end $$;
+revoke all on function public.uv_horario_presenca() from public,anon,authenticated;
+create trigger uv_presenca_horario before insert or update on public.uv_presencas
+  for each row execute function public.uv_horario_presenca();
+
 -- Trigger is the sole history writer; no caller can omit or rewrite a revision.
 create function public.uv_auditar_presenca() returns trigger
 language plpgsql security definer set search_path = pg_catalog, public as $$
@@ -68,11 +79,13 @@ do $$ declare t text; begin
   end loop;
 end $$;
 grant insert(igreja_id,turma_id,matricula_id,atividade_id,aula,presente,modalidade,registro_id,registrada_por) on public.uv_presencas to authenticated;
-grant update(presente,modalidade,registro_id,anterior_id,registrada_por,registrada_em) on public.uv_presencas to authenticated;
+grant update(presente,modalidade,registro_id,anterior_id,registrada_por) on public.uv_presencas to authenticated;
 -- Rollback: revert callers and preserve attendance/history before removing schema.
 -- drop table public.uv_presencas_historico;
 -- drop trigger uv_presenca_auditoria on public.uv_presencas;
 -- drop function public.uv_auditar_presenca();
+-- drop trigger uv_presenca_horario on public.uv_presencas;
+-- drop function public.uv_horario_presenca();
 -- drop table public.uv_presencas;
 -- alter table public.uv_atividades drop constraint uv_atividade_aula_key;
 -- alter table public.uv_matriculas drop constraint uv_matricula_turma_key;

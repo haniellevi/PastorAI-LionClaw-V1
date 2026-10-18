@@ -12,7 +12,10 @@ pytestmark = pytest.mark.rls_integration
 
 def setup(s,v):
     tid=create(s,v)
-    uv.calendar(s,principal(v),tid,schedule())
+    from datetime import date, timedelta
+    calendar=schedule()
+    for i,a in enumerate(calendar.atividades): a.data=date(2020,1,1)+timedelta(weeks=i)
+    uv.calendar(s,principal(v),tid,calendar)
     m=matricula(v); uv.enroll(s,principal(v),tid,m)
     return tid,m.id
 
@@ -245,3 +248,60 @@ def test_approved_deletion_includes_revisions(database,seeded,target):
         c.execute(text(f'delete from {target} where id=:id'),dict(id=v['p'] if target=='pessoas' else v['t']))
         for table in ['uv_presencas','uv_presencas_historico']:
             assert c.execute(text(f'select count(*) from {table}')).scalar_one()==0
+
+
+def test_reposicao_requires_present(database,seeded):
+    with scoped(database,seeded['t']) as s:
+        tid,mid=setup(s,seeded)
+        with pytest.raises(HTTPException) as exc:
+            uv.attendance(s,principal(seeded),tid,mid,1,payload(presente=False,modalidade='reposicao'))
+        assert exc.value.status_code==422
+        assert s.execute(text('select count(*) from uv_presencas')).scalar_one()==0
+
+
+@pytest.mark.parametrize('day,status', [('2026-10-17',200),('2026-10-18',409)])
+def test_attendance_sao_paulo_day(database,seeded,monkeypatch,day,status):
+    from datetime import datetime, timezone
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None): return datetime(2026,10,18,1,0,tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(uv,'datetime',Clock,raising=False)
+    with scoped(database,seeded['t']) as s:
+        tid,mid=setup(s,seeded)
+        s.execute(text('update uv_atividades set data=:day where turma_id=:t and aula=1'),dict(day=day,t=tid))
+        if status==200: uv.attendance(s,principal(seeded),tid,mid,1,payload())
+        else:
+            with pytest.raises(HTTPException) as exc: uv.attendance(s,principal(seeded),tid,mid,1,payload())
+            assert exc.value.status_code==status
+            assert s.execute(text('select count(*) from uv_presencas')).scalar_one()==0
+
+
+def test_database_owns_attendance_timestamp(database,seeded):
+    from sqlalchemy.exc import ProgrammingError
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=setup(s,v)
+        activity=s.execute(text('select id from uv_atividades where turma_id=:t and aula=1'),dict(t=tid)).scalar_one()
+        s.commit()
+    with database.begin() as c:
+        params=dict(t=v['t'],tid=tid,mid=mid,a=activity,u=v['uid'],r=uuid4())
+        before=c.execute(text('select clock_timestamp()')).scalar_one()
+        first=c.execute(text("""insert into uv_presencas(igreja_id,turma_id,matricula_id,atividade_id,aula,presente,modalidade,registro_id,registrada_por,registrada_em)
+            values(:t,:tid,:mid,:a,1,true,'regular',:r,:u,'2000-01-01') returning registrada_em"""),params).scalar_one()
+        assert first>=before
+        second=c.execute(text("""update uv_presencas set anterior_id=registro_id,registro_id=:r,registrada_em='2000-01-01'
+            where matricula_id=:mid returning registrada_em"""),dict(mid=mid,r=uuid4())).scalar_one()
+        assert second>first
+        assert c.execute(text('select registrada_em from uv_presencas_historico order by registrada_em')).scalars().all()==[first,second]
+    with scoped(database,v['t']) as s:
+        with pytest.raises(ProgrammingError):
+            s.execute(text('update uv_presencas set registrada_em=clock_timestamp() where matricula_id=:m'),dict(m=mid))
+
+
+def test_history_resolves_author_name(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=setup(s,v)
+        uv.attendance(s,principal(v),tid,mid,1,payload())
+        history=uv.attendance_history(s,principal(v),tid,mid,1)
+        assert history[0]['registrada_por_nome']=='Equipe sintética'
