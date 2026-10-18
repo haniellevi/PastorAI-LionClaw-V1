@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { PaginatedLookup } from "../lookups/PaginatedLookup";
 import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
+import { EnviarPanorama } from "./EnviarPanorama";
 import { AberturaForm } from "./AberturaForm";
 import { NomeacaoForm } from "./NomeacaoForm";
 import { MyRequestsList } from "../minha-celula/MyRequestsList";
@@ -99,7 +100,7 @@ export function EnviarScreen() {
     <div className="screen journey-screen journey-screen--enviar ops-v2" key="enviar">
       <div className="screen-head">
         <div className="titles">
-          <h2>Multiplicações</h2>
+          <h2>Enviar</h2>
           <p>Acompanhe pedidos e registros que fortalecem a próxima geração.</p>
         </div>
         <div className="actions"><button type="button" className="btn" disabled={loading} onClick={() => void load()}><Icon name="refresh" /> Atualizar</button></div>
@@ -113,6 +114,8 @@ export function EnviarScreen() {
         </span>
       </div>
 
+      {canRequest && token ? <EnviarPanorama token={token} onExpired={expireSession} canDecide={canEvaluate} /> : null}
+
       {canEvaluate && token ? <section className="card card-pad" aria-label="Avaliar aptidão">
         <h3>Aptidão à liderança</h3>
         <p>Selecione uma pessoa para consultar pendências e registrar a decisão da coordenação.</p>
@@ -122,7 +125,7 @@ export function EnviarScreen() {
         {candidate ? <AvaliacaoPanel key={candidate.id} pessoaId={candidate.id} token={token} onExpired={expireSession} /> : null}
       </section> : null}
 
-      {canRequest && token ? <section className="card card-pad" aria-label="Nomeações">
+      {canRequest && token ? <section id="enviar-pedidos" tabIndex={-1} className="card card-pad" aria-label="Nomeações">
         <AberturaForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
         <NomeacaoForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
         {requestNotice ? <p role="status">{requestNotice}</p> : null}

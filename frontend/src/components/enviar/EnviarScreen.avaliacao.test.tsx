@@ -9,7 +9,7 @@ vi.mock('@/lib/auth-context',()=>({useAuth:()=>({token:'fake',user:{roles:['past
 vi.mock('@/lib/multiplicacoes-api',()=>({getMultiplicacoesList:async()=>({pendentes:[],registradas:[]})}));
 vi.mock('@/lib/lookup-api',()=>({fetchContactLookupPage:mocks.lookup,fetchCellLookupPage:async()=>({items:[],page:1,pageSize:25,total:0})}));
 vi.mock('@/lib/cell-requests-api',()=>({listRequests:async()=>({items:[],page:1,pageSize:25,total:0})}));
-vi.mock('@/lib/enviar-api',()=>({getAvaliacao:mocks.read}));
+vi.mock('@/lib/enviar-api',()=>({getAvaliacao:mocks.read,getEnviarPessoas:async()=>({items:[],total:0,page:1,page_size:25}),getEnviarHistorico:async()=>({items:[],total:0,page:1,page_size:25})}));
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 let cleanup=()=>{};
 afterEach(()=>{cleanup();vi.resetAllMocks()});

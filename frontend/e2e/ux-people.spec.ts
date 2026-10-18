@@ -53,6 +53,9 @@ async function peopleFixture(page: Page) {
     const path = url.pathname;
     const method = request.method();
     if (method === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    if (method === "GET" && ["/enviar/pessoas", "/enviar/historico"].includes(path)) {
+      await json(route, 200, { items: [], total: 0, page: 1, page_size: 25 }); return;
+    }
     const evaluationMatch = /^\/enviar\/pessoas\/(ux-person-\d+)\/avaliacoes$/.exec(path);
     if (evaluationMatch && (method === "GET" || method === "POST")) {
       const id = evaluationMatch[1]!;
