@@ -35,6 +35,7 @@ const TYPE_LABELS: Record<string, string> = {
   transferir_membro: "Transferir membro",
   remover_membro: "Remover membro",
   multiplicacao: "Multiplicação",
+  nomear_lider: "Nomeação de líder",
 };
 
 const STATUS_META: Record<string, { label: string; tone: PillTone }> = {
@@ -85,24 +86,26 @@ export function RequestDecisionPanel({
   /** Fechar o detalhe (útil no mobile empilhado). */
   onClose?: () => void;
 }) {
+  const [confirmed, setConfirmed] = useState(false);
   const [mode, setMode] = useState<Mode>(null);
   const [observacao, setObservacao] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "approve" | "reject" | "adjust">(null);
 
   const status = STATUS_META[request.status] ?? { label: request.status, tone: "muted" as PillTone };
+  const isNomeacao = request.tipo === "nomear_lider";
   const isMultiplicacao = request.tipo === "multiplicacao";
   const payloadEntries = Object.entries(request.payload_proposto ?? {});
 
   async function approve() {
-    if (busy) return;
+    if (busy || (isNomeacao && !confirmed)) return;
     setBusy("approve");
     setFieldError(null);
     try {
       const key = isMultiplicacao
         ? (globalThis.crypto?.randomUUID?.() ?? `mult-${request.id}-${Date.now()}`)
         : undefined;
-      const updated = await approveRequest(token, request.id, key);
+      const updated = await approveRequest(token, request.id, key, isNomeacao ? { confirmar_execucao: confirmed, versao_proposta: request.versao_proposta! } : undefined);
       onToast({ kind: "ok", text: "Solicitação aprovada." });
       onDecided(updated);
     } catch (err) {
@@ -178,6 +181,7 @@ export function RequestDecisionPanel({
           </p>
         ) : null}
 
+        {isNomeacao ? <p><strong>{request.candidato_nome ?? request.candidato_id}</strong> para liderar <strong>{request.celula_nome ?? request.celula_id}</strong>. Proposta {request.versao_proposta}.</p> : null}
         {/* Payload proposto — LEITURA apenas (Central não edita). */}
         <dl className="payload-view">
           {payloadEntries.length === 0 ? (
@@ -202,6 +206,10 @@ export function RequestDecisionPanel({
           </div>
         ) : null}
 
+        {isNomeacao && request.status === "aguardando" ? <label>
+          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} disabled={anyBusy} />
+          Confirmo que aprovar executa imediatamente a troca de líder desta célula.
+        </label> : null}
         {mode ? (
           <div style={{ marginTop: "var(--s3)" }}>
             <DsField
@@ -240,7 +248,7 @@ export function RequestDecisionPanel({
           </div>
         ) : (
           <div className="chip-actions" style={{ marginTop: "var(--s3)" }}>
-            <DsButton variant="primary" onClick={() => void approve()} loading={busy === "approve"} disabled={anyBusy}>
+            <DsButton variant="primary" onClick={() => void approve()} loading={busy === "approve"} disabled={anyBusy || (isNomeacao && (!confirmed || !request.versao_proposta))}>
               <Icon name="check" />
               <span>Aprovar</span>
             </DsButton>

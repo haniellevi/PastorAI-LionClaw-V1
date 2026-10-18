@@ -633,7 +633,7 @@ def test_legacy_cell_payload_omits_new_fields_without_clearing_them(app) -> None
     assert cell.divulgar_whatsapp is True
 
 
-def test_edit_cell_changing_leader_validates(app) -> None:
+def test_edit_cell_changing_leader_requires_nomination(app) -> None:
     cell = make_cell(lider_id=_P1)
     session = CellSession(
         app_user=make_app_user(),
@@ -647,11 +647,11 @@ def test_edit_cell_changing_leader_validates(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P2)
     )
-    assert resp.status_code == 422
-    assert "Reencontro" in resp.json()["detail"]
+    assert resp.status_code == 409
+    assert "nomeação" in resp.json()["detail"]
 
 
-def test_edit_cell_changing_to_apto_leader_passes(app) -> None:
+def test_edit_cell_changing_to_apto_leader_requires_nomination(app) -> None:
     cell = make_cell(lider_id=_P1)
     session = CellSession(
         app_user=make_app_user(),
@@ -662,8 +662,9 @@ def test_edit_cell_changing_to_apto_leader_passes(app) -> None:
     resp = _wire(app, session=session).post(
         "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P2)
     )
-    assert resp.status_code == 200, resp.text
-    assert str(cell.lider_id) == _P2
+    assert resp.status_code == 409, resp.text
+    assert str(cell.lider_id) == _P1
+    assert not session.committed
 
 
 # ---- pessoa arquivada não recebe liderId/anfitriaoId/auxiliarId (revisão --
@@ -699,7 +700,7 @@ def test_edit_cell_rejects_lider_arquivado_ao_atribuir(app) -> None:
         "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P2)
     )
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert "nomeação" in resp.json()["detail"]
     assert session.committed is False
     assert str(cell.lider_id) == _P1, "célula não pode ter sido parcialmente alterada"
 

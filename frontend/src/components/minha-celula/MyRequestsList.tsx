@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { NomeacaoForm } from "../enviar/NomeacaoForm";
 import { Button } from "@/components/ui/Button";
 import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
@@ -32,6 +33,7 @@ const TYPE_LABELS: Record<string, string> = {
   transferir_membro: "Transferir membro",
   remover_membro: "Remover membro",
   multiplicacao: "Multiplicação",
+  nomear_lider: "Nomeação de líder",
 };
 
 const STATUS_META: Record<string, { label: string; tone: PillTone }> = {
@@ -61,6 +63,7 @@ export function MyRequestsList({
   reloadToken: number;
   onToast: FlashToast;
 }) {
+  const [editing, setEditing] = useState<CellRequest | null>(null);
   const [items, setItems] = useState<CellRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -111,6 +114,7 @@ export function MyRequestsList({
   }
 
   async function resubmit(req: CellRequest) {
+    if (req.tipo === "nomear_lider") { setEditing(req); return; }
     if (pendingId) return;
     setPendingId(req.id);
     setPendingAction("resubmit");
@@ -139,6 +143,7 @@ export function MyRequestsList({
         {items.length ? <span className="count">· {items.length}</span> : null}
       </div>
 
+      {editing ? <NomeacaoForm key={editing.id} token={token} request={editing} onCreated={() => { setEditing(null); void load("reload"); }} /> : null}
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

@@ -782,6 +782,14 @@ class CelulaSolicitacao(Base):
     #     tipo, pois transferir e remover a MESMA pessoa colidem entre si (E13).
     # Escopo sempre por igreja_id ⇒ igrejas diferentes nunca colidem (multi-tenant).
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["igreja_id", "candidato_id"], ["pessoas.igreja_id", "pessoas.id"],
+            name="nomeacao_candidato_tenant_fk", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["igreja_id", "celula_id"], ["celulas.igreja_id", "celulas.id"],
+            name="nomeacao_celula_tenant_fk", ondelete="CASCADE",
+        ),
         Index("enviar_solicitacao_tenant_id", "igreja_id", "id", unique=True),
         Index(
             "uq_celula_solicitacao_aberta_tipo",
@@ -815,7 +823,6 @@ class CelulaSolicitacao(Base):
     )
     celula_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("celulas.id", ondelete="CASCADE"),
         nullable=False,
     )
     solicitante_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -824,6 +831,8 @@ class CelulaSolicitacao(Base):
     pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
     )
+    candidato_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    versao_proposta: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     tipo: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'aguardando'")

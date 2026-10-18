@@ -18,6 +18,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { PaginatedLookup } from "../lookups/PaginatedLookup";
 import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
+import { NomeacaoForm } from "./NomeacaoForm";
+import { MyRequestsList } from "../minha-celula/MyRequestsList";
 import { AvaliacaoPanel } from "./AvaliacaoPanel";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { SessionExpiredError } from "@/lib/api";
@@ -47,6 +49,9 @@ function payloadName(p: MultiplicacaoPendente): string {
 export function EnviarScreen() {
   const { token, user, expireSession } = useAuth();
   const canEvaluate = user?.roles.some(role => role === "admin" || role === "pastor") ?? false;
+  const [requestsReload, setRequestsReload] = useState(0);
+  const [requestNotice, setRequestNotice] = useState("");
+  const canRequest = canEvaluate || (user?.roles.includes("lider_celula") ?? false);
   const [candidate, setCandidate] = useState<ContactLookup | null>(null);
   const loadCandidates = useCallback((q: string, page: number, signal: AbortSignal) =>
     fetchContactLookupPage(token!, { q, page, pageSize: 25, signal }), [token]);
@@ -116,6 +121,11 @@ export function EnviarScreen() {
         {candidate ? <AvaliacaoPanel key={candidate.id} pessoaId={candidate.id} token={token} onExpired={expireSession} /> : null}
       </section> : null}
 
+      {canRequest && token ? <section className="card card-pad" aria-label="Nomeações">
+        <NomeacaoForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
+        {requestNotice ? <p role="status">{requestNotice}</p> : null}
+        <MyRequestsList token={token} reloadToken={requestsReload} onToast={notice => setRequestNotice(notice.text)} />
+      </section> : null}
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

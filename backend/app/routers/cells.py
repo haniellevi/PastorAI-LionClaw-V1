@@ -802,6 +802,7 @@ def upsert_cell(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas a Central de Células pode cadastrar células",
             )
+        # TODO(Enviar fatia 5): abertura inicial via solicitação sem célula de origem.
         _validate_pessoa_refs(db, payload)
         _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
         dia_reuniao = _dia_reuniao_for_storage(payload.diaReuniao)
@@ -870,6 +871,8 @@ def upsert_cell(
     )
     leadership_changed = str(novo_lider) != str(cell.lider_id)
     active_changed = bool(novo_ativo) != bool(cell.ativo)
+    if leadership_changed:
+        raise HTTPException(409, "Para trocar o líder, abra uma solicitação de nomeação na Central")
     if not current_user.has_any_role(CENTRAL_ROLES) and (
         leadership_changed or active_changed
     ):

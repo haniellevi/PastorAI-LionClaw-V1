@@ -361,6 +361,8 @@ def make_solicitacao(
         celula_id=celula_id,
         solicitante_id=solicitante_id,
         pessoa_id=pessoa_id,
+        candidato_id=None,
+        versao_proposta=1,
         tipo=tipo,
         status=status,
         payload_proposto=payload_proposto or {"dia_reuniao": "sexta"},

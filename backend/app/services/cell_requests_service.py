@@ -24,6 +24,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    AppUser,
+    EnviarAvaliacao,
+    UserRole,
     Celula,
     CelulaMembro,
     CelulaSolicitacao,
@@ -48,17 +51,88 @@ from app.domain.cell_requests import (
     TIPO_ALTERAR_ENDERECO,
     TIPO_ALTERAR_HORARIO,
     TIPO_MULTIPLICACAO,
+    TIPO_NOMEAR_LIDER,
     TIPO_REMOVER_MEMBRO,
     TIPO_TRANSFERIR_MEMBRO,
     referenced_pessoa_ids,
 )
 from app.services.cell_multiplication_service import execute_multiplication
+from app.services.cell_leadership import set_cell_leadership, _lock_leadership_identities
 from app.services.celula_membro import (
     MembroInelegivelError,
     assert_membro_elegivel,
     assert_pessoas_nao_arquivadas,
     promote_tipo_para_membro,
 )
+
+
+def revalidate_nomination_actor(db, *, igreja_id, app_user_id, solicitacao=None, expected_pessoa_id=None, allowed_leader_id=None):
+    """Read direct roles after domain locks; hold authority through the commit."""
+    linked_person = db.execute(select(AppUser.pessoa_id).where(AppUser.id == app_user_id,
+        AppUser.igreja_id == igreja_id)).scalar_one_or_none()
+    if expected_pessoa_id is not None and linked_person != expected_pessoa_id:
+        raise HTTPException(403, "O vínculo do decisor mudou; recarregue antes de decidir")
+    if linked_person is None:
+        raise HTTPException(403, "A decisão exige acesso ativo vinculado a uma Pessoa")
+    # The decision's Pessoa FK also takes a row lock. Acquire it before access
+    # locks, in the same order as leadership (approval includes it in its set).
+    db.execute(select(Pessoa.id).where(Pessoa.id == linked_person,
+        Pessoa.igreja_id == igreja_id).with_for_update()).scalar_one_or_none()
+    actor = db.execute(select(AppUser).where(AppUser.id == app_user_id,
+        AppUser.igreja_id == igreja_id).with_for_update(of=AppUser)
+        .execution_options(populate_existing=True)).scalar_one_or_none()
+    if actor is None or actor.status != "ativo" or actor.pessoa_id != linked_person:
+        raise HTTPException(403, "A decisão exige acesso ativo vinculado a uma Pessoa")
+    person = db.execute(select(Pessoa.id).where(Pessoa.id == actor.pessoa_id,
+        Pessoa.igreja_id == igreja_id, Pessoa.arquivada_em.is_(None))).scalar_one_or_none()
+    roles = db.execute(select(UserRole).where(UserRole.user_id == actor.id,
+        UserRole.igreja_id == igreja_id, UserRole.papel.in_(["pastor", "admin"]))
+        .with_for_update()).scalars().all()
+    if person is None or (not roles and actor.pessoa_id != allowed_leader_id):
+        raise HTTPException(403, "Acesso à coordenação indisponível")
+    if solicitacao is not None and actor.pessoa_id in (solicitacao.solicitante_id, solicitacao.candidato_id):
+        raise HTTPException(403, "Autor e candidato não podem decidir a nomeação")
+    return actor.pessoa_id
+
+
+def lock_nomination_author(db, *, cell, candidato_id, app_user_id):
+    """Creation/resubmission share approval's ordered Pessoa/access locks."""
+    linked_person = db.execute(select(AppUser.pessoa_id).where(AppUser.id == app_user_id,
+        AppUser.igreja_id == cell.igreja_id)).scalar_one_or_none()
+    if linked_person is None:
+        raise HTTPException(403, "Vincule o acesso a uma Pessoa antes de solicitar")
+    _lock_leadership_identities(db, igreja_id=cell.igreja_id,
+        pessoa_ids={p for p in (linked_person, candidato_id) if p is not None},
+        additional_app_user_ids={app_user_id})
+    return revalidate_nomination_actor(db, igreja_id=cell.igreja_id,
+        app_user_id=app_user_id, expected_pessoa_id=linked_person,
+        allowed_leader_id=cell.lider_id)
+
+
+def _nomination_authority(db, solicitacao, app_user_id, expected_pessoa_id=None):
+    return revalidate_nomination_actor(db, igreja_id=solicitacao.igreja_id,
+        app_user_id=app_user_id, solicitacao=solicitacao, expected_pessoa_id=expected_pessoa_id)
+
+
+def _apply_nomination(db, solicitacao, cell):
+    if solicitacao.candidato_id == cell.lider_id:
+        raise HTTPException(409, "O candidato já é o líder desta célula")
+    pessoa = db.execute(select(Pessoa).where(Pessoa.id == solicitacao.candidato_id,
+        Pessoa.igreja_id == solicitacao.igreja_id).with_for_update()
+        .execution_options(populate_existing=True)).scalar_one_or_none()
+    latest = db.execute(select(EnviarAvaliacao).where(
+        EnviarAvaliacao.igreja_id == solicitacao.igreja_id,
+        EnviarAvaliacao.pessoa_id == solicitacao.candidato_id)
+        .order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc())
+        .limit(1)).scalar_one_or_none()
+    if pessoa is None or not pessoa.apto_lider or latest is None or latest.decisao != "apto":
+        raise HTTPException(409, "Nomeação exige avaliação de aptidão vigente; solicite revisão pastoral")
+    set_cell_leadership(db, igreja_id=solicitacao.igreja_id, cell=cell,
+        new_leader_id=solicitacao.candidato_id, new_active=True)
+    return dict(solicitacao.payload_proposto or {}, versao_proposta=solicitacao.versao_proposta,
+        avaliacao_id=str(latest.id), versao_regras=latest.versao_regras,
+        lider_anterior=(solicitacao.payload_atual or {}).get("lider_id"),
+        efeito="lider_nomeado", confirmar_execucao=True)
 
 
 def _now() -> dt.datetime:
@@ -129,6 +203,11 @@ def _lock_origin_cell(db: Session, solicitacao: CelulaSolicitacao) -> Celula:
         .with_for_update()
         .execution_options(populate_existing=True)
     ).scalar_one_or_none()
+    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        if (cell is None or not cell.ativo or solicitacao.payload_atual is None
+            or (str(cell.lider_id) if cell.lider_id else None) != solicitacao.payload_atual.get("lider_id")):
+            raise HTTPException(409, "A liderança ou a célula mudou; reenvie a proposta para revisão")
+        return cell
     if (
         cell is None
         or not bool(cell.ativo)
@@ -283,6 +362,8 @@ def approve(
     actor_pessoa_id: uuid.UUID | None,
     approver_app_user_id: uuid.UUID | None,
     idempotency_key: str | None,
+    confirmar_execucao: bool = False,
+    versao_proposta: int | None = None,
 ) -> CelulaSolicitacao:
     """Aprova a solicitação e aplica o payload em transação única + auditoria.
 
@@ -305,6 +386,27 @@ def approve(
     # Trava pessimista + releitura autoritativa da linha na transação corrente
     # (fecha o TOCTOU check→apply). O lock é mantido até o commit/rollback abaixo.
     db.refresh(solicitacao, with_for_update=True)
+
+    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        try:
+            if not confirmar_execucao:
+                raise HTTPException(422, "Confirme explicitamente a execução imediata da nomeação")
+            if versao_proposta != solicitacao.versao_proposta:
+                raise HTTPException(409, "A proposta mudou; recarregue antes de decidir")
+            approver_person = db.execute(select(AppUser.pessoa_id).where(
+                AppUser.id == approver_app_user_id, AppUser.igreja_id == solicitacao.igreja_id)
+            ).scalar_one_or_none()
+            if approver_person is None:
+                raise HTTPException(403, "Vincule o decisor a uma Pessoa antes de decidir")
+            if solicitacao.status != STATUS_APROVADA:
+                cell = _lock_origin_cell(db, solicitacao)
+                _lock_leadership_identities(db, igreja_id=solicitacao.igreja_id,
+                    pessoa_ids={p for p in (cell.lider_id, solicitacao.candidato_id, approver_person) if p is not None},
+                    additional_app_user_ids={approver_app_user_id} if approver_app_user_id else set())
+            actor_pessoa_id = _nomination_authority(db, solicitacao, approver_app_user_id, approver_person)
+        except Exception:
+            db.rollback()
+            raise
 
     if solicitacao.status == STATUS_APROVADA:
         if status_antes == STATUS_APROVADA:
@@ -371,7 +473,10 @@ def approve(
             )
 
     try:
-        if solicitacao.tipo == TIPO_MULTIPLICACAO:
+        nomination_snapshot = None
+        if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+            nomination_snapshot = _apply_nomination(db, solicitacao, cell)
+        elif solicitacao.tipo == TIPO_MULTIPLICACAO:
             execute_multiplication(
                 db,
                 igreja_id=solicitacao.igreja_id,
@@ -396,6 +501,7 @@ def approve(
             autor_id=actor_pessoa_id,
             de_status=de,
             para_status=STATUS_APROVADA,
+            payload_snapshot=nomination_snapshot,
         )
         db.flush()
         db.commit()
@@ -414,6 +520,7 @@ def reject(
     solicitacao: CelulaSolicitacao,
     actor_pessoa_id: uuid.UUID | None,
     observacao_central: str,
+    approver_app_user_id: uuid.UUID | None = None,
 ) -> CelulaSolicitacao:
     """Rejeita a solicitação (não altera dado real). `observacao_central` obrigatória.
 
@@ -424,6 +531,12 @@ def reject(
     (lost update). A 2ª a chegar espera o lock, relê o estado já decidido e cai no 409.
     """
     db.refresh(solicitacao, with_for_update=True)
+    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        try:
+            actor_pessoa_id = _nomination_authority(db, solicitacao, approver_app_user_id)
+        except Exception:
+            db.rollback()
+            raise
     if solicitacao.status not in OPEN_STATUSES:
         db.rollback()
         raise HTTPException(
@@ -460,6 +573,7 @@ def request_adjustment(
     solicitacao: CelulaSolicitacao,
     actor_pessoa_id: uuid.UUID | None,
     observacao_central: str,
+    approver_app_user_id: uuid.UUID | None = None,
 ) -> CelulaSolicitacao:
     """Devolve ao líder em `ajuste_solicitado` (não altera dado real).
 
@@ -468,6 +582,12 @@ def request_adjustment(
     `aguardando` — a 2ª transição relê o estado já decidido e recebe 409.
     """
     db.refresh(solicitacao, with_for_update=True)
+    if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+        try:
+            actor_pessoa_id = _nomination_authority(db, solicitacao, approver_app_user_id)
+        except Exception:
+            db.rollback()
+            raise
     if solicitacao.status != STATUS_AGUARDANDO:
         db.rollback()
         raise HTTPException(
@@ -504,6 +624,7 @@ def resubmit(
     solicitacao: CelulaSolicitacao,
     actor_pessoa_id: uuid.UUID | None,
     new_payload: dict,
+    author_app_user_id: uuid.UUID | None = None,
 ) -> CelulaSolicitacao:
     """Líder autor edita o payload e reenvia (só em `ajuste_solicitado`).
 
@@ -519,13 +640,32 @@ def resubmit(
             detail="Só é possível reenviar solicitação em ajuste_solicitado",
         )
     try:
-        _lock_origin_cell(db, solicitacao)
+        if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+            target = db.execute(select(Celula).where(Celula.id == solicitacao.celula_id,
+                Celula.igreja_id == solicitacao.igreja_id).with_for_update()
+                .execution_options(populate_existing=True)).scalar_one_or_none()
+            if target is None or not target.ativo:
+                raise HTTPException(409, "Célula indisponível")
+            current_author = lock_nomination_author(db, cell=target,
+                candidato_id=uuid.UUID(new_payload["novo_lider_id"]), app_user_id=author_app_user_id)
+            if current_author != solicitacao.solicitante_id:
+                raise HTTPException(403, "Somente o autor pode reenviar a proposta")
+            solicitacao.payload_atual = {"lider_id": str(target.lider_id) if target.lider_id else None}
+        else:
+            _lock_origin_cell(db, solicitacao)
     except HTTPException:
         db.rollback()
         raise
     try:
         de = solicitacao.status
         solicitacao.payload_proposto = new_payload
+        if solicitacao.tipo == TIPO_NOMEAR_LIDER:
+            assert_pessoas_nao_arquivadas(db, igreja_id=solicitacao.igreja_id,
+                pessoa_ids=referenced_pessoa_ids(solicitacao.tipo, new_payload))
+            _assert_pessoa_in_tenant(db, solicitacao.igreja_id,
+                uuid.UUID(new_payload["novo_lider_id"]), "novo_lider_id")
+            solicitacao.candidato_id = uuid.UUID(new_payload["novo_lider_id"])
+            solicitacao.versao_proposta += 1
         solicitacao.status = STATUS_AGUARDANDO
         solicitacao.updated_at = _now()
         _append_event(
