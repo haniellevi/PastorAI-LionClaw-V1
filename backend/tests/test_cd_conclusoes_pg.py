@@ -335,3 +335,97 @@ def test_equivalence_requires_distinct_source(database,seeded):
         rid=uuid4(); finish(s,v,tid,mid,id=rid,equivalence=True)
         denied(lambda:cd.finish(s,principal(v),tid,mid,DTO(id=rid,confirmado=True,
             evidencia='Documento institucional conferido',origem_equivalencia='Outra origem'),equivalence=True),409)
+
+
+@pytest.mark.parametrize('role', ['admin', 'pastor', 'lider_consol'])
+def test_enrollment_completion_projection_by_live_role(database, seeded, role):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid,_=setup(s,v)
+        cd.responsaveis(s,principal(v),tid,ResponsaveisInput(usuarios=[v['leader']]))
+        completion=finish(s,v,tid,mid,equivalence=True)
+        s.commit()
+    with database.begin() as c:
+        c.execute(text('update user_roles set papel=:role where user_id=:u'),dict(role=role,u=v['leader']))
+    with scoped(database,v['t']) as s:
+        projected=cd.list_enrollments(s,principal(v,'leader'),tid)[0]['conclusao']
+        assert projected['id']==completion['id']
+        assert projected['origem']=='equivalencia' and projected['confirmada_por']==v['uid']
+        assert projected['confirmada_em']==completion['confirmada_em']
+        if role=='lider_consol':
+            assert 'evidencia' not in projected and 'origem_equivalencia' not in projected
+        else:
+            assert projected['evidencia']==completion['evidencia']
+            assert projected['origem_equivalencia']==completion['origem_equivalencia']
+
+
+@pytest.mark.parametrize('competitor', ['correction', 'cancellation'])
+def test_completion_races_with_attendance_or_cancellation(database, seeded, competitor):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid,a=setup(s,v); fulfill(s,v,tid,mid)
+        previous=cd.attendance_history(s,principal(v),tid,mid,a)[-1]['registro_id']
+        s.commit()
+    barrier=Barrier(2)
+    def attempt(operation):
+        with scoped(database,v['t']) as s:
+            barrier.wait(timeout=10)
+            try:
+                if operation=='completion': finish(s,v,tid,mid)
+                elif competitor=='correction':
+                    cd.attendance(s,principal(v),tid,mid,a,payload(presente=False,anterior_id=previous))
+                else: cd.cancel_enrollment(s,principal(v),tid,mid)
+                s.commit(); return 200
+            except HTTPException as exc:
+                s.rollback(); return exc.status_code
+    with ThreadPoolExecutor(2) as pool:
+        completion,other=list(pool.map(attempt, ['completion', 'competitor']))
+    with scoped(database,v['t']) as s:
+        enrollment=cd.list_enrollments(s,principal(v),tid)[0]
+        history=cd.attendance_history(s,principal(v),tid,mid,a)
+        if competitor=='correction':
+            assert (completion,other) in {(200,409),(422,200)}
+            assert enrollment['ativa']
+            assert history[-1]['presente'] == (completion==200)
+            assert len(history)==(1 if completion==200 else 2)
+        else:
+            assert (completion,other) in {(200,409),(409,200)}
+            assert enrollment['ativa']==(completion==200)
+            assert len(history)==1
+        assert bool(enrollment['conclusao'])==(completion==200)
+        assert s.execute(text('select count(*) from cd_conclusoes where matricula_id=:m'),dict(m=mid)).scalar_one()==int(completion==200)
+        assert s.execute(text('select count(*) from cd_certificado_conclusoes')).scalar_one()==0
+
+
+def test_certificate_issue_races_with_revocation(database, seeded):
+    from tests.test_cd_matriculas_pg import legacy
+    v=seeded
+    with scoped(database,v['t']) as s:
+        legacy(s,v); c=short_course(s,v)
+        for module in c['modulos']:
+            tid=cd.create_turma(s,principal(v),TurmaInput(id=uuid4(),nome='Turma',curriculo_id=c['id'],modulo_id=module['id']))['id']
+            mid=cd.enroll(s,principal(v),tid,command(v))['id']
+            finish(s,v,tid,mid,equivalence=True)
+        old=issue(s,v,c['id']); s.commit()
+    barrier=Barrier(2)
+    def attempt(operation):
+        with scoped(database,v['t']) as s:
+            barrier.wait(timeout=10)
+            try:
+                if operation=='issue': issue(s,v,c['id'])
+                else: cd.revoke_certificate(s,principal(v),old['id'],DTO(motivo='Correção administrativa'))
+                s.commit(); return 200
+            except HTTPException as exc:
+                s.rollback(); return exc.status_code
+    with ThreadPoolExecutor(2) as pool:
+        emitted,revoked=list(pool.map(attempt,['issue','revoke']))
+    assert revoked==200 and emitted in {200,409}
+    with scoped(database,v['t']) as s:
+        certs=cd.person_progress(s,principal(v),v['p'],c['id'])['certificados']
+        assert len(certs)==(2 if emitted==200 else 1)
+        assert sum(not cert['revogada'] for cert in certs)==int(emitted==200)
+        assert next(cert for cert in certs if cert['id']==old['id'])['revogada']
+        completions=set(s.execute(text('select id from cd_conclusoes')).scalars())
+        assert len(completions)==2
+        assert all(set(cert['conclusoes_ids'])==completions for cert in certs)
+        assert s.execute(text('select count(*) from cd_certificado_conclusoes')).scalar_one()==2*len(certs)

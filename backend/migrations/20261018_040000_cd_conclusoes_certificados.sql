@@ -1,4 +1,7 @@
 -- CD PR 5: provisional pastoral rules, no leadership/Enviar effects.
+-- Triggers usam SECURITY INVOKER (padrão), preservando o papel do chamador e a RLS.
+-- O backend já possui os grants necessários; SECURITY DEFINER elevaria privilégios
+-- e permitiria que as consultas dos guards contornassem o isolamento por igreja.
 set local lock_timeout = '2s';
 alter table public.cd_matriculas add constraint cd_matricula_conclusao_key unique(igreja_id,turma_id,id,pessoa_id,modulo_id);
 create table public.cd_conclusoes (

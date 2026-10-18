@@ -4518,6 +4518,15 @@ def run_agent_for_message(
 
     igreja_id = _require_agent_igreja_id(outcome)
 
+    from app.cd_whatsapp.turn import run_cd_turn
+    cd_result = run_cd_turn(
+        session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client,
+    )
+    if cd_result is not None:
+        return cd_result
+
     from app.uv_whatsapp.turn import run_uv_turn
     uv_result = run_uv_turn(
         session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
