@@ -2,7 +2,7 @@
 from dataclasses import asdict, replace
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from app.db.models import AppUser, Celula, CelulaSolicitacao, EnviarAvaliacao, Pessoa, UserRole
 from app.deps import CENTRAL_ROLES, resolve_actor_pessoa_id
 from app.services.enviar_avaliacoes import _coord
@@ -82,8 +82,10 @@ def listar_historico(db, user, *, q='', page=1, page_size=25):
         # Search only public operation type / scoped cell name, never payloads.
         cells = select(Celula.id).where(Celula.igreja_id == tenant,
             Celula.nome.icontains(q.strip(), autoescape=True))
+        label = case((CelulaSolicitacao.tipo == 'nomear_lider', 'Nomeação'),
+            (CelulaSolicitacao.tipo == 'abrir_celula', 'Abertura'), else_='Multiplicação')
         statement = statement.where(or_(CelulaSolicitacao.tipo.icontains(q.strip(), autoescape=True),
-            CelulaSolicitacao.celula_id.in_(cells)))
+            label.icontains(q.strip(), autoescape=True), CelulaSolicitacao.celula_id.in_(cells)))
     rows, result = _page(db, statement.order_by(CelulaSolicitacao.created_at.desc(), CelulaSolicitacao.id.desc()),
         page=page, page_size=page_size)
     return result | dict(items=[dict(id=r.id,tipo=r.tipo,status=r.status,

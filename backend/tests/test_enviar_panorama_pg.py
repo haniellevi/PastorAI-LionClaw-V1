@@ -102,6 +102,8 @@ def test_history_opening_multiplication_search_and_pagination(nomination):
     second=v['client'].get('/enviar/historico?page_size=1&page=2').json()
     assert second['items'][0]['id']!=page['items'][0]['id']
     assert v['client'].get('/enviar/historico?q=multiplicacao').json()['total']==1
+    assert v['client'].get('/enviar/historico',params={'q':'Multiplicação'}).json()['total']==1
+    assert v['client'].get('/enviar/historico?q=Abertura').json()['total']==1
     assert v['client'].get('/enviar/historico?q=Célula').json()['total']==1
     assert v['client'].get('/enviar/historico?q=inexistente').json()['items']==[]
 
