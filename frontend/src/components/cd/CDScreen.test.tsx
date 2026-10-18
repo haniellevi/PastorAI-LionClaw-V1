@@ -112,3 +112,44 @@ it("busca elegíveis por nome e oferece paginação", async () => {
   expect(state.request).toHaveBeenCalledWith("synthetic", "/turmas/turma/elegiveis?q=&limit=100&offset=0", "GET", undefined, expect.any(AbortSignal));
   expect(button("Página anterior")?.disabled).toBe(true);
 });
+
+it("abre chamada e histórico com autor, corrige com revisão explícita", async () => {
+  const normal = state.request.getMockImplementation()!;
+  state.request.mockImplementation((...args) => args[1].endsWith("/matriculas") ? Promise.resolve([{ id: "mat", pessoa_id: "p", nome: "Aluno", ativa: true, origem_aptidao: "legado" }]) : args[1].endsWith("/historico") ? Promise.resolve([{ registro_id: "anterior", anterior_id: null, presente: false, modalidade: "regular", registrada_por_nome: "Ana Sintética", registrada_em: "2026-10-01T12:00:00Z" }]) : normal(...args));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => { button("Chamada de Aluno")!.click(); });
+  expect(container.textContent).toContain("Ana Sintética");
+  expect(container.textContent).toContain("Ausente");
+  await act(async () => { button("Registrar reposição")!.click(); });
+  expect(state.request).toHaveBeenCalledWith("synthetic", "/turmas/turma/matriculas/mat/presencas/a0", "POST", { id: expect.any(String), anterior_id: "anterior", presente: true, modalidade: "reposicao" }, expect.any(AbortSignal));
+});
+
+it("preserva revisão e chave quando a atualização após gravação falha", async () => {
+  const normal = state.request.getMockImplementation()!;
+  let historyCalls = 0;
+  state.request.mockImplementation((...args) => {
+    if (args[1].endsWith("/matriculas")) return Promise.resolve([{ id: "mat", nome: "Aluno", ativa: true, origem_aptidao: "legado" }]);
+    if (args[1].endsWith("/historico")) {
+      historyCalls++;
+      return historyCalls === 1 ? Promise.resolve([{ registro_id: "old", presente: false, modalidade: "regular", registrada_por_nome: "Ana Sintética", registrada_em: "2026-10-01T12:00:00Z" }]) : Promise.reject(new Error("Consulta indisponível"));
+    }
+    return normal(...args);
+  });
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => { button("Chamada de Aluno")!.click(); });
+  await act(async () => { button("Registrar reposição")!.click(); });
+  expect(container.textContent).toContain("Ana Sintética");
+  await act(async () => { button("Registrar reposição")!.click(); });
+  const posts = state.request.mock.calls.filter(c => c[2] === "POST");
+  expect(posts).toHaveLength(2); expect(posts[1]![3]).toEqual(posts[0]![3]);
+});
+
+it.each(["encerrada", "cancelada"])("mantém histórico para consulta com turma/matrícula %s", async (status) => {
+  const normal = state.request.getMockImplementation()!;
+  state.request.mockImplementation((...args) => args[1].endsWith("/matriculas") ? Promise.resolve([{ id: "mat", nome: "Aluno", ativa: status !== "cancelada", origem_aptidao: "legado" }]) : args[1].endsWith("/historico") ? Promise.resolve([]) : args[1] === "/turmas/turma" ? Promise.resolve({ ...detail, encerrada: status === "encerrada" }) : normal(...args));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => { button("Chamada de Aluno")!.click(); });
+  expect(button("Registrar presença")!.closest("fieldset")!.disabled).toBe(true);
+  expect(button("Atualizar histórico")!.disabled).toBe(false);
+  expect(state.request.mock.calls.some(c => c[2] === "POST")).toBe(false);
+});

@@ -1,10 +1,10 @@
-"""CD catalog and turma panel. Callers commit; no agent tools."""
+"""CD panel domain services. Callers commit; no agent tools."""
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.domain.cd import CurriculoCD
-from app.services.uv import actor as formation_actor, rows, require_coordination, COORDINATION_ROLES, sync_responsaveis
+from app.services.uv import actor as formation_actor, rows, require_coordination, COORDINATION_ROLES, sync_responsaveis, today_sao_paulo
 
 
 def actor(db, user):
@@ -158,6 +158,14 @@ def calendar(db,user,tid,payload):
     if set(dates)!={a['id'] for a in lessons}: raise HTTPException(422,'Calendário exige todas as aulas deste módulo')
     ordered=[dates[a['id']] for a in lessons]
     if ordered!=sorted(ordered): raise HTTPException(422,'Datas devem seguir a ordem das aulas')
+    # The turma lock also serializes attendance. Never strand a recorded
+    # revision behind the future-date guard, including an absence to correct.
+    today = today_sao_paulo()
+    for lesson in payload.aulas:
+        if lesson.data > today and rows(db, """select id from cd_presencas
+            where igreja_id=:t and turma_id=:tid and aula_id=:a limit 1""",
+            t=t, tid=tid, a=lesson.aula_id):
+            raise HTTPException(409, 'Aula com frequência registrada não pode ser movida para o futuro')
     try:
         with db.begin_nested():
             for a in payload.aulas:
@@ -301,3 +309,94 @@ def cancel_enrollment(db, user, tid, mid):
     db.execute(text('''update cd_matriculas set ativa=false,cancelada_por=:u,cancelada_em=clock_timestamp()
         where igreja_id=:t and turma_id=:tid and id=:mid and ativa'''), dict(t=t, tid=tid, mid=mid, u=uid))
     return {'status': 'cancelada'}
+
+
+def attendance_history(db, user, turma_id, matricula_id, aula_id):
+    t, uid, roles = actor(db, user)
+    turma(db, t, turma_id)
+    require_scope(db, t, uid, roles, turma_id)
+    if not rows(db, '''select m.id from cd_matriculas m join pessoas p
+        on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
+        where m.igreja_id=:t and m.turma_id=:tid and m.id=:mid and p.arquivada_em is null''',
+        t=t, tid=turma_id, mid=matricula_id):
+        raise HTTPException(404, 'Matrícula não encontrada')
+    return rows(db, '''select h.registro_id,h.anterior_id,h.presente,h.modalidade,h.registrada_por,h.registrada_em,
+        coalesce(person.nome,u.nome,'Usuário da equipe') as registrada_por_nome
+        from cd_presencas_historico h join cd_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
+        join app_users u on u.igreja_id=h.igreja_id and u.id=h.registrada_por
+        left join pessoas person on person.igreja_id=u.igreja_id and person.id=u.pessoa_id
+        where p.igreja_id=:t and p.turma_id=:tid and p.matricula_id=:mid and p.aula_id=:a
+        order by h.registrada_em,h.registro_id''', t=t, tid=turma_id, mid=matricula_id, a=aula_id)
+
+
+def attendance(db, user, turma_id, matricula_id, aula_id, payload):
+    t, uid, current_turma = enrollment_scope(db, user, turma_id, lock=True)
+    # Replayed receipts are read only and cannot restore responsibility or undo
+    # corrections. The same UUID with any other intent fails closed.
+    previous = rows(db, '''select p.turma_id,p.matricula_id,p.aula_id,h.registro_id,h.anterior_id,
+        h.presente,h.modalidade,h.registrada_por,h.registrada_em
+        from cd_presencas_historico h join cd_presencas p on p.igreja_id=h.igreja_id and p.id=h.presenca_id
+        where h.igreja_id=:t and h.registro_id=:id''', t=t, id=payload.id)
+    if previous:
+        r = previous[0]
+        if (r['turma_id'],r['matricula_id'],r['aula_id'],r['presente'],r['modalidade'],r['anterior_id'],r['registrada_por']) != (
+                turma_id,matricula_id,aula_id,payload.presente,payload.modalidade,payload.anterior_id,uid):
+            raise HTTPException(409, 'Identificador reutilizado com outros dados')
+        return {k: r[k] for k in ('registro_id','anterior_id','presente','modalidade','registrada_por','registrada_em')}
+    if current_turma['encerrada']:
+        raise HTTPException(409, 'Turma encerrada')
+    enrollment = rows(db, '''select m.id,m.pessoa_id from cd_matriculas m join pessoas p
+        on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
+        where m.igreja_id=:t and m.turma_id=:tid and m.id=:mid and m.ativa and p.arquivada_em is null
+        for share of m,p''', t=t, tid=turma_id, mid=matricula_id)
+    if not enrollment:
+        raise HTTPException(409, 'Matrícula ativa não encontrada nesta turma')
+    if payload.modalidade == 'reposicao' and not payload.presente:
+        raise HTTPException(422, 'Reposição exige presença')
+    activity = rows(db, '''select aula_id,data from cd_calendario where igreja_id=:t and turma_id=:tid
+        and aula_id=:a''', t=t, tid=turma_id, a=aula_id)
+    if not activity:
+        raise HTTPException(422, 'Defina o calendário da aula antes da chamada')
+    if activity[0]['data'] > today_sao_paulo():
+        raise HTTPException(409, 'Não é possível registrar presença em aula futura')
+    current = rows(db, '''select registro_id from cd_presencas where igreja_id=:t
+        and matricula_id=:mid and aula_id=:a''', t=t, mid=matricula_id, a=aula_id)
+    if (current[0]['registro_id'] if current else None) != payload.anterior_id:
+        raise HTTPException(409, 'Presença já registrada ou corrigida. Atualize e faça uma correção explícita')
+    params = dict(t=t, tid=turma_id, mid=matricula_id, a=aula_id,
+                  id=payload.id, anterior=payload.anterior_id, presente=payload.presente,
+                  modalidade=payload.modalidade, u=uid)
+    # Cross-turma key collisions are possible even while each turma is locked.
+    # A savepoint preserves the request transaction and turns these into 409.
+    try:
+        with db.begin_nested():
+            if current:
+                db.execute(text('''update cd_presencas set presente=:presente,modalidade=:modalidade,
+                    registro_id=:id,anterior_id=:anterior,registrada_por=:u
+                    where igreja_id=:t and matricula_id=:mid and aula_id=:a'''), params)
+            else:
+                db.execute(text('''insert into cd_presencas(igreja_id,turma_id,matricula_id,aula_id,
+                    presente,modalidade,registro_id,registrada_por)
+                    values(:t,:tid,:mid,:a,:presente,:modalidade,:id,:u)'''), params)
+    except IntegrityError as exc:
+        raise HTTPException(409, 'Identificador de presença indisponível') from exc
+    receipt = next(r for r in attendance_history(db, user, turma_id, matricula_id, aula_id)
+                   if r['registro_id'] == payload.id)
+    return {k: value for k, value in receipt.items() if k != 'registrada_por_nome'}
+
+
+def attendance_summary(db, user, tid):
+    """PR 5 input: active enrollments of visible people, fulfilled lesson IDs only.
+
+    Regular presence and replacement count equally. This is not a completion;
+    PR 5 must revalidate the complete calendar and human confirmation under lock.
+    Cancelled enrollments stay in history; archived people have no history API.
+    """
+    t, _, _ = enrollment_scope(db, user, tid)
+    return rows(db, """select m.id as matricula_id,
+        coalesce(array_agg(p.aula_id order by a.numero) filter(where p.presente),array[]::uuid[]) as aulas_cumpridas
+        from cd_matriculas m
+        join pessoas person on person.igreja_id=m.igreja_id and person.id=m.pessoa_id
+        left join cd_presencas p on p.igreja_id=m.igreja_id and p.matricula_id=m.id
+        left join cd_aulas a on a.igreja_id=p.igreja_id and a.id=p.aula_id
+        where m.igreja_id=:t and m.turma_id=:tid and m.ativa and person.arquivada_em is null group by m.id order by m.id""", t=t,tid=tid)

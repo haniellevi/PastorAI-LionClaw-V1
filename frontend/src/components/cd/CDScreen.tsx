@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
-import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD, type MatriculaCD } from "@/lib/cd-api";
+import { cdRequest, type CurriculoCD, type TurmaCD, type DetalheCD, type MatriculaCD, type PresencaCD } from "@/lib/cd-api";
 import { Dialog } from "@/components/ds/Dialog";
 import "@/components/uv/uv.css";
 
@@ -23,6 +23,9 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
   const [searchQuery, setSearchQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [personId, setPersonId] = useState("");
+  const [calling, setCalling] = useState<MatriculaCD | null>(null);
+  const [lesson, setLesson] = useState("");
+  const [history, setHistory] = useState<PresencaCD[]>([]);
   const [canceling, setCanceling] = useState<MatriculaCD | null>(null);
   const [selected, setSelected] = useState("");
   const [moduleId, setModuleId] = useState("");
@@ -49,6 +52,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
     if (coordination) setCatalogs(await request<CurriculoCD[]>("/curriculos"));
   }
   async function load(id: string) {
+    setCalling(null); setHistory([]);
     const value = await request<DetalheCD>(`/turmas/${id}`);
     const [matriculas, pessoas] = await Promise.all([
       request<MatriculaCD[]>(`/turmas/${id}/matriculas`),
@@ -69,7 +73,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
     setBusy(true); setError(""); setNotice("");
     try { await action(); }
     catch (err) {
-      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); setEnrollments([]); setEligible([]); setCanceling(null); }
+      if (err instanceof ApiError && [401, 403, 404].includes(err.status)) { setDetail(null); setTurmas([]); setCatalogs([]); setOptions([]); setEnrollments([]); setEligible([]); setCanceling(null); setCalling(null); setHistory([]); }
       if (!controller.current?.signal.aborted) setError(err instanceof Error ? err.message : "Falha ao carregar CD.");
     } finally { if (!controller.current?.signal.aborted) setBusy(false); }
   }
@@ -85,6 +89,19 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
   const current = catalogs.find(c => c.id === selected);
   async function rename(cid: string, kind: string, id: string, value: string) {
     await request(`/curriculos/${cid}/${kind}/${id}`, "PUT", { nome: value }); await refresh(); setNotice("Nome atualizado.");
+  }
+  async function loadHistory(m: MatriculaCD, aula: string) {
+    if (!detail) return;
+    const revisions = await request<PresencaCD[]>(`/turmas/${detail.id}/matriculas/${m.id}/presencas/${aula}/historico`);
+    setCalling(m); setLesson(aula); setHistory(revisions);
+  }
+  async function record(presente: boolean, modalidade: "regular" | "reposicao") {
+    if (!detail || !calling) return;
+    const intent = { turma: detail.id, matricula: calling.id, aula: lesson, presente, modalidade, anterior_id: history.at(-1)?.registro_id ?? null };
+    await request(`/turmas/${detail.id}/matriculas/${calling.id}/presencas/${lesson}`, "POST", {
+      id: key(intent), presente, modalidade, anterior_id: intent.anterior_id,
+    });
+    await loadHistory(calling, lesson); createKey.current = null; setNotice("Frequência registrada.");
   }
   return <section className="screen uv-screen" aria-busy={busy}>
     <header><h1>Capacitação Destino</h1><p>Currículos versionados, turmas e calendário de aulas.</p></header>
@@ -153,9 +170,27 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
         </fieldset></form></> : null}
         {!enrollments.length ? <p>Nenhuma matrícula registrada.</p> : null}
         {enrollments.map(m => <div key={m.id}><p>{m.nome}{m.pessoa_arquivada ? " · Pessoa arquivada" : ""} · {m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
+          <button className="btn" disabled={busy || !detail.modulo.aulas.length} onClick={() => { const first = detail.modulo.aulas[0]; if (first) void run(() => loadHistory(m, first.id)); }}>Chamada de {m.nome}</button>
           {m.ativa && !detail.encerrada ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
         </div>)}
       </div>
+      <Dialog open={calling !== null} onClose={() => { if (!busy) { setCalling(null); setHistory([]); } }} title={calling ? `Chamada de ${calling.nome}` : "Chamada"} description="Presenças e reposições cumprem a aula. Correções preservam o histórico anterior.">
+        <label>Aula da chamada<select value={lesson} disabled={busy} onChange={e => { const value = e.target.value; if (calling) void run(() => loadHistory(calling, value)); }}>
+          {detail.modulo.aulas.map(a => <option key={a.id} value={a.id}>{a.numero}. {a.nome}</option>)}
+        </select></label>
+        {error ? <p role="alert">{error}</p> : null}
+        <h4>Histórico</h4>
+        {!history.length ? <p>Nenhum lançamento nesta aula.</p> : <ol>{history.map(h => <li key={h.registro_id}>{h.presente ? h.modalidade === "reposicao" ? "Reposição" : "Presente" : "Ausente"} · {h.registrada_por_nome} · {new Date(h.registrada_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</li>)}</ol>}
+        <button className="btn" disabled={busy} onClick={() => { if (calling) void run(() => loadHistory(calling, lesson)); }}>Atualizar histórico</button>
+        {history.length ? <p>A alteração corrigirá o último lançamento exibido.</p> : null}
+        <fieldset disabled={busy || detail.encerrada || !calling?.ativa}>
+          <legend>Registrar frequência</legend>
+          <button className="btn" onClick={() => void run(() => record(true, "regular"))}>Registrar presença</button>
+          <button className="btn" onClick={() => void run(() => record(false, "regular"))}>Registrar ausência</button>
+          <button className="btn" onClick={() => void run(() => record(true, "reposicao"))}>Registrar reposição</button>
+        </fieldset>
+        <button className="btn" disabled={busy} onClick={() => { setCalling(null); setHistory([]); }}>Fechar chamada</button>
+      </Dialog>
       <Dialog open={canceling !== null} onClose={() => { if (!busy) setCanceling(null); }} title="Cancelar matrícula?" description={canceling ? `A matrícula de ${canceling.nome} será cancelada. O registro será preservado.` : ""}>
         <button className="btn" disabled={busy} onClick={() => setCanceling(null)}>Voltar</button>
         <button className="btn btn-primary" disabled={busy} onClick={() => void run(async () => {
