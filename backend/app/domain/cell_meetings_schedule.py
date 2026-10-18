@@ -223,3 +223,14 @@ def next_meeting_date(
                 days_ahead = 7
 
     return today + dt.timedelta(days=days_ahead)
+
+
+def dia_reuniao_for_storage(value: str | None) -> str | None:
+    """Canonicalize one accepted weekday without rejecting legacy draft data."""
+
+    if value is None:
+        return None
+    try:
+        return canonical_weekday_label(value)
+    except InvalidDiaReuniao:
+        return value

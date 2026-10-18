@@ -55,6 +55,7 @@ export type CellRequestStatus =
 export interface CellRequest {
   id: string;
   celula_id: string | null;
+  celula_criada_id?: string | null;
   solicitante_id: string | null;
   pessoa_id: string | null;
   celula_nome?: string | null;

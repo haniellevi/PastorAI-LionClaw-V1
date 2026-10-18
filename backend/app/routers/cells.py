@@ -30,6 +30,7 @@ from app.db.session import get_db
 from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central, resolve_actor_pessoa_id
 from app.domain.cell_meetings_schedule import (
     InvalidDiaReuniao,
+    dia_reuniao_for_storage as _dia_reuniao_for_storage,
     canonical_weekday_label,
     now_in_sao_paulo,
 )
@@ -480,16 +481,6 @@ def _assert_referenced_pessoas_nao_arquivadas(
         for_update=True,
     )
 
-
-def _dia_reuniao_for_storage(value: str | None) -> str | None:
-    """Canonicalize one accepted weekday without rejecting legacy draft data."""
-
-    if value is None:
-        return None
-    try:
-        return canonical_weekday_label(value)
-    except InvalidDiaReuniao:
-        return value
 
 
 def _same_dia_reuniao(left: str | None, right: str | None) -> bool:

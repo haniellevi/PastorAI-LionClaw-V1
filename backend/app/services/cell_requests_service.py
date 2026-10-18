@@ -26,7 +26,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     AppUser,
-    EnviarAvaliacao,
     UserRole,
     Celula,
     CelulaMembro,
@@ -60,6 +59,8 @@ from app.domain.cell_requests import (
 )
 from app.services.cell_multiplication_service import execute_multiplication
 from app.services.cells import new_cell
+from app.services.enviar_avaliacoes import aptidao_vigente, _latest
+from app.domain.cell_meetings_schedule import dia_reuniao_for_storage
 from app.services.cell_leadership import set_cell_leadership, _lock_leadership_identities
 from app.services.celula_membro import (
     MembroInelegivelError,
@@ -136,7 +137,7 @@ def create_opening_cell(db, solicitacao):
     payload = solicitacao.payload_proposto
     cell = new_cell(igreja_id=solicitacao.igreja_id, nome=payload["nome"],
         cobertura_espiritual=payload["cobertura_espiritual"],
-        dia_reuniao=payload.get("dia_reuniao"), horario=payload.get("horario"),
+        dia_reuniao=dia_reuniao_for_storage(payload.get("dia_reuniao")), horario=payload.get("horario"),
         endereco=payload.get("endereco"), bairro=payload.get("bairro"),
         divulgar_whatsapp=False)
     db.add(cell)
@@ -149,13 +150,9 @@ def _apply_nomination(db, solicitacao, cell):
     pessoa = db.execute(select(Pessoa).where(Pessoa.id == solicitacao.candidato_id,
         Pessoa.igreja_id == solicitacao.igreja_id).with_for_update()
         .execution_options(populate_existing=True)).scalar_one_or_none()
-    latest = db.execute(select(EnviarAvaliacao).where(
-        EnviarAvaliacao.igreja_id == solicitacao.igreja_id,
-        EnviarAvaliacao.pessoa_id == solicitacao.candidato_id)
-        .order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc())
-        .limit(1)).scalar_one_or_none()
-    if pessoa is None or not pessoa.apto_lider or latest is None or latest.decisao != "apto":
+    if not aptidao_vigente(db, pessoa):
         raise HTTPException(409, "Nomeação exige avaliação de aptidão vigente; solicite revisão pastoral")
+    latest = _latest(db, pessoa)
     set_cell_leadership(db, igreja_id=solicitacao.igreja_id, cell=cell,
         new_leader_id=solicitacao.candidato_id, new_active=True)
     return dict(solicitacao.payload_proposto or {}, versao_proposta=solicitacao.versao_proposta,

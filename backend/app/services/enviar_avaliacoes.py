@@ -42,6 +42,15 @@ def _latest(db, pessoa):
         EnviarAvaliacao.pessoa_id == pessoa.id).order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc()).limit(1)).scalar_one_or_none()
 
 
+def aptidao_vigente(db: Session, pessoa: Pessoa | None) -> bool:
+    """Caller holds Pessoa lock; legacy responsibility is never changed here."""
+    if pessoa is None or not pessoa.apto_lider:
+        return False
+    latest = _latest(db, pessoa)
+    return bool(latest is not None and latest.decisao == 'apto'
+        and ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id).motivo is None)
+
+
 def _snapshot(pessoa):
     result = ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id)
     # No official references are supplied by this adapter yet. Absence of a

@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/dashboard-api";
 import { CelulasScreen } from "./CelulasScreen";
 
-const mocks = vi.hoisted(() => ({ fetchCellsFull: vi.fn(), fetchCellStats: vi.fn(), fetchContacts: vi.fn(), expireSession: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchDetail: vi.fn(), fetchCellsFull: vi.fn(), fetchCellStats: vi.fn(), fetchContacts: vi.fn(), expireSession: vi.fn() }));
 vi.mock("@/lib/auth-context", () => ({
   useAuth: () => ({ token: "synthetic-token", user: { roles: ["admin"] }, expireSession: mocks.expireSession }),
 }));
 vi.mock("@/lib/cells-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/cells-api")>("@/lib/cells-api"),
+  fetchCellDetail: mocks.fetchDetail,
   fetchCellsFull: mocks.fetchCellsFull,
 }));
 vi.mock("@/lib/lookup-api", async () => ({
@@ -82,4 +83,12 @@ describe("Células: indicadores confirmados", () => {
     expect([...container.querySelectorAll(".cell-stat")].map((value) => value.textContent)).toEqual(["201", "1"]);
     expect([...container.querySelectorAll(".stat .val")].map((value) => value.textContent)).toEqual(["200", "200", "202", "201"]);
   });
+});
+
+it("abre a célula indicada pelo link mesmo fora da página carregada", async () => {
+  mocks.fetchCellsFull.mockResolvedValue({ items: [], page: 1, pageSize: 25, total: 0 });
+  mocks.fetchCellStats.mockResolvedValue(null);
+  mocks.fetchDetail.mockResolvedValue({ id: "new-cell", nome: "Nova sintética", ativo: true, membros: [], visitantes: [], alerts: [] });
+  await act(async () => root.render(<CelulasScreen initialCellId="new-cell" />));
+  expect(mocks.fetchDetail).toHaveBeenCalledWith("synthetic-token", "new-cell");
 });

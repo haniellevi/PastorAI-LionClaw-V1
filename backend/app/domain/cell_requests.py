@@ -193,6 +193,12 @@ class AbrirCelulaPayload(_StrictModel):
     def _required(cls, v: str) -> str:
         return _require_text(v, 200, "nome/cobertura_espiritual")
 
+    @field_validator("dia_reuniao")
+    @classmethod
+    def _day(cls, v: str | None) -> str | None:
+        from app.domain.cell_meetings_schedule import canonical_weekday_label
+        return canonical_weekday_label(v) if v is not None else None
+
     @field_validator("horario")
     @classmethod
     def _hour(cls, v: str | None) -> str | None:

@@ -37,3 +37,13 @@ it('trocar a solicitação selecionada exige uma nova confirmação',async()=>{
   expect((el.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
  } finally {await act(async()=>root.unmount());el.remove()}
 });
+
+it('abertura aprovada oferece link para a célula criada',async()=>{
+ const request={id:'req',tipo:'abrir_celula',status:'aprovada',celula_criada_id:'new-cell',versao_proposta:1,payload_proposto:{nome:'Nova sintética'}} as unknown as CellRequest;
+ const el=document.createElement('div');document.body.append(el);const root=createRoot(el);
+ try {
+  await act(async()=>root.render(<RequestDecisionPanel token="fake" request={request} onDecided={vi.fn()} onToast={vi.fn()}/>));
+  expect(el.querySelector('a')?.getAttribute('href')).toBe('#celulas/new-cell');
+  expect(el.querySelector('a')?.textContent).toContain('Ver célula criada');
+ } finally {await act(async()=>root.unmount());el.remove()}
+});

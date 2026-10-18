@@ -128,6 +128,7 @@ class CellRequestOut(BaseModel):
     celula_id: str | None = None
     solicitante_id: str | None = None
     pessoa_id: str | None = None
+    celula_criada_id: str | None = None
     celula_nome: str | None = None
     candidato_nome: str | None = None
     candidato_id: str | None = None
@@ -151,6 +152,13 @@ class CellRequestOut(BaseModel):
                 celula_nome=db.execute(select(Celula.nome).where(Celula.id == s.celula_id, Celula.igreja_id == s.igreja_id)).scalar_one_or_none(),
                 candidato_nome=db.execute(select(Pessoa.nome).where(Pessoa.id == s.candidato_id, Pessoa.igreja_id == s.igreja_id)).scalar_one_or_none(),
             )
+        if s.tipo == TIPO_ABRIR_CELULA and s.status == "aprovada" and db is not None:
+            event = db.execute(select(CelulaSolicitacaoEvento).where(
+                CelulaSolicitacaoEvento.igreja_id == s.igreja_id,
+                CelulaSolicitacaoEvento.solicitacao_id == s.id,
+                CelulaSolicitacaoEvento.acao == "aprovada",
+            )).scalar_one_or_none()
+            names['celula_criada_id'] = (event.payload_snapshot or {}).get('celula_criada_id') if event else None
         return cls(
             **names,
             id=str(s.id),

@@ -184,6 +184,9 @@ export function RequestDecisionPanel({
         ) : null}
 
         {isNomeacao ? <p><strong>{request.candidato_nome ?? request.candidato_id}</strong> para liderar <strong>{request.celula_nome ?? String(request.payload_proposto.nome ?? request.celula_id)}</strong>. Proposta {request.versao_proposta}.</p> : null}
+        {isAbertura && request.status === "aprovada" && request.celula_criada_id ? (
+          <p><a href={`#celulas/${request.celula_criada_id}`}>Ver célula criada</a></p>
+        ) : null}
         {/* Payload proposto — LEITURA apenas (Central não edita). */}
         <dl className="payload-view">
           {payloadEntries.length === 0 ? (
