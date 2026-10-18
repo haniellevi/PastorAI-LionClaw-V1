@@ -1464,3 +1464,120 @@ def test_legacy_fonovisita_fallback_is_panel_only_and_keeps_authorization_closed
             ),
             {"tenant": values["tenant"], "track": track_id},
         ).scalar_one() == 0
+
+
+# UV PR 1: the individual operational track is not proof of UV formation.
+def _uv_ready_individual(engine, values):
+    track, queue = _insert_track(engine, values)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "insert into consolidacao_etapas(igreja_id,consolidacao_id,etapa,concluida) "
+            "values(:tenant,:track,'conectou_celula',true)"
+        ), {"tenant": values["tenant"], "track": track})
+    return track, queue
+
+
+def _uv_person_state(engine, values):
+    with engine.connect() as connection:
+        return connection.execute(text(
+            "select apto_proxima_cd,etapa from pessoas where id=:person"
+        ), values).one()
+
+
+@pytest.mark.parametrize("legacy_eligible", [False, True])
+def test_uv_individual_completion_preserves_person_and_rejects_repeat(workflow_database, legacy_eligible):
+    values = _seed(workflow_database)
+    track, _ = _uv_ready_individual(workflow_database, values)
+    with workflow_database.begin() as connection:
+        connection.execute(text(
+            "update pessoas set etapa='consolidar',apto_proxima_cd=:eligible where id=:person"
+        ), dict(values, eligible=legacy_eligible))
+    factory = _factory(workflow_database)
+    with _scoped(factory, values["tenant"]) as session:
+        result = advance_consolidacao_stage(
+            session, _actor(values["tenant"], values["actor"]),
+            consolidacao_id=track, etapa="fonovisita", concluir=True,
+        )
+        assert result.consolidacao.concluida and result.consolidacao.progresso == 100
+        session.commit()
+    with _scoped(factory, values["tenant"]) as session:
+        with pytest.raises(HTTPException) as repeated:
+            advance_consolidacao_stage(
+                session, _actor(values["tenant"], values["actor"]),
+                consolidacao_id=track, etapa=None, concluir=True,
+            )
+        assert repeated.value.status_code == 409
+        session.rollback()
+    assert _uv_person_state(workflow_database, values) == (legacy_eligible, "consolidar")
+
+
+def test_uv_individual_completion_rollback_is_atomic(workflow_database):
+    values = _seed(workflow_database)
+    track, queue = _uv_ready_individual(workflow_database, values)
+    with _scoped(_factory(workflow_database), values["tenant"]) as session:
+        result = advance_consolidacao_stage(
+            session, _actor(values["tenant"], values["actor"]),
+            consolidacao_id=track, etapa="fonovisita", concluir=True,
+        )
+        assert result.consolidacao.concluida
+        session.rollback()
+    with workflow_database.connect() as connection:
+        assert connection.execute(text(
+            "select concluida,progresso from consolidacoes where id=:track"
+        ), {"track": track}).one() == (False, 33)
+        assert connection.execute(text(
+            "select status from work_queue_items where id=:queue"
+        ), {"queue": queue}).scalar_one() == "aberto"
+        assert connection.execute(text(
+            "select count(*) from consolidacao_etapas where consolidacao_id=:track and etapa='fonovisita'"
+        ), {"track": track}).scalar_one() == 0
+    assert _uv_person_state(workflow_database, values) == (False, None)
+
+
+def test_uv_individual_completion_denies_other_responsible(workflow_database):
+    values = _seed(workflow_database)
+    track, _ = _uv_ready_individual(workflow_database, values)
+    with _scoped(_factory(workflow_database), values["tenant"]) as session:
+        with pytest.raises(HTTPException) as denied:
+            advance_consolidacao_stage(
+                session, _actor(values["tenant"], values["target_a"]),
+                consolidacao_id=track, etapa="fonovisita", concluir=True,
+            )
+        assert denied.value.status_code == 403
+        session.rollback()
+    assert _uv_person_state(workflow_database, values) == (False, None)
+    with workflow_database.connect() as connection:
+        assert connection.execute(text(
+            "select concluida from consolidacoes where id=:track"
+        ), {"track": track}).scalar_one() is False
+
+
+def test_uv_individual_concurrent_completions_serialize(workflow_database):
+    values = _seed(workflow_database)
+    track, _ = _uv_ready_individual(workflow_database, values)
+    barrier = threading.Barrier(2)
+    factory = _factory(workflow_database)
+
+    def conclude():
+        with _scoped(factory, values["tenant"]) as session:
+            session.execute(text("set local lock_timeout='5s'"))
+            barrier.wait(timeout=10)
+            try:
+                advance_consolidacao_stage(
+                    session, _actor(values["tenant"], values["actor"]),
+                    consolidacao_id=track, etapa="fonovisita", concluir=True,
+                )
+                session.commit()
+                return 200
+            except HTTPException as exc:
+                session.rollback()
+                return exc.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: conclude(), range(2)))
+    assert sorted(results) == [200, 409]
+    assert _uv_person_state(workflow_database, values) == (False, None)
+    with workflow_database.connect() as connection:
+        assert connection.execute(text(
+            "select concluida,progresso from consolidacoes where id=:track"
+        ), {"track": track}).one() == (True, 100)
