@@ -223,3 +223,32 @@ def test_waiting_decision_revalidates_authorization_after_person_lock(sample,mon
             holder.rollback()
         future.result(timeout=10)
     with scoped(v) as s: assert s.scalar(text('select count(*) from enviar_avaliacoes'))==0
+
+
+def test_approved_tenant_deletion_cascades_private_evaluations_atomically(sample):
+    from app.services.tenant_deletion import TenantDeletionActor,delete_tenant_locally
+    v=sample
+    with scoped(v) as s: decide(s,v); s.commit()
+    with v['factory']() as s:
+        result=delete_tenant_locally(s,v['t'],TenantDeletionActor(app_user_id=None,email='synthetic@example.test'))
+        assert result.deleted_now
+        s.rollback()
+    with scoped(v) as s: assert s.scalar(text('select count(*) from enviar_avaliacoes'))==1
+    with v['factory']() as s:
+        delete_tenant_locally(s,v['t'],TenantDeletionActor(app_user_id=None,email='synthetic@example.test'))
+        s.commit()
+        assert s.get(Igreja,v['t']) is None
+        assert s.get(Igreja,v['other']) is not None
+        assert s.scalar(text('select count(*) from enviar_avaliacoes'))==0
+        assert s.scalar(text('select count(*) from enviar_eventos'))==0
+
+
+def test_tenant_role_cannot_erase_audit_through_person_delete(sample):
+    v=sample
+    with scoped(v) as s: decide(s,v); s.commit()
+    with scoped(v) as s,pytest.raises(DBAPIError):
+        s.execute(text('delete from pessoas where id=:p'),dict(p=v['p']))
+    with scoped(v) as s:
+        assert s.get(Pessoa,v['p']) is not None
+        assert s.scalar(text('select count(*) from enviar_avaliacoes'))==1
+        assert s.scalar(text('select count(*) from enviar_eventos'))==1

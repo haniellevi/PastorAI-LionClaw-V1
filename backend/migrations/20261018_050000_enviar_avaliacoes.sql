@@ -17,7 +17,7 @@ create table public.enviar_avaliacoes (
  check(origem<>'csim' or decisao='nao_apto'),
  check(solicitacao_id is not null or solicitante_id is null),
  unique(igreja_id,id),
- foreign key(igreja_id,pessoa_id) references public.pessoas(igreja_id,id),
+ foreign key(igreja_id,pessoa_id) references public.pessoas(igreja_id,id) on delete cascade,
  foreign key(igreja_id,autor_id) references public.app_users(igreja_id,id),
  foreign key(igreja_id,solicitante_id) references public.pessoas(igreja_id,id),
  foreign key(igreja_id,solicitacao_id) references public.celula_solicitacao(igreja_id,id)
@@ -30,11 +30,27 @@ create table public.enviar_eventos (
  tipo text not null check(tipo in ('decisao_humana','sistema_csim')),
  criada_em timestamptz not null default clock_timestamp(),
  unique(igreja_id,avaliacao_id),
- foreign key(igreja_id,avaliacao_id) references public.enviar_avaliacoes(igreja_id,id)
+ foreign key(igreja_id,avaliacao_id) references public.enviar_avaliacoes(igreja_id,id) on delete cascade
 );
 create function public.enviar_preservar_registro() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
+ -- Only the existing privileged parent-deletion flow may remove private data.
+ -- Direct UPDATE/DELETE remains forbidden, including by the owner. No tenant
+ -- role or GUC alone can authorize this exception.
+ if TG_OP='DELETE' and pg_trigger_depth()>1
+    and session_user not in ('authenticated','anon','authenticator')
+    and coalesce(current_setting('role',true),'none') not in ('authenticated','anon','authenticator') then
+  if TG_TABLE_NAME='enviar_avaliacoes' then
+   if not exists(select 1 from public.pessoas p where p.igreja_id=old.igreja_id and p.id=old.pessoa_id) then
+    return old;
+   end if;
+  elsif TG_TABLE_NAME='enviar_eventos' then
+   if not exists(select 1 from public.enviar_avaliacoes a where a.igreja_id=old.igreja_id and a.id=old.avaliacao_id) then
+    return old;
+   end if;
+  end if;
+ end if;
  raise exception 'Registro de Enviar imutável' using errcode='23514';
 end $$;
 -- The trigger alone creates events; HTTP/database tenant roles cannot forge them.

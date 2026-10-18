@@ -182,4 +182,7 @@ Somente PostgreSQL 17 descartável foi exercitado nesta fatia; aplicação remot
 deploy e gates não foram autorizados. O rollback comentado exige preservar o
 histórico e restaurar os callers. Exclusão aprovada desses registros privados
 exige procedimento de manutenção específico; o papel da aplicação não apaga
-avaliações nem eventos e as FKs impedem exclusão acidental das referências.
+avaliações nem eventos. A exclusão de igreja já aprovada pelo console remove
+esses dados pela cascata Pessoa → avaliação → evento, atomicamente. Somente
+a cascata de um pai já removido em sessão privilegiada admite DELETE; chamadas
+diretas, UPDATE e cascatas no papel de tenant continuam recusados.

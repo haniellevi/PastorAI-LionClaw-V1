@@ -4910,7 +4910,7 @@ class EnviarAvaliacao(Base):
     __tablename__ = 'enviar_avaliacoes'
     __table_args__ = (
         UniqueConstraint('igreja_id', 'id'),
-        ForeignKeyConstraint(['igreja_id', 'pessoa_id'], ['pessoas.igreja_id', 'pessoas.id']),
+        ForeignKeyConstraint(['igreja_id', 'pessoa_id'], ['pessoas.igreja_id', 'pessoas.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['igreja_id', 'autor_id'], ['app_users.igreja_id', 'app_users.id']),
         ForeignKeyConstraint(['igreja_id', 'solicitante_id'], ['pessoas.igreja_id', 'pessoas.id']),
         ForeignKeyConstraint(['igreja_id', 'solicitacao_id'], ['celula_solicitacao.igreja_id', 'celula_solicitacao.id']),
