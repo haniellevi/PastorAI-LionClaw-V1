@@ -210,8 +210,8 @@ class Pessoa(Base):
     apto_proxima_cd: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
-    # Apto a liderar célula (realizou o Reencontro). Liderança efetiva é
-    # DERIVADA de celulas.lider_id em célula ativa — nunca de pessoas.tipo.
+    # Projeção compatível da última decisão de Enviar; sem decisão, é legado.
+    # Liderança efetiva deriva de celulas.lider_id em célula ativa.
     apto_lider: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -782,6 +782,7 @@ class CelulaSolicitacao(Base):
     #     tipo, pois transferir e remover a MESMA pessoa colidem entre si (E13).
     # Escopo sempre por igreja_id ⇒ igrejas diferentes nunca colidem (multi-tenant).
     __table_args__ = (
+        Index("enviar_solicitacao_tenant_id", "igreja_id", "id", unique=True),
         Index(
             "uq_celula_solicitacao_aberta_tipo",
             "igreja_id",
@@ -4902,3 +4903,27 @@ __all__ = [
     "E4bConsentHold",
     "E4bConsentHoldEvent",
 ]
+
+
+class EnviarAvaliacao(Base):
+    """Append-only human decision (or system CSIM invalidation)."""
+    __tablename__ = 'enviar_avaliacoes'
+    __table_args__ = (
+        UniqueConstraint('igreja_id', 'id'),
+        ForeignKeyConstraint(['igreja_id', 'pessoa_id'], ['pessoas.igreja_id', 'pessoas.id']),
+        ForeignKeyConstraint(['igreja_id', 'autor_id'], ['app_users.igreja_id', 'app_users.id']),
+        ForeignKeyConstraint(['igreja_id', 'solicitante_id'], ['pessoas.igreja_id', 'pessoas.id']),
+        ForeignKeyConstraint(['igreja_id', 'solicitacao_id'], ['celula_solicitacao.igreja_id', 'celula_solicitacao.id']),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('igrejas.id'))
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    decisao: Mapped[str] = mapped_column(Text)
+    origem: Mapped[str] = mapped_column(Text)
+    motivo: Mapped[str] = mapped_column(Text)
+    autor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    solicitacao_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    solicitante_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    evidencias: Mapped[dict] = mapped_column(JSONB)
+    versao_regras: Mapped[str] = mapped_column(Text)
+    criada_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=text('clock_timestamp()'))

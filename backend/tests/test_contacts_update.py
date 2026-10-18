@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from contextlib import nullcontext
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 
@@ -41,6 +43,7 @@ class ContactSession:
         self.candidates = candidates or []
         self.led_cell_id = led_cell_id  # célula ativa liderada (derivação)
         self.committed = False
+        self.added = []
 
     def execute(self, statement, params=None) -> _R:
         descs = list(getattr(statement, "column_descriptions", []) or [])
@@ -52,6 +55,12 @@ class ContactSession:
         if ent is Pessoa:
             return _R(scalar=self.pessoa, scalars=self.candidates)
         return _R(scalars=self.roles)
+
+    def begin_nested(self):
+        return nullcontext()
+
+    def add(self, obj):
+        self.added.append(obj)
 
     def flush(self) -> None:
         pass
@@ -69,6 +78,7 @@ class ContactSession:
 def make_pessoa(*, nome="Antigo", telefone="+5589999990000", email="a@x.com"):
     return SimpleNamespace(
         id=_PID,
+        igreja_id=UUID("00000000-0000-0000-0000-000000000001"),
         nome=nome,
         telefone=telefone,
         email=email,
@@ -190,18 +200,16 @@ def test_update_rejects_tipo_lider(app) -> None:
     assert resp.status_code == 422
 
 
-def test_update_sets_apto_lider(app) -> None:
+def test_update_rejects_free_apto_lider(app) -> None:
     pessoa = make_pessoa()
     session = ContactSession(app_user=make_app_user(), roles=["admin"], pessoa=pessoa)
     client = _wire(app, session=session, clerk=FakeClerk())
-    resp = client.patch(f"/contacts/{_PID}", headers=_AUTH, json={"aptoLider": True})
-    assert resp.status_code == 200
-    assert resp.json()["aptoLider"] is True
-    assert pessoa.apto_lider is True
-
-    resp = client.patch(f"/contacts/{_PID}", headers=_AUTH, json={"aptoLider": False})
-    assert resp.status_code == 200
-    assert pessoa.apto_lider is False
+    for value in [True, False, None]:
+        resp = client.patch(f"/contacts/{_PID}", headers=_AUTH, json={"aptoLider": value})
+        assert resp.status_code == 409
+        assert "/enviar/pessoas/{id}/avaliacoes" in resp.json()["detail"]
+        assert pessoa.apto_lider is False
+        assert not session.committed
 
 
 def test_update_rejects_apto_lider_on_csim(app) -> None:
@@ -211,7 +219,7 @@ def test_update_rejects_apto_lider_on_csim(app) -> None:
     session = ContactSession(app_user=make_app_user(), roles=["admin"], pessoa=pessoa)
     client = _wire(app, session=session, clerk=FakeClerk())
     resp = client.patch(f"/contacts/{_PID}", headers=_AUTH, json={"aptoLider": True})
-    assert resp.status_code == 422
+    assert resp.status_code == 409
     assert pessoa.apto_lider is False
 
 
@@ -243,6 +251,9 @@ def test_update_marking_csim_clears_apto_lider(app) -> None:
     assert resp.status_code == 200
     assert pessoa.sem_interesse is True
     assert pessoa.apto_lider is False
+    assert len(session.added) == 1
+    assert session.added[0].origem == "csim"
+    assert session.added[0].decisao == "nao_apto"
 
 
 def test_update_response_derives_lider_de_celula(app) -> None:

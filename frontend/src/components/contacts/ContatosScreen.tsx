@@ -41,6 +41,7 @@ import { ApiError, fetchCells, type Cell } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 
 import { ArchiveContactModal } from "./ArchiveContactModal";
+import { AvaliacaoPanel } from "../enviar/AvaliacaoPanel";
 import { EditContactModal } from "./EditContactModal";
 import { LinkCellModal } from "./LinkCellModal";
 import { NewContactModal } from "./NewContactModal";
@@ -910,6 +911,13 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               }}
             />
           )}
+          {selectedContact && token && (roles.includes("admin") || roles.includes("pastor")) ? (
+            <AvaliacaoPanel key={selectedContact.id} pessoaId={selectedContact.id} token={token} onExpired={expireSession} onSaved={async () => {
+              const updated = await fetchContactDetail(token, selectedContact.id);
+              setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+              setDetachedSelected(updated);
+            }} />
+          ) : null}
         </section>
       </div>
 

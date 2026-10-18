@@ -372,7 +372,6 @@ export interface UpdateContactInput {
   semInteresse?: boolean;
   semInteresseMotivo?: string | null;
   /** Apto a liderar (Reencontro) — só admin; CSIM não pode ser apto (422). */
-  aptoLider?: boolean;
 }
 
 /**
