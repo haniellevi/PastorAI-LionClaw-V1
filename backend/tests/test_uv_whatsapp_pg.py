@@ -2,7 +2,7 @@
 import dataclasses
 import datetime as dt
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import text, select, event
 from sqlalchemy.orm import sessionmaker
@@ -107,7 +107,7 @@ def test_complete_turn_confirmation_and_replay(uv_turn, role):
     assert r.texto=='Presença registrada.' and len(t.calls)==1 and count(p)==1
     send(p,'SIM',outcome=outcome)
     assert count(p)==1
-    _,r,_=send(p,COMMAND)
+    _,r,_=send(p,COMMAND.replace('presente','ausente'))
     assert 'SIM' in r.texto
     # A second explicit proposal uses optimistic correction identity, never replaying the old write.
     _,r,_=send(p,'NÃO')
@@ -237,10 +237,17 @@ def test_reposicao_and_explicit_correction(uv_turn):
     send(p,'SIM')
     assert count(p)==1
     _,r,_=send(p,COMMAND.replace('presente','reposição'))
-    assert 'reposição presente' in r.texto
+    assert 'Correção: atual ausente → novo reposição presente' in r.texto
+    proposal=r.agent_privilege_context['proposal']
+    assert proposal['anterior_id']
+    assert proposal['anterior'] == dict(presente=False, modalidade='regular')
     # Committed transport helper counts a single write only for the first receipt.
     _,r,_=send(p,'SIM',transport=_ClassifiedEvolution())
     assert r.texto=='Presença registrada.' and count(p)==2
+    with p.factory() as s:
+        current=s.execute(text('select anterior_id,presente,modalidade from uv_presencas')).one()
+        assert str(current.anterior_id)==proposal['anterior_id']
+        assert (current.presente,current.modalidade)==(True,'reposicao')
 
 
 
@@ -316,3 +323,86 @@ def test_uv_dialog_never_captures_unrelated_inbound(uv_turn,stage,body):
         uses_dedicated_agent_session=False,ownership_guard=None,evolution_client=transport) is None
     assert not transport.calls
     assert count(p)==(1 if stage=='receipt' else 0)
+
+
+def test_same_value_has_no_proposal(uv_turn):
+    p=uv_turn
+    send(p,COMMAND)
+    send(p,'SIM')
+    _,r,t=send(p,COMMAND)
+    assert 'já registrada' in r.texto and len(t.calls)==1
+    assert r.agent_privilege_context['stage'] != 'proposal'
+    assert count(p)==1
+
+
+def test_changed_record_refuses_confirmation(uv_turn):
+    from app.services import uv
+    from tests.test_uv_presencas_pg import payload
+    p=uv_turn
+    send(p,COMMAND.replace('presente','ausente'))
+    send(p,'SIM')
+    _,r,_=send(p,COMMAND)
+    assert 'Correção: atual ausente → novo presente' in r.texto
+    with scoped(p.factory.kw['bind'],p.v['t']) as s:
+        # A competing correction can even restore the same value; identity still changed.
+        uv.attendance(s,principal(p.v),p.tid,p.mid,1,
+            payload(presente=False,anterior_id=UUID(r.agent_privilege_context['proposal']['anterior_id'])))
+        s.commit()
+    _,r,t=send(p,'SIM',transport=_ClassifiedEvolution())
+    assert 'nova proposta' in r.texto and len(t.calls)==1
+    assert count(p)==2
+    with p.factory() as s:
+        assert s.execute(text('select presente from uv_presencas')).scalar_one() is False
+
+
+def test_second_sim_while_receipt_pending(uv_turn):
+    p=uv_turn
+    send(p,COMMAND)
+    outcome=inbound(p,'SIM')
+    with pytest.raises(worker.AgentReplyRetryable):
+        send(p,'SIM',outcome=outcome,transport=_ClassifiedEvolution('falhou_retentavel'))
+    _,r,t=send(p,'SIM')
+    assert 'aguarde' in r.texto.lower() and len(t.calls)==1
+    assert count(p)==1
+
+
+def test_no_after_receipt_is_not_uv_pending(uv_turn):
+    from app.uv_whatsapp.turn import run_uv_turn
+    p=uv_turn
+    send(p,COMMAND)
+    send(p,'SIM')
+    transport=_ClassifiedEvolution()
+    assert run_uv_turn(p.factory,p.factory,inbound(p,'não'),igreja_id=p.v['t'],
+        uses_dedicated_agent_session=False,ownership_guard=None,evolution_client=transport) is None
+    assert not transport.calls and count(p)==1
+
+
+def test_active_sender_in_b_cannot_change_class_in_a(uv_turn):
+    p=uv_turn
+    with p.factory.begin() as s:
+        s.execute(text('update uv_turmas set nome=:name where id=:id'),dict(name='Turma exclusiva A',id=p.tid))
+        s.execute(text('delete from uv_responsaveis'))
+        s.execute(text('delete from user_roles where user_id=:u'),dict(u=p.v['leader']))
+        s.execute(text('update app_users set pessoa_id=null where id=:u'),dict(u=p.v['leader']))
+        s.execute(text('update app_users set igreja_id=:t,pessoa_id=:p where id=:u'),dict(t=p.v['other'],p=None,u=p.v['leader']))
+        # Move the synthetic sender's entire contact context into B, with an active B user.
+        s.execute(text('update conversations set pessoa_id=null where id=:id'),dict(id=p.conv))
+        s.execute(text('delete from consent_records'))
+        s.execute(text('delete from messages where conversation_id=:id'),dict(id=p.conv))
+        s.execute(text('update pessoas set igreja_id=:t where id=:p'),dict(t=p.v['other'],p=p.person))
+        s.execute(text('update conversations set igreja_id=:t,pessoa_id=:p where id=:id'),dict(t=p.v['other'],p=p.person,id=p.conv))
+        s.execute(text('update app_users set pessoa_id=:p where id=:u'),dict(p=p.person,u=p.v['leader']))
+        s.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:t,:u,'admin')"),dict(t=p.v['other'],u=p.v['leader']))
+        for table in ['whatsapp_connections','agent_configs','llm_credentials']:
+            s.execute(text(f'update {table} set igreja_id=:t where igreja_id=:old'),dict(t=p.v['other'],old=p.v['t']))
+        s.add(ConsentRecord(igreja_id=p.v['other'],pessoa_id=p.person,termo_versao='uv-test',aceite_em=dt.datetime.now(dt.UTC)))
+    from pytest import MonkeyPatch
+    with MonkeyPatch.context() as mp:
+        mp.setenv('WHATSAPP_PILOTO_IGREJA_IDS',str(p.v['other']))
+        mp.setenv('UV_WHATSAPP_ENABLED_IGREJA_IDS',str(p.v['other']))
+        get_settings.cache_clear()
+        p.v=dict(p.v,t=p.v['other'])
+        _,r,t=send(p,COMMAND.replace('Turma sintética','Turma exclusiva A'))
+        assert len(t.calls)==1 and 'não encontrado' in r.texto
+        assert r.agent_privilege_context['stage'] != 'proposal'
+        assert count(p)==0

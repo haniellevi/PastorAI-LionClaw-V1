@@ -54,7 +54,9 @@ def run_uv_turn(
         if contact is None:
             return None
         pending = _proposal(db, contact, source)
-        command, _ = route_uv_intent(source.texto, pending=pending is not None or (source.texto.strip().casefold() == 'sim' and _recent_receipt(db, contact, source) is not None))
+        command, _ = route_uv_intent(source.texto, pending=pending is not None)
+        if source.texto.strip().casefold() == 'sim' and _recent_receipt(db, contact, source) is not None:
+            command = 'confirm'
         candidate = command != "none"
         if not candidate:
             return None
@@ -136,13 +138,13 @@ def _latest(db, contact, source):
 
 def _recent_receipt(db, contact, source):
     latest = _latest(db, contact, source)
-    if latest is None or latest.agent_reply_state != 'ia':
+    if latest is None or latest.agent_reply_state not in {'ia', AGENT_REPLY_PENDING}:
         return None
     raw = latest.agent_privilege_context or {}
     if (raw.get('kind') == 'uv' and raw.get('stage') in {'receipt', 'consumed'}
         and raw.get('person_id') == str(contact.pessoa_id)
         and latest.criado_em > now(db) - dt.timedelta(minutes=10)):
-        return raw
+        return dict(raw, delivery_pending=latest.agent_reply_state == AGENT_REPLY_PENDING)
     return None
 
 
@@ -176,7 +178,9 @@ def _handle(db, contact, source):
     from app.agent.nodes import route_uv_intent
     pending = _proposal(db, contact, source)
     recent = _recent_receipt(db, contact, source) if source.texto.strip().casefold() == 'sim' else None
-    command, args = route_uv_intent(source.texto, pending=pending is not None or recent is not None)
+    command, args = route_uv_intent(source.texto, pending=pending is not None)
+    if recent is not None:
+        command = 'confirm'
     meta = dict(stage='result', actor_id=None, turma_id=None)
     try:
         user = service.actor(db, contact)
@@ -189,6 +193,8 @@ def _handle(db, contact, source):
             return service.summary(turma), dict(meta, stage='read')
         if command == 'attendance':
             response, proposal = service.propose(db, user, args)
+            if proposal is None:
+                return response, meta
             return response, dict(meta, stage='proposal', proposal=proposal,
                 turma_id=proposal['turma_id'], term_version=contact.term_version)
         if command == 'confirm' and pending is not None:
@@ -204,6 +210,8 @@ def _handle(db, contact, source):
                 raise HTTPException(403, 'Usuário mudou')
             from app.services import uv
             uv.get_turma(db, user, uuid.UUID(recent['turma_id']))
+            if recent.get('delivery_pending'):
+                return 'Presença registrada; aguarde a entrega do recibo.', dict(meta, stage='receipt', turma_id=recent['turma_id'])
             return 'Presença já registrada. Nenhuma nova gravação.', dict(meta, stage='receipt', turma_id=recent['turma_id'])
         if command == 'cancel' and pending is not None:
             pending.agent_privilege_context = dict(pending.agent_privilege_context, stage='cancelled')

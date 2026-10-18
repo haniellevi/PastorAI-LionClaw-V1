@@ -54,9 +54,12 @@ def propose(db, user, args):
     turma = detail(db, user, name)
     enrollment = choose(turma['matriculas'], student)
     current = next((p for p in enrollment['presencas'] if p['aula'] == aula), None)
+    if current and (current['presente'], current['modalidade']) == (presente, modalidade):
+        return 'Presença já registrada com esse valor. Nenhuma nova gravação.', None
     proposal = dict(id=str(uuid4()), turma_id=str(turma['id']),
         matricula_id=str(enrollment['id']), aula=aula, presente=presente, modalidade=modalidade,
-        anterior_id=str(current['registro_id']) if current else None)
+        anterior_id=str(current['registro_id']) if current else None,
+        anterior=dict(presente=current['presente'], modalidade=current['modalidade']) if current else None)
     # Validate with the SAME writer in a rolled-back savepoint. No duplicated rules.
     from app.uv_whatsapp.catalog import execute
     savepoint = db.begin_nested()
@@ -64,6 +67,12 @@ def propose(db, user, args):
         execute(db, user, proposal)
     finally:
         savepoint.rollback()
-    status = 'reposição presente' if modalidade == 'reposicao' else ('presente' if presente else 'ausente')
+    status = attendance_label(presente, modalidade)
+    if current:
+        status = f"Correção: atual {attendance_label(current['presente'], current['modalidade'])} → novo {status}"
     return (f"{label(turma['nome'])}, aula {aula}: {label(enrollment['nome'])}, {status}. "
             'Confirma gravar? Responda somente SIM ou NÃO em até 10 minutos.'), proposal
+
+
+def attendance_label(presente, modalidade):
+    return 'reposição presente' if modalidade == 'reposicao' else ('presente' if presente else 'ausente')

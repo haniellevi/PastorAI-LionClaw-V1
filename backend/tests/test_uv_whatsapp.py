@@ -18,7 +18,7 @@ def test_disabled_before_dependencies(monkeypatch):
 def test_closed_router():
     from app.agent.nodes import route_uv_intent
     assert route_uv_intent('UV') == ('list', None)
-    assert route_uv_intent('UV turma Esperança') == ('read', 'Esperança')
+    assert route_uv_intent('UV turma Esperança') == ('read', 'esperanca')
     assert route_uv_intent('SIM') == ('none', None)
     assert route_uv_intent('SIM', pending=True) == ('confirm', None)
     assert route_uv_intent('sim!', pending=True) == ('clarify', None)
@@ -49,3 +49,8 @@ def test_release_alone_and_invalid_allowlist_stay_disabled(monkeypatch):
     monkeypatch.setenv('UV_WHATSAPP_ENABLED_IGREJA_IDS',str(tenant))
     assert policy.enabled(tenant)
     assert not policy.enabled(str(tenant))
+
+
+def test_read_normalizes_spaces_and_accents():
+    from app.agent.nodes import route_uv_intent
+    assert route_uv_intent('  ÚV   túrma   Esperança  Viva ') == ('read', 'esperanca viva')
