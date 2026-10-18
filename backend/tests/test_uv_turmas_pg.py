@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -18,11 +19,23 @@ from app.db.tenant_session import mark_tenant_scoped
 from app.deps import CurrentUser, get_current_user
 from app.routers.uv import router, TurmaInput, CalendarioInput, ResponsaveisInput, MatriculaInput
 from app.services import uv
-from tests.conftest_rls import rls_database_url, assert_disposable_database
+from tests.conftest_rls import assert_disposable_database
 
 pytestmark = pytest.mark.rls_integration
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = '20261017_210500_uv_turmas.sql'
+
+
+@pytest.fixture
+def rls_database_url():
+    url = os.environ.get('UV_TURMAS_DATABASE_URL', '').strip()
+    if not url:
+        pytest.skip('UV_TURMAS_DATABASE_URL não definida para PostgreSQL descartável')
+    assert_disposable_database(url)
+    parsed = urlsplit(url)
+    if parsed.hostname not in {'127.0.0.1', 'localhost', '::1'} or parsed.path != '/uv_turmas_test':
+        raise RuntimeError('UV exige banco local descartável exclusivo uv_turmas_test')
+    return url
 
 
 @pytest.fixture
