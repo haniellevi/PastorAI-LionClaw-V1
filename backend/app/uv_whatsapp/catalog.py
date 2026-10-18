@@ -24,7 +24,7 @@ def route(text, *, pending=False):
                               'reposicao' if status == 'reposicao' else 'regular')
     if value.startswith('uv '):
         return 'help', None
-    return ('clarify' if pending else 'none'), None
+    return ('clarify' if pending and value in {'sim', 'confirmo'} else 'none'), None
 
 
 def execute(db, user, proposal):

@@ -301,3 +301,18 @@ def test_concurrent_confirmations_write_once(uv_turn):
             assert len(t.calls)==1
             assert 'registrada' in t.calls[0][2]
     assert count(p)==1
+
+
+@pytest.mark.parametrize('stage',['proposal','receipt'])
+@pytest.mark.parametrize('body',['Peço oração por mim: preciso de força.',
+    'Não aguento mais, quero sumir pra sempre.', 'Qual o horário do culto?'])
+def test_uv_dialog_never_captures_unrelated_inbound(uv_turn,stage,body):
+    from app.uv_whatsapp.turn import run_uv_turn
+    p=uv_turn
+    send(p,COMMAND)
+    if stage=='receipt': send(p,'SIM')
+    transport=_ClassifiedEvolution()
+    assert run_uv_turn(p.factory,p.factory,inbound(p,body),igreja_id=p.v['t'],
+        uses_dedicated_agent_session=False,ownership_guard=None,evolution_client=transport) is None
+    assert not transport.calls
+    assert count(p)==(1 if stage=='receipt' else 0)

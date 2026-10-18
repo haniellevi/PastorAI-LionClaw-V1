@@ -54,7 +54,7 @@ def run_uv_turn(
         if contact is None:
             return None
         pending = _proposal(db, contact, source)
-        command, _ = route_uv_intent(source.texto, pending=pending is not None or _recent_receipt(db, contact, source) is not None)
+        command, _ = route_uv_intent(source.texto, pending=pending is not None or (source.texto.strip().casefold() == 'sim' and _recent_receipt(db, contact, source) is not None))
         candidate = command != "none"
         if not candidate:
             return None
@@ -175,7 +175,7 @@ def mark_delivered(db, message):
 def _handle(db, contact, source):
     from app.agent.nodes import route_uv_intent
     pending = _proposal(db, contact, source)
-    recent = _recent_receipt(db, contact, source)
+    recent = _recent_receipt(db, contact, source) if source.texto.strip().casefold() == 'sim' else None
     command, args = route_uv_intent(source.texto, pending=pending is not None or recent is not None)
     meta = dict(stage='result', actor_id=None, turma_id=None)
     try:

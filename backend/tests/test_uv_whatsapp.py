@@ -22,6 +22,7 @@ def test_closed_router():
     assert route_uv_intent('SIM') == ('none', None)
     assert route_uv_intent('SIM', pending=True) == ('confirm', None)
     assert route_uv_intent('sim!', pending=True) == ('clarify', None)
+    assert route_uv_intent('Quero oração', pending=True) == ('none', None)
     assert route_uv_intent('UV concluir Ana')[0] == 'help'
     assert route_uv_intent('UV presença Esperança; aula 1; Ana; presente') == (
         'attendance', ('esperanca', 1, 'ana', True, 'regular'))
