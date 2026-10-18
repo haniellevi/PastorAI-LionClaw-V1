@@ -47,6 +47,7 @@ from app.db.models import (
     Consolidacao,
     Event,
     EventNotifyTarget,
+    EnviarAvaliacao,
     Igreja,
     Multiplicacao,
     Pessoa,
@@ -2806,6 +2807,14 @@ def test_approve_vs_archive_concurrent_multiplicacao_never_both(
         pessoa_id=alvo_id,
         clerk_user_id=f"clerk_{alvo_id}",
     )
+    # The race concerns archiving, so the proposed leader must satisfy the
+    # current Enviar prerequisite as well as the historical projection.
+    from app.domain.enviar import VERSAO_REGRAS
+    session_setup.add(EnviarAvaliacao(
+        id=uuid.uuid4(), igreja_id=ctx["igreja_id"], pessoa_id=alvo_id,
+        decisao="apto", origem="legado", motivo="Reconhecimento sintético para concorrência",
+        autor_id=ctx["ator_id"], evidencias={}, versao_regras=VERSAO_REGRAS,
+    ))
     celula_origem_id = _mk_celula(
         session_setup, ctx["igreja_id"], nome="Origem", lider_id=lider_origem_id
     )
