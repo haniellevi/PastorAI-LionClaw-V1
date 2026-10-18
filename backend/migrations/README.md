@@ -188,3 +188,21 @@ flag para esconder ausência do schema. A prova desta PR é somente PostgreSQL 1
 local descartável, com dados sintéticos. Banco remoto, deploy e ativação não
 estão autorizados. O rollback comentado exige primeiro reverter os callers e
 preservar os registros; não é autorização para excluir dados reais.
+
+
+## UV PR 3: presença e reposição (candidata)
+
+`20261017_220000_uv_presencas.sql` depende da PR 2 (`20261017_210500`).
+Cria presença única por matrícula/aula (1–8) e histórico imutável para a
+aplicação, preenchido por trigger na mesma transação. FKs compostas garantem
+igreja/turma/matrícula/atividade consistentes; Encontro não admite presença.
+RLS ENABLE/FORCE, USING/WITH CHECK e grants de coluna preservam identidades,
+sem DELETE nem escrita direta no histórico. Correção exige versão anterior;
+autoria e horário são gerados pelo servidor. O serviço revalida usuário, papel,
+permissão de tela e vínculo atual, serializando alterações por turma.
+
+Aplicar pelo runner antes do backend novo; não há flag de compatibilidade do
+schema. A validação usa a cadeia real em PostgreSQL 17 local descartável,
+somente com dados sintéticos. Nenhuma aplicação remota, publicação ou gate
+está autorizada. Reverter callers e preservar registros antes do rollback
+comentado. Não conclui UV, altera etapa da Pessoa ou concede aptidão à CD.

@@ -30,3 +30,7 @@
 .uv-screen .btn { min-height: 44px; white-space: normal; }
 .uv-screen ul { overflow-wrap: anywhere; }
 .uv-screen input[type="date"] { font-variant-numeric: tabular-nums; }
+
+.uv-student { border-top: 1px solid var(--border, #ddd); padding-block: 1rem; }
+.uv-student h4 { margin-block: 0 0.5rem; }
+.uv-student li { overflow-wrap: anywhere; }
