@@ -252,3 +252,66 @@ def test_tenant_role_cannot_erase_audit_through_person_delete(sample):
         assert s.get(Pessoa,v['p']) is not None
         assert s.scalar(text('select count(*) from enviar_avaliacoes'))==1
         assert s.scalar(text('select count(*) from enviar_eventos'))==1
+
+
+def test_decision_requires_actor_link_to_person(sample):
+    v = sample
+    with v['factory'].begin() as s:
+        s.get(AppUser, v['u']).pessoa_id = None
+    with scoped(v) as s:
+        with pytest.raises(HTTPException) as exc:
+            decide(s, v)
+        assert exc.value.status_code == 403
+        assert exc.value.detail == 'vincule seu usuário a um cadastro de pessoa antes de avaliar'
+        s.rollback()
+        assert s.get(Pessoa, v['p']).apto_lider
+        for table in ('enviar_avaliacoes', 'enviar_eventos'):
+            assert s.scalar(text(f'select count(*) from {table}')) == 0
+
+
+def test_snapshot_without_pending_criteria_does_not_invent_evidence(sample, monkeypatch):
+    from app.domain.enviar import ResultadoEnviar, SituacaoEnviar
+    from app.services import enviar_avaliacoes as service
+    v = sample
+    monkeypatch.setattr(service, 'ler_pendencias_pessoa', lambda *a, **kw:
+        ResultadoEnviar(situacao=SituacaoEnviar.APTO_PARA_AVALIACAO))
+    with scoped(v) as s:
+        row = decide(s, v)
+        s.commit()
+        s.refresh(row)
+        assert row.evidencias == {c: {'estado': 'nao_informada', 'referencia': None}
+                                  for c in ('uv', 'cd', 'reencontro')}
+
+
+def test_role_removed_while_waiting_for_lock_rejects_cached_authority(sample):
+    from threading import Event
+    from time import monotonic, sleep
+    v = sample
+    loaded = Event()
+    pid = []
+    def waiting():
+        with scoped(v) as s:
+            cached = s.get(AppUser, v['u'])
+            assert any(r.papel == 'pastor' for r in cached.roles)
+            pid.append(s.scalar(text('select pg_backend_pid()')))
+            loaded.set()
+            denied(lambda: decide(s, v), 403)
+    with scoped(v) as holder, ThreadPoolExecutor(1) as pool:
+        holder.execute(text('select id from pessoas where id=:p for update'), {'p': v['p']})
+        future = pool.submit(waiting)
+        try:
+            assert loaded.wait(3)
+            with v['factory'].begin() as admin:
+                deadline = monotonic() + 5
+                while not admin.scalar(text('select cardinality(pg_blocking_pids(:pid)) > 0'), {'pid': pid[0]}):
+                    assert monotonic() < deadline, 'decision never waited for the Pessoa lock'
+                    sleep(0.02)
+                admin.execute(text('delete from user_roles where igreja_id=:t and user_id=:u'),
+                              {'t': v['t'], 'u': v['u']})
+        finally:
+            holder.rollback()
+        future.result(timeout=10)
+    with scoped(v) as s:
+        assert s.get(Pessoa, v['p']).apto_lider
+        for table in ('enviar_avaliacoes', 'enviar_eventos'):
+            assert s.scalar(text(f'select count(*) from {table}')) == 0

@@ -186,3 +186,10 @@ avaliações nem eventos. A exclusão de igreja já aprovada pelo console remove
 esses dados pela cascata Pessoa → avaliação → evento, atomicamente. Somente
 a cascata de um pai já removido em sessão privilegiada admite DELETE; chamadas
 diretas, UPDATE e cascatas no papel de tenant continuam recusados.
+
+O dono das funções SECURITY DEFINER dos gatilhos desta migration precisa
+ignorar RLS: conferir BYPASSRLS (ou superusuário/owner quando aplicável).
+Como estas tabelas usam FORCE ROW LEVEL SECURITY, ser apenas owner da tabela
+não basta. O runbook da futura release deve conferir o proprietário de cada
+função e sua capacidade efetiva de ignorar RLS antes de aplicar/usar os callers;
+sem essa conferência, o pré-requisito permanece não verificado.

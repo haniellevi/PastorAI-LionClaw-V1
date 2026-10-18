@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from app.db.models import AppUser, CelulaSolicitacao, EnviarAvaliacao, Pessoa
+from app.db.models import AppUser, CelulaSolicitacao, EnviarAvaliacao, Pessoa, UserRole
 from app.deps import CENTRAL_ROLES, CurrentUser
 from app.domain.enviar import CRITERIOS_PROVISORIOS, EstadoEvidencia, SituacaoEnviar, VERSAO_REGRAS
 from app.services.enviar_read import ler_pendencias_pessoa
@@ -17,7 +17,12 @@ def _coord(db, user):
     # Revalidate identity/link from server state, including direct service callers.
     actor = db.execute(select(AppUser).where(AppUser.id == UUID(user.app_user_id),
         AppUser.igreja_id == UUID(user.igreja_id)).execution_options(populate_existing=True)).scalar_one_or_none()
-    if actor is None or actor.status not in (None, 'ativo') or not any(r.papel in (*CENTRAL_ROLES, 'admin') for r in actor.roles):
+    role = db.execute(select(UserRole.id).where(
+        UserRole.user_id == UUID(user.app_user_id),
+        UserRole.igreja_id == UUID(user.igreja_id),
+        UserRole.papel.in_((*CENTRAL_ROLES, 'admin')),
+    ).limit(1)).scalar_one_or_none()
+    if actor is None or actor.status not in (None, 'ativo') or role is None:
         raise HTTPException(403, 'Acesso à coordenação indisponível')
     return actor
 
@@ -39,8 +44,10 @@ def _latest(db, pessoa):
 
 def _snapshot(pessoa):
     result = ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id)
+    # No official references are supplied by this adapter yet. Absence of a
+    # pending criterion alone cannot attest an official record.
     states = {p.criterio: p.estado for p in result.pendencias}
-    return result, {c: {'estado': states.get(c, EstadoEvidencia.COMPROVADA), 'referencia': None} for c in CRITERIOS_PROVISORIOS}
+    return result, {c: {'estado': states.get(c, EstadoEvidencia.NAO_INFORMADA), 'referencia': None} for c in CRITERIOS_PROVISORIOS}
 
 
 def _append(db, pessoa, *, id, decisao, origem, motivo, autor_id, solicitacao_id=None, solicitante_id=None):
@@ -66,6 +73,8 @@ def registrar_avaliacao(db: Session, user: CurrentUser, pessoa_id: UUID, payload
     pessoa = _pessoa(db, user, pessoa_id, lock=True)
     # Authority must be current after any wait for the person lock.
     actor = _coord(db, user)
+    if actor.pessoa_id is None:
+        raise HTTPException(403, 'vincule seu usuário a um cadastro de pessoa antes de avaliar')
     if actor.pessoa_id == pessoa.id:
         raise HTTPException(403, 'Não é permitido avaliar a própria aptidão')
     # Do not let omitting the request id bypass segregation. Pending requests
