@@ -71,9 +71,9 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Simulador e prova integrada de visitante | feito | Transporte falso, fila Redis, worker, catálogo, autorização, banco com isolamento entre igrejas e acesso autenticado; testes locais/CI registrados (#462/#466). Não prova aceite online pelo navegador nem lembretes com gates fechados. | Simulador não se destina a PROD. |
 | Ferramentas de desenvolvimento e testes | feito | Versões alinhadas ao CI; `test-local.sh` recusa alvo desconhecido (#464), com teste registrado. Corrige o falso sucesso sem executar testes. | Ferramenta de desenvolvimento. |
 | Refatorações de visitante e leitura da resposta | feito | Validação de nome no domínio e leitura fora do worker, com regressão registrada (#465/#467). | não verificado |
-| Universidade da Vida | em andamento | Desenho aprovado em 5 fatias; PR 1 integrada (merge `265a0397`): contrato tipado de entrada, oito aulas com reposição registrada, Encontro/batismo validados e confirmação do responsável. Conexão à célula é pendência independente. Conclusão individual operacional não comprova UV nem concede nova aptidão à CD; aptidão legada preservada com origem identificada no contrato, sem conclusão retroativa. PR 2 em andamento na [PR #492](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/492): persistência, turmas, calendário de oito aulas + Encontro, responsáveis e matrículas explícitas, API e painel mínimos; gestão de responsáveis e encerramento/reabertura restritos à coordenação, autoria por igreja e exclusão em cascata. PR 2 aguarda integração (#492). PR 3 em andamento, encadeada à PR 2: chamada das aulas 1 a 8, reposição, correção com histórico, API e painel mínimos; pendências calculadas pelo contrato, sem concluir UV nem alterar aptidão à CD ou etapa da Pessoa. PR 4 em andamento, encadeada à PR 3: marcos únicos de Encontro/batismo na Pessoa (inclusive anteriores à turma, com data e validador), conclusão humana após oito aulas e ambos os marcos, transição sem rebaixamento para discipular e aptidão à CD na mesma transação, com origem própria e legado preservado sem UV retroativa. Responsável ativo da turma ou coordenação validam; conexão à célula não bloqueia e não há matrícula automática em CD. PR 5 em andamento na [PR #496](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/496), encadeada à PR 4: consulta mínima de turmas/matriculados, aulas cumpridas/pendentes e marcos pelo WhatsApp; proposta de presença e confirmação literal SIM, usando os mesmos serviços e autorizações do painel, com resposta após commit e recuperação pelo ledger existente. Matrícula, conclusão e marcos continuam exclusivos do painel autenticado. DESLIGADA: `UV_WHATSAPP_APPROVED_RELEASE_ID=None` e lista `UV_WHATSAPP_ENABLED_IGREJA_IDS` vazia por padrão; nenhum gate aberto. Falta revisão, quatro checks e integração da cadeia. | não verificado |
-| Capacitação Destino | em andamento | Desenho aprovado em 6 fatias, com decisões provisórias para revisão do proprietário antes do merge; PR 1 em andamento: contrato puro versionado, 6 módulos de 10 aulas, níveis configuráveis sem distribuição definida, todas as aulas com reposição registrada, sequência linear e matrícula ativa única por pessoa/módulo; equivalência pela coordenação com evidência/origem. Certificação exige módulos obrigatórios e confirmação da coordenação, com registro revogável; Reencontro/apto_lider, nomeação e Enviar separados, sem efeitos automáticos. PR 2 em andamento, encadeada à UV PR 4 (#494) e dependente também do contrato #495: catálogo versionado com níveis opcionais definidos pela coordenação, 6 módulos de 10 aulas, nomes editáveis, turmas vinculadas a módulo/versão, calendário e responsáveis revalidados; acesso ao banco CD restrito ao caminho backend (sem PostgREST direto); API e painel mínimos com coordenação admin/pastor e consulta da própria turma pelo responsável lider_consol. Migration candidata `20261018_010000_cd_catalogo_turmas.sql`, somente PostgreSQL local sintético; não aplicada remotamente. PR 3 em andamento, encadeada à PR 2 (#497): matrícula explícita por coordenação ou responsável ativo, aptidão revalidada sob lock com origem UV/legado registrada, primeiro módulo apenas até conclusões/equivalências da PR 5, unicidade ativa por pessoa/módulo entre versões, cancelamento com autor/data e reativação idempotente, com eventos imutáveis de cada transição; API e painel com busca nominal literal e paginação de elegíveis (até 100 por página); matrícula de pessoa arquivada permanece visível com indicador e cancelável em turma aberta. Cancelamento também recusa turma encerrada após adquirir o lock. Cadeia real local: 139 testes CD aprovados, incluindo concorrência sob lock e duas igrejas; frontend com 1.214 testes e typecheck aprovados. Migration candidata `20261018_020000_cd_matriculas.sql`, validação somente local sintética; aplicação remota não verificada. PR 4 candidata com frequência/reposição/correção e histórico (detalhes abaixo); PR 5 candidata com conclusão humana, equivalência, progressão e certificados revogáveis (detalhes abaixo). WhatsApp (PR 6) candidato nesta branch, desligado por igreja e release (detalhes abaixo). | não verificado |
-| Enviar e multiplicação | em andamento | Existem partes de células e solicitações; falta jornada de aptidão, edição/aprovação sensível e integração com formação. | não verificado |
+| Universidade da Vida | em andamento | Desenho aprovado em 5 fatias; PR 1 em andamento: contrato tipado de entrada, oito aulas com reposição registrada, Encontro/batismo validados e confirmação do responsável. Conexão à célula é pendência independente. Conclusão individual operacional não comprova UV nem concede nova aptidão à CD; aptidão legada preservada com origem identificada no contrato, sem conclusão retroativa. Faltam persistência, turmas, aulas, presenças, papéis e acesso; tela “em breve” não é módulo. | não verificado |
+| Capacitação Destino | falta | Definir e implementar módulos/livros, turmas, frequência, pré-requisitos e certificação. | não verificado |
+| Enviar e multiplicação | em andamento | Desenho em 8 fatias; PR1: contrato puro de aptidão e leitura de pendências, sem efeitos ou migration. Critérios provisórios aguardam confirmação pastoral; faltam persistência da avaliação, formação oficial e aprovação sensível. | não verificado |
 | Memória privada durável | falta | Resumos e retomada privados, com exclusão de derivados. | não verificado |
 | Conhecimento oficial | falta | Documentos aprovados, versionados e com público autorizado; busca segura. Conversas nunca viram conhecimento oficial automaticamente. | não verificado |
 | Ferramentas e especialistas por área | em andamento | Ampliar rotinas pelo WhatsApp usando os mesmos serviços do painel; comportamento global versionado, dados e execução por igreja, credencial OpenAI própria da igreja. | não verificado |
@@ -156,72 +156,3 @@ e registrar entrega, testes e limites na descrição da PR. Requisitos e runbook
 continuam sendo referências técnicas; sem novo sprint, painel ou plano paralelo.
 Integração exige `backend-tests`, `frontend-ci`, `e2e-critical` e
 `rls-integration`; produção e efeitos reais exigem autorização nominal própria.
-
-CD PR 4 — candidata encadeada sobre `feat/cd-matricula-v1` (`a8349e00`, PR #498):
-frequência por aula do calendário, reposição com presença, correção explícita com
-revisão anterior, idempotência e histórico privado imutável com autor/horário.
-Aula com frequência registrada não pode ser remarcada para o futuro.
-API e chamada no painel reutilizam autorização viva e lock da turma; FKs
-compostas e RLS seguem o padrão CD. Só o resumo de aulas cumpridas por matrícula
-é exposto para a conclusão futura (PR 5); não certifica nem conclui módulos.
-Validação em PostgreSQL local descartável com cadeia real de migrations e dados
-sintéticos: 301 testes PG CD/UV, 6.535 backend offline e 1.218 frontend aprovados;
-lint/typecheck aprovados. Integração depende dos quatro checks;
-aplicação remota/produção não verificada. Nenhum gate operacional alterado.
-
-CD PR 4 — candidata encadeada sobre `feat/cd-matricula-v1` (`a8349e00`, PR #498):
-frequência por aula do calendário, reposição com presença, correção explícita com
-revisão anterior, idempotência e histórico privado imutável com autor/horário.
-Aula com frequência registrada não pode ser remarcada para o futuro.
-API e chamada no painel reutilizam autorização viva e lock da turma; FKs
-compostas e RLS seguem o padrão CD. O resumo de aulas cumpridas inclui apenas
-matrículas ativas de pessoas não arquivadas; presença regular e reposição contam
-igualmente. Histórico de canceladas continua consultável; pessoa arquivada retorna
-404 no histórico. A PR 5 revalida calendário, aulas e confirmação humana sob lock.
-A PR 4 não certifica nem conclui módulos. Correção concorrente com cancelamento
-foi exercitada com Barrier e duas transações PG, sem registro órfão.
-Validação em PostgreSQL local descartável com cadeia real de migrations e dados
-sintéticos: 301 testes PG CD/UV, 6.535 backend offline e 1.218 frontend aprovados;
-lint/typecheck aprovados. Integração depende dos quatro checks;
-aplicação remota/produção não verificada. Nenhum gate operacional alterado.
-
-CD PR 5 — candidata encadeada sobre `feat/cd-presenca-v1` (`e8f66510`, PR #499):
-conclusão definitiva por matrícula ativa com todas as aulas do módulo/calendário
-cumpridas e confirmação identificada do responsável ativo ou coordenação; nunca
-automática. Equivalência somente admin/pastor, com evidência curta obrigatória,
-tipo `equivalencia`, origem específica separada, autor e data. Regras provisórias centralizadas em `app/domain/cd.py`,
-aguardando confirmação pastoral antes do merge. Módulo N exige conclusões dos
-módulos 1..N-1 do mesmo currículo, revalidadas na matrícula sob lock. Matrícula
-concluída preserva histórico e não aceita novos lançamentos ou cancelamento.
-Níveis opcionais são derivados das conclusões dos respectivos módulos.
-Certificado emitido pela coordenação após todos os módulos obrigatórios,
-com ids das conclusões, currículo/versão, emissor/horário, código único por igreja
-e snapshot dos nomes da pessoa e do currículo. Revogação definitiva com motivo,
-autor e horário; reemissão usa novo registro. Consulta histórica e revogação
-continuam disponíveis à coordenação após arquivar a pessoa; conclusão e nova
-emissão exigem pessoa não arquivada. Sem DELETE, sem mudar `apto_lider`,
-etapa, nomeação ou Enviar. API autenticada e painel para concluir, registrar
-equivalência, consultar progresso/certificados, emitir e revogar.
-Migration candidata `20261018_040000_cd_conclusoes_certificados.sql`, com FKs
-compostas, RLS ENABLE/FORCE, acesso restrito ao backend e grants mínimos.
-Validação local sintética e quatro checks da PR são registrados na descrição;
-sem merge, aplicação remota, ativação ou alteração de gates. Produção: **não verificado**.
-
-CD PR 6 — candidata encadeada sobre `feat/cd-conclusao-v1` (`b18f75f3`, PR #500):
-consulta de turmas e aulas cumpridas por aluno; proposta de presença/reposição
-com SIM literal após entrega, expiração de 10 minutos desde a proposta, cancelamento,
-idempotência, aviso explícito de correção e recusa se o registro anterior mudou.
-Responsável ativo `lider_consol` ou coordenação `pastor`/`admin`, com identidade,
-vínculo e capacidade revalidados pelo servidor e pelos serviços `services/cd.py`.
-Opt-out, consentimento e handoff/crise precedem respostas; recibo após commit
-com recuperação pelo transporte existente. Conclusão de módulo, equivalência e
-certificado orientam o painel autenticado e não executam pelo WhatsApp.
-`CD_WHATSAPP_APPROVED_RELEASE_ID=None` e allowlist de igrejas vazia por padrão:
-retorno antes de sessão/tabela/provedor quando desligado. Sem ativação,
-deploy, migration nova ou acesso remoto. Inclui como dependência o adaptador UV
-aprovado na #496 (`cb579818`), ausente nesta base CD; testes UV preservados.
-P2 UV/CD corrigidos: espaços normalizados também no nome salvo e conflito de
-correção identificado por código estável do serviço, preservando HTTP/texto do painel.
-Validação: E2E pelo worker com catálogo/roteador e PostgreSQL 17 reais,
-transporte/provedores simulados, dados sintéticos e duas igrejas. Resultados e
-checks do SHA entregue ficam na descrição da PR. Produção: **não verificado**.
