@@ -3,7 +3,7 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
@@ -132,8 +132,11 @@ def enrollments(tid: UUID, db: Session=DB, user: CurrentUser=USER):
 
 
 @router.get('/turmas/{tid}/elegiveis')
-def eligible(tid: UUID, db: Session=DB, user: CurrentUser=USER):
-    return cd.eligible(db, user, tid)
+def eligible(tid: UUID, db: Session=DB, user: CurrentUser=USER,
+             q: str=Query(default="", max_length=120),
+             limit: int=Query(default=100, ge=1, le=100),
+             offset: int=Query(default=0, ge=0)):
+    return cd.eligible(db, user, tid, q=q, limit=limit, offset=offset)
 
 
 @router.post('/turmas/{tid}/matriculas')

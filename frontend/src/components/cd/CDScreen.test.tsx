@@ -15,7 +15,7 @@ const button = (text: string) => Array.from(container.querySelectorAll("button")
 async function render() { await act(async () => { root.render(h(CDScreen)); }); }
 beforeEach(() => {
   state.roles = ["admin"]; state.request.mockReset();
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path === "/curriculos" || path === "/opcoes" || path.endsWith("/matriculas") ? [] : path.endsWith("/elegiveis") ? [{ id: "p", nome: "Pessoa elegível" }] : detail));
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path === "/curriculos" || path === "/opcoes" || path.endsWith("/matriculas") ? [] : path.split("?")[0].endsWith("/elegiveis") ? [{ id: "p", nome: "Pessoa elegível" }] : detail));
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -65,7 +65,7 @@ it("matricula pessoa elegível com comando explícito e atualiza a lista", async
   expect(container.textContent).toContain("Matrícula registrada.");
 });
 it("cancelamento exige confirmação e preserva consulta", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path.endsWith("/matriculas") ? [{ id: "mat", pessoa_id: "p", nome: "Aluno", ativa: true, origem_aptidao: "legado" }] : path === "/curriculos" || path === "/opcoes" || path.endsWith("/elegiveis") ? [] : detail));
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path.endsWith("/matriculas") ? [{ id: "mat", pessoa_id: "p", nome: "Aluno", ativa: true, origem_aptidao: "legado" }] : path === "/curriculos" || path === "/opcoes" || path.split("?")[0].endsWith("/elegiveis") ? [] : detail));
   await render(); await act(async () => { button("Turma teste")!.click(); });
   await act(async () => { button("Cancelar matrícula de Aluno")!.click(); });
   expect(state.request.mock.calls.some(c => c[2] === "POST")).toBe(false);
@@ -80,7 +80,7 @@ it("não oferece matrícula em módulo com pré-requisito", async () => {
   expect(state.request.mock.calls.some(c => c[1].endsWith("/elegiveis"))).toBe(false);
 });
 it("reativação reutiliza identificador da matrícula cancelada", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path.endsWith("/matriculas") ? [{ id: "anterior", pessoa_id: "p", nome: "Pessoa elegível", ativa: false, origem_aptidao: "legado" }] : path.endsWith("/elegiveis") ? [{ id: "p", nome: "Pessoa elegível" }] : path === "/curriculos" || path === "/opcoes" ? [] : detail));
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path.endsWith("/matriculas") ? [{ id: "anterior", pessoa_id: "p", nome: "Pessoa elegível", ativa: false, origem_aptidao: "legado" }] : path.split("?")[0].endsWith("/elegiveis") ? [{ id: "p", nome: "Pessoa elegível" }] : path === "/curriculos" || path === "/opcoes" ? [] : detail));
   await render(); await act(async () => { button("Turma teste")!.click(); });
   const select = Array.from(container.querySelectorAll("select")).find(s => s.textContent?.includes("Pessoa elegível"))!;
   await act(async () => { select.value = "p"; select.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -97,4 +97,18 @@ it("recusa do servidor aparece sem anunciar matrícula registrada", async () => 
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("origem identificada");
   expect(container.textContent).not.toContain("Matrícula registrada.");
   expect(button("Matricular")!.disabled).toBe(false);
+});
+
+it("mostra pessoa arquivada e mantém cancelamento disponível", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "/turmas" ? [turma] : path.endsWith("/matriculas") ? [{ id: "mat", pessoa_id: "p", nome: "Aluno", pessoa_arquivada: true, ativa: true, origem_aptidao: "legado" }] : path === "/curriculos" || path === "/opcoes" || path.split("?")[0].endsWith("/elegiveis") ? [] : detail));
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("Pessoa arquivada");
+  expect(button("Cancelar matrícula de Aluno")?.disabled).toBe(false);
+});
+it("busca elegíveis por nome e oferece paginação", async () => {
+  await render(); await act(async () => { button("Turma teste")!.click(); });
+  expect(container.querySelector('input[type="search"]')).not.toBeNull();
+  await act(async () => { button("Buscar pessoas")!.click(); });
+  expect(state.request).toHaveBeenCalledWith("synthetic", "/turmas/turma/elegiveis?q=&limit=100&offset=0", "GET", undefined, expect.any(AbortSignal));
+  expect(button("Página anterior")?.disabled).toBe(true);
 });

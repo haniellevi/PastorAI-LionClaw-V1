@@ -19,6 +19,9 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
   const [options, setOptions] = useState<Choice[]>([]);
   const [enrollments, setEnrollments] = useState<MatriculaCD[]>([]);
   const [eligible, setEligible] = useState<Choice[]>([]);
+  const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [offset, setOffset] = useState(0);
   const [personId, setPersonId] = useState("");
   const [canceling, setCanceling] = useState<MatriculaCD | null>(null);
   const [selected, setSelected] = useState("");
@@ -51,10 +54,16 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
       request<MatriculaCD[]>(`/turmas/${id}/matriculas`),
       !value.encerrada && value.modulo.numero === 1 ? request<Choice[]>(`/turmas/${id}/elegiveis`) : Promise.resolve([]),
     ]);
+    setSearch(""); setSearchQuery(""); setOffset(0);
     setEnrollments(matriculas); setEligible(pessoas); setPersonId("");
     setDetail(value); setDates(Object.fromEntries(value.calendario.map(a => [a.aula_id, a.data])));
     setResponsibles(value.responsaveis.filter(r => r.elegivel).map(r => r.usuario_id));
     setOptions(coordination && !value.encerrada ? await request<Choice[]>("/opcoes") : []);
+  }
+  async function searchPeople(q: string, page: number) {
+    if (!detail) return;
+    const people = await request<Choice[]>(`/turmas/${detail.id}/elegiveis?${new URLSearchParams({ q, limit: "100", offset: String(page) })}`);
+    setEligible(people); setPersonId(""); setSearchQuery(q); setOffset(page);
   }
   async function run(action: () => Promise<void>) {
     setBusy(true); setError(""); setNotice("");
@@ -130,7 +139,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
       </fieldset></form>
       <div className="card"><h3>Matrículas</h3>
         <p>Ingresso explícito para pessoas aptas por UV concluída ou legado. Os demais módulos exigem conclusão registrada dos anteriores.</p>
-        {!detail.encerrada && detail.modulo.numero === 1 ? <form onSubmit={submit(async () => {
+        {!detail.encerrada && detail.modulo.numero === 1 ? <>
+          <form onSubmit={submit(() => searchPeople(search, 0))}><label>Buscar pessoa por nome<input type="search" maxLength={120} value={search} disabled={busy} onChange={e => setSearch(e.target.value)} /></label><button className="btn" disabled={busy}>Buscar pessoas</button></form>
+          <div className="actions"><button className="btn" disabled={busy || offset === 0} onClick={() => void run(() => searchPeople(searchQuery, Math.max(0, offset - 100)))}>Página anterior</button><button className="btn" disabled={busy || eligible.length < 100} onClick={() => void run(() => searchPeople(searchQuery, offset + 100))}>Próxima página</button></div>
+          <form onSubmit={submit(async () => {
           const intent = { turma: detail.id, pessoa_id: personId };
           await request(`/turmas/${detail.id}/matriculas`, "POST", { id: enrollments.find(m => m.pessoa_id === personId && !m.ativa)?.id ?? key(intent), pessoa_id: personId });
           createKey.current = null; await load(detail.id); setNotice("Matrícula registrada.");
@@ -138,10 +150,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
           <label>Pessoa elegível<select required value={personId} onChange={e => setPersonId(e.target.value)}><option value="">Selecione uma pessoa</option>{eligible.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
           {!eligible.length ? <p>Nenhuma pessoa elegível disponível.</p> : null}
           <button className="btn btn-primary" disabled={!personId}>Matricular</button>
-        </fieldset></form> : null}
+        </fieldset></form></> : null}
         {!enrollments.length ? <p>Nenhuma matrícula registrada.</p> : null}
-        {enrollments.map(m => <div key={m.id}><p>{m.nome} · {m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
-          {m.ativa ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
+        {enrollments.map(m => <div key={m.id}><p>{m.nome}{m.pessoa_arquivada ? " · Pessoa arquivada" : ""} · {m.ativa ? "Ativa" : "Cancelada"} · {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}</p>
+          {m.ativa && !detail.encerrada ? <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>Cancelar matrícula de {m.nome}</button> : null}
         </div>)}
       </div>
       <Dialog open={canceling !== null} onClose={() => { if (!busy) setCanceling(null); }} title="Cancelar matrícula?" description={canceling ? `A matrícula de ${canceling.nome} será cancelada. O registro será preservado.` : ""}>

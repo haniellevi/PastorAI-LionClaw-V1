@@ -53,7 +53,7 @@ def test_http_lifecycle_and_provenance(database,seeded,origin):
         assert client.get(base+'/elegiveis').json()==[]
         receipt=client.get(base+'/matriculas').json()[0]
         assert receipt['origem_aptidao']==origin and receipt['criada_por']==str(v['leader'])
-        assert set(receipt)=={'id','pessoa_id','nome','ativa','origem_aptidao','criada_por','criada_em','cancelada_por','cancelada_em'}
+        assert set(receipt)=={'id','pessoa_id','nome','pessoa_arquivada','ativa','origem_aptidao','criada_por','criada_em','cancelada_por','cancelada_em'}
         for _ in range(2): assert client.post(base+f"/matriculas/{receipt['id']}/cancelar").status_code==200
         cancelled=client.get(base+'/matriculas').json()[0]
         assert not cancelled['ativa'] and cancelled['cancelada_por']==str(v['leader']) and cancelled['cancelada_em']
@@ -156,21 +156,26 @@ def test_concurrent_enrollment(database,seeded,same_turma):
     with scoped(database,v['t']) as s: assert s.execute(text('select count(*) from cd_matriculas where ativa')).scalar()==1
 
 
-@pytest.mark.parametrize('mode',['closure','revocation','aptitude'])
+@pytest.mark.parametrize('mode',['closure','cancel_closure','revocation','aptitude'])
 def test_waiting_writer_revalidates(database,seeded,mode):
     v=seeded
     with scoped(database,v['t']) as s:
-        legacy(s,v); tid=create(s,v); cd.responsaveis(s,principal(v),tid,ResponsaveisInput(usuarios=[v['leader']])); s.commit()
+        legacy(s,v); tid=create(s,v); cd.responsaveis(s,principal(v),tid,ResponsaveisInput(usuarios=[v['leader']]))
+        mid = cd.enroll(s,principal(v),tid,command(v))['id'] if mode=='cancel_closure' else None
+        s.commit()
     started=Event(); waiting_pid=[]
     with scoped(database,v['t']) as first:
-        if mode=='closure': cd.close(first,principal(v),tid)
+        if mode in {'closure','cancel_closure'}: cd.close(first,principal(v),tid)
         elif mode=='revocation': cd.responsaveis(first,principal(v),tid,ResponsaveisInput(usuarios=[]))
         else: first.execute(text('update pessoas set apto_proxima_cd=false where id=:p'),dict(p=v['p']))
         def attempt():
             with scoped(database,v['t']) as second:
                 waiting_pid.append(second.execute(text('select pg_backend_pid()')).scalar())
                 started.set()
-                try: cd.enroll(second,principal(v,'leader'),tid,command(v)); second.commit(); return 200
+                try:
+                    if mode=='cancel_closure': cd.cancel_enrollment(second,principal(v,'leader'),tid,mid)
+                    else: cd.enroll(second,principal(v,'leader'),tid,command(v))
+                    second.commit(); return 200
                 except HTTPException as exc: return exc.status_code
         with ThreadPoolExecutor(max_workers=1) as pool:
             future=pool.submit(attempt)
@@ -185,7 +190,7 @@ def test_waiting_writer_revalidates(database,seeded,mode):
                 assert blocked, 'writer must actually wait for the held lock'
             finally:
                 first.commit()
-            assert future.result(timeout=20)==dict(closure=409,revocation=404,aptitude=422)[mode]
+            assert future.result(timeout=20)==dict(closure=409,cancel_closure=409,revocation=404,aptitude=422)[mode]
 
 
 def test_rls_grants_and_composite_fks(database,seeded):
@@ -253,3 +258,57 @@ def test_foreign_person_and_turma_composite_fks(database,seeded):
             with pytest.raises(IntegrityError) as exc:
                 s.execute(text("insert into cd_matriculas(id,igreja_id,turma_id,modulo_id,modulo_numero,pessoa_id,origem_aptidao,criada_por) values(:id,:t,:tid,:m,1,:p,'legado',:u)"),dict(id=uuid4(),t=v['t'],tid=target,m=c['modulos'][0]['id'],p=person,u=v['uid']))
             assert exc.value.orig.pgcode=='23503'
+
+
+def test_closed_turma_refuses_cancellation(database, seeded):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        legacy(s, v); tid = create(s, v)
+        mid = cd.enroll(s, principal(v), tid, command(v))['id']
+        cd.close(s, principal(v), tid)
+        denied(lambda: cd.cancel_enrollment(s, principal(v), tid, mid), 409)
+        assert cd.list_enrollments(s, principal(v), tid)[0]['ativa']
+
+
+def test_archived_enrollment_remains_visible_and_cancelable(database, seeded):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        legacy(s, v); tid = create(s, v)
+        mid = cd.enroll(s, principal(v), tid, command(v))['id']
+        s.execute(text('update pessoas set arquivada_em=now() where id=:p'), dict(p=v['p']))
+        receipt = cd.list_enrollments(s, principal(v), tid)[0]
+        assert receipt['pessoa_arquivada'] is True and receipt['ativa']
+        cd.cancel_enrollment(s, principal(v), tid, mid)
+        assert not cd.list_enrollments(s, principal(v), tid)[0]['ativa']
+
+
+def test_eligible_search_literal_and_pagination(database, seeded):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        tid = create(s, v)
+        for i, name in enumerate(['Ana 100%', 'Ana 100X', 'Ana_B', 'AnaXB', 'Ana\\B']):
+            s.execute(text("insert into pessoas(igreja_id,nome,telefone,apto_proxima_cd) values(:t,:n,:tel,true)"), dict(t=v['t'], n=name, tel=f'55000000100{i}'))
+        assert [p['nome'] for p in cd.eligible(s, principal(v), tid, q='100%')] == ['Ana 100%']
+        assert [p['nome'] for p in cd.eligible(s, principal(v), tid, q='_')] == ['Ana_B']
+        assert [p['nome'] for p in cd.eligible(s, principal(v), tid, q='\\')] == ['Ana\\B']
+        all_people = cd.eligible(s, principal(v), tid, q='aNa')
+        assert len(all_people) == 5
+        assert cd.eligible(s, principal(v), tid, q='aNa', limit=2, offset=2) == all_people[2:4]
+
+
+def test_eligible_http_query_bounds(database, seeded):
+    v = seeded
+    with scoped(database, v['t']) as s:
+        legacy(s, v); tid = create(s, v); s.commit()
+    app = FastAPI(); app.include_router(router)
+    def db():
+        with scoped(database, v['t']) as s: yield s
+    app.dependency_overrides[get_db] = db
+    app.dependency_overrides[get_current_user] = lambda: principal(v)
+    with TestClient(app) as client:
+        path = f'/cd/turmas/{tid}/elegiveis'
+        assert len(client.get(path, params=dict(q='ALUNO', limit=1, offset=0)).json()) == 1
+        assert client.get(path, params=dict(q='ausente')).json() == []
+        assert client.get(path, params=dict(offset=1)).json() == []
+        for params in [dict(limit=101), dict(limit=0), dict(offset=-1), dict(q='x'*121)]:
+            assert client.get(path, params=params).status_code == 422

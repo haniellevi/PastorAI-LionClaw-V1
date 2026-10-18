@@ -223,24 +223,28 @@ def require_first_module(db, t, current):
 
 def list_enrollments(db, user, tid):
     t, _, _ = enrollment_scope(db, user, tid)
-    return rows(db, '''select m.id,m.pessoa_id,p.nome,m.ativa,m.origem_aptidao,
+    return rows(db, '''select m.id,m.pessoa_id,p.nome,(p.arquivada_em is not null) as pessoa_arquivada,m.ativa,m.origem_aptidao,
         m.criada_por,m.criada_em,m.cancelada_por,m.cancelada_em
         from cd_matriculas m join pessoas p on p.igreja_id=m.igreja_id and p.id=m.pessoa_id
-        where m.igreja_id=:t and m.turma_id=:tid and p.arquivada_em is null
+        where m.igreja_id=:t and m.turma_id=:tid
         order by p.nome,m.id''', t=t, tid=tid)
 
 
-def eligible(db, user, tid):
+def eligible(db, user, tid, *, q="", limit=100, offset=0):
     t, _, current = enrollment_scope(db, user, tid)
     if current['encerrada']:
         return []
     numero = require_first_module(db, t, current)
+    if not 1 <= limit <= 100 or offset < 0:
+        raise HTTPException(422, 'Paginação inválida')
+    pattern = '%' + q.strip().replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
     return rows(db, '''select p.id,p.nome from pessoas p where p.igreja_id=:t
         and p.arquivada_em is null and p.apto_proxima_cd
+        and p.nome ilike :q escape '!'
         and p.origem_aptidao_cd in ('legado','conclusao_uv')
         and not exists(select 1 from cd_matriculas m where m.igreja_id=p.igreja_id
             and m.pessoa_id=p.id and m.modulo_numero=:n and m.ativa)
-        order by p.nome,p.id limit 100''', t=t, n=numero)
+        order by p.nome,p.id limit :limit offset :offset''', t=t, n=numero, q=pattern, limit=limit, offset=offset)
 
 
 def enroll(db, user, tid, payload):
@@ -287,7 +291,9 @@ def enroll(db, user, tid, payload):
 
 
 def cancel_enrollment(db, user, tid, mid):
-    t, uid, _ = enrollment_scope(db, user, tid, lock=True)
+    t, uid, current = enrollment_scope(db, user, tid, lock=True)
+    if current['encerrada']:
+        raise HTTPException(409, 'Turma encerrada')
     found = rows(db, 'select pessoa_id from cd_matriculas where igreja_id=:t and turma_id=:tid and id=:mid', t=t, tid=tid, mid=mid)
     if not found:
         raise HTTPException(404, 'Matrícula não encontrada')
