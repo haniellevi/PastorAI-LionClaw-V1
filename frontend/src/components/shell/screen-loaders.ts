@@ -32,6 +32,7 @@ export const loadConsolIndividualScreen = () =>
   import("@/components/consolidacao/ConsolIndividualScreen");
 export const loadConsolidarScreen = () =>
   import("@/components/consolidacao/ConsolidarScreen");
+export const loadUVScreen = () => import("@/components/uv/UVScreen");
 export const loadLockedScreen = () =>
   import("@/components/consolidacao/LockedScreen");
 export const loadContatosScreen = () =>
@@ -65,7 +66,7 @@ const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
   comunicados: loadComunicadosScreen,
   "consol-individual": loadConsolIndividualScreen,
   consolidar: loadConsolidarScreen,
-  "universidade-vida": loadLockedScreen,
+  "universidade-vida": loadUVScreen,
   capacitacao: loadLockedScreen,
   contatos: loadContatosScreen,
   ganhar: loadGanharScreen,

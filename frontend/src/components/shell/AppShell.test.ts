@@ -113,8 +113,8 @@ describe("AppShell — Sidebar e BottomNav concordam na rota já resolvida", () 
     expect(document.activeElement).toBe(container.querySelector("#main-content"));
   });
 
-  it("deep-link bloqueado (#universidade-vida, locked): AppShell resolve pra #dashboard e Sidebar+BottomNav mostram EXATAMENTE UM aria-current=page cada, no mesmo alvo", () => {
-    window.location.hash = "#universidade-vida";
+  it("deep-link bloqueado (#capacitacao, locked): AppShell resolve pra #dashboard e Sidebar+BottomNav mostram EXATAMENTE UM aria-current=page cada, no mesmo alvo", () => {
+    window.location.hash = "#capacitacao";
     render();
 
     // AppShell normalizou o hash (rota bloqueada não é o que fica na URL).

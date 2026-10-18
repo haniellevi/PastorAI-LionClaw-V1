@@ -32,3 +32,9 @@ def test_tenant_matrix_cannot_grant_admin_only_screen() -> None:
 
 def test_dashboard_still_open_to_everyone() -> None:
     assert can_access_screen(frozenset({"membro"}), "dashboard", {}) is True
+
+
+def test_uv_cannot_be_granted_to_other_roles_by_legacy_matrix():
+    assert not can_access_screen(frozenset({'operador'}), 'universidade-vida', {'operador': {'universidade-vida'}})
+    assert not can_access_screen(frozenset({'lider_g12'}), 'universidade-vida', {'lider_g12': {'universidade-vida'}})
+    assert can_access_screen(frozenset({'lider_consol'}), 'universidade-vida', {})
