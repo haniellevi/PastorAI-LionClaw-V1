@@ -29,7 +29,7 @@ def turma(db, t, tid, lock=False):
 
 
 def catalog(db, t, cid, lock=False):
-    found = rows(db, 'select id,versao,nome from cd_curriculos where igreja_id=:t and id=:id'
+    found = rows(db, 'select id,versao,nome,familia_id from cd_curriculos where igreja_id=:t and id=:id'
                  + (' for update' if lock else ''), t=t,id=cid)
     if not found:
         raise HTTPException(404, 'Currículo não encontrado')
@@ -52,11 +52,13 @@ def create_curriculo(db,user,payload):
     require_coordination(roles)
     # Structural edits are new versions. Labels remain editable in every version.
     CurriculoCD(payload.versao, tuple(payload.aulas_por_modulo), tuple(tuple(n.modulos) for n in payload.niveis))
+    source = getattr(payload, 'curriculo_anterior_id', None)
+    family = catalog(db,t,source)['familia_id'] if source else payload.id
     try:
         with db.begin_nested():
-            inserted=db.execute(text('''insert into cd_curriculos(id,igreja_id,versao,nome,criada_por)
-                values(:id,:t,:v,:n,:u) on conflict(id) do nothing returning id'''),
-                dict(id=payload.id,t=t,v=payload.versao,n=payload.nome,u=uid)).scalar_one_or_none()
+            inserted=db.execute(text('''insert into cd_curriculos(id,igreja_id,versao,nome,criada_por,familia_id)
+                values(:id,:t,:v,:n,:u,:f) on conflict(id) do nothing returning id'''),
+                dict(id=payload.id,t=t,v=payload.versao,n=payload.nome,u=uid,f=family)).scalar_one_or_none()
             if inserted is not None:
                 levels={}
                 for i,n in enumerate(payload.niveis,1):
@@ -75,6 +77,8 @@ def create_curriculo(db,user,payload):
             actual=[(n['nome'],[m['numero'] for m in result['modulos'] if m['nivel_id']==n['id']]) for n in result['niveis']]
             expected=[(n.nome,sorted(n.modulos)) for n in payload.niveis]
             counts=[len(m['aulas']) for m in result['modulos']]
+            if result['familia_id'] != family:
+                raise HTTPException(409,'Identificador reutilizado com outra família')
             if (result['versao'],result['nome'],actual,counts)!=(payload.versao,payload.nome,expected,payload.aulas_por_modulo):
                 raise HTTPException(409,'Identificador reutilizado com outros dados')
             return result
@@ -224,9 +228,13 @@ def module_number(db, t, current):
 
 
 def require_prerequisites(db, t, current, person):
+    # Keep prerequisite evidence stable until the enrollment/completion commits,
+    # including a concurrent privileged revocation of an equivalence source.
+    rows(db,"""select id from cd_conclusoes where igreja_id=:t and pessoa_id=:p
+        order by id for share""",t=t,p=person)
     if PROGRESSAO_LINEAR and rows(db, """select m.id from cd_modulos m
         where m.igreja_id=:t and m.curriculo_id=:c and m.numero<:n
-        and not exists(select 1 from cd_conclusoes f where f.igreja_id=m.igreja_id
+        and not exists(select 1 from cd_cumprimentos f where f.igreja_id=m.igreja_id
           and f.modulo_id=m.id and f.pessoa_id=:p and f.curriculo_id=:c)""",
         t=t, c=current['curriculo_id'], n=module_number(db,t,current), p=person):
         raise HTTPException(409, 'Módulo exige pré-requisito: conclusão registrada dos módulos anteriores')
@@ -267,14 +275,14 @@ def eligible(db, user, tid, *, q="", limit=100, offset=0):
         and p.arquivada_em is null and p.apto_proxima_cd
         and p.nome ilike :q escape '!'
         and p.origem_aptidao_cd in ('legado','conclusao_uv')
-        and not exists(select 1 from cd_conclusoes f where f.igreja_id=p.igreja_id
+        and not exists(select 1 from cd_cumprimentos f where f.igreja_id=p.igreja_id
             and f.pessoa_id=p.id and f.curriculo_id=:c and f.modulo_id=:mod)
         and (not :linear or not exists(select 1 from cd_modulos prior
             where prior.igreja_id=p.igreja_id and prior.curriculo_id=:c and prior.numero<:n
-            and not exists(select 1 from cd_conclusoes f where f.igreja_id=prior.igreja_id
+            and not exists(select 1 from cd_cumprimentos f where f.igreja_id=prior.igreja_id
                 and f.pessoa_id=p.id and f.curriculo_id=:c and f.modulo_id=prior.id)))
         and not exists(select 1 from cd_matriculas m where m.igreja_id=p.igreja_id
-            and m.pessoa_id=p.id and m.modulo_numero=:n and m.ativa)
+            and m.pessoa_id=p.id and m.modulo_numero=:n and m.ativa and not m.concluida)
         order by p.nome,p.id limit :limit offset :offset''', t=t, n=numero, c=current['curriculo_id'], mod=current['modulo_id'], linear=PROGRESSAO_LINEAR, q=pattern, limit=limit, offset=offset)
 
 
@@ -289,7 +297,7 @@ def enroll(db, user, tid, payload):
         raise HTTPException(404, 'Pessoa não encontrada')
     person = people[0]
     require_prerequisites(db,t,current,payload.pessoa_id)
-    if rows(db, '''select id from cd_conclusoes where igreja_id=:t and pessoa_id=:p
+    if rows(db, '''select id from cd_cumprimentos where igreja_id=:t and pessoa_id=:p
         and curriculo_id=:c and modulo_id=:m''',t=t,p=payload.pessoa_id,c=current['curriculo_id'],m=current['modulo_id']):
         raise HTTPException(409, 'Módulo já concluído neste currículo')
     if not person['apto_proxima_cd'] or person['origem_aptidao_cd'] not in {'legado','conclusao_uv'}:
@@ -300,7 +308,7 @@ def enroll(db, user, tid, payload):
     if existing and (existing[0]['turma_id'], existing[0]['pessoa_id']) != (tid, payload.pessoa_id):
         raise HTTPException(409, 'Identificador reutilizado com outros dados')
     active = rows(db, '''select id from cd_matriculas where igreja_id=:t
-        and pessoa_id=:p and modulo_numero=:n and ativa''', **params)
+        and pessoa_id=:p and modulo_numero=:n and ativa and not concluida''', **params)
     if active:
         if existing and active[0]['id'] == payload.id:
             return {'id': payload.id}  # Retry of the same explicit request.
@@ -488,7 +496,9 @@ def finish(db, user, tid, mid, payload, *, equivalence=False):
 
 def certificates(db,t,pid,cid):
     return rows(db, """select c.*,array(select cc.conclusao_id from cd_certificado_conclusoes cc
-        where cc.igreja_id=c.igreja_id and cc.certificado_id=c.id order by cc.conclusao_id) as conclusoes_ids
+        where cc.igreja_id=c.igreja_id and cc.certificado_id=c.id order by cc.conclusao_id) as conclusoes_ids,
+        array(select ce.equivalencia_id from cd_certificado_equivalencias ce
+        where ce.igreja_id=c.igreja_id and ce.certificado_id=c.id order by ce.equivalencia_id) as equivalencias_ids
         from cd_certificados c where c.igreja_id=:t and c.pessoa_id=:p and c.curriculo_id=:c
         order by c.emitida_em,c.id""",t=t,p=pid,c=cid)
 
@@ -498,9 +508,12 @@ def person_progress(db,user,pid,cid):
     visible_person(db,t,pid,include_archived=True)
     current=catalog(db,t,cid)
     completions=rows(db,'select * from cd_conclusoes where igreja_id=:t and pessoa_id=:p and curriculo_id=:c order by confirmada_em,id',t=t,p=pid,c=cid)
-    completed={r['modulo_id'] for r in completions}
+    fulfilled=rows(db,'select modulo_id from cd_cumprimentos where igreja_id=:t and pessoa_id=:p and curriculo_id=:c',t=t,p=pid,c=cid)
+    equivalents=rows(db,'''select e.*,exists(select 1 from cd_cumprimentos f where f.igreja_id=e.igreja_id and f.id=e.id and f.tipo='equivalencia') as valida
+        from cd_equivalencias_versoes e where e.igreja_id=:t and e.pessoa_id=:p and e.curriculo_id=:c order by e.registrada_em,e.id''',t=t,p=pid,c=cid)
+    completed={r['modulo_id'] for r in fulfilled}
     levels=[n['id'] for n in current['niveis'] if all(m['id'] in completed for m in current['modulos'] if m['nivel_id']==n['id'])]
-    return dict(conclusoes=completions,niveis_concluidos=levels,certificados=certificates(db,t,pid,cid))
+    return dict(conclusoes=completions,equivalencias=equivalents,niveis_concluidos=levels,certificados=certificates(db,t,pid,cid))
 
 
 def issue_certificate(db,user,pid,cid,payload):
@@ -517,7 +530,12 @@ def issue_certificate(db,user,pid,cid,payload):
         return next(c for c in certificates(db,t,pid,cid) if c['id']==payload.id)
     if rows(db,'select id from cd_certificados where igreja_id=:t and pessoa_id=:p and curriculo_id=:c and not revogada',t=t,p=pid,c=cid):
         raise HTTPException(409,'Pessoa já possui certificado ativo neste currículo')
-    completed=rows(db,'select id,modulo_id from cd_conclusoes where igreja_id=:t and pessoa_id=:p and curriculo_id=:c',t=t,p=pid,c=cid)
+    # Lock source conclusions while validating/issuing, including equivalences.
+    rows(db,'''select id from cd_conclusoes where igreja_id=:t and pessoa_id=:p
+        order by id for share''',t=t,p=pid)
+    completed=rows(db,'''select distinct on(modulo_id) id,modulo_id,tipo from cd_cumprimentos
+        where igreja_id=:t and pessoa_id=:p and curriculo_id=:c
+        order by modulo_id,tipo,id''',t=t,p=pid,c=cid)
     if {r['modulo_id'] for r in completed}!={m['id'] for m in current['modulos']}:
         raise HTTPException(422,'Certificação exige todos os módulos obrigatórios concluídos')
     params=dict(t=t,id=payload.id,p=pid,c=cid,u=uid,pn=person['nome'],cn=current['nome'],v=current['versao'])
@@ -526,7 +544,8 @@ def issue_certificate(db,user,pid,cid,payload):
             db.execute(text("""insert into cd_certificados(id,igreja_id,pessoa_id,curriculo_id,nome_pessoa,nome_curriculo,versao_curriculo,emitida_por)
                 values(:id,:t,:p,:c,:pn,:cn,:v,:u)"""),params)
             for r in completed:
-                db.execute(text("""insert into cd_certificado_conclusoes(igreja_id,certificado_id,conclusao_id,pessoa_id,curriculo_id)
+                table, column = ('cd_certificado_conclusoes','conclusao_id') if r['tipo']=='conclusao' else ('cd_certificado_equivalencias','equivalencia_id')
+                db.execute(text(f"""insert into {table}(igreja_id,certificado_id,{column},pessoa_id,curriculo_id)
                     values(:t,:id,:conclusao,:p,:c)"""),params|dict(conclusao=r['id']))
     except IntegrityError as exc:
         raise HTTPException(409,'Certificado ou identificador indisponível') from exc
@@ -551,3 +570,68 @@ def revoke_certificate(db,user,cert_id,payload):
         return current
     db.execute(text('update cd_certificados set revogada=true,revogada_por=:u,motivo_revogacao=:r where igreja_id=:t and id=:id'),dict(t=t,id=cert_id,u=uid,r=reason))
     return next(c for c in certificates(db,t,pid,cid) if c['id']==cert_id)
+
+
+def equivalence_sources(db,user,pid,cid):
+    t,_,roles=actor(db,user); require_coordination(roles)
+    visible_person(db,t,pid)
+    catalog(db,t,cid)
+    return rows(db,'''select c.id,c.modulo_id,m.numero,origem.versao,c.confirmada_em,
+        destino_modulo.id as modulo_destino_id from cd_conclusoes c
+        join cd_curriculos origem on origem.igreja_id=c.igreja_id and origem.id=c.curriculo_id
+        join cd_curriculos destino on destino.igreja_id=c.igreja_id and destino.id=:c
+        join cd_modulos m on m.igreja_id=c.igreja_id and m.id=c.modulo_id
+        join cd_modulos destino_modulo on destino_modulo.igreja_id=destino.igreja_id
+            and destino_modulo.curriculo_id=destino.id and destino_modulo.numero=m.numero
+        where c.igreja_id=:t and c.pessoa_id=:p and not c.revogada
+        and origem.id<>destino.id and origem.familia_id=destino.familia_id
+        and origem.ordem_versao<destino.ordem_versao order by m.numero,c.confirmada_em,c.id''',t=t,p=pid,c=cid)
+
+
+def register_version_equivalence(db,user,pid,cid,payload):
+    t,uid,roles=actor(db,user); require_coordination(roles)
+    visible_person(db,t,pid,lock=True)
+    if payload.confirmado is not True:
+        raise HTTPException(422,'Equivalência exige confirmação da coordenação')
+    try:
+        evidence=evidencia_equivalencia(payload.evidencia)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    # Person lock serializes competing requests across all versions/turmas.
+    # Source row lock serializes privileged revocation against this decision.
+    source=rows(db,'''select id from cd_conclusoes where igreja_id=:t and pessoa_id=:p
+        and id=:id and not revogada for share''',t=t,p=pid,id=payload.conclusao_origem_id)
+    if not source or not any(r['id']==payload.conclusao_origem_id and r['modulo_destino_id']==payload.modulo_id
+                             for r in equivalence_sources(db,user,pid,cid)):
+        raise HTTPException(409,'Conclusão de origem incompatível ou revogada')
+    params=dict(t=t,p=pid,c=cid,m=payload.modulo_id,source=payload.conclusao_origem_id,e=evidence,u=uid,id=payload.id)
+    existing=rows(db,'''select * from cd_equivalencias_versoes where igreja_id=:t
+        and (id=:id or (pessoa_id=:p and curriculo_id=:c and modulo_id=:m))''',**params)
+    if existing:
+        r=existing[0]
+        if (r['id'],r['pessoa_id'],r['curriculo_id'],r['modulo_id'],r['conclusao_origem_id'],r['evidencia'],r['registrada_por']) != (payload.id,pid,cid,payload.modulo_id,payload.conclusao_origem_id,evidence,uid):
+            raise HTTPException(409,'Equivalência já registrada ou identificador reutilizado')
+        return r
+    if rows(db,'''select id from cd_cumprimentos where igreja_id=:t and pessoa_id=:p
+        and curriculo_id=:c and modulo_id=:m''',**params):
+        raise HTTPException(409,'Módulo já cumprido neste currículo')
+    try:
+        with db.begin_nested():
+            return rows(db,'''insert into cd_equivalencias_versoes
+                (id,igreja_id,pessoa_id,curriculo_id,modulo_id,conclusao_origem_id,evidencia,registrada_por)
+                values(:id,:t,:p,:c,:m,:source,:e,:u) returning *''',**params)[0]
+    except IntegrityError as exc:
+        raise HTTPException(409,'Equivalência ou identificador indisponível') from exc
+
+
+def equivalence_people(db,user,cid,*,q=''):
+    t,_,roles=actor(db,user); require_coordination(roles)
+    current=catalog(db,t,cid)
+    pattern='%'+q.strip().replace('!','!!').replace('%','!%').replace('_','!_')+'%'
+    return rows(db,'''select p.id,p.nome from pessoas p where p.igreja_id=:t
+        and p.arquivada_em is null and p.nome ilike :q escape '!'
+        and exists(select 1 from cd_conclusoes c join cd_curriculos origem
+            on origem.igreja_id=c.igreja_id and origem.id=c.curriculo_id
+            where c.igreja_id=p.igreja_id and c.pessoa_id=p.id and not c.revogada
+            and origem.id<>:c and origem.familia_id=:f)
+        order by p.nome,p.id limit 100''',t=t,c=cid,f=current['familia_id'],q=pattern)

@@ -202,7 +202,7 @@ it("registra equivalência com evidência curta após confirmação", async () =
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(source, "Curso anterior");
     source.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  const input = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  const input = container.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Documento conferido");
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -227,7 +227,7 @@ it("emite certificado somente após confirmação e envia revogação com motivo
   await act(async () => { button("Confirmar emissão")!.click(); });
   expect(state.request).toHaveBeenCalledWith("synthetic", "/pessoas/p/curriculos/c/certificados", "POST", { id: expect.any(String), confirmado: true }, expect.any(AbortSignal));
   await act(async () => { button("Revogar certificado")!.click(); });
-  const input = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  const input = container.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Correção administrativa");
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -261,4 +261,47 @@ it.each(["admin", "pastor", "lider_consol"])("restringe evidência de equivalên
   expect(container.textContent).toContain("Conclusão por equivalência");
   expect(container.textContent?.includes("Documento restrito")).toBe(role !== "lider_consol");
   expect(container.textContent?.includes("Curso restrito")).toBe(role !== "lider_consol");
+});
+
+it("coordenação acessa equivalência entre versões sem matrícula na turma nova", async () => {
+  await render();
+  expect(container.textContent).toContain("Equivalência entre versões");
+  expect(container.querySelector('input[aria-label="Pessoa para equivalência"]')).not.toBeNull();
+  state.roles = ["lider_consol"]; await render();
+  expect(container.textContent).not.toContain("Equivalência entre versões");
+});
+
+it("registra reconhecimento de versão anterior só após confirmação, sem matrícula nova", async () => {
+  const catalog = { id: "v2", familia_id: "family", nome: "Formação", versao: "2", niveis: [], modulos: [modulo] };
+  state.request.mockImplementation((_token, path) => Promise.resolve(
+    path === "/pessoas/p/curriculos/v2" ? { conclusoes: [], equivalencias: [{ id: "eq", valida: true }], niveis_concluidos: [], certificados: [] } :
+    path === "/curriculos" ? [catalog] : path === "/turmas" ? [] :
+    path.includes("pessoas-equivalencia") ? [{ id: "p", nome: "Aluno anterior" }] :
+    path.endsWith("origens-equivalencia") ? [{ id: "conclusao-v1", numero: 1, versao: "1", modulo_destino_id: "m" }] : {}));
+  await render();
+  const select = Array.from(container.querySelectorAll("select")).find(s => s.parentElement?.textContent?.startsWith("Currículo"))!;
+  await act(async () => { select.value = "v2"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(async () => { button("Buscar conclusões anteriores")!.click(); });
+  const person = Array.from(container.querySelectorAll("select")).find(s => s.textContent?.includes("Aluno anterior"))!;
+  await act(async () => { person.value = "p"; person.dispatchEvent(new Event("change", { bubbles: true })); });
+  const source = Array.from(container.querySelectorAll("select")).find(s => s.textContent?.includes("Módulo 1 · Versão 1"))!;
+  await act(async () => { source.value = "conclusao-v1"; source.dispatchEvent(new Event("change", { bubbles: true })); });
+  const evidence = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(evidence, "Histórico conferido");
+    evidence.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { button("Registrar equivalência entre versões")!.click(); });
+  expect(state.request.mock.calls.some(c => c[2] === "POST")).toBe(false);
+  expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Aluno anterior");
+  await act(async () => { button("Confirmar reconhecimento")!.click(); });
+  expect(state.request).toHaveBeenCalledWith("synthetic", "/pessoas/p/curriculos/v2/equivalencias", "POST", {
+    id: expect.any(String), confirmado: true, modulo_id: "m", conclusao_origem_id: "conclusao-v1", evidencia: "Histórico conferido",
+  }, expect.any(AbortSignal));
+  expect(state.request.mock.calls.some(c => c[1].includes("matriculas"))).toBe(false);
+  await act(async () => { button("Progresso e certificados da versão selecionada")!.click(); });
+  expect(container.querySelector('[role="dialog"]')?.textContent).toContain("1 equivalências válidas");
+  await act(async () => { button("Emitir certificado")!.click(); });
+  await act(async () => { button("Confirmar emissão")!.click(); });
+  expect(state.request).toHaveBeenCalledWith("synthetic", "/pessoas/p/curriculos/v2/certificados", "POST", { id: expect.any(String), confirmado: true }, expect.any(AbortSignal));
 });
