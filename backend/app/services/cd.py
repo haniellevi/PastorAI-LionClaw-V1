@@ -513,7 +513,7 @@ def person_progress(db,user,pid,cid):
         from cd_equivalencias_versoes e where e.igreja_id=:t and e.pessoa_id=:p and e.curriculo_id=:c order by e.registrada_em,e.id''',t=t,p=pid,c=cid)
     completed={r['modulo_id'] for r in fulfilled}
     levels=[n['id'] for n in current['niveis'] if all(m['id'] in completed for m in current['modulos'] if m['nivel_id']==n['id'])]
-    return dict(conclusoes=completions,equivalencias=equivalents,niveis_concluidos=levels,certificados=certificates(db,t,pid,cid))
+    return dict(modulos_cumpridos=sorted(completed),conclusoes=completions,equivalencias=equivalents,niveis_concluidos=levels,certificados=certificates(db,t,pid,cid))
 
 
 def issue_certificate(db,user,pid,cid,payload):
@@ -615,6 +615,12 @@ def register_version_equivalence(db,user,pid,cid,payload):
         if (r['id'],r['pessoa_id'],r['curriculo_id'],r['modulo_id'],r['conclusao_origem_id'],r['evidencia'],r['registrada_por']) != (payload.id,pid,cid,payload.modulo_id,payload.conclusao_origem_id,evidence,uid):
             raise HTTPException(409,'Equivalência já registrada ou identificador reutilizado')
         return r
+    if rows(db,'''select m.id from cd_matriculas m
+        join cd_modulos destino on destino.igreja_id=m.igreja_id and destino.id=:m
+        and destino.curriculo_id=:c
+        where m.igreja_id=:t and m.pessoa_id=:p and m.ativa and not m.concluida
+        and m.modulo_numero=destino.numero''',**params):
+        raise HTTPException(409,'Cancele a matrícula em andamento neste módulo antes de registrar a equivalência')
     if rows(db,'''select id from cd_cumprimentos where igreja_id=:t and pessoa_id=:p
         and curriculo_id=:c and modulo_id=:m''',**params):
         raise HTTPException(409,'Módulo já cumprido neste currículo')

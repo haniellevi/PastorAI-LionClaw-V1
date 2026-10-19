@@ -16,4 +16,4 @@ export interface PresencaCD { registro_id: string; anterior_id: string | null; p
 
 export interface ConclusaoCD { id: string; revogada?: boolean; origem: "frequencia" | "equivalencia"; evidencia?: string | null; origem_equivalencia?: string | null; confirmada_por: string; confirmada_em: string }
 export interface CertificadoCD { id: string; codigo: string; nome_pessoa: string; nome_curriculo: string; versao_curriculo: string; emitida_por: string; emitida_em: string; revogada: boolean; revogada_por: string | null; revogada_em: string | null; motivo_revogacao: string | null; conclusoes_ids: string[]; equivalencias_ids: string[] }
-export interface ProgressoCD { equivalencias: { id: string; valida: boolean }[]; conclusoes: ConclusaoCD[]; niveis_concluidos: string[]; certificados: CertificadoCD[] }
+export interface ProgressoCD { modulos_cumpridos: string[]; equivalencias: { id: string; valida: boolean }[]; conclusoes: ConclusaoCD[]; niveis_concluidos: string[]; certificados: CertificadoCD[] }

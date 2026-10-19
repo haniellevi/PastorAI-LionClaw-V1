@@ -242,3 +242,24 @@ def test_equivalence_cannot_flow_from_newer_to_older_version(database,seeded):
         finish(s,v,later,enrollment,equivalence=True)
         assert cd.equivalence_people(s,principal(v),c1['id'])==[]
         denied(lambda:equivalent(s,v,c1,newer),409)
+
+
+@pytest.mark.parametrize('other_version', [False, True])
+def test_equivalence_requires_canceling_ongoing_module(database, seeded, other_version):
+    from fastapi import HTTPException
+    from sqlalchemy import text
+    v = seeded
+    with scoped(database, v['t']) as s:
+        _, target, source = version_pair(s, v)
+        active = curriculum(s, v) if other_version else target
+        tid = create(s, v, active)
+        mid = cd.enroll(s, principal(v), tid, command(v))['id']
+        with pytest.raises(HTTPException) as exc:
+            equivalent(s, v, target, source)
+        assert exc.value.status_code == 409
+        assert 'cancel' in exc.value.detail.lower()
+        assert s.execute(text('select count(*) from cd_equivalencias_versoes')).scalar_one() == 0
+        cd.cancel_enrollment(s, principal(v), tid, mid)
+        assert equivalent(s, v, target, source)['id']
+        progress = cd.person_progress(s, principal(v), v['p'], target['id'])
+        assert progress['modulos_cumpridos'] == [target['modulos'][0]['id']]

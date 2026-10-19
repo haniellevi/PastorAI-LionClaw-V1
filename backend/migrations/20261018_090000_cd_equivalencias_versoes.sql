@@ -1,7 +1,8 @@
 -- Decision 6 (18/10): a registered equivalence carries prior learning forward.
 set local lock_timeout = '2s';
--- Legacy schema had exactly one CD catalog per church (unique igreja/versao).
--- Preserve that implicit family under its oldest curriculum UUID. New families
+-- Legacy uniqueness was per church/version, allowing multiple curricula.
+-- Migration groups all existing curricula per church into one family under
+-- its oldest curriculum UUID; pre-release must review counts per church. New families
 -- use their first curriculum UUID; explicit new versions inherit familia_id.
 -- A monotonic insertion order, rather than editable version labels or now()
 -- (which ties within a transaction), defines earlier/later versions.
@@ -13,6 +14,11 @@ update public.cd_curriculos c set ordem_versao=o.position from ordered o where o
 alter table public.cd_curriculos add column familia_id uuid;
 update public.cd_curriculos c set familia_id=(select first_value(id) over(order by criada_em,id)
  from public.cd_curriculos root where root.igreja_id=c.igreja_id limit 1);
+do $$ begin
+ if exists(select 1 from public.cd_curriculos where familia_id is null) then
+  raise exception 'CD backfill incompleto: currículo sem familia_id';
+ end if;
+end $$;
 alter table public.cd_curriculos alter column familia_id set not null;
 alter table public.cd_curriculos add foreign key(igreja_id,familia_id) references public.cd_curriculos(igreja_id,id);
 grant insert(familia_id) on public.cd_curriculos to authenticated;
@@ -51,6 +57,13 @@ alter table public.cd_matriculas disable trigger cd_matricula_concluida;
 update public.cd_matriculas m set concluida=true where exists(select 1 from public.cd_conclusoes c
  where c.igreja_id=m.igreja_id and c.matricula_id=m.id);
 alter table public.cd_matriculas enable trigger cd_matricula_concluida;
+do $$ begin
+ if exists(select 1 from public.cd_matriculas m
+  join public.cd_conclusoes c on c.igreja_id=m.igreja_id and c.matricula_id=m.id
+  where not m.concluida) then
+  raise exception 'CD backfill incompleto: matrícula com conclusão e concluida=false';
+ end if;
+end $$;
 create or replace function public.cd_preservar_conclusao() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare mid uuid; finished boolean;

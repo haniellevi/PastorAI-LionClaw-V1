@@ -202,7 +202,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
     </> : null}
       <Dialog open={certPerson !== null} onClose={() => { if (!busy) { setCertPerson(null); setProgress(null); setIssuing(false); setRevoking(null); } }} title={certPerson ? `Certificados de ${certPerson.nome}` : "Certificados"} description="Certificados registram a formação. Aptidão de liderança, nomeação e Enviar são independentes.">
         {error ? <p role="alert">{error}</p> : null}
-        <p>{progress?.conclusoes.filter(c => !c.revogada).length ?? 0} módulos concluídos · {progress?.equivalencias?.filter(e => e.valida).length ?? 0} equivalências válidas · {progress?.niveis_concluidos.length ?? 0} níveis concluídos.</p>
+        <p>{new Set(progress?.modulos_cumpridos ?? []).size} módulos cumpridos · {progress?.equivalencias?.filter(e => e.valida).length ?? 0} equivalências válidas · {progress?.niveis_concluidos.length ?? 0} níveis concluídos.</p>
         {progress?.certificados.map(c => <div className="card" key={c.id}><p>{c.nome_pessoa} · {c.nome_curriculo} · Versão {c.versao_curriculo}</p>
           <p>Código: {c.codigo} · {new Date(c.emitida_em).toLocaleString("pt-BR")} · {c.revogada ? "Revogado" : "Ativo"}</p>
           {c.revogada ? <p>{c.motivo_revogacao} · {c.revogada_em ? new Date(c.revogada_em).toLocaleString("pt-BR") : ""}</p> : <button className="btn" disabled={busy || issuing || !!revoking} onClick={() => { setReason(""); setRevoking(c); }}>Revogar certificado</button>}

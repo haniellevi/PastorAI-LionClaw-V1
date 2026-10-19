@@ -274,7 +274,7 @@ it("coordenação acessa equivalência entre versões sem matrícula na turma no
 it("registra reconhecimento de versão anterior só após confirmação, sem matrícula nova", async () => {
   const catalog = { id: "v2", familia_id: "family", nome: "Formação", versao: "2", niveis: [], modulos: [modulo] };
   state.request.mockImplementation((_token, path) => Promise.resolve(
-    path === "/pessoas/p/curriculos/v2" ? { conclusoes: [], equivalencias: [{ id: "eq", valida: true }], niveis_concluidos: [], certificados: [] } :
+    path === "/pessoas/p/curriculos/v2" ? { modulos_cumpridos: ["m", "m", "m2"], conclusoes: [], equivalencias: [{ id: "eq", valida: true }], niveis_concluidos: [], certificados: [] } :
     path === "/curriculos" ? [catalog] : path === "/turmas" ? [] :
     path.includes("pessoas-equivalencia") ? [{ id: "p", nome: "Aluno anterior" }] :
     path.endsWith("origens-equivalencia") ? [{ id: "conclusao-v1", numero: 1, versao: "1", modulo_destino_id: "m" }] : {}));
@@ -302,6 +302,7 @@ it("registra reconhecimento de versão anterior só após confirmação, sem mat
   expect(state.request.mock.calls.some(c => c[1].includes("matriculas"))).toBe(false);
   await act(async () => { button("Progresso e certificados da versão selecionada")!.click(); });
   expect(container.querySelector('[role="dialog"]')?.textContent).toContain("1 equivalências válidas");
+  expect(container.querySelector('[role="dialog"]')?.textContent).toContain("2 módulos cumpridos");
   await act(async () => { button("Emitir certificado")!.click(); });
   await act(async () => { button("Confirmar emissão")!.click(); });
   expect(state.request).toHaveBeenCalledWith("synthetic", "/pessoas/p/curriculos/v2/certificados", "POST", { id: expect.any(String), confirmado: true }, expect.any(AbortSignal));
