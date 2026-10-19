@@ -97,3 +97,45 @@ def test_panel_two_valid_tenants_never_share_metadata(database, seeded):
         assert a_ids == [first['id']]
         assert b_ids == [second['id']]
         assert b.get('/conhecimento/versoes/' + first['versao_id']).status_code == 404
+
+
+def test_pastor_recovers_content_free_pending_draft_after_new_session(database, seeded):
+    v = seeded
+    with database.begin() as s:
+        s.execute(text("update user_roles set papel='pastor' where user_id=:u"), dict(u=v['leader']))
+    with client(database, v, 'leader') as c:
+        p = create(c, dict(v, uid=v['leader']))
+    with client(database, v, 'leader') as c:
+        panel = c.get('/conhecimento/documentos').json()
+        assert panel['documentos'] == []
+        assert panel['pendentes'] == [dict(documento_id=p['id'], versao_id=p['versao_id'])]
+        assert p['titulo'] not in str(panel) and p['conteudo'] not in str(panel)
+        assert action(c, p, 'enviar-revisao').status_code == 200
+        assert c.get('/conhecimento/documentos').json()['pendentes'] == []
+    with client(database, v, 'outsider') as c:
+        assert c.get('/conhecimento/documentos').json()['pendentes'] == []
+
+
+def test_panel_pages_history_with_bounded_database_round_trips(database, seeded):
+    from sqlalchemy import event
+    v = seeded
+    with client(database, v) as c:
+        p = create(c, v)
+        for _ in range(25):
+            p = edit(c, p)
+        queries = []
+        def count(connection, cursor, statement, parameters, context, executemany):
+            queries.append(statement)
+        event.listen(database, 'before_cursor_execute', count)
+        try:
+            first = c.get('/conhecimento/documentos').json()
+        finally:
+            event.remove(database, 'before_cursor_execute', count)
+        assert len(queries) <= 20
+        assert first['tem_mais'] and first['pagina'] == 1
+        second = c.get('/conhecimento/documentos?pagina=2').json()
+        assert not second['tem_mais']
+        versions = first['documentos'][0]['versoes'] + second['documentos'][0]['versoes']
+        assert sorted(v['numero'] for v in versions) == list(range(1, 27))
+        assert len({v['id'] for v in versions}) == 26
+        assert c.get('/conhecimento/documentos?pagina=0').status_code == 422

@@ -131,5 +131,5 @@ def buscar(q: str=Query(min_length=1,max_length=200),
 
 
 @router.get('/documentos')
-def listar(db: Session=DB,user: CurrentUser=USER):
-    return service.painel(db,user)
+def listar(pagina: int=Query(default=1,ge=1,le=100000),db: Session=DB,user: CurrentUser=USER):
+    return service.painel(db,user,pagina)

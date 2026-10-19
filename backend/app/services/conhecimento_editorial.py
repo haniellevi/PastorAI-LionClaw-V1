@@ -12,7 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.domain.conhecimento import PUBLICADORES, REVISORES
-from app.services.conhecimento import actor, pode_ler, rows
+from app.services.conhecimento import (actor, pode_ler, rows, contexto_leitura,
+                                       versoes_legiveis, LEITURA_SQL)
 
 
 def require(roles,allowed):
@@ -185,55 +186,72 @@ def ler(db,user,vid):
     return result[0]
 
 
-def painel(db, user):
-    """Metadados editoriais; conteúdo continua exclusivamente em ler/pode_ler.
+def painel(db, user, pagina=1):
+    """Página de metadados autorizados, sem conteúdo e sem consultas por versão.
 
-    Metadados de gestão seguem as mesmas áreas de executar; não concedem
-    leitura de texto publicado fora do público nem de versões retiradas.
-    Pastor não recebe metadados de seu rascunho antes de enviá-lo para revisão.
+    Rascunho do pastor só oferece um identificador opaco para envio; título,
+    públicos e conteúdo continuam restritos ao admin até entrar em revisão.
     """
-    t, uid, roles = actor(db, user)
-    admin = bool(roles & PUBLICADORES)
-    editor = bool(roles & REVISORES)
-    documents = rows(db, """select id,responsavel_id,vigente_id,rascunho_id
-        from conhecimento_documentos where igreja_id=:t order by criada_em,id""", t=t)
-    items = []
-    for doc in documents:
-        own = editor and doc['responsavel_id'] == uid
+    context = contexto_leitura(db, user)
+    admin, editor = context['admin'], context['revisor']
+    page_size = 20
+    candidates = rows(db, f"""with numeradas as (
+        select id,igreja_id,documento_id,estado,publicos,criada_em,publicada_em,revisada_em,
+            row_number() over (partition by documento_id order by criada_em,id) as numero
+        from conhecimento_versoes where igreja_id=:t
+        ) select v.*,d.responsavel_id,d.vigente_id,d.rascunho_id,
+            vigente.numero as vigente_numero
+        from numeradas v join conhecimento_documentos d
+            on d.igreja_id=v.igreja_id and d.id=v.documento_id
+        left join numeradas vigente on vigente.id=d.vigente_id
+        where {LEITURA_SQL} or :admin or
+            (:revisor and d.responsavel_id=:uid and
+                (v.id=d.rascunho_id or v.publicada_em is not null or v.revisada_em is not null))
+        order by v.criada_em desc,v.id desc limit :limite offset :offset""",
+        **context, limite=page_size+1, offset=(pagina-1)*page_size)
+    more = len(candidates) > page_size
+    candidates = candidates[:page_size]
+    readable = versoes_legiveis(db, user, [v['id'] for v in candidates])
+    documents, pending = {}, []
+    for version_row in candidates:
+        own = editor and version_row['responsavel_id'] == context['uid']
         editorial = admin or own
-        versions = rows(db, """select id,estado,publicos,criada_em,publicada_em,
-            revisada_em from conhecimento_versoes
-            where igreja_id=:t and documento_id=:d order by criada_em,id""", t=t,d=doc['id'])
-        visible = []
-        for number, version_row in enumerate(versions, 1):
-            readable = pode_ler(db, user, version_row['id'])
-            if not readable and not (editorial and (admin or version_row['estado'] != 'rascunho')
-                    and (admin or version_row['publicada_em'] or version_row['revisada_em']
-                         or version_row['estado'] == 'em_revisao')):
-                continue
-            actions = []
-            if editorial:
-                if version_row['id'] == doc['rascunho_id']:
-                    if readable:
-                        actions.append('editar')
-                    if version_row['estado'] == 'rascunho':
-                        actions.append('enviar-revisao')
-                    if version_row['estado'] == 'em_revisao':
-                        if version_row['revisada_em'] is None:
-                            actions.append('revisar')
-                        if admin:
-                            actions.append('publicar')
-                elif version_row['id'] == doc['vigente_id'] and doc['rascunho_id'] is None:
+        if own and not admin and version_row['estado'] == 'rascunho':
+            pending.append(dict(documento_id=version_row['documento_id'], versao_id=version_row['id']))
+            continue
+        can_read = version_row['id'] in readable
+        if not editorial and not can_read:
+            continue
+        actions = []
+        if editorial:
+            if version_row['id'] == version_row['rascunho_id']:
+                if can_read:
                     actions.append('editar')
-                if admin and version_row['estado'] not in {'revogada','substituida'}:
-                    actions.append('revogar')
-            visible.append(dict(version_row, numero=number, pode_ler=readable, acoes=actions,
-                                vigente=version_row['id'] == doc['vigente_id']))
-        if not editorial:
-            visible = [v for v in visible if pode_ler(db, user, v['id'])]
-        if visible:
-            labels = rows(db, '''select titulo,assunto from conhecimento_documentos
-                where igreja_id=:t and id=:d''', t=t, d=doc['id'])[0]
-            items.append(dict(id=doc['id'], titulo=labels['titulo'], assunto=labels['assunto'],
-                vigente_id=doc['vigente_id'] if editorial else None, versoes=visible))
-    return dict(pode_criar=editor, responsavel_id=uid if editor else None, documentos=items)
+                if version_row['estado'] == 'rascunho':
+                    actions.append('enviar-revisao')
+                if version_row['estado'] == 'em_revisao':
+                    if version_row['revisada_em'] is None:
+                        actions.append('revisar')
+                    if admin:
+                        actions.append('publicar')
+            elif version_row['id'] == version_row['vigente_id'] and version_row['rascunho_id'] is None:
+                actions.append('editar')
+            if admin and version_row['estado'] not in {'revogada','substituida'}:
+                actions.append('revogar')
+        doc = documents.setdefault(version_row['documento_id'], dict(
+            id=version_row['documento_id'], vigente_id=version_row['vigente_id'] if editorial else None,
+            vigente_numero=version_row['vigente_numero'], versoes=[]))
+        fields = ('id','numero','estado','publicos','criada_em','publicada_em','revisada_em')
+        doc['versoes'].append(dict({k: version_row[k] for k in fields}, pode_ler=can_read,
+            acoes=actions, vigente=version_row['id'] == version_row['vigente_id']))
+    # Hydrate labels only after authorization, in one bounded query.
+    if documents:
+        labels = rows(db, """select id,titulo,assunto from conhecimento_documentos
+            where igreja_id=:t and id=any(cast(:ids as uuid[]))""",
+            t=context['t'], ids=list(documents))
+        for label in labels:
+            documents[label['id']].update(titulo=label['titulo'], assunto=label['assunto'])
+    for doc in documents.values():
+        doc['versoes'].sort(key=lambda v: v['numero'])
+    return dict(pode_criar=editor, responsavel_id=context['uid'] if editor else None,
+        documentos=list(documents.values()), pendentes=pending, pagina=pagina, tem_mais=more)

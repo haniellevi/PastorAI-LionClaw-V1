@@ -92,3 +92,23 @@ it('substitui publicação restrita com texto novo sem consultar conteúdo não 
  expect((el.querySelector('#conhecimento-texto') as HTMLTextAreaElement).value).toBe('');
  expect(mocks.api.mock.calls.some(call => String(call[1]).startsWith('versoes/'))).toBe(false);
 });
+
+it('retoma envio depois de recarregar sem revelar o rascunho nem seus IDs', async () => {
+ mocks.api.mockResolvedValue({ pode_criar: true, responsavel_id: 'internal-user', documentos: [], pendentes: [{ documento_id: 'pending-doc', versao_id: 'pending-version' }] });
+ const { el, click } = await mount();
+ expect(el.textContent).toContain('Rascunho pendente 1');
+ expect(el.textContent).not.toContain('pending-doc'); expect(el.textContent).not.toContain('pending-version');
+ mocks.api.mockResolvedValueOnce({}).mockResolvedValueOnce(panel(true));
+ await click('Enviar rascunho salvo para revisão');
+ expect(mocks.api.mock.calls.some(call => call[1] === 'documentos/pending-doc/enviar-revisao' && call[2].versao_id === 'pending-version')).toBe(true);
+ expect(mocks.api.mock.calls.some(call => String(call[1]).startsWith('versoes/'))).toBe(false);
+});
+it('carrega outra página e preserva versões já recebidas sem duplicar documentos', async () => {
+ mocks.api.mockResolvedValue({ ...panel(), pagina: 1, tem_mais: true });
+ const { el, click } = await mount();
+ mocks.api.mockResolvedValueOnce({ ...panel(), documentos: [{ ...doc, versoes: [{ ...doc.versoes[0]!, id: 'older-version', numero: 1, estado: 'substituida', vigente: false, pode_ler: false }] }], pagina: 2, tem_mais: false });
+ await click('Carregar mais documentos e versões');
+ expect(el.querySelectorAll('article')).toHaveLength(1);
+ expect(el.textContent).toContain('Versão 1'); expect(el.textContent).toContain('Versão 2');
+ expect(el.textContent).not.toContain('Carregar mais documentos e versões');
+});

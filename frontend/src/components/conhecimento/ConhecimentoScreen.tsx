@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '@/lib/auth-context';
 import { SessionExpiredError } from '@/lib/api';
 import { ApiError } from '@/lib/dashboard-api';
-import { conhecimento, ESTADOS, PUBLICOS, publicoTexto, type Documento, type Leitura, type Painel, type Recibo, type Trecho, type Versao } from '@/lib/conhecimento-api';
+import { conhecimento, appendPainel, ESTADOS, PUBLICOS, publicoTexto, type Documento, type Leitura, type Painel, type Recibo, type Trecho, type Versao } from '@/lib/conhecimento-api';
 import './conhecimento.css';
 
 type Editor = { doc?: Documento; versao?: Versao; conteudo: string; origem: string; publicos: string[] };
@@ -128,6 +128,9 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
     } });
   }
 
+  const pending = [...(painel?.pendentes ?? [])];
+  if (recibo && !pending.some(p => p.versao_id === recibo.versao_id)) pending.unshift(recibo);
+
   return <div className="screen conhecimento-screen" aria-busy={busy}>
     <div className="screen-head"><div className="titles"><h2>Conhecimento oficial</h2><p>Documentos aprovados pela igreja, com versão e público definidos.</p></div>
       <button className="btn" disabled={busy || !!retry} onClick={() => { setPainel(null); setLeitura(null); setResultados(null); setEditor(null); setConfirmacao(null); void run(load); }}>Atualizar</button>
@@ -144,11 +147,11 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
       {resultados && <section aria-label="Resultados da busca"><h3>Resultados</h3>{resultados.length === 0 && <p role="status">Nenhum trecho autorizado encontrado. Consulte o responsável se faltar informação oficial.</p>}
         <ul>{resultados.map((r, i) => <li key={i}><button className="btn" onClick={() => openVersion(r.versao_id)}>{r.titulo}</button><p>{r.trecho}</p></li>)}</ul></section>}
       {painel?.pode_criar && <button className="btn btn-primary" onClick={() => { rememberFocus(); setEditor({ conteudo: '', origem: '', publicos: [] }); setLeitura(null); setConfirmacao(null); }}>Criar rascunho</button>}
-      {recibo && <section className="card card-pad"><h3>Rascunho salvo</h3><p>O rascunho é restrito ao administrador até o envio para revisão.</p><button className="btn" onClick={() => void mutate({ path: `documentos/${recibo.documento_id}/enviar-revisao`, payload: { operacao_id: crypto.randomUUID(), versao_id: recibo.versao_id } })}>Enviar rascunho salvo para revisão</button></section>}
+      {pending.map((p, i) => <section key={p.versao_id} className="card card-pad"><h3>Rascunho pendente {i + 1}</h3><p>O rascunho é restrito ao administrador até o envio para revisão. Você pode retomar o envio após voltar ao painel.</p><button className="btn" onClick={() => void mutate({ path: `documentos/${p.documento_id}/enviar-revisao`, payload: { operacao_id: crypto.randomUUID(), versao_id: p.versao_id } })}>Enviar rascunho salvo para revisão</button></section>)}
       {!painel && !erro && <p role="status">Carregando documentos…</p>}
       {painel && <section aria-label="Documentos"><h3>Documentos disponíveis</h3>{painel.documentos.length === 0 && <p>Nenhum documento disponível para seu acesso.</p>}
         {painel.documentos.map(doc => <article key={doc.id} className="card card-pad"><h4>{doc.titulo}</h4><p>{doc.assunto}</p>
-          <p>Versão vigente: {doc.versoes.find(v => v.vigente) ? `versão ${doc.versoes.find(v => v.vigente)!.numero}` : 'nenhuma versão disponível para leitura'}</p>
+          <p>Versão vigente: {(doc.vigente_numero ?? doc.versoes.find(v => v.vigente)?.numero) ? `versão ${doc.vigente_numero ?? doc.versoes.find(v => v.vigente)!.numero}` : 'nenhuma versão disponível para leitura'}</p>
           <details><summary>Versões e histórico</summary><ol>{doc.versoes.map(v => <li key={v.id}>
             <p><strong>Versão {v.numero} · {ESTADOS[v.estado] ?? 'Estado indisponível'}{v.vigente ? ' · Vigente' : ''}</strong></p>
             <p>Público-alvo: {publicoTexto(v.publicos)}</p><p>Criada em {date(v.criada_em)}{v.revisada_em ? ` · Revisão registrada em ${date(v.revisada_em)}` : ''}{v.publicada_em ? ` · Publicada em ${date(v.publicada_em)}` : ''}</p>
@@ -164,6 +167,10 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           </li>)}</ol></details>
         </article>)}
       </section>}
+      {painel?.tem_mais && <button className="btn" onClick={() => void run(async signal => {
+        const next = await conhecimento<Painel>(token, `documentos?pagina=${(painel.pagina ?? 1) + 1}`, undefined, signal);
+        if (active.current) setPainel(previous => appendPainel(previous, next));
+      })}>Carregar mais documentos e versões</button>}
       {(leitura || editor || confirmacao) && <section ref={detailRef} tabIndex={-1} className="card card-pad conhecimento-detail" aria-label="Documento selecionado">
         <button className="btn" onClick={closeDetail}>Fechar documento</button>
         {leitura && <><h3>{leitura.titulo}</h3><p>{ESTADOS[leitura.estado]}</p><p>Público-alvo: {publicoTexto(leitura.publicos)}</p><p>Origem: {leitura.origem}</p><div className="conhecimento-text">{leitura.conteudo}</div></>}

@@ -102,3 +102,38 @@ test('leitor em tela móvel busca trecho sem ações editoriais nem IDs visívei
   await expect(page.getByLabel('Documento selecionado')).toHaveCount(0);
   expectCleanBrowser(safety);
 });
+
+test('pastor retoma o envio após reload sem reler o rascunho ou receber publicação', async ({ page }) => {
+  const safety = await armBrowserSafety(page);
+  let sent = false;
+  let reads = 0;
+  await page.route(`${API_URL}/conhecimento/**`, async route => {
+    if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return; }
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === 'POST') {
+      expect(path).toBe(`/conhecimento/documentos/${documentId}/enviar-revisao`);
+      expect(route.request().postDataJSON().versao_id).toBe(versionId);
+      sent = true;
+      await json(route, { documento_id: documentId, versao_id: versionId });
+    } else if (path.endsWith('/documentos')) {
+      await json(route, { pode_criar: true, responsavel_id: userId, pagina: 1, tem_mais: false,
+        pendentes: sent ? [] : [{ documento_id: documentId, versao_id: versionId }],
+        documentos: sent ? [{ id: documentId, titulo: 'Proposta pastoral sintética', assunto: 'Institucional', vigente_id: null, vigente_numero: null,
+          versoes: [{ id: versionId, numero: 1, estado: 'em_revisao', publicos: [], criada_em: '2026-10-19T12:00:00Z', vigente: false, pode_ler: true, acoes: ['editar', 'revisar'] }] }] : [],
+      });
+    } else { reads++; await json(route, {}); }
+  });
+  await loginThroughUi(page);
+  await page.goto('/#conhecimento');
+  await expect(page.getByRole('heading', { name: 'Rascunho pendente 1' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Rascunho pendente 1' })).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('Proposta pastoral sintética');
+  await expect(page.locator('body')).not.toContainText(versionId);
+  await page.getByRole('button', { name: 'Enviar rascunho salvo para revisão' }).click();
+  await expect(page.getByRole('heading', { name: 'Proposta pastoral sintética' })).toBeVisible();
+  await page.getByRole('article').locator('summary').click();
+  await expect(page.getByRole('button', { name: 'Aprovar e publicar', exact: true })).toHaveCount(0);
+  expect(reads).toBe(0);
+  expectCleanBrowser(safety);
+});

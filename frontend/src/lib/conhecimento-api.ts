@@ -4,8 +4,8 @@ export interface Versao {
   criada_em: string; publicada_em: string | null; revisada_em: string | null;
   vigente: boolean; pode_ler: boolean; acoes: string[];
 }
-export interface Documento { id: string; titulo: string; assunto: string; vigente_id: string | null; versoes: Versao[] }
-export interface Painel { pode_criar: boolean; responsavel_id: string | null; documentos: Documento[] }
+export interface Documento { id: string; titulo: string; assunto: string; vigente_id: string | null; vigente_numero?: number | null; versoes: Versao[] }
+export interface Painel { pode_criar: boolean; responsavel_id: string | null; documentos: Documento[]; pendentes?: Pick<Recibo, 'documento_id' | 'versao_id'>[]; pagina?: number; tem_mais?: boolean }
 export interface Leitura { titulo: string; assunto: string; conteudo: string; origem: string; publicos: string[]; estado: string }
 export interface Trecho { titulo: string; versao_id: string; secao: string; trecho: string; ordem: number }
 export interface Recibo { documento_id: string; versao_id: string; acao: string }
@@ -24,3 +24,16 @@ export const PUBLICOS: Record<string, string> = {
 };
 export const ESTADOS: Record<string, string> = { rascunho: 'Rascunho', em_revisao: 'Em revisão', publicada: 'Publicada', substituida: 'Substituída', revogada: 'Revogada' };
 export const publicoTexto = (values: string[]) => values.map(v => PUBLICOS[v] ?? 'Público não reconhecido').join('; ') || 'Não definido — publicação bloqueada';
+
+
+export function appendPainel(previous: Painel | null, next: Painel): Painel {
+  if (!previous) return next;
+  const docs = new Map(previous.documentos.map(d => [d.id, d]));
+  for (const doc of next.documentos) {
+    const versions = new Map((docs.get(doc.id)?.versoes ?? []).map(v => [v.id, v]));
+    for (const version of doc.versoes) versions.set(version.id, version);
+    docs.set(doc.id, { ...doc, versoes: [...versions.values()].sort((a, b) => a.numero - b.numero) });
+  }
+  const pending = new Map([...(previous.pendentes ?? []), ...(next.pendentes ?? [])].map(p => [p.versao_id, p]));
+  return { ...next, documentos: [...docs.values()], pendentes: [...pending.values()] };
+}
