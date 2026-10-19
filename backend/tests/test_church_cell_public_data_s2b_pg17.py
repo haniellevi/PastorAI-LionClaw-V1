@@ -13,7 +13,7 @@ from psycopg2 import Error as PsycopgError
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.db.models import Conversation
 from app.services.secretaria_offer import resolve_secretaria_offer_inbound
@@ -636,7 +636,9 @@ def test_s2b_anchor_fks_trigger_and_two_sim_are_tenant_scoped(
         session = Session(engine, future=True)
         try:
             conversation = session.execute(
-                select(Conversation)
+                # This fixture proves the historical S2b schema, before the
+                # privacy-generation migration; do not load its future column.
+                select(Conversation).options(defer(Conversation.deletion_generation))
                 .where(
                     Conversation.id == ids["conversation_a"],
                     Conversation.igreja_id == _TENANT_A,
@@ -664,7 +666,7 @@ def test_s2b_anchor_fks_trigger_and_two_sim_are_tenant_scoped(
     first = threading.Thread(target=accept_offer, kwargs={"wait_before_commit": True})
     second = threading.Thread(target=accept_offer, kwargs={"wait_before_commit": False})
     first.start()
-    assert first_locked.wait(timeout=5)
+    assert first_locked.wait(timeout=5), errors
     second.start()
     time.sleep(0.05)
     allow_first.set()
