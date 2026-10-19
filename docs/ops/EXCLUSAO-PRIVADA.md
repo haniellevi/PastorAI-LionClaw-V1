@@ -155,7 +155,14 @@ com ownership ainda não reconciliado, mesmo após expiração.
 Aplicar na ordem `20261018_090000_exclusao_privada.sql` →
 `20261018_120000_prayer_message_privacy.sql` →
 `20261019_090001_exclusao_privada_pessoa_igreja.sql`, via `scripts/migrate.py`,
-antes de publicar novos writers/cron. A última substitui a função de conversa
+antes de publicar novos writers/cron. Na cadeia ativa completa, preservar também
+as migrations intercaladas: `20261018_090000` < `20261018_100000` <
+`20261018_110000` < `20261018_120000` < `20261018_130000` <
+`20261018_140000` < `20261019_090001`, sem timestamps duplicados.
+Fixtures de inbox que usam schema isolado precisam instalar também `090001`:
+`create_all` não cria `private_delete_scope(uuid,text,uuid,uuid)`, chamada pelo
+serviço atual, e funções de outro schema não substituem essa dependência.
+A última substitui a função de conversa
 por um wrapper do mesmo caminho de pessoa/igreja, conservando a enumeração
 SECURITY DEFINER e exclusão explícita de mensagens protegidas da #515.
 A cadeia real completa é exercitada em PostgreSQL sintético, incluindo RLS,
