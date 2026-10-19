@@ -197,7 +197,7 @@ sem essa conferência, o pré-requisito permanece não verificado.
 
 ## CD: equivalência entre versões (candidata)
 
-`20261018_090000_cd_equivalencias_versoes.sql` agrupa **todos os currículos
+`20261018_110000_cd_equivalencias_versoes.sql` agrupa **todos os currículos
 existentes de cada igreja em uma única família**, usando o UUID do mais antigo.
 A unicidade legada é por igreja/versão e permite vários currículos por igreja;
 ela não prova que sejam versões da mesma formação. Antes do release autorizado,
