@@ -22,3 +22,25 @@ Revogar o certificado continua sendo a ação que bloqueia essa evidência.
 
 Gates preservados; produção, banco remoto, migrations remotas e deploy não
 executados/não verificados. Nenhuma ativação autorizada por esta fatia.
+
+## WhatsApp — fatia 8, desligada
+
+`ENVIAR_WHATSAPP_APPROVED_RELEASE_ID=None` e lista
+`ENVIAR_WHATSAPP_ENABLED_IGREJA_IDS` vazia por padrão, como UV/CD.
+Nenhum deploy ou variável isolada remove a trava de release. Não habilitar
+para teste; testes sintéticos substituem gates apenas em fixtures e usam
+transporte falso. O gate humano `CELULAS_REQUESTS_ENABLED` também é preservado.
+
+Catálogo fechado: `ENVIAR`, `ENVIAR pessoa NOME`, `ENVIAR solicitações`,
+`ENVIAR nomear CÉLULA; CANDIDATO`, `ENVIAR abrir NOME; COBERTURA; CANDIDATO`.
+Nomes ambíguos exigem painel. Consultas têm projeção mínima e até 25 itens;
+não mostram motivo/decisão da avaliação, contatos ou referências documentais.
+Solicitações exigem proposta entregue e SIM literal em até 10 minutos; NÃO
+cancela a proposta. Escrita e recibo persistem na mesma transação, com
+revalidação da autoridade e do transporte e recuperação sem repetir efeitos.
+
+O WhatsApp só cria solicitação em `aguardando`; não concede aptidão, papel ou
+liderança, não cria célula e não valida/revoga evidências. Avaliação e execução
+continuam no painel web, com as autorizações, versão, confirmação e segregação
+existentes. Formação comprovada nunca promove automaticamente. Opt-out,
+consentimento, crise e handoff conservam prioridade.
