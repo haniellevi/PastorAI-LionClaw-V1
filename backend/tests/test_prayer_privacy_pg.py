@@ -18,7 +18,7 @@ from tests.test_prayer_requests_pg import (  # noqa: F401
 )
 pytestmark = pytest.mark.rls_integration
 MARKER = 'Mensagem pastoral protegida'
-MIGRATION = Path(__file__).parents[1] / 'migrations/20261018_090000_prayer_message_privacy.sql'
+MIGRATION = Path(__file__).parents[1] / 'migrations/20261018_120000_prayer_message_privacy.sql'
 
 @pytest.fixture
 def private_prayer(prayer):
