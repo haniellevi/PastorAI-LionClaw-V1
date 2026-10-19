@@ -24,10 +24,17 @@ def multiply(s, v):
 
 
 @pytest.mark.parametrize('kind',['nomeacao','abertura','multiplicacao'])
-def test_revoked_evidence_blocks_new_leadership(nomination,monkeypatch,kind):
+def test_revoked_evidence_blocks_new_leadership(nomination,kind):
     v=nomination
-    monkeypatch.setattr(enviar_avaliacoes,'ler_pendencias_pessoa',lambda *a,**kw:
-        ResultadoEnviar(situacao=SituacaoEnviar.BLOQUEADO,motivo='evidencia_revogada'))
+    from tests.test_enviar_evidencias_pg import certificate
+    from tests.test_uv_turmas_pg import principal
+    from app.services import cd
+    from types import SimpleNamespace
+    v['uid']=v['u']
+    with scoped(v) as s:
+        _, cert=certificate(s,v)
+        cd.revoke_certificate(s,principal(v),cert['id'],SimpleNamespace(motivo='Correção sintética'))
+        s.commit()
     if kind=='multiplicacao':
         with scoped(v) as s,pytest.raises(HTTPException) as error: multiply(s,v)
         assert error.value.status_code==409
@@ -94,3 +101,27 @@ def test_evaluated_multiplication_preserves_legacy_and_is_idempotent(nomination)
         assert s.get(Celula,result.celula_nova_id).lider_id==v['p']
         s.commit()
     with scoped(v) as s:assert s.scalar(text('select count(*) from celulas'))==2
+
+
+def test_official_revocation_preserves_existing_leader_and_roles(nomination):
+    from tests.test_enviar_evidencias_pg import certificate
+    from tests.test_uv_turmas_pg import principal
+    from app.services import cd
+    from app.services.enviar_avaliacoes import historico_pessoa, aptidao_vigente
+    from app.db.models import UserRole
+    from sqlalchemy import select
+    from types import SimpleNamespace
+    v=nomination; v['uid']=v['u']
+    with scoped(v) as s:
+        s.get(Celula,v['cell']).lider_id=v['p']
+        s.flush()
+        _,cert=certificate(s,v)
+        before=set(s.scalars(select(UserRole.papel).where(UserRole.user_id==v['candidate_user'])))
+        assert aptidao_vigente(s,s.get(Pessoa,v['p']))
+        cd.revoke_certificate(s,principal(v),cert['id'],SimpleNamespace(motivo='Correção sintética'))
+        s.commit()
+        assert not aptidao_vigente(s,s.get(Pessoa,v['p']))
+        assert s.get(Pessoa,v['p']).apto_lider
+        assert s.get(Celula,v['cell']).lider_id==v['p'] and s.get(Celula,v['cell']).ativo
+        assert set(s.scalars(select(UserRole.papel).where(UserRole.user_id==v['candidate_user'])))==before
+        assert historico_pessoa(s,actor(v),v['p'])['revisao_pastoral_pendente']

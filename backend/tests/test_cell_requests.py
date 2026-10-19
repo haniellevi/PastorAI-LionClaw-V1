@@ -68,6 +68,10 @@ class _Res:
         self._first = first
         self._rows = rows or []
 
+    def mappings(self):
+        # No official formation records in these offline legacy fixtures.
+        return SimpleNamespace(first=lambda: None)
+
     def scalar_one(self):
         return self._scalar
 

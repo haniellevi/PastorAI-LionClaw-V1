@@ -1,16 +1,16 @@
 """Contrato puro de Enviar: formação habilita avaliação humana, nunca promoção.
 
 Não autoriza nomeações, não altera apto_lider, papéis ou células. Evidências
-precisam vir de registros oficiais da mesma igreja; integrações são posteriores.
+precisam vir de registros oficiais da mesma igreja.
 """
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, Literal
 
 
-# Regras provisórias: aguarda confirmação pastoral. Critérios independentes.
-VERSAO_REGRAS: Final = "enviar-v1-provisoria"
-STATUS_REGRAS: Final = "aguarda confirmação pastoral"
+# Critérios independentes aprovados em 18/10/2026; decisão humana final.
+VERSAO_REGRAS: Final = "enviar-v1-20261018"
+STATUS_REGRAS: Final = "aprovada em 18/10/2026"
 Criterio = Literal["uv", "cd", "reencontro"]
 CRITERIOS_PROVISORIOS: Final[tuple[Criterio, ...]] = ("uv", "cd", "reencontro")
 AVISO_LEGADO: Final = "origem legada, comprovação pendente"
