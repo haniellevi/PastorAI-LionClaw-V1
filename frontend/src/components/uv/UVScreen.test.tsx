@@ -217,3 +217,27 @@ it("histórico mostra nome do autor mesmo sem vínculo atual de responsável", a
   expect(history.textContent).toContain("Autora sintética");
   expect(history.textContent).not.toContain("00000000-0000-4000-8000-000000000001");
 });
+
+it("coordenação registra Reencontro separado da conclusão UV", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, matriculas: [{ id: "m", pessoa_id: "p", nome: "Pessoa sintética", aulas_pendentes: [], marcos: [], conclusao: null }] }));
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("Reencontro: validação humana");
+  expect(button("Validar reencontro")!.disabled).toBe(true);
+});
+
+it("responsável não oferece validação de Reencontro", async () => {
+  state.roles = ["lider_consol"];
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Validar reencontro")).toBeUndefined();
+});
+
+it("Reencontro revogado sinaliza bloqueio sem destituição", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: true, revogada_em: "2026-10-18", validada_por: "coordenação" }] }] }));
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).toContain("evidência revogada");
+  expect(container.textContent).toContain("liderança preservada");
+  expect(button("Revogar Reencontro")).toBeUndefined();
+});

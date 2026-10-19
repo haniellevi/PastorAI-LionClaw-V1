@@ -20,6 +20,7 @@ from app.services.enviar_read import ler_pendencias_pessoa
 
 COMPROVADA = EstadoEvidencia.COMPROVADA
 PENDENTE = EstadoEvidencia.PENDENTE
+NAO_INFORMADA = EstadoEvidencia.NAO_INFORMADA
 REVOGADA = EstadoEvidencia.REVOGADA
 INDISPONIVEL = EstadoEvidencia.INDISPONIVEL
 COMPLETAS = EvidenciasEnviar(uv=COMPROVADA, cd=COMPROVADA, reencontro=COMPROVADA)
@@ -101,10 +102,10 @@ def test_leitura_pura_nao_infere_formacao_da_flag_ou_etapa(etapa, apto_lider):
     resultado = ler_pendencias_pessoa(pessoa, igreja_id=igreja_id)
     assert resultado.situacao == SituacaoEnviar.PENDENTE
     assert [(p.criterio, p.estado) for p in resultado.pendencias] == [
-        ("uv", INDISPONIVEL), ("cd", INDISPONIVEL), ("reencontro", PENDENTE),
+        ("uv", NAO_INFORMADA), ("cd", NAO_INFORMADA), ("reencontro", NAO_INFORMADA),
     ]
-    assert resultado.pendencias[0].descricao == "UV: indisponível nesta base"
-    assert resultado.pendencias[1].descricao == "CD certificado: indisponível nesta base"
+    assert resultado.pendencias[0].descricao == "UV: referência não informada"
+    assert resultado.pendencias[1].descricao == "CD certificado: referência não informada"
     assert resultado.aviso_legado == (AVISO_LEGADO if apto_lider else None)
     assert vars(pessoa) == antes
 

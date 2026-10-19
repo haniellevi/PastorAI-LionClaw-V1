@@ -2,11 +2,11 @@
 from dataclasses import asdict, replace
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from app.db.models import AppUser, Celula, CelulaSolicitacao, EnviarAvaliacao, Pessoa, UserRole
 from app.deps import CENTRAL_ROLES, resolve_actor_pessoa_id
 from app.services.enviar_avaliacoes import _coord
-from app.services.enviar_read import ler_pendencias_pessoa
+from app.services.enviar_read import ler_pendencias_oficiais
 
 
 def _scope(db, user):
@@ -42,8 +42,16 @@ def listar_pessoas(db, user, *, q='', page=1, page_size=25, grupo='todos'):
     latest_decision = select(EnviarAvaliacao.decisao).where(
         EnviarAvaliacao.igreja_id == UUID(user.igreja_id), EnviarAvaliacao.pessoa_id == Pessoa.id
     ).order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc()).limit(1).scalar_subquery()
+    # Same revocation semantics as the official reader, before pagination/count.
+    unrevoked = text("""not (
+        exists(select 1 from uv_marcos m where m.igreja_id=pessoas.igreja_id
+          and m.pessoa_id=pessoas.id and m.tipo='reencontro' and m.revogada)
+        or (exists(select 1 from cd_certificados c where c.igreja_id=pessoas.igreja_id
+          and c.pessoa_id=pessoas.id and c.revogada)
+          and not exists(select 1 from cd_certificados c where c.igreja_id=pessoas.igreja_id
+          and c.pessoa_id=pessoas.id and not c.revogada)))""")
     apt = (Pessoa.apto_lider.is_(True) & Pessoa.sem_interesse.is_(False)
-        & Pessoa.arquivada_em.is_(None) & (func.coalesce(latest_decision, '') == 'apto'))
+        & unrevoked & Pessoa.arquivada_em.is_(None) & (func.coalesce(latest_decision, '') == 'apto'))
     statement = select(Pessoa).where(*scope, Pessoa.arquivada_em.is_(None))
     if q.strip():
         statement = statement.where(Pessoa.nome.icontains(q.strip(), autoescape=True))
@@ -60,7 +68,7 @@ def listar_pessoas(db, user, *, q='', page=1, page_size=25, grupo='todos'):
     latest = {e.pessoa_id: e for e in evaluations}
     items = []
     for person in people:
-        state = ler_pendencias_pessoa(person, igreja_id=UUID(user.igreja_id))
+        state = ler_pendencias_oficiais(db, person, igreja_id=UUID(user.igreja_id))
         evaluation = latest.get(person.id)
         items.append(dict(id=person.id, nome=person.nome, situacao=state.situacao,
             origem=(evaluation.origem if evaluation else 'legado' if person.apto_lider else None) if coordinator else None,

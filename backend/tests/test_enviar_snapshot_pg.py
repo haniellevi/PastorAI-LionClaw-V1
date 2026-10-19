@@ -24,8 +24,8 @@ def test_approval_records_minimal_current_evidence_once(nomination, kind):
         snapshot = events[0].payload_snapshot['aptidao']
         latest = s.scalars(select(EnviarAvaliacao).where(EnviarAvaliacao.pessoa_id == v['p'])).one()
         assert snapshot == dict(avaliacao_id=str(latest.id), avaliada_em=latest.criada_em.isoformat(),
-            versao_regras=latest.versao_regras, criterios=dict(uv='indisponivel_nesta_base',
-            cd='indisponivel_nesta_base', reencontro='pendente'))
+            versao_regras=latest.versao_regras, criterios=dict(uv='nao_informada',
+            cd='nao_informada', reencontro='nao_informada'), referencias={})
 
 
 def multiplication_request(v):
@@ -63,7 +63,7 @@ def test_multiplication_snapshot_transfer_and_idempotency(nomination):
         memberships=s.scalars(select(CelulaMembro).where(CelulaMembro.pessoa_id==member)).all()
         assert len(memberships)==2 and sum(m.ativo for m in memberships)==1
         event=s.scalars(select(CelulaSolicitacaoEvento).where(CelulaSolicitacaoEvento.acao=='aprovada')).one()
-        assert set(event.payload_snapshot['aptidao'])=={'avaliacao_id','avaliada_em','versao_regras','criterios'}
+        assert set(event.payload_snapshot['aptidao'])=={'avaliacao_id','avaliada_em','versao_regras','criterios','referencias'}
         assert set(event.payload_snapshot['aptidao']['criterios'])=={'uv','cd','reencontro'}
 
 
@@ -131,14 +131,11 @@ def test_waiting_multiplication_revalidates_committed_evaluation(nomination):
         assert s.get(CelulaSolicitacao,request_id).status=='aguardando'
 
 
-def test_snapshot_without_pending_criterion_does_not_attest_reference(nomination, monkeypatch):
+def test_snapshot_without_official_records_does_not_attest_reference(nomination):
     from app.db.models import Pessoa
-    from app.domain.enviar import ResultadoEnviar, SituacaoEnviar
+    from app.db.models import Pessoa
     from app.services import enviar_avaliacoes
     v = nomination
-    # The adapter has no official references, even if every criterion is clear.
-    monkeypatch.setattr(enviar_avaliacoes, 'ler_pendencias_pessoa',
-        lambda *a, **kw: ResultadoEnviar(situacao=SituacaoEnviar.APTO_PARA_AVALIACAO))
     with scoped(v) as s:
         snapshot = enviar_avaliacoes.snapshot_aptidao(s, s.get(Pessoa, v['p']))
     assert snapshot['criterios'] == dict(uv='nao_informada', cd='nao_informada', reencontro='nao_informada')

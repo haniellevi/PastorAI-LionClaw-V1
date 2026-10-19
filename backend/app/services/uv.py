@@ -380,9 +380,11 @@ def formation_person(db, user, turma_id, matricula_id):
 
 
 def milestone(db, user, turma_id, matricula_id, tipo, payload):
-    if tipo not in {'encontro','batismo'}:
+    if tipo not in {'encontro','batismo','reencontro'}:
         raise HTTPException(422, 'Marco inválido')
-    t, uid, _, current, person = formation_person(db,user,turma_id,matricula_id)
+    t, uid, roles, current, person = formation_person(db,user,turma_id,matricula_id)
+    if tipo == 'reencontro' and not roles & COORDINATION_ROLES:
+        raise HTTPException(403, 'Reencontro exige validação da coordenação')
     if not payload.confirmado:
         raise HTTPException(422, 'Confirme a validação humana do marco')
     params = dict(id=payload.id,t=t,p=person['id'],tid=turma_id,mid=matricula_id,
@@ -454,3 +456,25 @@ def finish(db, user, turma_id, matricula_id, payload):
                 antes=person['etapa'],depois=updated['etapa'],origem=updated['origem_aptidao_cd'])[0]
     except IntegrityError as exc:
         raise HTTPException(409, 'Identificador de conclusão indisponível') from exc
+
+
+def revoke_milestone(db, user, turma_id, matricula_id, tipo, payload):
+    """Only Reencontro is revocable; serialize with decisions on Pessoa."""
+    if tipo != 'reencontro':
+        raise HTTPException(422, 'Somente Reencontro admite esta revogação')
+    t, uid, roles, _, person = formation_person(db,user,turma_id,matricula_id)
+    if not roles & COORDINATION_ROLES:
+        raise HTTPException(403, 'Revogação exige coordenação')
+    reason = payload.motivo.strip()
+    if not reason or len(reason) > 1000:
+        raise HTTPException(422, 'Informe motivo de até 1000 caracteres')
+    params = dict(t=t,p=person['id'],u=uid,r=reason)
+    found = rows(db,"select * from uv_marcos where igreja_id=:t and pessoa_id=:p and tipo='reencontro'",**params)
+    if not found:
+        raise HTTPException(404, 'Reencontro não registrado')
+    if found[0]['revogada']:
+        if (found[0]['revogada_por'],found[0]['motivo_revogacao']) != (uid,reason):
+            raise HTTPException(409, 'Marco já revogado com outros dados')
+        return found[0]
+    return rows(db,"""update uv_marcos set revogada=true,revogada_por=:u,motivo_revogacao=:r
+        where igreja_id=:t and pessoa_id=:p and tipo='reencontro' returning *""",**params)[0]

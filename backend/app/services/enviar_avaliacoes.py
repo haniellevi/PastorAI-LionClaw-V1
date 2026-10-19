@@ -7,8 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.db.models import AppUser, Celula, CelulaSolicitacao, EnviarAvaliacao, Pessoa, UserRole
 from app.deps import CENTRAL_ROLES, CurrentUser
-from app.domain.enviar import CRITERIOS_PROVISORIOS, EstadoEvidencia, SituacaoEnviar, VERSAO_REGRAS
-from app.services.enviar_read import ler_pendencias_pessoa
+from app.domain.enviar import CRITERIOS_PROVISORIOS, SituacaoEnviar, VERSAO_REGRAS
+from app.services.enviar_read import ler_pendencias_pessoa, ler_pendencias_oficiais, ler_evidencias_oficiais
 
 
 def _coord(db, user):
@@ -48,7 +48,7 @@ def aptidao_vigente(db: Session, pessoa: Pessoa | None) -> bool:
         return False
     latest = _latest(db, pessoa)
     return bool(latest is not None and latest.decisao == 'apto'
-        and ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id).motivo is None)
+        and ler_pendencias_oficiais(db, pessoa, igreja_id=pessoa.igreja_id).motivo is None)
 
 
 def snapshot_aptidao(db: Session, pessoa: Pessoa) -> dict:
@@ -60,23 +60,20 @@ def snapshot_aptidao(db: Session, pessoa: Pessoa) -> dict:
     latest = _latest(db, pessoa)
     if latest is None:
         raise HTTPException(409, 'Avaliação de aptidão indisponível')
-    result = ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id)
-    states = {p.criterio: p.estado.value for p in result.pendencias}
+    evidence = ler_evidencias_oficiais(db, pessoa, igreja_id=pessoa.igreja_id)
     return dict(avaliacao_id=str(latest.id), avaliada_em=latest.criada_em.isoformat(),
         versao_regras=latest.versao_regras,
-        criterios={c: states.get(c, EstadoEvidencia.NAO_INFORMADA.value) for c in CRITERIOS_PROVISORIOS})
+        criterios={c: evidence[c]["estado"].value for c in CRITERIOS_PROVISORIOS},
+        referencias={c: evidence[c]["referencia"] for c in CRITERIOS_PROVISORIOS if evidence[c]["referencia"]})
 
 
-def _snapshot(pessoa):
-    result = ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id)
-    # No official references are supplied by this adapter yet. Absence of a
-    # pending criterion alone cannot attest an official record.
-    states = {p.criterio: p.estado for p in result.pendencias}
-    return result, {c: {'estado': states.get(c, EstadoEvidencia.NAO_INFORMADA), 'referencia': None} for c in CRITERIOS_PROVISORIOS}
+def _snapshot(db, pessoa):
+    evidence = ler_evidencias_oficiais(db, pessoa, igreja_id=pessoa.igreja_id)
+    return ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id, evidencias=evidence), evidence
 
 
 def _append(db, pessoa, *, id, decisao, origem, motivo, autor_id, solicitacao_id=None, solicitante_id=None):
-    _, evidencias = _snapshot(pessoa)
+    _, evidencias = _snapshot(db, pessoa)
     row = EnviarAvaliacao(id=id, igreja_id=pessoa.igreja_id, pessoa_id=pessoa.id,
         decisao=decisao, origem=origem, motivo=motivo, autor_id=autor_id,
         solicitacao_id=solicitacao_id, solicitante_id=solicitante_id,
@@ -141,7 +138,7 @@ def registrar_avaliacao(db: Session, user: CurrentUser, pessoa_id: UUID, payload
             existing.motivo != payload.motivo, existing.solicitacao_id != payload.solicitacao_id)):
             raise HTTPException(409, 'ID de decisão já utilizado com outro conteúdo')
         return existing  # Never replay a historical projection.
-    result, _ = _snapshot(pessoa)
+    result, _ = _snapshot(db, pessoa)
     if pessoa.arquivada_em is not None or pessoa.sem_interesse:
         raise HTTPException(422, 'Pessoa arquivada ou CSIM não pode receber avaliação')
     latest = _latest(db, pessoa)
@@ -165,13 +162,13 @@ def historico_pessoa(db, user, pessoa_id):
     pessoa = _pessoa(db, user, pessoa_id)
     rows = db.execute(select(EnviarAvaliacao).where(EnviarAvaliacao.igreja_id == pessoa.igreja_id,
         EnviarAvaliacao.pessoa_id == pessoa.id).order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc())).scalars().all()
-    pendencias = asdict(ler_pendencias_pessoa(pessoa, igreja_id=pessoa.igreja_id))
+    pendencias = asdict(ler_pendencias_oficiais(db, pessoa, igreja_id=pessoa.igreja_id))
     origem = rows[0].origem if rows else 'legado' if pessoa.apto_lider else None
     if origem != 'legado':
         pendencias['aviso_legado'] = None
     # A negative decision opens a visible review of existing responsibility;
     # it never removes a legacy/current leader or changes the derived role.
-    review = bool(rows and rows[0].decisao == 'nao_apto' and db.execute(
+    review = pendencias['revisao_pastoral_lideranca'] or bool(rows and rows[0].decisao == 'nao_apto' and db.execute(
         select(Celula.id).where(Celula.igreja_id == pessoa.igreja_id,
             Celula.lider_id == pessoa.id, Celula.ativo.is_(True)).limit(1)
     ).scalar_one_or_none() is not None)
