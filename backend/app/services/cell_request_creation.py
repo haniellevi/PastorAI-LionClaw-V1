@@ -138,4 +138,3 @@ def create_request(db, current_user, body):
             ) from exc
         raise
     return CellRequestOut.from_model(solicitacao, db)
-
