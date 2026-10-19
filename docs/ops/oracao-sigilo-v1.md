@@ -32,20 +32,31 @@ exclusivas de pastores, sem inferir autorização por proximidade temporal.
 
 ## Exclusão e integração com #509
 
-Em 18/10/2026, a PR #509 ainda estava aberta, fora da base `65e2f1c5`.
-A exclusão atual do inbox usa `delete_prayer_inbox_conversation`: valida admin
-ativo e igreja no banco, coleta caminhos internamente, apaga a conversa e
-retorna esses caminhos somente para limpeza de Storage após commit, sem
-conteúdo na resposta HTTP. A cascata da associação e a limpeza de mídia
-protegida têm teste local em PostgreSQL sintético.
+A integração com a main (incluindo #509, merge `da5a7c84`) preserva
+`delete_private(scope="conversa")` e GET do recibo. A função
+`private_delete_conversation` da #509 executa como SECURITY DEFINER: coleta
+inclusive mídia das mensagens em `pedido_oracao_mensagem`, enfileira a limpeza
+na mesma transação e apaga explicitamente mensagens antes da conversa para
+suportar a FK composta sem cascata legada. As associações caem pela FK da mensagem.
+Nenhum SELECT de mensagens como admin é usado para descobrir mídia. A função
+antiga `delete_prayer_inbox_conversation` foi removida da migration ainda não aplicada.
 
-Ao integrar #509, incluir os caminhos protegidos na fila durável de purga **na
-mesma transação de exclusão**, antes da cascata, usando a autorização desse
-serviço; não voltar a consultar `Message` como admin para coletar caminhos,
-pois a RLS corretamente os oculta. Substituir a limpeza best-effort atual pela
-fila da #509. Esta fatia não entrega exclusão de checkpoints/vetores nem
-purga durável de mídia. Não aplicar migration nem ativar em produção sem
-runbook de release e autorização nominal.
+HTTP retorna somente o recibo com IDs/contagens/estado, nunca conteúdo ou
+caminhos. Storage é removido pelo consumidor durável da #509 após commit;
+falha mantém tarefa pendente e caminho privado para repetição. O recibo só
+conclui a mídia depois do DELETE do provedor e da remoção do caminho da fila.
+O proprietário da função precisa ignorar FORCE RLS (BYPASSRLS/superusuário);
+conferir isso no release, sem alterar privilégios para contornar teste.
+
+Limites conferidos: #509 implementa somente conversa; escopos pessoa/igreja/reset
+em `delete_private` ainda recusam execução. Arquivar Pessoa remove pedidos e
+propostas pelo serviço existente, conservando barreiras sem proposta; não é
+exclusão integral do histórico. A exclusão antiga de igreja usa sessão
+privilegiada do console, coleta mídia antes das cascatas e possui fila própria
+com namespaces de Storage; não depende de leitura como admin de tenant.
+Não declarar pessoa/igreja/reset cobertos pelo recibo da #509. Novos derivados,
+backups e cópias do provedor continuam fora do comprovante desta fatia.
+Sem aplicação remota, deploy ou ativação; gates permanecem fechados.
 
 
 ## Envio humano e histórico do modelo
@@ -64,8 +75,9 @@ correções, resumos e barreiras sem proposta, ficam fora do histórico do model
 ## Rollback coordenado
 
 A migration deve preceder o rollout do backend. O rollback da migration exige
-rollback do código junto: a exclusão usa `delete_prayer_inbox_conversation` e
-o histórico consulta `pedido_oracao_mensagem`. Remover essas estruturas com o
+rollback do código junto: o histórico consulta `pedido_oracao_mensagem`.
+Restaurar a função de exclusão da migration #509 somente após remover as
+associações, preservando recibos e tarefas duráveis. Remover essas estruturas com o
 backend atual causa falhas. Manter gates fechados e seguir o rollback comentado
 no SQL, com autorização explícita de privacidade antes de remover a proteção;
 não reexpor histórico como procedimento de recuperação.

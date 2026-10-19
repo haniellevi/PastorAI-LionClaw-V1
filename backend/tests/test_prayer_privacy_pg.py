@@ -32,6 +32,11 @@ def install_privacy(prayer):
             conn.exec_driver_sql("do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role; end if; end $$")
             # The base fixture uses create_all (no production tenant policies).
             conn.exec_driver_sql(f"create policy tenant_fixture on {_SCHEMA}.messages using(igreja_id={_SCHEMA}.current_igreja_id()) with check(igreja_id={_SCHEMA}.current_igreja_id())")
+            if not conn.exec_driver_sql("select to_regprocedure('private_delete_conversation(uuid,uuid)')").scalar():
+                conn.exec_driver_sql('drop table private_deletion_event_fences, private_deletion_uploads, private_deletion_sends, private_deletion_tasks, private_deletion_receipts cascade')
+                deletion = MIGRATION.with_name('20261018_090000_exclusao_privada.sql').read_text()
+                deletion = deletion.replace('public.', _SCHEMA + '.').replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA)
+                conn.exec_driver_sql(deletion)
             conn.exec_driver_sql(sql)
     return prayer
 
@@ -158,7 +163,7 @@ def test_conversation_delete_cascades_private_association(private_prayer):
     with p.factory.begin() as db:
         db.execute(text('alter table messages drop constraint if exists messages_conversation_id_fkey'))
     with client_for(p, 'admin') as client:
-        assert client.delete(f'/conversations/{p.conv}').status_code == 204
+        assert client.delete(f'/conversations/{p.conv}').status_code == 200
     with p.factory() as db:
         assert db.scalar(text('select count(*) from pedido_oracao_mensagem')) == 0
 
@@ -179,16 +184,43 @@ def test_approved_person_erasure_does_not_reopen_history(private_prayer):
 
 def test_admin_delete_cleans_protected_media_without_reading(private_prayer):
     p = private_prayer
-    row = create_request(p)
+    send(p, 'Quero iniciar pedido de oração')
+    incoming = inbound(p, 'mídia pastoral sintética protegida')
+    mid = incoming.inbound_message_id
+    foreign_conv, foreign_mid = uuid.uuid4(), uuid.uuid4()
     with p.factory.begin() as db:
-        mid = db.get(PrayerProposal, row.proposal_id).source_message_id
-        db.get(Message, mid).media_path = 'synthetic/to-delete'
-    with p.factory.begin() as db:
+        msg = db.get(Message, mid)
+        msg.tipo = 'arquivo'
+        msg.media_path = f'{TENANT}/synthetic/to-delete'
+        db.add(Conversation(id=foreign_conv, igreja_id=FOREIGN, telefone='000000002'))
+        db.flush()
+        db.add(Message(id=foreign_mid, igreja_id=FOREIGN, conversation_id=foreign_conv, direcao='in', autor='contato', texto='Outra igreja sintética'))
         db.execute(text('alter table messages drop constraint if exists messages_conversation_id_fkey'))
+    with p.factory() as db:
+        scope(db, p, 'admin')
+        assert db.get(Message, mid) is None
     storage = Storage()
     with client_for(p, 'admin', storage) as client:
-        assert client.delete(f'/conversations/{p.conv}').status_code == 204
-    assert storage.paths == ['synthetic/to-delete']
+        response = client.delete(f'/conversations/{p.conv}')
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result['camadas']['midias']['pendentes'] == 1
+        assert client.get(f'/conversations/{p.conv}/deletion-receipt').json() == result
+        assert 'pastoral sintética' not in response.text and 'to-delete' not in response.text
+    assert storage.paths == []
+    with p.factory() as db:
+        assert db.get(Message, mid) is None
+        assert db.scalar(text('select count(*) from pedido_oracao_mensagem where conversation_id=:c'), {'c': p.conv}) == 0
+        assert db.get(Message, foreign_mid).texto == 'Outra igreja sintética'
+    from app.services.private_deletion import process_storage_tasks
+    class CleanupStorage:
+        def remove_tenant_media(self, tenant, paths):
+            assert tenant == TENANT
+            storage.paths.extend(paths)
+    assert process_storage_tasks(p.factory, storage=CleanupStorage()) == 1
+    assert storage.paths == [f'{TENANT}/synthetic/to-delete']
+    with p.factory() as db:
+        assert db.scalar(text("select count(*) from private_deletion_tasks where state='pendente' or storage_path is not null")) == 0
 
 
 def test_ingestion_opens_privacy_before_any_worker(private_prayer):
@@ -374,7 +406,7 @@ def test_private_table_and_helpers_have_minimal_privileges(private_prayer):
         from sqlalchemy.exc import DBAPIError
         with pytest.raises(DBAPIError):
             with db.begin_nested():
-                db.execute(text('select delete_prayer_inbox_conversation(:t,:c)'), {'t': str(TENANT), 'c': str(p.conv)})
+                db.execute(text('select private_delete_conversation(:t,:c)'), {'t': str(TENANT), 'c': str(p.conv)})
 
 
 def test_media_after_expiry_is_not_added_to_the_old_collection(private_prayer, monkeypatch):

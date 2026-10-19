@@ -151,34 +151,83 @@ begin
 end $$;
 revoke all on function public.prayer_inbox_messages(uuid) from public,anon,service_role;
 grant execute on function public.prayer_inbox_messages(uuid) to authenticated;
--- Admin erases without reading pastoral content. Paths are returned internally
--- only after deletion, for the existing post-commit Storage cleanup; never URLs.
-create function public.delete_prayer_inbox_conversation(tenant uuid, conversation uuid)
-returns text[] language plpgsql security definer set search_path=pg_catalog,public as $$
-declare paths text[];
+-- Preserve #509 receipts, authorization, generation fences and durable cleanup.
+create or replace function public.private_delete_conversation(p_tenant uuid,p_conversation uuid) returns uuid
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare v_id uuid; v_generation bigint; v_messages integer; v_audio integer; v_media integer; v_logs integer; v_sends integer;
 begin
- if tenant is null or tenant is distinct from public.current_igreja_id() or not exists(
-  select 1 from public.app_users a join public.user_roles r on r.igreja_id=a.igreja_id and r.user_id=a.id
-  where a.igreja_id=tenant and a.status='ativo' and a.clerk_user_id=public.prayer_jwt_sub() and r.papel='admin'
-  and (a.pessoa_id is null or exists(select 1 from public.pessoas p where p.igreja_id=tenant and p.id=a.pessoa_id and p.arquivada_em is null))
- ) then raise exception 'conversation deletion denied' using errcode='42501'; end if;
- perform 1 from public.conversations where igreja_id=tenant and id=conversation for update;
- if not found then raise exception 'conversation not found' using errcode='42501'; end if;
- select coalesce(array_agg(media_path) filter(where media_path is not null),array[]::text[])
-  into paths from public.messages where igreja_id=tenant and conversation_id=conversation;
- -- The tenant-composite FK may be NO ACTION even when the legacy single FK
- -- cascades. Erase children explicitly before the parent, in this transaction.
- delete from public.messages where igreja_id=tenant and conversation_id=conversation;
- delete from public.conversations where igreja_id=tenant and id=conversation;
- return paths;
+ if p_tenant is distinct from public.current_igreja_id() or not public.private_deletion_admin() then
+  raise exception 'Exclusão não autorizada' using errcode='42501';
+ end if;
+ -- Shared lock order with inbox writers and V1b: conversation before audio.
+ select deletion_generation+1 into v_generation from public.conversations
+  where igreja_id=p_tenant and id=p_conversation for update;
+ if not found then
+  select id into v_id from public.private_deletion_receipts
+   where igreja_id=p_tenant and scope='conversa' and target_id=p_conversation;
+  return v_id;
+ end if;
+ update public.conversations set deletion_generation=v_generation where igreja_id=p_tenant and id=p_conversation;
+ -- This row lock plus removal invalidates leases, including nullable live anchors.
+ perform id from public.cell_report_audio_inputs a where a.igreja_id=p_tenant and
+  (a.conversation_id=p_conversation or a.live_conversation_id=p_conversation or
+   a.inbound_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation) or
+   a.live_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation)) for update;
+ select count(*) into v_messages from public.messages where igreja_id=p_tenant and conversation_id=p_conversation;
+ select count(*) into v_audio from public.cell_report_audio_inputs a where a.igreja_id=p_tenant and
+  (a.conversation_id=p_conversation or a.live_conversation_id=p_conversation or
+   a.inbound_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation) or
+   a.live_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation));
+ delete from public.agent_conversation_logs where igreja_id=p_tenant and conversation_id=p_conversation;
+ get diagnostics v_logs = row_count;
+ select count(*) into v_sends from public.private_deletion_sends where igreja_id=p_tenant and conversation_id=p_conversation;
+ insert into public.private_deletion_receipts(igreja_id,scope,target_id,generation,counts)
+ values(p_tenant,'conversa',p_conversation,v_generation,jsonb_build_object('mensagens',v_messages,'transcricoes',v_audio,'resumos',0,'checkpoints',0,'vetores',0,'logs_agente',v_logs,'envios',v_sends)) returning id into v_id;
+ insert into public.private_deletion_event_fences(igreja_id,event_token,receipt_id)
+ select p_tenant,md5(p_tenant::text||':'||event_digest)::uuid,v_id from (
+  select encode(sha256(convert_to(provider_message_id,'UTF8')),'hex') event_digest from public.messages
+   where igreja_id=p_tenant and conversation_id=p_conversation and provider_message_id is not null
+  union
+  select provider_message_sha256 from public.cell_report_audio_inputs a where a.igreja_id=p_tenant and
+   (a.conversation_id=p_conversation or a.live_conversation_id=p_conversation or
+    a.inbound_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation) or
+    a.live_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation))
+ ) events on conflict(igreja_id,event_token) do nothing;
+ -- Persist external work before deleting any source references. Prefer the V1b
+ -- source id on shared paths so late-upload recovery finds the same task.
+ insert into public.private_deletion_tasks(igreja_id,receipt_id,source_id,storage_path,next_attempt_at)
+ select p_tenant,v_id,id,storage_path,ready_at from (
+  select distinct on(storage_path) id,storage_path,ready_at from (
+   select a.id,a.storage_path,coalesce(a.lease_until,now()) as ready_at,0 priority
+    from public.cell_report_audio_inputs a where a.igreja_id=p_tenant and
+    (a.conversation_id=p_conversation or a.live_conversation_id=p_conversation or
+     a.inbound_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation) or
+     a.live_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation))
+   union all
+   select id,media_path,now(),1 from public.messages where igreja_id=p_tenant and conversation_id=p_conversation and media_path is not null
+  ) paths where storage_path is not null order by storage_path,priority
+ ) objects;
+ get diagnostics v_media = row_count;
+ update public.private_deletion_receipts set counts=counts||jsonb_build_object('midias',v_media) where id=v_id;
+ delete from public.cell_report_audio_inputs a where a.igreja_id=p_tenant and
+  (a.conversation_id=p_conversation or a.live_conversation_id=p_conversation or
+   a.inbound_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation) or
+   a.live_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation));
+ -- Explicit child deletion also supports tenant-composite NO ACTION FKs.
+ -- SECURITY DEFINER sees protected media for the durable queue above.
+ delete from public.messages where igreja_id=p_tenant and conversation_id=p_conversation;
+ delete from public.conversations where igreja_id=p_tenant and id=p_conversation;
+ return v_id;
 end $$;
-revoke all on function public.delete_prayer_inbox_conversation(uuid,uuid) from public,anon,service_role;
-grant execute on function public.delete_prayer_inbox_conversation(uuid,uuid) to authenticated;
+revoke all on function public.private_delete_conversation(uuid,uuid) from public,anon,service_role;
+grant execute on function public.private_delete_conversation(uuid,uuid) to authenticated;
 
 commit;
 
--- ROLLBACK: roll back backend code together (delete_prayer_inbox_conversation
--- and history query require this schema). Keep gates closed. Removing privacy
+-- ROLLBACK: roll back backend history query together with this schema.
+-- Restore private_delete_conversation from 20261018_090000_exclusao_privada.sql
+-- only after removing these associations; preserve #509 receipts/tasks.
+-- Keep gates closed. Removing privacy
 -- re-exposes history; require explicit privacy approval and retain associations until content is erased.
 -- DROP FUNCTION public.prayer_inbox_messages(uuid);
 -- DROP POLICY prayer_message_privacy ON public.messages;
@@ -192,5 +241,3 @@ commit;
 -- DROP TABLE public.pedido_oracao_mensagem;
 -- DROP INDEX public.prayer_proposal_tenant_conversation_id;
 -- Do not disable existing RLS or reconstruct old previews.
-
--- DROP FUNCTION public.delete_prayer_inbox_conversation(uuid,uuid);

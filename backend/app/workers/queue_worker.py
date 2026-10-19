@@ -1307,6 +1307,11 @@ def ingest_message_event_ex(
     if ownership_guard is not None:
         ownership_guard()
 
+    from app.services.private_deletion import event_was_deleted
+
+    if event_was_deleted(db, igreja_id, parsed.provider_message_id):
+        return IngestionOutcome(result=IngestionResult.IGNORED)
+
     # V1b retains a provider-digest tombstone after the original Message is
     # deleted.  Consult it before creating a new contact/conversation so a
     # replay cannot recreate an inbound, private object path, or paid job.
@@ -1401,8 +1406,13 @@ def ingest_message_event_ex(
         select(Conversation).where(
             Conversation.igreja_id == igreja_id,
             Conversation.pessoa_id == pessoa.id,
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     ).scalar_one_or_none()
+
+    # Deletion may have committed while the conversation row lock was awaited.
+    # Recheck before creating a replacement thread for an already deleted event.
+    if event_was_deleted(db, igreja_id, parsed.provider_message_id):
+        return IngestionOutcome(result=IngestionResult.IGNORED)
 
     if conversation is None:
         conversation = Conversation(
@@ -1415,6 +1425,8 @@ def ingest_message_event_ex(
         )
         db.add(conversation)
         db.flush()
+
+    deletion_generation = conversation.deletion_generation
 
     # V1b begins as a candidate only.  The persisted inbound is then checked
     # against the server-owned report scope before the generic media path is
@@ -1438,6 +1450,11 @@ def ingest_message_event_ex(
                 "Falha ao baixar/guardar mídia da mensagem %s",
                 parsed.provider_message_id,
             )
+
+    # The conversation row remains locked across media I/O and this write.
+    if conversation.deletion_generation != deletion_generation:
+        db.rollback()
+        return IngestionOutcome(result=IngestionResult.IGNORED)
 
     message = Message(
         igreja_id=igreja_id,
@@ -3059,6 +3076,12 @@ def _transition_agent_reply_intent(
         conversation = _lock_agent_conversation(session, outcome)
         if conversation is None:
             return False
+        from app.services.private_deletion import send_generation_is_current
+        from app.db.models import PrivateDeletionSend
+        if expected == _AGENT_REPLY_IN_FLIGHT and not send_generation_is_current(
+            session, outcome.igreja_id, conversation.id, intent.id, conversation.deletion_generation,
+        ):
+            return False
         snapshot = None
         if refresh_snapshot:
             snapshot = session.execute(
@@ -3096,6 +3119,11 @@ def _transition_agent_reply_intent(
         ).one_or_none()
         if transitioned is None:
             return False
+        if target == _AGENT_REPLY_IN_FLIGHT:
+            session.add(PrivateDeletionSend(
+                igreja_id=outcome.igreja_id, source_id=intent.id,
+                conversation_id=conversation.id, generation=conversation.deletion_generation,
+            ))
         if intent.privileged_reply and target in {
             _AGENT_REPLY_CONFIRMED, _AGENT_REPLY_AMBIGUOUS, _AGENT_REPLY_FAILED,
             _AGENT_REPLY_SUPPRESSED, _AGENT_REPLY_NO_RESPONSE,
@@ -3548,116 +3576,125 @@ def _deliver_agent_reply_intent(
         )
         return
 
-    # The state may have changed after the pending CAS. This second durable
-    # check remains outside HTTP and turns an unsent in-flight intent into a
-    # terminal suppression.
-    if _suppress_agent_reply_after_handoff(
-        session_factory,
-        outcome,
-        intent,
-        expected=_AGENT_REPLY_IN_FLIGHT,
-        tier_a_optout_confirmation=tier_a_optout_confirmation,
-    ):
-        return
+    try:
+        # The state may have changed after the pending CAS. This second durable
+        # check remains outside HTTP and turns an unsent in-flight intent into a
+        # terminal suppression.
+        if _suppress_agent_reply_after_handoff(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_IN_FLIGHT,
+            tier_a_optout_confirmation=tier_a_optout_confirmation,
+        ):
+            return
 
-    def send_with(client: Any) -> str:
-        def before_transport() -> bool:
-            # This final probe commits before HTTP. A handoff that commits
-            # afterwards can overlap the physical request and leaves the row
-            # ambiguous rather than eligible for retry.
-            return not _suppress_agent_reply_after_handoff(
-                session_factory,
-                outcome,
-                intent,
-                expected=_AGENT_REPLY_IN_FLIGHT,
-                tier_a_optout_confirmation=tier_a_optout_confirmation,
+        def send_with(client: Any) -> str:
+            def before_transport() -> bool:
+                if _suppress_agent_reply_after_handoff(
+                    session_factory, outcome, intent, expected=_AGENT_REPLY_IN_FLIGHT,
+                    tier_a_optout_confirmation=tier_a_optout_confirmation,
+                ):
+                    return False
+                from app.services.private_deletion import renew_agent_send
+                with session_factory() as db:
+                    _scope_agent_session(db, outcome)
+                    conversation = _lock_agent_conversation(db, outcome)
+                    allowed = conversation is not None and renew_agent_send(
+                        db, outcome.igreja_id, outcome.conversation_id, intent.id,
+                        conversation.deletion_generation,
+                    )
+                    db.commit()
+                    return allowed
+
+            return _send_agent_reply(
+                client, outcome.instance, outcome.telefone, intent.response,
+                ownership_guard=ownership_guard,
+                before_transport=before_transport,
             )
 
-        return _send_agent_reply(
-            client, outcome.instance, outcome.telefone, intent.response,
-            ownership_guard=ownership_guard,
-            before_transport=before_transport,
-        )
+        try:
+            # Immediate pre-effect guard.  If it fails, no provider call happened,
+            # so returning the intent to pending is safe for the recovered owner.
+            if ownership_guard is not None:
+                ownership_guard()
+            if evolution_client is None:
+                from app.services.evolution import EvolutionClient  # noqa: PLC0415
 
-    try:
-        # Immediate pre-effect guard.  If it fails, no provider call happened,
-        # so returning the intent to pending is safe for the recovered owner.
-        if ownership_guard is not None:
-            ownership_guard()
-        if evolution_client is None:
-            from app.services.evolution import EvolutionClient  # noqa: PLC0415
+                with EvolutionClient() as client:
+                    status = send_with(client)
+            else:
+                status = send_with(evolution_client)
+        except ClaimOwnershipLost:
+            try:
+                _transition_agent_reply_intent(
+                    session_factory,
+                    outcome,
+                    intent,
+                    expected=_AGENT_REPLY_IN_FLIGHT,
+                    target=_AGENT_REPLY_PENDING,
+                )
+            except Exception:  # noqa: BLE001 - leave unresolved rather than resend blindly
+                logger.warning("Agent reply ownership was lost before transport")
+            raise
 
-            with EvolutionClient() as client:
-                status = send_with(client)
-        else:
-            status = send_with(evolution_client)
-    except ClaimOwnershipLost:
+        if status == "aceito":
+            try:
+                # A stale owner must not write the post-send confirmation.  The
+                # durable in-flight row remains a no-resend fence for its successor.
+                if ownership_guard is not None:
+                    ownership_guard()
+                if not _transition_agent_reply_intent(
+                    session_factory,
+                    outcome,
+                    intent,
+                    expected=_AGENT_REPLY_IN_FLIGHT,
+                    target=_AGENT_REPLY_CONFIRMED,
+                    refresh_snapshot=True,
+                ):
+                    _quarantine_agent_reply(session_factory, outcome, intent)
+            except ClaimOwnershipLost:
+                raise
+            except Exception:  # noqa: BLE001 - accepted but durable outcome is uncertain
+                _quarantine_agent_reply(session_factory, outcome, intent)
+                logger.warning("Agent reply confirmation is unresolved; automatic resend skipped")
+            return
+
+        if status == "falhou_retentavel":
+            try:
+                released = _transition_agent_reply_intent(
+                    session_factory,
+                    outcome,
+                    intent,
+                    expected=_AGENT_REPLY_IN_FLIGHT,
+                    target=_AGENT_REPLY_PENDING,
+                )
+            except Exception:  # noqa: BLE001 - do not retry if the durable state is unknown
+                _quarantine_agent_reply(session_factory, outcome, intent)
+                return
+            if released:
+                raise AgentReplyRetryable("Evolution agent reply requires bounded retry")
+            return
+
+        if status == "desconhecido":
+            _quarantine_agent_reply(session_factory, outcome, intent)
+            logger.warning("Agent reply transport is ambiguous; automatic resend skipped")
+            return
+
+        target = _AGENT_REPLY_SUPPRESSED if status == "suprimido" else _AGENT_REPLY_FAILED
         try:
             _transition_agent_reply_intent(
                 session_factory,
                 outcome,
                 intent,
                 expected=_AGENT_REPLY_IN_FLIGHT,
-                target=_AGENT_REPLY_PENDING,
+                target=target,
             )
-        except Exception:  # noqa: BLE001 - leave unresolved rather than resend blindly
-            logger.warning("Agent reply ownership was lost before transport")
-        raise
-
-    if status == "aceito":
-        try:
-            # A stale owner must not write the post-send confirmation.  The
-            # durable in-flight row remains a no-resend fence for its successor.
-            if ownership_guard is not None:
-                ownership_guard()
-            if not _transition_agent_reply_intent(
-                session_factory,
-                outcome,
-                intent,
-                expected=_AGENT_REPLY_IN_FLIGHT,
-                target=_AGENT_REPLY_CONFIRMED,
-                refresh_snapshot=True,
-            ):
-                _quarantine_agent_reply(session_factory, outcome, intent)
-        except ClaimOwnershipLost:
-            raise
-        except Exception:  # noqa: BLE001 - accepted but durable outcome is uncertain
+        except Exception:  # noqa: BLE001 - no further send after an unknown final write
             _quarantine_agent_reply(session_factory, outcome, intent)
-            logger.warning("Agent reply confirmation is unresolved; automatic resend skipped")
-        return
-
-    if status == "falhou_retentavel":
-        try:
-            released = _transition_agent_reply_intent(
-                session_factory,
-                outcome,
-                intent,
-                expected=_AGENT_REPLY_IN_FLIGHT,
-                target=_AGENT_REPLY_PENDING,
-            )
-        except Exception:  # noqa: BLE001 - do not retry if the durable state is unknown
-            _quarantine_agent_reply(session_factory, outcome, intent)
-            return
-        if released:
-            raise AgentReplyRetryable("Evolution agent reply requires bounded retry")
-        return
-
-    if status == "desconhecido":
-        _quarantine_agent_reply(session_factory, outcome, intent)
-        logger.warning("Agent reply transport is ambiguous; automatic resend skipped")
-        return
-
-    target = _AGENT_REPLY_SUPPRESSED if status == "suprimido" else _AGENT_REPLY_FAILED
-    try:
-        _transition_agent_reply_intent(
-            session_factory,
-            outcome,
-            intent,
-            expected=_AGENT_REPLY_IN_FLIGHT,
-            target=target,
-        )
-    except Exception:  # noqa: BLE001 - no further send after an unknown final write
-        _quarantine_agent_reply(session_factory, outcome, intent)
+    finally:
+        from app.services.private_deletion import finish_agent_send
+        finish_agent_send(session_factory, outcome.igreja_id, intent.id)
 
 
 def _run_agent_legacy(
