@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchConversations,
+  fetchMessageWindow,
+  deleteConversation,
+  fetchConversationDeletionReceipt,
+  PASTORAL_PROTECTED,
   fetchInboxAgentStatus,
   fetchInboxTransferTargets,
   fetchMessages,
@@ -171,4 +175,34 @@ it("does not continue media batches or use a compatibility fallback after denial
  const {fetchMessageMediaUrls}=await import("./conversations-api");const ids=Array.from({length:205},(_,n)=>`synthetic-denied-${n}`);
  const request=vi.fn(async()=>Response.json({detail:"Denied"},{status:403}));vi.stubGlobal("fetch",request);
  await expect(fetchMessageMediaUrls("denied-media-token","conversation",ids)).rejects.toMatchObject({status:403});expect(request).toHaveBeenCalledTimes(1);
+});
+
+describe("sigilo pastoral e recibo privado", () => {
+  it("preserva paginação e descarta metadados do marcador antes do estado", async () => {
+    const marker = { id: "synthetic", texto: PASTORAL_PROTECTED, tipo: "imagem", direcao: "in", autor: "contato", criadoEm: "2026-10-19T12:00:00Z", mediaUrl: "https://example.test/old", mediaNome: "old.png", mediaMime: "image/png", autorNome: "antigo" };
+    const spy = vi.fn().mockResolvedValue({ok:true, json:async()=>({items:[marker],total:51,page:1,pageSize:50,nextBefore:"older",nextAfter:"newer"})});
+    vi.stubGlobal("fetch",spy);
+    const page = await fetchMessageWindow("t", "c", {before:"cursor"});
+    expect(page).toMatchObject({total:51,nextBefore:"older",nextAfter:"newer",cursorSupported:true});
+    expect(page.items[0]).toMatchObject({texto:PASTORAL_PROTECTED,tipo:"texto",mediaUrl:null,mediaNome:null,mediaMime:null,autorNome:null});
+    expect(spy.mock.calls[0]?.[1]).toMatchObject({cache:"no-store"});
+    expect(String(spy.mock.calls[0]?.[0])).toContain("before=cursor");
+  });
+
+  it("lista ignora caches e recibos guardam apenas estado e contagens conhecidas", async () => {
+    const receipt = {id:"r-synthetic",estado:"pendente",camadas:{midias:{encontradas:1,apagadas:0,pendentes:1,falhas:1,texto:"não reter"},conteudo:{texto:"não reter"}},texto:"não reter"};
+    const spy=vi.fn().mockResolvedValue({ok:true,json:async()=>receipt});
+    vi.stubGlobal("fetch",spy);
+    const result=await deleteConversation("t","c");
+    expect(result).toEqual({id:"r-synthetic",estado:"pendente",camadas:{midias:{encontradas:1,apagadas:0,pendentes:1,falhas:1}}});
+    await fetchConversationDeletionReceipt("t","c");
+    await fetchConversations("t");
+    expect(spy.mock.calls[1]?.[1]).toMatchObject({cache:"no-store"});
+    expect(spy.mock.calls[2]?.[1]).toMatchObject({cache:"no-store"});
+  });
+
+  it("não oculta recusa do servidor para leitura do recibo", async () => {
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue({ok:false,status:403}));
+    await expect(fetchConversationDeletionReceipt("t","c")).rejects.toMatchObject({status:403});
+  });
 });

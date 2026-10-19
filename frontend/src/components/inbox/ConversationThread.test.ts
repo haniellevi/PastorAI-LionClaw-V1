@@ -177,6 +177,17 @@ it("renders the server pastoral marker as text without media controls", () => {
     tipo: "texto", texto: "Mensagem pastoral protegida",
     mediaUrl: null, mediaMime: null, mediaNome: null, criadoEm: "2026-10-18T12:00:00Z",
   }]);
-  expect(container.textContent).toContain("Mensagem pastoral protegida");
+  expect(container.querySelector('[role="note"][aria-label="Mensagem pastoral protegida"]')).not.toBeNull();
+  expect(container.textContent).toContain("Encaminhe o atendimento ao pastor.");
   expect(container.querySelector(".msg-img, audio, a[download]")).toBeNull();
+});
+
+it("exibe conteúdo entregue pelo servidor sem inferir leitura pelo papel", () => {
+  render(conv({}), "active", [{
+    id: "authorized", direcao: "in", autor: "contato", autorNome: null,
+    tipo: "texto", texto: "Oração sintética autorizada", mediaUrl: null,
+    mediaMime: null, mediaNome: null, criadoEm: "2026-10-18T12:00:00Z",
+  }]);
+  expect(container.textContent).toContain("Oração sintética autorizada");
+  expect(container.textContent).not.toContain("Encaminhe o atendimento ao pastor.");
 });

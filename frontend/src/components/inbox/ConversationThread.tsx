@@ -21,7 +21,7 @@ import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { DsIconButton } from "@/components/ds/IconButton";
-import type { ChatMessage, Conversation } from "@/lib/conversations-api";
+import { isPastoralProtected, PASTORAL_PROTECTED, type ChatMessage, type Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
@@ -127,6 +127,12 @@ function fmtSecs(total: number): string {
 
 /** Corpo de uma mensagem: texto puro ou mídia (imagem/arquivo/áudio). */
 function MessageBody({ m }: { m: ChatMessage }) {
+  if (isPastoralProtected(m)) return (
+    <div role="note" aria-label={PASTORAL_PROTECTED}>
+      <strong>{PASTORAL_PROTECTED}</strong>
+      <p>O conteúdo está restrito aos destinatários autorizados. Encaminhe o atendimento ao pastor.</p>
+    </div>
+  );
   if (m.mediaPending) return <span className="msg-media-na" role="status">Carregando mídia…</span>;
   if (m.tipo === "imagem") {
     return (
