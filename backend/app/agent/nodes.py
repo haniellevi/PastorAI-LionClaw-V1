@@ -562,3 +562,8 @@ def route_uv_intent(text, *, pending=False):
 def route_cd_intent(text, *, pending=False):
     from app.cd_whatsapp.catalog import route
     return route(text, pending=pending)
+
+
+def route_enviar_intent(text, *, pending=False):
+    from app.enviar_whatsapp.catalog import route
+    return route(text, pending=pending)
