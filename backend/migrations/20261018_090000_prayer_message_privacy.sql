@@ -50,16 +50,19 @@ alter table public.messages force row level security;
 create policy prayer_message_privacy on public.messages as restrictive for select to authenticated
  using(public.prayer_message_readable(igreja_id,id));
 
--- Captures incoming text/media before ingestion commits, including ignored,
--- corrected, cancelled and timed-out turns. Lock order matches the worker.
+-- Capture new text/media only within the live collection window. Existing
+-- associations survive cancellation/expiry. Ingestion takes the parent first;
+-- metadata updates already hold Message, so never acquire its parent here.
 create function public.prayer_bind_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare pid uuid;
 begin
- perform 1 from public.conversations where igreja_id=new.igreja_id and id=new.conversation_id for update;
+ if tg_op='INSERT' then
+  perform 1 from public.conversations where igreja_id=new.igreja_id and id=new.conversation_id for update;
+ end if;
  select p.id into pid from public.pedido_oracao_proposta p
   where p.igreja_id=new.igreja_id and p.conversation_id=new.conversation_id
-  and p.state in ('collecting','pending') limit 1;
+  and p.state in ('collecting','pending') and p.expires_at>clock_timestamp() limit 1;
  if new.agent_privilege_context->>'kind'='prayer' then
   select p.id into pid from public.pedido_oracao_proposta p
    where p.igreja_id=new.igreja_id and p.conversation_id=new.conversation_id

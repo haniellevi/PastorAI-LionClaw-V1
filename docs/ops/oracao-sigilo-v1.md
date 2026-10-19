@@ -9,7 +9,8 @@ retroativa. A trava de release e a lista por igreja continuam fechadas.
 O comando `QUERO INICIAR PEDIDO DE ORAÇÃO` abre a proposta na mesma transação
 da ingestão, quando os gates e o contato vigente permitem. As mensagens
 seguintes são vinculadas pelo banco antes do commit, incluindo mídia ignorada
-pelo fluxo textual, correções, resumo, confirmação e cancelamento. Cancelar ou
+pelo fluxo textual, correções, resumo, confirmação e cancelamento, enquanto
+a coleta estiver no prazo. Após expirar, novas entradas não herdam a coleta. Cancelar ou
 expirar não remove a proteção. Envio inicial inline legado só passa a ter
 associação quando processado; iniciar explicitamente antes do conteúdo evita
 essa janela. Áudio/transcrição de oração seguem fora desta fatia.

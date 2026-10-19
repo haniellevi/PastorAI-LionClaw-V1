@@ -355,3 +355,60 @@ def test_private_table_and_helpers_have_minimal_privileges(private_prayer):
         with pytest.raises(DBAPIError):
             with db.begin_nested():
                 db.execute(text('select delete_prayer_inbox_conversation(:t,:c)'), {'t': str(TENANT), 'c': str(p.conv)})
+
+
+def test_media_after_expiry_is_not_added_to_the_old_collection(private_prayer, monkeypatch):
+    import datetime as dt
+    from app.prayer import policy, service
+    p = private_prayer
+    send(p, 'Peço oração por mim: coleta sintética com prazo.')
+    with p.factory.begin() as db:
+        proposal = db.scalar(select(PrayerProposal))
+        protected_mid = proposal.source_message_id
+        proposal.expires_at = service.now(db) - dt.timedelta(seconds=1)
+    monkeypatch.setattr(policy, 'PRAYER_REQUEST_APPROVED_RELEASE_ID', None)
+    after = inbound(p, 'mídia sintética fora do prazo')
+    with p.factory.begin() as db:
+        msg = db.get(Message, after.inbound_message_id)
+        msg.tipo = 'audio'
+        msg.media_path = 'synthetic/after-expiry'
+    with client_for(p, 'admin') as client:
+        rows = client.get(f'/conversations/{p.conv}/messages').json()['items']
+        assert next(m for m in rows if m['id'] == str(protected_mid))['texto'] == MARKER
+        assert next(m for m in rows if m['id'] == str(after.inbound_message_id))['texto'] == 'mídia sintética fora do prazo'
+
+
+def test_reply_metadata_update_does_not_invert_handoff_locks(private_prayer):
+    import threading
+    from app.domain.agent_reply import AGENT_REPLY_PENDING
+    from app.services.conversation_handoff import mark_conversation_for_handoff_locked
+    p = private_prayer
+    create_request(p)
+    with p.factory.begin() as db:
+        reply = db.scalars(select(Message).where(Message.conversation_id == p.conv, Message.direcao == 'out').order_by(Message.criado_em.desc())).first()
+        mid = reply.id
+        reply.agent_reply_state = AGENT_REPLY_PENDING
+    conversation_locked = threading.Event()
+    errors = []
+    def handoff():
+        try:
+            with p.factory.begin() as db:
+                db.execute(text("set local lock_timeout='3s'"))
+                conv = db.scalar(select(Conversation).where(Conversation.id == p.conv).with_for_update())
+                conversation_locked.set()
+                mark_conversation_for_handoff_locked(db, conversation=conv)
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+    with p.factory.begin() as db:
+        db.execute(text("set local lock_timeout='500ms'"))
+        db.scalar(select(Message).where(Message.id == mid).with_for_update())
+        thread = threading.Thread(target=handoff)
+        thread.start()
+        assert conversation_locked.wait(2)
+        try:
+            db.execute(text('update messages set agent_privilege_context=agent_privilege_context where id=:id'), {'id': str(mid)})
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert errors == []
