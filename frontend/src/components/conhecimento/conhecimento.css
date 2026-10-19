@@ -1,0 +1,13 @@
+.conhecimento-screen { max-width: 1000px; }
+.conhecimento-controls { border: 0; padding: 0; min-width: 0; display: grid; gap: var(--s5, 20px); }
+.conhecimento-screen form { display: grid; gap: 12px; }
+.conhecimento-screen input:not([type=checkbox]), .conhecimento-screen textarea { width: 100%; min-width: 0; padding: 12px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.conhecimento-screen article { margin-block: 16px; overflow-wrap: anywhere; }
+.conhecimento-screen li { margin-block: 16px; }
+.conhecimento-screen summary { cursor: pointer; padding-block: 12px; }
+.conhecimento-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.conhecimento-actions input { flex: 1 1 200px; }
+.conhecimento-check { display: flex; align-items: center; gap: 10px; padding-block: 8px; }
+.conhecimento-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.conhecimento-detail { scroll-margin-block: 24px; }
+.conhecimento-screen :focus-visible { outline: 3px solid var(--primary, #2563eb); outline-offset: 3px; }
