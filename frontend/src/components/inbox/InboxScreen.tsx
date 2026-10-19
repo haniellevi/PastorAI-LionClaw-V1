@@ -197,7 +197,7 @@ function InboxSession() {
   const mediaControllers = useRef(new Set<AbortController>());
   const mediaSignedAt = useRef(new Map<string, number>());
   const mediaInFlight = useRef(new Set<string>());
-  const messageWindowRef = useRef<{ before?: string | null; after?: string | null; supported: boolean; initialized?: boolean; polls: number; total?: number }>({ supported: false, polls: 0 });
+  const messageWindowRef = useRef<{ before?: string | null; after?: string | null; supported: boolean; initialized?: boolean; total?: number }>({ supported: false });
   const [toast, setToast] = useState<Toast | null>(null);
 
   // Painel de dados do contato (Parte B) e exclusão de conversa.
@@ -468,25 +468,29 @@ function InboxSession() {
           const seq = (reqSeqRef.current += 1);
           try {
             const window = messageWindowRef.current;
-            const delta = mode === "poll" && window.supported && window.after && ++window.polls % 4 !== 0;
-            const options = window.initialized && !window.supported ? {legacy:true} : mode === "older" && window.before ? { before: window.before } : delta ? { after: window.after! } : {};
-            const reconcile = (mode === "poll" || mode === "refresh") && window.supported && !delta;
-            let page = await runTimedRequest(controller, (signal) => reconcile ? fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null) : fetchMessageWindow(token, convId, options, signal));
-            // A newly published old row can change total while falling before after.
-            if (delta && window.total !== undefined && page.total !== window.total + page.items.length) page = await runTimedRequest(controller,signal => fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null));
+            const options = window.initialized && !window.supported ? {legacy:true} : mode === "older" && window.before ? { before: window.before } : {};
+            // Existing rows can become private without changing total or the
+            // latest cursor. Revalidate the loaded range on every poll, using
+            // text-only pages and stopping before history not yet loaded.
+            const reconcile = (mode === "poll" || mode === "refresh") && window.supported;
+            const page = await runTimedRequest(controller, (signal) => reconcile ? fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null) : fetchMessageWindow(token, convId, options, signal));
             if (!atual()) return;
             if (seq >= appliedSeqRef.current) {
               appliedSeqRef.current = seq;
               const currentById = new Map(messagesRef.current.map(message => [message.id,message]));
               const items = page.items.map((message) => {
+                if (isPastoralProtected(message)) {
+                  mediaSignedAt.current.delete(message.id);
+                  return {...message,mediaUrl:null,mediaMime:null,mediaNome:null,mediaPending:false};
+                }
                 if (message.mediaUrl) mediaSignedAt.current.set(message.id,Date.now());
-                const mediaUrl = isPastoralProtected(message) ? null : message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
+                const mediaUrl = message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
                 return {...message,mediaUrl,mediaPending:page.cursorSupported && message.tipo !== "texto" && !mediaUrl};
               });
               const merge = (current: ChatMessage[]) => {
                 if (!page.cursorSupported || mode === "initial" || page.rangeReconciled) return items;
                 const firstTime = items[0]?.criadoEm;
-                const keep = mode === "older" || delta ? current : current.filter((message) => firstTime && message.criadoEm && (message.criadoEm < firstTime || (message.criadoEm === firstTime && message.id < items[0]!.id)));
+                const keep = mode === "older" ? current : current.filter((message) => firstTime && message.criadoEm && (message.criadoEm < firstTime || (message.criadoEm === firstTime && message.id < items[0]!.id)));
                 const merged = new Map(keep.map((message) => [message.id, message]));
                 for (const message of items) merged.set(message.id, message);
                 return [...merged.values()].sort((a, b) => (a.criadoEm ?? "").localeCompare(b.criadoEm ?? "") || a.id.localeCompare(b.id));
@@ -591,7 +595,7 @@ function InboxSession() {
     setMessagesError(null);
     setHasOlderMessages(false);
     setOlderMessagesLoading(false);
-    messageWindowRef.current = { supported: false, polls: 0 };
+    messageWindowRef.current = { supported: false };
     if (!selectedId) {
       // Sem conversa aberta não há requisição para encerrar o carregamento: a
       // que estava em voo já não conta como atual e seu `finally` é descartado.

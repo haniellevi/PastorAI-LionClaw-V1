@@ -138,10 +138,43 @@ it('a pastoral marker replaces loaded media and ignores its late signing respons
  await act(async()=>root.render(h(InboxScreen)));
  const button=container.querySelector<HTMLButtonElement>('button.conv')!;
  await act(async()=>button.click());
- await act(async()=>vi.advanceTimersByTimeAsync(60_000));
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));
  expect(container.textContent).toContain('Encaminhe o atendimento ao pastor.');
  await act(async()=>finish({'synthetic-message':'https://example.test/late-private-url'}));
  expect(container.innerHTML).not.toContain('late-private-url');
  expect(container.innerHTML).not.toContain('synthetic.ogg');
  expect(container.querySelector('audio')).toBeNull();
+});
+
+it('the first poll reconciles loaded text and signed media without expanding older history',async()=>{
+ const actual=await vi.importActual<typeof import('@/lib/conversations-api')>('@/lib/conversations-api');
+ api.fetchMessageWindow.mockImplementation(actual.fetchMessageWindow);
+ api.fetchLoadedMessageRange.mockImplementation(actual.fetchLoadedMessageRange);
+ const text='Texto pastoral sintético antes da classificação';
+ const url='https://example.test/synthetic-private-media';
+ let protectedNow=false;
+ const requests=vi.fn(async(input:RequestInfo | URL)=>{
+  const requestUrl=new URL(String(input),'https://example.test');
+  if(requestUrl.searchParams.has('before')) throw new Error('Unloaded older history must not be fetched');
+  const items=requestUrl.searchParams.has('after')?[]:[protectedNow?
+   {...message,tipo:'texto',texto:'Mensagem pastoral protegida',mediaUrl:null,mediaMime:null,mediaNome:null}:
+   {...message,texto:text,mediaUrl:url}];
+  return Response.json({items,total:100,page:1,pageSize:50,nextBefore:'unloaded-older',nextAfter:'cursor-latest'});
+ });
+ vi.stubGlobal('fetch',requests);
+ api.fetchConversations.mockImplementation(async()=>({items:[{...conversation,ultimaMensagem:protectedNow?'Mensagem pastoral protegida':text}],total:1,page:1,pageSize:100}));
+ await act(async()=>root.render(h(InboxScreen)));
+ await act(async()=>container.querySelector<HTMLButtonElement>('button.conv')!.click());
+ expect(container.textContent).toContain(text);
+ expect(container.querySelector('audio')?.getAttribute('src')).toBe(url);
+ protectedNow=true;
+ await act(async()=>vi.advanceTimersByTimeAsync(15_000));
+ expect(container.textContent).toContain('Encaminhe o atendimento ao pastor.');
+ expect(container.textContent).not.toContain(text);
+ expect(container.innerHTML).not.toContain(url);
+ expect(container.innerHTML).not.toContain('synthetic.ogg');
+ expect(container.querySelector('audio')).toBeNull();
+ expect(container.querySelector('button.conv')?.textContent).toContain('Mensagem pastoral protegida');
+ expect([...container.querySelectorAll('button')].some(button=>button.textContent==='Carregar mensagens anteriores')).toBe(true);
+ expect(requests).toHaveBeenCalledTimes(2);
 });
