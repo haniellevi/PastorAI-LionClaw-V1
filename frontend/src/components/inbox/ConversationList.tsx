@@ -13,7 +13,7 @@ import { useEffect, useId, useRef } from "react";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
-import type { Conversation } from "@/lib/conversations-api";
+import { PASTORAL_PROTECTED, type Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
@@ -158,7 +158,7 @@ export function ConversationList({
                   <time>{shortTime(c.atualizadoEm ?? c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
                 <div className="conv-sub">
-                  <span className="snippet">
+                  <span className="snippet" aria-label={c.ultimaMensagem === PASTORAL_PROTECTED ? PASTORAL_PROTECTED : undefined}>
                     {c.ultimaMensagem ?? "Sem mensagens ainda"}
                   </span>
                   {c.naoLidas > 0 ? (

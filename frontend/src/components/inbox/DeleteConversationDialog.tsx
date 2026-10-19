@@ -15,7 +15,7 @@
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation, PrivateDeletionReceipt } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import { displayName } from "./conversation-format";
@@ -26,12 +26,16 @@ export function DeleteConversationDialog({
   error,
   onCancel,
   onConfirm,
+  receipt,
+  onRefresh,
 }: {
   conversation: Conversation;
   busy: boolean;
   error: string | null;
   onCancel: () => void;
   onConfirm: () => void;
+  receipt?: PrivateDeletionReceipt | null;
+  onRefresh?: () => void;
 }) {
   return (
     <DsDialog
@@ -44,20 +48,31 @@ export function DeleteConversationDialog({
       footer={
         <>
           <DsButton variant="tertiary" onClick={onCancel} disabled={busy}>
-            Cancelar
+            {receipt ? "Fechar" : "Cancelar"}
           </DsButton>
-          <DsButton variant="danger" loading={busy} onClick={onConfirm}>
+          {receipt ? (
+            <DsButton variant="secondary" loading={busy} onClick={onRefresh}>Atualizar recibo</DsButton>
+          ) : <DsButton variant="danger" loading={busy} onClick={onConfirm}>
             <Icon name="trash" />
             <span>{busy ? "Excluindo…" : "Excluir conversa"}</span>
-          </DsButton>
+          </DsButton>}
         </>
       }
     >
-      <p className="ib-dialog-text">
+      {receipt ? <section aria-label="Recibo da exclusão privada">
+        <div role="status">
+          <strong>{receipt.estado === "concluido" ? "Exclusão concluída" : receipt.estado === "pendente_envio" ? "Exclusão pendente: envio em andamento" : "Exclusão pendente: limpeza de mídia"}</strong>
+          <p>Recibo: {receipt.id}</p>
+        </div>
+        <p>O histórico foi removido do inbox. A limpeza externa pode continuar pendente. Este recibo não cobre backups nem cópias do provedor.</p>
+        <ul>{Object.entries(receipt.camadas).map(([layer, counts]) => (
+          <li key={layer}>{layer}: {counts.apagadas} apagadas; {counts.pendentes} pendentes; {counts.falhas} falhas.</li>
+        ))}</ul>
+      </section> : <p className="ib-dialog-text">
         Excluir a conversa com <strong>{displayName(conversation)}</strong>? Apaga
-        permanentemente as mensagens e as mídias <strong>desta conversa</strong>. Esta
+        as mensagens e solicita a limpeza privada das mídias <strong>desta conversa</strong>. Esta
         ação não pode ser desfeita.
-      </p>
+      </p>}
 
       <div className="preserve-note" role="note">
         <Icon name="shield" />

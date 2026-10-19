@@ -6,7 +6,7 @@
  *   GET  /conversations                    -> Page<ConversationOut>
  *   POST /conversations/{id}/handoff {to}  -> { estado, assumidoPor }
  *
- * Acesso (US-11/#5): admin (implícito) e pastor têm visão COMPLETA; líder
+ * Acesso (US-11/#5): admin (implícito) e pastor têm visão da lista; líder
  * G12/consolidação/célula e operador são "responsáveis" (acessam, mas veem só as
  * conversas atribuídas a eles). Membro nunca acessa: recebe 403 no backend e o
  * gate de papel no front evita a chamada e exibe o bloqueio de acesso.
@@ -68,6 +68,45 @@ export interface ChatMessage {
   criadoEm: string;
 }
 
+/** Contrato neutro da #515; nunca inferir acesso pastoral pelo papel no cliente. */
+export const PASTORAL_PROTECTED = "Mensagem pastoral protegida";
+export const isPastoralProtected = (message: Pick<ChatMessage, "texto">): boolean =>
+  message.texto === PASTORAL_PROTECTED;
+
+/** Descarta também metadados antigos antes de guardar o DTO no estado. */
+export function safeInboxMessage(message: ChatMessage): ChatMessage {
+  if (!isPastoralProtected(message)) return message;
+  return {
+    id: message.id, direcao: message.direcao, autor: message.autor,
+    autorNome: null, tipo: "texto", texto: PASTORAL_PROTECTED,
+    mediaUrl: null, mediaMime: null, mediaNome: null, criadoEm: message.criadoEm,
+  };
+}
+
+export const DELETION_LAYERS = ["mensagens", "midias", "transcricoes", "resumos", "checkpoints", "vetores", "logs_agente", "envios"] as const;
+
+export interface PrivateDeletionReceipt {
+  id: string;
+  estado: "pendente" | "pendente_envio" | "concluido";
+  camadas: Record<string, { encontradas: number; apagadas: number; pendentes: number; falhas: number }>;
+}
+
+function readDeletionReceipt(value: unknown): PrivateDeletionReceipt {
+  if (!isRecord(value) || typeof value.id !== "string" ||
+      !["pendente", "pendente_envio", "concluido"].includes(String(value.estado)) || !isRecord(value.camadas)) {
+    throw new ApiError(502, "Recibo de exclusão inválido.");
+  }
+  const camadas: PrivateDeletionReceipt["camadas"] = {};
+  for (const layer of DELETION_LAYERS) {
+    const row = value.camadas[layer];
+    if (!isRecord(row)) continue;
+    const counts = { encontradas: row.encontradas, apagadas: row.apagadas, pendentes: row.pendentes, falhas: row.falhas };
+    if (!Object.values(counts).every(n => typeof n === "number" && Number.isInteger(n) && n >= 0)) throw new ApiError(502, "Recibo de exclusão inválido.");
+    camadas[layer] = counts as PrivateDeletionReceipt["camadas"][string];
+  }
+  return { id: value.id, estado: value.estado as PrivateDeletionReceipt["estado"], camadas };
+}
+
 export interface HandoffResult {
   estado: string;
   assumidoPor: string | null;
@@ -76,7 +115,7 @@ export interface HandoffResult {
 /**
  * Papéis com acesso ao inbox (US-11/#5). Espelha INBOX_ROLES do backend
  * (app/domain/conversations.py): admin passa implicitamente; pastor tem visão
- * completa; líder G12/consolidação/célula e operador são "responsáveis" (veem
+ * da lista; líder G12/consolidação/célula e operador são "responsáveis" (veem
  * só as conversas transferidas a eles). Membro nunca acessa.
  */
 const INBOX_ROLES: ReadonlySet<Role> = new Set<Role>([
@@ -114,7 +153,7 @@ export async function fetchConversations(
   signal?: AbortSignal,
   page = 1,
 ): Promise<Page<Conversation>> {
-  const res = await authedFetch(token, `/conversations?page=${page}&pageSize=${pageSize}`, { signal });
+  const res = await authedFetch(token, `/conversations?page=${page}&pageSize=${pageSize}`, { signal, cache: "no-store" });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
   }
@@ -135,7 +174,7 @@ export async function fetchInboxAgentStatus(
   token: string,
   signal?: AbortSignal,
 ): Promise<InboxAgentStatus> {
-  const res = await authedFetch(token, "/conversations/agent-status", { signal });
+  const res = await authedFetch(token, "/conversations/agent-status", { signal, cache: "no-store" });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
   }
@@ -155,7 +194,7 @@ export async function fetchMessages(
   const res = await authedFetch(
     token,
     `/conversations/${conversationId}/messages?page=1&pageSize=${pageSize}`,
-    { signal },
+    { signal, cache: "no-store" },
   );
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
@@ -164,7 +203,7 @@ export async function fetchMessages(
     throw new ApiError(res.status, "Não foi possível carregar as mensagens.");
   }
   const page = (await res.json()) as Page<ChatMessage>;
-  return page.items;
+  return page.items.map(safeInboxMessage);
 }
 
 // ---------------------------------------------------------------------------
@@ -281,12 +320,13 @@ export async function sendMedia(
 // ---------------------------------------------------------------------------
 /**
  * Exclui permanentemente uma conversa (mensagens + mídia). Ação destrutiva e
- * restrita ao admin no backend (403 caso contrário); 204 no sucesso.
+ * restrita ao admin no backend (403 caso contrário). Retorna recibo privado da #509;
+ * limpeza externa pode continuar pendente após o commit.
  */
 export async function deleteConversation(
   token: string,
   conversationId: string,
-): Promise<{ id: string; estado: string }> {
+): Promise<PrivateDeletionReceipt> {
   const res = await authedFetch(token, `/conversations/${conversationId}`, {
     method: "DELETE",
   });
@@ -294,7 +334,14 @@ export async function deleteConversation(
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível excluir a conversa.");
   }
-  return res.json();
+  return readDeletionReceipt(await res.json());
+}
+
+/** Reconsulta apenas o recibo; não carrega mensagens nem mídia. */
+export async function fetchConversationDeletionReceipt(token: string, conversationId: string): Promise<PrivateDeletionReceipt> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/deletion-receipt`, { cache: "no-store" });
+  if (!res.ok) throw new ApiError(res.status, "Não foi possível atualizar o recibo.");
+  return readDeletionReceipt(await res.json());
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +463,7 @@ export async function fetchMessageWindow(
   if (options.before) query.set("before", options.before);
   else if (options.after) query.set("after", options.after);
   else query.set("latest", "true");
-  const res = await authedFetch(token, `/conversations/${conversationId}/messages?${query}`, { signal });
+  const res = await authedFetch(token, `/conversations/${conversationId}/messages?${query}`, { signal, cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, "Não foi possível carregar as mensagens.");
   const page = await res.json() as Page<ChatMessage> & { nextBefore?: string | null; nextAfter?: string | null };
   const supported = "nextBefore" in page && "nextAfter" in page;
@@ -425,7 +472,7 @@ export async function fetchMessageWindow(
     const items = await fetchMessages(token, conversationId, 200, signal);
     return { items, page: 1, pageSize: 200, total: items.length, cursorSupported: false };
   }
-  return { ...page, cursorSupported: true };
+  return { ...page, items: page.items.map(safeInboxMessage), cursorSupported: true };
 }
 
 export async function fetchMessageMediaUrls(token: string, conversationId: string, ids: string[], signal?: AbortSignal): Promise<Record<string, string>> {

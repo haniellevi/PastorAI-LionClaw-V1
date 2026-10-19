@@ -28,6 +28,9 @@ import {
   SessionExpiredError,
   canAccessInbox,
   deleteConversation,
+  fetchConversationDeletionReceipt,
+  isPastoralProtected,
+  type PrivateDeletionReceipt,
   fetchConversationPhoto,
   fetchConversations,
   fetchInboxAgentStatus,
@@ -194,13 +197,14 @@ function InboxSession() {
   const mediaControllers = useRef(new Set<AbortController>());
   const mediaSignedAt = useRef(new Map<string, number>());
   const mediaInFlight = useRef(new Set<string>());
-  const messageWindowRef = useRef<{ before?: string | null; after?: string | null; supported: boolean; initialized?: boolean; polls: number; total?: number }>({ supported: false, polls: 0 });
+  const messageWindowRef = useRef<{ before?: string | null; after?: string | null; supported: boolean; initialized?: boolean; total?: number }>({ supported: false });
   const [toast, setToast] = useState<Toast | null>(null);
 
   // Painel de dados do contato (Parte B) e exclusão de conversa.
   const [panelOpen, setPanelOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deletionReceipt, setDeletionReceipt] = useState<PrivateDeletionReceipt | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Foto de perfil da conversa selecionada (Etapa 4) e transferência (#2).
@@ -464,17 +468,21 @@ function InboxSession() {
           const seq = (reqSeqRef.current += 1);
           try {
             const window = messageWindowRef.current;
-            const delta = mode === "poll" && window.supported && window.after && ++window.polls % 4 !== 0;
-            const options = window.initialized && !window.supported ? {legacy:true} : mode === "older" && window.before ? { before: window.before } : delta ? { after: window.after! } : {};
-            const reconcile = (mode === "poll" || mode === "refresh") && window.supported && !delta;
-            let page = await runTimedRequest(controller, (signal) => reconcile ? fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null) : fetchMessageWindow(token, convId, options, signal));
-            // A newly published old row can change total while falling before after.
-            if (delta && window.total !== undefined && page.total !== window.total + page.items.length) page = await runTimedRequest(controller,signal => fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null));
+            const options = window.initialized && !window.supported ? {legacy:true} : mode === "older" && window.before ? { before: window.before } : {};
+            // Existing rows can become private without changing total or the
+            // latest cursor. Revalidate the loaded range on every poll, using
+            // text-only pages and stopping before history not yet loaded.
+            const reconcile = (mode === "poll" || mode === "refresh") && window.supported;
+            const page = await runTimedRequest(controller, (signal) => reconcile ? fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null) : fetchMessageWindow(token, convId, options, signal));
             if (!atual()) return;
             if (seq >= appliedSeqRef.current) {
               appliedSeqRef.current = seq;
               const currentById = new Map(messagesRef.current.map(message => [message.id,message]));
               const items = page.items.map((message) => {
+                if (isPastoralProtected(message)) {
+                  mediaSignedAt.current.delete(message.id);
+                  return {...message,mediaUrl:null,mediaMime:null,mediaNome:null,mediaPending:false};
+                }
                 if (message.mediaUrl) mediaSignedAt.current.set(message.id,Date.now());
                 const mediaUrl = message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
                 return {...message,mediaUrl,mediaPending:page.cursorSupported && message.tipo !== "texto" && !mediaUrl};
@@ -482,7 +490,7 @@ function InboxSession() {
               const merge = (current: ChatMessage[]) => {
                 if (!page.cursorSupported || mode === "initial" || page.rangeReconciled) return items;
                 const firstTime = items[0]?.criadoEm;
-                const keep = mode === "older" || delta ? current : current.filter((message) => firstTime && message.criadoEm && (message.criadoEm < firstTime || (message.criadoEm === firstTime && message.id < items[0]!.id)));
+                const keep = mode === "older" ? current : current.filter((message) => firstTime && message.criadoEm && (message.criadoEm < firstTime || (message.criadoEm === firstTime && message.id < items[0]!.id)));
                 const merged = new Map(keep.map((message) => [message.id, message]));
                 for (const message of items) merged.set(message.id, message);
                 return [...merged.values()].sort((a, b) => (a.criadoEm ?? "").localeCompare(b.criadoEm ?? "") || a.id.localeCompare(b.id));
@@ -515,7 +523,7 @@ function InboxSession() {
                 void fetchMessageMediaUrls(token, convId, mediaIds, mediaController.signal).then((urls) => {
                 if (!atual() || mediaController.signal.aborted) return;
                 for (const id of mediaIds) if (urls[id]) mediaSignedAt.current.set(id,Date.now());
-                setMessages((current) => current.map((message) => mediaIds.includes(message.id) ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false } : message));
+                setMessages((current) => current.map((message) => mediaIds.includes(message.id) && !isPastoralProtected(message) ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false } : message));
               }).catch((error) => {
                 if (!atual() || mediaController.signal.aborted || handleSessionError(error)) return;
                 const forbidden = error instanceof ApiError && error.status === 403;
@@ -587,7 +595,7 @@ function InboxSession() {
     setMessagesError(null);
     setHasOlderMessages(false);
     setOlderMessagesLoading(false);
-    messageWindowRef.current = { supported: false, polls: 0 };
+    messageWindowRef.current = { supported: false };
     if (!selectedId) {
       // Sem conversa aberta não há requisição para encerrar o carregamento: a
       // que estava em voo já não conta como atual e seu `finally` é descartado.
@@ -860,13 +868,13 @@ function InboxSession() {
     setDeleteError(null);
     try {
       const receipt = await deleteConversation(token, deleteTarget.id);
+      setDeletionReceipt(receipt);
       const deletedId = deleteTarget.id;
       setConversations((prev) => prev.filter((c) => c.id !== deletedId));
       if (selectedId === deletedId) setSelectedId(null);
-      setDeleteTarget(null);
-      flashToast({ kind: "ok", text: receipt.estado === "concluido"
-        ? `Conversa excluída. Recibo: ${receipt.id}`
-        : `Conteúdo excluído; limpeza externa pendente. Recibo: ${receipt.id}` });
+      setMessages([]);
+      messagesRef.current = [];
+      clearAuthedResponseCache();
     } catch (err) {
       if (handleSessionError(err)) return;
       setDeleteError(
@@ -875,7 +883,18 @@ function InboxSession() {
     } finally {
       setDeleting(false);
     }
-  }, [token, deleteTarget, selectedId, flashToast, handleSessionError]);
+  }, [token, deleteTarget, selectedId, handleSessionError]);
+
+  const refreshDeletionReceipt = async () => {
+    if (!token || !deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      setDeletionReceipt(await fetchConversationDeletionReceipt(token, deleteTarget.id));
+    } catch (err) {
+      if (!handleSessionError(err)) setDeleteError("Não foi possível atualizar o recibo. Tente novamente.");
+    } finally { setDeleting(false); }
+  };
 
   // ---- marcar como lida ao abrir + foto de perfil -------------------------
   useEffect(() => {
@@ -1132,9 +1151,12 @@ function InboxSession() {
           conversation={deleteTarget}
           busy={deleting}
           error={deleteError}
+          receipt={deletionReceipt}
+          onRefresh={() => void refreshDeletionReceipt()}
           onCancel={() => {
             if (deleting) return;
             setDeleteTarget(null);
+            setDeletionReceipt(null);
             setDeleteError(null);
           }}
           onConfirm={() => void confirmDelete()}
