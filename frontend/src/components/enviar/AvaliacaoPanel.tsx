@@ -53,11 +53,11 @@ export function AvaliacaoPanel({ pessoaId, token, onExpired, onSaved }: {
     {success ? <p role="status">Decisão registrada. A liderança atual foi preservada.</p> : null}
     {!data && !error ? <p role="status">Carregando avaliação…</p> : null}
     {data ? <>
-      <p>{data.apto_lider ? 'Aptidão vigente: apto.' : 'Aptidão vigente: não apto.'} {data.pendencias.aviso_legado}</p>
-      {data.revisao_pastoral_pendente ? <p role="note">Revisão pastoral pendente: a aptidão foi encerrada. A liderança atual permanece até decisão pastoral; novas nomeações estão bloqueadas.</p> : null}
-      <p>Regras provisórias: {data.pendencias.status_regras}. Aptidão não nomeia líder.</p>
+      <p>{blocked ? 'Aptidão para novas nomeações: bloqueada.' : data.apto_lider ? 'Aptidão registrada: apto.' : 'Aptidão registrada: não apto.'} {data.pendencias.aviso_legado}</p>
+      {data.revisao_pastoral_pendente ? <p role="note">Revisão pastoral pendente: há decisão negativa ou evidência revogada. A liderança atual permanece até decisão pastoral; novas nomeações estão bloqueadas.</p> : null}
+      <p>Regras: {data.pendencias.status_regras}. Aptidão não nomeia líder.</p>
       <ul>{data.pendencias.pendencias.map(p => <li key={p.criterio}>{p.descricao}</li>)}</ul>
-      {blocked ? <p>Pessoa arquivada ou CSIM: avaliação indisponível.</p> : <form onSubmit={event => void submit(event)}>
+      {blocked ? <p>Avaliação bloqueada: confira os impedimentos e as evidências revogadas acima.</p> : <form onSubmit={event => void submit(event)}>
         <fieldset disabled={busy}>
           <legend>Decisão da coordenação</legend>
           <div className="field"><label htmlFor={`${prefix}-decisao`}>Decisão</label>

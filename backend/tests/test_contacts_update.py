@@ -21,6 +21,10 @@ class _R:
         self._scalar = scalar
         self._scalars = scalars or []
 
+    def mappings(self):
+        # No official formation records in these offline legacy fixtures.
+        return SimpleNamespace(first=lambda: None)
+
     def scalar_one_or_none(self):
         return self._scalar
 

@@ -93,6 +93,10 @@ def seeded(database):
             c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Equipe sintética','synthetic@example.test')"), dict(u=u,t=t))
             c.execute(text('insert into user_roles(igreja_id,user_id,papel) values(:t,:u,:r)'), dict(t=t,u=u,r=role))
         c.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:p,:t,'Aluno sintético','550000000001')"), dict(p=p,t=t))
+        for u in (uid, leader):
+            author_person = uuid4()
+            c.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:p,:t,'Equipe sintética',:phone)"), dict(p=author_person,t=t,phone='55'+str(author_person.int)[:11]))
+            c.execute(text('update app_users set pessoa_id=:p where id=:u'), dict(p=author_person,u=u))
         c.execute(text("insert into decisions(igreja_id,pessoa_id,vinculo) values(:t,:p,'visitante')"), dict(p=p,t=t))
         c.execute(text("update consolidacoes set responsavel_id=:u where igreja_id=:t and pessoa_id=:p and tipo='individual'"), dict(p=p,t=t,u=uid))
     return dict(t=t, other=other, uid=uid, leader=leader, outsider=outsider, p=p)
