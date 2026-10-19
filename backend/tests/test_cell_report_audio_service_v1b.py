@@ -136,7 +136,7 @@ def test_audio_acceptance_does_not_survive_a_later_lgpd_acceptance(monkeypatch) 
         source_message_id=INBOUND,
         notice_id=uuid.uuid4(),
         command="aceito",
-        version="v1",
+        version=service.CELL_REPORT_AUDIO_CONSENT_VERSION,
         occurred_at=accepted_at,
     )
 
@@ -171,7 +171,7 @@ def test_newer_audio_revocation_from_another_version_still_wins(monkeypatch) -> 
         source_message_id=INBOUND,
         notice_id=uuid.uuid4(),
         command="aceito",
-        version="v1",
+        version=service.CELL_REPORT_AUDIO_CONSENT_VERSION,
         occurred_at=accepted_at,
     )
     revoked = service.CellReportAudioConsentEvent(
@@ -521,3 +521,18 @@ def test_terminalization_retains_transcript_and_hash_even_when_scrub_requested()
     )
     assert row.transcript_text == "Synthetic transcript"
     assert row.transcript_sha256 == "a" * 64
+
+
+def test_old_24h_consent_does_not_authorize_admin_deletion_retention(monkeypatch):
+    now = dt.datetime(2026, 10, 18, tzinfo=dt.UTC)
+    event = service.CellReportAudioConsentEvent(
+        id=uuid.uuid4(), igreja_id=TENANT, pessoa_id=PESSOA,
+        conversation_id=CONVERSATION, source_message_id=INBOUND,
+        notice_id=uuid.uuid4(), command="aceito", version="v1", occurred_at=now,
+    )
+    session = SimpleNamespace(execute=lambda _: SimpleNamespace(
+        scalars=lambda: SimpleNamespace(all=lambda: [event])))
+    monkeypatch.setattr(service, "_current_lgpd_acceptance", lambda *a, **k:
+                        SimpleNamespace(aceite_em=now - dt.timedelta(minutes=1)))
+    assert service._active_audio_consent(
+        session, igreja_id=TENANT, pessoa_id=PESSOA, now=now) is None

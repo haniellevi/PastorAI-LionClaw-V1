@@ -29,7 +29,9 @@ Em 18/10/2026, Raniel decidiu retirar a exclusão automática em 24 horas:
 exclusão pelo admin (conversa/pessoa/igreja), ou pedido da pessoa aprovado pelo
 admin. Revogação de transcrição, cancelamento, confirmação do relatório e
 handoff encerram o processamento, sem apagar o conteúdo já registrado. O aviso
-de aceite passa a informar essa retenção. O relatório oficial é independente.
+de aceite passa a informar essa retenção. O consentimento passa à versão `v2`:
+aceite `v1` não autoriza novo processamento; exige novo aviso entregue e novo
+`ACEITO AUDIO`, sem reativar áudio anterior ao aceite. O relatório oficial é independente.
 
 Nesta fatia, a via implementada é a exclusão de conversa da PR #509;
 pessoa/igreja continuam com os limites descritos abaixo. Não há nova aprovação

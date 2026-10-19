@@ -382,3 +382,24 @@ def test_v1b_new_audio_acceptance_requires_current_authorized_actor(audio_turn, 
         session.execute(select(AgentConfig).where(AgentConfig.igreja_id == _IGREJA)).scalar_one().ativo = True
     worker.run_agent_for_message(audio_turn.factory, denied, evolution_client=evolution)
     assert not any(row.command == "aceito" for row in _rows(audio_turn, CellReportAudioConsentEvent))
+
+
+def test_old_retention_consent_requires_new_delivered_notice_and_acceptance(audio_turn):
+    evolution = _ClassifiedEvolution()
+    _notice(audio_turn, evolution)
+    _run(audio_turn, "V1B-OLD-ACCEPT", "ACEITO AUDIO", evolution)
+    with audio_turn.factory.begin() as session:
+        for model in (CellReportAudioNotice, CellReportAudioConsentEvent):
+            for row in session.execute(select(model)).scalars():
+                row.version = "v1"
+    with audio_turn.factory() as session:
+        person = session.get(Conversation, audio_turn.conversation_id).pessoa_id
+        assert service_consent(session, person, dt.datetime.now(dt.timezone.utc)) is None
+    _notice(audio_turn, evolution, "V1B-NEW-RETENTION-NOTICE")
+    notices = _rows(audio_turn, CellReportAudioNotice)
+    assert len(notices) == 2
+    assert any(n.version == audio.CELL_REPORT_AUDIO_CONSENT_VERSION and
+               n.state == "entregue" for n in notices)
+    _run(audio_turn, "V1B-NEW-RETENTION-ACCEPT", "ACEITO AUDIO", evolution)
+    with audio_turn.factory() as session:
+        assert service_consent(session, person, dt.datetime.now(dt.timezone.utc)) is not None
