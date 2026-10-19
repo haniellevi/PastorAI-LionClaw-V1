@@ -235,7 +235,7 @@ def send(p, body):
 def create_request(p, audience="Só pastores"):
     send(p, "Peço oração por mim: preciso de força nesta semana.")
     _, proposal, _ = send(p, audience)
-    assert "A equipe que atende o WhatsApp" in proposal.texto
+    assert "Admin e atendimento não têm acesso por cargo" in proposal.texto
     confirmation, reply, client = send(p, "SIM")
     assert client.calls
     assert reply.agent_reply_state == "ia"

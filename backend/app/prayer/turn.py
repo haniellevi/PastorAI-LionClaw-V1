@@ -113,10 +113,31 @@ def _handle(db, contact, inbound, reply):
         proposal = None
         if catalog.normalized(inbound.texto or "") == "sim":
             return "A confirmação expirou. Envie novamente seu pedido.", None
+    explicit_start = (
+        command == "start"
+        and catalog.normalized(inbound.texto or "") == catalog.START_COMMAND
+    )
+    if explicit_start and proposal is not None and proposal.source_message_id == inbound.id:
+        return catalog.COLLECT_QUESTION + " " + catalog.DISCLOSURE, proposal
+    if explicit_start:
+        captured = db.execute(
+            select(PrayerProposal).where(
+                PrayerProposal.igreja_id == contact.igreja_id,
+                PrayerProposal.conversation_id == contact.conversation_id,
+                PrayerProposal.source_message_id == inbound.id,
+            )
+        ).scalar_one_or_none()
+        if captured is not None and captured.state in ("expired", "cancelled", "executed"):
+            return "Esta coleta expirou ou foi encerrada. " + catalog.OWN_QUESTION, captured
+    if command == "start" and proposal is not None and not proposal.summary:
+        summary = catalog.own_summary(inbound.texto or "")
+        if summary:
+            proposal.summary = summary
+            return catalog.AUDIENCE_QUESTION, proposal
     if command == "start":
         summary = catalog.own_summary(inbound.texto or "")
-        if summary is None:
-            return catalog.OWN_QUESTION, None
+        if summary is None and not explicit_start:
+            return catalog.OWN_QUESTION + " " + catalog.DISCLOSURE, None
         if proposal is not None:
             proposal.state = "cancelled"
             db.flush()
@@ -125,21 +146,30 @@ def _handle(db, contact, inbound, reply):
             pessoa_id=contact.pessoa_id,
             conversation_id=contact.conversation_id,
             source_message_id=inbound.id,
-            summary=summary,
+            summary=summary or "",
             term_version=contact.term_version,
             expires_at=timestamp + dt.timedelta(minutes=10),
         )
         db.add(proposal)
         db.flush()
-        return catalog.AUDIENCE_QUESTION + " " + catalog.DISCLOSURE, proposal
+        question = catalog.AUDIENCE_QUESTION if summary else catalog.COLLECT_QUESTION
+        return question + " " + catalog.DISCLOSURE, proposal
     if proposal is None:
         return "Não há confirmação de oração pendente. " + catalog.OWN_QUESTION, None
     if command == "cancel":
         proposal.state = "cancelled"
         return (
-            "Registro cancelado. A conversa continua visível à equipe que atende o WhatsApp.",
+            "Registro cancelado. As mensagens desta coleta continuam protegidas.",
             proposal,
         )
+    if not proposal.summary:
+        summary = catalog.own_summary(inbound.texto or "")
+        if summary is None and command == "clarify":
+            summary = " ".join((inbound.texto or "").split())
+        if not summary or len(summary) > 1000:
+            return catalog.OWN_QUESTION, proposal
+        proposal.summary = summary
+        return catalog.AUDIENCE_QUESTION, proposal
     if command in ("pastoral", "pastoral_lider"):
         if not service.has_pastoral_team(db, contact.igreja_id):
             return (
@@ -187,6 +217,51 @@ def _handle(db, contact, inbound, reply):
         else "Para autorizar o resumo e os destinatários exibidos, responda somente SIM ou NÃO.",
         proposal,
     )
+
+
+def capture_explicit_entry(
+    db, *, igreja_id, conversation_id, message_id, provider_id, phone, instance
+):
+    """Open collection within ingestion's transaction, before any worker turn.
+
+    Gate checks precede database work. No transport, LLM or commit here. The
+    conversation is already locked by ingestion; subsequent inbounds see the
+    proposal and their DB trigger binds them before becoming visible.
+    """
+    if not policy.enabled(igreja_id):
+        return
+    source = db.get(Message, message_id)
+    if source is None or catalog.normalized(source.texto or "") != catalog.START_COMMAND:
+        return
+    from types import SimpleNamespace
+
+    outcome = SimpleNamespace(
+        igreja_id=igreja_id,
+        conversation_id=conversation_id,
+        inbound_message_id=message_id,
+        provider_message_id=provider_id,
+        telefone=phone,
+        instance=instance,
+    )
+    contact = _contact(db, outcome)
+    if contact is None:
+        return
+    previous = _active(db, contact, include_expired=True)
+    if previous is not None:
+        previous.state = "cancelled"
+        db.flush()
+    db.add(
+        PrayerProposal(
+            igreja_id=igreja_id,
+            pessoa_id=contact.pessoa_id,
+            conversation_id=conversation_id,
+            source_message_id=message_id,
+            summary="",
+            term_version=contact.term_version,
+            expires_at=service.now(db) + dt.timedelta(minutes=10),
+        )
+    )
+    db.flush()
 
 
 def run_prayer_turn(

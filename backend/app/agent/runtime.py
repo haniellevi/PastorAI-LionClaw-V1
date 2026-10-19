@@ -94,6 +94,7 @@ from app.domain.agent_reply import (
     AGENT_REPLY_SUPPRESSED,
 )
 from app.domain.agent_authz import PrivilegeContext, tool_allowed, tool_denial_reason
+from app.prayer.models import PrayerMessage
 from app.services.conversation_handoff import (
     fence_agent_replies_for_handoff,
     mark_conversation_for_handoff_locked,
@@ -592,6 +593,13 @@ def _load_recent_conversation_history(
             Message.igreja_id == igreja_id,
             Message.conversation_id == conversation_id,
             Message.id != current_message_id,
+            # Worker can read pastoral rows; never forward them to the model,
+            # including inbound corrections and orphaned privacy fences.
+            ~select(PrayerMessage.message_id).where(
+                PrayerMessage.igreja_id == Message.igreja_id,
+                PrayerMessage.conversation_id == Message.conversation_id,
+                PrayerMessage.message_id == Message.id,
+            ).exists(),
             Message.criado_em < current_created_at,
             # Sensitive/action replies must not leak into a later unprivileged
             # generation after a proof expires or a role is revoked.

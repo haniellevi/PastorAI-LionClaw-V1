@@ -469,6 +469,9 @@ class _DelResult:
         self._scalar = scalar
         self._scalars = scalars or []
 
+    def scalar_one(self):
+        return self._scalar
+
     def scalar_one_or_none(self):
         return self._scalar
 
@@ -502,6 +505,9 @@ class DeleteConvSession:
             return _DelResult(scalar=self.conv)
         if ent is Message:
             return _DelResult(scalars=self.media)
+        if "delete_prayer_inbox_conversation" in str(statement):
+            self.deleted.append(self.conv)
+            return _DelResult(scalar=self.media)
         return _DelResult(scalars=self.roles)
 
     def delete(self, obj) -> None:
