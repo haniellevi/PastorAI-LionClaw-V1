@@ -23,3 +23,32 @@ em futura release autorizada. Produção e aplicação remota não verificadas.
 
 A barreira materializa somente as versões autorizadas; o matching nos trechos
 pode usar o índice GIN após esse filtro.
+
+A migration exige papel com `rolbypassrls=true` (ou superusuário) e recusa
+explicitamente um executor sem essa capacidade. FORCE RLS significa que ser
+apenas dono das tabelas não basta. O executor torna-se dono de
+`public.conhecimento_gerar_trechos()` SECURITY DEFINER, com `search_path=pg_catalog`
+fixo e referências de domínio qualificadas. Na futura release, conferir no
+catálogo o proprietário (`pg_proc.proowner`) e `pg_roles.rolbypassrls`/`rolsuper`;
+conservar esse dono como papel administrativo confiável, sem associação dos
+papéis da aplicação. Não transferir a função para `authenticated`, `anon` ou
+`service_role`. Essa conferência no ambiente remoto permanece não verificada.
+
+`authenticated` recebe somente SELECT nos trechos. O BEFORE INSERT exige versão
+publicada, execução aninhada no gatilho e o dono da função de publicação como
+usuário efetivo; INSERT direto é recusado inclusive pelo owner. A geração
+privilegiada revalida explicitamente o escopo da igreja. O backfill privilegiado
+ocorre antes da instalação dessa guarda, dentro da transação da migration;
+qualquer versão publicada sem trechos ao final aborta toda a migration.
+O rollback comentado usa transação, lock_timeout e locks exclusivos, recusando
+remover trechos/citações ou versões publicadas existentes.
+
+A extensão é instalada com `CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA
+extensions`, criando o schema se necessário; uma extensão preexistente conserva
+seu schema e o dicionário é resolvido pelo catálogo. Sem unaccent disponível,
+a configuração mantém somente o stemmer português: busca continua funcionando,
+mas equivalência entre palavras com/sem acento não é garantida. A futura
+release deve validar esse comportamento no PostgreSQL alvo, sem remover uma
+extensão compartilhada no rollback. Consultas com caracteres Unicode de controle
+(categoria Cc, incluindo NUL, tabulação e quebras de linha) recebem HTTP 422
+antes de executar a busca no banco.

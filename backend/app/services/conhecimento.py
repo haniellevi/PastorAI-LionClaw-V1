@@ -5,6 +5,7 @@ Públicos pertencem ao snapshot, não a claims/cache. Busca lexical autorizada.
 """
 from dataclasses import dataclass
 from uuid import UUID
+from unicodedata import category
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -76,7 +77,8 @@ def buscar(db, usuario: CurrentUser | Visitante, consulta: str, limite: int = 10
     O caller cria identidade/tenant no servidor. Não retorna totais nem dados
     anteriores à autorização; revalida cada citação imediatamente na entrega.
     """
-    if not consulta.strip() or len(consulta) > 200 or not 1 <= limite <= 20:
+    if (not consulta.strip() or len(consulta) > 200 or not 1 <= limite <= 20
+            or any(category(c) == 'Cc' for c in consulta)):
         raise HTTPException(422, 'Consulta ou limite inválido')
     t = UUID(str(usuario.igreja_id))
     audiences = [PUBLICO_VISITANTE]
