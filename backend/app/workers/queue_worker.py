@@ -4571,6 +4571,15 @@ def run_agent_for_message(
 
     igreja_id = _require_agent_igreja_id(outcome)
 
+    from app.enviar_whatsapp.turn import run_enviar_turn
+    enviar_result = run_enviar_turn(
+        session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client,
+    )
+    if enviar_result is not None:
+        return enviar_result
+
     from app.cd_whatsapp.turn import run_cd_turn
     cd_result = run_cd_turn(
         session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
