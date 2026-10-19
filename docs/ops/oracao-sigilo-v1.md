@@ -8,7 +8,7 @@ retroativa. A trava de release e a lista por igreja continuam fechadas.
 
 O comando `QUERO INICIAR PEDIDO DE ORAÇÃO` abre a proposta na mesma transação
 da ingestão, quando os gates e o contato vigente permitem. As mensagens
-seguintes são vinculadas pelo banco antes do commit, incluindo mídia ignorada
+seguintes da pessoa são vinculadas pelo banco antes do commit, incluindo mídia ignorada
 pelo fluxo textual, correções, resumo, confirmação e cancelamento, enquanto
 a coleta estiver no prazo. Após expirar, novas entradas não herdam a coleta. Cancelar ou
 expirar não remove a proteção. Envio inicial inline legado só passa a ter
@@ -46,3 +46,26 @@ pois a RLS corretamente os oculta. Substituir a limpeza best-effort atual pela
 fila da #509. Esta fatia não entrega exclusão de checkpoints/vetores nem
 purga durável de mídia. Não aplicar migration nem ativar em produção sem
 runbook de release e autorização nominal.
+
+
+## Envio humano e histórico do modelo
+
+Assumir o atendimento já cancela propostas pendentes pelo trigger existente
+`prayer_handoff_cancel` e não concede acesso pastoral. Mesmo se houver coleta
+ainda viva (estado legado ou concorrência), o envio humano não a integra.
+Saídas humanas (texto/mídia) não são vinculadas à coleta; o trigger vincula
+somente inbound da pessoa e outbound do agente com `kind=prayer`. O envio
+humano monta a resposta com os valores do INSERT/RETURNING, sem `refresh`
+obrigatório após a entrega. Isso remove a falha de releitura por RLS; não
+oferece atomicidade entre Evolution e banco diante de outras falhas de commit.
+Todas as mensagens associadas em `pedido_oracao_mensagem`, inclusive entradas,
+correções, resumos e barreiras sem proposta, ficam fora do histórico do modelo.
+
+## Rollback coordenado
+
+A migration deve preceder o rollout do backend. O rollback da migration exige
+rollback do código junto: a exclusão usa `delete_prayer_inbox_conversation` e
+o histórico consulta `pedido_oracao_mensagem`. Remover essas estruturas com o
+backend atual causa falhas. Manter gates fechados e seguir o rollback comentado
+no SQL, com autorização explícita de privacidade antes de remover a proteção;
+não reexpor histórico como procedimento de recuperação.

@@ -5,7 +5,7 @@ begin;
 set local lock_timeout = '2s';
 create unique index if not exists prayer_proposal_tenant_conversation_id
  on public.pedido_oracao_proposta(igreja_id,conversation_id,id);
-create table public.pedido_oracao_mensagem (
+create table if not exists public.pedido_oracao_mensagem (
  igreja_id uuid not null references public.igrejas(id) on delete cascade,
  conversation_id uuid not null,
  -- Keep a content-free fence when request-only offboarding removes the proposal.
@@ -17,7 +17,7 @@ create table public.pedido_oracao_mensagem (
  foreign key(igreja_id,conversation_id,message_id)
   references public.messages(igreja_id,conversation_id,id) on delete cascade
 );
-create index prayer_message_proposal_idx on public.pedido_oracao_mensagem(igreja_id,proposal_id);
+create index if not exists prayer_message_proposal_idx on public.pedido_oracao_mensagem(igreja_id,proposal_id);
 alter table public.pedido_oracao_mensagem enable row level security;
 alter table public.pedido_oracao_mensagem force row level security;
 revoke all on public.pedido_oracao_mensagem from public,anon,service_role,authenticated;
@@ -55,8 +55,15 @@ create policy prayer_message_privacy on public.messages as restrictive for selec
 -- metadata updates already hold Message, so never acquire its parent here.
 create function public.prayer_bind_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
-declare pid uuid;
+declare pid uuid; reply_pid uuid;
 begin
+ -- Human attendance is outside pastoral collection. Ordinary agent replies
+ -- also remain outside it; only contact inbounds and prayer replies bind.
+ if not ((new.direcao='in' and new.autor='contato') or
+         (new.direcao='out' and new.autor='ia' and
+          coalesce(new.agent_privilege_context->>'kind','')='prayer')) then
+  return new;
+ end if;
  if tg_op='INSERT' then
   perform 1 from public.conversations where igreja_id=new.igreja_id and id=new.conversation_id for update;
  end if;
@@ -64,9 +71,10 @@ begin
   where p.igreja_id=new.igreja_id and p.conversation_id=new.conversation_id
   and p.state in ('collecting','pending') and p.expires_at>clock_timestamp() limit 1;
  if new.agent_privilege_context->>'kind'='prayer' then
-  select p.id into pid from public.pedido_oracao_proposta p
+  select p.id into reply_pid from public.pedido_oracao_proposta p
    where p.igreja_id=new.igreja_id and p.conversation_id=new.conversation_id
    and p.id::text=new.agent_privilege_context->>'proposal_id';
+  if found then pid := reply_pid; end if;
  end if;
  if pid is not null then
   insert into public.pedido_oracao_mensagem values(new.igreja_id,new.conversation_id,pid,new.id)
@@ -169,8 +177,9 @@ grant execute on function public.delete_prayer_inbox_conversation(uuid,uuid) to 
 
 commit;
 
--- ROLLBACK: keep gates closed. Removing privacy re-exposes history; require
--- explicit privacy approval and retain associations until content is erased.
+-- ROLLBACK: roll back backend code together (delete_prayer_inbox_conversation
+-- and history query require this schema). Keep gates closed. Removing privacy
+-- re-exposes history; require explicit privacy approval and retain associations until content is erased.
 -- DROP FUNCTION public.prayer_inbox_messages(uuid);
 -- DROP POLICY prayer_message_privacy ON public.messages;
 -- DROP TRIGGER prayer_bind_message ON public.messages;

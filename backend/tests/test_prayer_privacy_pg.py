@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text, delete
-from app.db.models import Conversation, Message, RolePermission, UserRole
+from app.db.models import Conversation, Message, RolePermission, UserRole, WhatsappConnection
 from app.db.session import get_db
 from app.deps import get_current_user
 from app.prayer.models import PrayerProposal
@@ -432,3 +432,100 @@ def test_reply_metadata_update_does_not_invert_handoff_locks(private_prayer):
     thread.join(timeout=5)
     assert not thread.is_alive()
     assert errors == []
+
+
+@pytest.mark.parametrize('role', ['admin', 'secretaria', 'pastor'])
+@pytest.mark.parametrize('media', [False, True])
+def test_human_send_during_live_collection(private_prayer, monkeypatch, role, media):
+    import dataclasses
+    from types import SimpleNamespace
+    from app.services.evolution import get_evolution_client
+    from app.routers import conversations
+    p = private_prayer
+    if role == 'secretaria':
+        base = p.actors['operador']
+        p.actors[role] = dataclasses.replace(base, roles=frozenset({role}))
+        with p.factory.begin() as db:
+            db.add(UserRole(igreja_id=TENANT, user_id=uuid.UUID(base.app_user_id), papel=role))
+    send(p, 'Quero iniciar pedido de oração')
+    with p.factory.begin() as db:
+        db.get(Conversation, p.conv).estado = 'humano'
+        db.scalar(select(WhatsappConnection).where(WhatsappConnection.igreja_id == TENANT)).status = 'online'
+        # Handoff normally cancels; seed a still-live legacy/racing collection
+        # explicitly to exercise the reported failure after provider delivery.
+        db.scalar(select(PrayerProposal)).state = 'collecting'
+    calls = []
+    class Transport:
+        def send_text(self, *args, **kwargs):
+            calls.append('text')
+            return True
+        def send_media(self, *args, **kwargs):
+            calls.append('media')
+            return True
+    class UploadStorage(Storage):
+        def upload(self, *args):
+            return SimpleNamespace(path='synthetic/human.txt', mime='text/plain', nome='human.txt', tamanho=1)
+    # Only fake providers are enabled inside this test; no runtime gate changes.
+    monkeypatch.setattr(conversations, 'external_sends_allowed', lambda: True)
+    with client_for(p, role, UploadStorage()) as client:
+        client.app.dependency_overrides[get_evolution_client] = Transport
+        path = f'/conversations/{p.conv}/messages'
+        payload = {'texto': 'Resposta humana sintética'}
+        if media:
+            path += '/media'
+            payload = {'base64': 'eA==', 'mime': 'text/plain', 'nome': 'human.txt', 'caption': 'Resposta humana sintética'}
+        response = client.post(path, json=payload)
+        assert response.status_code == 200, response.text
+        mid = uuid.UUID(response.json()['id'])
+    assert len(calls) == 1
+    with p.factory() as db:
+        messages = db.scalars(select(Message).where(Message.autor == 'humano')).all()
+        assert len(messages) == 1
+        assert messages[0].id == mid
+        assert messages[0].texto == 'Resposta humana sintética'
+        assert db.scalar(text('select count(*) from pedido_oracao_mensagem where message_id=:m'), {'m': mid}) == 0
+        assert db.scalar(select(PrayerProposal.state)) == 'collecting'
+
+
+def test_unknown_reply_proposal_keeps_live_binding(private_prayer):
+    p = private_prayer
+    send(p, 'Quero iniciar pedido de oração')
+    with p.factory.begin() as db:
+        proposal = db.scalar(select(PrayerProposal))
+        message = Message(igreja_id=TENANT, conversation_id=p.conv, direcao='out', autor='ia', texto='Resumo sintético', agent_privilege_context={'kind': 'prayer', 'proposal_id': str(uuid.uuid4())})
+        db.add(message)
+        db.flush()
+        assert db.scalar(text('select proposal_id from pedido_oracao_mensagem where message_id=:m'), {'m': message.id}) == proposal.id
+
+
+def test_next_regular_turn_does_not_send_pastoral_history_to_model(private_prayer, monkeypatch):
+    from app.services.llm import LLMClient, LLMUsage, TypedChoiceResult, TypedLLMResult, LLMResult
+    p = private_prayer
+    send(p, 'Quero iniciar pedido de oração')
+    secret = 'conteúdo pastoral fictício PRIVADO-515'
+    correction = 'correção pastoral fictícia PRIVADO-516'
+    send(p, 'Peço oração por mim: ' + secret)
+    send(p, 'Peço oração por mim: ' + correction)
+    send(p, 'Só pastores')
+    send(p, 'SIM')
+    prompts = []
+    usage = LLMUsage(modelo='synthetic', tokens_in=2, tokens_out=1, custo=0)
+    def choose(self, *args, **kwargs):
+        return TypedChoiceResult('nenhuma', usage)
+    def answer(self, system, user, **kwargs):
+        prompts.append(system + user)
+        # Echo the provider input to expose leaks in the persisted reply too.
+        leaked = secret if secret in user else correction if correction in user else 'Resposta geral sintética segura.'
+        return TypedLLMResult(False, leaked, usage)
+    monkeypatch.setattr(LLMClient, 'generate_typed', choose)
+    monkeypatch.setattr(LLMClient, 'complete_typed', answer)
+    def legacy_answer(self, system, user):
+        result = answer(self, system, user)
+        return LLMResult(result.resposta, usage)
+    monkeypatch.setattr(LLMClient, 'complete', legacy_answer)
+    outcome, reply, transport = send(p, 'Explique uma informação geral')
+    assert prompts
+    assert all(secret not in prompt and correction not in prompt for prompt in prompts)
+    assert secret not in reply.texto and correction not in reply.texto
+    assert reply.agent_reply_state == 'ia'
+    assert transport.calls

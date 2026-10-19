@@ -736,10 +736,12 @@ def send_message(
     conv.ultima_mensagem = payload.texto
     conv.updated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
-    db.refresh(msg)
+    # INSERT supplies defaults via RETURNING. Do not require a SELECT under
+    # restrictive RLS after the provider has already delivered the message.
+    result = MessageOut.from_model(msg)
     db.commit()
 
-    return MessageOut.from_model(msg)
+    return result
 
 
 @router.post("/{conversation_id}/messages/media", response_model=MessageOut)
@@ -857,11 +859,11 @@ def send_media_message(
     conv.ultima_mensagem = payload.caption or media_snippet(tipo)
     conv.updated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
-    db.refresh(msg)
+    result = MessageOut.from_model(msg)
     db.commit()
 
     signed = storage.sign([stored.path])
-    return MessageOut.from_model(msg, media_url=signed.get(stored.path))
+    return result.model_copy(update={"mediaUrl": signed.get(stored.path)})
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

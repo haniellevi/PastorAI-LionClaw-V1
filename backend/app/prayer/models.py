@@ -22,6 +22,7 @@ class PrayerProposal(Base):
     __table_args__ = (
         UniqueConstraint("igreja_id", "id"),
         UniqueConstraint("igreja_id", "source_message_id"),
+        UniqueConstraint("igreja_id", "conversation_id", "id"),
         ForeignKeyConstraint(
             ["igreja_id", "pessoa_id"],
             ["pessoas.igreja_id", "pessoas.id"],
@@ -177,3 +178,32 @@ class PrayerRequest(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     closed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PrayerMessage(Base):
+    """Content-free privacy fence; writes belong exclusively to DB triggers."""
+
+    __tablename__ = "pedido_oracao_mensagem"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["igreja_id", "conversation_id", "proposal_id"],
+            [
+                "pedido_oracao_proposta.igreja_id",
+                "pedido_oracao_proposta.conversation_id",
+                "pedido_oracao_proposta.id",
+            ],
+            ondelete="SET NULL (proposal_id)",
+        ),
+        ForeignKeyConstraint(
+            ["igreja_id", "conversation_id", "message_id"],
+            ["messages.igreja_id", "messages.conversation_id", "messages.id"],
+            ondelete="CASCADE",
+        ),
+        Index("prayer_message_proposal_idx", "igreja_id", "proposal_id"),
+    )
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("igrejas.id", ondelete="CASCADE"), primary_key=True
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    proposal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
