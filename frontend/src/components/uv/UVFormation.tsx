@@ -17,13 +17,13 @@ function Formation({ enrollment: m, turma, disabled, coordination, reencontroDis
   const [confirmed, setConfirmed] = useState(false);
   const receipt = useRef<string | null>(null);
   const base = `/${turma}/matriculas/${m.id}`;
-  const ready = m.aulas_pendentes?.length === 0 && ["encontro", "batismo"].every(tipo => m.marcos?.some(v => v.tipo === tipo));
+  const ready = m.aulas_pendentes?.length === 0 && ["encontro", "batismo"].every(tipo => m.marcos?.some(v => v.tipo === tipo && !v.revogada));
   return <article className="uv-student"><h4>{m.nome}</h4>
     {(["encontro", "batismo", "reencontro"] as const).map(tipo => {
       if (tipo === "reencontro" && !coordination && !m.marcos?.some(v => v.tipo === tipo)) return null;
-      const record = m.marcos?.find(v => v.tipo === tipo);
+      const record = m.marcos?.find(v => v.tipo === tipo && !v.revogada) ?? m.marcos?.find(v => v.tipo === tipo);
       return record ? <div key={tipo}><p>{tipo === "encontro" ? "Encontro" : tipo === "reencontro" ? "Reencontro" : "Batismo"}: {record.data} · {record.anterior_turma ? "Anterior à turma de origem" : "Durante a turma de origem"}: {record.turma_nome} · Validado por {record.validada_por} em {record.validada_em}</p>
-          {record.revogada ? <p>Reencontro: evidência revogada em {record.revogada_em}. Novas nomeações bloqueadas; liderança preservada.</p> : tipo === "reencontro" && coordination ? <Revoke base={base} disabled={reencontroDisabled} request={request} run={run} reload={reload} /> : null}</div>
+          {record.revogada ? <><p>{tipo === "reencontro" ? "Reencontro" : tipo === "encontro" ? "Encontro" : "Batismo"}: evidência revogada em {record.revogada_em}. Novas nomeações bloqueadas; liderança preservada.</p>{coordination ? <Milestone tipo={tipo} revalidation base={base} disabled={reencontroDisabled} request={request} run={run} reload={reload} /> : null}</> : tipo === "reencontro" && coordination ? <Revoke base={base} disabled={reencontroDisabled} request={request} run={run} reload={reload} /> : null}</div>
         : <Milestone key={tipo} tipo={tipo} base={base} disabled={tipo === "reencontro" ? reencontroDisabled : disabled || !!m.conclusao} request={request} run={run} reload={reload} />;
     })}
     {m.conclusao ? <p role="status">UV concluída em {m.conclusao.confirmada_em} por {m.conclusao.confirmada_por}. Jornada: {m.conclusao.etapa_anterior ?? "Sem etapa"} → {m.conclusao.etapa_resultante}. Aptidão à próxima CD: {m.conclusao.origem_aptidao}. Sem matrícula automática.</p>
@@ -42,7 +42,7 @@ function Formation({ enrollment: m, turma, disabled, coordination, reencontroDis
   </article>;
 }
 
-function Milestone({ tipo, base, disabled, request, run, reload }: Actions & { tipo: MarcoUV["tipo"]; base: string }) {
+function Milestone({ tipo, base, disabled, request, run, reload, revalidation = false }: Actions & { tipo: MarcoUV["tipo"]; base: string; revalidation?: boolean }) {
   const [date, setDate] = useState("");
   const [prior, setPrior] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -57,11 +57,11 @@ function Milestone({ tipo, base, disabled, request, run, reload }: Actions & { t
     });
   }
   return <form onSubmit={submit}><fieldset disabled={disabled}>
-    <legend>{tipo === "encontro" ? "Encontro" : tipo === "reencontro" ? "Reencontro" : "Batismo"}: validação humana</legend>
+    <legend>{revalidation ? "Revalidação · " : ""}{tipo === "encontro" ? "Encontro" : tipo === "reencontro" ? "Reencontro" : "Batismo"}: validação humana</legend>
     <label>Data do {tipo}<input required name="data" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
     <label><input type="checkbox" checked={prior} onChange={e => setPrior(e.target.checked)} />Anterior à turma</label>
     <label><input type="checkbox" name="confirmado" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Validei este marco da Pessoa</label>
-    <button className="btn" disabled={disabled || !date || !confirmed}>Validar {tipo}</button>
+    <button className="btn" disabled={disabled || !date || !confirmed}>{revalidation ? "Revalidar" : "Validar"} {tipo}</button>
   </fieldset></form>;
 }
 

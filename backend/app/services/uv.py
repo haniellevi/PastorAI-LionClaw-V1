@@ -110,11 +110,15 @@ def get_turma(db, user, turma_id):
         where m.igreja_id=:t and m.turma_id=:id and m.ativa and p.arquivada_em is null order by m.criada_em,m.id''', t=t, id=turma_id)
     attendance_rows = rows(db, '''select matricula_id,aula,presente,modalidade,registro_id,registrada_por,registrada_em
         from uv_presencas where igreja_id=:t and turma_id=:id order by aula''', t=t, id=turma_id)
-    milestones = rows(db, '''select v.*,origin.nome as turma_nome from uv_marcos v
+    private_columns = ',v.revogada_por,v.motivo_revogacao' if roles & COORDINATION_ROLES else ''
+    milestones = rows(db, f'''select v.id,v.pessoa_id,v.turma_id,v.matricula_id,v.tipo,
+        v.data,v.anterior_turma,v.validada_por,v.validada_em,v.revogada,v.revogada_em
+        {private_columns},origin.nome as turma_nome from uv_marcos v
         join uv_turmas origin on origin.igreja_id=v.igreja_id and origin.id=v.turma_id
         where v.igreja_id=:t and exists
         (select 1 from uv_matriculas m where m.igreja_id=v.igreja_id and m.pessoa_id=v.pessoa_id and m.turma_id=:id and m.ativa)''', t=t,id=turma_id)
-    completions = rows(db, '''select v.* from uv_conclusoes v where v.igreja_id=:t and exists
+    completions = rows(db, '''select v.id,v.pessoa_id,v.turma_id,v.matricula_id,v.confirmada_por,
+        v.confirmada_em,v.etapa_anterior,v.etapa_resultante,v.origem_aptidao from uv_conclusoes v where v.igreja_id=:t and exists
         (select 1 from uv_matriculas m where m.igreja_id=v.igreja_id and m.pessoa_id=v.pessoa_id and m.turma_id=:id and m.ativa)''', t=t,id=turma_id)
     for enrollment in row['matriculas']:
         enrollment['marcos'] = [m for m in milestones if m['pessoa_id'] == enrollment['pessoa_id']]
@@ -379,10 +383,22 @@ def formation_person(db, user, turma_id, matricula_id):
     return t, uid, roles, current, people[0]
 
 
+def require_milestone_author(db, tenant, uid, person_id):
+    authors = rows(db, """select u.pessoa_id from app_users u join pessoas p
+        on p.igreja_id=u.igreja_id and p.id=u.pessoa_id
+        where u.igreja_id=:t and u.id=:u and u.status='ativo'
+        and p.arquivada_em is null for share of u""", t=tenant,u=uid)
+    if not authors:
+        raise HTTPException(403, 'Vincule seu usuário a uma pessoa ativa antes de validar marcos')
+    if authors[0]['pessoa_id'] == person_id:
+        raise HTTPException(403, 'Não é permitido validar, revogar ou revalidar o próprio marco')
+
+
 def milestone(db, user, turma_id, matricula_id, tipo, payload):
     if tipo not in {'encontro','batismo','reencontro'}:
         raise HTTPException(422, 'Marco inválido')
     t, uid, roles, current, person = formation_person(db,user,turma_id,matricula_id)
+    require_milestone_author(db,t,uid,person['id'])
     if tipo == 'reencontro' and not roles & COORDINATION_ROLES:
         raise HTTPException(403, 'Reencontro exige validação da coordenação')
     if not payload.confirmado:
@@ -390,14 +406,20 @@ def milestone(db, user, turma_id, matricula_id, tipo, payload):
     params = dict(id=payload.id,t=t,p=person['id'],tid=turma_id,mid=matricula_id,
                   tipo=tipo,data=payload.data,anterior=payload.anterior_turma,u=uid)
     existing = rows(db, '''select * from uv_marcos where igreja_id=:t
-        and (id=:id or (pessoa_id=:p and tipo=:tipo))''', **params)
+        and (id=:id or (pessoa_id=:p and tipo=:tipo and not revogada))''', **params)
     if existing:
         r=existing[0]
         if (r['id'],r['pessoa_id'],r['turma_id'],r['matricula_id'],r['tipo'],r['data'],r['anterior_turma'],r['validada_por']) != (
                 payload.id,person['id'],turma_id,matricula_id,tipo,payload.data,payload.anterior_turma,uid):
             raise HTTPException(409, 'Marco já validado ou identificador reutilizado. Batismo não se repete')
+        if r['revogada']:
+            raise HTTPException(409, 'Marco revogado: revalidação exige novo identificador')
         return r
-    if current['encerrada'] and tipo != 'reencontro':
+    revoked = rows(db, '''select id from uv_marcos where igreja_id=:t
+        and pessoa_id=:p and tipo=:tipo and revogada''', **params)
+    if revoked:
+        require_coordination(roles)
+    if current['encerrada'] and tipo != 'reencontro' and not revoked:
         raise HTTPException(409, 'Turma encerrada')
     if payload.data > today_sao_paulo():
         raise HTTPException(422, 'Marco não pode ter data futura')
@@ -432,7 +454,7 @@ def finish(db, user, turma_id, matricula_id, payload):
     lessons=rows(db, '''select aula,modalidade from uv_presencas where igreja_id=:t
         and matricula_id=:mid and presente''', **params)
     milestones={r['tipo']:EvidenciaValidada(r['validada_por'],r['anterior_turma']) for r in rows(db,
-        'select tipo,validada_por,anterior_turma from uv_marcos where igreja_id=:t and pessoa_id=:p', **params)}
+        'select tipo,validada_por,anterior_turma from uv_marcos where igreja_id=:t and pessoa_id=:p and not revogada', **params)}
     result=avaliar_uv(SituacaoUV(
         aulas=tuple(AulaConcluida(r['aula'],ModalidadeAula(r['modalidade'])) for r in lessons),
         encontro=milestones.get('encontro'),batismo=milestones.get('batismo'),confirmado_por=uid,
@@ -459,22 +481,23 @@ def finish(db, user, turma_id, matricula_id, payload):
 
 
 def revoke_milestone(db, user, turma_id, matricula_id, tipo, payload):
-    """Only Reencontro is revocable; serialize with decisions on Pessoa."""
-    if tipo != 'reencontro':
-        raise HTTPException(422, 'Somente Reencontro admite esta revogação')
+    """Revoke only the active record; retain immutable historical revocations."""
+    if tipo not in {'reencontro','encontro','batismo'}:
+        raise HTTPException(422, 'Marco inválido')
     t, uid, roles, _, person = formation_person(db,user,turma_id,matricula_id)
     if not roles & COORDINATION_ROLES:
         raise HTTPException(403, 'Revogação exige coordenação')
+    require_milestone_author(db,t,uid,person['id'])
     reason = payload.motivo.strip()
     if not reason or len(reason) > 1000:
         raise HTTPException(422, 'Informe motivo de até 1000 caracteres')
-    params = dict(t=t,p=person['id'],u=uid,r=reason)
-    found = rows(db,"select * from uv_marcos where igreja_id=:t and pessoa_id=:p and tipo='reencontro'",**params)
+    params = dict(t=t,p=person['id'],u=uid,r=reason,tipo=tipo)
+    found = rows(db,"select * from uv_marcos where igreja_id=:t and pessoa_id=:p and tipo=:tipo order by revogada asc,validada_em desc,id desc limit 1",**params)
     if not found:
-        raise HTTPException(404, 'Reencontro não registrado')
+        raise HTTPException(404, 'Marco não registrado')
     if found[0]['revogada']:
         if (found[0]['revogada_por'],found[0]['motivo_revogacao']) != (uid,reason):
             raise HTTPException(409, 'Marco já revogado com outros dados')
         return found[0]
     return rows(db,"""update uv_marcos set revogada=true,revogada_por=:u,motivo_revogacao=:r
-        where igreja_id=:t and pessoa_id=:p and tipo='reencontro' returning *""",**params)[0]
+        where igreja_id=:t and id=:id and not revogada returning *""",**params,id=found[0]['id'])[0]

@@ -256,3 +256,18 @@ it("revogação de Reencontro continua disponível na turma encerrada", async ()
   await act(async () => { button("Turma teste")!.click(); });
   expect(button("Revogar Reencontro")!.closest("fieldset")!.disabled).toBe(false);
 });
+
+it("coordenação revalida Reencontro revogado mesmo com turma encerrada", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: true }] }] }));
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Revalidar reencontro")?.closest("fieldset")?.disabled).toBe(false);
+});
+
+it("evidência ativa substitui a revogada na apresentação", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "old", tipo: "reencontro", data: "2020-01-01", revogada: true }, { id: "new", tipo: "reencontro", data: "2021-01-01", revogada: false }] }] }));
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(container.textContent).not.toContain("evidência revogada");
+  expect(button("Revogar Reencontro")).toBeDefined();
+});

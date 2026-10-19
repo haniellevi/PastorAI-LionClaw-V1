@@ -193,3 +193,25 @@ Como estas tabelas usam FORCE ROW LEVEL SECURITY, ser apenas owner da tabela
 não basta. O runbook da futura release deve conferir o proprietário de cada
 função e sua capacidade efetiva de ignorar RLS antes de aplicar/usar os callers;
 sem essa conferência, o pré-requisito permanece não verificado.
+
+
+## Ordem obrigatória de release — UV/CD/Enviar
+
+Antes do deploy deste backend, aplique via `scripts/migrate.py`, na ordem dos
+nomes, todas as migrations UV (`20261017_210500`–`20261017_230000`), CD
+(`20261018_010000`–`20261018_040000`) e Enviar
+(`20261018_050000`–`20261018_080000`, seguidas de
+`20261018_100000_enviar_reencontro.sql`). O backend consulta as novas tabelas e
+colunas diretamente: publicar antes de migrar causa falhas de consulta.
+A pré-checagem de FK de `_080000` continua obrigatória.
+
+`20261018_100000_enviar_reencontro.sql` substitui o nome ainda não aplicado
+`20261018_090000_enviar_reencontro.sql`, evitando colisão com a exclusão privada
+(#509). O índice parcial admite só um marco ativo por igreja/pessoa/tipo.
+Revalidação exige coordenação e novo ID; não desfaz revogação nem apaga histórico,
+nem refaz conclusão UV existente. O rollback comentado exige preservar e
+reconciliar o histórico antes de restaurar a unicidade antiga.
+
+Ensaiar primeiro no PostgreSQL sintético. Aplicação remota exige autorização
+nominal e backup prévio no release; aplicação remota e deploy permanecem
+**não verificados**. Não abrir gates de envio/WhatsApp com esta mudança.

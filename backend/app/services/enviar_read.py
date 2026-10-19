@@ -52,7 +52,7 @@ def ler_evidencias_oficiais(db, pessoa, *, igreja_id: UUID) -> dict:
     queries = {
         'uv': "select id,confirmada_em as data,false as revogada from uv_conclusoes where igreja_id=:t and pessoa_id=:p order by confirmada_em desc,id desc limit 1",
         'cd': "select id,codigo,emitida_em as data,revogada from cd_certificados where igreja_id=:t and pessoa_id=:p order by revogada asc,emitida_em desc,id desc limit 1",
-        'reencontro': "select id,data,revogada from uv_marcos where igreja_id=:t and pessoa_id=:p and tipo='reencontro' limit 1",
+        'reencontro': "select id,data,revogada from uv_marcos where igreja_id=:t and pessoa_id=:p and tipo='reencontro' order by revogada asc,validada_em desc,id desc limit 1",
     }
     result = {}
     for criterion, sql in queries.items():

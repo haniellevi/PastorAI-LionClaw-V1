@@ -145,6 +145,8 @@ def registrar_avaliacao(db: Session, user: CurrentUser, pessoa_id: UUID, payload
     legado = pessoa.apto_lider and (latest is None or latest.origem == 'legado')
     if payload.origem == 'legado' and not legado:
         raise HTTPException(422, 'Não há aptidão legada vigente para reconhecer')
+    if payload.decisao == 'apto' and result.motivo == 'evidencia_revogada':
+        raise HTTPException(422, 'Evidência revogada: revalide antes de reconhecer aptidão')
     if payload.decisao == 'apto' and result.situacao != SituacaoEnviar.APTO_PARA_AVALIACAO and payload.origem != 'legado':
         raise HTTPException(422, 'Formação pendente: exige evidências oficiais ou reconhecimento motivado do legado')
     return _append(db, pessoa, id=payload.id, decisao=payload.decisao, origem=payload.origem,

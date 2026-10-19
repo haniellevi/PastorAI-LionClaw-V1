@@ -179,7 +179,7 @@ class RevogacaoMarcoInput(Input):
 
 
 @router.post('/{turma_id}/matriculas/{matricula_id}/marcos/{tipo}/revogar')
-def revoke_milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['reencontro'], payload: RevogacaoMarcoInput,
+def revoke_milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['encontro','batismo','reencontro'], payload: RevogacaoMarcoInput,
                      db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
     result = uv.revoke_milestone(db,user,turma_id,matricula_id,tipo,payload)
     db.commit()

@@ -166,3 +166,140 @@ def test_reencontro_http_validation_revocation_is_audited_and_idempotent(databas
     with scoped(database,v['t']) as s:
         assert not s.get(Pessoa,v['p']).apto_lider
         assert ler_evidencias_oficiais(s,s.get(Pessoa,v['p']),igreja_id=v['t'])['reencontro']['estado']=='revogada'
+
+
+@pytest.mark.parametrize('kind', ['reencontro', 'encontro', 'batismo'])
+def test_revalidate_preserves_revoked_history_and_uv_completion(database, seeded, kind):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        completion_input=ConclusaoInput(id=uuid4(),confirmado=True)
+        completion=uv.finish(s,principal(v),tid,mid,completion_input)
+        if kind=='reencontro': uv.milestone(s,principal(v),tid,mid,kind,marco())
+        original=dict(s.execute(text('select * from uv_marcos where pessoa_id=:p and tipo=:k'),dict(p=v['p'],k=kind)).mappings().one())
+        uv.revoke_milestone(s,principal(v),tid,mid,kind,DTO(motivo='Correção sintética'))
+        revoked=dict(s.execute(text('select * from uv_marcos where id=:id'),dict(id=original['id'])).mappings().one())
+        assert revoked['revogada'] and revoked['revogada_por']==v['uid']
+        if kind=='reencontro':
+            assert ler_pendencias_oficiais(s,s.get(Pessoa,v['p']),igreja_id=v['t']).motivo=='evidencia_revogada'
+        uv.responsaveis(s,principal(v),tid,ResponsaveisInput(usuarios=[v['leader']]))
+        with pytest.raises(HTTPException) as exc:
+            uv.milestone(s,principal(v,'leader'),tid,mid,kind,marco())
+        assert exc.value.status_code==403
+        payload=marco()
+        replacement=uv.milestone(s,principal(v),tid,mid,kind,payload)
+        assert replacement['id']!=original['id'] and not replacement['revogada']
+        assert uv.milestone(s,principal(v),tid,mid,kind,payload)==replacement
+        assert dict(s.execute(text('select * from uv_marcos where id=:id'),dict(id=original['id'])).mappings().one())==revoked
+        assert uv.finish(s,principal(v),tid,mid,completion_input)==completion
+        if kind=='reencontro':
+            evidence=ler_evidencias_oficiais(s,s.get(Pessoa,v['p']),igreja_id=v['t'])['reencontro']
+            assert evidence['estado']=='comprovada' and str(replacement['id']) in evidence['referencia']
+        # Revoking again must target only the new active record.
+        assert uv.revoke_milestone(s,principal(v),tid,mid,kind,DTO(motivo='Nova correção'))['id']==replacement['id']
+
+
+@pytest.mark.parametrize('operation',['validate','revoke','revalidate'])
+@pytest.mark.parametrize('link',['self','missing'])
+def test_milestone_segregation(database,seeded,operation,link):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        if operation!='validate': uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        if operation=='revalidate': uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Correção'))
+        s.commit()
+    with database.begin() as c:
+        c.execute(text('update app_users set pessoa_id=:p where id=:u'),dict(p=v['p'] if link=='self' else None,u=v['uid']))
+    with scoped(database,v['t']) as s:
+        with pytest.raises(HTTPException) as exc:
+            if operation=='revoke': uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Correção'))
+            else: uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        assert exc.value.status_code==403
+
+
+@pytest.mark.parametrize('origin',['avaliacao','legado'])
+def test_revocation_blocks_apto_even_legacy(database,seeded,origin):
+    from app.services.enviar_avaliacoes import registrar_avaliacao
+    from app.routers.enviar import AvaliacaoInput
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Correção'))
+        s.execute(text('update pessoas set apto_lider=true where id=:p'),dict(p=v['p']))
+        with pytest.raises(HTTPException) as exc:
+            registrar_avaliacao(s,principal(v),v['p'],AvaliacaoInput(id=uuid4(),decisao='apto',origem=origin,motivo='Revisão sintética'))
+        assert exc.value.status_code==422
+        assert 'revogada' in exc.value.detail
+
+
+def test_revocation_details_only_for_coordination(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        uv.responsaveis(s,principal(v),tid,ResponsaveisInput(usuarios=[v['leader']]))
+        uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Motivo restrito sintético'))
+        for key in ('uid','leader'):
+            record=next(m for m in uv.get_turma(s,principal(v,key),tid)['matriculas'][0]['marcos'] if m['tipo']=='reencontro')
+            assert record['revogada']
+            assert ('motivo_revogacao' in record)==(key=='uid')
+            assert ('revogada_por' in record)==(key=='uid')
+
+
+def test_concurrent_revalidations_only_one_active(database,seeded):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Correção'))
+        s.commit()
+    barrier=Barrier(2)
+    def revalidate(_):
+        with scoped(database,v['t']) as s:
+            barrier.wait(timeout=10)
+            try:
+                uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+                s.commit()
+                return 200
+            except HTTPException as exc:
+                s.rollback()
+                return exc.status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(revalidate,range(2)))==[200,409]
+    with scoped(database,v['t']) as s:
+        assert s.scalar(text("select count(*) from uv_marcos where tipo='reencontro' and not revogada"))==1
+        assert s.scalar(text("select count(*) from uv_marcos where tipo='reencontro' and revogada"))==1
+
+
+@pytest.mark.parametrize('kind',['encontro','batismo'])
+def test_uv_completion_requires_active_milestones(database,seeded,kind):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        uv.revoke_milestone(s,principal(v),tid,mid,kind,DTO(motivo='Correção'))
+        with pytest.raises(HTTPException) as exc:
+            uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))
+        assert exc.value.status_code==422
+        uv.milestone(s,principal(v),tid,mid,kind,marco())
+        assert uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))['pessoa_id']==v['p']
+
+
+def test_database_enforces_active_uniqueness_and_immutable_history(database,seeded):
+    from sqlalchemy.exc import IntegrityError
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        original=uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Correção'))
+        replacement=uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        with pytest.raises(IntegrityError), s.begin_nested():
+            s.execute(text("update uv_marcos set revogada=false where id=:id"),dict(id=original['id']))
+        with pytest.raises(IntegrityError), s.begin_nested():
+            s.execute(text("update uv_marcos set motivo_revogacao='Alterado' where id=:id"),dict(id=original['id']))
+        with pytest.raises(IntegrityError), s.begin_nested():
+            s.execute(text('''insert into uv_marcos(id,igreja_id,pessoa_id,turma_id,matricula_id,tipo,data,anterior_turma,validada_por)
+                select :new,igreja_id,pessoa_id,turma_id,matricula_id,tipo,data,anterior_turma,validada_por
+                from uv_marcos where id=:id'''),dict(new=uuid4(),id=replacement['id']))
