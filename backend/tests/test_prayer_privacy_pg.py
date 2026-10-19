@@ -26,19 +26,32 @@ def private_prayer(prayer):
 
 
 def install_privacy(prayer):
-    if MIGRATION.exists():
-        sql = MIGRATION.read_text().replace('public.', _SCHEMA + '.').replace('pg_catalog, public', 'pg_catalog, ' + _SCHEMA).replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA)
-        with prayer.engine.begin() as conn:
-            conn.exec_driver_sql("do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role; end if; end $$")
-            # The base fixture uses create_all (no production tenant policies).
-            conn.exec_driver_sql(f"create policy tenant_fixture on {_SCHEMA}.messages using(igreja_id={_SCHEMA}.current_igreja_id()) with check(igreja_id={_SCHEMA}.current_igreja_id())")
-            if not conn.exec_driver_sql("select to_regprocedure('private_delete_conversation(uuid,uuid)')").scalar():
-                conn.exec_driver_sql('drop table private_deletion_event_fences, private_deletion_uploads, private_deletion_sends, private_deletion_tasks, private_deletion_receipts cascade')
-                deletion = MIGRATION.with_name('20261018_090000_exclusao_privada.sql').read_text()
-                deletion = deletion.replace('public.', _SCHEMA + '.').replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA)
-                conn.exec_driver_sql(deletion)
-            conn.exec_driver_sql(sql)
+    # create_all supplies tables, not SQL functions. Install every deletion
+    # migration used by the current service in this fixture's isolated schema;
+    # another suite's public schema must never satisfy this dependency.
+    def schema_sql(path):
+        return path.read_text().replace('public.', _SCHEMA + '.').replace(
+            'pg_catalog, public', 'pg_catalog, ' + _SCHEMA
+        ).replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA)
+
+    with prayer.engine.begin() as conn:
+        conn.exec_driver_sql("do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role; end if; end $$")
+        # The base fixture uses create_all (no production tenant policies).
+        conn.exec_driver_sql(f"create policy tenant_fixture on {_SCHEMA}.messages using(igreja_id={_SCHEMA}.current_igreja_id()) with check(igreja_id={_SCHEMA}.current_igreja_id())")
+        conn.exec_driver_sql(
+            'drop table private_deletion_event_fences, private_deletion_uploads, '
+            'private_deletion_sends, private_deletion_tasks, private_deletion_receipts cascade'
+        )
+        for migration in (
+            '20261018_090000_exclusao_privada.sql',
+            MIGRATION.name,
+            '20261019_090001_exclusao_privada_pessoa_igreja.sql',
+        ):
+            # The SQL contains PostgreSQL format('%I', ...), not DBAPI binds.
+            conn.exec_driver_sql(schema_sql(MIGRATION.with_name(migration)),
+                                 execution_options={"no_parameters": True})
     return prayer
+
 
 def install_inbox_schema(engine):
     """Real parent + privacy migration for legacy tests which now use the inbox.
