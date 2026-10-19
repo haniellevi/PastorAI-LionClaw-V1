@@ -482,7 +482,7 @@ def finish(db, user, turma_id, matricula_id, payload):
 
 def revoke_milestone(db, user, turma_id, matricula_id, tipo, payload):
     """Revoke only the active record; retain immutable historical revocations."""
-    if tipo not in {'reencontro','encontro','batismo'}:
+    if tipo != 'reencontro':
         raise HTTPException(422, 'Marco inválido')
     t, uid, roles, _, person = formation_person(db,user,turma_id,matricula_id)
     if not roles & COORDINATION_ROLES:

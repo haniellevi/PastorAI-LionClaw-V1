@@ -168,8 +168,8 @@ def test_reencontro_http_validation_revocation_is_audited_and_idempotent(databas
         assert ler_evidencias_oficiais(s,s.get(Pessoa,v['p']),igreja_id=v['t'])['reencontro']['estado']=='revogada'
 
 
-@pytest.mark.parametrize('kind', ['reencontro', 'encontro', 'batismo'])
-def test_revalidate_preserves_revoked_history_and_uv_completion(database, seeded, kind):
+def test_revalidate_preserves_revoked_history_and_uv_completion(database, seeded):
+    kind='reencontro'
     v=seeded
     with scoped(database,v['t']) as s:
         tid,mid=complete(s,v)
@@ -275,16 +275,14 @@ def test_concurrent_revalidations_only_one_active(database,seeded):
 
 
 @pytest.mark.parametrize('kind',['encontro','batismo'])
-def test_uv_completion_requires_active_milestones(database,seeded,kind):
+def test_revocation_rejects_other_uv_milestones(database,seeded,kind):
     v=seeded
     with scoped(database,v['t']) as s:
         tid,mid=complete(s,v)
-        uv.revoke_milestone(s,principal(v),tid,mid,kind,DTO(motivo='Correção'))
         with pytest.raises(HTTPException) as exc:
-            uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))
+            uv.revoke_milestone(s,principal(v),tid,mid,kind,DTO(motivo='Correção'))
         assert exc.value.status_code==422
-        uv.milestone(s,principal(v),tid,mid,kind,marco())
-        assert uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))['pessoa_id']==v['p']
+        assert not s.scalar(text('select revogada from uv_marcos where pessoa_id=:p and tipo=:k'),dict(p=v['p'],k=kind))
 
 
 def test_database_enforces_active_uniqueness_and_immutable_history(database,seeded):
@@ -303,3 +301,27 @@ def test_database_enforces_active_uniqueness_and_immutable_history(database,seed
             s.execute(text('''insert into uv_marcos(id,igreja_id,pessoa_id,turma_id,matricula_id,tipo,data,anterior_turma,validada_por)
                 select :new,igreja_id,pessoa_id,turma_id,matricula_id,tipo,data,anterior_turma,validada_por
                 from uv_marcos where id=:id'''),dict(new=uuid4(),id=replacement['id']))
+
+
+def test_aptos_pagination_after_reencontro_revocation_and_revalidation(database,seeded):
+    from app.services.enviar_panorama import listar_pessoas
+    from app.services.enviar_avaliacoes import registrar_avaliacao
+    from app.routers.enviar import AvaliacaoInput
+    v=seeded
+    with scoped(database,v['t']) as s:
+        tid,mid=complete(s,v)
+        uv.finish(s,principal(v),tid,mid,ConclusaoInput(id=uuid4(),confirmado=True))
+        certificate(s,v)
+        uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        registrar_avaliacao(s,principal(v),v['p'],AvaliacaoInput(id=uuid4(),decisao='apto',origem='avaliacao',motivo='Formação conferida'))
+        def page(number):
+            return listar_pessoas(s,principal(v),grupo='aptos',page=number,page_size=1)
+        assert page(1)['total']==1
+        uv.revoke_milestone(s,principal(v),tid,mid,'reencontro',DTO(motivo='Correção'))
+        assert page(1)['total']==0 and page(1)['items']==[]
+        uv.close(s,principal(v),tid)
+        uv.milestone(s,principal(v),tid,mid,'reencontro',marco())
+        first=page(1)
+        assert first['total']==1 and [p['id'] for p in first['items']]==[v['p']]
+        assert first['items'][0]['apto_lider']
+        assert page(2)['total']==1 and page(2)['items']==[]

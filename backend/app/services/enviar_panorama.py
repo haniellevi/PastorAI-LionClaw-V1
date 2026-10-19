@@ -44,8 +44,10 @@ def listar_pessoas(db, user, *, q='', page=1, page_size=25, grupo='todos'):
     ).order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc()).limit(1).scalar_subquery()
     # Same revocation semantics as the official reader, before pagination/count.
     unrevoked = text("""not (
-        exists(select 1 from uv_marcos m where m.igreja_id=pessoas.igreja_id
+        (exists(select 1 from uv_marcos m where m.igreja_id=pessoas.igreja_id
           and m.pessoa_id=pessoas.id and m.tipo='reencontro' and m.revogada)
+          and not exists(select 1 from uv_marcos m where m.igreja_id=pessoas.igreja_id
+          and m.pessoa_id=pessoas.id and m.tipo='reencontro' and not m.revogada))
         or (exists(select 1 from cd_certificados c where c.igreja_id=pessoas.igreja_id
           and c.pessoa_id=pessoas.id and c.revogada)
           and not exists(select 1 from cd_certificados c where c.igreja_id=pessoas.igreja_id

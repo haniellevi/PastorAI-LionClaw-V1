@@ -215,3 +215,9 @@ reconciliar o histórico antes de restaurar a unicidade antiga.
 Ensaiar primeiro no PostgreSQL sintético. Aplicação remota exige autorização
 nominal e backup prévio no release; aplicação remota e deploy permanecem
 **não verificados**. Não abrir gates de envio/WhatsApp com esta mudança.
+
+Pré-requisito de release: vincular os usuários da coordenação a uma Pessoa ativa
+(`app_users.pessoa_id`); a proteção contra autovalidação retorna 403 sem vínculo.
+A segregação de funções vive no serviço, não no banco (limite aceito).
+Somente Reencontro admite revogação nesta fatia. Revalidá-lo em turma encerrada
+é intencional e exige coordenação; não altera a conclusão UV existente.
