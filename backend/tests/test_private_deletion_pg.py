@@ -332,3 +332,27 @@ def test_lost_upload_cannot_starve_later_cleanup(database, private_data):
     with database.begin() as c:
         c.execute(text("update private_deletion_tasks set next_attempt_at=now()-interval '2 days' where source_id=:audio"),v)
     assert process_storage_tasks(factory,storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None),limit=1)==1
+
+
+def test_audio_derivatives_of_other_people_and_church_are_untouched(database, private_data):
+    v=private_data
+    others=[]
+    with database.begin() as c:
+        for conv,person,tenant,digest in ((v['conv2'],v['person2'],v['tenant'],'d'),
+                                          (v['conv3'],v['person3'],v['other'],'e')):
+            audio_id=uuid4(); others.append(audio_id)
+            c.execute(text("""insert into cell_report_audio_inputs
+                (id,igreja_id,conversation_id,pessoa_id,inbound_message_id,provider_message_sha256,storage_path,
+                 state,transcription_attempts,purge_state,purge_attempts,transcript_text,transcript_sha256,
+                 content_sha256,received_at,expires_at,updated_at)
+                select :id,:tenant,:conv,:person,m.id,repeat(:digest,64),:path,'transcrita',1,'ativa',0,
+                 'Synthetic unrelated',repeat(:digest,64),repeat(:digest,64),now(),now()+interval '24 hours',now()
+                from messages m where m.igreja_id=:tenant and m.conversation_id=:conv limit 1"""),
+                dict(id=audio_id,tenant=tenant,conv=conv,person=person,digest=digest,
+                     path=f'{tenant}/cell-report-audio/unrelated.ogg'))
+        before=c.execute(text('select id,transcript_text,transcript_sha256,content_sha256,storage_path from cell_report_audio_inputs where id in (:a,:b) order by id'),dict(a=others[0],b=others[1])).all()
+    with api(database,v) as client:
+        assert client.delete(f"/conversations/{v['conv']}").status_code==200
+    with database.connect() as c:
+        after=c.execute(text('select id,transcript_text,transcript_sha256,content_sha256,storage_path from cell_report_audio_inputs where id in (:a,:b) order by id'),dict(a=others[0],b=others[1])).all()
+    assert after==before
