@@ -22,6 +22,54 @@ objetos únicos por caminho, incluindo ponteiros V1b com referências vivas nula
 Resumos, checkpoints e vetores ainda ausentes contam zero. Não há texto,
 telefone, transcrição, caminho de Storage nem hash de conteúdo no recibo.
 
+## Retenção V1b — decisão pastoral 15
+
+Em 18/10/2026, Raniel decidiu retirar a exclusão automática em 24 horas
+somente para capturas sob consentimento `v2`: `cell_report_audio_inputs`
+conserva mídia no Storage, transcrição e hashes até
+exclusão pelo admin (conversa/pessoa/igreja), ou pedido da pessoa aprovado pelo
+admin. Revogação de transcrição, cancelamento, confirmação do relatório e
+handoff encerram o processamento, sem apagar o conteúdo já registrado. O aviso
+de aceite passa a informar essa retenção. O consentimento passa à versão `v2`:
+aceite `v1` não autoriza novo processamento; exige novo aviso entregue e novo
+`ACEITO AUDIO`, sem reativar áudio anterior ao aceite. O relatório oficial é independente.
+
+Nesta fatia, a via implementada é a exclusão de conversa da PR #509;
+pessoa/igreja continuam com os limites descritos abaixo. Não há nova aprovação
+via WhatsApp nem nova superfície de leitura. O cron continua processando tarefas
+de exclusão aprovadas, recuperando handoffs e purgando capturas pré-v2 com
+gates fechados. A purga automática mantém a promessa de até 24h para `v1`,
+versões desconhecidas e registros sem versão. O critério é o snapshot
+`cell_report_audio_inputs.consent_version`, gravado a partir do aceite na
+captura. Somente o valor exato `v2` dispensa TTL; aceite vinculado renovado
+não reclassifica registros anteriores. Sem snapshot, aplica-se purga
+conservadora, mesmo com aceite vinculado v2; não se infere retenção por data.
+A seleção e o claim sob lock aplicam o mesmo filtro; retry de Storage e
+tombstone de replay permanecem. A exclusão oficial apaga ambas as versões.
+Falhas de upload já registradas também ficam retidas; limpeza de objeto que
+nunca virou registro não é substituída por TTL. A fronteira de uploads tardios
+da exclusão oficial permanece preservada.
+
+`expires_at` permanece como prazo de processamento e de purga para pré-v2
+(no máximo 24h após `received_at`), assim como estados/colunas
+de purga por compatibilidade. Sem migration ou backfill destrutivo; registros
+já purgados não são recuperados nem reativados por esta mudança.
+
+**Acesso conferido no código:** RLS ENABLE/FORCE em `cell_report_audio_inputs`,
+policy `cell_report_audio_inputs_worker_only`: igreja corrente e worker
+`authenticated` sem subject; o usuário HTTP não ganha SELECT da transcrição.
+O serviço revalida igreja e autorização para processar. No painel não há leitura
+direta dessa tabela: o inbox mantém os endpoints de mensagens e URLs assinadas
+curtas, com `require_screen("inbox")`, autorização da conversa (admin/pastor com visão completa; responsável
+somente na conversa atribuída) e igreja; áudio
+referenciado em mensagens segue essa permissão. Resumos já presentes em mensagens
+seguem o mesmo acesso. Nenhuma policy, permissão ou tela mudou. Isso é inspeção
+do código candidato, não comprovação de políticas aplicadas remotamente.
+
+**Risco:** maior volume privado retido e custo de Storage; monitorar capacidade
+no procedimento operacional autorizado. A retenção externa de OpenAI/Evolution
+e backups não é alterada nem verificada por esta fatia.
+
 ## Inventário de referências privadas
 
 Busca por `conversation_id`/`message_id` em models e migrations ativas:
@@ -80,8 +128,7 @@ eliminação da cópia externa. Nenhum gate é aberto para reconciliar isso.
 
 ## Limpeza e recuperação
 
-O cron usa `process_storage_tasks` antes do gate de envios, assim como a purga
-já existente. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
+O cron usa `process_storage_tasks` antes do gate de envios, com purga automática por prazo somente para capturas pré-v2. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
 Falhas guardam apenas código fechado `storage_unavailable`; a tarefa continua
 pendente. Após sucesso o caminho é apagado da tarefa. O recibo só aparece

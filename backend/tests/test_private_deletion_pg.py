@@ -66,8 +66,17 @@ def api(engine, v, roles=('admin',)):
     return TestClient(app)
 
 
-def test_delete_returns_durable_receipt_instead_of_losing_storage_failures(database, private_data):
+@pytest.mark.parametrize("version", ("v1", "v2", None))
+def test_delete_returns_durable_receipt_instead_of_losing_storage_failures(database, private_data, version):
+    with database.begin() as c:
+        c.execute(text("update cell_report_audio_inputs set consent_version=:version where id=:audio"),
+                  dict(version=version, audio=private_data["audio"]))
     v = private_data
+    # Retained content remains removable by the official admin path after 24h.
+    with database.begin() as c:
+        c.execute(text("""update cell_report_audio_inputs
+            set state='transcrita', received_at=now()-interval '25 hours',
+                expires_at=now()-interval '1 hour' where id=:audio"""), v)
     with api(database, v) as client:
         response = client.delete(f"/conversations/{v['conv']}")
         assert response.status_code == 200, response.text

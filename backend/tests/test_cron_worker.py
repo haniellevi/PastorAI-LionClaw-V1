@@ -264,8 +264,8 @@ def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
     assert session.closed is True
 
 
-def test_audio_cycle_purges_when_external_transport_is_closed(monkeypatch) -> None:
-    """Retention, including its local recovery pass, ignores send gates."""
+def test_audio_cycle_purges_legacy_audio_when_transport_is_closed(monkeypatch) -> None:
+    """Legacy TTL and approved deletion run with sends closed."""
 
     import app.services.cell_report_audio_service as audio_service
     import app.services.outbound_guard as outbound_guard
