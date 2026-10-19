@@ -139,3 +139,27 @@ def test_panel_pages_history_with_bounded_database_round_trips(database, seeded)
         assert sorted(v['numero'] for v in versions) == list(range(1, 27))
         assert len({v['id'] for v in versions}) == 26
         assert c.get('/conhecimento/documentos?pagina=0').status_code == 422
+
+
+def test_reader_metadata_does_not_reveal_hidden_history_or_audiences(database, seeded):
+    with client(database, seeded) as c:
+        p = create(c, seeded)
+        p = edit(c, p, publicos=['institucional_publico', 'papel:pastor'])
+        publish(c, p)
+    with client(database, seeded, 'outsider') as c:
+        doc = c.get('/conhecimento/documentos').json()['documentos'][0]
+        version = doc['versoes'][0]
+        assert doc['vigente_numero'] == 1
+        assert version['numero'] == 1
+        assert version['publicos'] == []
+        assert 'revisada_em' not in version
+        detail = c.get('/conhecimento/versoes/' + version['id']).json()
+        assert detail['id'] == version['id']
+        assert 'documento_id' not in detail
+        assert 'revisada_em' not in detail
+        assert detail['publicos'] == []
+
+
+def test_panel_rejects_excessive_page(database, seeded):
+    with client(database, seeded) as c:
+        assert c.get('/conhecimento/documentos?pagina=101').status_code == 422

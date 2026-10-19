@@ -183,7 +183,16 @@ def ler(db,user,vid):
     # A concurrent revoke between permission and hydration cannot expose content.
     if not result or not pode_ler(db,user,vid):
         raise HTTPException(404,'Versão não encontrada')
-    return result[0]
+    version = result[0]
+    context = contexto_leitura(db, user)
+    editorial = context['admin'] or (context['revisor'] and bool(rows(db,
+        'select id from conhecimento_documentos where igreja_id=:t and id=:d and responsavel_id=:uid',
+        t=t, d=version['documento_id'], uid=context['uid'])))
+    if not editorial:
+        for field in ('documento_id', 'revisada_em', 'revisada_por', 'autor_id', 'aprovador_id', 'aprovada_em'):
+            version.pop(field, None)
+        version['publicos'] = []
+    return version
 
 
 def painel(db, user, pagina=1):
@@ -240,9 +249,15 @@ def painel(db, user, pagina=1):
                 actions.append('revogar')
         doc = documents.setdefault(version_row['documento_id'], dict(
             id=version_row['documento_id'], vigente_id=version_row['vigente_id'] if editorial else None,
-            vigente_numero=version_row['vigente_numero'], versoes=[]))
+            vigente_numero=version_row['vigente_numero'] if editorial else 1, versoes=[]))
         fields = ('id','numero','estado','publicos','criada_em','publicada_em','revisada_em')
-        doc['versoes'].append(dict({k: version_row[k] for k in fields}, pode_ler=can_read,
+        metadata = {k: version_row[k] for k in fields}
+        if not editorial:
+            # Only the current readable version is listed; hidden snapshots
+            # must not influence its ordinal or expose editorial metadata.
+            metadata.update(numero=1, publicos=[])
+            metadata.pop('revisada_em')
+        doc['versoes'].append(dict(metadata, pode_ler=can_read,
             acoes=actions, vigente=version_row['id'] == version_row['vigente_id']))
     # Hydrate labels only after authorization, in one bounded query.
     if documents:

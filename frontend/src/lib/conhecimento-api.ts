@@ -1,7 +1,7 @@
 import { ApiError, authedFetch, readDetail } from './dashboard-api';
 export interface Versao {
   id: string; numero: number; estado: string; publicos: string[];
-  criada_em: string; publicada_em: string | null; revisada_em: string | null;
+  criada_em: string; publicada_em: string | null; revisada_em?: string | null;
   vigente: boolean; pode_ler: boolean; acoes: string[];
 }
 export interface Documento { id: string; titulo: string; assunto: string; vigente_id: string | null; vigente_numero?: number | null; versoes: Versao[] }
