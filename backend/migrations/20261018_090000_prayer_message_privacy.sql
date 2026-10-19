@@ -158,6 +158,9 @@ begin
  if not found then raise exception 'conversation not found' using errcode='42501'; end if;
  select coalesce(array_agg(media_path) filter(where media_path is not null),array[]::text[])
   into paths from public.messages where igreja_id=tenant and conversation_id=conversation;
+ -- The tenant-composite FK may be NO ACTION even when the legacy single FK
+ -- cascades. Erase children explicitly before the parent, in this transaction.
+ delete from public.messages where igreja_id=tenant and conversation_id=conversation;
  delete from public.conversations where igreja_id=tenant and id=conversation;
  return paths;
 end $$;

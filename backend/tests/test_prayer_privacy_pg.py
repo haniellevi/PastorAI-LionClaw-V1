@@ -35,6 +35,22 @@ def install_privacy(prayer):
             conn.exec_driver_sql(sql)
     return prayer
 
+def install_inbox_schema(engine):
+    """Real parent + privacy migration for legacy tests which now use the inbox.
+
+    Their ORM baseline predates the mandatory projection. No authorization,
+    projection or privacy policy is mocked to keep those regressions running.
+    """
+    from types import SimpleNamespace
+    parent = MIGRATION.with_name('20261016_180000_prayer_requests.sql')
+    sql = parent.read_text().replace('public.', _SCHEMA + '.').replace(
+        'pg_catalog, public', 'pg_catalog, ' + _SCHEMA
+    ).replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA)
+    with engine.begin() as conn:
+        conn.exec_driver_sql(sql)
+    install_privacy(SimpleNamespace(engine=engine))
+
+
 def scope(db, p, role):
     db.execute(text("select set_config('app.tenant_igreja_id',:t,true), set_config('request.jwt.claims',:claims,true), set_config('role','authenticated',true)"), {'t': str(TENANT), 'claims': json.dumps({'sub': p.actors[role].clerk_user_id})})
 
@@ -139,6 +155,8 @@ def test_pastor_and_only_confirmed_nominal_leader_can_read(private_prayer):
 def test_conversation_delete_cascades_private_association(private_prayer):
     p = private_prayer
     create_request(p)
+    with p.factory.begin() as db:
+        db.execute(text('alter table messages drop constraint if exists messages_conversation_id_fkey'))
     with client_for(p, 'admin') as client:
         assert client.delete(f'/conversations/{p.conv}').status_code == 204
     with p.factory() as db:
@@ -165,6 +183,8 @@ def test_admin_delete_cleans_protected_media_without_reading(private_prayer):
     with p.factory.begin() as db:
         mid = db.get(PrayerProposal, row.proposal_id).source_message_id
         db.get(Message, mid).media_path = 'synthetic/to-delete'
+    with p.factory.begin() as db:
+        db.execute(text('alter table messages drop constraint if exists messages_conversation_id_fkey'))
     storage = Storage()
     with client_for(p, 'admin', storage) as client:
         assert client.delete(f'/conversations/{p.conv}').status_code == 204
