@@ -28,6 +28,9 @@ import {
   SessionExpiredError,
   canAccessInbox,
   deleteConversation,
+  fetchConversationDeletionReceipt,
+  isPastoralProtected,
+  type PrivateDeletionReceipt,
   fetchConversationPhoto,
   fetchConversations,
   fetchInboxAgentStatus,
@@ -201,6 +204,7 @@ function InboxSession() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deletionReceipt, setDeletionReceipt] = useState<PrivateDeletionReceipt | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Foto de perfil da conversa selecionada (Etapa 4) e transferência (#2).
@@ -476,7 +480,7 @@ function InboxSession() {
               const currentById = new Map(messagesRef.current.map(message => [message.id,message]));
               const items = page.items.map((message) => {
                 if (message.mediaUrl) mediaSignedAt.current.set(message.id,Date.now());
-                const mediaUrl = message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
+                const mediaUrl = isPastoralProtected(message) ? null : message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
                 return {...message,mediaUrl,mediaPending:page.cursorSupported && message.tipo !== "texto" && !mediaUrl};
               });
               const merge = (current: ChatMessage[]) => {
@@ -515,7 +519,7 @@ function InboxSession() {
                 void fetchMessageMediaUrls(token, convId, mediaIds, mediaController.signal).then((urls) => {
                 if (!atual() || mediaController.signal.aborted) return;
                 for (const id of mediaIds) if (urls[id]) mediaSignedAt.current.set(id,Date.now());
-                setMessages((current) => current.map((message) => mediaIds.includes(message.id) ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false } : message));
+                setMessages((current) => current.map((message) => mediaIds.includes(message.id) && !isPastoralProtected(message) ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false } : message));
               }).catch((error) => {
                 if (!atual() || mediaController.signal.aborted || handleSessionError(error)) return;
                 const forbidden = error instanceof ApiError && error.status === 403;
@@ -859,12 +863,14 @@ function InboxSession() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteConversation(token, deleteTarget.id);
+      const receipt = await deleteConversation(token, deleteTarget.id);
+      setDeletionReceipt(receipt);
       const deletedId = deleteTarget.id;
       setConversations((prev) => prev.filter((c) => c.id !== deletedId));
       if (selectedId === deletedId) setSelectedId(null);
-      setDeleteTarget(null);
-      flashToast({ kind: "ok", text: "Conversa excluída." });
+      setMessages([]);
+      messagesRef.current = [];
+      clearAuthedResponseCache();
     } catch (err) {
       if (handleSessionError(err)) return;
       setDeleteError(
@@ -873,7 +879,18 @@ function InboxSession() {
     } finally {
       setDeleting(false);
     }
-  }, [token, deleteTarget, selectedId, flashToast, handleSessionError]);
+  }, [token, deleteTarget, selectedId, handleSessionError]);
+
+  const refreshDeletionReceipt = async () => {
+    if (!token || !deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      setDeletionReceipt(await fetchConversationDeletionReceipt(token, deleteTarget.id));
+    } catch (err) {
+      if (!handleSessionError(err)) setDeleteError("Não foi possível atualizar o recibo. Tente novamente.");
+    } finally { setDeleting(false); }
+  };
 
   // ---- marcar como lida ao abrir + foto de perfil -------------------------
   useEffect(() => {
@@ -1130,9 +1147,12 @@ function InboxSession() {
           conversation={deleteTarget}
           busy={deleting}
           error={deleteError}
+          receipt={deletionReceipt}
+          onRefresh={() => void refreshDeletionReceipt()}
           onCancel={() => {
             if (deleting) return;
             setDeleteTarget(null);
+            setDeletionReceipt(null);
             setDeleteError(null);
           }}
           onConfirm={() => void confirmDelete()}

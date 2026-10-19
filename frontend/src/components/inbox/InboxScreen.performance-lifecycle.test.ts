@@ -129,3 +129,19 @@ it('legacy visit probes once then polls its established200 contract once per int
  expect(requests).toHaveBeenCalledTimes(6);
  expect(requests.mock.calls.filter(([input])=>String(input).includes('pageSize=50'))).toHaveLength(2);
 });
+
+it('a pastoral marker replaces loaded media and ignores its late signing response',async()=>{
+ let finish!: (value:Record<string,string>)=>void;
+ api.fetchMessageMediaUrls.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ const marker={...message,tipo:'texto',texto:'Mensagem pastoral protegida',mediaMime:null,mediaNome:null,mediaUrl:null};
+ api.fetchLoadedMessageRange.mockResolvedValue({items:[marker],total:1,page:1,pageSize:50,cursorSupported:true,nextBefore:null,nextAfter:'cursor-latest',rangeReconciled:true});
+ await act(async()=>root.render(h(InboxScreen)));
+ const button=container.querySelector<HTMLButtonElement>('button.conv')!;
+ await act(async()=>button.click());
+ await act(async()=>vi.advanceTimersByTimeAsync(60_000));
+ expect(container.textContent).toContain('Encaminhe o atendimento ao pastor.');
+ await act(async()=>finish({'synthetic-message':'https://example.test/late-private-url'}));
+ expect(container.innerHTML).not.toContain('late-private-url');
+ expect(container.innerHTML).not.toContain('synthetic.ogg');
+ expect(container.querySelector('audio')).toBeNull();
+});
