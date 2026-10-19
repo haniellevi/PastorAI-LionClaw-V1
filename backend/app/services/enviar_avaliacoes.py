@@ -64,7 +64,7 @@ def snapshot_aptidao(db: Session, pessoa: Pessoa) -> dict:
     states = {p.criterio: p.estado.value for p in result.pendencias}
     return dict(avaliacao_id=str(latest.id), avaliada_em=latest.criada_em.isoformat(),
         versao_regras=latest.versao_regras,
-        criterios={c: states.get(c, EstadoEvidencia.COMPROVADA.value) for c in CRITERIOS_PROVISORIOS})
+        criterios={c: states.get(c, EstadoEvidencia.NAO_INFORMADA.value) for c in CRITERIOS_PROVISORIOS})
 
 
 def _snapshot(pessoa):

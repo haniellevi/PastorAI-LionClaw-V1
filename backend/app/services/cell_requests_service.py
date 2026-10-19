@@ -509,7 +509,7 @@ def approve(
                 db.flush()
                 nomination_snapshot.update(efeito="celula_aberta", celula_criada_id=str(cell.id))
         elif solicitacao.tipo == TIPO_MULTIPLICACAO:
-            execute_multiplication(
+            multiplication = execute_multiplication(
                 db,
                 igreja_id=solicitacao.igreja_id,
                 cell_origin=cell,
@@ -518,10 +518,16 @@ def approve(
                 idempotency_key=(idempotency_key or "").strip(),
                 approver_app_user_id=approver_app_user_id,
             )
-            # execute_multiplication revalidated and holds the candidate lock.
+            if multiplication.solicitacao_id != solicitacao.id:
+                raise HTTPException(409, "Chave de idempotência já utilizada por outra solicitação")
+            # Idempotent execution may return before validating/locking Pessoa.
+            # Always reload under lock and revalidate before the approval snapshot.
             candidate = db.execute(select(Pessoa).where(
                 Pessoa.id == uuid.UUID(solicitacao.payload_proposto['novo_lider_id']),
-                Pessoa.igreja_id == solicitacao.igreja_id)).scalar_one()
+                Pessoa.igreja_id == solicitacao.igreja_id).with_for_update()
+                .execution_options(populate_existing=True)).scalar_one()
+            if not aptidao_vigente(db, candidate):
+                raise HTTPException(409, "Multiplicação exige avaliação de aptidão vigente; solicite revisão pastoral")
             nomination_snapshot = dict(solicitacao.payload_proposto,
                 aptidao=snapshot_aptidao(db, candidate))
         else:

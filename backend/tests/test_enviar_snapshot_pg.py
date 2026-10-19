@@ -43,13 +43,13 @@ def multiplication_request(v):
         return request.id, member
 
 
-def approve_multiplication(v, request_id):
+def approve_multiplication(v, request_id, *, idempotency_key=None):
     from app.db.models import Celula, CelulaSolicitacao
     from app.services.cell_requests_service import approve as service_approve
     with scoped(v) as s:
         return service_approve(s, solicitacao=s.get(CelulaSolicitacao, request_id),
             cell=s.get(Celula,v['cell']), actor_pessoa_id=v['actor_p'],
-            approver_app_user_id=v['u'], idempotency_key=str(request_id))
+            approver_app_user_id=v['u'], idempotency_key=idempotency_key or str(request_id))
 
 
 def test_multiplication_snapshot_transfer_and_idempotency(nomination):
@@ -129,3 +129,57 @@ def test_waiting_multiplication_revalidates_committed_evaluation(nomination):
     with scoped(v) as s:
         assert len(s.scalars(select(Celula)).all())==1
         assert s.get(CelulaSolicitacao,request_id).status=='aguardando'
+
+
+def test_snapshot_without_pending_criterion_does_not_attest_reference(nomination, monkeypatch):
+    from app.db.models import Pessoa
+    from app.domain.enviar import ResultadoEnviar, SituacaoEnviar
+    from app.services import enviar_avaliacoes
+    v = nomination
+    # The adapter has no official references, even if every criterion is clear.
+    monkeypatch.setattr(enviar_avaliacoes, 'ler_pendencias_pessoa',
+        lambda *a, **kw: ResultadoEnviar(situacao=SituacaoEnviar.APTO_PARA_AVALIACAO))
+    with scoped(v) as s:
+        snapshot = enviar_avaliacoes.snapshot_aptidao(s, s.get(Pessoa, v['p']))
+    assert snapshot['criterios'] == dict(uv='nao_informada', cd='nao_informada', reencontro='nao_informada')
+
+
+def test_multiplication_rejects_key_from_another_request(nomination):
+    from fastapi import HTTPException
+    from app.db.models import CelulaSolicitacao, Multiplicacao
+    v = nomination
+    first, _ = multiplication_request(v)
+    approve_multiplication(v, first)
+    second, _ = multiplication_request(v)
+    with pytest.raises(HTTPException) as error:
+        approve_multiplication(v, second, idempotency_key=str(first))
+    assert error.value.status_code == 409
+    with scoped(v) as s:
+        assert s.get(CelulaSolicitacao, second).status == 'aguardando'
+        assert s.scalars(select(CelulaSolicitacaoEvento).where(
+            CelulaSolicitacaoEvento.solicitacao_id == second)).all() == []
+        assert len(s.scalars(select(Multiplicacao)).all()) == 1
+
+
+def test_existing_multiplication_revalidates_aptitude_before_snapshot(nomination):
+    from fastapi import HTTPException
+    from app.db.models import Celula, CelulaSolicitacao
+    from app.services.cell_multiplication_service import execute_multiplication
+    from tests.test_enviar_avaliacoes_pg import decide, command
+    v = nomination
+    request_id, _ = multiplication_request(v)
+    with scoped(v) as s:
+        request = s.get(CelulaSolicitacao, request_id)
+        execute_multiplication(s, igreja_id=v['t'], cell_origin=s.get(Celula, v['cell']),
+            payload=request.payload_proposto, solicitacao_id=request_id, idempotency_key=str(request_id))
+        s.commit()
+    with scoped(v) as s:
+        decide(s, v, command(decisao='nao_apto', origem='avaliacao'))
+        s.commit()
+    with pytest.raises(HTTPException) as error:
+        approve_multiplication(v, request_id)
+    assert error.value.status_code == 409
+    with scoped(v) as s:
+        assert s.get(CelulaSolicitacao, request_id).status == 'aguardando'
+        assert s.scalars(select(CelulaSolicitacaoEvento).where(
+            CelulaSolicitacaoEvento.solicitacao_id == request_id)).all() == []
