@@ -192,6 +192,13 @@ def _handle(db, contact, source):
             response, proposal = service.propose(db, user, command, args)
             return response, dict(meta, stage='proposal', proposal=proposal,
                 term_version=contact.term_version)
+        if command == 'clarify' and pending is not None:
+            raw = pending.agent_privilege_context
+            # Keep the original delivery deadline; clarification never confirms
+            # or extends the proposal and creates no domain request.
+            return ('Para registrar a solicitação, responda somente SIM ou NÃO em até 10 minutos da proposta original.',
+                dict(meta, stage='proposal', actor_id=raw['actor_id'], proposal=raw['proposal'],
+                    term_version=raw['term_version'], delivered_at=raw['delivered_at']))
         if command == 'confirm' and pending is not None:
             raw = pending.agent_privilege_context
             if raw['actor_id'] != user.app_user_id:
