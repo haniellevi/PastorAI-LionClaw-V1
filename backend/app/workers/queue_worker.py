@@ -1307,6 +1307,11 @@ def ingest_message_event_ex(
     if ownership_guard is not None:
         ownership_guard()
 
+    from app.services.private_deletion import event_was_deleted
+
+    if event_was_deleted(db, igreja_id, parsed.provider_message_id):
+        return IngestionOutcome(result=IngestionResult.IGNORED)
+
     # V1b retains a provider-digest tombstone after the original Message is
     # deleted.  Consult it before creating a new contact/conversation so a
     # replay cannot recreate an inbound, private object path, or paid job.
@@ -1401,8 +1406,13 @@ def ingest_message_event_ex(
         select(Conversation).where(
             Conversation.igreja_id == igreja_id,
             Conversation.pessoa_id == pessoa.id,
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     ).scalar_one_or_none()
+
+    # Deletion may have committed while the conversation row lock was awaited.
+    # Recheck before creating a replacement thread for an already deleted event.
+    if event_was_deleted(db, igreja_id, parsed.provider_message_id):
+        return IngestionOutcome(result=IngestionResult.IGNORED)
 
     if conversation is None:
         conversation = Conversation(
@@ -1415,6 +1425,8 @@ def ingest_message_event_ex(
         )
         db.add(conversation)
         db.flush()
+
+    deletion_generation = conversation.deletion_generation
 
     # V1b begins as a candidate only.  The persisted inbound is then checked
     # against the server-owned report scope before the generic media path is
@@ -1438,6 +1450,11 @@ def ingest_message_event_ex(
                 "Falha ao baixar/guardar mídia da mensagem %s",
                 parsed.provider_message_id,
             )
+
+    # The conversation row remains locked across media I/O and this write.
+    if conversation.deletion_generation != deletion_generation:
+        db.rollback()
+        return IngestionOutcome(result=IngestionResult.IGNORED)
 
     message = Message(
         igreja_id=igreja_id,

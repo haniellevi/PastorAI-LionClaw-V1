@@ -646,3 +646,17 @@ def test_v1a_text_extraction_survives_audio_schema_not_installed(audio_turn, mon
     assert len(calls) == 1
     assert len(_rows(audio_turn, AgentActionProposal)) == 1
     assert providers.counts['download'] == providers.counts['upload'] == providers.counts['transcribe'] == 0
+
+
+def test_private_deletion_preserves_unknown_upload_ownership_on_storage_timeout(audio_turn):
+    from app.db.models import PrivateDeletionUpload
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    class UnknownStorage:
+        def upload_cell_report_audio(self, **kwargs):
+            raise TimeoutError('Synthetic unknown remote result')
+    service.dispatch_cell_report_audio_inputs(audio_turn.factory,
+        evolution_client=providers.evolution, storage=UnknownStorage(),
+        decoder=decode_audio_bytes, transcriber=providers.transcribe, limit=1)
+    assert len(_rows(audio_turn, PrivateDeletionUpload)) == 1
+    assert providers.counts['transcribe'] == 0
