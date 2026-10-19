@@ -781,6 +781,8 @@ def send_media_message(
             detail="Envios externos ainda não habilitados.",
         )
 
+    deletion_generation = conv.deletion_generation
+
     # Storage primeiro (ponteiro), depois despacho. Se o upload falhar, nada é
     # enviado; se o envio falhar, não persistimos linha "enviada" fantasma.
     try:
@@ -791,6 +793,11 @@ def send_media_message(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+
+    from app.services.private_deletion import lock_generation
+
+    if not lock_generation(db, uuid.UUID(current_user.igreja_id), conv.id, deletion_generation):
+        raise HTTPException(409, "Conversa excluída durante o upload")
 
     # O nome de quem responde vai PREFIXADO na legenda do WhatsApp (mesmo sem
     # legenda, envia o nome); no banco guardamos a legenda limpa + autor_nome.
@@ -840,41 +847,35 @@ def send_media_message(
     return MessageOut.from_model(msg, media_url=signed.get(stored.path))
 
 
-@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{conversation_id}")
 def delete_conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
-    storage: SupabaseStorage = Depends(get_storage),
-) -> Response:
-    """Excluir permanentemente uma conversa e tudo que ela contém (admin-only).
+) -> dict:
+    """Admin approval: atomically erase private content and enqueue cleanup."""
+    from app.services.private_deletion import delete_private
 
-    Ação destrutiva e irreversível: remove a conversa, suas mensagens (cascata
-    via FK ``messages.conversation_id``) e limpa a mídia no Storage (best-effort).
-    Restrita ao admin — o inbox é acessível a outros papéis, mas a exclusão não.
-    Tenant-scoped (RLS): só apaga conversas da própria igreja.
-    """
-    conv = _get_conversation(db, conversation_id)
+    return delete_private(db, scope="conversa", igreja_id=uuid.UUID(current_user.igreja_id),
+                          target_id=_parse_uuid(conversation_id))
 
-    # Coleta os ponteiros de mídia ANTES de apagar (a cascata leva as mensagens
-    # junto). A limpeza no Storage é best-effort e roda após o commit, então
-    # nunca bloqueia a exclusão da conversa em si.
-    media_paths = list(
-        db.execute(
-            select(Message.media_path).where(
-                Message.conversation_id == conv.id,
-                Message.media_path.is_not(None),
-            )
-        ).scalars().all()
-    )
 
-    db.delete(conv)  # ON DELETE CASCADE remove as mensagens da conversa
-    db.commit()
+@router.get("/{conversation_id}/deletion-receipt")
+def conversation_deletion_receipt(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> dict:
+    from sqlalchemy import text
+    from app.services.private_deletion import receipt
 
-    if media_paths:
-        storage.remove(media_paths)
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    tenant = uuid.UUID(current_user.igreja_id)
+    rid = db.execute(text("select id from private_deletion_receipts where igreja_id=:t "
+                          "and scope='conversa' and target_id=:c"),
+                     dict(t=tenant, c=_parse_uuid(conversation_id))).scalar_one_or_none()
+    if rid is None:
+        raise HTTPException(404, "Recibo não encontrado")
+    return receipt(db, tenant, rid)
 
 
 # ---------------------------------------------------------------------------
