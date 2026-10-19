@@ -7,15 +7,23 @@ The router reads only the persisted inbound. The sole writer is the domain servi
 import re
 import unicodedata
 
+# Provisional pastoral decisions are centralized in policy.py.
+from app.prayer.policy import DISCLOSURE
+
 ACTION = "registrar_pedido_oracao"
-AUTHORIZATION_VERSION = "prayer-own-text-v1-20261016"
-DISCLOSURE = "A equipe que atende o WhatsApp da igreja pode ver esta conversa."
+AUTHORIZATION_VERSION = "prayer-own-text-v2-20261018"
+START_COMMAND = "quero iniciar pedido de oracao"
 AUDIENCE_QUESTION = (
     "Com quem autoriza compartilhar? Responda SÓ PASTORES ou "
     "PASTORES E MEU LÍDER. Sem uma escolha clara, o pedido não será registrado na lista de oração."
 )
+COLLECT_QUESTION = (
+    "A coleta protegida começou. Envie seu pedido próprio por texto: "
+    "Peço oração por mim: ..."
+)
 OWN_QUESTION = (
-    "Nesta versão, envie seu pedido próprio por texto: Peço oração por mim: ..."
+    "Para começar a coleta protegida, envie QUERO INICIAR PEDIDO DE ORAÇÃO. "
+    "Depois envie seu pedido próprio por texto: Peço oração por mim: ..."
 )
 
 

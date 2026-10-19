@@ -43,6 +43,8 @@ def test_own_request_and_honest_disclosure():
     text = presentation("preciso de força.", "pastoral", None)
     assert "preciso de força." in text
     assert "equipe pastoral" in text
-    assert "equipe que atende o WhatsApp" in text
+    assert "pastores ativos" in text
+    assert "Admin e atendimento não têm acesso por cargo" in text
+    assert "não protege retroativamente" in text
     assert "SIM" in text
     assert "10 minutos" in text
