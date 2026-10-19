@@ -1256,6 +1256,8 @@ def ingest_message_event_ex(
     # listener after_begin (D2) reaplica o escopo em toda transação futura desta
     # sessão marcada — inclusive após o commit da ingestão.
     promote_to_tenant(db, igreja_id, source="worker_ingest")
+    from app.services.private_deletion import acquire_ingestion_barrier
+    acquire_ingestion_barrier(db, igreja_id)
     inbound = not parsed.from_me
 
     # The Redis processing list is the live ownership record. A handler whose
