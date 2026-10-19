@@ -40,10 +40,10 @@ it("erro recuperável mantém atualização disponível", async () => {
   expect(button("Atualizar turmas")?.disabled).toBe(false);
 });
 
-it("turma encerrada mantém consulta e desabilita formulários", async () => {
+it("turma encerrada mantém consulta e desabilita formulários da UV", async () => {
   state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [{ ...turma, encerrada: true }] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true }));
   await render(); await act(async () => { button("Turma teste")!.click(); });
-  expect(Array.from(container.querySelectorAll("fieldset")).every(f => f.disabled)).toBe(true);
+  expect(Array.from(container.querySelectorAll("fieldset")).filter(f => !f.querySelector("legend")?.textContent?.startsWith("Reencontro:")).every(f => f.disabled)).toBe(true);
   expect(button("Matricular pessoa")?.disabled).toBe(true);
   expect(button("Encerrar turma")).toBeUndefined();
 });
@@ -240,4 +240,19 @@ it("Reencontro revogado sinaliza bloqueio sem destituição", async () => {
   expect(container.textContent).toContain("evidência revogada");
   expect(container.textContent).toContain("liderança preservada");
   expect(button("Revogar Reencontro")).toBeUndefined();
+});
+
+it("Reencontro continua disponível após encerrar a turma UV", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true, matriculas: [{ ...detail.matriculas[0], marcos: [], conclusao: null }] }));
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Validar reencontro")!.closest("fieldset")!.disabled).toBe(false);
+  expect(button("Validar batismo")!.closest("fieldset")!.disabled).toBe(true);
+});
+
+it("revogação de Reencontro continua disponível na turma encerrada", async () => {
+  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: false, validada_por: "coordenação" }] }] }));
+  await render();
+  await act(async () => { button("Turma teste")!.click(); });
+  expect(button("Revogar Reencontro")!.closest("fieldset")!.disabled).toBe(false);
 });

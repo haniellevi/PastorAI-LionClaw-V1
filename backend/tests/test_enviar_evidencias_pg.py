@@ -142,6 +142,7 @@ def test_reencontro_http_validation_revocation_is_audited_and_idempotent(databas
     v=seeded
     with scoped(database,v['t']) as s:
         tid,mid=complete(s,v)
+        uv.close(s,principal(v),tid)  # Reencontro belongs to Pessoa after UV too.
         s.commit()
     app=FastAPI(); app.include_router(router)
     def db():

@@ -9,11 +9,11 @@ type Actions = { disabled: boolean; request: Request; run: Run; reload: () => Pr
 export function UVFormation({ detail, busy, coordination, ...actions }: Omit<Actions, "disabled"> & { detail: TurmaDetalhe; busy: boolean; coordination: boolean }) {
   return <section className="card"><h3>Marcos e conclusão</h3>
     <p>Oito aulas cumpridas, Encontro e batismo validados e confirmação humana. A conexão à célula continua como pendência. Ninguém repete o batismo.</p>
-    {detail.matriculas.map(m => <Formation key={m.id} enrollment={m} turma={detail.id} coordination={coordination} disabled={busy || detail.encerrada} {...actions} />)}
+    {detail.matriculas.map(m => <Formation key={m.id} enrollment={m} turma={detail.id} coordination={coordination} reencontroDisabled={busy} disabled={busy || detail.encerrada} {...actions} />)}
   </section>;
 }
 
-function Formation({ enrollment: m, turma, disabled, coordination, request, run, reload }: Actions & { enrollment: MatriculaUV; turma: string; coordination: boolean }) {
+function Formation({ enrollment: m, turma, disabled, coordination, reencontroDisabled, request, run, reload }: Actions & { enrollment: MatriculaUV; turma: string; coordination: boolean; reencontroDisabled: boolean }) {
   const [confirmed, setConfirmed] = useState(false);
   const receipt = useRef<string | null>(null);
   const base = `/${turma}/matriculas/${m.id}`;
@@ -23,8 +23,8 @@ function Formation({ enrollment: m, turma, disabled, coordination, request, run,
       if (tipo === "reencontro" && !coordination && !m.marcos?.some(v => v.tipo === tipo)) return null;
       const record = m.marcos?.find(v => v.tipo === tipo);
       return record ? <div key={tipo}><p>{tipo === "encontro" ? "Encontro" : tipo === "reencontro" ? "Reencontro" : "Batismo"}: {record.data} · {record.anterior_turma ? "Anterior à turma de origem" : "Durante a turma de origem"}: {record.turma_nome} · Validado por {record.validada_por} em {record.validada_em}</p>
-          {record.revogada ? <p>Reencontro: evidência revogada em {record.revogada_em}. Novas nomeações bloqueadas; liderança preservada.</p> : tipo === "reencontro" && coordination ? <Revoke base={base} disabled={disabled} request={request} run={run} reload={reload} /> : null}</div>
-        : <Milestone key={tipo} tipo={tipo} base={base} disabled={disabled || (tipo !== "reencontro" && !!m.conclusao)} request={request} run={run} reload={reload} />;
+          {record.revogada ? <p>Reencontro: evidência revogada em {record.revogada_em}. Novas nomeações bloqueadas; liderança preservada.</p> : tipo === "reencontro" && coordination ? <Revoke base={base} disabled={reencontroDisabled} request={request} run={run} reload={reload} /> : null}</div>
+        : <Milestone key={tipo} tipo={tipo} base={base} disabled={tipo === "reencontro" ? reencontroDisabled : disabled || !!m.conclusao} request={request} run={run} reload={reload} />;
     })}
     {m.conclusao ? <p role="status">UV concluída em {m.conclusao.confirmada_em} por {m.conclusao.confirmada_por}. Jornada: {m.conclusao.etapa_anterior ?? "Sem etapa"} → {m.conclusao.etapa_resultante}. Aptidão à próxima CD: {m.conclusao.origem_aptidao}. Sem matrícula automática.</p>
       : <form onSubmit={e => {

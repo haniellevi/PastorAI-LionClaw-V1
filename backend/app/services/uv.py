@@ -397,7 +397,7 @@ def milestone(db, user, turma_id, matricula_id, tipo, payload):
                 payload.id,person['id'],turma_id,matricula_id,tipo,payload.data,payload.anterior_turma,uid):
             raise HTTPException(409, 'Marco já validado ou identificador reutilizado. Batismo não se repete')
         return r
-    if current['encerrada']:
+    if current['encerrada'] and tipo != 'reencontro':
         raise HTTPException(409, 'Turma encerrada')
     if payload.data > today_sao_paulo():
         raise HTTPException(422, 'Marco não pode ter data futura')
