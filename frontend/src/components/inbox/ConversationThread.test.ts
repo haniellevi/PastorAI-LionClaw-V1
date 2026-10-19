@@ -10,7 +10,7 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { Conversation } from "@/lib/conversations-api";
+import type { ChatMessage, Conversation } from "@/lib/conversations-api";
 
 import { ConversationThread } from "./ConversationThread";
 import type { AgentAvailability } from "./conversation-format";
@@ -45,6 +45,7 @@ let root: Root;
 function render(
   conversation: Conversation,
   agentAvailability: AgentAvailability = "active",
+  messages: ChatMessage[] = [],
 ) {
   act(() => {
     root.render(
@@ -57,7 +58,7 @@ function render(
         agentAvailability,
         busy: false,
         conflict: null,
-        messages: [],
+        messages,
         messagesLoading: false,
         panelOpen: false,
         isAdmin: false,
@@ -167,4 +168,15 @@ describe("ConversationThread — sem interesse ⇒ IA pausada (CONV-AI-1)", () =
     expect(text).not.toContain("IA ativa");
     expect(text).toContain("Assumir atendimento");
   });
+});
+
+
+it("renders the server pastoral marker as text without media controls", () => {
+  render(conv({ ultimaMensagem: "Mensagem pastoral protegida" }), "active", [{
+    id: "private-synthetic", direcao: "in", autor: "contato", autorNome: null,
+    tipo: "texto", texto: "Mensagem pastoral protegida",
+    mediaUrl: null, mediaMime: null, mediaNome: null, criadoEm: "2026-10-18T12:00:00Z",
+  }]);
+  expect(container.textContent).toContain("Mensagem pastoral protegida");
+  expect(container.querySelector(".msg-img, audio, a[download]")).toBeNull();
 });

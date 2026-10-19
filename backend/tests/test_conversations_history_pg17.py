@@ -6,15 +6,16 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Column, MetaData, Table, text
 
 from app.db.models import Conversation, Message, RolePermission
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.deps import get_current_user
 from app.domain.agent_reply import AGENT_REPLY_PENDING
 from app.services.storage import get_storage
-from tests.test_work_queue_snapshot import queue_db, TENANT, OTHER, ACTOR  # noqa: F401
-from tests.conftest_rls import rls_database_url  # noqa: F401
+from tests.test_prayer_privacy_pg import (  # noqa: F401
+    private_prayer, prayer, msg_engine_fx, rls_database_url, scope,
+)
+from tests.test_prayer_requests_pg import TENANT, FOREIGN as OTHER
 
 pytestmark = pytest.mark.rls_integration
 CONV = uuid.UUID(int=20)
@@ -22,53 +23,42 @@ OTHER_CONV = uuid.UUID(int=21)
 
 
 @pytest.fixture
-def history_db(queue_db):
-    session, connection, role = queue_db
-    metadata = MetaData()
-    tables = {}
-    for model in (Conversation, Message, RolePermission):
-        table = Table(model.__tablename__, metadata, *(Column(
-            c.name, c.type, primary_key=c.primary_key, nullable=c.nullable,
-            server_default=c.server_default,
-        ) for c in model.__table__.columns))
-        table.create(connection)
-        connection.execute(text(f'ALTER TABLE {table.name} ENABLE ROW LEVEL SECURITY'))
-        connection.execute(text(f"CREATE POLICY tenant ON {table.name} FOR ALL USING "
-            "(igreja_id = current_setting('app.tenant_igreja_id')::uuid) "
-            "WITH CHECK (igreja_id = current_setting('app.tenant_igreja_id')::uuid)"))
-        connection.execute(text(f'GRANT SELECT ON {table.name} TO "{role}"'))
-        tables[model.__tablename__] = table
-    connection.execute(tables["role_permissions"].insert(), {
-        "igreja_id": TENANT, "papel": "secretaria", "tela": "inbox",
-    })
-    connection.execute(tables["conversations"].insert(), [
-        {"id": CONV, "igreja_id": TENANT, "telefone": "00000000000", "assumido_por": ACTOR},
-        {"id": OTHER_CONV, "igreja_id": OTHER, "telefone": "00000000001", "assumido_por": ACTOR},
-    ])
-    for index in range(1, 9):
-        connection.execute(tables["messages"].insert(), {
-            "id": uuid.UUID(int=100 + index), "igreja_id": TENANT if index < 8 else OTHER,
-            "conversation_id": CONV if index < 8 else OTHER_CONV,
-            "direcao": "out" if index == 7 else "in", "autor": "ia" if index == 7 else "contato",
-            "agent_reply_state": AGENT_REPLY_PENDING if index == 7 else None,
-            "texto": f"Synthetic {index}", "media_path": f"{TENANT}/{CONV}/{index}.png",
-            "criado_em": dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
-        })
-    yield queue_db
+def history_db(private_prayer):
+    p = private_prayer
+    with p.factory.begin() as db:
+        db.add_all([
+            Conversation(id=CONV, igreja_id=TENANT, telefone="00000000000"),
+            Conversation(id=OTHER_CONV, igreja_id=OTHER, telefone="00000000001"),
+        ])
+        db.flush()
+        for index in range(1, 9):
+            db.add(Message(
+                id=uuid.UUID(int=100 + index), igreja_id=TENANT if index < 8 else OTHER,
+                conversation_id=CONV if index < 8 else OTHER_CONV,
+                direcao="out" if index == 7 else "in", autor="ia" if index == 7 else "contato",
+                agent_reply_state=AGENT_REPLY_PENDING if index == 7 else None,
+                texto=f"Synthetic {index}", media_path=f"{TENANT}/{CONV}/{index}.png",
+                criado_em=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            ))
+    return p
 
 
 def client_for(app, history_db, roles=("admin",)):
-    session, connection, role = history_db
-    connection.execute(text("SELECT set_config('app.tenant_igreja_id', :tenant, true)"), {"tenant": str(TENANT)})
-    connection.execute(text(f'SET LOCAL ROLE "{role}"'))
-    app.dependency_overrides[get_db] = lambda: session
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        app_user_id=str(ACTOR), clerk_user_id="synthetic-history", igreja_id=str(TENANT),
-        email="synthetic@example.invalid", nome="Synthetic", roles=frozenset(roles))
+    import dataclasses
+    p = history_db
+    sessions = []
+    def dependency():
+        with p.factory() as db:
+            scope(db, p, 'admin')
+            sessions.append(db)
+            yield db
+    app.dependency_overrides[get_db] = dependency
+    app.dependency_overrides[get_current_user] = lambda: dataclasses.replace(
+        p.actors['admin'], roles=frozenset(roles))
     calls = []
     class Storage:
         def sign(self, paths):
-            assert not session.in_transaction()
+            assert not sessions[-1].in_transaction()
             calls.append(list(paths))
             return {path: "https://synthetic.example.invalid/signed" for path in paths}
     app.dependency_overrides[get_storage] = lambda: Storage()
@@ -114,9 +104,10 @@ def test_delta_is_bounded_and_media_signs_only_authorized_ids(app, history_db):
 
 
 def test_handoff_revokes_media_read_before_storage_call(app, history_db):
-    session, connection, _ = history_db
-    connection.execute(text("UPDATE conversations SET assumido_por=:actor WHERE id=:id"),
-                       {"actor": uuid.UUID(int=99), "id": CONV})
+    p = history_db
+    with p.factory.begin() as db:
+        db.get(Conversation, CONV).assumido_por = uuid.UUID(p.actors['membro'].app_user_id)
+        db.add(RolePermission(igreja_id=TENANT, papel="secretaria", tela="inbox"))
     client, calls = client_for(app, history_db, roles=("secretaria",))
     response = client.get(f"/conversations/{CONV}/messages/media-urls", params={"ids": str(uuid.UUID(int=101))})
     assert response.status_code == 404

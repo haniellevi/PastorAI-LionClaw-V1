@@ -549,3 +549,55 @@ def test_preflight_renews_full_window_and_rejects_expired_owner(database, privat
     with scoped(database, v['tenant']) as s:
         assert lock_generation(s, v['tenant'], v['conv'], 0)
         assert not renew_agent_send(s, v['tenant'], v['conv'], v['message'], 0)
+
+
+def test_prayer_collection_media_erased_without_admin_read(database, private_data):
+    from app.services.private_deletion import process_storage_tasks
+    v = private_data
+    with database.begin() as c:
+        # A content-free orphan fence is also the state left by person offboarding.
+        c.execute(text("insert into pedido_oracao_mensagem(igreja_id,conversation_id,message_id) values(:tenant,:conv,:message)"), v)
+        # The composite FK may remain NO ACTION even without the legacy cascade.
+        c.exec_driver_sql('alter table messages drop constraint if exists messages_conversation_id_fkey')
+    with scoped(database, v['tenant'], admin=True) as s:
+        assert s.execute(text('select id from messages where id=:message'), v).first() is None
+    with api(database, v) as client:
+        response = client.delete(f"/conversations/{v['conv']}")
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result['camadas']['mensagens']['apagadas'] == 1
+        assert result['camadas']['midias']['pendentes'] == 2
+        assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json() == result
+        assert 'synthetic.png' not in response.text and 'Synthetic private text' not in response.text
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from pedido_oracao_mensagem where conversation_id=:conv'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+    calls = []
+    class Storage:
+        def remove_tenant_media(self, tenant, paths):
+            assert tenant == v['tenant']
+            calls.extend(paths)
+    assert process_storage_tasks(lambda: Session(database), storage=Storage(), now=dt.datetime.now(dt.UTC)+dt.timedelta(days=1)) == 2
+    assert f"{v['tenant']}/{v['conv']}/synthetic.png" in calls
+    with database.connect() as c:
+        assert c.execute(text("select count(*) from private_deletion_tasks where igreja_id=:tenant and (state!='concluida' or storage_path is not null)"), v).scalar_one() == 0
+
+
+def test_privileged_church_erasure_keeps_protected_media_in_manifest(database, private_data):
+    from app.db.tenant_session import mark_cross_tenant
+    from app.services.tenant_deletion import delete_tenant_locally, TenantDeletionActor
+    v = private_data
+    with database.begin() as c:
+        c.execute(text('insert into pedido_oracao_mensagem(igreja_id,conversation_id,message_id) values(:tenant,:conv,:message)'), v)
+    with Session(database) as s:
+        mark_cross_tenant(s, source='synthetic_church_erasure_test')
+        result = delete_tenant_locally(s, v['tenant'], TenantDeletionActor(v['admin'], 'synthetic@example.invalid'))
+        s.commit()
+        assert result.deleted_now
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from pedido_oracao_mensagem where igreja_id=:tenant'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:tenant'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+        manifest = c.execute(text('select detalhe from platform_audit_log where alvo_id=:tenant'), v).scalars().all()
+        assert f"{v['tenant']}/{v['conv']}/synthetic.png" in json.dumps(manifest)
