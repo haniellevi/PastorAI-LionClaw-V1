@@ -32,7 +32,7 @@ const LOCKED_SCREENS = new Set<string>();
 
 /** Telas acessíveis a qualquer usuário, fora da matriz de permissões (ex.: o
  *  próprio perfil — todo mundo edita os próprios dados). */
-const ALWAYS_ALLOWED = new Set(["perfil"]);
+const ALWAYS_ALLOWED = new Set(["perfil", "conhecimento"]);
 
 /** Telas restritas ao DONO (admin principal) da igreja — admin não basta (#4). */
 const OWNER_ONLY = new Set(["assinatura"]);

@@ -128,3 +128,8 @@ def buscar(q: str=Query(min_length=1,max_length=200),
            limite: int=Query(default=10,ge=1,le=20),db: Session=DB,user: CurrentUser=USER):
     from app.services.conhecimento import buscar as busca_autorizada
     return busca_autorizada(db,user,q,limite)
+
+
+@router.get('/documentos')
+def listar(db: Session=DB,user: CurrentUser=USER):
+    return service.painel(db,user)

@@ -183,3 +183,57 @@ def ler(db,user,vid):
     if not result or not pode_ler(db,user,vid):
         raise HTTPException(404,'Versão não encontrada')
     return result[0]
+
+
+def painel(db, user):
+    """Metadados editoriais; conteúdo continua exclusivamente em ler/pode_ler.
+
+    Metadados de gestão seguem as mesmas áreas de executar; não concedem
+    leitura de texto publicado fora do público nem de versões retiradas.
+    Pastor não recebe metadados de seu rascunho antes de enviá-lo para revisão.
+    """
+    t, uid, roles = actor(db, user)
+    admin = bool(roles & PUBLICADORES)
+    editor = bool(roles & REVISORES)
+    documents = rows(db, """select id,responsavel_id,vigente_id,rascunho_id
+        from conhecimento_documentos where igreja_id=:t order by criada_em,id""", t=t)
+    items = []
+    for doc in documents:
+        own = editor and doc['responsavel_id'] == uid
+        editorial = admin or own
+        versions = rows(db, """select id,estado,publicos,criada_em,publicada_em,
+            revisada_em from conhecimento_versoes
+            where igreja_id=:t and documento_id=:d order by criada_em,id""", t=t,d=doc['id'])
+        visible = []
+        for number, version_row in enumerate(versions, 1):
+            readable = pode_ler(db, user, version_row['id'])
+            if not readable and not (editorial and (admin or version_row['estado'] != 'rascunho')
+                    and (admin or version_row['publicada_em'] or version_row['revisada_em']
+                         or version_row['estado'] == 'em_revisao')):
+                continue
+            actions = []
+            if editorial:
+                if version_row['id'] == doc['rascunho_id']:
+                    if readable:
+                        actions.append('editar')
+                    if version_row['estado'] == 'rascunho':
+                        actions.append('enviar-revisao')
+                    if version_row['estado'] == 'em_revisao':
+                        if version_row['revisada_em'] is None:
+                            actions.append('revisar')
+                        if admin:
+                            actions.append('publicar')
+                elif version_row['id'] == doc['vigente_id'] and doc['rascunho_id'] is None:
+                    actions.append('editar')
+                if admin and version_row['estado'] not in {'revogada','substituida'}:
+                    actions.append('revogar')
+            visible.append(dict(version_row, numero=number, pode_ler=readable, acoes=actions,
+                                vigente=version_row['id'] == doc['vigente_id']))
+        if not editorial:
+            visible = [v for v in visible if pode_ler(db, user, v['id'])]
+        if visible:
+            labels = rows(db, '''select titulo,assunto from conhecimento_documentos
+                where igreja_id=:t and id=:d''', t=t, d=doc['id'])[0]
+            items.append(dict(id=doc['id'], titulo=labels['titulo'], assunto=labels['assunto'],
+                vigente_id=doc['vigente_id'] if editorial else None, versoes=visible))
+    return dict(pode_criar=editor, responsavel_id=uid if editor else None, documentos=items)
