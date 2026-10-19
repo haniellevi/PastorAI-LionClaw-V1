@@ -1,7 +1,7 @@
 """Autorização de conhecimento oficial, compartilhada por futuros callers.
 
 Visitante recebe igreja resolvida pelo servidor; nunca aceitar tenant do modelo.
-Públicos pertencem ao snapshot, não a claims/cache. Sem busca nesta fatia.
+Públicos pertencem ao snapshot, não a claims/cache. Busca lexical autorizada.
 """
 from dataclasses import dataclass
 from uuid import UUID
@@ -68,3 +68,42 @@ def pode_ler(db, usuario: CurrentUser | Visitante, versao: UUID) -> bool:
     return (PUBLICO_VISITANTE in audience
             or member
             or any('papel:'+role in audience for role in roles))
+
+
+def buscar(db, usuario: CurrentUser | Visitante, consulta: str, limite: int = 10):
+    """Busca única para painel/futuro agente: conteúdo é dado, nunca instrução.
+
+    O caller cria identidade/tenant no servidor. Não retorna totais nem dados
+    anteriores à autorização; revalida cada citação imediatamente na entrega.
+    """
+    if not consulta.strip() or len(consulta) > 200 or not 1 <= limite <= 20:
+        raise HTTPException(422, 'Consulta ou limite inválido')
+    t = UUID(str(usuario.igreja_id))
+    audiences = [PUBLICO_VISITANTE]
+    if not isinstance(usuario, Visitante):
+        t, uid, roles = actor(db, usuario)
+        audiences.extend('papel:' + role for role in roles)
+        if rows(db, '''select p.id from app_users u join pessoas p
+            on p.igreja_id=u.igreja_id and p.id=u.pessoa_id
+            where u.igreja_id=:t and u.id=:u and p.tipo=:tipo
+            and p.arquivada_em is null for share of u,p''',
+            t=t, u=uid, tipo=TIPO_PESSOA_MEMBRO):
+            audiences.append('membros')
+    # MATERIALIZED is an explicit authorization barrier before matching/ranking
+    # and LIMIT. A restricted high-ranking match cannot displace a public result.
+    results = rows(db, '''with autorizados as materialized (
+        select d.titulo,v.id as versao_id,v.igreja_id
+        from conhecimento_documentos d join conhecimento_versoes v
+          on v.igreja_id=d.igreja_id and v.documento_id=d.id and v.id=d.vigente_id
+        where d.igreja_id=:t and v.estado='publicada' and v.publicos && cast(:audiences as text[])
+        ), query as (select plainto_tsquery('public.conhecimento_portuguese',:q) as q)
+        select a.titulo,a.versao_id,c.secao,c.ordem,
+          ts_headline('public.conhecimento_portuguese',c.texto,query.q,
+            'StartSel=, StopSel=, MaxWords=35, MinWords=15, MaxFragments=1') as trecho
+        from autorizados a join conhecimento_trechos c
+          on c.igreja_id=a.igreja_id and c.versao_id=a.versao_id
+        cross join query where c.busca @@ query.q
+        order by ts_rank_cd(c.busca,query.q) desc,a.versao_id,c.ordem limit :limite''',
+        t=t, audiences=audiences, q=consulta, limite=limite)
+    return [dict(r, trecho=r['trecho'][:300]) for r in results
+            if pode_ler(db, usuario, r['versao_id'])]
