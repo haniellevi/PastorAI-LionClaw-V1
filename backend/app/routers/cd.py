@@ -31,6 +31,7 @@ class NivelInput(Input):
 
 
 class CurriculoInput(NamedInput):
+    curriculo_anterior_id: UUID | None = None
     versao: str = Field(min_length=1,max_length=80)
     niveis: list[NivelInput] = Field(default_factory=list,max_length=100)
     aulas_por_modulo: list[Annotated[int, Field(strict=True,ge=1,le=100)]] = Field(default_factory=lambda: list(AULAS_POR_MODULO),min_length=1,max_length=100)
@@ -219,3 +220,29 @@ def issue_certificate(pid: UUID, cid: UUID, payload: ConclusaoInput, db: Session
 @router.post('/certificados/{cert_id}/revogar')
 def revoke_certificate(cert_id: UUID, payload: RevogacaoInput, db: Session=DB, user: CurrentUser=USER):
     result=cd.revoke_certificate(db,user,cert_id,payload); db.commit(); return result
+
+
+class EquivalenciaVersaoInput(ConclusaoInput):
+    modulo_id: UUID
+    conclusao_origem_id: UUID
+    evidencia: str = Field(min_length=1,max_length=EVIDENCIA_MAX_CARACTERES)
+
+    @field_validator('evidencia')
+    @classmethod
+    def evidence(cls,value):
+        return EquivalenciaInput.evidence(value)
+
+
+@router.get('/pessoas/{pid}/curriculos/{cid}/origens-equivalencia')
+def equivalence_sources(pid: UUID, cid: UUID, db: Session=DB, user: CurrentUser=USER):
+    return cd.equivalence_sources(db,user,pid,cid)
+
+
+@router.post('/pessoas/{pid}/curriculos/{cid}/equivalencias')
+def version_equivalence(pid: UUID, cid: UUID, payload: EquivalenciaVersaoInput, db: Session=DB, user: CurrentUser=USER):
+    result=cd.register_version_equivalence(db,user,pid,cid,payload); db.commit(); return result
+
+
+@router.get('/curriculos/{cid}/pessoas-equivalencia')
+def equivalence_people(cid: UUID, q: str=Query(default='',max_length=120), db: Session=DB, user: CurrentUser=USER):
+    return cd.equivalence_people(db,user,cid,q=q)
