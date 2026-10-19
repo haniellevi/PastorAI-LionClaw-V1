@@ -247,3 +247,8 @@ privilégios de acesso. Não executar como papel de tenant com linhas filtradas.
 Os blocos DO abortam a transação se restarem currículos sem família ou matrículas
 com conclusão e `concluida=false`; essas verificações também exigem visibilidade
 global. Pré-checagem e aplicação remotas continuam não verificadas nesta PR.
+
+Compatibilidade Enviar/#511: `cd_conclusoes.revogada` não revoga certificado já
+emitido; a evidência CD do Enviar continua baseada em `cd_certificados.revogada`.
+A mudança da conclusão é reservada à manutenção futura, sem grant de aplicação.
+Veja [a fatia](../../docs/ops/ENVIAR-EVIDENCIAS.md).

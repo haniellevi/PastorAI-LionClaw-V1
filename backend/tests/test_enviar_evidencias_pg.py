@@ -152,6 +152,8 @@ def test_reencontro_http_validation_revocation_is_audited_and_idempotent(databas
     path=f'/uv/turmas/{tid}/matriculas/{mid}/marcos/reencontro'
     payload=marco().model_dump(mode='json')
     with TestClient(app) as client:
+        for kind in ('encontro','batismo'):
+            assert client.post(path.replace('reencontro',kind)+'/revogar',json=dict(motivo='Correção')).status_code==422
         assert client.post(path,json=payload | dict(validada_por=str(v['leader']))).status_code==422
         first=client.post(path,json=payload)
         assert first.status_code==200,first.text
@@ -325,3 +327,18 @@ def test_aptos_pagination_after_reencontro_revocation_and_revalidation(database,
         assert first['total']==1 and [p['id'] for p in first['items']]==[v['p']]
         assert first['items'][0]['apto_lider']
         assert page(2)['total']==1 and page(2)['items']==[]
+
+
+def test_revoked_cd_conclusion_does_not_revoke_enviar_certificate(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        certificate(s,v)
+        before=ler_evidencias_oficiais(s,s.get(Pessoa,v['p']),igreja_id=v['t'])['cd']
+        assert before['estado']=='comprovada'
+        s.commit()
+    # #511 reserves this change for future maintenance, without application grant.
+    with database.begin() as c:
+        result=c.execute(text('update cd_conclusoes set revogada=true where igreja_id=:t and pessoa_id=:p'),dict(t=v['t'],p=v['p']))
+        assert result.rowcount>0
+    with scoped(database,v['t']) as s:
+        assert ler_evidencias_oficiais(s,s.get(Pessoa,v['p']),igreja_id=v['t'])['cd']==before
