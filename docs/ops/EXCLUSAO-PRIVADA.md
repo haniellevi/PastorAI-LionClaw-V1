@@ -24,8 +24,9 @@ telefone, transcrição, caminho de Storage nem hash de conteúdo no recibo.
 
 ## Retenção V1b — decisão pastoral 15
 
-Em 18/10/2026, Raniel decidiu retirar a exclusão automática em 24 horas:
-`cell_report_audio_inputs` conserva mídia no Storage, transcrição e hashes até
+Em 18/10/2026, Raniel decidiu retirar a exclusão automática em 24 horas
+somente para capturas sob consentimento `v2`: `cell_report_audio_inputs`
+conserva mídia no Storage, transcrição e hashes até
 exclusão pelo admin (conversa/pessoa/igreja), ou pedido da pessoa aprovado pelo
 admin. Revogação de transcrição, cancelamento, confirmação do relatório e
 handoff encerram o processamento, sem apagar o conteúdo já registrado. O aviso
@@ -36,13 +37,21 @@ aceite `v1` não autoriza novo processamento; exige novo aviso entregue e novo
 Nesta fatia, a via implementada é a exclusão de conversa da PR #509;
 pessoa/igreja continuam com os limites descritos abaixo. Não há nova aprovação
 via WhatsApp nem nova superfície de leitura. O cron continua processando tarefas
-de exclusão aprovadas e recuperando handoffs com gates fechados, sem purga TTL.
-A entrada legada de purga retorna zero e não seleciona conteúdo para apagar.
+de exclusão aprovadas, recuperando handoffs e purgando capturas pré-v2 com
+gates fechados. A purga automática mantém a promessa de até 24h para `v1`,
+versões desconhecidas e registros sem versão. O critério é o snapshot
+`cell_report_audio_inputs.consent_version`, gravado a partir do aceite na
+captura. Somente o valor exato `v2` dispensa TTL; aceite vinculado renovado
+não reclassifica registros anteriores. Sem snapshot, aplica-se purga
+conservadora, mesmo com aceite vinculado v2; não se infere retenção por data.
+A seleção e o claim sob lock aplicam o mesmo filtro; retry de Storage e
+tombstone de replay permanecem. A exclusão oficial apaga ambas as versões.
 Falhas de upload já registradas também ficam retidas; limpeza de objeto que
 nunca virou registro não é substituída por TTL. A fronteira de uploads tardios
 da exclusão oficial permanece preservada.
 
-`expires_at` permanece como prazo de processamento, assim como estados/colunas
+`expires_at` permanece como prazo de processamento e de purga para pré-v2
+(no máximo 24h após `received_at`), assim como estados/colunas
 de purga por compatibilidade. Sem migration ou backfill destrutivo; registros
 já purgados não são recuperados nem reativados por esta mudança.
 
@@ -118,7 +127,7 @@ eliminação da cópia externa. Nenhum gate é aberto para reconciliar isso.
 
 ## Limpeza e recuperação
 
-O cron usa `process_storage_tasks` antes do gate de envios, sem purga automática por prazo. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
+O cron usa `process_storage_tasks` antes do gate de envios, com purga automática por prazo somente para capturas pré-v2. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
 Falhas guardam apenas código fechado `storage_unavailable`; a tarefa continua
 pendente. Após sucesso o caminho é apagado da tarefa. O recibo só aparece

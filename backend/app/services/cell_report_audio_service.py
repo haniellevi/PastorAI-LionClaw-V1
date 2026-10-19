@@ -79,8 +79,8 @@ _AUDIO_OUTPUT_PREFIX = "agent-reply:v1b-audio:"
 logger = logging.getLogger("pastorai.cell_report_audio")
 AUDIO_CONSENT_NOTICE_TEXT = (
     "A OpenAI da igreja transcreve o áudio para preparar o relatório. "
-    "No nosso sistema, áudio e transcrição ficam até exclusão pelo admin; "
-    "você pode pedir a exclusão para aprovação do admin. O relatório confirmado permanece. "
+    "No nosso sistema, o áudio e a transcrição ficam guardados até o admin apagar "
+    "ou você pedir a exclusão e o admin aprovar. O relatório confirmado permanece. "
     "Responda ACEITO AUDIO para permitir ou PARAR AUDIO para revogar."
 )
 
@@ -1003,7 +1003,7 @@ def _immediate_audio_expiry(
     row: CellReportAudioInput,
     now: dt.datetime,
 ) -> dt.datetime:
-    """Shorten the processing window without changing content retention."""
+    """Shorten processing/legacy cleanup without extending the 24-hour window."""
 
     received_at = _utc_now(row.received_at)
     existing_expiry = _utc_now(row.expires_at)
@@ -2487,7 +2487,7 @@ def _terminalize_audio_claim(
         )
         if expire_for_purge:
             # Upload crossed the private-storage boundary. Stop processing;
-            # the legacy expiry marker no longer authorizes content deletion.
+            # only pre-v2 captures are eligible for expiry-based deletion.
             locked.expires_at = _immediate_audio_expiry(locked, current)
             locked.purge_state = "ativa"
         session.commit()
@@ -3658,7 +3658,7 @@ def _load_audio_pending_reply(
             return _AudioReplyRetry(None, None, False, input_id)
         if output.agent_reply_state != AGENT_REPLY_PENDING:
             # The sent/terminal reply remains historical evidence until the
-            # official admin deletion removes it.  It must never cancel newer
+            # applicable retention/deletion path removes it. It must never cancel newer
             # audio captured for this same report.
             session.commit()
             return _AudioReplyRetry(None, None, False, input_id)
@@ -3848,6 +3848,170 @@ def dispatch_cell_report_audio_inputs(
     return AudioDispatchResult(claimed, completed)
 
 
+@dataclass(frozen=True, slots=True)
+class _AudioPurgeClaim:
+    igreja_id: uuid.UUID
+    input_id: uuid.UUID
+    storage_path: str
+    purge_attempt: int
+
+
+def _claim_audio_purge(
+    session_factory: Callable[[], Session],
+    igreja_id: uuid.UUID,
+    *,
+    now: dt.datetime,
+    excluded_input_ids: tuple[uuid.UUID, ...],
+) -> tuple[_AudioPurgeClaim | None, bool, uuid.UUID | None]:
+    """Commit a purge lease without holding database locks across storage I/O."""
+
+    session = session_factory()
+    try:
+        _scoped(session, igreja_id, "cell_report_audio_purge_claim")
+        statement = select(CellReportAudioInput.id).where(
+            CellReportAudioInput.igreja_id == igreja_id,
+            CellReportAudioInput.purge_state.in_(("ativa", "pendente")),
+            CellReportAudioInput.expires_at <= now,
+            CellReportAudioInput.consent_version.is_distinct_from("v2"),
+            CellReportAudioInput.state != "processando",
+        )
+        if excluded_input_ids:
+            statement = statement.where(~CellReportAudioInput.id.in_(excluded_input_ids))
+        input_id = session.execute(
+            statement.order_by(
+                CellReportAudioInput.expires_at.asc(),
+                CellReportAudioInput.id.asc(),
+            ).limit(1)
+        ).scalar_one_or_none()
+        if type(input_id) is not uuid.UUID:
+            session.commit()
+            return None, True, None
+        row = session.execute(
+            select(CellReportAudioInput).where(
+                CellReportAudioInput.igreja_id == igreja_id,
+                CellReportAudioInput.id == input_id,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            session.commit()
+            return None, False, input_id
+        # Match the durable report prefix before mutating the input.  A live
+        # in-flight provider operation keeps its lease and is revisited later.
+        if row.live_conversation_id is not None:
+            session.execute(
+                select(Conversation)
+                .where(
+                    Conversation.igreja_id == igreja_id,
+                    Conversation.id == row.live_conversation_id,
+                )
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+        if row.live_pessoa_id is not None:
+            session.execute(
+                select(Pessoa)
+                .where(
+                    Pessoa.igreja_id == igreja_id,
+                    Pessoa.id == row.live_pessoa_id,
+                )
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+        locked = session.execute(
+            select(CellReportAudioInput)
+            .where(
+                CellReportAudioInput.igreja_id == igreja_id,
+                CellReportAudioInput.id == input_id,
+                CellReportAudioInput.purge_state.in_(("ativa", "pendente")),
+                CellReportAudioInput.expires_at <= now,
+                CellReportAudioInput.consent_version.is_distinct_from("v2"),
+                CellReportAudioInput.state != "processando",
+            )
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if locked is None:
+            session.commit()
+            return None, False, input_id
+        if locked.state not in {"ambigua", "cancelada", "purgada"}:
+            _terminalize_audio_input(locked, now=now, reason="retencao_expirada")
+        locked.purge_state = "pendente"
+        locked.purge_attempts += 1
+        locked.purge_error_code = None
+        locked.transcript_text = None
+        locked.transcript_sha256 = None
+        locked.updated_at = now
+        session.commit()
+        return _AudioPurgeClaim(
+            igreja_id,
+            locked.id,
+            locked.storage_path,
+            locked.purge_attempts,
+        ), False, input_id
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _finish_audio_purge(
+    session_factory: Callable[[], Session],
+    claim: _AudioPurgeClaim,
+    *,
+    now: dt.datetime,
+    removed: bool,
+) -> None:
+    session = session_factory()
+    try:
+        _scoped(session, claim.igreja_id, "cell_report_audio_purge_finish")
+        row = session.execute(
+            select(CellReportAudioInput)
+            .where(
+                CellReportAudioInput.igreja_id == claim.igreja_id,
+                CellReportAudioInput.id == claim.input_id,
+                CellReportAudioInput.purge_state == "pendente",
+                CellReportAudioInput.purge_attempts == claim.purge_attempt,
+            )
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if row is None:
+            session.commit()
+            return
+        if not removed:
+            row.purge_error_code = "storage_unavailable"
+            row.updated_at = now
+            session.commit()
+            return
+        if row.live_conversation_id is not None and row.live_message_id is not None:
+            message = session.execute(
+                select(Message)
+                .where(
+                    Message.igreja_id == claim.igreja_id,
+                    Message.conversation_id == row.live_conversation_id,
+                    Message.id == row.live_message_id,
+                )
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            if message is not None and message.media_path == claim.storage_path:
+                message.media_path = None
+        row.state = "purgada"
+        row.purge_state = "purgada"
+        row.content_purged_at = now
+        row.transcript_text = None
+        row.transcript_sha256 = None
+        row.purge_error_code = None
+        row.updated_at = now
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def purge_cell_report_audio_inputs(
     session_factory: Callable[[], Session],
     *,
@@ -3855,15 +4019,64 @@ def purge_cell_report_audio_inputs(
     now: dt.datetime | None = None,
     limit: int = 100,
 ) -> int:
-    """Compatibility entry point: recover handoffs without deleting content.
+    """Purge expired pre-v2 content even after feature gates close.
 
-    Pastoral decision 15 (2026-10-18): elapsed time is not deletion authority.
-    Keep the signature and zero purge counter for older maintenance callers.
+    Only captured consent_version == v2 permits retention without TTL.
+    Missing/unknown versions remain subject to the original 24-hour promise.
+
+    The durable input tombstone is retained for replay suppression.  Storage
+    removal is idempotent and happens strictly between two closed sessions, so
+    a failed provider call leaves a recoverable ``pendente`` purge marker.
     """
+
     if type(limit) is not int or isinstance(limit, bool) or limit <= 0:
         return 0
+    # Direct callers of maintenance get the same durable human fence as the
+    # cron path. Without this ordering an expired processando row could be
+    # scrubbed before its failed provider boundary reaches human attention.
     recover_expired_audio_handoffs(session_factory, now=now, limit=limit)
-    return 0
+    current = _utc_now(now)
+    purged = 0
+    delayed = 0
+    remaining = limit
+    for tenant in _discover_audio_tenants(session_factory):
+        if remaining <= 0:
+            break
+        visited: list[uuid.UUID] = []
+        while remaining > 0:
+            claim, exhausted, candidate_id = _claim_audio_purge(
+                session_factory,
+                tenant,
+                now=current,
+                excluded_input_ids=tuple(visited),
+            )
+            if exhausted:
+                break
+            if candidate_id is not None:
+                visited.append(candidate_id)
+            if claim is None:
+                continue
+            removed = False
+            try:
+                storage.remove_tenant_media(claim.igreja_id, [claim.storage_path])
+                removed = True
+            except Exception:  # Physical cleanup remains pending for retry.
+                delayed += 1
+            _finish_audio_purge(
+                session_factory,
+                claim,
+                now=_utc_now(now),
+                removed=removed,
+            )
+            if removed:
+                purged += 1
+            remaining -= 1
+    if delayed:
+        logger.warning(
+            "Limpeza de áudio V1b atrasada",
+            extra={"event": "cell_report_audio_purge_delayed", "count": delayed},
+        )
+    return purged
 
 
 __all__ = (

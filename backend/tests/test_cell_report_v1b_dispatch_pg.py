@@ -79,6 +79,39 @@ def _consented_audio(turn, providers):
     return outcome
 
 
+@pytest.mark.parametrize("version", ("v1", None, "v2"))
+def test_ttl_honors_captured_consent_version(audio_turn, version):
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    service.dispatch_cell_report_audio_inputs(audio_turn.factory,
+        evolution_client=providers.evolution, storage=providers.storage,
+        decoder=decode_audio_bytes, transcriber=providers.transcribe, limit=1)
+    with audio_turn.factory.begin() as session:
+        row = session.execute(select(CellReportAudioInput).where(
+            CellReportAudioInput.transcript_text.is_not(None))).scalar_one()
+        # Simulate a historical capture; the linked current acceptance is v2.
+        # A later reacceptance must never extend the original retention promise.
+        row.consent_version = version
+        received = row.received_at
+        input_id = row.id
+        row.expires_at = received + dt.timedelta(hours=24)
+    assert service.purge_cell_report_audio_inputs(audio_turn.factory,
+        storage=providers.storage, now=received + dt.timedelta(hours=23)) == 0
+    assert providers.objects
+    purged = service.purge_cell_report_audio_inputs(audio_turn.factory,
+        storage=providers.storage, now=received + dt.timedelta(hours=25))
+    row = next(r for r in _rows(audio_turn, CellReportAudioInput) if r.id == input_id)
+    if version == "v2":
+        # The pre-consent notice input has no version and may be purged.
+        assert providers.objects
+        assert row.transcript_text == _REPORT and row.transcript_sha256
+    else:
+        assert purged >= 1 and not providers.objects
+        assert row.purge_state == "purgada"
+        assert row.transcript_text is None and row.transcript_sha256 is None
+        assert row.content_purged_at is not None
+
+
 @pytest.mark.parametrize("mime", ("audio/wav", "audio/ogg; codecs=opus"))
 def test_v1b_real_audio_summary_text_confirmation_receipt_and_retention(audio_turn, mime):
     providers = _providers(audio_turn, mime=mime)
@@ -639,7 +672,7 @@ def test_private_deletion_preserves_unknown_upload_ownership_on_storage_timeout(
     assert providers.counts['transcribe'] == 0
 
 
-def test_cron_retains_v1b_content_and_hashes_after_24h(audio_turn, monkeypatch):
+def test_cron_retains_v2_content_and_purges_unversioned_input_after_24h(audio_turn, monkeypatch):
     from app.workers.cron_worker import CronWorker
     import app.services.outbound_guard as guard
     import app.services.storage as storage_module
@@ -648,13 +681,16 @@ def test_cron_retains_v1b_content_and_hashes_after_24h(audio_turn, monkeypatch):
     _dispatch(audio_turn, providers)
     before = [(r.id, r.storage_path, r.transcript_text, r.transcript_sha256,
                r.content_sha256, r.provider_message_sha256, r.purge_state)
-              for r in _rows(audio_turn, CellReportAudioInput)]
+              for r in _rows(audio_turn, CellReportAudioInput) if r.consent_version == "v2"]
     monkeypatch.setattr(guard, "external_sends_allowed", lambda: False)
     monkeypatch.setattr(storage_module, "SupabaseStorage", lambda: providers.storage)
     worker = CronWorker(session_factory=audio_turn.factory, engine=None)
     assert worker._run_cell_report_audio_cycle(
-        now=dt.datetime.now(dt.UTC) + dt.timedelta(hours=25)) == (0, 0)
-    assert providers.objects and providers.counts["remove"] == 0
+        now=dt.datetime.now(dt.UTC) + dt.timedelta(hours=25)) == (1, 0)
+    assert providers.objects and providers.counts["remove"] == 1
     assert before == [(r.id, r.storage_path, r.transcript_text, r.transcript_sha256,
                        r.content_sha256, r.provider_message_sha256, r.purge_state)
-                      for r in _rows(audio_turn, CellReportAudioInput)]
+                      for r in _rows(audio_turn, CellReportAudioInput) if r.consent_version == "v2"]
+
+    assert any(r.consent_version is None and r.purge_state == "purgada"
+               for r in _rows(audio_turn, CellReportAudioInput))
