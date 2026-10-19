@@ -1007,7 +1007,9 @@ def test_own_member_http_pg_webhook_worker_sim_duplicate_and_panel_sources(own_h
     from app.routers.cell_discipulo import get_my_next_meeting
     from app.routers.conversations import list_messages
     from app.routers._common import PaginationParams
+    from tests.test_prayer_privacy_pg import install_inbox_schema
     turn = own_http_turn
+    install_inbox_schema(turn.engine)
     request, summary, proposal = _http_pending(turn)
     confirmation = _http_enqueue(turn, 'HTTP-OWN-SIM', 'SIM')
     assert turn.http_worker.handle_envelope(confirmation) is worker_module.IngestionResult.REGISTERED
@@ -1043,6 +1045,9 @@ def test_own_member_http_pg_webhook_worker_sim_duplicate_and_panel_sources(own_h
     options = dict(pagination=PaginationParams(page=1, page_size=100),
         storage=SimpleNamespace(sign=no_media), latest=False, include_media=True, before=None, after=None)
     with turn.factory() as session:
+        worker_module._scope_agent_session(
+            session, _agent_outcome(turn.conversation_id, igreja_id=_IGREJA)
+        )
         page = list_messages(str(turn.conversation_id), db=session, current_user=admin, **options)
     visible = {item.id: item for item in page.items}
     assert page.total == len(messages)

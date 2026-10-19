@@ -71,6 +71,7 @@ const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
   ganhar: loadGanharScreen,
   dashboard: loadDashboardScreen,
   enviar: loadEnviarScreen,
+  conhecimento: () => loadConhecimentoScreen(),
   g12: loadG12Screen,
   inbox: loadInboxScreen,
   relatorios: loadRelatoriosScreen,
@@ -83,3 +84,5 @@ export function preloadScreenModule(route: string): void {
   const load = SCREEN_MODULE_LOADERS[route];
   if (load) void load();
 }
+
+export const loadConhecimentoScreen = () => import("@/components/conhecimento/ConhecimentoScreen");

@@ -18,3 +18,14 @@ def enabled(igreja_id: uuid.UUID) -> bool:
     except (ValueError, AttributeError):
         return False
     return bool(raw) and len(set(values)) == len(values) and igreja_id in values
+
+
+# Provisional until pastoral confirmation. Apply even when release is disabled.
+PROTECTED_MESSAGE = "Mensagem pastoral protegida"
+DISCLOSURE = (
+    "A coleta iniciada explicitamente fica restrita aos pastores ativos da igreja. "
+    "Seu líder nominal só terá acesso após sua confirmação de compartilhamento, "
+    "enquanto o vínculo permanecer válido. Admin e atendimento não têm acesso por cargo. "
+    "Mesmo sem registro, as mensagens da coleta continuam protegidas. "
+    "Isso não protege retroativamente mensagens enviadas antes de iniciar o fluxo."
+)

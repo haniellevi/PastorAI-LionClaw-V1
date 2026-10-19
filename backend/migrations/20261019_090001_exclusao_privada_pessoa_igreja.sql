@@ -169,6 +169,12 @@ begin
  update public.private_deletion_receipts set counts=counts||jsonb_build_object('midias',v_media) where id=v_id;
  delete from public.cell_report_audio_inputs a where a.igreja_id=p_tenant and
   a.id=any(v_inputs);
+ -- Clear the entire offer state atomically to satisfy its CHECK and both
+ -- tenant-composite NO ACTION message FKs, independently of fallback triggers.
+ update public.conversations set secretaria_oferta_estado=null,
+  secretaria_oferta_message_id=null, secretaria_oferta_expira_em=null,
+  secretaria_oferta_resposta_message_id=null
+ where igreja_id=p_tenant and id=any(v_conversations);
  -- Explicit deletion also supports protected inbox composite NO ACTION FKs.
  delete from public.messages where igreja_id=p_tenant and conversation_id=any(v_conversations);
  delete from public.conversations where igreja_id=p_tenant and id=any(v_conversations);
@@ -191,7 +197,12 @@ language sql security definer set search_path=pg_catalog,public as $$
  select public.private_delete_scope(p_tenant,'conversa',p_conversation,p_conversation)
 $$;
 -- Rollback: contain consumers; preserve receipts/fences and drain work first.
--- Cannot restore erased content. Restore conversation function from #509,
+-- Cannot restore erased content. Reverse 20261019_090001 first: restore
+-- private_delete_conversation from 20261018_120000_prayer_message_privacy.sql
+-- while the prayer associations/RLS remain installed (not the #509 version).
+-- Only when subsequently reversing 120000, follow its privacy rollback and
+-- restore 20261018_090000_exclusao_privada.sql after removing associations.
+-- Never replay 090000 over 120000 or this migration in the forward chain.
 -- then DROP FUNCTION private_delete_scope(uuid,text,uuid,uuid);
 -- DROP FUNCTION private_delete_content(uuid,text,uuid,uuid);
 -- DROP FUNCTION private_deletion_phone_key(text);

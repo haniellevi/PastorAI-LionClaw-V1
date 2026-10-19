@@ -1542,6 +1542,22 @@ def ingest_message_event_ex(
                 provider_message_id=parsed.provider_message_id,
                 declared_mime=parsed.media_mime,
             )
+        if inbound and parsed.texto:
+            from app.prayer import policy as prayer_policy
+
+            if prayer_policy.enabled(igreja_id):
+                db.flush()
+                from app.prayer.turn import capture_explicit_entry
+
+                capture_explicit_entry(
+                    db,
+                    igreja_id=igreja_id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    provider_id=parsed.provider_message_id,
+                    phone=parsed.telefone,
+                    instance=parsed.instance,
+                )
         if ownership_guard is not None:
             ownership_guard()
         db.commit()

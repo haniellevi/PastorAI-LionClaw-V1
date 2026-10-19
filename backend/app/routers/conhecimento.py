@@ -2,7 +2,7 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -121,3 +121,15 @@ def revogar(did: UUID,payload: AcaoInput,db: Session=DB,user: CurrentUser=USER):
 @router.get('/versoes/{vid}')
 def ler(vid: UUID,db: Session=DB,user: CurrentUser=USER):
     return service.ler(db,user,vid)
+
+
+@router.get('/busca')
+def buscar(q: str=Query(min_length=1,max_length=200),
+           limite: int=Query(default=10,ge=1,le=20),db: Session=DB,user: CurrentUser=USER):
+    from app.services.conhecimento import buscar as busca_autorizada
+    return busca_autorizada(db,user,q,limite)
+
+
+@router.get('/documentos')
+def listar(pagina: int=Query(default=1,ge=1,le=100),db: Session=DB,user: CurrentUser=USER):
+    return service.painel(db,user,pagina)

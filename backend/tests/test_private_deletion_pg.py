@@ -68,8 +68,17 @@ def api(engine, v, roles=('admin',)):
     return TestClient(app)
 
 
-def test_delete_returns_durable_receipt_instead_of_losing_storage_failures(database, private_data):
+@pytest.mark.parametrize("version", ("v1", "v2", None))
+def test_delete_returns_durable_receipt_instead_of_losing_storage_failures(database, private_data, version):
+    with database.begin() as c:
+        c.execute(text("update cell_report_audio_inputs set consent_version=:version where id=:audio"),
+                  dict(version=version, audio=private_data["audio"]))
     v = private_data
+    # Retained content remains removable by the official admin path after 24h.
+    with database.begin() as c:
+        c.execute(text("""update cell_report_audio_inputs
+            set state='transcrita', received_at=now()-interval '25 hours',
+                expires_at=now()-interval '1 hour' where id=:audio"""), v)
     with api(database, v) as client:
         response = client.delete(f"/conversations/{v['conv']}")
         assert response.status_code == 200, response.text
@@ -718,46 +727,46 @@ def test_person_receipt_includes_prior_church_cleanup(database,private_data):
 
 
 @pytest.mark.parametrize('scope',['conversa','pessoa','igreja'])
-def test_admin_bulk_erases_protected_messages_without_read_permission(database,private_data,scope):
+@pytest.mark.parametrize('version', ['v1', 'v2'])
+def test_admin_bulk_erases_protected_messages_without_read_permission(database,private_data,scope,version):
+    from app.services.private_deletion import process_storage_tasks
     v=private_data
-    # Synthetic equivalent of the pending inbox privacy migration: protected
-    # association with tenant-composite FK and restrictive SELECT on Message.
     with database.begin() as c:
-        c.exec_driver_sql('''create table pedido_oracao_mensagem(
-            igreja_id uuid not null,conversation_id uuid not null,message_id uuid not null,
-            primary key(igreja_id,message_id),
-            foreign key(igreja_id,conversation_id,message_id)
-              references messages(igreja_id,conversation_id,id) on delete cascade);
-            alter table pedido_oracao_mensagem enable row level security;
-            alter table pedido_oracao_mensagem force row level security;
-            revoke all on pedido_oracao_mensagem from public,anon,authenticated,service_role;
-            create function synthetic_private_message(uuid,uuid) returns boolean
-            language sql stable security definer set search_path=pg_catalog,public as $$
-              select exists(select 1 from public.pedido_oracao_mensagem where igreja_id=$1 and message_id=$2)
-            $$;
-            create policy synthetic_private_message on messages as restrictive for select to authenticated
-              using(not synthetic_private_message(igreja_id,id));''')
-        c.execute(text('insert into pedido_oracao_mensagem values(:tenant,:conv,:message)'),v)
-    try:
-        with scoped(database,v['tenant'],admin=True) as s:
-            assert s.execute(text('select count(*) from messages where id=:message'),v).scalar_one()==0
-        with api(database,v) as client:
-            if scope=='conversa':
-                response=client.delete(f"/conversations/{v['conv']}")
-            else:
-                path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
-                response=client.request('DELETE',path,json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
-            assert response.status_code==200,response.text
-            result=response.json()
-            assert result['camadas']['pedido_oracao_mensagem']['apagadas']==1
-            assert result['camadas']['midias']['pendentes']==(3 if scope=='igreja' else 2)
-            assert 'synthetic' not in json.dumps(result).lower()
-        with database.connect() as c:
-            assert c.execute(text('select count(*) from pedido_oracao_mensagem')).scalar_one()==0
-            assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
-    finally:
-        with database.begin() as c:
-            c.exec_driver_sql('drop policy synthetic_private_message on messages; drop function synthetic_private_message(uuid,uuid); drop table pedido_oracao_mensagem')
+        c.execute(text("""update cell_report_audio_inputs set consent_version=:version,
+            state='transcrita', received_at=now()-interval '25 hours',
+            expires_at=now()-interval '1 hour' where id=:audio"""),dict(v,version=version))
+    with database.begin() as c:
+        c.execute(text('insert into pedido_oracao_mensagem(igreja_id,conversation_id,message_id) values(:tenant,:conv,:message)'),v)
+    with scoped(database,v['tenant'],admin=True) as s:
+        assert s.execute(text('select count(*) from messages where id=:message'),v).scalar_one()==0
+    with api(database,v) as client:
+        if scope=='conversa':
+            response=client.delete(f"/conversations/{v['conv']}")
+        else:
+            path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
+            response=client.request('DELETE',path,json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+        assert response.status_code==200,response.text
+        result=response.json()
+        assert result['camadas']['pedido_oracao_mensagem']['apagadas']==1
+        assert result['camadas']['midias']['pendentes']==(3 if scope=='igreja' else 2)
+        assert 'synthetic' not in json.dumps(result).lower()
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from pedido_oracao_mensagem')).scalar_one()==0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
+
+
+    calls = []
+    assert process_storage_tasks(lambda: Session(database), storage=SimpleNamespace(
+        remove_tenant_media=lambda tenant, paths: calls.extend((tenant, path) for path in paths)),
+        now=dt.datetime.now(dt.UTC)+dt.timedelta(days=1)) == (3 if scope=='igreja' else 2)
+    assert (v['tenant'], f"{v['tenant']}/cell-report-audio/synthetic.ogg") in calls
+    assert all(tenant == v['tenant'] for tenant, _ in calls)
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from cell_report_audio_inputs where id=:audio'), v).scalar_one() == 0
+    with api(database, v) as client:
+        final = client.get(f"/igreja/private-deletions/{result['id']}").json()
+        assert final['estado'] == 'concluido'
+        assert final['camadas']['midias']['pendentes'] == 0
 
 
 def test_person_erases_unlinked_conversation_identified_by_private_source(database,private_data):
@@ -851,3 +860,93 @@ def test_deletion_phone_key_matches_domain_canonical_rules(database,phone):
     with database.connect() as c:
         actual=c.execute(text('select private_deletion_phone_key(:phone)'),dict(phone=phone)).scalar_one()
     assert actual==normalize_phone(phone)
+
+
+def test_prayer_collection_media_erased_without_admin_read(database, private_data):
+    from app.services.private_deletion import process_storage_tasks
+    v = private_data
+    with database.begin() as c:
+        # A content-free orphan fence is also the state left by person offboarding.
+        c.execute(text("insert into pedido_oracao_mensagem(igreja_id,conversation_id,message_id) values(:tenant,:conv,:message)"), v)
+        # The composite FK may remain NO ACTION even without the legacy cascade.
+        c.exec_driver_sql('alter table messages drop constraint if exists messages_conversation_id_fkey')
+    with scoped(database, v['tenant'], admin=True) as s:
+        assert s.execute(text('select id from messages where id=:message'), v).first() is None
+    with api(database, v) as client:
+        response = client.delete(f"/conversations/{v['conv']}")
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result['camadas']['mensagens']['apagadas'] == 1
+        assert result['camadas']['midias']['pendentes'] == 2
+        assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json() == result
+        assert 'synthetic.png' not in response.text and 'Synthetic private text' not in response.text
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from pedido_oracao_mensagem where conversation_id=:conv'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+    calls = []
+    class Storage:
+        def remove_tenant_media(self, tenant, paths):
+            assert tenant == v['tenant']
+            calls.extend(paths)
+    assert process_storage_tasks(lambda: Session(database), storage=Storage(), now=dt.datetime.now(dt.UTC)+dt.timedelta(days=1)) == 2
+    assert f"{v['tenant']}/{v['conv']}/synthetic.png" in calls
+    with database.connect() as c:
+        assert c.execute(text("select count(*) from private_deletion_tasks where igreja_id=:tenant and (state!='concluida' or storage_path is not null)"), v).scalar_one() == 0
+
+
+def test_privileged_church_erasure_keeps_protected_media_in_manifest(database, private_data):
+    from app.db.tenant_session import mark_cross_tenant
+    from app.services.tenant_deletion import delete_tenant_locally, TenantDeletionActor
+    v = private_data
+    with database.begin() as c:
+        c.execute(text('insert into pedido_oracao_mensagem(igreja_id,conversation_id,message_id) values(:tenant,:conv,:message)'), v)
+    with Session(database) as s:
+        mark_cross_tenant(s, source='synthetic_church_erasure_test')
+        result = delete_tenant_locally(s, v['tenant'], TenantDeletionActor(v['admin'], 'synthetic@example.invalid'))
+        s.commit()
+        assert result.deleted_now
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from pedido_oracao_mensagem where igreja_id=:tenant'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:tenant'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+        manifest = c.execute(text('select detalhe from platform_audit_log where alvo_id=:tenant'), v).scalars().all()
+        assert f"{v['tenant']}/{v['conv']}/synthetic.png" in json.dumps(manifest)
+        assert c.execute(text('select count(*) from private_deletion_tasks where igreja_id=:tenant and storage_path=:path'), dict(v,path=f"{v['tenant']}/{v['conv']}/synthetic.png")).scalar_one()==1
+
+
+@pytest.mark.parametrize('scope', ['conversa', 'pessoa', 'igreja'])
+@pytest.mark.parametrize('state', ['consumida', 'pendente'])
+@pytest.mark.parametrize('legacy_fallback', [True, False])
+def test_secretaria_offer_erasure_clears_anchors_before_messages(database, private_data, scope, state, legacy_fallback):
+    v = private_data
+    with database.begin() as c:
+        for conv in (v['conv'], v['conv3']):
+            row = c.execute(text('select id from messages where conversation_id=:conv'), dict(conv=conv)).scalar_one()
+            c.execute(text('''update conversations set secretaria_oferta_estado=:state,
+                secretaria_oferta_message_id=:message,
+                secretaria_oferta_resposta_message_id=case when :state='consumida' then :message else null end,
+                secretaria_oferta_expira_em=case when :state='pendente' then now()+interval '1 hour' else null end
+                where id=:conv'''), dict(conv=conv, message=row, state=state))
+        # Explicit ordering must also work without the legacy fallback trigger,
+        # as in the tenant reset, which already clears these anchors itself.
+        if not legacy_fallback:
+            c.exec_driver_sql('alter table messages disable trigger clear_secretaria_offer_before_message_delete')
+    try:
+        with api(database, v) as client:
+            if scope == 'conversa':
+                response = client.delete(f"/conversations/{v['conv']}")
+            else:
+                path = f"/contacts/{v['person']}/private-content" if scope == 'pessoa' else '/igreja/private-content'
+                response = client.request('DELETE', path, json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+            assert response.status_code == 200, response.text
+            receipt = response.json()
+            assert receipt['camadas']['mensagens']['apagadas'] == (2 if scope == 'igreja' else 1)
+            assert receipt['camadas']['midias']['pendentes'] == (3 if scope == 'igreja' else 2)
+        with database.connect() as c:
+            assert c.execute(text('select count(*) from conversations where id=:conv'), v).scalar_one() == 0
+            assert c.execute(text('select secretaria_oferta_estado from conversations where id=:conv3'), v).scalar_one() == state
+            assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+    finally:
+        with database.begin() as c:
+            c.exec_driver_sql('alter table messages enable trigger clear_secretaria_offer_before_message_delete')

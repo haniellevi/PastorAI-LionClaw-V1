@@ -84,6 +84,7 @@ export function Sidebar({
     const s = new Set(allowedScreens(user.roles, matrix));
     // #4: só o dono (admin principal) vê a Assinatura no menu — admin não basta.
     if (!user.isOwner) s.delete("assinatura");
+    s.add("conhecimento"); // Conteúdo e capacidades são autorizados pela API.
     if (prayerAllowed) s.add("pedidos-oracao");
     else s.delete("pedidos-oracao");
     return s;

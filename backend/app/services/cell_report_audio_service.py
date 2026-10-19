@@ -79,8 +79,8 @@ _AUDIO_OUTPUT_PREFIX = "agent-reply:v1b-audio:"
 logger = logging.getLogger("pastorai.cell_report_audio")
 AUDIO_CONSENT_NOTICE_TEXT = (
     "A OpenAI da igreja transcreve o áudio para preparar o relatório. "
-    "No nosso sistema, áudio e transcrição ficam por até 24 horas; "
-    "o relatório confirmado permanece. "
+    "No nosso sistema, o áudio e a transcrição ficam guardados até o admin apagar "
+    "ou você pedir a exclusão e o admin aprovar. O relatório confirmado permanece. "
     "Responda ACEITO AUDIO para permitir ou PARAR AUDIO para revogar."
 )
 
@@ -992,12 +992,8 @@ def _terminalize_audio_input(
     row.terminal_reason = reason
     row.terminal_at = now
     row.updated_at = now
-    if scrub_private:
-        # Keep the immutable provider digest and canonical storage path for
-        # idempotency and physical cleanup.  Transcript content has no reason
-        # to outlive a revocation, handoff, or terminal report decision.
-        row.transcript_text = None
-        row.transcript_sha256 = None
+    # Compatibility flag only: terminal processing does not authorize deletion.
+    # Transcript and hashes survive until the official admin deletion path.
     if expire_for_purge:
         row.expires_at = _immediate_audio_expiry(row, now)
         row.purge_state = "ativa"
@@ -1007,7 +1003,7 @@ def _immediate_audio_expiry(
     row: CellReportAudioInput,
     now: dt.datetime,
 ) -> dt.datetime:
-    """Make cleanup due without extending the immutable 24-hour window."""
+    """Shorten processing/legacy cleanup without extending the 24-hour window."""
 
     received_at = _utc_now(row.received_at)
     existing_expiry = _utc_now(row.expires_at)
@@ -2490,9 +2486,8 @@ def _terminalize_audio_claim(
             ambiguous=ambiguous,
         )
         if expire_for_purge:
-            # Upload already crossed the private-storage boundary.  Make
-            # its cleanup eligible on the next maintenance pass rather
-            # than retaining bytes until the ordinary 24-hour deadline.
+            # Upload crossed the private-storage boundary. Stop processing;
+            # only pre-v2 captures are eligible for expiry-based deletion.
             locked.expires_at = _immediate_audio_expiry(locked, current)
             locked.purge_state = "ativa"
         session.commit()
@@ -3663,7 +3658,7 @@ def _load_audio_pending_reply(
             return _AudioReplyRetry(None, None, False, input_id)
         if output.agent_reply_state != AGENT_REPLY_PENDING:
             # The sent/terminal reply remains historical evidence until the
-            # normal retention path removes it.  It must never cancel newer
+            # applicable retention/deletion path removes it. It must never cancel newer
             # audio captured for this same report.
             session.commit()
             return _AudioReplyRetry(None, None, False, input_id)
@@ -3877,6 +3872,7 @@ def _claim_audio_purge(
             CellReportAudioInput.igreja_id == igreja_id,
             CellReportAudioInput.purge_state.in_(("ativa", "pendente")),
             CellReportAudioInput.expires_at <= now,
+            CellReportAudioInput.consent_version.is_distinct_from("v2"),
             CellReportAudioInput.state != "processando",
         )
         if excluded_input_ids:
@@ -3928,6 +3924,7 @@ def _claim_audio_purge(
                 CellReportAudioInput.id == input_id,
                 CellReportAudioInput.purge_state.in_(("ativa", "pendente")),
                 CellReportAudioInput.expires_at <= now,
+                CellReportAudioInput.consent_version.is_distinct_from("v2"),
                 CellReportAudioInput.state != "processando",
             )
             .with_for_update(skip_locked=True)
@@ -4022,7 +4019,10 @@ def purge_cell_report_audio_inputs(
     now: dt.datetime | None = None,
     limit: int = 100,
 ) -> int:
-    """Purge expired V1b private content even after feature gates close.
+    """Purge expired pre-v2 content even after feature gates close.
+
+    Only captured consent_version == v2 permits retention without TTL.
+    Missing/unknown versions remain subject to the original 24-hour promise.
 
     The durable input tombstone is retained for replay suppression.  Storage
     removal is idempotent and happens strictly between two closed sessions, so
