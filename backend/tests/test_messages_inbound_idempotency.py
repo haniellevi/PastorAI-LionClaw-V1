@@ -3023,6 +3023,8 @@ def test_agent_reply_reservation_survives_crash_before_agent_and_uses_stable_key
 def test_inbox_hides_unconfirmed_agent_intents_and_preserves_public_author(
     msg_engine_fx: Engine,
 ) -> None:
+    from tests.test_prayer_privacy_pg import install_inbox_schema
+    install_inbox_schema(msg_engine_fx)
     factory = _factory(msg_engine_fx)
     _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
     conversation_id = _seed_agent_conversation(factory, igreja_id=_IGREJA_A)
@@ -3060,6 +3062,9 @@ def test_inbox_hides_unconfirmed_agent_intents_and_preserves_public_author(
         )
         session.commit()
 
+        worker_module._scope_agent_session(
+            session, _agent_outcome(conversation_id, igreja_id=_IGREJA_A)
+        )
         page = list_messages(
             str(conversation_id),
             PaginationParams(page=1, page_size=20),

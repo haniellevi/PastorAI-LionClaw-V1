@@ -27,7 +27,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, func, or_, select, tuple_
+from sqlalchemy import desc, func, or_, select, text, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -68,7 +68,14 @@ from app.services.storage import (
 
 logger = logging.getLogger("pastorai.conversations")
 
-router = APIRouter(prefix="/conversations", tags=["conversations"])
+def _private_inbox_response(response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+
+
+router = APIRouter(
+    prefix="/conversations", tags=["conversations"],
+    dependencies=[Depends(_private_inbox_response)],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +507,21 @@ class MediaUrlsOut(BaseModel):
     urls: dict[str, str]
 
 
+def _safe_inbox_messages(conversation_id: uuid.UUID):
+    """Mask in PostgreSQL before DTOs, cursors and signing, even with gates closed.
+
+    Raw Message SELECT is separately denied by restrictive RLS. The projection
+    preserves placeholders and pagination without loading restricted content.
+    """
+    projection = (
+        text("select * from prayer_inbox_messages(:prayer_conversation_id)")
+        .bindparams(prayer_conversation_id=conversation_id)
+        .columns(*Message.__table__.c)
+        .subquery("inbox_messages")
+    )
+    return aliased(Message, projection)
+
+
 def _history_cursor(message: Message) -> str:
     value = f"{message.criado_em.isoformat()}|{message.id}"
     return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
@@ -548,33 +570,34 @@ def list_messages(
     if windowed and pagination.page != 1:
         raise HTTPException(422, "Use o cursor para navegar pelo histórico")
 
+    InboxMessage = _safe_inbox_messages(conv.id)
     visible_message = or_(
-        Message.agent_reply_state.is_(None),
-        Message.agent_reply_state == AGENT_REPLY_CONFIRMED,
+        InboxMessage.agent_reply_state.is_(None),
+        InboxMessage.agent_reply_state == AGENT_REPLY_CONFIRMED,
     )
     condition = (
-        Message.conversation_id == conv.id,
-        Message.igreja_id == uuid.UUID(current_user.igreja_id),
+        InboxMessage.conversation_id == conv.id,
+        InboxMessage.igreja_id == uuid.UUID(current_user.igreja_id),
         visible_message,
     )
     total = db.execute(
         select(func.count())
-        .select_from(Message)
+        .select_from(InboxMessage)
         .where(*condition)
     ).scalar_one()
-    statement = select(Message).where(*condition)
+    statement = select(InboxMessage).where(*condition)
     if before:
         statement = statement.where(
-            tuple_(Message.criado_em, Message.id) < cursor
+            tuple_(InboxMessage.criado_em, InboxMessage.id) < cursor
         )
     elif after:
         statement = statement.where(
-            tuple_(Message.criado_em, Message.id) > cursor
+            tuple_(InboxMessage.criado_em, InboxMessage.id) > cursor
         )
     descending = (latest or before is not None) and after is None
     statement = statement.order_by(
-        Message.criado_em.desc() if descending else Message.criado_em.asc(),
-        Message.id.desc() if descending else Message.id.asc(),
+        InboxMessage.criado_em.desc() if descending else InboxMessage.criado_em.asc(),
+        InboxMessage.id.desc() if descending else InboxMessage.id.asc(),
     )
     if not windowed:
         statement = statement.offset(pagination.offset)
@@ -627,12 +650,13 @@ def message_media_urls(
     _authorize_conversation_view(conv, current_user)
     if str(conv.igreja_id) != current_user.igreja_id:
         raise HTTPException(404, "Conversa não encontrada")
+    InboxMessage = _safe_inbox_messages(conv.id)
     rows = db.execute(
-        select(Message.id, Message.media_path).where(
-            Message.id.in_(message_ids), Message.conversation_id == conv.id,
-            Message.igreja_id == uuid.UUID(current_user.igreja_id),
-            or_(Message.agent_reply_state.is_(None),
-                Message.agent_reply_state == AGENT_REPLY_CONFIRMED),
+        select(InboxMessage.id, InboxMessage.media_path).where(
+            InboxMessage.id.in_(message_ids), InboxMessage.conversation_id == conv.id,
+            InboxMessage.igreja_id == uuid.UUID(current_user.igreja_id),
+            or_(InboxMessage.agent_reply_state.is_(None),
+                InboxMessage.agent_reply_state == AGENT_REPLY_CONFIRMED),
         )
     ).all()
     if {row.id for row in rows} != message_ids:
@@ -712,10 +736,12 @@ def send_message(
     conv.ultima_mensagem = payload.texto
     conv.updated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
-    db.refresh(msg)
+    # INSERT supplies defaults via RETURNING. Do not require a SELECT under
+    # restrictive RLS after the provider has already delivered the message.
+    result = MessageOut.from_model(msg)
     db.commit()
 
-    return MessageOut.from_model(msg)
+    return result
 
 
 @router.post("/{conversation_id}/messages/media", response_model=MessageOut)
@@ -840,11 +866,11 @@ def send_media_message(
     conv.ultima_mensagem = payload.caption or media_snippet(tipo)
     conv.updated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
-    db.refresh(msg)
+    result = MessageOut.from_model(msg)
     db.commit()
 
     signed = storage.sign([stored.path])
-    return MessageOut.from_model(msg, media_url=signed.get(stored.path))
+    return result.model_copy(update={"mediaUrl": signed.get(stored.path)})
 
 
 @router.delete("/{conversation_id}")

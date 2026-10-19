@@ -33,6 +33,7 @@ Busca por `conversation_id`/`message_id` em models e migrations ativas:
 | `agent_action_proposals.summary_message_id` / `confirmation_message_id` (anuláveis) | Payload/resumo removidos por CASCADE da conversa obrigatória e das mensagens. |
 | `messages`, `agent_identity_challenges`, `agent_identity_proofs`, `agent_action_proposals`, `agent_action_receipts`, `cell_report_drafts`, `cell_report_audio_notices`, `cell_report_audio_consent_events` | FK da conversa obrigatória com CASCADE; nenhum conteúdo fica órfão por SET NULL. |
 | `conversations.secretaria_oferta_message_id` / `secretaria_oferta_resposta_message_id` (anuláveis) | Referências dentro da própria conversa removida; não criam camada sobrevivente. |
+| `pedido_oracao_mensagem` | Associação sem conteúdo; removida por cascata da mensagem. Mensagens pastorais e seus caminhos são enumerados dentro da função SECURITY DEFINER, sem SELECT do admin; depois da fila durável, mensagens são apagadas explicitamente para suportar FK composta sem cascata legada. |
 | `private_deletion_uploads`, `private_deletion_sends` | Sem FK de propósito: somente IDs, geração e tempos, sem conteúdo/pessoa/telefone. Conservam a fronteira externa após a remoção da origem. |
 
 Não foram encontradas outras FKs anuláveis/SET NULL para conversa/mensagem
@@ -108,7 +109,10 @@ writer de recibos/tarefas/barreiras e revalida admin no banco.
 ## Release e limites
 
 Aplicar `20261018_090000_exclusao_privada.sql` antes dos novos writers/cron;
-usar `backend/scripts/migrate.py` e o procedimento nominal de release, com
+A migration de sigilo `20261018_120000_prayer_message_privacy.sql` depende dela
+e adapta a função mantendo recibos/fila; aplicar ambas antes do backend desta PR.
+O owner das funções deve ignorar FORCE RLS; conferir no release.
+Usar `backend/scripts/migrate.py` e o procedimento nominal de release, com
 backup. Não publicar este código contra schema anterior. Rollback comentado
 exige conter consumidores, drenar tarefas e preservar recibos/barreiras.
 
