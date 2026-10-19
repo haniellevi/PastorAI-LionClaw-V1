@@ -139,6 +139,8 @@ class AudioInputClaim:
     credential_provider: str = field(repr=False)
     credential_key_encrypted: str = field(repr=False)
     credential_model: str = field(repr=False)
+    deletion_generation: int = 0
+    storage_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1721,6 +1723,8 @@ def _claim_next_audio_input(
                 credential_provider=credential.provedor,
                 credential_key_encrypted=credential.api_key_encrypted,
                 credential_model=credential.modelo,
+                deletion_generation=conversation.deletion_generation,
+                storage_path=locked.storage_path,
             ),
             False,
             input_id,
@@ -1806,6 +1810,9 @@ def _lock_audio_claim_context(
         if exists is not None:
             raise _AudioClaimBusy
         return None
+    if conversation.deletion_generation != claim.deletion_generation:
+        return None
+
     pessoa = session.execute(
         select(Pessoa)
         .where(Pessoa.igreja_id == claim.igreja_id, Pessoa.id == row.live_pessoa_id)
@@ -2523,6 +2530,15 @@ def _reopen_audio_purge_after_late_upload(
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
+        if row is None:
+            from app.services.private_deletion import reopen_late_audio_upload
+            from app.services.storage import cell_report_audio_storage_path
+
+            path = claim.storage_path or cell_report_audio_storage_path(
+                claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
+            reopen_late_audio_upload(session, igreja_id=claim.igreja_id,
+                                    conversation_id=claim.conversation_id,
+                                    source_id=claim.input_id, storage_path=path)
         if row is not None and row.purge_state in {"pendente", "purgada"}:
             row.purge_state = "ativa"
             row.content_purged_at = None
@@ -3323,15 +3339,30 @@ def _run_audio_provider_chain(
         if not authorized:
             denied_before_external()
             return None
+        from app.services.private_deletion import begin_audio_upload, finish_audio_upload
+
+        if not begin_audio_upload(session_factory, claim):
+            denied_before_external()
+            return None
         storage_attempted = True
-        stored = _run_audio_boundary(
-            lambda: storage.upload_cell_report_audio(
+
+        def upload_owned_audio():
+            stored = storage.upload_cell_report_audio(
                 igreja_id=claim.igreja_id,
                 provider_message_sha256=claim.provider_message_sha256,
                 mime_type=decoded.mime_type,
                 raw=raw,
                 deadline_seconds=_remaining_audio_seconds(deadline_at, cap=30.0),
-            ),
+            )
+            # Only a known return resolves ownership. A transport timeout or
+            # process loss leaves the durable fence for explicit reconciliation.
+            # Resolve before the monotonic boundary check: that check may reject
+            # a completed upload simply because its return exceeded the deadline.
+            finish_audio_upload(session_factory, claim)
+            return stored
+
+        stored = _run_audio_boundary(
+            upload_owned_audio,
             deadline_at=deadline_at,
             progress_callback=progress_callback,
         )
