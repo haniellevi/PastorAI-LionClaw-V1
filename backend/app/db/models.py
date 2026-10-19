@@ -1096,6 +1096,8 @@ class Conversation(Base):
         ),
     )
 
+    deletion_generation: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -4941,3 +4943,77 @@ class EnviarAvaliacao(Base):
     evidencias: Mapped[dict] = mapped_column(JSONB)
     versao_regras: Mapped[str] = mapped_column(Text)
     criada_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=text('clock_timestamp()'))
+
+
+class PrivateDeletionReceipt(Base):
+    """Minimal tombstone; deliberately survives church/conversation deletion."""
+
+    __tablename__ = 'private_deletion_receipts'
+    __table_args__ = (
+        UniqueConstraint('igreja_id', 'id'),
+        UniqueConstraint('igreja_id', 'scope', 'target_id'),
+        CheckConstraint("scope in ('conversa')"),
+        CheckConstraint('generation > 0'),
+    )
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    counts: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PrivateDeletionTask(Base):
+    __tablename__ = 'private_deletion_tasks'
+    __table_args__ = (
+        UniqueConstraint('igreja_id', 'receipt_id', 'source_id'),
+        ForeignKeyConstraint(('igreja_id', 'receipt_id'), ('private_deletion_receipts.igreja_id', 'private_deletion_receipts.id')),
+        CheckConstraint("state in ('pendente','concluida')"),
+        CheckConstraint('attempts >= 0'),
+        CheckConstraint("error_code is null or error_code='storage_unavailable'"),
+        CheckConstraint("(state='concluida') = (storage_path is null)"),
+        CheckConstraint("storage_path is null or starts_with(storage_path,igreja_id::text||'/')"),
+    )
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    receipt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    storage_path: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pendente'"))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    next_attempt_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PrivateDeletionUpload(Base):
+    __tablename__ = 'private_deletion_uploads'
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PrivateDeletionEventFence(Base):
+    __tablename__ = 'private_deletion_event_fences'
+    __table_args__ = (
+        ForeignKeyConstraint(('igreja_id', 'receipt_id'), ('private_deletion_receipts.igreja_id', 'private_deletion_receipts.id')),
+    )
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    receipt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
+class PrivateDeletionSend(Base):
+    """Content-free ownership of an outbound HTTP boundary, surviving deletion."""
+
+    __tablename__ = "private_deletion_sends"
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now() + interval '60 seconds'"), nullable=False,
+    )

@@ -520,16 +520,24 @@ def _del_client(app, session) -> TestClient:
     return TestClient(app)
 
 
-def test_delete_conversation_success(app) -> None:
-    conv = SimpleNamespace(id="00000000-0000-0000-0000-0000000000aa")
-    session = DeleteConvSession(
-        app_user=make_app_user(), roles=["admin"], conv=conv, media=[]
-    )
+def test_delete_conversation_success(app, monkeypatch) -> None:
+    from app.services import private_deletion
+
+    session = DeleteConvSession(app_user=make_app_user(), roles=["admin"], conv=None)
+    expected = {"estado": "pendente", "id": "synthetic-receipt", "camadas": {}}
+    calls = []
+    def delete(db, **scope):
+        calls.append((db, scope))
+        return expected
+    monkeypatch.setattr(private_deletion, "delete_private", delete)
     client = _del_client(app, session)
     resp = client.delete(_CONV_DELETE, headers=_AUTH)
-    assert resp.status_code == 204
-    assert session.deleted == [conv]
-    assert session.committed is True
+    assert resp.status_code == 200
+    assert resp.json() == expected
+    assert calls[0][0] is session
+    assert calls[0][1]["scope"] == "conversa"
+    assert str(calls[0][1]["target_id"]) == _CONV_DELETE.rsplit("/", 1)[-1]
+    assert str(calls[0][1]["igreja_id"]) == str(make_app_user().igreja_id)
 
 
 def test_delete_conversation_not_found(app) -> None:
