@@ -393,6 +393,13 @@ class CronWorker:
         purged = 0
         dispatched = 0
         storage = SupabaseStorage()
+        from app.services.private_deletion import process_storage_tasks
+
+        try:
+            process_storage_tasks(self._session_factory, storage=storage, now=now)
+        except Exception:
+            logger.warning("Private deletion cleanup failed", extra={"event": "private_deletion_cleanup_failed"})
+        self._record_progress()
         try:
             purged = purge_cell_report_audio_inputs(
                 self._session_factory,

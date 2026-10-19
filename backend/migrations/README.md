@@ -221,3 +221,29 @@ Pré-requisito de release: vincular os usuários da coordenação a uma Pessoa a
 A segregação de funções vive no serviço, não no banco (limite aceito).
 Somente Reencontro admite revogação nesta fatia. Revalidá-lo em turma encerrada
 é intencional e exige coordenação; não altera a conclusão UV existente.
+
+## CD: equivalência entre versões (candidata)
+
+`20261018_110000_cd_equivalencias_versoes.sql` agrupa **todos os currículos
+existentes de cada igreja em uma única família**, usando o UUID do mais antigo.
+A unicidade legada é por igreja/versão e permite vários currículos por igreja;
+ela não prova que sejam versões da mesma formação. Antes do release autorizado,
+executar a consulta somente de leitura abaixo e conferir esse agrupamento com
+o responsável. Se houver formações independentes, parar e reconciliar antes de
+aplicar; não presumir equivalência pelo nome.
+
+```sql
+SELECT igreja_id, count(*) AS curriculos
+FROM public.cd_curriculos
+GROUP BY igreja_id
+ORDER BY igreja_id;
+```
+
+O papel usado por `scripts/migrate.py` deve ter DDL/ownership e capacidade
+**efetiva de ignorar RLS** em `cd_curriculos`, `cd_matriculas` e `cd_conclusoes`
+para preencher e verificar todas as igrejas. Essas tabelas usam FORCE RLS:
+ser apenas owner não basta; é necessário BYPASSRLS ou superusuário, além dos
+privilégios de acesso. Não executar como papel de tenant com linhas filtradas.
+Os blocos DO abortam a transação se restarem currículos sem família ou matrículas
+com conclusão e `concluida=false`; essas verificações também exigem visibilidade
+global. Pré-checagem e aplicação remotas continuam não verificadas nesta PR.
