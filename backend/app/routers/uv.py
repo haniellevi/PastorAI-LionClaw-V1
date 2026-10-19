@@ -159,7 +159,7 @@ class ConclusaoInput(Input):
 
 
 @router.post('/{turma_id}/matriculas/{matricula_id}/marcos/{tipo}')
-def milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['encontro','batismo'], payload: MarcoInput,
+def milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['encontro','batismo','reencontro'], payload: MarcoInput,
               db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
     result = uv.milestone(db,user,turma_id,matricula_id,tipo,payload)
     db.commit()
@@ -170,5 +170,17 @@ def milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['encontro','bati
 def finish(turma_id: UUID, matricula_id: UUID, payload: ConclusaoInput,
            db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
     result = uv.finish(db,user,turma_id,matricula_id,payload)
+    db.commit()
+    return result
+
+
+class RevogacaoMarcoInput(Input):
+    motivo: str = Field(min_length=1, max_length=1000)
+
+
+@router.post('/{turma_id}/matriculas/{matricula_id}/marcos/{tipo}/revogar')
+def revoke_milestone(turma_id: UUID, matricula_id: UUID, tipo: Literal['reencontro'], payload: RevogacaoMarcoInput,
+                     db: Session = Depends(get_db), user: CurrentUser = Depends(require_screen('universidade-vida'))):
+    result = uv.revoke_milestone(db,user,turma_id,matricula_id,tipo,payload)
     db.commit()
     return result

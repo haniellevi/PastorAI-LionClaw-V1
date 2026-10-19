@@ -70,6 +70,7 @@ from app.services.celula_membro import (
     ensure_active_membro,
 )
 from tests.conftest_rls import rls_database_url  # noqa: F401
+from tests.test_whatsapp_integrated_pg import migrated_factory  # noqa: F401
 
 _MIGRATION = (
     pathlib.Path(__file__).resolve().parents[1]
@@ -2786,13 +2787,16 @@ def test_approve_vs_archive_concurrent_transferir_membro_never_both(
 
 @pytest.mark.rls_integration
 def test_approve_vs_archive_concurrent_multiplicacao_never_both(
-    factory: sessionmaker,
+    migrated_factory: sessionmaker,
 ) -> None:
     """tipo=multiplicacao, novo_lider_id=Pessoa disputada. Concorrência real
     (2 threads/2 transações, Barrier) contra `archive`. `celula_solicitacao_
     aberta` bloqueia `archive` enquanto a solicitação estiver aberta; depois
     do commit de `approve`, `celula_lider` bloqueia — nunca fica uma célula
     nova com líder arquivado."""
+    # Multiplication now reads official formation tables. Use the complete
+    # migration chain instead of the historical ORM-only offboarding schema.
+    factory = migrated_factory
     session_setup = factory()
     ctx = _base(session_setup)
     central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")

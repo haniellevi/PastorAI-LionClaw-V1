@@ -195,6 +195,33 @@ função e sua capacidade efetiva de ignorar RLS antes de aplicar/usar os caller
 sem essa conferência, o pré-requisito permanece não verificado.
 
 
+## Ordem obrigatória de release — UV/CD/Enviar
+
+Antes do deploy deste backend, aplique via `scripts/migrate.py`, na ordem dos
+nomes, todas as migrations UV (`20261017_210500`–`20261017_230000`), CD
+(`20261018_010000`–`20261018_040000`) e Enviar
+(`20261018_050000`–`20261018_080000`, seguidas de
+`20261018_100000_enviar_reencontro.sql`). O backend consulta as novas tabelas e
+colunas diretamente: publicar antes de migrar causa falhas de consulta.
+A pré-checagem de FK de `_080000` continua obrigatória.
+
+`20261018_100000_enviar_reencontro.sql` substitui o nome ainda não aplicado
+`20261018_090000_enviar_reencontro.sql`, evitando colisão com a exclusão privada
+(#509). O índice parcial admite só um marco ativo por igreja/pessoa/tipo.
+Revalidação exige coordenação e novo ID; não desfaz revogação nem apaga histórico,
+nem refaz conclusão UV existente. O rollback comentado exige preservar e
+reconciliar o histórico antes de restaurar a unicidade antiga.
+
+Ensaiar primeiro no PostgreSQL sintético. Aplicação remota exige autorização
+nominal e backup prévio no release; aplicação remota e deploy permanecem
+**não verificados**. Não abrir gates de envio/WhatsApp com esta mudança.
+
+Pré-requisito de release: vincular os usuários da coordenação a uma Pessoa ativa
+(`app_users.pessoa_id`); a proteção contra autovalidação retorna 403 sem vínculo.
+A segregação de funções vive no serviço, não no banco (limite aceito).
+Somente Reencontro admite revogação nesta fatia. Revalidá-lo em turma encerrada
+é intencional e exige coordenação; não altera a conclusão UV existente.
+
 ## CD: equivalência entre versões (candidata)
 
 `20261018_110000_cd_equivalencias_versoes.sql` agrupa **todos os currículos
@@ -220,3 +247,8 @@ privilégios de acesso. Não executar como papel de tenant com linhas filtradas.
 Os blocos DO abortam a transação se restarem currículos sem família ou matrículas
 com conclusão e `concluida=false`; essas verificações também exigem visibilidade
 global. Pré-checagem e aplicação remotas continuam não verificadas nesta PR.
+
+Compatibilidade Enviar/#511: `cd_conclusoes.revogada` não revoga certificado já
+emitido; a evidência CD do Enviar continua baseada em `cd_certificados.revogada`.
+A mudança da conclusão é reservada à manutenção futura, sem grant de aplicação.
+Veja [a fatia](../../docs/ops/ENVIAR-EVIDENCIAS.md).

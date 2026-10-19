@@ -55,8 +55,8 @@ def test_legacy_without_backfill_and_atomic_decision(sample):
         assert before['pendencias']['aviso_legado']=='origem legada, comprovação pendente'
         row=decide(s,v)
         assert row.origem=='legado' and row.autor_id==v['u']
-        assert row.evidencias['uv']=={'estado':'indisponivel_nesta_base','referencia':None}
-        assert row.versao_regras=='enviar-v1-provisoria'
+        assert row.evidencias['uv']=={'estado':'nao_informada','referencia':None}
+        assert row.versao_regras=='enviar-v1-20261018'
         s.commit()
         assert s.get(Pessoa,v['p']).apto_lider
         assert s.scalar(text('select count(*) from enviar_eventos where avaliacao_id=:id'),dict(id=row.id))==1
@@ -269,12 +269,8 @@ def test_decision_requires_actor_link_to_person(sample):
             assert s.scalar(text(f'select count(*) from {table}')) == 0
 
 
-def test_snapshot_without_pending_criteria_does_not_invent_evidence(sample, monkeypatch):
-    from app.domain.enviar import ResultadoEnviar, SituacaoEnviar
-    from app.services import enviar_avaliacoes as service
+def test_snapshot_without_official_records_does_not_invent_evidence(sample):
     v = sample
-    monkeypatch.setattr(service, 'ler_pendencias_pessoa', lambda *a, **kw:
-        ResultadoEnviar(situacao=SituacaoEnviar.APTO_PARA_AVALIACAO))
     with scoped(v) as s:
         row = decide(s, v)
         s.commit()

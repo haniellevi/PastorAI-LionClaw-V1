@@ -31,3 +31,11 @@ it('mostra erro de autorização sem formulário',async()=>{
  await act(async()=>root.render(<AvaliacaoPanel pessoaId="synthetic" token="fake" onExpired={()=>{}}/>));
  expect(el.textContent).toContain('Acesso restrito à coordenação');expect(el.querySelector('form')).toBeNull();
 });
+it('evidência revogada bloqueia novas nomeações mesmo com projeção apto',async()=>{
+ api.read.mockResolvedValue({...data,pendencias:{...data.pendencias,situacao:'bloqueado',pendencias:[{criterio:'cd',descricao:'CD certificado: evidência revogada'}]}});
+ const el=document.createElement('div');const root=createRoot(el);cleanup=()=>act(()=>root.unmount());
+ await act(async()=>root.render(<AvaliacaoPanel pessoaId="synthetic" token="fake" onExpired={()=>{}}/>));
+ expect(el.textContent).toContain('Aptidão para novas nomeações: bloqueada.');
+ expect(el.textContent).toContain('CD certificado: evidência revogada');
+ expect(el.querySelector('form')).toBeNull();
+});
