@@ -259,3 +259,22 @@ def test_legacy_responsible_and_strict_web_payload(database,seeded):
         assert c.post('/conhecimento/documentos',json=dict(draft(v),igreja_id=str(v['other']))).status_code==422
         assert action(c,p,'publicar',publicos=['institucional_publico'],vigente_esperada_id=None).status_code==409
         assert action(c,p,'publicar',publicos=[],vigente_esperada_id=None).status_code==422
+
+
+def test_pastor_can_propose_for_own_area_without_publishing(database,seeded):
+    v=seeded
+    with database.begin() as s:
+        s.execute(text("update user_roles set papel='pastor' where user_id=:u"),dict(u=v['leader']))
+    with client(database,v) as c:
+        other=create(c,v)
+    with client(database,v,'leader') as c:
+        p=draft(v); p['responsavel_id']=str(v['leader'])
+        response=c.post('/conhecimento/documentos',json=p)
+        assert response.status_code==200,response.text
+        p=edit(c,p)
+        assert action(c,p,'enviar-revisao').status_code==200
+        assert action(c,p,'revisar').status_code==200
+        assert action(c,p,'publicar',publicos=p['publicos'],vigente_esperada_id=None).status_code==403
+        assert action(c,p,'revogar').status_code==403
+        assert action(c,other,'enviar-revisao').status_code==403
+        assert c.post('/conhecimento/documentos',json=draft(v)).status_code==403

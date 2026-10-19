@@ -36,6 +36,11 @@ def version(db,t,did,vid):
     return found[0]
 
 
+def require_area(doc,uid):
+    if doc['responsavel_id']!=uid:
+        raise HTTPException(403,'Operação editorial fora da sua área')
+
+
 def ack(operation):
     return dict(operacao_id=operation['id'],documento_id=operation['documento_id'],
                 versao_id=operation['versao_id'],acao=operation['tipo'])
@@ -44,7 +49,7 @@ def ack(operation):
 def executar(db,user,kind,did,payload):
     """Uma operação atômica, com recibo sem conteúdo e sem commit interno."""
     t,uid,roles=actor(db,user)
-    require(roles,REVISORES if kind=='revisar' else PUBLICADORES)
+    require(roles,PUBLICADORES if kind in {'publicar','revogar'} else REVISORES)
     did=UUID(str(did))
     fingerprint=hashlib.sha256(json.dumps(
         dict(acao=kind,documento_id=str(did),payload=payload.model_dump(mode='json')),
@@ -58,14 +63,14 @@ def executar(db,user,kind,did,payload):
         receipt=prior[0]
         if (receipt['ator_id'],receipt['fingerprint'])!=(uid,fingerprint):
             raise HTTPException(409,'Operação reutilizada com outros dados')
-        if kind=='revisar':
-            doc=document(db,t,did)
-            if not roles & PUBLICADORES and doc['responsavel_id']!=uid:
-                raise HTTPException(403,'Revisão fora da sua área')
+        if not roles & PUBLICADORES:
+            require_area(document(db,t,did),uid)
         return ack(receipt)
     try:
         with db.begin_nested():
             if kind=='criar':
+                if not roles & PUBLICADORES and payload.responsavel_id!=uid:
+                    raise HTTPException(403,'Proposta fora da sua área')
                 responsible=rows(db,'''select u.id from app_users u join user_roles r
                     on r.igreja_id=u.igreja_id and r.user_id=u.id
                     where u.igreja_id=:t and u.id=:u and (u.status is null or u.status='ativo')
@@ -81,6 +86,8 @@ def executar(db,user,kind,did,payload):
                 insert_snapshot(db,t,uid,did,payload,None)
             else:
                 doc=document(db,t,did)
+                if not roles & PUBLICADORES:
+                    require_area(doc,uid)
                 if kind=='editar':
                     expected=doc['rascunho_id'] or doc['vigente_id']
                     if expected is not None and expected!=payload.anterior_id:
