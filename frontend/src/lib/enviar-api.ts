@@ -41,3 +41,32 @@ export async function postAvaliacao(token: string, pessoaId: string, input: Deci
   if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? 'Não foi possível registrar a avaliação.');
   return res.json();
 }
+
+export interface EnviarPessoa {
+  id: string;
+  nome: string;
+  situacao: 'apto_para_avaliacao' | 'pendente' | 'bloqueado';
+  origem: string | null;
+  apto_lider: boolean;
+  pendencias: { criterio: string; estado: string; descricao: string }[];
+  ultima_avaliacao: Pick<Avaliacao, 'id' | 'decisao' | 'criada_em' | 'versao_regras'> | null;
+}
+export interface EnviarHistorico {
+  id: string;
+  tipo: 'nomear_lider' | 'abrir_celula' | 'multiplicacao';
+  status: string;
+  criada_em: string;
+  decidido_em: string | null;
+  celula_id: string | null;
+}
+export interface EnviarPage<T> { items: T[]; total: number; page: number; page_size: number }
+export interface EnviarQuery { q: string; page: number; grupo?: 'todos' | 'aptos' | 'pendentes' }
+async function getEnviarPage<T>(token: string, path: string, query: EnviarQuery): Promise<EnviarPage<T>> {
+  const params = new URLSearchParams({ q: query.q, page: String(query.page), page_size: '25' });
+  if (query.grupo) params.set('grupo', query.grupo);
+  const res = await authedFetch(token, `/enviar/${path}?${params}`);
+  if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? 'Não foi possível consultar Enviar.');
+  return res.json();
+}
+export const getEnviarPessoas = (token: string, query: EnviarQuery) => getEnviarPage<EnviarPessoa>(token, 'pessoas', query);
+export const getEnviarHistorico = (token: string, query: EnviarQuery) => getEnviarPage<EnviarHistorico>(token, 'historico', query);

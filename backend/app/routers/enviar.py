@@ -1,11 +1,11 @@
 """Sensitive Enviar evaluation is available only through authenticated web."""
 from typing import Literal
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.deps import CurrentUser, require_central
+from app.deps import CurrentUser, require_central, require_role
 from app.services.enviar_avaliacoes import avaliacao_out, historico_pessoa, registrar_avaliacao
 
 router = APIRouter(prefix='/enviar', tags=['enviar'])
@@ -38,3 +38,19 @@ def post_avaliacao(pessoa_id: UUID, payload: AvaliacaoInput, db: Session = Depen
     out = avaliacao_out(row)
     db.commit()
     return out
+
+
+@router.get('/pessoas')
+def get_pessoas(q: str = Query('', max_length=100), page: int = Query(1, ge=1, le=100000),
+    page_size: int = Query(25, ge=1, le=100), grupo: Literal['todos','aptos','pendentes'] = 'todos',
+    db: Session = Depends(get_db), user: CurrentUser = Depends(require_role(['pastor','lider_celula']))):
+    from app.services.enviar_panorama import listar_pessoas
+    return listar_pessoas(db,user,q=q,page=page,page_size=page_size,grupo=grupo)
+
+
+@router.get('/historico')
+def get_historico(q: str = Query('', max_length=100), page: int = Query(1, ge=1, le=100000),
+    page_size: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db), user: CurrentUser = Depends(require_role(['pastor','lider_celula']))):
+    from app.services.enviar_panorama import listar_historico
+    return listar_historico(db,user,q=q,page=page,page_size=page_size)

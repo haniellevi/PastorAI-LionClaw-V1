@@ -29,7 +29,7 @@ const pendingReport: ReportItem = { id: "ops-meeting-B", celulaId: cell.id, celu
 function pageOf<T>(items: T[]): ApiPage<T> { return { items, page: 1, pageSize: 200, total: items.length }; }
 
 const permissions: PermissionMatrix = {
-  lider_celula: ["dashboard", "minha-celula", "calendario"],
+  lider_celula: ["dashboard", "minha-celula", "calendario", "enviar"],
   membro: ["dashboard", "minha-celula", "calendario"],
 };
 
@@ -69,6 +69,7 @@ async function fixtures(page: Page) {
     else if (method === "GET" && path === "/cell-central/pending-reports") data = { items: [], page: 1, page_size: 20 };
     else if (method === "GET" && path === "/cell-central/health") data = { cells: [] };
     else if (method === "GET" && ["/cell-requests", "/cell-materials", "/cell-notices"].includes(path)) data = pageOf([]);
+    else if (method === "GET" && ["/enviar/pessoas", "/enviar/historico"].includes(path)) data = { items: [], total: 0, page: 1, page_size: 25 };
     else if (method === "GET" && path === "/multiplicacoes") {
       if (controls.failEnviar) { status = 500; data = { detail: "Falha fictícia ao carregar multiplicações." }; }
       else data = { pendentes: [{ id: "ops-mult", celula_id: cell.id, solicitante_id: null, tipo: "multiplicacao", status: "aguardando", payload_proposto: { nome_nova_celula: "Nova célula de exemplo" }, created_at: "2026-09-29T12:00:00Z" }], registradas: [] };
@@ -400,4 +401,52 @@ test("falha de leitura não vira conclusão de ausência de relatório ou multip
   expect(safety.externalRequests).toEqual([]);
   expect(safety.pageErrors).toEqual([]);
   expect(safety.consoleErrors.filter((message) => !/^Failed to load resource: the server responded with a status of 500/.test(message))).toEqual([]);
+});
+
+test("Enviar consulta aptos, pendências e histórico sem efetuar decisões", async ({ page }) => {
+  const safety = await armBrowserSafety(page);
+  await loginThroughUi(page);
+  const fixture = await fixtures(page);
+  const queries: string[] = [];
+  await page.route(`${API_URL}/enviar/**`, async route => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': APP_URL, 'Access-Control-Allow-Headers': 'Authorization, Content-Type' } }); return; }
+    queries.push(url.search);
+    const history = url.pathname.endsWith('/historico');
+    const items = history ? [{ id: 'hist-synthetic', tipo: 'nomear_lider', status: 'aprovada', criada_em: '2026-10-18T12:00:00Z', decidido_em: null, celula_id: cell.id }] : url.searchParams.get('grupo') === 'aptos' ? [] : [{ id: 'person-synthetic', nome: 'Pessoa em formação', situacao: 'pendente', origem: 'legado', apto_lider: false, ultima_avaliacao: null, pendencias: [{ criterio: 'uv', estado: 'indisponivel_nesta_base', descricao: 'UV: indisponível nesta base' }] }];
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': APP_URL }, body: JSON.stringify({ items, total: items.length, page: 1, page_size: 25 }) });
+  });
+  await page.goto('/#enviar');
+  const panorama = page.getByRole('region', { name: 'Pessoas e histórico de Enviar' });
+  await expect(panorama.getByText('Pessoa em formação', { exact: true })).toBeVisible();
+  await expect(panorama.getByText('origem legada, comprovação pendente', { exact: true })).toBeVisible();
+  await panorama.getByRole('searchbox', { name: 'Buscar pessoa', exact: true }).fill('Pessoa');
+  await panorama.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await expect.poll(() => queries.some(q => q.includes('q=Pessoa'))).toBe(true);
+  await panorama.getByRole('button', { name: 'Aptos', exact: true }).click();
+  await expect(panorama.getByText('Nenhuma pessoa neste filtro.', { exact: true })).toBeVisible();
+  await panorama.getByRole('button', { name: 'Histórico', exact: true }).click();
+  await expect(panorama.getByText('Nomeação', { exact: true })).toBeVisible();
+  await expect(panorama.getByRole('link', { name: 'Decidir na Central de Célula', exact: true })).toHaveAttribute('href', '#central-celula');
+  await panorama.getByRole('link', { name: 'Iniciar nomeação ou abertura', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Nomeações', exact: true })).toBeFocused();
+  expect(page.url()).toContain('#enviar');
+  expect(fixture.writes).toEqual([]);
+  expectCleanBrowser(safety);
+});
+
+test('líder de célula alcança Enviar e consulta panorama sem decisão da Central', async ({ page }) => {
+  const safety = await armBrowserSafety(page);
+  await loginThroughUi(page);
+  const fixture = await fixtures(page);
+  fixture.controls.leader = true;
+  await page.reload();
+  await page.goto('/#enviar');
+  const panorama = page.getByRole('region', { name: 'Pessoas e histórico de Enviar' });
+  await expect(panorama).toBeVisible();
+  await expect(panorama.getByText('Nenhuma pessoa neste filtro.', { exact: true })).toBeVisible();
+  await expect(panorama.getByRole('link', { name: 'Decidir na Central de Célula', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Avaliar aptidão', exact: true })).toHaveCount(0);
+  expect(fixture.writes).toEqual([]);
+  expectCleanBrowser(safety);
 });
