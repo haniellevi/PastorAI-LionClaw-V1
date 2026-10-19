@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.deps import CurrentUser
-from app.domain.conhecimento import PUBLICO_VISITANTE, REVISORES, TIPO_PESSOA_MEMBRO
+from app.domain.conhecimento import PUBLICADORES, PUBLICO_VISITANTE, REVISORES, TIPO_PESSOA_MEMBRO
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ def pode_ler(db, usuario: CurrentUser | Visitante, versao: UUID) -> bool:
     except HTTPException:
         return False
     if version['estado'] in {'rascunho', 'em_revisao'}:
-        return ('admin' in roles or (version['estado']=='em_revisao'
+        return (bool(roles & PUBLICADORES) or (version['estado']=='em_revisao'
             and bool(roles & REVISORES) and uid==version['responsavel_id']))
     if version['estado']!='publicada' or version['vigente_id']!=versao:
         return False
