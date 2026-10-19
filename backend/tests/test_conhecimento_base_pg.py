@@ -222,3 +222,13 @@ def test_receipt_must_reference_same_document_and_church(database,seeded,foreign
                 values(:t,:id,:d,:v,:u,'criar',:h)"""),
                 dict(t=v['t'],id=uuid4(),d=doc,v=other,u=v['uid'],h='a'*64))
         assert exc.value.orig.pgcode=='23503'
+
+
+def test_legacy_null_status_is_active_like_web_auth(database,seeded):
+    from app.services.conhecimento import pode_ler
+    v=seeded
+    with database.begin() as c:
+        c.execute(text('update app_users set status=null where id=:u'),dict(u=v['uid']))
+    with scoped(database,v['t']) as s:
+        _,ver=snapshot(s,v,audience=['papel:admin'],state='publicada')
+        assert pode_ler(s,principal(v),ver)

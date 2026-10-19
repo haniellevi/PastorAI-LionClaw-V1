@@ -26,7 +26,7 @@ def actor(db, user):
     """Revalida acesso e papéis; claims do CurrentUser não concedem privilégios."""
     t, uid = UUID(user.igreja_id), UUID(user.app_user_id)
     found = rows(db, """select u.id from app_users u
-        where u.igreja_id=:t and u.id=:u and u.status='ativo' for share""", t=t,u=uid)
+        where u.igreja_id=:t and u.id=:u and (u.status is null or u.status='ativo') for share""", t=t,u=uid)
     if not found:
         raise HTTPException(403, 'Acesso indisponível')
     roles = {r['papel'] for r in rows(db, '''select papel from user_roles
