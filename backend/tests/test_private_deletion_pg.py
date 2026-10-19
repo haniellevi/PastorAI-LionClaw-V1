@@ -24,7 +24,7 @@ pytestmark = pytest.mark.rls_integration
 def private_data(database):
     with database.begin() as c:
         c.exec_driver_sql('delete from private_deletion_tasks; delete from private_deletion_event_fences; '
-                         'delete from private_deletion_uploads; delete from private_deletion_sends; delete from private_deletion_receipts')
+                         'delete from private_deletion_uploads; delete from private_deletion_sends; delete from private_deletion_dependencies; delete from private_deletion_members; delete from private_deletion_receipts')
     v = {k: uuid4() for k in ('tenant', 'other', 'person', 'person2', 'person3', 'admin', 'conv', 'conv2', 'conv3', 'message', 'audio')}
     with database.begin() as c:
         for tenant in (v['tenant'], v['other']):
@@ -55,6 +55,8 @@ def scoped(engine, tenant, *, admin=False):
 
 def api(engine, v, roles=('admin',)):
     app = FastAPI(); app.include_router(router)
+    from app.routers.private_content import router as private_router
+    app.include_router(private_router)
     def db():
         with scoped(engine, v['tenant'], admin=True) as s:
             yield s
@@ -223,7 +225,8 @@ def test_generation_change_rejects_live_audio_claim(database, private_data, monk
         assert lock_generation(s,v['tenant'],v['conv'],1)
 
 
-def test_real_ingestion_upload_serializes_with_deletion(database, private_data):
+@pytest.mark.parametrize('scope', ['conversa', 'pessoa', 'igreja'])
+def test_real_ingestion_upload_serializes_with_deletion(database, private_data, scope):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
     from app.domain.conversations import ParsedMessage
@@ -248,7 +251,10 @@ def test_real_ingestion_upload_serializes_with_deletion(database, private_data):
     def delete():
         deleting.set()
         with api(database,v) as client:
-            return client.delete(f"/conversations/{v['conv']}")
+            if scope=='conversa':
+                return client.delete(f"/conversations/{v['conv']}")
+            path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
+            return client.request('DELETE',path,json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
     with ThreadPoolExecutor(max_workers=2) as pool:
         uploaded=pool.submit(ingest)
         assert entered.wait(10)
@@ -262,8 +268,8 @@ def test_real_ingestion_upload_serializes_with_deletion(database, private_data):
         assert uploaded.result(timeout=10).result==IngestionResult.REGISTERED
         result=deleted.result(timeout=10)
         assert result.status_code==200, result.text
-        assert result.json()['camadas']['mensagens']['apagadas']==2
-        assert result.json()['camadas']['midias']['pendentes']==3
+        assert result.json()['camadas']['mensagens']['apagadas']==(3 if scope=='igreja' else 2)
+        assert result.json()['camadas']['midias']['pendentes']==(4 if scope=='igreja' else 3)
     with database.connect() as c:
         assert c.execute(text('select count(*) from messages where conversation_id=:conv'),v).scalar_one()==0
 
@@ -274,7 +280,7 @@ def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private
     v=private_data
     with api(database,v) as client:
         deleted=client.delete(f"/conversations/{v['conv']}").json()
-    tables=('private_deletion_receipts','private_deletion_tasks','private_deletion_uploads','private_deletion_event_fences','private_deletion_sends')
+    tables=('private_deletion_receipts','private_deletion_tasks','private_deletion_uploads','private_deletion_event_fences','private_deletion_sends','private_deletion_members','private_deletion_dependencies')
     with database.connect() as c:
         for table in tables:
             assert c.execute(text("select relrowsecurity and relforcerowsecurity from pg_class where oid=cast(:t as regclass)"),dict(t=table)).scalar_one()
@@ -298,7 +304,7 @@ def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private
         assert c.execute(text('select count(*) from private_deletion_receipts where id=:id'),dict(id=deleted['id'])).scalar_one()==1
 
 
-def test_deleted_event_caught_when_deletion_commits_between_fence_and_conversation_lookup(database, private_data, monkeypatch):
+def test_deleted_event_caught_when_deletion_commits_before_ingestion_barrier(database, private_data, monkeypatch):
     from app.services import private_deletion as privacy
     from app.domain.conversations import ParsedMessage
     from app.domain.phone import normalize_phone
@@ -308,15 +314,14 @@ def test_deleted_event_caught_when_deletion_commits_between_fence_and_conversati
         c.execute(text("update pessoas set telefone='550000000001' where id=:person"),v)
         c.execute(text("update cell_report_audio_inputs set provider_message_sha256=encode(digest('synthetic-racing-event','sha256'),'hex') where id=:audio"),v)
         c.execute(text("insert into whatsapp_connections(igreja_id,instance) values(:tenant,'private-race')"),v)
-    original=privacy.event_was_deleted; calls=[]
-    def interleave(db, tenant, event):
-        result=original(db,tenant,event)
+    original=privacy.acquire_ingestion_barrier; calls=[]
+    def interleave(db, tenant, **kwargs):
         if not calls:
             calls.append(True)
             with api(database,v) as client:
                 assert client.delete(f"/conversations/{v['conv']}").status_code==200
-        return result
-    monkeypatch.setattr(privacy,'event_was_deleted',interleave)
+        return original(db,tenant,**kwargs)
+    monkeypatch.setattr(privacy,'acquire_ingestion_barrier',interleave)
     parsed=ParsedMessage(instance='private-race',provider_message_id='synthetic-racing-event',
         telefone=normalize_phone('550000000001'),telefone_raw='550000000001',texto='synthetic',push_name=None,from_me=False)
     with Session(database) as s:
@@ -493,8 +498,8 @@ def test_lost_send_expires_without_reopening_transport(database, private_data):
         c.execute(text("update private_deletion_tasks set state='concluida',storage_path=null where igreja_id=:tenant"), v)
     with api(database, v) as client:
         result = client.get(f"/conversations/{v['conv']}/deletion-receipt").json()
-        assert result['estado'] == 'concluido'
-        assert result['camadas']['envios']['pendentes'] == 0
+        assert result['estado'] == 'pendente_envio'
+        assert result['camadas']['envios']['pendentes'] == 1
     calls = []
     worker._deliver_agent_reply_intent(factory, outcome, intent, None,
         evolution_client=SimpleNamespace(send_text=lambda *args: calls.append(True)))
@@ -540,3 +545,250 @@ def test_preflight_renews_full_window_and_rejects_expired_owner(database, privat
     with scoped(database, v['tenant']) as s:
         assert lock_generation(s, v['tenant'], v['conv'], 0)
         assert not renew_agent_send(s, v['tenant'], v['conv'], v['message'], 0)
+
+
+@pytest.mark.parametrize('scope', ['pessoa', 'igreja'])
+def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, scope):
+    from app.services.private_deletion import process_storage_tasks, event_was_deleted
+    v = private_data
+    with database.begin() as c:
+        c.execute(text("update pessoas set optout=true, consentimento=false where id=:person"), v)
+        c.execute(text("insert into consent_records(igreja_id,pessoa_id,termo_versao,aceite_em) values(:tenant,:person,'v1',now())"), v)
+        c.execute(text("insert into agent_conversation_logs(igreja_id,conversation_id,payload) values(:tenant,:conv,'{\"private\":\"synthetic\"}')"), v)
+        c.execute(text("insert into agent_conversation_logs(igreja_id,evento,payload) values(:tenant,'subscription_upgrade:synthetic','{\"private\":\"synthetic\"}')"), v)
+        c.execute(text("update messages set provider_message_id='bulk-synthetic' where id=:message"), v)
+    operation = str(uuid4())
+    payload = dict(operation_id=operation, confirmacao='EXCLUIR CONTEUDO PRIVADO')
+    path = f"/contacts/{v['person']}/private-content" if scope == 'pessoa' else '/igreja/private-content'
+    with api(database, v) as client:
+        assert client.request('DELETE', path, json={**payload, 'confirmacao':'wrong'}).status_code == 422
+        result = client.request('DELETE', path, json=payload)
+        assert result.status_code == 200, result.text
+        initial = result.json()
+        assert initial['escopo'] == scope
+        assert initial['camadas']['mensagens']['apagadas'] == (1 if scope == 'pessoa' else 2)
+        assert initial['camadas']['entradas_audio']['apagadas'] == 1
+        assert initial['camadas']['logs_agente']['apagadas'] == 1
+        assert initial['camadas']['logs_sem_ancora']['apagadas'] == 1
+        assert client.request('DELETE',path,json=payload).json() == initial
+        assert client.get(f"/igreja/private-deletions/{initial['id']}").json() == initial
+        assert client.request('DELETE',f"/contacts/{v['person3']}/private-content",json=payload).status_code == 404
+    with scoped(database, v['tenant']) as s:
+        assert event_was_deleted(s, v['tenant'], 'bulk-synthetic')
+    calls = []
+    assert process_storage_tasks(lambda: Session(database), storage=SimpleNamespace(
+        remove_tenant_media=lambda t,paths: calls.append((t,paths)))) == (2 if scope == 'pessoa' else 3)
+    assert all(t == v['tenant'] for t,_ in calls)
+    with database.connect() as c:
+        assert c.execute(text('select optout from pessoas where id=:person'),v).scalar_one()
+        assert c.execute(text('select count(*) from consent_records where pessoa_id=:person'),v).scalar_one() == 1
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one() == 1
+        assert c.execute(text('select payload from agent_conversation_logs where conversation_id is null')).scalar_one() is None
+    with api(database,v) as client:
+        finished=client.get(f"/igreja/private-deletions/{initial['id']}").json()
+        assert finished['estado']=='concluido'
+        assert 'synthetic' not in json.dumps(finished).lower()
+
+
+@pytest.mark.parametrize('scope', ['pessoa', 'igreja'])
+def test_bulk_web_and_sql_deny_nonadmin_and_cross_tenant(database,private_data,scope):
+    from sqlalchemy.exc import DBAPIError
+    v=private_data
+    payload=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')
+    path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
+    with api(database,v,('pastor',)) as client:
+        assert client.request('DELETE',path,json=payload).status_code==403
+    for tenant,sub in ((v['tenant'],'unknown'),(v['other'],'deletion-admin')):
+        with scoped(database,tenant) as s:
+            s.execute(text("select set_config('request.jwt.claims',:claims,true)"),dict(claims=json.dumps(dict(sub=sub))))
+            with pytest.raises(DBAPIError):
+                s.execute(text('select private_delete_scope(:t,:scope,:target,:operation)'),
+                    dict(t=v['tenant'],scope=scope,target=v['person'] if scope=='pessoa' else v['tenant'],operation=uuid4()))
+            s.rollback()
+    with database.begin() as c:
+        c.execute(text("update app_users set status='revogado' where id=:admin"),v)
+    with scoped(database,v['tenant'],admin=True) as s:
+        with pytest.raises(DBAPIError):
+            s.execute(text('select private_delete_scope(:t,:scope,:target,:operation)'),
+                dict(t=v['tenant'],scope=scope,target=v['person'] if scope=='pessoa' else v['tenant'],operation=uuid4()))
+
+
+def test_bulk_new_operation_erases_new_content_but_retry_is_snapshot(database,private_data):
+    v=private_data; op=uuid4()
+    from app.services.private_deletion import delete_private
+    with scoped(database,v['tenant'],admin=True) as s:
+        first=delete_private(s,scope='pessoa',igreja_id=v['tenant'],target_id=v['person'],operation_id=op)
+    new_conv=uuid4()
+    with database.begin() as c:
+        c.execute(text("insert into conversations(id,igreja_id,pessoa_id,telefone) values(:c,:tenant,:person,'000000000000')"),dict(v,c=new_conv))
+    with scoped(database,v['tenant'],admin=True) as s:
+        assert delete_private(s,scope='pessoa',igreja_id=v['tenant'],target_id=v['person'],operation_id=op)==first
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from conversations where id=:c'),dict(c=new_conv)).scalar_one()==1
+    with scoped(database,v['tenant'],admin=True) as s:
+        second=delete_private(s,scope='pessoa',igreja_id=v['tenant'],target_id=v['person'],operation_id=uuid4())
+        assert second['id']!=first['id']
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from conversations where id=:c'),dict(c=new_conv)).scalar_one()==0
+
+
+def test_bulk_late_upload_survives_source_and_tenant_loss(database,private_data):
+    from app.services.private_deletion import begin_audio_upload,finish_audio_upload,delete_private,process_storage_tasks
+    v=private_data; factory=lambda:Session(database)
+    assert begin_audio_upload(factory,claim(v))
+    with scoped(database,v['tenant'],admin=True) as s:
+        result=delete_private(s,scope='igreja',igreja_id=v['tenant'],target_id=v['tenant'],operation_id=uuid4())
+    calls=[]; storage=SimpleNamespace(remove_tenant_media=lambda t,paths:calls.append(paths))
+    assert process_storage_tasks(factory,storage=storage)==2  # image paths only; audio still owned
+    with database.begin() as c:
+        c.execute(text('delete from igrejas where id=:tenant'),v)
+    finish_audio_upload(factory,claim(v))
+    assert process_storage_tasks(factory,storage=storage)==1
+    with database.connect() as c:
+        assert c.execute(text("select count(*) from private_deletion_tasks where receipt_id=:r and state='pendente'"),dict(r=result['id'])).scalar_one()==0
+
+
+def test_transcriptions_count_text_not_untranscribed_inputs(database,private_data):
+    v=private_data
+    with database.begin() as c:
+        c.execute(text('update cell_report_audio_inputs set transcript_text=null where id=:audio'),v)
+    with api(database,v) as client:
+        r=client.delete(f"/conversations/{v['conv']}").json()
+        assert r['camadas']['transcricoes']['apagadas']==0
+        assert r['camadas']['entradas_audio']['apagadas']==1
+
+
+def test_platform_erasure_uses_private_queue_and_preserves_other_tenant(database,private_data):
+    from app.services.tenant_deletion import delete_tenant_locally,TenantDeletionActor
+    from app.services.private_deletion import process_storage_tasks
+    v=private_data
+    with Session(database) as s:
+        result=delete_tenant_locally(s,v['tenant'],TenantDeletionActor(None,None))
+        assert result.deleted_now
+        s.commit()
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from igrejas where id=:tenant'),v).scalar_one()==0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
+        assert c.execute(text("select count(*) from private_deletion_receipts where igreja_id=:tenant and scope='igreja'"),v).scalar_one()==1
+        assert c.execute(text("select count(*) from private_deletion_tasks where igreja_id=:tenant and state='pendente'"),v).scalar_one()==3
+        assert c.execute(text('select count(*) from cell_report_audio_inputs where igreja_id=:tenant'),v).scalar_one()==0
+    calls=[]
+    assert process_storage_tasks(lambda:Session(database),storage=SimpleNamespace(remove_tenant_media=lambda t,paths:calls.append(t)))==3
+    assert calls==[v['tenant']]*3
+
+
+def test_church_receipt_includes_older_conversation_cleanup(database,private_data):
+    v=private_data
+    with api(database,v) as client:
+        earlier=client.delete(f"/conversations/{v['conv']}").json()
+        bulk=client.request('DELETE','/igreja/private-content',json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+        assert earlier['camadas']['midias']['pendentes']==2
+        assert bulk['camadas']['midias']['pendentes']==3
+        assert bulk['camadas']['mensagens']['apagadas']==2
+        assert bulk['estado']=='pendente'
+
+
+def test_person_erases_orphan_audio_and_reopens_its_late_upload(database,private_data):
+    from app.services.private_deletion import begin_audio_upload,finish_audio_upload,process_storage_tasks
+    v=private_data; factory=lambda:Session(database)
+    assert begin_audio_upload(factory,claim(v))
+    with database.begin() as c:
+        c.execute(text('update cell_report_audio_inputs set conversation_id=:old,inbound_message_id=:msg,live_conversation_id=null,live_message_id=null where id=:audio'),dict(v,old=uuid4(),msg=uuid4()))
+    with api(database,v) as client:
+        r=client.request('DELETE',f"/contacts/{v['person']}/private-content",json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+        assert r.status_code==200,r.text
+        assert r.json()['camadas']['entradas_audio']['apagadas']==1
+    storage=SimpleNamespace(remove_tenant_media=lambda *args:None)
+    assert process_storage_tasks(factory,storage=storage)==1
+    finish_audio_upload(factory,claim(v))
+    assert process_storage_tasks(factory,storage=storage)==1
+
+
+def test_person_receipt_includes_prior_church_cleanup(database,private_data):
+    v=private_data
+    with api(database,v) as client:
+        church=client.request('DELETE','/igreja/private-content',json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+        person=client.request('DELETE',f"/contacts/{v['person']}/private-content",json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+        assert person['camadas']['midias']['pendentes']==church['camadas']['midias']['pendentes']==3
+        assert person['estado']=='pendente'
+
+
+@pytest.mark.parametrize('scope',['conversa','pessoa','igreja'])
+def test_admin_bulk_erases_protected_messages_without_read_permission(database,private_data,scope):
+    v=private_data
+    # Synthetic equivalent of the pending inbox privacy migration: protected
+    # association with tenant-composite FK and restrictive SELECT on Message.
+    with database.begin() as c:
+        c.exec_driver_sql('''create table pedido_oracao_mensagem(
+            igreja_id uuid not null,conversation_id uuid not null,message_id uuid not null,
+            primary key(igreja_id,message_id),
+            foreign key(igreja_id,conversation_id,message_id)
+              references messages(igreja_id,conversation_id,id) on delete cascade);
+            alter table pedido_oracao_mensagem enable row level security;
+            alter table pedido_oracao_mensagem force row level security;
+            revoke all on pedido_oracao_mensagem from public,anon,authenticated,service_role;
+            create function synthetic_private_message(uuid,uuid) returns boolean
+            language sql stable security definer set search_path=pg_catalog,public as $$
+              select exists(select 1 from public.pedido_oracao_mensagem where igreja_id=$1 and message_id=$2)
+            $$;
+            create policy synthetic_private_message on messages as restrictive for select to authenticated
+              using(not synthetic_private_message(igreja_id,id));''')
+        c.execute(text('insert into pedido_oracao_mensagem values(:tenant,:conv,:message)'),v)
+    try:
+        with scoped(database,v['tenant'],admin=True) as s:
+            assert s.execute(text('select count(*) from messages where id=:message'),v).scalar_one()==0
+        with api(database,v) as client:
+            if scope=='conversa':
+                response=client.delete(f"/conversations/{v['conv']}")
+            else:
+                path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
+                response=client.request('DELETE',path,json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+            assert response.status_code==200,response.text
+            result=response.json()
+            assert result['camadas']['pedido_oracao_mensagem']['apagadas']==1
+            assert result['camadas']['midias']['pendentes']==(3 if scope=='igreja' else 2)
+            assert 'synthetic' not in json.dumps(result).lower()
+        with database.connect() as c:
+            assert c.execute(text('select count(*) from pedido_oracao_mensagem')).scalar_one()==0
+            assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
+    finally:
+        with database.begin() as c:
+            c.exec_driver_sql('drop policy synthetic_private_message on messages; drop function synthetic_private_message(uuid,uuid); drop table pedido_oracao_mensagem')
+
+
+def test_person_erases_unlinked_conversation_identified_by_private_source(database,private_data):
+    v=private_data
+    with database.begin() as c:
+        c.execute(text('update conversations set pessoa_id=null where id=:conv'),v)
+    with api(database,v) as client:
+        response=client.request('DELETE',f"/contacts/{v['person']}/private-content",json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+        assert response.status_code==200,response.text
+        assert response.json()['camadas']['mensagens']['apagadas']==1
+        assert response.json()['camadas']['entradas_audio']['apagadas']==1
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv'),v).scalar_one()==0
+
+
+def test_private_scope_owner_helper_and_dependency_rls(database,private_data):
+    from sqlalchemy.exc import DBAPIError
+    v=private_data
+    with api(database,v) as client:
+        client.delete(f"/conversations/{v['conv']}")
+        result=client.request('DELETE','/igreja/private-content',json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+    with scoped(database,v['other']) as s:
+        assert s.execute(text('select count(*) from private_deletion_dependencies')).scalar_one()==0
+        assert s.execute(text('select count(*) from private_deletion_members')).scalar_one()==0
+    with scoped(database,v['tenant'],admin=True) as s:
+        assert s.execute(text('select count(*) from private_deletion_dependencies where receipt_id=:r'),dict(r=result['id'])).scalar_one()==1
+        with pytest.raises(DBAPIError):
+            s.execute(text("select private_delete_content(:tenant,'igreja',:tenant,:op)"),dict(v,op=uuid4()))
+        s.rollback()
+    with database.connect() as c:
+        for role in ('anon','authenticated','service_role'):
+            assert not c.execute(text("select has_function_privilege(:r,'private_delete_content(uuid,text,uuid,uuid)','EXECUTE')"),dict(r=role)).scalar_one()

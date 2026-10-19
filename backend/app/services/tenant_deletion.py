@@ -656,10 +656,17 @@ def _lock_and_clear_secretaria_offers_before_messages(
         )
 
 
+def _erase_tenant_private_content(session: Session, igreja_id: uuid.UUID) -> None:
+    session.execute(text("select public.private_delete_content(:t,'igreja',:t,:t)"),
+                    {"t": igreja_id})
+
+
 def delete_tenant_locally(
     session: Session, igreja_id: uuid.UUID, actor: TenantDeletionActor
 ) -> TenantDeletionResult:
     """Persist cleanup work and delete one tenant without calling providers."""
+    from app.services.private_deletion import acquire_ingestion_barrier
+    acquire_ingestion_barrier(session, igreja_id, exclusive=True)
     # Worker transitions acquire Conversation then Message.  Take every
     # Conversation lock before Igreja too: an in-flight worker can insert a
     # Message whose igreja FK needs the Igreja row lock.
@@ -728,6 +735,10 @@ def delete_tenant_locally(
         subscription,
         media_paths,
     )
+
+    # The privileged, nominal platform path uses the same private cleanup before
+    # any cascade drops object references. No HTTP/provider calls in this TX.
+    _erase_tenant_private_content(session, igreja.id)
 
     # These tables own the composite tenant keys that would otherwise prevent
     # moving a preserved PlatformAdmin out of app_users.igreja_id.

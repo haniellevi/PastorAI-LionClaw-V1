@@ -286,7 +286,7 @@ export async function sendMedia(
 export async function deleteConversation(
   token: string,
   conversationId: string,
-): Promise<void> {
+): Promise<{ id: string; estado: string }> {
   const res = await authedFetch(token, `/conversations/${conversationId}`, {
     method: "DELETE",
   });
@@ -294,6 +294,7 @@ export async function deleteConversation(
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível excluir a conversa.");
   }
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------

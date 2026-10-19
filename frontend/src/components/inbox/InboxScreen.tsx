@@ -859,12 +859,14 @@ function InboxSession() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteConversation(token, deleteTarget.id);
+      const receipt = await deleteConversation(token, deleteTarget.id);
       const deletedId = deleteTarget.id;
       setConversations((prev) => prev.filter((c) => c.id !== deletedId));
       if (selectedId === deletedId) setSelectedId(null);
       setDeleteTarget(null);
-      flashToast({ kind: "ok", text: "Conversa excluída." });
+      flashToast({ kind: "ok", text: receipt.estado === "concluido"
+        ? `Conversa excluída. Recibo: ${receipt.id}`
+        : `Conteúdo excluído; limpeza externa pendente. Recibo: ${receipt.id}` });
     } catch (err) {
       if (handleSessionError(err)) return;
       setDeleteError(

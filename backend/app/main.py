@@ -253,6 +253,8 @@ def create_app() -> FastAPI:
     from app.prayer.router import router as prayer_router
     app.include_router(prayer_router)
     app.include_router(whatsapp.router)
+    from app.routers.private_content import router as private_content_router
+    app.include_router(private_content_router)
     app.include_router(conversations.router)
     app.include_router(dashboard.router)
     app.include_router(agent.router)
