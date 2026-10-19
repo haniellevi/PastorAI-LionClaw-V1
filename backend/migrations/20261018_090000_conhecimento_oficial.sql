@@ -55,6 +55,21 @@ alter table public.conhecimento_documentos
  add foreign key(igreja_id,id,vigente_id) references public.conhecimento_versoes(igreja_id,documento_id,id),
  add foreign key(igreja_id,id,rascunho_id) references public.conhecimento_versoes(igreja_id,documento_id,id);
 
+-- Recibos da API encadeada: apenas IDs e fingerprint, nunca texto do documento.
+create table public.conhecimento_operacoes (
+ igreja_id uuid not null references public.igrejas(id) on delete cascade,
+ id uuid not null,
+ documento_id uuid not null,
+ versao_id uuid not null,
+ ator_id uuid not null,
+ tipo text not null check(tipo in ('criar','editar','enviar-revisao','revisar','publicar','revogar')),
+ fingerprint text not null check(fingerprint ~ '^[0-9a-f]{64}$'),
+ criada_em timestamptz not null default now(),
+ primary key(igreja_id,id),
+ foreign key(igreja_id,documento_id,versao_id) references public.conhecimento_versoes(igreja_id,documento_id,id),
+ foreign key(igreja_id,ator_id) references public.app_users(igreja_id,id)
+);
+
 -- Mesmo o owner não altera um snapshot. Edição cria outra versão, sem DELETE.
 create function public.conhecimento_preservar_snapshot() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
@@ -94,7 +109,7 @@ create trigger conhecimento_snapshot before insert or update on public.conhecime
  for each row execute function public.conhecimento_preservar_snapshot();
 
 do $$ declare t text; begin
- foreach t in array array['conhecimento_documentos','conhecimento_versoes'] loop
+ foreach t in array array['conhecimento_documentos','conhecimento_versoes','conhecimento_operacoes'] loop
  execute format('alter table public.%I enable row level security',t);
  execute format('alter table public.%I force row level security',t);
  -- Somente backend com escopo confiável; não expor conteúdo via PostgREST.
@@ -114,15 +129,18 @@ grant update(rascunho_id,vigente_id) on public.conhecimento_documentos to authen
 grant insert(id,igreja_id,documento_id,anterior_id,conteudo,origem,autor_id,publicos) on public.conhecimento_versoes to authenticated;
 grant update(estado,revisada_por,revisada_em,aprovador_id,aprovada_em,publicada_em,revogador_id,revogada_em) on public.conhecimento_versoes to authenticated;
 
+grant insert(igreja_id,id,documento_id,versao_id,ator_id,tipo,fingerprint) on public.conhecimento_operacoes to authenticated;
+
 -- Rollback manual: interromper callers antes; recusar se houver documentos.
 -- begin;
 -- set local lock_timeout='2s';
--- lock table public.conhecimento_documentos,public.conhecimento_versoes in access exclusive mode;
+-- lock table public.conhecimento_documentos,public.conhecimento_versoes,public.conhecimento_operacoes in access exclusive mode;
 -- do $$ begin if exists(select 1 from public.conhecimento_documentos) then
 --   raise exception 'Preservar documentos e versões; rollback indisponível';
 -- end if; end $$;
 -- alter table public.conhecimento_documentos drop constraint conhecimento_documentos_igreja_id_id_vigente_id_fkey,
 --   drop constraint conhecimento_documentos_igreja_id_id_rascunho_id_fkey;
+-- drop table public.conhecimento_operacoes;
 -- drop table public.conhecimento_versoes,public.conhecimento_documentos;
 -- drop function public.conhecimento_preservar_snapshot();
 -- commit;

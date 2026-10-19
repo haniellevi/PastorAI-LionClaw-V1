@@ -80,7 +80,7 @@ def test_version_is_immutable_even_for_owner(database,seeded,column,expression):
             c.execute(text(f'update conhecimento_versoes set {column}={expression} where id=:v'),dict(v=ver))
 
 
-@pytest.mark.parametrize('table',['conhecimento_documentos','conhecimento_versoes'])
+@pytest.mark.parametrize('table',['conhecimento_documentos','conhecimento_versoes','conhecimento_operacoes'])
 def test_rls_and_acl(database,seeded,table):
     v=seeded
     with scoped(database,v['t']) as s: snapshot(s,v); s.commit()
@@ -189,4 +189,36 @@ def test_remaining_composite_foreign_keys(database,seeded,edge):
         }[edge]
         with pytest.raises(IntegrityError) as exc:
             s.execute(text(sql),dict(id=uuid4(),t=v['t'],u=v['uid'],other=v['other'],foreign=other,d=doc,v=ver))
+        assert exc.value.orig.pgcode=='23503'
+
+
+def test_editorial_receipts_are_scoped_append_only(database,seeded):
+    v=seeded
+    with scoped(database,v['t']) as s:
+        doc,ver=snapshot(s,v)
+        s.execute(text('''insert into conhecimento_operacoes
+            (igreja_id,id,documento_id,versao_id,ator_id,tipo,fingerprint)
+            values(:t,:id,:d,:v,:u,'criar',:h)'''),dict(t=v['t'],id=uuid4(),d=doc,v=ver,u=v['uid'],h='a'*64))
+        s.commit()
+    with scoped(database,v['other']) as s:
+        assert s.execute(text('select count(*) from conhecimento_operacoes')).scalar()==0
+        for grant in ['UPDATE','DELETE']:
+            assert not s.execute(text('select has_table_privilege(current_user,:t,:g)'),dict(t='conhecimento_operacoes',g=grant)).scalar()
+
+
+@pytest.mark.parametrize('foreign_tenant',[False,True])
+def test_receipt_must_reference_same_document_and_church(database,seeded,foreign_tenant):
+    v=seeded
+    with database.begin() as c:
+        if foreign_tenant:
+            c.execute(text("""insert into app_users(id,igreja_id,status,nome,email)
+                values(:u,:t,'ativo','Equipe','outro@example.test')"""),dict(u=v['other'],t=v['other']))
+        _,other=snapshot(c,v,tenant=v['other'] if foreign_tenant else v['t'],author=v['other'] if foreign_tenant else v['uid'])
+    with scoped(database,v['t']) as s:
+        doc,ver=snapshot(s,v)
+        with pytest.raises(IntegrityError) as exc:
+            s.execute(text("""insert into conhecimento_operacoes
+                (igreja_id,id,documento_id,versao_id,ator_id,tipo,fingerprint)
+                values(:t,:id,:d,:v,:u,'criar',:h)"""),
+                dict(t=v['t'],id=uuid4(),d=doc,v=other,u=v['uid'],h='a'*64))
         assert exc.value.orig.pgcode=='23503'

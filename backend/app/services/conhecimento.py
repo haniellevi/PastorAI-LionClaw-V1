@@ -37,6 +37,7 @@ def actor(db, user):
 def pode_ler(db, usuario: CurrentUser | Visitante, versao: UUID) -> bool:
     """Negação padrão; reconsultar imediatamente antes de cada entrega."""
     t = UUID(str(usuario.igreja_id))
+    versao = UUID(str(versao))
     found = rows(db, '''select v.estado,v.publicos,d.vigente_id,d.responsavel_id
         from conhecimento_versoes v join conhecimento_documentos d
         on d.igreja_id=v.igreja_id and d.id=v.documento_id
