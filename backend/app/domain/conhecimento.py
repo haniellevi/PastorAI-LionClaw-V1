@@ -10,6 +10,7 @@ PUBLICADORES: Final = frozenset({'admin'})
 REVISORES: Final = frozenset({'admin', 'pastor'})
 PUBLICO_ELABORACAO: Final[tuple[str, ...]] = ()
 PUBLICO_VISITANTE: Final = 'institucional_publico'
+TIPO_PESSOA_MEMBRO: Final = 'membro'
 RESPOSTA_SEM_EVIDENCIA: Final = (
     'Não há informação oficial suficiente para responder com segurança. '
     'Encaminhe a dúvida ao responsável da área.'

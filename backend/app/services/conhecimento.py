@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.deps import CurrentUser
-from app.domain.conhecimento import PUBLICO_VISITANTE, REVISORES
+from app.domain.conhecimento import PUBLICO_VISITANTE, REVISORES, TIPO_PESSOA_MEMBRO
 
 
 @dataclass(frozen=True)
@@ -58,7 +58,13 @@ def pode_ler(db, usuario: CurrentUser | Visitante, versao: UUID) -> bool:
     if version['estado']!='publicada' or version['vigente_id']!=versao:
         return False
     audience = set(version['publicos'])
-    # Membership is a live local access explicitly assigned the membro role.
+    # Pessoa, acesso e papel são distintos. Público membros exige vínculo vivo,
+    # não a mera atribuição do papel "membro" ao usuário do painel.
+    member = bool('membros' in audience and rows(db, """select p.id
+        from app_users u join pessoas p on p.igreja_id=u.igreja_id and p.id=u.pessoa_id
+        where u.igreja_id=:t and u.id=:u and p.tipo=:tipo
+          and p.arquivada_em is null for share of u,p""",
+        t=t,u=uid,tipo=TIPO_PESSOA_MEMBRO))
     return (PUBLICO_VISITANTE in audience
-            or ('membros' in audience and 'membro' in roles)
+            or member
             or any('papel:'+role in audience for role in roles))

@@ -43,6 +43,9 @@ def test_live_reader_role_and_deny_default(database,seeded,role,publicos,expecte
     v=seeded
     with database.begin() as c:
         c.execute(text('update user_roles set papel=:r where user_id=:u'),dict(r=role,u=v['leader']))
+        if role=='membro':
+            c.execute(text("update pessoas set tipo='membro' where id=:p"),dict(p=v['p']))
+            c.execute(text('update app_users set pessoa_id=:p where id=:u'),dict(p=v['p'],u=v['leader']))
     with scoped(database,v['t']) as s:
         _,ver=snapshot(s,v,audience=publicos,state='publicada')
         assert pode_ler(s,principal(v,'leader'),ver) is expected
@@ -232,3 +235,19 @@ def test_legacy_null_status_is_active_like_web_auth(database,seeded):
     with scoped(database,v['t']) as s:
         _,ver=snapshot(s,v,audience=['papel:admin'],state='publicada')
         assert pode_ler(s,principal(v),ver)
+
+
+@pytest.mark.parametrize('binding',['missing','visitor','archived','member'])
+@pytest.mark.parametrize('role',['membro','pastor'])
+def test_members_audience_requires_live_member_person_not_only_role(database,seeded,binding,role):
+    from app.services.conhecimento import pode_ler
+    v=seeded
+    with database.begin() as c:
+        c.execute(text("update user_roles set papel=:r where user_id=:u"),dict(r=role,u=v['leader']))
+        c.execute(text("update pessoas set tipo=:tipo,arquivada_em=case when :archived then now() end where id=:p"),
+            dict(p=v['p'],tipo='visitante' if binding=='visitor' else 'membro',archived=binding=='archived'))
+        if binding!='missing':
+            c.execute(text('update app_users set pessoa_id=:p where id=:u'),dict(p=v['p'],u=v['leader']))
+    with scoped(database,v['t']) as s:
+        _,ver=snapshot(s,v,audience=['membros'],state='publicada')
+        assert pode_ler(s,principal(v,'leader'),ver) is (binding=='member')
