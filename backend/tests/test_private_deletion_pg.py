@@ -795,9 +795,9 @@ def test_private_scope_owner_helper_and_dependency_rls(database,private_data):
 
 
 @pytest.mark.parametrize('person_phone,conversation_phone',[
-    ('89994315927','+55 (89) 99431-5927'),
-    ('+55 (89) 99431-5927','8994315927'),
-    ('89994315927','558994315927'),
+    ('00900000001','+55 (00) 90000-0001'),
+    ('+55 (00) 90000-0001','0000000001'),
+    ('00900000001','550000000001'),
 ])
 def test_person_erasure_matches_canonical_phone_of_unlinked_conversation(database,private_data,person_phone,conversation_phone):
     v=private_data
@@ -805,7 +805,7 @@ def test_person_erasure_matches_canonical_phone_of_unlinked_conversation(databas
         c.execute(text('delete from cell_report_audio_inputs where igreja_id=:tenant'),v)
         c.execute(text('update pessoas set telefone=:phone where id=:person'),dict(v,phone=person_phone))
         c.execute(text('update conversations set pessoa_id=null,telefone=:phone where id=:conv'),dict(v,phone=conversation_phone))
-        c.execute(text("update conversations set pessoa_id=null,telefone='11994315927' where id=:conv2"),v)
+        c.execute(text("update conversations set pessoa_id=null,telefone='01900000001' where id=:conv2"),v)
     with api(database,v) as client:
         response=client.request('DELETE',f"/contacts/{v['person']}/private-content",json=dict(
             operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
@@ -844,8 +844,8 @@ def test_expired_send_stays_pending_until_known_transport_return(database,privat
         assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json()['estado']=='concluido'
 
 
-@pytest.mark.parametrize('phone',[None,'','invalid','89994315927','8994315927','+55 (89) 99431-5927',
-    '558994315927','5589994315927','11994315927','+54 11 99999-9999','12345678','550000000001'])
+@pytest.mark.parametrize('phone',[None,'','invalid','00900000001','0000000001','+55 (00) 90000-0001',
+    '550000000001','5500900000001','01900000001','+54 00 90000-0001','12345678','550000000001'])
 def test_deletion_phone_key_matches_domain_canonical_rules(database,phone):
     from app.domain.phone import normalize_phone
     with database.connect() as c:
