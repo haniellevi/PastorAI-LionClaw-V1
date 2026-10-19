@@ -20,7 +20,7 @@ from app.db.models import Conversation
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 
 DeletionScope = Literal['conversa', 'pessoa', 'igreja', 'reset']
-LAYERS = ('mensagens', 'midias', 'transcricoes', 'resumos', 'checkpoints', 'vetores')
+LAYERS = ('mensagens', 'midias', 'transcricoes', 'resumos', 'checkpoints', 'vetores', 'logs_agente', 'envios')
 
 
 def receipt(db: Session, igreja_id: UUID, receipt_id: UUID) -> dict:
@@ -33,12 +33,15 @@ def receipt(db: Session, igreja_id: UUID, receipt_id: UUID) -> dict:
         count(*) filter(where state='concluida') done
         from private_deletion_tasks where igreja_id=:t and receipt_id=:id"""),
         dict(t=igreja_id, id=receipt_id)).mappings().one()
+    sends = db.execute(text('select count(*) from private_deletion_sends where igreja_id=:t and conversation_id=:c and expires_at>clock_timestamp()'),
+                       dict(t=igreja_id, c=row['target_id'])).scalar_one()
     layers = {layer: dict(encontradas=row['counts'].get(layer, 0),
                          apagadas=row['counts'].get(layer, 0), pendentes=0, falhas=0) for layer in LAYERS}
     layers['midias'].update(apagadas=tasks['done'], pendentes=tasks['pending'], falhas=tasks['failed'])
+    layers['envios'].update(apagadas=row['counts'].get('envios', 0) - sends, pendentes=sends)
     return dict(id=str(row['id']), igreja_id=str(igreja_id), escopo=row['scope'],
                 alvo_id=str(row['target_id']), geracao=row['generation'],
-                estado='pendente' if tasks['pending'] else 'concluido', camadas=layers)
+                estado='pendente_envio' if sends else ('pendente' if tasks['pending'] else 'concluido'), camadas=layers)
 
 
 def delete_private(db: Session, *, scope: DeletionScope, igreja_id: UUID, target_id: UUID) -> dict:
@@ -172,3 +175,44 @@ def finish_audio_upload(session_factory: Callable[[], Session], claim: object) -
         db.execute(text('delete from private_deletion_uploads where igreja_id=:t and source_id=:source'),
                    dict(t=claim.igreja_id, source=claim.input_id))
         db.commit()
+
+
+def send_generation_is_current(db: Session, igreja_id: UUID, conversation_id: UUID,
+                               source_id: UUID, generation: int) -> bool:
+    """Caller holds the conversation lock; no HTTP occurs in this transaction."""
+    from app.db.models import PrivateDeletionSend
+    return db.execute(select(PrivateDeletionSend.source_id).where(
+        PrivateDeletionSend.igreja_id == igreja_id, PrivateDeletionSend.source_id == source_id,
+        PrivateDeletionSend.conversation_id == conversation_id,
+        PrivateDeletionSend.generation == generation,
+        PrivateDeletionSend.expires_at > text("clock_timestamp()"),
+    )).scalar_one_or_none() is not None
+
+
+def finish_agent_send(session_factory: Callable[[], Session], igreja_id: UUID, source_id: UUID) -> None:
+    """Release only after the external boundary returns; failure stays pending."""
+    from sqlalchemy import delete
+    from app.db.models import PrivateDeletionSend
+    with session_factory() as db:
+        mark_tenant_scoped(db, igreja_id, source='private_agent_send_finish')
+        db.execute(delete(PrivateDeletionSend).where(
+            PrivateDeletionSend.igreja_id == igreja_id, PrivateDeletionSend.source_id == source_id))
+        db.commit()
+
+
+def renew_agent_send(db: Session, igreja_id: UUID, conversation_id: UUID,
+                     source_id: UUID, generation: int) -> bool:
+    """Renew the full boundary window under the deletion lock, just before HTTP.
+
+    An already expired owner cannot start another transport. Connectivity probes
+    must not consume the window reserved for the actual POST.
+    """
+    from sqlalchemy import update, func
+    from app.db.models import PrivateDeletionSend
+    return db.execute(update(PrivateDeletionSend).where(
+        PrivateDeletionSend.igreja_id == igreja_id, PrivateDeletionSend.source_id == source_id,
+        PrivateDeletionSend.conversation_id == conversation_id,
+        PrivateDeletionSend.generation == generation,
+        PrivateDeletionSend.expires_at > func.clock_timestamp(),
+    ).values(expires_at=func.clock_timestamp() + text("interval '60 seconds'"))
+      .returning(PrivateDeletionSend.source_id)).scalar_one_or_none() is not None

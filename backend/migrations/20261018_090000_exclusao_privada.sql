@@ -42,6 +42,17 @@ create table public.private_deletion_uploads (
  started_at timestamptz not null default now(),
  primary key(igreja_id,source_id)
 );
+-- Outbound ownership is committed with ia_em_transporte and survives deletion.
+-- No payload/phone. A 60s no-resend window bounds lost-worker ownership.
+create table public.private_deletion_sends (
+ igreja_id uuid not null,
+ source_id uuid not null,
+ conversation_id uuid not null,
+ generation bigint not null,
+ started_at timestamptz not null default now(),
+ expires_at timestamptz not null default (now()+interval '60 seconds'),
+ primary key(igreja_id,source_id)
+);
 -- An opaque event revocation token prevents webhook replay. This is derived
 -- solely from provider event identity, never text/media/transcript/content hash.
 -- It is not a credential or authorization grant and carries no phone/provider ID.
@@ -85,6 +96,17 @@ create policy upload_worker on public.private_deletion_uploads for all to authen
   coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',nullif(current_setting('request.jwt.claim.sub',true),''),'')='')
  with check(igreja_id=public.current_igreja_id() and session_user not in ('authenticator','authenticated','anon') and
   coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',nullif(current_setting('request.jwt.claim.sub',true),''),'')='');
+alter table public.private_deletion_sends enable row level security;
+alter table public.private_deletion_sends force row level security;
+create policy send_worker on public.private_deletion_sends for all to authenticated
+ using(igreja_id=public.current_igreja_id() and session_user not in ('authenticator','authenticated','anon') and
+  coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',nullif(current_setting('request.jwt.claim.sub',true),''),'')='')
+ with check(igreja_id=public.current_igreja_id() and session_user not in ('authenticator','authenticated','anon') and
+  coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',nullif(current_setting('request.jwt.claim.sub',true),''),'')='');
+create policy send_admin_read on public.private_deletion_sends for select to authenticated
+ using(igreja_id=public.current_igreja_id() and public.private_deletion_admin());
+revoke all on public.private_deletion_sends from public,anon,authenticated,service_role;
+grant select,insert,delete,update(expires_at) on public.private_deletion_sends to authenticated;
 create policy fence_worker on public.private_deletion_event_fences for select to authenticated
  using(igreja_id=public.current_igreja_id() and session_user not in ('authenticator','authenticated','anon') and
   coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',nullif(current_setting('request.jwt.claim.sub',true),''),'')='');
@@ -102,7 +124,7 @@ grant select(id,igreja_id,receipt_id,source_id,state,attempts,error_code,next_at
 
 create function public.private_delete_conversation(p_tenant uuid,p_conversation uuid) returns uuid
 language plpgsql security definer set search_path=pg_catalog,public as $$
-declare v_id uuid; v_generation bigint; v_messages integer; v_audio integer; v_media integer;
+declare v_id uuid; v_generation bigint; v_messages integer; v_audio integer; v_media integer; v_logs integer; v_sends integer;
 begin
  if p_tenant is distinct from public.current_igreja_id() or not public.private_deletion_admin() then
   raise exception 'Exclusão não autorizada' using errcode='42501';
@@ -126,8 +148,11 @@ begin
   (a.conversation_id=p_conversation or a.live_conversation_id=p_conversation or
    a.inbound_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation) or
    a.live_message_id in(select id from public.messages where igreja_id=p_tenant and conversation_id=p_conversation));
+ delete from public.agent_conversation_logs where igreja_id=p_tenant and conversation_id=p_conversation;
+ get diagnostics v_logs = row_count;
+ select count(*) into v_sends from public.private_deletion_sends where igreja_id=p_tenant and conversation_id=p_conversation;
  insert into public.private_deletion_receipts(igreja_id,scope,target_id,generation,counts)
- values(p_tenant,'conversa',p_conversation,v_generation,jsonb_build_object('mensagens',v_messages,'transcricoes',v_audio,'resumos',0,'checkpoints',0,'vetores',0)) returning id into v_id;
+ values(p_tenant,'conversa',p_conversation,v_generation,jsonb_build_object('mensagens',v_messages,'transcricoes',v_audio,'resumos',0,'checkpoints',0,'vetores',0,'logs_agente',v_logs,'envios',v_sends)) returning id into v_id;
  insert into public.private_deletion_event_fences(igreja_id,event_token,receipt_id)
  select p_tenant,md5(p_tenant::text||':'||event_digest)::uuid,v_id from (
   select encode(sha256(convert_to(provider_message_id,'UTF8')),'hex') event_digest from public.messages
@@ -180,6 +205,7 @@ grant execute on function public.private_deletion_task_path(uuid) to authenticat
 -- Never roll back after restoring private data without reapplying tombstones.
 -- drop function public.private_deletion_task_path(uuid);
 -- drop function public.private_delete_conversation(uuid,uuid);
+-- drop table public.private_deletion_sends;
 -- drop table public.private_deletion_uploads,public.private_deletion_event_fences;
 -- drop table public.private_deletion_tasks;
 -- drop table public.private_deletion_receipts;

@@ -5003,3 +5003,17 @@ class PrivateDeletionEventFence(Base):
     igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     event_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     receipt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
+class PrivateDeletionSend(Base):
+    """Content-free ownership of an outbound HTTP boundary, surviving deletion."""
+
+    __tablename__ = "private_deletion_sends"
+    igreja_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now() + interval '60 seconds'"), nullable=False,
+    )

@@ -24,7 +24,7 @@ pytestmark = pytest.mark.rls_integration
 def private_data(database):
     with database.begin() as c:
         c.exec_driver_sql('delete from private_deletion_tasks; delete from private_deletion_event_fences; '
-                         'delete from private_deletion_uploads; delete from private_deletion_receipts')
+                         'delete from private_deletion_uploads; delete from private_deletion_sends; delete from private_deletion_receipts')
     v = {k: uuid4() for k in ('tenant', 'other', 'person', 'person2', 'person3', 'admin', 'conv', 'conv2', 'conv3', 'message', 'audio')}
     with database.begin() as c:
         for tenant in (v['tenant'], v['other']):
@@ -274,7 +274,7 @@ def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private
     v=private_data
     with api(database,v) as client:
         deleted=client.delete(f"/conversations/{v['conv']}").json()
-    tables=('private_deletion_receipts','private_deletion_tasks','private_deletion_uploads','private_deletion_event_fences')
+    tables=('private_deletion_receipts','private_deletion_tasks','private_deletion_uploads','private_deletion_event_fences','private_deletion_sends')
     with database.connect() as c:
         for table in tables:
             assert c.execute(text("select relrowsecurity and relforcerowsecurity from pg_class where oid=cast(:t as regclass)"),dict(t=table)).scalar_one()
@@ -356,3 +356,187 @@ def test_audio_derivatives_of_other_people_and_church_are_untouched(database, pr
     with database.connect() as c:
         after=c.execute(text('select id,transcript_text,transcript_sha256,content_sha256,storage_path from cell_report_audio_inputs where id in (:a,:b) order by id'),dict(a=others[0],b=others[1])).all()
     assert after==before
+
+
+def test_delete_erases_linked_audit_payload_and_preserves_unrelated_logs(database, private_data):
+    v = private_data
+    with database.begin() as c:
+        for conv, tenant in ((v['conv'], v['tenant']), (v['conv2'], v['tenant']), (v['conv3'], v['other'])):
+            c.execute(text("""insert into agent_conversation_logs(igreja_id,conversation_id,evento,payload)
+                values(:t,:c,'synthetic',:payload)"""),
+                dict(t=tenant, c=conv, payload=json.dumps({'pessoaId': str(v['person']), 'report': 'Synthetic private'})))
+    with api(database, v) as client:
+        result = client.delete(f"/conversations/{v['conv']}").json()
+    assert result['camadas']['logs_agente'] == dict(encontradas=1, apagadas=1, pendentes=0, falhas=0)
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from agent_conversation_logs')).scalar_one() == 2
+        assert c.execute(text('select count(*) from agent_conversation_logs where conversation_id is null')).scalar_one() == 0
+
+
+@pytest.mark.parametrize('status', ['aceito', 'falhou_retentavel', 'desconhecido'])
+def test_deletion_during_agent_transport_waits_for_boundary_without_resend(database, private_data, status):
+    from app.workers.queue_worker import (
+        _prepare_agent_reply_intent, _deliver_agent_reply_intent, IngestionOutcome, IngestionResult,
+    )
+    from app.services.private_deletion import process_storage_tasks
+    v = private_data
+    factory = lambda: Session(database)
+    outcome = IngestionOutcome(result=IngestionResult.REGISTERED, conversation_id=v['conv'],
+        instance='synthetic', telefone='000000000000', texto='synthetic', inbound=True,
+        igreja_id=v['tenant'], inbound_message_id=v['message'], provider_message_id='synthetic-send', claim_id='synthetic-claim')
+    intent = _prepare_agent_reply_intent(factory, outcome, 'Synthetic reply', public_info_reply=False)
+    assert intent is not None
+    calls = []; observed = []
+    class Transport:
+        def send_text_classificado(self, *args):
+            calls.append(True)
+            with api(database, v) as client:
+                deleted = client.delete(f"/conversations/{v['conv']}").json()
+                observed.append(deleted)
+            process_storage_tasks(factory, storage=SimpleNamespace(remove_tenant_media=lambda *args: None))
+            with api(database, v) as client:
+                observed.append(client.get(f"/conversations/{v['conv']}/deletion-receipt").json())
+            return SimpleNamespace(status=status)
+    _deliver_agent_reply_intent(factory, outcome, intent, None, evolution_client=Transport())
+    _deliver_agent_reply_intent(factory, outcome, intent, None, evolution_client=Transport())
+    assert len(calls) == 1
+    assert [r['estado'] for r in observed] == ['pendente_envio', 'pendente_envio']
+    assert all(r['camadas']['envios']['pendentes'] == 1 for r in observed)
+    with api(database, v) as client:
+        result = client.get(f"/conversations/{v['conv']}/deletion-receipt").json()
+        assert result['estado'] == 'concluido'
+        assert result['camadas']['envios']['pendentes'] == 0
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from agent_conversation_logs where conversation_id=:conv'), v).scalar_one() == 0
+
+
+def test_deletion_after_final_probe_before_http_is_still_pending(database, private_data, monkeypatch):
+    from app.workers import queue_worker as worker
+    v = private_data; factory = lambda: Session(database)
+    outcome = worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED, conversation_id=v['conv'],
+        instance='synthetic', telefone='000000000000', texto='synthetic', inbound=True,
+        igreja_id=v['tenant'], inbound_message_id=v['message'], provider_message_id='synthetic-gap', claim_id='synthetic-gap')
+    intent = worker._prepare_agent_reply_intent(factory, outcome, 'Synthetic reply', public_info_reply=False)
+    observed = []; calls = []
+    def interleave(client, instance, phone, response, *, ownership_guard, before_transport):
+        assert before_transport()
+        with api(database, v) as client_api:
+            observed.append(client_api.delete(f"/conversations/{v['conv']}").json())
+        # Exact old gap: deletion commits after the final short lock, before HTTP.
+        calls.append(True)
+        return 'aceito'
+    monkeypatch.setattr(worker, '_send_agent_reply', interleave)
+    worker._deliver_agent_reply_intent(factory, outcome, intent, None, evolution_client=object())
+    assert calls == [True]
+    assert observed[0]['estado'] == 'pendente_envio'
+    with api(database, v) as client:
+        assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json()['estado'] == 'pendente'
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv'), v).scalar_one() == 0
+
+
+def test_send_generation_change_prevents_transport_and_post_send_writes(database, private_data, monkeypatch):
+    from app.workers import queue_worker as worker
+    v = private_data; factory = lambda: Session(database)
+    outcome = worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED, conversation_id=v['conv'],
+        instance='synthetic', telefone='000000000000', texto='synthetic', inbound=True,
+        igreja_id=v['tenant'], inbound_message_id=v['message'], provider_message_id='synthetic-generation', claim_id='synthetic-generation')
+    intent = worker._prepare_agent_reply_intent(factory, outcome, 'Synthetic reply', public_info_reply=False)
+    observed = []
+    class Transport:
+        def send_agent_text(self, *args, before_send):
+            with database.begin() as c:
+                c.execute(text('update conversations set deletion_generation=deletion_generation+1 where id=:conv'), v)
+            # The real final generation check must suppress this call.
+            before_send()
+            observed.append(True)
+            return SimpleNamespace(status='aceito')
+    worker._deliver_agent_reply_intent(factory, outcome, intent, None, evolution_client=Transport())
+    assert observed == []
+    with database.connect() as c:
+        assert c.execute(text('select agent_reply_state from messages where id=:id'), dict(id=intent.id)).scalar_one() == 'ia_em_transporte'
+        assert c.execute(text('select ultima_mensagem from conversations where id=:conv'), v).scalar_one() is None
+
+
+def test_send_marker_admin_read_only_and_worker_tenant_isolation(database, private_data):
+    from sqlalchemy.exc import DBAPIError
+    v = private_data
+    with scoped(database, v['tenant']) as s:
+        s.execute(text('insert into private_deletion_sends(igreja_id,source_id,conversation_id,generation) values(:tenant,:message,:conv,0)'), v)
+        s.commit()
+    with scoped(database, v['other']) as s:
+        assert s.execute(text('select count(*) from private_deletion_sends')).scalar_one() == 0
+        with pytest.raises(DBAPIError):
+            s.execute(text('insert into private_deletion_sends(igreja_id,source_id,conversation_id,generation) values(:tenant,:audio,:conv,0)'), v)
+        s.rollback()
+    with scoped(database, v['tenant'], admin=True) as s:
+        assert s.execute(text('select count(*) from private_deletion_sends')).scalar_one() == 1
+        assert s.execute(text('delete from private_deletion_sends')).rowcount == 0
+        with pytest.raises(DBAPIError):
+            s.execute(text('insert into private_deletion_sends(igreja_id,source_id,conversation_id,generation) values(:tenant,:audio,:conv,0)'), v)
+        s.rollback()
+
+
+def test_lost_send_expires_without_reopening_transport(database, private_data):
+    from app.workers import queue_worker as worker
+    v = private_data; factory = lambda: Session(database)
+    outcome = worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED, conversation_id=v['conv'],
+        instance='synthetic', telefone='000000000000', texto='synthetic', inbound=True,
+        igreja_id=v['tenant'], inbound_message_id=v['message'], provider_message_id='synthetic-lost', claim_id='synthetic-lost')
+    intent = worker._prepare_agent_reply_intent(factory, outcome, 'Synthetic reply', public_info_reply=False)
+    assert worker._transition_agent_reply_intent(factory, outcome, intent, expected='ia_pendente', target='ia_em_transporte')
+    with api(database, v) as client:
+        assert client.delete(f"/conversations/{v['conv']}").json()['estado'] == 'pendente_envio'
+    with database.begin() as c:
+        c.execute(text("update private_deletion_sends set expires_at=clock_timestamp()-interval '1 second' where igreja_id=:tenant"), v)
+        c.execute(text("update private_deletion_tasks set state='concluida',storage_path=null where igreja_id=:tenant"), v)
+    with api(database, v) as client:
+        result = client.get(f"/conversations/{v['conv']}/deletion-receipt").json()
+        assert result['estado'] == 'concluido'
+        assert result['camadas']['envios']['pendentes'] == 0
+    calls = []
+    worker._deliver_agent_reply_intent(factory, outcome, intent, None,
+        evolution_client=SimpleNamespace(send_text=lambda *args: calls.append(True)))
+    assert calls == []
+
+
+def test_generation_changed_during_http_does_not_confirm_or_refresh_snapshot(database, private_data):
+    from app.workers import queue_worker as worker
+    v = private_data; factory = lambda: Session(database)
+    outcome = worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED, conversation_id=v['conv'],
+        instance='synthetic', telefone='000000000000', texto='synthetic', inbound=True,
+        igreja_id=v['tenant'], inbound_message_id=v['message'], provider_message_id='synthetic-late-generation', claim_id='synthetic-late-generation')
+    intent = worker._prepare_agent_reply_intent(factory, outcome, 'Synthetic reply', public_info_reply=False)
+    calls = []
+    class Transport:
+        def send_text(self, *args):
+            calls.append(True)
+            with database.begin() as c:
+                c.execute(text('update conversations set deletion_generation=deletion_generation+1 where id=:conv'), v)
+            return True
+    worker._deliver_agent_reply_intent(factory, outcome, intent, None, evolution_client=Transport())
+    worker._deliver_agent_reply_intent(factory, outcome, intent, None, evolution_client=Transport())
+    assert calls == [True]
+    with database.connect() as c:
+        assert c.execute(text('select agent_reply_state from messages where id=:id'), dict(id=intent.id)).scalar_one() == 'ia_em_transporte'
+        assert c.execute(text('select ultima_mensagem from conversations where id=:conv'), v).scalar_one() is None
+
+
+def test_preflight_renews_full_window_and_rejects_expired_owner(database, private_data):
+    from app.services.private_deletion import renew_agent_send, lock_generation
+    v = private_data
+    with database.begin() as c:
+        c.execute(text("""insert into private_deletion_sends(igreja_id,source_id,conversation_id,generation,expires_at)
+            values(:tenant,:message,:conv,0,clock_timestamp()+interval '1 second')"""), v)
+    with scoped(database, v['tenant']) as s:
+        assert lock_generation(s, v['tenant'], v['conv'], 0)
+        assert renew_agent_send(s, v['tenant'], v['conv'], v['message'], 0)
+        remaining = s.execute(text('select extract(epoch from expires_at-clock_timestamp()) from private_deletion_sends')).scalar_one()
+        assert 55 < remaining <= 60
+        s.commit()
+    with database.begin() as c:
+        c.execute(text("update private_deletion_sends set expires_at=clock_timestamp()-interval '1 second'"))
+    with scoped(database, v['tenant']) as s:
+        assert lock_generation(s, v['tenant'], v['conv'], 0)
+        assert not renew_agent_send(s, v['tenant'], v['conv'], v['message'], 0)

@@ -15,12 +15,29 @@ recibo após a exclusão. O frontend atual pode continuar ignorando o body de
 sucesso; não se deve interpretar remoção da lista como conclusão do Storage.
 
 O recibo guarda IDs, geração e contagens por camada: encontradas, apagadas,
-pendentes e falhas atuais. Mensagens e registros privados V1b são removidos na
+pendentes e falhas atuais. Mensagens, logs do agente e registros privados V1b são removidos na
 mesma transação. Uma entrada V1b conta como uma transcrição/registro derivado,
 mesmo quando ainda não transcrita; inclui texto, hashes e leases. Mídias são
 objetos únicos por caminho, incluindo ponteiros V1b com referências vivas nulas.
 Resumos, checkpoints e vetores ainda ausentes contam zero. Não há texto,
 telefone, transcrição, caminho de Storage nem hash de conteúdo no recibo.
+
+## Inventário de referências privadas
+
+Busca por `conversation_id`/`message_id` em models e migrations ativas:
+
+| Tabela / referências | Conteúdo e tratamento na exclusão |
+|---|---|
+| `agent_conversation_logs.conversation_id` (anulável, SET NULL) | Payload pode conter relatório e `pessoaId`; linhas da conversa são apagadas explicitamente na mesma transação, antes da FK anular a referência. Camada `logs_agente` conta as linhas removidas. |
+| `cell_report_audio_inputs.live_conversation_id` / `live_message_id` (anuláveis, SET NULL), âncoras `conversation_id` / `inbound_message_id` | Transcrição, hashes e caminho: remoção explícita por âncoras imutáveis ou vivas, incluindo referências já nulas; mídia enumerada antes da remoção. Camadas `transcricoes` e `midias`. |
+| `agent_action_proposals.summary_message_id` / `confirmation_message_id` (anuláveis) | Payload/resumo removidos por CASCADE da conversa obrigatória e das mensagens. |
+| `messages`, `agent_identity_challenges`, `agent_identity_proofs`, `agent_action_proposals`, `agent_action_receipts`, `cell_report_drafts`, `cell_report_audio_notices`, `cell_report_audio_consent_events` | FK da conversa obrigatória com CASCADE; nenhum conteúdo fica órfão por SET NULL. |
+| `conversations.secretaria_oferta_message_id` / `secretaria_oferta_resposta_message_id` (anuláveis) | Referências dentro da própria conversa removida; não criam camada sobrevivente. |
+| `private_deletion_uploads`, `private_deletion_sends` | Sem FK de propósito: somente IDs, geração e tempos, sem conteúdo/pessoa/telefone. Conservam a fronteira externa após a remoção da origem. |
+
+Não foram encontradas outras FKs anuláveis/SET NULL para conversa/mensagem
+que conservem conteúdo nessa busca. Isso não declara exclusão da pessoa,
+igreja ou de registros oficiais de domínio.
 
 ## Persistência e corridas
 
@@ -42,6 +59,24 @@ reabre eventual tarefa de limpeza e remove o registro de upload em uma única
 transação. Falha de banco conserva o registro durável, impedindo conclusão
 falsa. O retorno tardio não recria áudio, transcrição ou mensagem.
 
+O envio automático registra `private_deletion_sends` com geração na mesma
+transação do CAS para `ia_em_transporte`. Antes do HTTP, um lock curto reconfirma
+conversa, geração e prazo do marcador e renova a janela completa de 60 segundos
+para o POST (sondagens anteriores não consomem essa janela). Marcador já vencido
+é recusado. Não há lock de banco durante a rede.
+Depois do HTTP, toda transição revalida a geração sob o mesmo lock; conversa
+apagada/geração alterada impede confirmação, snapshot ou retorno a pendente.
+O marcador é liberado ao terminar, inclusive no timeout do transporte.
+
+A exclusão retorna `pendente_envio` enquanto existir marcador válido. A camada
+`envios` conta fronteiras encontradas, resolvidas e pendentes, sem afirmar que
+uma mensagem aceita pelo provedor foi recolhida. O prazo durável é de 60 segundos
+(o cliente Evolution usa timeout de I/O de 15 segundos); marcador vencido não
+autoriza novo HTTP nem persistência. Processo perdido expira a pendência, sem
+recolocar o intent em fila: `ia_em_transporte` e a barreira de replay impedem
+reenvio. Um HTTP já iniciado pode ter chegado ao provedor; o recibo não atesta
+eliminação da cópia externa. Nenhum gate é aberto para reconciliar isso.
+
 ## Limpeza e recuperação
 
 O cron usa `process_storage_tasks` antes do gate de envios, assim como a purga
@@ -49,7 +84,8 @@ já existente. Cada passagem é limitada; usa escopo de igreja, exclusão estrit
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
 Falhas guardam apenas código fechado `storage_unavailable`; a tarefa continua
 pendente. Após sucesso o caminho é apagado da tarefa. O recibo só aparece
-`concluido` quando todas as tarefas estiverem concluídas.
+`concluido` quando todas as tarefas estiverem concluídas e não houver envio
+com marcador válido.
 
 **Upload com processo perdido/resultado desconhecido:** não expirar a barreira
 somente pelo relógio. A tarefa fica pendente mesmo após a lease vencer. Uma
@@ -58,7 +94,7 @@ escrever e reconciliar o objeto antes de finalizar o upload pelo mesmo serviço.
 Não remover o registro para fazer o recibo ficar verde. Esta fatia prioriza não
 perder exclusão; não automatiza essa decisão operacional ambígua.
 
-Recibos, tarefas, barreiras e registros de upload não têm FK para igreja ou
+Recibos, tarefas, barreiras e registros de upload/envio não têm FK para igreja ou
 conversa: sobrevivem à origem. Tarefas e barreiras de evento têm FK composta
 para o recibo, impedindo mistura de igreja. Todas as tabelas usam ENABLE/FORCE
 RLS. `public`, `anon` e `service_role` não recebem privilégios. O backend faz
