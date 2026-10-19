@@ -53,10 +53,10 @@ export function EnviarPanorama({ token, onExpired, canDecide, reloadToken = 0 }:
           <strong>{operation[item.tipo]}</strong><p>{status[item.status] ?? item.status} · Pedido em {date(item.criada_em)}{item.decidido_em ? ` · Decisão em ${date(item.decidido_em)}` : ''}</p>
           {canDecide ? <a href="#central-celula">Consultar pedido na Central</a> : <a href="#enviar" onClick={event => { event.preventDefault(); const target = document.getElementById("enviar-pedidos"); target?.scrollIntoView({ block: "start" }); target?.focus({ preventScroll: true }); }}>Consultar meus pedidos</a>}
         </div></li>) : (data.items as EnviarPessoa[]).map(person => <li className="qitem" key={person.id}><div className="qbody">
-          <strong>{person.nome}</strong><p>{situation[person.situacao]}{person.apto_lider ? ' · Avaliação de aptidão vigente' : ''}</p>
-          {person.origem === 'legado' ? <p>origem legada, comprovação pendente</p> : null}
+          <strong>{person.nome}</strong><p>{situation[person.situacao]}{person.apto_lider ? ' · Apto a liderar' : ''}</p>
+          {canDecide && person.origem === 'legado' ? <p>origem legada, comprovação pendente</p> : null}
           {person.pendencias.length ? <ul>{person.pendencias.map(p => <li key={p.criterio}>{p.descricao}</li>)}</ul> : null}
-          <p>{person.ultima_avaliacao ? `Última avaliação: ${person.ultima_avaliacao.decisao === 'apto' ? 'apto' : 'não apto'} em ${date(person.ultima_avaliacao.criada_em)} · ${person.ultima_avaliacao.versao_regras}` : 'Sem avaliação registrada.'}</p>
+          {canDecide ? <p>{person.ultima_avaliacao ? `Última avaliação: ${person.ultima_avaliacao.decisao === 'apto' ? 'apto' : 'não apto'} em ${date(person.ultima_avaliacao.criada_em)} · ${person.ultima_avaliacao.versao_regras}` : 'Sem avaliação registrada.'}</p> : null}
         </div></li>)}
       </ul>}
       <div className="actions" role="group" aria-label="Paginação de Enviar">

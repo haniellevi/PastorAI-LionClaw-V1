@@ -39,6 +39,11 @@ def test_leader_scope_uses_canonical_membership_and_rejects_other_roles(nominati
     v['who']=replace(actor(v),roles=frozenset({'lider_celula'}))
     items=v['client'].get('/enviar/pessoas').json()['items']
     assert {i['id'] for i in items}=={str(v['p']),str(v['actor_p'])}
+    candidate = next(i for i in items if i['id'] == str(v['p']))
+    assert candidate['apto_lider'] is True
+    assert candidate['situacao'] == 'pendente' and candidate['pendencias']
+    assert candidate['ultima_avaliacao'] is None
+    assert candidate['origem'] is None
     assert v['client'].get('/enviar/pessoas',params={'q':'Líder legado'}).json()['total']==0
     with v['factory'].begin() as s:s.get(Celula,v['cell']).ativo=False
     assert {i['id'] for i in v['client'].get('/enviar/pessoas').json()['items']}=={str(v['actor_p'])}
@@ -116,3 +121,17 @@ def test_leader_retains_own_request_history_after_leadership_changes(nomination)
         s.add(UserRole(igreja_id=v['t'],user_id=v['u'],papel='lider_celula'))
     v['who']=replace(actor(v),roles=frozenset({'lider_celula'}))
     assert v['client'].get('/enviar/historico').json()['total']==1
+
+
+@pytest.mark.parametrize('grupo', ['todos', 'aptos', 'pendentes'])
+def test_archived_people_excluded_before_search_and_pagination(nomination, grupo):
+    from datetime import datetime, timezone
+    v = nomination
+    with v['factory'].begin() as s:
+        person = s.get(Pessoa, v['p'])
+        person.nome = 'Arquivada sintética exclusiva'
+        person.arquivada_em = datetime.now(timezone.utc)
+    result = v['client'].get('/enviar/pessoas', params={'grupo': grupo, 'q': 'Arquivada sintética exclusiva'}).json()
+    assert result['total'] == 0 and result['items'] == []
+    result = v['client'].get('/enviar/pessoas', params={'grupo': grupo}).json()
+    assert str(v['p']) not in {i['id'] for i in result['items']}

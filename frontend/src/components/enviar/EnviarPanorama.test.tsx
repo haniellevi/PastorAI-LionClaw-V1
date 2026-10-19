@@ -8,10 +8,10 @@ vi.mock('@/lib/enviar-api',()=>({getEnviarPessoas:mocks.people,getEnviarHistoric
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 let cleanup=()=>{};
 afterEach(()=>{cleanup();vi.resetAllMocks()});
-async function render(){
+async function render(canDecide=true){
  const el=document.createElement('div');document.body.append(el);const root=createRoot(el);
  cleanup=()=>{act(()=>root.unmount());el.remove()};
- await act(async()=>root.render(<EnviarPanorama token="fake" onExpired={()=>{}} canDecide={true}/>));
+ await act(async()=>root.render(<EnviarPanorama token="fake" onExpired={()=>{}} canDecide={canDecide}/>));
  return el;
 }
 it('lista formação e legado, navega histórico e busca com paginação',async()=>{
@@ -34,4 +34,22 @@ it('falha de leitura não mostra estado vazio; permite repetir e mostra vazio re
  expect(el.textContent).not.toContain('Nenhuma pessoa neste filtro.');
  await act(async()=>[...el.querySelectorAll('button')].find(b=>b.textContent==='Repetir consulta')!.click());
  expect(el.textContent).toContain('Nenhuma pessoa neste filtro.');
+});
+
+it.each([true, false])('restringe decisão, origem e data da avaliação à coordenação (%s)', async canDecide=>{
+ mocks.people.mockResolvedValue({items:[{id:'p',nome:'Pessoa sintética',origem:'legado',situacao:'pendente',apto_lider:true,pendencias:[{criterio:'uv',descricao:'UV indisponível'}],ultima_avaliacao:{id:'a',decisao:'apto',criada_em:'2026-10-18T12:00:00Z',versao_regras:'regra-sintetica'}}],total:1,page:1,page_size:25});
+ const el=await render(canDecide);
+ expect(el.textContent).toContain('Pessoa sintética');
+ expect(el.textContent).toContain('UV indisponível');
+ if(canDecide){
+  expect(el.textContent).toContain('Última avaliação: apto em 18/10/2026');
+  expect(el.textContent).toContain('origem legada, comprovação pendente');
+ }else{
+  expect(el.textContent).toContain('Apto a liderar');
+  expect(el.textContent).not.toContain('Última avaliação');
+  expect(el.textContent).not.toContain('origem legada');
+  expect(el.textContent).not.toContain('18/10/2026');
+  expect(el.textContent).not.toContain('regra-sintetica');
+  expect(el.textContent).not.toContain('Sem avaliação registrada');
+ }
 });

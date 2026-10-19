@@ -38,12 +38,13 @@ def _page(db, statement, *, page, page_size):
 
 def listar_pessoas(db, user, *, q='', page=1, page_size=25, grupo='todos'):
     scope, _ = _scope(db, user)
+    coordinator = user.has_any_role(CENTRAL_ROLES)
     latest_decision = select(EnviarAvaliacao.decisao).where(
         EnviarAvaliacao.igreja_id == UUID(user.igreja_id), EnviarAvaliacao.pessoa_id == Pessoa.id
     ).order_by(EnviarAvaliacao.criada_em.desc(), EnviarAvaliacao.id.desc()).limit(1).scalar_subquery()
     apt = (Pessoa.apto_lider.is_(True) & Pessoa.sem_interesse.is_(False)
         & Pessoa.arquivada_em.is_(None) & (func.coalesce(latest_decision, '') == 'apto'))
-    statement = select(Pessoa).where(*scope)
+    statement = select(Pessoa).where(*scope, Pessoa.arquivada_em.is_(None))
     if q.strip():
         statement = statement.where(Pessoa.nome.icontains(q.strip(), autoescape=True))
     if grupo == 'aptos':
@@ -62,10 +63,10 @@ def listar_pessoas(db, user, *, q='', page=1, page_size=25, grupo='todos'):
         state = ler_pendencias_pessoa(person, igreja_id=UUID(user.igreja_id))
         evaluation = latest.get(person.id)
         items.append(dict(id=person.id, nome=person.nome, situacao=state.situacao,
-            origem=evaluation.origem if evaluation else 'legado' if person.apto_lider else None,
+            origem=(evaluation.origem if evaluation else 'legado' if person.apto_lider else None) if coordinator else None,
             apto_lider=bool(person.apto_lider and evaluation and evaluation.decisao == 'apto' and not state.motivo),
             pendencias=[asdict(p) for p in state.pendencias],
-            ultima_avaliacao={k:getattr(evaluation,k) for k in ('id','decisao','criada_em','versao_regras')} if evaluation else None))
+            ultima_avaliacao={k:getattr(evaluation,k) for k in ('id','decisao','criada_em','versao_regras')} if coordinator and evaluation else None))
     return result | dict(items=items)
 
 
