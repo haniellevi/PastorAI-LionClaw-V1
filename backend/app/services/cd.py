@@ -572,7 +572,7 @@ def revoke_certificate(db,user,cert_id,payload):
     return next(c for c in certificates(db,t,pid,cid) if c['id']==cert_id)
 
 
-def equivalence_sources(db,user,pid,cid):
+def equivalence_sources(db,user,pid,cid,*,include_fulfilled=False):
     t,_,roles=actor(db,user); require_coordination(roles)
     visible_person(db,t,pid)
     catalog(db,t,cid)
@@ -585,7 +585,10 @@ def equivalence_sources(db,user,pid,cid):
             and destino_modulo.curriculo_id=destino.id and destino_modulo.numero=m.numero
         where c.igreja_id=:t and c.pessoa_id=:p and not c.revogada
         and origem.id<>destino.id and origem.familia_id=destino.familia_id
-        and origem.ordem_versao<destino.ordem_versao order by m.numero,c.confirmada_em,c.id''',t=t,p=pid,c=cid)
+        and origem.ordem_versao<destino.ordem_versao
+        and (:include or not exists(select 1 from cd_cumprimentos f where f.igreja_id=c.igreja_id
+            and f.pessoa_id=c.pessoa_id and f.curriculo_id=destino.id and f.modulo_id=destino_modulo.id))
+        order by m.numero,c.confirmada_em,c.id''',t=t,p=pid,c=cid,include=include_fulfilled)
 
 
 def register_version_equivalence(db,user,pid,cid,payload):
@@ -602,7 +605,7 @@ def register_version_equivalence(db,user,pid,cid,payload):
     source=rows(db,'''select id from cd_conclusoes where igreja_id=:t and pessoa_id=:p
         and id=:id and not revogada for share''',t=t,p=pid,id=payload.conclusao_origem_id)
     if not source or not any(r['id']==payload.conclusao_origem_id and r['modulo_destino_id']==payload.modulo_id
-                             for r in equivalence_sources(db,user,pid,cid)):
+                             for r in equivalence_sources(db,user,pid,cid,include_fulfilled=True)):
         raise HTTPException(409,'Conclusão de origem incompatível ou revogada')
     params=dict(t=t,p=pid,c=cid,m=payload.modulo_id,source=payload.conclusao_origem_id,e=evidence,u=uid,id=payload.id)
     existing=rows(db,'''select * from cd_equivalencias_versoes where igreja_id=:t
@@ -632,6 +635,11 @@ def equivalence_people(db,user,cid,*,q=''):
         and p.arquivada_em is null and p.nome ilike :q escape '!'
         and exists(select 1 from cd_conclusoes c join cd_curriculos origem
             on origem.igreja_id=c.igreja_id and origem.id=c.curriculo_id
+            join cd_curriculos destino on destino.igreja_id=c.igreja_id and destino.id=:c
+            join cd_modulos om on om.igreja_id=c.igreja_id and om.id=c.modulo_id
+            join cd_modulos dm on dm.igreja_id=destino.igreja_id and dm.curriculo_id=destino.id and dm.numero=om.numero
             where c.igreja_id=p.igreja_id and c.pessoa_id=p.id and not c.revogada
-            and origem.id<>:c and origem.familia_id=:f)
+            and origem.ordem_versao<destino.ordem_versao and origem.familia_id=:f
+            and not exists(select 1 from cd_cumprimentos f where f.igreja_id=p.igreja_id
+                and f.pessoa_id=p.id and f.curriculo_id=destino.id and f.modulo_id=dm.id))
         order by p.nome,p.id limit 100''',t=t,c=cid,f=current['familia_id'],q=pattern)

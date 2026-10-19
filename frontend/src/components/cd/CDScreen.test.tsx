@@ -298,6 +298,7 @@ it("registra reconhecimento de versão anterior só após confirmação, sem mat
   expect(state.request).toHaveBeenCalledWith("synthetic", "/pessoas/p/curriculos/v2/equivalencias", "POST", {
     id: expect.any(String), confirmado: true, modulo_id: "m", conclusao_origem_id: "conclusao-v1", evidencia: "Histórico conferido",
   }, expect.any(AbortSignal));
+  expect(state.request.mock.calls.filter(c => c[1].endsWith("origens-equivalencia"))).toHaveLength(2);
   expect(state.request.mock.calls.some(c => c[1].includes("matriculas"))).toBe(false);
   await act(async () => { button("Progresso e certificados da versão selecionada")!.click(); });
   expect(container.querySelector('[role="dialog"]')?.textContent).toContain("1 equivalências válidas");

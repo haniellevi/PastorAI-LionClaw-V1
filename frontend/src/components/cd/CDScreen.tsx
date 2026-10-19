@@ -184,6 +184,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
             const data = { confirmado: true, modulo_id: source.modulo_destino_id, conclusao_origem_id: source.id, evidencia: equivEvidence.trim() };
             await request(path, "POST", { id: key({ path, ...data }), ...data });
             createKey.current = null; setConfirmEquiv(false); setSourceId(""); setEquivEvidence("");
+            setSources(await request<Source[]>(`/pessoas/${equivPerson}/curriculos/${selected}/origens-equivalencia`));
             if (detail?.curriculo_id === selected) await load(detail.id);
             setNotice("Equivalência entre versões registrada.");
           })}>Confirmar reconhecimento</button>

@@ -55,6 +55,8 @@ def test_equivalence_unlocks_progression_without_destination_enrollment(database
         assert cd.eligible(s,principal(v),tid)==[]
         rid=uuid4(); receipt=equivalent(s,v,c2,source,id=rid)
         assert receipt['conclusao_origem_id']==source['id'] and receipt['registrada_por']==v['uid'] and receipt['registrada_em']
+        assert cd.equivalence_sources(s,principal(v),v['p'],c2['id'])==[]
+        assert cd.equivalence_people(s,principal(v),c2['id'])==[]
         assert equivalent(s,v,c2,source,id=rid)==receipt
         denied(lambda:equivalent(s,v,c2,source,id=rid,evidencia='Outra evidência'),409)
         assert len(cd.eligible(s,principal(v),tid))==1
@@ -221,6 +223,7 @@ def test_http_equivalence_without_destination_turma_and_live_coordination(databa
         assert len(client.get(path+'/origens-equivalencia').json())==1
         for _ in range(2):
             response=client.post(path+'/equivalencias',json=data); assert response.status_code==200,response.text
+        assert client.get(path+'/origens-equivalencia').json()==[]
         assert client.get(path).json()['equivalencias'][0]['valida']
         app.dependency_overrides[get_current_user]=lambda:principal(v,'leader')
         assert client.post(path+'/equivalencias',json=data).status_code==403
@@ -233,4 +236,9 @@ def test_equivalence_cannot_flow_from_newer_to_older_version(database,seeded):
         c1,c2,_=version_pair(s,v)
         tid=create(s,v,c2); mid=cd.enroll(s,principal(v),tid,command(v))['id']
         newer=finish(s,v,tid,mid,equivalence=True)
+        # Module 2 remains unfulfilled in the older version; an unfulfilled-only
+        # filter must not offer its newer completion as an earlier source.
+        later=second(s,v,c2); enrollment=cd.enroll(s,principal(v),later,command(v))['id']
+        finish(s,v,later,enrollment,equivalence=True)
+        assert cd.equivalence_people(s,principal(v),c1['id'])==[]
         denied(lambda:equivalent(s,v,c1,newer),409)
