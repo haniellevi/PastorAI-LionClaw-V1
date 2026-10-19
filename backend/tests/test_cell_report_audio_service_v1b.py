@@ -501,3 +501,23 @@ def test_public_purge_runs_handoff_recovery_before_selecting_content(monkeypatch
         limit=3,
     ) == 0
     assert observed == [(factory, now, 3)]
+
+
+def test_legacy_ttl_purge_never_selects_or_deletes_retained_content(monkeypatch):
+    monkeypatch.setattr(service, "recover_expired_audio_handoffs", lambda *a, **k: 0)
+    def forbidden(*a, **k):
+        raise AssertionError("TTL must not discover content for deletion")
+    monkeypatch.setattr(service, "_discover_audio_tenants", forbidden)
+    assert service.purge_cell_report_audio_inputs(
+        forbidden, storage=object(), now=dt.datetime(2026, 10, 18, tzinfo=dt.UTC)
+    ) == 0
+
+
+def test_terminalization_retains_transcript_and_hash_even_when_scrub_requested():
+    row = SimpleNamespace(transcript_text="Synthetic transcript", transcript_sha256="a" * 64)
+    service._terminalize_audio_input(
+        row, now=dt.datetime(2026, 10, 18, tzinfo=dt.UTC),
+        reason="relatorio_encerrado", scrub_private=True,
+    )
+    assert row.transcript_text == "Synthetic transcript"
+    assert row.transcript_sha256 == "a" * 64

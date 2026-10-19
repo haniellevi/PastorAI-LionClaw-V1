@@ -375,8 +375,8 @@ class CronWorker:
     ) -> tuple[int, int]:
         """Maintain V1b audio anchors, then dispatch only through live gates.
 
-        Private-content cleanup intentionally remains available after a feature
-        rollout is closed.  Transport is constructed only after the independent
+        Approved private-deletion tasks and handoff recovery remain available
+        after a feature rollout is closed; elapsed time never deletes content.  Transport is constructed only after the independent
         external-send guard opens, and all V1b claim sessions have already
         committed before the client can issue I/O.
         """
@@ -384,7 +384,7 @@ class CronWorker:
         from app.services.cell_report_audio import decode_audio_bytes
         from app.services.cell_report_audio_service import (
             dispatch_cell_report_audio_inputs,
-            purge_cell_report_audio_inputs,
+            recover_expired_audio_handoffs,
         )
         from app.services.llm import transcribe_audio
         from app.services.outbound_guard import external_sends_allowed
@@ -401,15 +401,11 @@ class CronWorker:
             logger.warning("Private deletion cleanup failed", extra={"event": "private_deletion_cleanup_failed"})
         self._record_progress()
         try:
-            purged = purge_cell_report_audio_inputs(
-                self._session_factory,
-                storage=storage,
-                now=now,
-            )
-        except Exception:  # noqa: BLE001 - retention must not stop cron
+            recover_expired_audio_handoffs(self._session_factory, now=now)
+        except Exception:  # noqa: BLE001 - recovery must not stop cron
             logger.warning(
-                "Cell-report audio purge failed",
-                extra={"event": "cell_report_audio_purge_failed"},
+                "Cell-report audio recovery failed",
+                extra={"event": "cell_report_audio_recovery_failed"},
             )
         self._record_progress()
         if not external_sends_allowed():

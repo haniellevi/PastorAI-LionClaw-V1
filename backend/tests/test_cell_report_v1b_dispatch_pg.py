@@ -80,7 +80,7 @@ def _consented_audio(turn, providers):
 
 
 @pytest.mark.parametrize("mime", ("audio/wav", "audio/ogg; codecs=opus"))
-def test_v1b_real_audio_summary_text_confirmation_receipt_and_purge(audio_turn, mime):
+def test_v1b_real_audio_summary_text_confirmation_receipt_and_retention(audio_turn, mime):
     providers = _providers(audio_turn, mime=mime)
     outcome = _consented_audio(audio_turn, providers)
     dispatched = service.dispatch_cell_report_audio_inputs(audio_turn.factory,
@@ -97,18 +97,18 @@ def test_v1b_real_audio_summary_text_confirmation_receipt_and_purge(audio_turn, 
     assert _snapshot(audio_turn)[0] == 'enviado'
     assert len(_rows(audio_turn, AgentActionReceipt)) == 1
     assert providers.evolution.committed_receipts == 1
-    assert all(row.transcript_text is None and row.transcript_sha256 is None
+    assert any(row.transcript_text == _REPORT and row.transcript_sha256
                for row in _rows(audio_turn, CellReportAudioInput))
     before = _snapshot(audio_turn)
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
         now=dt.datetime.now(dt.timezone.utc)+dt.timedelta(hours=25), limit=10)
-    assert len(providers.objects) == 0, tuple(providers.objects)
+    assert len(providers.objects) == 1, tuple(providers.objects)
     assert _snapshot(audio_turn) == before
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
         now=dt.datetime.now(dt.timezone.utc)+dt.timedelta(hours=26), limit=10)
     assert len(_rows(audio_turn, AgentActionReceipt)) == 1
     assert providers.counts['transcribe'] == 1
-    assert all(row.transcript_text is None for row in _rows(audio_turn, CellReportAudioInput))
+    assert any(row.transcript_text == _REPORT for row in _rows(audio_turn, CellReportAudioInput))
 
 
 
@@ -263,7 +263,7 @@ def test_v1b_short_contention_between_provider_phases_preserves_report(audio_tur
     assert len(_rows(audio_turn, AgentActionProposal)) == 1
 
 
-def test_v1b_budget_refusal_purges_uploaded_object_without_transcribing(audio_turn, monkeypatch):
+def test_v1b_budget_refusal_retains_uploaded_object_without_transcribing(audio_turn, monkeypatch):
     providers = _providers(audio_turn)
     outcome = _consented_audio(audio_turn, providers)
     monkeypatch.setattr(service, 'reserve_audio_transcription_budget', lambda *a, **k: None)
@@ -273,7 +273,7 @@ def test_v1b_budget_refusal_purges_uploaded_object_without_transcribing(audio_tu
     assert providers.counts['transcribe'] == 0
     assert row.state not in ('pendente', 'processando', 'transcrita')
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage, limit=10)
-    assert len(providers.objects) == 0, tuple(providers.objects)
+    assert len(providers.objects) == 1, tuple(providers.objects)
 
 
 @pytest.mark.parametrize('boundary', ('gate', 'expired', 'lease_expired',
@@ -309,7 +309,7 @@ def test_v1b_claim_does_not_authorize_later_egress(audio_turn, monkeypatch, boun
 
 
 @pytest.mark.parametrize('reason', ('revoke', 'handoff', 'crisis', 'optout'))
-def test_v1b_terminal_flow_erases_working_transcript_immediately(audio_turn, reason):
+def test_v1b_terminal_flow_retains_working_transcript(audio_turn, reason):
     transcript = {'handoff': 'quero falar com um pastor', 'crisis': 'quero me matar',
                   'optout': 'SAIR'}.get(reason, _REPORT)
     providers = _providers(audio_turn, transcript=transcript)
@@ -319,7 +319,11 @@ def test_v1b_terminal_flow_erases_working_transcript_immediately(audio_turn, rea
         _run(audio_turn, 'V1B-REVOKE-AFTER-SUMMARY', 'PARAR AUDIO', providers.evolution)
     row = next(row for row in _rows(audio_turn, CellReportAudioInput)
                if row.inbound_message_id == outcome.inbound_message_id)
-    assert row.transcript_text is None and row.transcript_sha256 is None
+    if reason == "optout":
+        # Opt-out blocks persistence; no previously stored transcript is deleted.
+        assert row.transcript_text is None and row.transcript_sha256 is None
+    else:
+        assert row.transcript_text == transcript and row.transcript_sha256
     assert not any(row.state == 'pendente' for row in _rows(audio_turn, AgentActionProposal))
     assert _snapshot(audio_turn)[0] == 'pendente'
     if reason == 'optout':
@@ -476,7 +480,7 @@ def test_v1b_audio_sim_never_confirms_a_pending_report(audio_turn):
     assert _rows(audio_turn, AgentActionReceipt) == []
 
 
-def test_v1b_purge_retries_with_flags_off_after_source_deletion(audio_turn, monkeypatch):
+def test_v1b_ttl_keeps_content_with_flags_off_after_source_message_deletion(audio_turn, monkeypatch):
     providers = _providers(audio_turn)
     outcome = _consented_audio(audio_turn, providers)
     _dispatch(audio_turn, providers)
@@ -491,10 +495,10 @@ def test_v1b_purge_retries_with_flags_off_after_source_deletion(audio_turn, monk
     now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=25)
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage, now=now)
     assert providers.objects
-    assert all(row.transcript_text is None for row in _rows(audio_turn, CellReportAudioInput))
+    assert any(row.transcript_text == _REPORT for row in _rows(audio_turn, CellReportAudioInput))
     providers.storage.remove_tenant_media = original
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage, now=now)
-    assert len(providers.objects) == 0, tuple(providers.objects)
+    assert len(providers.objects) == 1, tuple(providers.objects)
 
 
 @pytest.mark.parametrize('change', ('gate', 'revoke', 'human'))
@@ -521,7 +525,7 @@ def test_v1b_provider_return_cannot_restore_revoked_authority(audio_turn, monkey
 
 
 @pytest.mark.parametrize('ambiguous', (False, True))
-def test_v1b_late_upload_after_purge_reopens_durable_cleanup(audio_turn, ambiguous):
+def test_v1b_late_upload_is_retained_after_elapsed_ttl(audio_turn, ambiguous):
     providers = _providers(audio_turn)
     _consented_audio(audio_turn, providers)
     original = providers.storage.upload_cell_report_audio
@@ -538,35 +542,8 @@ def test_v1b_late_upload_after_purge_reopens_durable_cleanup(audio_turn, ambiguo
     assert providers.counts['transcribe'] == 0
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
         now=future + dt.timedelta(hours=1))
-    assert len(providers.objects) == 0, tuple(providers.objects)
+    assert len(providers.objects) == 1, tuple(providers.objects)
     assert _rows(audio_turn, AgentActionProposal) == []
-
-
-def test_v1b_old_delete_ack_cannot_close_cleanup_reopened_by_late_upload(audio_turn):
-    providers = _providers(audio_turn)
-    outcome = _consented_audio(audio_turn, providers)
-    original = providers.storage.upload_cell_report_audio
-    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=25)
-    excluded = tuple(row.id for row in _rows(audio_turn, CellReportAudioInput)
-                     if row.inbound_message_id != outcome.inbound_message_id)
-    old_claims = []
-    def upload_after_delete(**kwargs):
-        # Maintenance fences an expired provider claim before leasing its
-        # physical delete. Keep this split to exercise the stale delete ACK.
-        service.recover_expired_audio_handoffs(audio_turn.factory, now=future)
-        claim, _, _ = service._claim_audio_purge(audio_turn.factory, _IGREJA,
-            now=future, excluded_input_ids=excluded)
-        assert claim is not None
-        providers.storage.remove_tenant_media(_IGREJA, [claim.storage_path])
-        old_claims.append(claim)
-        return original(**kwargs)
-    providers.storage.upload_cell_report_audio = upload_after_delete
-    _dispatch(audio_turn, providers)
-    assert len(old_claims) == 1 and providers.counts['transcribe'] == 0
-    service._finish_audio_purge(audio_turn.factory, old_claims[0], now=future, removed=True)
-    service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
-        now=future + dt.timedelta(hours=1))
-    assert len(providers.objects) == 0, tuple(providers.objects)
 
 
 def test_v1b_spelled_audio_reuses_v1a_paid_extraction_and_confirmation(audio_turn, monkeypatch):
@@ -582,14 +559,14 @@ def test_v1b_spelled_audio_reuses_v1a_paid_extraction_and_confirmation(audio_tur
     assert len(_rows(audio_turn, AgentActionReceipt)) == 1
 
 
-def test_v1b_text_correction_then_confirmation_purges_original_transcript(audio_turn):
+def test_v1b_text_correction_then_confirmation_retains_original_transcript(audio_turn):
     providers = _providers(audio_turn)
     _consented_audio(audio_turn, providers)
     _dispatch(audio_turn, providers)
     _run(audio_turn, 'V1B-TEXT-CORRECTION', 'Correção: presentes: 12', providers.evolution)
     _run(audio_turn, 'V1B-TEXT-CORRECTION-SIM', 'SIM', providers.evolution)
     assert _snapshot(audio_turn)[0] == 'enviado'
-    assert all(row.transcript_text is None for row in _rows(audio_turn, CellReportAudioInput))
+    assert any(row.transcript_text == _REPORT for row in _rows(audio_turn, CellReportAudioInput))
 
 
 def test_v1b_three_transcriptions_and_four_extractions_are_independent_caps(audio_turn, monkeypatch):
@@ -660,3 +637,24 @@ def test_private_deletion_preserves_unknown_upload_ownership_on_storage_timeout(
         decoder=decode_audio_bytes, transcriber=providers.transcribe, limit=1)
     assert len(_rows(audio_turn, PrivateDeletionUpload)) == 1
     assert providers.counts['transcribe'] == 0
+
+
+def test_cron_retains_v1b_content_and_hashes_after_24h(audio_turn, monkeypatch):
+    from app.workers.cron_worker import CronWorker
+    import app.services.outbound_guard as guard
+    import app.services.storage as storage_module
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    _dispatch(audio_turn, providers)
+    before = [(r.id, r.storage_path, r.transcript_text, r.transcript_sha256,
+               r.content_sha256, r.provider_message_sha256, r.purge_state)
+              for r in _rows(audio_turn, CellReportAudioInput)]
+    monkeypatch.setattr(guard, "external_sends_allowed", lambda: False)
+    monkeypatch.setattr(storage_module, "SupabaseStorage", lambda: providers.storage)
+    worker = CronWorker(session_factory=audio_turn.factory, engine=None)
+    assert worker._run_cell_report_audio_cycle(
+        now=dt.datetime.now(dt.UTC) + dt.timedelta(hours=25)) == (0, 0)
+    assert providers.objects and providers.counts["remove"] == 0
+    assert before == [(r.id, r.storage_path, r.transcript_text, r.transcript_sha256,
+                       r.content_sha256, r.provider_message_sha256, r.purge_state)
+                      for r in _rows(audio_turn, CellReportAudioInput)]

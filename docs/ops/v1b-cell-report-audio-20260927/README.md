@@ -12,9 +12,9 @@ A ingestão cria a mensagem real e a intenção durável antes de novo I/O. O pr
 
 ## Retenção e falha
 
-Binário em storage privado e conteúdo de trabalho duram no máximo 24 horas desde a recepção, com descarte antecipado no encerramento/cancelamento. A âncora de limpeza sobrevive à exclusão da mensagem/conversa, e falha física no storage conserva a tarefa para nova tentativa com métrica de atraso. Não se afirma eliminação física durante indisponibilidade do provedor. O relatório confirmado e seu comprovante não dependem do binário ou da transcrição.
+Política atual (decisão pastoral 15, Raniel, 18/10/2026): binário privado, transcrição e hashes ficam até exclusão pelo admin, inclusive pedido da pessoa aprovado pelo admin; não há descarte por 24h, encerramento ou cancelamento. O prazo de 24h permanece apenas para processamento. Consulte [exclusão privada](../EXCLUSAO-PRIVADA.md) para acesso, recibos e limites; há risco de maior volume retido. Sem migration/backfill e sem restaurar registros purgados. A âncora de limpeza sobrevive à exclusão da mensagem/conversa, e falha física no storage conserva a tarefa para nova tentativa com métrica de atraso. Não se afirma eliminação física durante indisponibilidade do provedor. O relatório confirmado e seu comprovante não dependem do binário ou da transcrição.
 
-Fechar flags impede novo processamento. Recuperação de handoff pendente e purga já devida continuam, nessa ordem, sem repetir o provedor. Uma contenção no banco conserva o claim para nova tentativa de conclusão local. O aviso distingue retenção local e retenção externa; esta implementação não autoriza envio real, ativação ou mudança de política.
+Fechar flags impede novo processamento. Recuperação de handoff pendente e tarefas de exclusão oficial continuam sem repetir o provedor. Uma contenção no banco conserva o claim para nova tentativa de conclusão local. O aviso distingue retenção local e retenção externa; esta implementação não autoriza envio real, ativação ou mudança de política.
 
 ## Limites de compatibilidade e da prova
 

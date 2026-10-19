@@ -264,8 +264,8 @@ def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
     assert session.closed is True
 
 
-def test_audio_cycle_purges_when_external_transport_is_closed(monkeypatch) -> None:
-    """Retention, including its local recovery pass, ignores send gates."""
+def test_audio_cycle_recovers_without_ttl_purge_when_transport_is_closed(monkeypatch) -> None:
+    """Recovery and approved deletion run with sends closed, without TTL purge."""
 
     import app.services.cell_report_audio_service as audio_service
     import app.services.outbound_guard as outbound_guard
@@ -275,9 +275,9 @@ def test_audio_cycle_purges_when_external_transport_is_closed(monkeypatch) -> No
     seen: dict[str, object] = {}
     monkeypatch.setattr(
         audio_service,
-        "purge_cell_report_audio_inputs",
-        lambda factory, *, storage, now: seen.update(
-            factory=factory, storage=storage, now=now
+        "recover_expired_audio_handoffs",
+        lambda factory, *, now: seen.update(
+            factory=factory, now=now
         ) or 2,
     )
     monkeypatch.setattr(
@@ -295,8 +295,8 @@ def test_audio_cycle_purges_when_external_transport_is_closed(monkeypatch) -> No
     factory = lambda: object()  # noqa: E731
     worker = CronWorker(session_factory=factory, engine=FakeEngine(), tick_seconds=300)
 
-    assert worker._run_cell_report_audio_cycle(now=_T0) == (2, 0)  # noqa: SLF001
-    assert seen == {"factory": factory, "storage": sentinel_storage, "now": _T0}
+    assert worker._run_cell_report_audio_cycle(now=_T0) == (0, 0)  # noqa: SLF001
+    assert seen == {"factory": factory, "now": _T0}
 
 
 def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> None:
