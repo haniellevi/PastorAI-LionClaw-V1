@@ -49,6 +49,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "dashboard", label: "Painel de Hoje", icon: "dashboard" },
       { target: "minha-celula", label: "Minha Célula", icon: "central-celula" },
       { target: "calendario", label: "Agenda", icon: "calendar" },
+      { target: "conhecimento", label: "Conhecimento oficial", icon: "university" },
       { target: "inbox", label: "Conversas", icon: "chat" },
       { target: "pedidos-oracao", label: "Pedidos de oração", icon: "chat" },
     ],
@@ -133,6 +134,7 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
     items: [
       { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
       { target: "agente", label: "Agente IA", icon: "agent" },
+      { target: "conhecimento", label: "Conhecimento oficial", icon: "university" },
     ],
   },
   {
@@ -189,6 +191,7 @@ export const SCREEN_META: Record<
   string,
   { title: string; crumb: string; info?: string }
 > = {
+  conhecimento: { title: "Conhecimento oficial", crumb: "Documentos da igreja", info: "Documentos oficiais versionados, com público autorizado e publicação pelo administrador." },
   setup: {
     title: "Configuração Inicial",
     crumb: "Primeiros passos",

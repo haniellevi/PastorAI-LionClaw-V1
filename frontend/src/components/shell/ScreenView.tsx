@@ -21,6 +21,7 @@ import {
   loadContatosScreen,
   loadDashboardScreen,
   loadEnviarScreen,
+  loadConhecimentoScreen,
   loadEquipeScreen,
   loadG12Screen,
   loadGanharScreen,
@@ -138,6 +139,8 @@ const DashboardScreen = dynamic(
   () => loadDashboardScreen().then((m) => m.DashboardScreen),
   { loading: ScreenLoading },
 );
+const ConhecimentoScreen = dynamic(() => loadConhecimentoScreen().then(m => m.ConhecimentoScreen), { loading: ScreenLoading });
+
 const EnviarScreen = dynamic(
   () => loadEnviarScreen().then((m) => m.EnviarScreen),
   { loading: ScreenLoading },
@@ -190,6 +193,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
       </>
     );
   }
+  if (route === "conhecimento") return <ConhecimentoScreen />;
   if (route === "enviar") {
     return <EnviarScreen />;
   }

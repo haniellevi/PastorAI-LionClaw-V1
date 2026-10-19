@@ -375,8 +375,9 @@ class CronWorker:
     ) -> tuple[int, int]:
         """Maintain V1b audio anchors, then dispatch only through live gates.
 
-        Private-content cleanup intentionally remains available after a feature
-        rollout is closed.  Transport is constructed only after the independent
+        Approved private-deletion tasks and handoff recovery remain available
+        after a feature rollout is closed; pre-v2 captures keep their TTL.
+        Transport is constructed only after the independent
         external-send guard opens, and all V1b claim sessions have already
         committed before the client can issue I/O.
         """
@@ -402,9 +403,7 @@ class CronWorker:
         self._record_progress()
         try:
             purged = purge_cell_report_audio_inputs(
-                self._session_factory,
-                storage=storage,
-                now=now,
+                self._session_factory, storage=storage, now=now
             )
         except Exception:  # noqa: BLE001 - retention must not stop cron
             logger.warning(
