@@ -33,6 +33,8 @@ não foi alterado. Não existe endpoint web para reset global.
 A transação enumera e apaga mensagens (incluindo protegidas), logs vinculados,
 entradas V1b com âncoras vivas ou imutáveis e suas transcrições/hashes/leases.
 Pessoa inclui entradas V1b órfãs identificadas pela pessoa; igreja inclui todas.
+Conversas sem vínculo são identificadas por fontes privadas tipadas ou pela
+chave canônica completa de telefone (+55/nono dígito), nunca só por sufixo.
 Cascatas removem desafios/provas de identidade, propostas/recibos de ação,
 drafts de relatório, avisos/eventos de áudio e pedidos/propostas de oração.
 O recibo enumera essas camadas; associações de mensagens protegidas, quando

@@ -483,7 +483,7 @@ def test_send_marker_admin_read_only_and_worker_tenant_isolation(database, priva
         s.rollback()
 
 
-def test_lost_send_expires_without_reopening_transport(database, private_data):
+def test_lost_send_expiry_does_not_claim_completion_or_reopen_transport(database, private_data):
     from app.workers import queue_worker as worker
     v = private_data; factory = lambda: Session(database)
     outcome = worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED, conversation_id=v['conv'],
@@ -792,3 +792,62 @@ def test_private_scope_owner_helper_and_dependency_rls(database,private_data):
     with database.connect() as c:
         for role in ('anon','authenticated','service_role'):
             assert not c.execute(text("select has_function_privilege(:r,'private_delete_content(uuid,text,uuid,uuid)','EXECUTE')"),dict(r=role)).scalar_one()
+
+
+@pytest.mark.parametrize('person_phone,conversation_phone',[
+    ('89994315927','+55 (89) 99431-5927'),
+    ('+55 (89) 99431-5927','8994315927'),
+    ('89994315927','558994315927'),
+])
+def test_person_erasure_matches_canonical_phone_of_unlinked_conversation(database,private_data,person_phone,conversation_phone):
+    v=private_data
+    with database.begin() as c:
+        c.execute(text('delete from cell_report_audio_inputs where igreja_id=:tenant'),v)
+        c.execute(text('update pessoas set telefone=:phone where id=:person'),dict(v,phone=person_phone))
+        c.execute(text('update conversations set pessoa_id=null,telefone=:phone where id=:conv'),dict(v,phone=conversation_phone))
+        c.execute(text("update conversations set pessoa_id=null,telefone='11994315927' where id=:conv2"),v)
+    with api(database,v) as client:
+        response=client.request('DELETE',f"/contacts/{v['person']}/private-content",json=dict(
+            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+        assert response.status_code==200,response.text
+        assert response.json()['camadas']['mensagens']['apagadas']==1
+        assert response.json()['camadas']['midias']['pendentes']==1
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv'),v).scalar_one()==0
+        assert c.execute(text('select count(*) from messages where conversation_id=:conv2'),v).scalar_one()==1
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
+
+
+def test_expired_send_stays_pending_until_known_transport_return(database,private_data):
+    from app.workers import queue_worker as worker
+    from app.services.private_deletion import process_storage_tasks
+    v=private_data; factory=lambda:Session(database)
+    outcome=worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED,conversation_id=v['conv'],
+        instance='synthetic',telefone='000000000000',texto='synthetic',inbound=True,
+        igreja_id=v['tenant'],inbound_message_id=v['message'],provider_message_id='synthetic-expired-http',claim_id='synthetic-expired-http')
+    intent=worker._prepare_agent_reply_intent(factory,outcome,'Synthetic reply',public_info_reply=False)
+    observed=[]
+    class Transport:
+        def send_text(self,*args):
+            with database.begin() as c:
+                c.execute(text("update private_deletion_sends set expires_at=clock_timestamp()-interval '1 second' where igreja_id=:tenant"),v)
+            with api(database,v) as client:
+                observed.append(client.delete(f"/conversations/{v['conv']}").json())
+            process_storage_tasks(factory,storage=SimpleNamespace(remove_tenant_media=lambda *args:None))
+            with api(database,v) as client:
+                observed.append(client.get(f"/conversations/{v['conv']}/deletion-receipt").json())
+            return SimpleNamespace(status='aceito')
+    worker._deliver_agent_reply_intent(factory,outcome,intent,None,evolution_client=Transport())
+    assert [r['estado'] for r in observed]==['pendente_envio','pendente_envio']
+    assert all(r['camadas']['envios']['pendentes']==1 for r in observed)
+    with api(database,v) as client:
+        assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json()['estado']=='concluido'
+
+
+@pytest.mark.parametrize('phone',[None,'','invalid','89994315927','8994315927','+55 (89) 99431-5927',
+    '558994315927','5589994315927','11994315927','+54 11 99999-9999','12345678','550000000001'])
+def test_deletion_phone_key_matches_domain_canonical_rules(database,phone):
+    from app.domain.phone import normalize_phone
+    with database.connect() as c:
+        actual=c.execute(text('select private_deletion_phone_key(:phone)'),dict(phone=phone)).scalar_one()
+    assert actual==normalize_phone(phone)

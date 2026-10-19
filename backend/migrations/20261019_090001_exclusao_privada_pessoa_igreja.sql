@@ -37,6 +37,15 @@ create policy dependency_read on public.private_deletion_dependencies for select
  (session_user not in ('authenticator','authenticated','anon') and public.prayer_jwt_sub() is null)));
 revoke all on public.private_deletion_dependencies from public,anon,authenticated,service_role;
 grant select on public.private_deletion_dependencies to authenticated;
+-- Same canonical rules as app.domain.phone.normalize_phone: country prefix,
+-- then the Brazilian mobile ninth digit. Never match only the last 8 digits.
+create function public.private_deletion_phone_key(raw text) returns text
+language sql immutable parallel safe set search_path=pg_catalog,public as $$
+ with digits as (select regexp_replace(coalesce(raw,''),'\D','','g') as value),
+ local_phone as (select case when length(value)>11 and starts_with(value,'55') then substr(value,3) else value end as value from digits)
+ select case when length(value)=10 then substr(value,1,2)||'9'||substr(value,3) else value end from local_phone
+$$;
+revoke all on function public.private_deletion_phone_key(text) from public,anon,authenticated,service_role;
 -- Internal entry point: SQL owner only. Both web wrapper and platform reset
 -- call the same transaction, never a subject-less impersonation of an admin.
 create function public.private_delete_content(p_tenant uuid,p_scope text,p_target uuid,p_operation uuid) returns uuid
@@ -84,8 +93,8 @@ begin
     union select live_conversation_id from public.cell_report_audio_inputs where igreja_id=p_tenant and (pessoa_id=p_target or live_pessoa_id=p_target)
     union select conversation_id from public.cell_report_audio_notices where igreja_id=p_tenant and pessoa_id=p_target
     union select conversation_id from public.cell_report_audio_consent_events where igreja_id=p_tenant and pessoa_id=p_target
-   ) or (c.pessoa_id is null and regexp_replace(c.telefone,'[^0-9]','','g')<>'' and regexp_replace(c.telefone,'[^0-9]','','g')=(
-     select regexp_replace(telefone,'[^0-9]','','g') from public.pessoas where igreja_id=p_tenant and id=p_target))
+   ) or (c.pessoa_id is null and public.private_deletion_phone_key(c.telefone)<>'' and public.private_deletion_phone_key(c.telefone)=(
+     select public.private_deletion_phone_key(telefone) from public.pessoas where igreja_id=p_tenant and id=p_target))
   )));
  perform id from public.conversations where igreja_id=p_tenant and id=any(v_conversations) order by id for update;
  update public.conversations set deletion_generation=deletion_generation+1 where igreja_id=p_tenant and id=any(v_conversations);
@@ -185,6 +194,7 @@ $$;
 -- Cannot restore erased content. Restore conversation function from #509,
 -- then DROP FUNCTION private_delete_scope(uuid,text,uuid,uuid);
 -- DROP FUNCTION private_delete_content(uuid,text,uuid,uuid);
+-- DROP FUNCTION private_deletion_phone_key(text);
 -- DROP TABLE private_deletion_dependencies, private_deletion_members;
 -- Retain bulk receipts; do not narrow scope/operation constraints until archived
 -- under an approved retention procedure. No automatic tombstone expiry.
