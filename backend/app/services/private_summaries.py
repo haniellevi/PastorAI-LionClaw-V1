@@ -26,8 +26,8 @@ APPROVED_IGREJA_IDS: frozenset[str] = frozenset()
 RESERVATION_MICROUSD = 100_000
 MODEL_ALLOWLIST = frozenset({"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"})
 TOPIC_TEXT = {
-    "uv": "Assunto operacional: matrícula na Universidade da Vida. Dúvida em aberto: como realizar a matrícula.",
-    "cd": "Assunto operacional: matrícula na Capacitação Destino. Dúvida em aberto: como realizar a matrícula.",
+    "uv": "Assunto operacional: Universidade da Vida. Dúvida em aberto: obter informações sobre a formação.",
+    "cd": "Assunto operacional: Capacitação Destino. Dúvida em aberto: obter informações sobre a formação.",
     "cultos": "Assunto operacional: horários dos cultos. Dúvida em aberto: qual o horário do culto.",
 }
 
@@ -169,7 +169,10 @@ def openai_provider(*, credential: Credential, topics: tuple[str, ...]):
                             "schema": {
                                 "type": "object",
                                 "properties": {
-                                    "topic": {"type": "string", "enum": list(topics)}
+                                    "topic": {
+                                        "type": "string",
+                                        "enum": list(dict.fromkeys(topics)),
+                                    }
                                 },
                                 "required": ["topic"],
                                 "additionalProperties": False,

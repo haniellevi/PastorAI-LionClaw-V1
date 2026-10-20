@@ -54,7 +54,9 @@ def test_openai_adapter_byo_schema_and_no_retry(monkeypatch, content, finish, va
     )
     credential = Credential(uuid4(), uuid4(), "gpt-5.6-luna", "synthetic-ciphertext")
     if valid:
-        assert openai_provider(credential=credential, topics=("uv",)) == {"topic": "uv"}
+        assert openai_provider(credential=credential, topics=("uv", "uv")) == {
+            "topic": "uv"
+        }
     else:
         with pytest.raises(ValueError):
             openai_provider(credential=credential, topics=("uv",))

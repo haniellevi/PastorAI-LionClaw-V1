@@ -654,3 +654,20 @@ def test_composite_fk_refuses_moving_a_source_to_another_thread(database, ready)
             text("update messages set conversation_id=:conv2 where id=:message"), ready
         )
     assert get_summary(database, ready)["state"] == "available"
+
+
+@pytest.mark.parametrize(
+    "body,topic",
+    [
+        ("Quero informações sobre a universidade da vida", "uv"),
+        ("Quero informações sobre a capacitação destino", "cd"),
+    ],
+)
+def test_generic_information_does_not_infer_enrollment(database, ready, body, topic):
+    with database.begin() as c:
+        c.execute(
+            text("update messages set texto=:body where id=:message"),
+            dict(ready, body=body),
+        )
+    generate(database, ready, lambda **kw: {"topic": topic})
+    assert "matrícula" not in get_summary(database, ready)["summary"].lower()
