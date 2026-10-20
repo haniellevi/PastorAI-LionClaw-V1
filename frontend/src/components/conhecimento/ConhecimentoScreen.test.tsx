@@ -112,3 +112,15 @@ it('carrega outra página e preserva versões já recebidas sem duplicar documen
  expect(el.textContent).toContain('Versão 1'); expect(el.textContent).toContain('Versão 2');
  expect(el.textContent).not.toContain('Carregar mais documentos e versões');
 });
+
+it('exclui documento só com capacidade do servidor e confirmação explícita', async () => {
+ const editable = panel(true); editable.documentos = [{ ...doc, pode_excluir: true }];
+ mocks.api.mockResolvedValue(editable); const { el, click } = await mount();
+ await click('Excluir documento');
+ expect(el.textContent).toContain('Todas as versões e trechos serão apagados');
+ expect(mocks.api.mock.calls.filter(c => c[2])).toHaveLength(0);
+ mocks.api.mockResolvedValueOnce({ estado: 'concluido', versoes: 2, trechos: 3 }).mockResolvedValueOnce({ ...panel(), documentos: [] });
+ await click('Confirmar excluir documento');
+ expect(mocks.api.mock.calls.find(c => c[1].endsWith('/excluir'))?.[2]).toMatchObject({ confirmacao: 'EXCLUIR DOCUMENTO' });
+ expect(el.textContent).not.toContain(doc.titulo);
+});

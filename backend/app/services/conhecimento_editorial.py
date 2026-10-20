@@ -249,7 +249,7 @@ def painel(db, user, pagina=1):
                 actions.append('revogar')
         doc = documents.setdefault(version_row['documento_id'], dict(
             id=version_row['documento_id'], vigente_id=version_row['vigente_id'] if editorial else None,
-            vigente_numero=version_row['vigente_numero'] if editorial else 1, versoes=[]))
+            vigente_numero=version_row['vigente_numero'] if editorial else 1, pode_excluir=admin, versoes=[]))
         fields = ('id','numero','estado','publicos','criada_em','publicada_em','revisada_em')
         metadata = {k: version_row[k] for k in fields}
         if not editorial:
@@ -270,3 +270,21 @@ def painel(db, user, pagina=1):
         doc['versoes'].sort(key=lambda v: v['numero'])
     return dict(pode_criar=editor, responsavel_id=context['uid'] if editor else None,
         documentos=list(documents.values()), pendentes=pending, pagina=pagina, tem_mais=more)
+
+
+def excluir(db,user,did,operacao_id):
+    """Admin web; atomic erasure and receipt. Caller commits before response."""
+    from sqlalchemy.exc import DBAPIError
+    t,uid,roles=actor(db,user)
+    require(roles,PUBLICADORES)
+    try:
+        with db.begin_nested():
+            result=db.execute(text('select public.conhecimento_excluir_documento(:t,:d,:o,:u)'),
+                dict(t=t,d=did,o=operacao_id,u=uid)).scalar_one_or_none()
+    except DBAPIError as exc:
+        code=getattr(exc.orig,'pgcode',None) or getattr(exc.orig,'sqlstate',None)
+        if code=='42501': raise HTTPException(403,'Exige administrador web ativo') from None
+        if code=='23505': raise HTTPException(409,'Operação reutilizada') from None
+        raise RuntimeError('Falha na exclusão de conhecimento') from None
+    if result is None: raise HTTPException(404,'Documento não encontrado')
+    return result

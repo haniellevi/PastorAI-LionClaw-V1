@@ -9,7 +9,7 @@ import './conhecimento.css';
 
 type Editor = { doc?: Documento; versao?: Versao; conteudo: string; origem: string; publicos: string[] };
 type Operacao = { path: string; payload: object; criada?: boolean };
-const ACTIONS: Record<string, string> = { editar: 'Criar nova versão', 'enviar-revisao': 'Enviar para revisão', revisar: 'Registrar revisão', publicar: 'Aprovar e publicar', revogar: 'Revogar versão' };
+const ACTIONS: Record<string, string> = { editar: 'Criar nova versão', 'enviar-revisao': 'Enviar para revisão', revisar: 'Registrar revisão', publicar: 'Aprovar e publicar', revogar: 'Revogar versão', excluir: 'Excluir documento' };
 const date = (value: string) => new Date(value).toLocaleString('pt-BR');
 
 export function ConhecimentoScreen() {
@@ -123,7 +123,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
     if (!confirmacao) return;
     const { doc, versao, acao } = confirmacao;
     void mutate({ path: `documentos/${doc.id}/${acao}`, payload: {
-      operacao_id: crypto.randomUUID(), versao_id: versao.id,
+      operacao_id: crypto.randomUUID(), ...(acao === 'excluir' ? { confirmacao: 'EXCLUIR DOCUMENTO' } : { versao_id: versao.id }),
       ...(acao === 'publicar' ? { publicos: versao.publicos, vigente_esperada_id: doc.vigente_id } : {}),
     } });
   }
@@ -152,6 +152,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
       {painel && <section aria-label="Documentos"><h3>Documentos disponíveis</h3>{painel.documentos.length === 0 && <p>Nenhum documento disponível para seu acesso.</p>}
         {painel.documentos.map(doc => <article key={doc.id} className="card card-pad"><h4>{doc.titulo}</h4><p>{doc.assunto}</p>
           <p>Versão vigente: {(doc.vigente_numero ?? doc.versoes.find(v => v.vigente)?.numero) ? `versão ${doc.vigente_numero ?? doc.versoes.find(v => v.vigente)!.numero}` : 'nenhuma versão disponível para leitura'}</p>
+          {doc.pode_excluir && <button className="btn" onClick={() => { rememberFocus(); setEditor(null); setLeitura(null); setConfirmacao({ doc, versao: doc.versoes[0]!, acao: 'excluir' }); }}>Excluir documento</button>}
           <details><summary>Versões e histórico</summary><ol>{doc.versoes.map(v => <li key={v.id}>
             <p><strong>Versão {v.numero} · {ESTADOS[v.estado] ?? 'Estado indisponível'}{v.vigente ? ' · Vigente' : ''}</strong></p>
             <p>Público-alvo: {publicoTexto(v.publicos)}</p><p>Criada em {date(v.criada_em)}{v.revisada_em ? ` · Revisão registrada em ${date(v.revisada_em)}` : ''}{v.publicada_em ? ` · Publicada em ${date(v.publicada_em)}` : ''}</p>
@@ -183,7 +184,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           <fieldset><legend>Público-alvo explícito</legend><p>Selecione quem poderá ler após a publicação. Sem seleção, não é possível publicar.</p>{Object.entries(PUBLICOS).map(([value, label]) => <label key={value} className="conhecimento-check"><input type="checkbox" checked={editor.publicos.includes(value)} onChange={e => setEditor({ ...editor, publicos: e.target.checked ? [...editor.publicos, value] : editor.publicos.filter(p => p !== value) })} />{label}</label>)}</fieldset>
           <button className="btn btn-primary" type="submit">Salvar rascunho</button></form>}
         {confirmacao && <><h3>{ACTIONS[confirmacao.acao]}</h3><p>{confirmacao.doc.titulo} · Versão {confirmacao.versao.numero}</p><p>Público-alvo: {publicoTexto(confirmacao.versao.publicos)}</p>
-          <p>{confirmacao.acao === 'publicar' ? 'Esta aprovação publica o texto para os públicos selecionados e substitui a versão vigente, se houver.' : confirmacao.acao === 'revogar' ? 'O texto deixará de estar disponível para novas leituras e buscas imediatamente.' : confirmacao.acao === 'revisar' ? 'Registra sua revisão deste texto. A publicação depende do administrador.' : 'O pastor responsável poderá ler esta versão. O envio não publica o documento.'}</p>
+          <p>{confirmacao.acao === 'excluir' ? 'Todas as versões e trechos serão apagados definitivamente, incluindo os índices de busca. O recibo e o histórico de auditoria sem conteúdo serão preservados. Esta ação não pode ser desfeita.' : confirmacao.acao === 'publicar' ? 'Esta aprovação publica o texto para os públicos selecionados e substitui a versão vigente, se houver.' : confirmacao.acao === 'revogar' ? 'O texto deixará de estar disponível para novas leituras e buscas imediatamente.' : confirmacao.acao === 'revisar' ? 'Registra sua revisão deste texto. A publicação depende do administrador.' : 'O pastor responsável poderá ler esta versão. O envio não publica o documento.'}</p>
           <button className="btn btn-primary" onClick={confirm}>Confirmar {(ACTIONS[confirmacao.acao] ?? 'operação').toLocaleLowerCase('pt-BR')}</button></>}
       </section>}
     </fieldset>
