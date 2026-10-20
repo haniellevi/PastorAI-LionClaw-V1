@@ -120,8 +120,11 @@ O recibo enumera essas camadas; associações de mensagens protegidas da #515 ta
 | `pedido_oracao_mensagem` | Associação sem conteúdo; removida por cascata da mensagem. Mensagens pastorais e seus caminhos são enumerados dentro da função SECURITY DEFINER, sem SELECT do admin; depois da fila durável, mensagens são apagadas explicitamente para suportar FK composta sem cascata legada. |
 | `private_deletion_uploads`, `private_deletion_sends` | Sem FK de propósito: somente IDs, geração e tempos, sem conteúdo/pessoa/telefone. Conservam a fronteira externa após a remoção da origem. |
 
-Resumos, checkpoints e vetores privados duráveis ainda não têm tabelas ativas:
-contagem zero, sem implementação de memória nova nesta fatia. Registros
+A fatia 3 candidata acrescenta `private_conversation_summaries`, correções vigentes,
+`private_summary_sources` e `private_summary_tasks`: exclusão nos três escopos
+conta os resumos e remove os derivados antes das fontes. Texto já enviado ao
+provedor é declarado fora do alcance do recibo. Checkpoints e vetores seguem
+sem tabelas ativas/contagem zero. Ver [resumos privados](RESUMOS-PRIVADOS.md). Registros
 oficiais publicados não são convertidos em memória nem apagados por este reset.
 
 Recibos coletivos incluem as tarefas e envios de recibos anteriores associados,
@@ -215,3 +218,6 @@ O owner das funções deve ignorar FORCE RLS; conferir no release autorizado,
 com backup. Não publicar contra schema anterior. Conter consumidores, drenar
 tarefas e preservar recibos/barreiras antes do rollback. Backups, cópias de
 provedores e seus prazos de retenção não foram verificados nesta entrega.
+
+A migration candidata de resumos `20261019_120001_private_conversation_summaries.sql`
+vem após `20261019_090001`. Sem aplicação remota ou ativação.
