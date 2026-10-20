@@ -24,6 +24,7 @@ const apiMock = vi.hoisted(() => ({
   queueFonovisita: vi.fn(),
   sendInternalMessage: vi.fn(),
   fetchEvents: vi.fn(),
+  getCentralDashboard: vi.fn(),
   getLedCellsTodayContext: vi.fn(),
   getNextMeeting: vi.fn(),
   getMyNotices: vi.fn(),
@@ -67,6 +68,8 @@ vi.mock("@/lib/dashboard-api", async (importOriginal) => {
     sendInternalMessage: apiMock.sendInternalMessage,
   };
 });
+
+vi.mock("@/lib/cell-central-api", () => ({ getDashboard: apiMock.getCentralDashboard }));
 
 vi.mock("@/lib/events-api", () => ({
   fetchUpcomingEvents: apiMock.fetchEvents,
@@ -174,6 +177,10 @@ beforeEach(() => {
     page: 1,
     pageSize: 200,
     total: 0,
+  });
+  apiMock.getCentralDashboard.mockResolvedValue({
+    relatorios_pendentes: 3, solicitacoes_aguardando: 2, celulas_com_alerta: 1,
+    multiplicacoes_pendentes: 1, avisos_recentes: 0, materiais_recentes: 0,
   });
   apiMock.getNextMeeting.mockResolvedValue({ meeting: null });
   apiMock.getLedCellsTodayContext.mockResolvedValue({ cells: [], meeting: null });
@@ -1003,4 +1010,26 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     expect(container.textContent).not.toContain("Nenhuma próxima reunião planejada");
     expect(container.textContent).not.toContain("Nenhum aviso novo");
   });
+});
+
+it.each(["admin", "pastor"])("compõe Central em Hoje para %s", async (role) => {
+  authState.roles = [role];
+  await renderScreen();
+  expect(apiMock.getCentralDashboard).toHaveBeenCalledWith("tok-1");
+  expect(container.textContent).toContain("3 relatórios pendentes");
+});
+it.each(["lider_g12", "lider_consol", "lider_celula", "lider_mult", "operador", "membro"])("não consulta nem exibe contadores da Central para %s", async (role) => {
+  authState.roles = [role];
+  await renderScreen();
+  expect(apiMock.getCentralDashboard).not.toHaveBeenCalled();
+  expect(container.textContent).not.toContain("Pendências da Central");
+});
+it("remove contadores imediatamente ao perder papel da Central", async () => {
+  await renderScreen();
+  expect(container.textContent).toContain("3 relatórios pendentes");
+  authState.roles = ["lider_g12"];
+  act(() => root.render(h(DashboardScreen)));
+  expect(container.textContent).not.toContain("Pendências da Central");
+  await flush();
+  expect(apiMock.getCentralDashboard).toHaveBeenCalledTimes(1);
 });

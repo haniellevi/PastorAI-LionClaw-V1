@@ -450,3 +450,35 @@ test('líder de célula alcança Enviar e consulta panorama sem decisão da Cent
   expect(fixture.writes).toEqual([]);
   expectCleanBrowser(safety);
 });
+
+test("Central permite entrar no conteúdo das abas por Tab com foco visível", async ({ page }) => {
+  const safety = await armBrowserSafety(page);
+  await loginThroughUi(page);
+  const fixture = await fixtures(page);
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/#central-celula");
+    const today = page.getByRole("tab", { name: "Hoje", exact: true });
+    await today.focus();
+    await page.keyboard.press("End");
+    const materials = page.getByRole("tab", { name: "Materiais", exact: true });
+    await expect(materials).toBeFocused();
+    await expect(materials).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Tab");
+    const panel = page.getByRole("tabpanel", { name: "Materiais", exact: true });
+    await expect(panel).toBeFocused();
+    const focus = await panel.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { visible: element.matches(":focus-visible"), width: style.outlineWidth, style: style.outlineStyle };
+    });
+    expect(focus).toEqual({ visible: true, width: "2px", style: "solid" });
+    await page.keyboard.press("Shift+Tab");
+    await expect(materials).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(today).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("tabpanel", { name: "Hoje", exact: true })).toBeFocused();
+  }
+  expect(fixture.writes).toEqual([]);
+  expectCleanBrowser(safety);
+});
