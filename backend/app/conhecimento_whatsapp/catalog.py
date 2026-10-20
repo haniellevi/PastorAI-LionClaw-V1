@@ -22,10 +22,10 @@ class SearchTool(BaseModel):
 def route(text):
     # Normalize only command words; original query is data for lexical search.
     match=re.fullmatch(r'\s*(\S+)\s+(\S+)\s+(.+?)\s*',text,re.DOTALL)
-    if match and normalized(match[1])=='conhecimento' and normalized(match[2])=='buscar':
+    if match and match[3].strip() and normalized(match[1])=='conhecimento' and normalized(match[2])=='buscar':
         return 'search',match[3]
     value=' '.join(normalized(text).split())
-    return ('help',None) if value=='conhecimento' or value.startswith('conhecimento ') else ('none',None)
+    return ('help',None) if value in {'conhecimento','conhecimento buscar'} else ('none',None)
 
 
 def execute(db,usuario,tool: SearchTool):

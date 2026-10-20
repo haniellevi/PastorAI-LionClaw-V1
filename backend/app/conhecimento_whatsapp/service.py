@@ -1,4 +1,5 @@
 """Resolve trusted contact, then reuse human live audience/role authorization."""
+import re
 from sqlalchemy import select
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -9,6 +10,24 @@ from app.conhecimento_whatsapp import catalog
 
 GAP='Não encontrei informação oficial vigente e autorizada para esta consulta. Vou encaminhar a conversa para atendimento humano.'
 DENIED='Sem permissão para consultar o conhecimento oficial com este acesso. Procure a equipe pelo painel ou atendimento humano.'
+
+
+def citation_text(value):
+    # Keep each untrusted field on one line and reserve the source label.
+    return re.sub(r'fonte\s*:', 'Fonte (citada):', ' '.join(value.split()), flags=re.IGNORECASE)
+
+
+def source_versions(db, usuario, results):
+    context = conhecimento.contexto_leitura(db, usuario)
+    return {str(r['id']): r for r in conhecimento.rows(db, f"""
+        with legiveis as (
+            select v.id,v.documento_id,
+                row_number() over (partition by v.documento_id order by v.criada_em,v.id) as numero
+            from conhecimento_versoes v join conhecimento_documentos d
+                on d.igreja_id=v.igreja_id and d.id=v.documento_id
+            where v.igreja_id=:t and {conhecimento.LEITURA_SQL}
+        ) select * from legiveis where id=any(cast(:ids as uuid[]))
+        """, **context, ids=[str(r['versao_id']) for r in results])}
 
 
 def actor(db,contact):
@@ -34,11 +53,16 @@ def resolve(db,contact,source):
         tool=catalog.SearchTool(consulta=query)
         results=catalog.execute(db,usuario,tool)
         if not results: return GAP,dict(stage='handoff',actor_id=identity)
-        # Verbatim bounded quotations. Never send retrieved text to an LLM,
+        versions=source_versions(db,usuario,results)
+        results=[r for r in results if str(r['versao_id']) in versions]
+        if not results: return GAP,dict(stage='handoff',actor_id=identity)
+        sources=[dict(documento_id=str(versions[str(r['versao_id'])]['documento_id']),
+                      versao_id=str(r['versao_id'])) for r in results]
+        # Bounded quotations with normalized whitespace/source labels. Never send retrieved text to an LLM,
         # never interpret it as instruction or promote conversations to sources.
         response='Trechos oficiais vigentes:\n\n'+'\n\n'.join(
-            f'“{r["trecho"]}”\nFonte: {r["titulo"]} · versão {r["versao_id"]} · {r["secao"]}' for r in results)
-        return response,dict(stage='result',actor_id=identity)
+            f'“{citation_text(r["trecho"])}”\nFonte: {citation_text(r["titulo"])} · versão {versions[str(r["versao_id"])]["numero"]} · {citation_text(r["secao"])}' for r in results)
+        return response,dict(stage='result',actor_id=identity,fontes=sources)
     except ValidationError:
         return 'Consulta inválida. Informe de 1 a 200 caracteres sem controles.',dict(stage='invalid',actor_id=None)
     except HTTPException as exc:

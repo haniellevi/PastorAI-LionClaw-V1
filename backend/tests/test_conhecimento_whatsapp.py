@@ -30,3 +30,15 @@ def test_church_allowlist_denies_invalid_or_unapproved(monkeypatch,allowlist):
     raw={'':'','invalid':'invalid','other':str(other),'duplicate':f'{t},{t}'}[allowlist]
     monkeypatch.setenv('CONHECIMENTO_WHATSAPP_ENABLED_IGREJA_IDS',raw)
     assert not policy.enabled(t)
+
+
+@pytest.mark.parametrize('body',['Conhecimento da palavra me ajudou muito','Conhecimento sobre oração','conhecimento apagar'])
+def test_common_phrases_are_not_commands(body):
+    from app.agent.nodes import route_conhecimento_intent
+    assert route_conhecimento_intent(body)==('none',None)
+
+
+@pytest.mark.parametrize('body',['conhecimento',' CONHECIMENTO buscar  '])
+def test_exact_help_commands(body):
+    from app.agent.nodes import route_conhecimento_intent
+    assert route_conhecimento_intent(body)==('help',None)

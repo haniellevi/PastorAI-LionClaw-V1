@@ -133,7 +133,7 @@ def run_conhecimento_turn(
 
 def reply_still_authorized(db,message,*,conversation,recipient_phone,instance):
     raw=message.agent_privilege_context
-    if (type(raw) is not dict or set(raw)!={'kind','inbound_message_id','person_id','stage','actor_id'}
+    if (type(raw) is not dict or set(raw)!=({'kind','inbound_message_id','person_id','stage','actor_id'} | ({'fontes'} if raw.get('stage')=='result' else set()))
         or raw.get('kind')!='conhecimento' or not policy.enabled(message.igreja_id)):
         return False
     try:
