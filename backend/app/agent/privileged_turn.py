@@ -100,6 +100,10 @@ def reply_metadata(
 def reply_still_authorized(session, message, *, conversation, recipient_phone, instance) -> bool:
     """Revalidate every S3 reply immediately before transport, including retry."""
     raw = message.agent_privilege_context
+    if isinstance(raw, dict) and raw.get('kind') == 'conhecimento':
+        from app.conhecimento_whatsapp.turn import reply_still_authorized as conhecimento_authorized
+        return conhecimento_authorized(session, message, conversation=conversation,
+                                       recipient_phone=recipient_phone, instance=instance)
     if isinstance(raw, dict) and raw.get('kind') == 'enviar':
         from app.enviar_whatsapp.turn import reply_still_authorized as enviar_authorized
         return enviar_authorized(session, message, conversation=conversation,
@@ -282,6 +286,10 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
 
 
 def promote_delivered_proposal(session, message) -> None:
+    if isinstance(message.agent_privilege_context, dict) and message.agent_privilege_context.get('kind') == 'conhecimento':
+        from app.conhecimento_whatsapp.turn import mark_delivered
+        mark_delivered(session, message)
+        return
     if isinstance(message.agent_privilege_context, dict) and message.agent_privilege_context.get('kind') == 'enviar':
         from app.enviar_whatsapp.turn import mark_delivered
         mark_delivered(session, message)
