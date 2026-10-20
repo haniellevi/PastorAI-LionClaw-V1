@@ -126,7 +126,8 @@ begin
  update public.private_conversation_summaries set summary=case when incorrect then null else correction end,
  human_correction=case when incorrect then null else correction end, state=case when incorrect then 'incorrect' else 'corrected' end,
  version=version+1,source_revision=revision,updated_at=now(),corrected_by=(select id from public.app_users where igreja_id=t and clerk_user_id=public.prayer_jwt_sub())
- where igreja_id=t and conversation_id=c and version=expected_version;
+ -- A suspended snapshot must be regenerated with its complete source list.
+ where igreja_id=t and conversation_id=c and version=expected_version and source_revision=revision;
  return found;
 end $$;
 -- Web enqueue accepts no model-provided identity or source list.

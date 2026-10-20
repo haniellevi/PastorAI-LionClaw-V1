@@ -404,6 +404,62 @@ def test_http_read_correct_and_refuse(database, ready):
         assert denied.get(route).status_code in (403, 404)
 
 
+@pytest.mark.parametrize("incorrect", [False, True])
+def test_source_changed_before_http_correction_returns_conflict(database, ready, incorrect):
+    from app.routers.private_summaries import router
+
+    generate(database, ready)
+    client = api(database, ready)
+    client.app.include_router(router)
+    with client:
+        route = f"/conversations/{ready['conv']}/private-summary"
+        loaded = client.get(route)
+        assert loaded.status_code == 200, loaded.text
+        version = loaded.json()["version"]
+        with database.begin() as c:
+            c.execute(
+                text(
+                    "insert into messages(id,igreja_id,conversation_id,direcao,autor,texto) "
+                    "values(:id,:tenant,:conv,'in','contato','Qual o horário do culto?')"
+                ),
+                dict(ready, id=uuid4()),
+            )
+        response = client.patch(
+            route,
+            json=dict(
+                version=version, correction="Qual o horário do culto?", incorrect=incorrect
+            ),
+        )
+        assert response.status_code == 409, response.text
+        assert client.get(route).status_code == 404
+    with database.connect() as c:
+        row = c.execute(
+            text(
+                "select s.version,s.state,s.human_correction,s.source_revision,c.private_summary_revision "
+                "from private_conversation_summaries s join conversations c "
+                "on c.igreja_id=s.igreja_id and c.id=s.conversation_id "
+                "where s.igreja_id=:tenant and s.conversation_id=:conv"
+            ),
+            ready,
+        ).one()
+        assert row.version == version
+        assert row.state == "suspended"
+        assert row.human_correction is None
+        assert row.source_revision < row.private_summary_revision
+    generate(database, ready)
+    regenerated = get_summary(database, ready)
+    assert len(regenerated["sources"]) == 2
+    with client:
+        assert client.patch(
+            route,
+            json=dict(
+                version=regenerated["version"],
+                correction="Qual o horário do culto?",
+                incorrect=incorrect,
+            ),
+        ).status_code == 200
+
+
 def test_direct_web_dml_cannot_enable_or_forge(database, ready):
     with scoped(database, ready["tenant"], admin=True) as s:
         assert (
@@ -487,7 +543,7 @@ def test_identity_change_removes_existing_memory(database, ready, mutation):
         )
 
 
-def test_human_correction_during_provider_wins(database, ready):
+def test_stale_human_correction_during_provider_is_rejected(database, ready):
     from app.services.private_summaries import correct_summary
 
     generate(database, ready)
@@ -505,21 +561,22 @@ def test_human_correction_during_provider_wins(database, ready):
                 text("select version from private_conversation_summaries")
             )
         with scoped(database, ready["tenant"], admin=True) as s:
-            correct_summary(
-                s,
-                ready["tenant"],
-                ready["conv"],
-                version,
-                "Quero informações sobre a capacitação destino",
-                False,
-            )
+            with pytest.raises(HTTPException) as conflict:
+                correct_summary(
+                    s,
+                    ready["tenant"],
+                    ready["conv"],
+                    version,
+                    "Quero informações sobre a capacitação destino",
+                    False,
+                )
+            assert conflict.value.status_code == 409
         return {"topic": "uv"}
 
     generate(database, ready, external)
-    assert (
-        get_summary(database, ready)["summary"]
-        == "Quero informações sobre a capacitação destino"
-    )
+    regenerated = get_summary(database, ready)
+    assert regenerated["state"] == "available"
+    assert len(regenerated["sources"]) == 2
 
 
 def test_pastor_current_access_and_revoked_inbox(database, ready):
