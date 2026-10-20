@@ -9012,3 +9012,22 @@ table.data-table {
     display: inline;
   }
 }
+
+/* Atendimento: reflow and keyboard targets, including narrow zoomed viewports. */
+.ib-conversation-heading { margin: 0; font: 700 15px/1.4 var(--font); overflow-wrap: anywhere; }
+.ib-conversation-heading:focus-visible, .ib .thread-body:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
+.ib .thread-foot { flex-wrap: wrap; }
+.ib .thread-foot input[type="text"] { min-width: 80px; flex: 1 1 120px; }
+.ib .thread-foot button, .ib .attach-x, .ib .thread-body > button, .ib .thread-head summary { min-height: 44px; min-width: 44px; }
+.ib .thread-head summary { display: flex; align-items: center; }
+.ib .msg { overflow-wrap: anywhere; min-width: 0; }
+.ib .msg-audio { max-width: 100%; }
+@media (max-width: 480px) {
+  .ib .thread-head { flex-wrap: wrap; }
+  .ib .thread-head .who { flex: 1; min-width: 0; }
+  .ib .thread-head .ctrl { width: 100%; flex-wrap: wrap; margin-left: 0; }
+  .ib .conv-top { flex-wrap: wrap; }
+  .ib .conv-top strong { overflow-wrap: anywhere; }
+  .screen-chat.ib { height: auto; min-height: 0; }
+  .ib .inbox { min-height: 0; }
+}

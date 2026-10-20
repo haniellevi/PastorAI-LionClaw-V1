@@ -133,7 +133,7 @@ function MessageBody({ m }: { m: ChatMessage }) {
       <p>O conteúdo está restrito aos destinatários autorizados. Encaminhe o atendimento ao pastor.</p>
     </div>
   );
-  if (m.mediaPending) return <span className="msg-media-na" role="status">Carregando mídia…</span>;
+  if (m.mediaPending) return <span className="msg-media-na">Carregando mídia…</span>;
   if (m.tipo === "imagem") {
     return (
       <>
@@ -290,6 +290,12 @@ export function ConversationThread({
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [announcement, updateAnnouncement] = useState({ text: "", sequence: 0 });
+  const setAnnouncement = useCallback((text: string) => {
+    updateAnnouncement((previous) => ({ text, sequence: previous.sequence + 1 }));
+  }, []);
+  const latestMessages = useRef<{ id: string | null; time: string | null } | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const recordingGenerationRef = useRef(0);
@@ -345,6 +351,31 @@ export function ConversationThread({
       olderScroll.current = null;
     } else if (el && followLatestRef.current && !olderScroll.current) el.scrollTop = el.scrollHeight;
   }, [conversation.id, messages.length, olderMessagesLoading]);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+    latestMessages.current = null;
+    setAnnouncement("");
+  }, [conversation.id, setAnnouncement]);
+
+  useEffect(() => {
+    if (messagesLoading || messagesError) return;
+    const previous = latestMessages.current;
+    const last = messages[messages.length - 1];
+    if (!last) {
+      latestMessages.current = { id: null, time: null };
+      return;
+    }
+    // Initial history and older pages stay silent. Polls announce only newer inbound IDs.
+    if (previous) {
+      const previousIndex = messages.findIndex((message) => message.id === previous.id);
+      const added = messages.filter((message, index) => message.direcao === "in" &&
+        (previous.id === null || (previousIndex >= 0 ? index > previousIndex :
+          Boolean(previous.time && message.criadoEm && message.criadoEm > previous.time))));
+      if (added.length) setAnnouncement(`${added.length} ${added.length === 1 ? "nova mensagem recebida" : "novas mensagens recebidas"}.`);
+    }
+    latestMessages.current = { id: last.id, time: last.criadoEm };
+  }, [messages, messagesLoading, messagesError, setAnnouncement]);
 
   function clearAttachment() {
     setPendingFile(null);
@@ -438,9 +469,11 @@ export function ConversationThread({
       if (submittingMediaRef.current) return;
       submittingMediaRef.current = true;
       const submissionGeneration = recordingGenerationRef.current;
+      setAnnouncement("Enviando mensagem…");
       setSending(true);
       try {
         const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
+        setAnnouncement(ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.");
         if (ok && recordingGenerationRef.current === submissionGeneration) {
           clearAttachment();
         }
@@ -455,8 +488,11 @@ export function ConversationThread({
     if (!value) return;
     if (submittingTextRef.current) return;
     submittingTextRef.current = true;
+    setAnnouncement("Enviando mensagem…");
     try {
-      if (await onSend(conversation, value)) {
+      const ok = await onSend(conversation, value);
+      setAnnouncement(ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.");
+      if (ok) {
         followLatestRef.current = true;
         const el = bodyRef.current;
         if (el) el.scrollTop = el.scrollHeight;
@@ -469,6 +505,7 @@ export function ConversationThread({
   return (
     <div className="conv-thread">
       <div className="thread-head">
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true"><span key={announcement.sequence}>{announcement.text}</span></p>
         {showBack && onBack ? (
           <button
             type="button"
@@ -480,7 +517,7 @@ export function ConversationThread({
             <Icon name="chevron-left" />
           </button>
         ) : null}
-        <span className="av">
+        <span className="av" aria-hidden="true">
           {avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={avatarUrl} alt="" className="av-img" />
@@ -489,7 +526,7 @@ export function ConversationThread({
           )}
         </span>
         <div className="who">
-          <strong>{displayName(conversation)}</strong>
+          <h2 ref={headingRef} tabIndex={-1} className="ib-conversation-heading">{displayName(conversation)}</h2>
           {marker ? (
             <span className={`who-tipo${marker.csim ? " csim" : ""}`}>{marker.label}</span>
           ) : null}
@@ -623,7 +660,7 @@ export function ConversationThread({
         ) : null}
       </div>
 
-      <div className="thread-body" ref={bodyRef} onScroll={(event) => {
+      <div className="thread-body" role="region" aria-label="Histórico da conversa" tabIndex={0} ref={bodyRef} onScroll={(event) => {
         const el = event.currentTarget;
         followLatestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
       }}>
@@ -685,6 +722,7 @@ export function ConversationThread({
         <input
           ref={fileInputRef}
           type="file"
+          aria-label="Arquivo para enviar"
           accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,audio/*"
           style={{ display: "none" }}
           onChange={(e) => {

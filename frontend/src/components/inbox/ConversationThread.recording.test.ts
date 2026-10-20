@@ -122,7 +122,8 @@ async function readyAudio() {
   return current;
 }
 beforeEach(() => {
-  vi.useFakeTimers();
+  // Count recorder intervals, excluding jsdom selectionchange timeouts caused by focus.
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   Recorder.instances = [];
   Recorder.fail = null;
   requests = [];
