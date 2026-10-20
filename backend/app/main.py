@@ -250,6 +250,8 @@ def create_app() -> FastAPI:
     from app.routers.conhecimento import router as conhecimento_router
     app.include_router(conhecimento_router)
     app.include_router(enviar_router)
+    from app.routers.private_summaries import router as private_summaries_router
+    app.include_router(private_summaries_router)
     from app.prayer.router import router as prayer_router
     app.include_router(prayer_router)
     app.include_router(whatsapp.router)
