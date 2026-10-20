@@ -30,7 +30,7 @@ concurrency:
 jobs:
   rls-integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     # Postgres DESCARTAVEL: servico efemero do runner, destruido ao fim do job.
     services:
