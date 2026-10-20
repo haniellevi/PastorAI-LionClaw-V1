@@ -1,4 +1,4 @@
-begin;
+-- scripts/migrate.py owns the transaction, including the migration ledger.
 set local lock_timeout='2s';
 
 create or replace function public.private_summary_origin_valid(t uuid,c uuid,p uuid,sources_only boolean) returns boolean
@@ -79,7 +79,6 @@ begin
  if tg_op='DELETE' then return old; end if; return new;
 end $$;
 
-commit;
 
 -- Rollback: contain consumers first; restore the previous invalidation function.
 -- create or replace function public.private_summary_source_changed() returns trigger
