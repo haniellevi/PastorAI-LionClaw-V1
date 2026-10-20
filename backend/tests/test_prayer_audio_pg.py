@@ -261,7 +261,8 @@ def test_audio_deleted_by_person_and_church(private_prayer, deletion_scope):
         assert db.scalar(text('select count(*) from pedido_oracao_mensagem')) == 0
 
 
-def test_audio_reader_tenant_boundary_and_function_privileges(private_prayer):
+@pytest.mark.parametrize('function_name', ['prayer_message_readable', 'prayer_proposal_has_audio'])
+def test_audio_reader_tenant_boundary_and_function_privileges(private_prayer, function_name):
     import json
     from app.db.models import AppUser, UserRole
     from tests.test_prayer_privacy_pg import scope
@@ -276,7 +277,7 @@ def test_audio_reader_tenant_boundary_and_function_privileges(private_prayer):
         db.flush()
         db.add(UserRole(igreja_id=FOREIGN, user_id=foreign_pastor.id, papel='pastor'))
     with p.factory() as db:
-        fn = 'prayer_message_readable(uuid,uuid)'
+        fn = function_name + '(uuid,uuid)'
         flags = db.execute(text('select prosecdef,proconfig from pg_proc where oid=to_regprocedure(:fn)'), {'fn': fn}).one()
         assert flags.prosecdef
         assert flags.proconfig == [f'search_path=pg_catalog, {_SCHEMA}']
@@ -292,3 +293,98 @@ def test_audio_reader_tenant_boundary_and_function_privileges(private_prayer):
                    {'t': str(FOREIGN), 'claims': json.dumps({'sub': 'foreign-pastor'})})
         assert not db.scalar(text('select prayer_message_readable(:tenant,:mid)'), {'tenant': TENANT, 'mid': outcome.inbound_message_id})
         assert db.get(Message, outcome.inbound_message_id) is None
+
+
+@pytest.mark.parametrize('has_audio', ['source', 'associated', None])
+def test_legacy_request_visibility_sql_backend_and_api(private_prayer, has_audio):
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+    from app.db.session import get_db
+    from app.deps import get_current_user
+    from app.prayer import service
+    from app.prayer.router import router
+    from tests.test_prayer_requests_pg import create_request, FOREIGN
+    from tests.test_prayer_privacy_pg import scope
+    p = private_prayer
+    row = create_request(p, 'Pastores e meu líder')
+    if has_audio:
+        with p.factory.begin() as db:
+            mid = (db.get(PrayerProposal, row.proposal_id).source_message_id
+                   if has_audio == 'source' else row.confirmation_message_id)
+            db.get(Message, mid).tipo = 'audio'
+    for role in ('lider_celula', 'pastor', 'admin', 'operador'):
+        allowed = role == 'pastor' or (role == 'lider_celula' and not has_audio)
+        # No JWT: bypass the SQL reader policy to independently prove backend filtering.
+        with p.factory() as db:
+            db.execute(text("select set_config('app.tenant_igreja_id',:t,true)"), {'t': str(TENANT)})
+            assert bool(service.list_requests(db, p.actors[role])) == allowed
+            if allowed:
+                assert service.get_request(db, p.actors[role], row.id).id == row.id
+            else:
+                with pytest.raises(HTTPException) as exc:
+                    service.get_request(db, p.actors[role], row.id)
+                assert exc.value.status_code == 404
+        with p.factory() as db:
+            scope(db, p, role)
+            assert db.scalar(text('select count(*) from pedido_oracao where id=:id'), {'id': row.id}) == int(allowed)
+        def dependency():
+            with p.factory() as db:
+                scope(db, p, role)
+                yield db
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = dependency
+        app.dependency_overrides[get_current_user] = lambda: p.actors[role]
+        with TestClient(app) as client:
+            result = client.get('/prayer-requests')
+            assert result.status_code == 200
+            assert bool(result.json()) == allowed
+            assert client.get(f'/prayer-requests/{row.id}').status_code == (200 if allowed else 404)
+            assert client.get('/prayer-requests/access').json()['allowed'] == allowed
+    with p.factory() as db:
+        scope(db, p, 'pastor')
+        db.execute(text("select set_config('app.tenant_igreja_id',:t,true)"), {'t': str(FOREIGN)})
+        assert db.scalar(text('select count(*) from pedido_oracao')) == 0
+
+
+def test_foreign_pastor_cannot_read_legacy_audio_request(private_prayer, monkeypatch):
+    import dataclasses
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.db.models import AppUser, UserRole
+    from app.db.session import get_db
+    from app.deps import get_current_user
+    from app.prayer.router import router
+    from tests.test_prayer_requests_pg import create_request, FOREIGN
+    from tests.test_prayer_privacy_pg import scope
+    p = private_prayer
+    row = create_request(p, 'Pastores e meu líder')
+    with p.factory.begin() as db:
+        mid = db.get(PrayerProposal, row.proposal_id).source_message_id
+        db.get(Message, mid).tipo = 'audio'
+        actor = AppUser(igreja_id=FOREIGN, nome='Pastor externo sintético',
+                       email='externo@example.test', clerk_user_id='foreign-request-pastor', status='ativo')
+        db.add(actor)
+        db.flush()
+        db.add(UserRole(igreja_id=FOREIGN, user_id=actor.id, papel='pastor'))
+        user = dataclasses.replace(p.actors['pastor'], app_user_id=str(actor.id),
+                                   igreja_id=str(FOREIGN), clerk_user_id=actor.clerk_user_id)
+    def dependency():
+        import json
+        with p.factory() as db:
+            scope(db, p, 'pastor')
+            db.execute(text("select set_config('app.tenant_igreja_id',:t,true), set_config('request.jwt.claims',:claims,true)"),
+                       {'t': str(FOREIGN), 'claims': json.dumps({'sub': user.clerk_user_id})})
+            yield db
+    from contextlib import contextmanager
+    with contextmanager(dependency)() as db:
+        assert db.scalar(text('select count(*) from pedido_oracao where id=:id'), {'id': row.id}) == 0
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = dependency
+    app.dependency_overrides[get_current_user] = lambda: user
+    # Enable only the synthetic feature fence; tenant authorization stays real.
+    monkeypatch.setenv('PRAYER_REQUEST_ENABLED_IGREJA_IDS', str(TENANT) + ',' + str(FOREIGN))
+    with TestClient(app) as client:
+        assert client.get('/prayer-requests').json() == []
+        assert client.get(f'/prayer-requests/{row.id}').status_code == 404

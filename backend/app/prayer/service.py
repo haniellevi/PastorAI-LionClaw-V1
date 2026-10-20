@@ -295,6 +295,8 @@ def _visible(db, user):
     return and_(
         PrayerRequest.igreja_id == tenant,
         PrayerRequest.audience == "pastoral_lider",
+        # The SQL helper sees protected associations even under caller RLS.
+        ~func.prayer_proposal_has_audio(tenant, PrayerRequest.proposal_id),
         PrayerRequest.leader_id == actor.pessoa_id,
         exists(
             select(Celula.id)
