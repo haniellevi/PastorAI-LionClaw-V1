@@ -14,7 +14,8 @@ create table public.responsabilidades_setor (
  encerrada_em timestamptz,
  check(fim is null or fim > inicio),
  check((encerrada_por is null and encerrada_em is null) or (encerrada_por is not null and encerrada_em is not null and fim is not null)),
- foreign key(igreja_id,pessoa_id) references public.pessoas(igreja_id,id),
+ -- Exclusão física aprovada acompanha Pessoa; autores preservam NO ACTION.
+ foreign key(igreja_id,pessoa_id) references public.pessoas(igreja_id,id) on delete cascade,
  foreign key(igreja_id,atribuida_por) references public.app_users(igreja_id,id),
  foreign key(igreja_id,encerrada_por) references public.app_users(igreja_id,id),
  exclude using gist (igreja_id with =, setor with =, daterange(inicio,fim,'[)') with &&)
