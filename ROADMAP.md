@@ -1,6 +1,6 @@
 # Igreja 12 — roteiro único
 
-Atualizado em 18/10/2026 sobre a `main` `5460af62`. Esta é a única fonte ativa
+Atualizado em 19/10/2026 sobre a `main` `9f92be98`. Esta é a única fonte ativa
 de planejamento; substitui os planos de MVP e refatoração e seu acompanhamento.
 O [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md) conserva os
 requisitos. As decisões de 15/10 prevalecem sobre os cortes antigos de escopo,
@@ -81,7 +81,7 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Triagem semântica Jev | em andamento | S1 implementada/testada com simulações; falta avaliar qualidade real, crise/humano e falsos opt-outs, contrato de tratamento de dados e autorização específica. Jev B/C/D continuam condicionados. | não verificado; não autoriza ativação. |
 | Comunicados, assinatura/Asaas e e-mail/Brevo | em andamento | Bases implementadas; faltam aceite por finalidade, domínio/remetente e canários separados. Não envolver a igreja em cortesia em cobrança real. | não verificado |
 | Onboarding da igreja, equipe, permissões e console | em andamento | Há telas/serviços; faltam fechamento do fluxo de responsáveis/aprovações e validação das lacunas de acesso. Assistente no painel respeita igreja/papel. | Cobertura completa: não verificado. |
-| Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatia 1 integrada (#509). Fatia 2 candidata (#518): pessoa/igreja no mesmo serviço/fila/recibo, integração antes das cascatas do reset nominal e exclusão de camadas privadas sem leitura pelo admin. Reset privado preserva cadastros/opt-out/consentimento; não altera o contrato do arquivamento nem autoriza reset cadastral. Novos derivados acompanham sua implementação. | não verificado |
+| Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatia 1 integrada (#509). Fatia 2 integrada em 19/10 (#518): pessoa/igreja no mesmo serviço/fila/recibo, integração antes das cascatas do reset nominal e exclusão de camadas privadas sem leitura pelo admin. Reset privado preserva cadastros/opt-out/consentimento; não altera o contrato do arquivamento nem autoriza reset cadastral. Novos derivados acompanham sua implementação. | não verificado |
 | UX, acessibilidade e desempenho do painel | em andamento | Hoje/atendimento e UX v3 implementados; proteção do microfone ao trocar de conversa em candidato. Faltam teclado, leitor de tela, zoom, mobile e métricas autenticadas de campo; integração atual desse candidato: não verificado. | Frontend publicado conforme registros; backend/telemetria e operação completa: não verificado. |
 | Agenda completa e importação Google | em andamento | Base de cadastro/consulta existe; falta fechar o especialista, entrega de avisos e integração com credencial isolada por igreja antes de usar Google. | não verificado |
 | Observabilidade de IA e operação | em andamento | Há logs/custos/filas; faltam métricas por igreja/rota, retenção, metas de serviço e alertas de fluxos presos. | não verificado |
