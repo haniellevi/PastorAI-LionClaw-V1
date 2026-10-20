@@ -95,7 +95,7 @@ export function Tabs({ tabs, active, onChange, label, children }: TabsProps) {
         ›
       </span>
       {hasPanel ? (
-        <div role="tabpanel" id={activeIds.panel} aria-labelledby={activeIds.tab} className="ds-tabpanel">
+        <div role="tabpanel" tabIndex={0} id={activeIds.panel} aria-labelledby={activeIds.tab} className="ds-tabpanel">
           {children}
         </div>
       ) : null}
