@@ -1,11 +1,11 @@
--- Official document erasure: no private-conversation deletion or external queue.
+-- Official document erasure, including linked official quotes in messages.
 set local lock_timeout='2s';
 do $$ begin
  if not exists(select 1 from pg_roles where rolname=current_user and (rolsuper or rolbypassrls)) then
   raise exception 'Migration owner requires BYPASSRLS';
  end if;
 end $$;
--- Audit identifiers survive; historical rows and fingerprints are not rewritten.
+-- Audit identifiers survive; content-derived fingerprints are erased atomically.
 alter table public.conhecimento_operacoes drop constraint conhecimento_operacoes_igreja_id_documento_id_versao_id_fkey;
 -- Keep insertion-time FK semantics, while existing audit IDs can outlive erasure.
 create function public.conhecimento_validar_operacao() returns trigger
@@ -30,7 +30,8 @@ create table public.conhecimento_exclusoes (
  versoes bigint not null, trechos bigint not null,
  concluida_em timestamptz not null default clock_timestamp(),
  primary key(igreja_id,operacao_id), unique(igreja_id,documento_id),
- foreign key(igreja_id,ator_id) references public.app_users(igreja_id,id)
+ constraint conhecimento_exclusoes_ator_fk foreign key(igreja_id,ator_id)
+ references public.app_users(igreja_id,id) on delete no action deferrable initially deferred
 );
 alter table public.conhecimento_exclusoes enable row level security;
 alter table public.conhecimento_exclusoes force row level security;
@@ -138,6 +139,20 @@ begin
  select count(*) into nversoes from public.conhecimento_versoes where igreja_id=p_tenant and documento_id=p_documento;
  select count(*) into ntrechos from public.conhecimento_trechos c join public.conhecimento_versoes v
  on v.igreja_id=c.igreja_id and v.id=c.versao_id where v.igreja_id=p_tenant and v.documento_id=p_documento;
+ -- Fingerprints must no longer serve as an oracle for erased payloads.
+ update public.conhecimento_operacoes set fingerprint=repeat('0',64)
+ where igreja_id=p_tenant and documento_id=p_documento;
+ -- #525 sources are server-owned metadata; redact the complete composite quote.
+ update public.messages m set texto='[Conhecimento oficial excluído]',
+   agent_reply_state='ia_suprimida',
+   agent_privilege_context=jsonb_build_object('kind','conhecimento','stage','excluido')
+ where m.igreja_id=p_tenant and m.agent_privilege_context->>'kind'='conhecimento'
+ and exists(select 1 from jsonb_array_elements(
+   case when jsonb_typeof(m.agent_privilege_context->'fontes')='array'
+     then m.agent_privilege_context->'fontes' else '[]'::jsonb end) f
+   where f->>'documento_id'=p_documento::text or exists(
+     select 1 from public.conhecimento_versoes v where v.igreja_id=p_tenant
+     and v.documento_id=p_documento and v.id::text=f->>'versao_id'));
  insert into public.conhecimento_exclusoes(igreja_id,operacao_id,documento_id,ator_id,versoes,trechos)
  values(p_tenant,p_operacao,p_documento,p_ator,nversoes,ntrechos) returning * into recibo;
  return to_jsonb(recibo)||jsonb_build_object('estado','concluido');

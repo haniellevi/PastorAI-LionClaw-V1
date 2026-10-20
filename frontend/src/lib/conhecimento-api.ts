@@ -4,7 +4,7 @@ export interface Versao {
   criada_em: string; publicada_em: string | null; revisada_em?: string | null;
   vigente: boolean; pode_ler: boolean; acoes: string[];
 }
-export interface Documento { pode_excluir?: boolean; id: string; titulo: string; assunto: string; vigente_id: string | null; vigente_numero?: number | null; versoes: Versao[] }
+export interface Documento { total_versoes?: number; pode_excluir?: boolean; id: string; titulo: string; assunto: string; vigente_id: string | null; vigente_numero?: number | null; versoes: Versao[] }
 export interface Painel { pode_criar: boolean; responsavel_id: string | null; documentos: Documento[]; pendentes?: Pick<Recibo, 'documento_id' | 'versao_id'>[]; pagina?: number; tem_mais?: boolean }
 export interface Leitura { titulo: string; assunto: string; conteudo: string; origem: string; publicos: string[]; estado: string }
 export interface Trecho { titulo: string; versao_id: string; secao: string; trecho: string; ordem: number }

@@ -21,6 +21,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
   const [painel, setPainel] = useState<Painel | null>(null);
   const [leitura, setLeitura] = useState<Leitura | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [tituloConfirmado, setTituloConfirmado] = useState('');
   const [confirmacao, setConfirmacao] = useState<{ doc: Documento; versao: Versao; acao: string } | null>(null);
   const [recibo, setRecibo] = useState<Recibo | null>(null);
   const [resultados, setResultados] = useState<Trecho[] | null>(null);
@@ -122,6 +123,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
   function confirm() {
     if (!confirmacao) return;
     const { doc, versao, acao } = confirmacao;
+    if (acao === 'excluir' && tituloConfirmado !== doc.titulo) return;
     void mutate({ path: `documentos/${doc.id}/${acao}`, payload: {
       operacao_id: crypto.randomUUID(), ...(acao === 'excluir' ? { confirmacao: 'EXCLUIR DOCUMENTO' } : { versao_id: versao.id }),
       ...(acao === 'publicar' ? { publicos: versao.publicos, vigente_esperada_id: doc.vigente_id } : {}),
@@ -152,7 +154,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
       {painel && <section aria-label="Documentos"><h3>Documentos disponíveis</h3>{painel.documentos.length === 0 && <p>Nenhum documento disponível para seu acesso.</p>}
         {painel.documentos.map(doc => <article key={doc.id} className="card card-pad"><h4>{doc.titulo}</h4><p>{doc.assunto}</p>
           <p>Versão vigente: {(doc.vigente_numero ?? doc.versoes.find(v => v.vigente)?.numero) ? `versão ${doc.vigente_numero ?? doc.versoes.find(v => v.vigente)!.numero}` : 'nenhuma versão disponível para leitura'}</p>
-          {doc.pode_excluir && <button className="btn" onClick={() => { rememberFocus(); setEditor(null); setLeitura(null); setConfirmacao({ doc, versao: doc.versoes[0]!, acao: 'excluir' }); }}>Excluir documento</button>}
+          {doc.pode_excluir && <button className="btn" onClick={() => { rememberFocus(); setEditor(null); setLeitura(null); setTituloConfirmado(''); setConfirmacao({ doc, versao: doc.versoes[0]!, acao: 'excluir' }); }}>Excluir documento</button>}
           <details><summary>Versões e histórico</summary><ol>{doc.versoes.map(v => <li key={v.id}>
             <p><strong>Versão {v.numero} · {ESTADOS[v.estado] ?? 'Estado indisponível'}{v.vigente ? ' · Vigente' : ''}</strong></p>
             <p>Público-alvo: {publicoTexto(v.publicos)}</p><p>Criada em {date(v.criada_em)}{v.revisada_em ? ` · Revisão registrada em ${date(v.revisada_em)}` : ''}{v.publicada_em ? ` · Publicada em ${date(v.publicada_em)}` : ''}</p>
@@ -183,9 +185,9 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           <label htmlFor="conhecimento-texto">Texto do documento</label><textarea id="conhecimento-texto" required maxLength={100000} rows={12} value={editor.conteudo} onChange={e => setEditor({ ...editor, conteudo: e.target.value })} />
           <fieldset><legend>Público-alvo explícito</legend><p>Selecione quem poderá ler após a publicação. Sem seleção, não é possível publicar.</p>{Object.entries(PUBLICOS).map(([value, label]) => <label key={value} className="conhecimento-check"><input type="checkbox" checked={editor.publicos.includes(value)} onChange={e => setEditor({ ...editor, publicos: e.target.checked ? [...editor.publicos, value] : editor.publicos.filter(p => p !== value) })} />{label}</label>)}</fieldset>
           <button className="btn btn-primary" type="submit">Salvar rascunho</button></form>}
-        {confirmacao && <><h3>{ACTIONS[confirmacao.acao]}</h3><p>{confirmacao.doc.titulo} · Versão {confirmacao.versao.numero}</p><p>Público-alvo: {publicoTexto(confirmacao.versao.publicos)}</p>
+        {confirmacao && <><h3>{ACTIONS[confirmacao.acao]}</h3>{confirmacao.acao === 'excluir' ? <><p>{confirmacao.doc.titulo}</p><p>Assunto: {confirmacao.doc.assunto}</p><p>{confirmacao.doc.total_versoes ?? confirmacao.doc.versoes.length} {(confirmacao.doc.total_versoes ?? confirmacao.doc.versoes.length) === 1 ? 'versão' : 'versões'}</p><label htmlFor="conhecimento-confirmar-titulo">Digite o título para confirmar</label><input id="conhecimento-confirmar-titulo" value={tituloConfirmado} onChange={e => setTituloConfirmado(e.target.value)} autoComplete="off" /></> : <><p>{confirmacao.doc.titulo} · Versão {confirmacao.versao.numero}</p><p>Público-alvo: {publicoTexto(confirmacao.versao.publicos)}</p></>}
           <p>{confirmacao.acao === 'excluir' ? 'Todas as versões e trechos serão apagados definitivamente, incluindo os índices de busca. O recibo e o histórico de auditoria sem conteúdo serão preservados. Esta ação não pode ser desfeita.' : confirmacao.acao === 'publicar' ? 'Esta aprovação publica o texto para os públicos selecionados e substitui a versão vigente, se houver.' : confirmacao.acao === 'revogar' ? 'O texto deixará de estar disponível para novas leituras e buscas imediatamente.' : confirmacao.acao === 'revisar' ? 'Registra sua revisão deste texto. A publicação depende do administrador.' : 'O pastor responsável poderá ler esta versão. O envio não publica o documento.'}</p>
-          <button className="btn btn-primary" onClick={confirm}>Confirmar {(ACTIONS[confirmacao.acao] ?? 'operação').toLocaleLowerCase('pt-BR')}</button></>}
+          <button className="btn btn-primary" disabled={confirmacao.acao === 'excluir' && tituloConfirmado !== confirmacao.doc.titulo} onClick={confirm}>Confirmar {(ACTIONS[confirmacao.acao] ?? 'operação').toLocaleLowerCase('pt-BR')}</button></>}
       </section>}
     </fieldset>
   </div>;

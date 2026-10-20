@@ -114,9 +114,17 @@ it('carrega outra página e preserva versões já recebidas sem duplicar documen
 });
 
 it('exclui documento só com capacidade do servidor e confirmação explícita', async () => {
- const editable = panel(true); editable.documentos = [{ ...doc, pode_excluir: true }];
- mocks.api.mockResolvedValue(editable); const { el, click } = await mount();
+ const editable = panel(true); editable.documentos = [{ ...doc, pode_excluir: true, total_versoes: 25 }];
+ mocks.api.mockResolvedValue(editable); const { el, click, input } = await mount();
  await click('Excluir documento');
+ expect(el.textContent).toContain(doc.assunto);
+ expect(el.textContent).toContain('25 versões');
+ await click('Confirmar excluir documento');
+ expect(mocks.api.mock.calls.filter(c => c[2])).toHaveLength(0);
+ await input('#conhecimento-confirmar-titulo', 'Título errado');
+ await click('Confirmar excluir documento');
+ expect(mocks.api.mock.calls.filter(c => c[2])).toHaveLength(0);
+ await input('#conhecimento-confirmar-titulo', doc.titulo);
  expect(el.textContent).toContain('Todas as versões e trechos serão apagados');
  expect(mocks.api.mock.calls.filter(c => c[2])).toHaveLength(0);
  mocks.api.mockResolvedValueOnce({ estado: 'concluido', versoes: 2, trechos: 3 }).mockResolvedValueOnce({ ...panel(), documentos: [] });
