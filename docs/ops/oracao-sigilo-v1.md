@@ -81,3 +81,16 @@ associações, preservando recibos e tarefas duráveis. Remover essas estruturas
 backend atual causa falhas. Manter gates fechados e seguir o rollback comentado
 no SQL, com autorização explícita de privacidade antes de remover a proteção;
 não reexpor histórico como procedimento de recuperação.
+
+## Áudio de oração retido (candidato desligado)
+
+Áudio recebido durante coleta protegida fica no `media_path` da mensagem,
+exclusivo dos pastores, sem transcrição e sem captura pelo V1b de relatório.
+O prazo da proposta limita seu processamento e confirmação, não a retenção:
+se ela expirar antes do worker, o áudio permanece órfão de pedido confirmado,
+protegido e sujeito à exclusão privada aprovada por conversa, pessoa ou igreja.
+A purga de 24h do V1b não remove esse áudio. Não há cota de volume nesta fatia;
+o acúmulo pode crescer inclusive com propostas expiradas ou canceladas.
+Antes de futura ativação, recomenda-se medir objetos/bytes retidos por igreja,
+idade e quantidade de áudios sem pedido confirmado, com alertas e definição de
+cota futura. Não executar limpeza automática nem mudar retenção sem decisão.

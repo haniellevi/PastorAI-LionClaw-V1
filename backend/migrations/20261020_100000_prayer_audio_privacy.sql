@@ -2,10 +2,6 @@
 -- No gate, TTL, new storage table, transcription or external effect.
 begin;
 set local lock_timeout = '2s';
-alter table public.messages enable row level security;
-alter table public.messages force row level security;
-alter table public.pedido_oracao_mensagem enable row level security;
-alter table public.pedido_oracao_mensagem force row level security;
 create or replace function public.prayer_message_readable(tenant uuid, message uuid) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select tenant=public.current_igreja_id() and (

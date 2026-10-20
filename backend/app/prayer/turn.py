@@ -20,7 +20,7 @@ from app.domain.agent_reply import (
     AGENT_REPLY_EXECUTING,
 )
 from app.prayer import catalog, policy, service
-from app.prayer.models import PrayerProposal
+from app.prayer.models import PrayerMessage, PrayerProposal
 
 
 def _source(db, outcome):
@@ -103,8 +103,14 @@ def _handle(db, contact, inbound, reply):
     # Include expired active-state rows here only to retire them before a new draft.
     proposal = _active(db, contact, include_expired=True)
     if inbound.tipo == "audio":
-        if proposal is None:
-            return catalog.OWN_QUESTION, proposal
+        # The ingestion association is immutable across collection restarts.
+        audio_proposal_id = db.scalar(select(PrayerMessage.proposal_id).where(
+            PrayerMessage.igreja_id == contact.igreja_id,
+            PrayerMessage.conversation_id == contact.conversation_id,
+            PrayerMessage.message_id == inbound.id,
+        ))
+        if proposal is None or audio_proposal_id != proposal.id:
+            return catalog.OWN_QUESTION, None
         if proposal.term_version != contact.term_version or proposal.expires_at <= service.now(db):
             proposal.state = "expired"
             return catalog.OWN_QUESTION, proposal
