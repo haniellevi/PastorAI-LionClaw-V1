@@ -59,6 +59,7 @@ def receipt(db: Session, igreja_id: UUID, receipt_id: UUID) -> dict:
     layers['envios'].update(apagadas=totals['envios'] - sends, pendentes=sends)
     return dict(id=str(row['id']), igreja_id=str(igreja_id), escopo=row['scope'],
                 alvo_id=str(row['target_id']), geracao=row['generation'],
+                fora_do_alcance='backups, cópias de provedor e texto já enviado ao provedor',
                 estado='pendente_envio' if sends else ('pendente' if tasks['pending'] else 'concluido'), camadas=layers)
 
 
