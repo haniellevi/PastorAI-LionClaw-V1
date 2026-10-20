@@ -23,6 +23,9 @@ class _Session:
     def execute(self, _statement):
         return SimpleNamespace(scalar_one_or_none=lambda: None)
 
+    def scalar(self, _statement):
+        return None  # Prayer privacy schema absent in this isolated unit fake.
+
     def add(self, value: object) -> None:
         self.added.append(value)
 
@@ -111,6 +114,14 @@ def test_audio_capture_scope_requires_privileged_context_and_one_eligible_meetin
         conversation_id=CONVERSATION,
         inbound_message_id=INBOUND,
     ) is True
+
+    from app.prayer import service as prayer_service
+    with monkeypatch.context() as privacy:
+        privacy.setattr(prayer_service, "protected_message", lambda *a, **kw: True)
+        assert service.audio_capture_scope_allows(
+            _Session(), igreja_id=TENANT, conversation_id=CONVERSATION,
+            inbound_message_id=INBOUND,
+        ) is False
 
     monkeypatch.setattr(
         whatsapp_privilege,
