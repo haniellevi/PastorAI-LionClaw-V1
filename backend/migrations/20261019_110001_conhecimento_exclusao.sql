@@ -24,6 +24,19 @@ revoke all on function public.conhecimento_validar_operacao() from public,anon,a
 create trigger conhecimento_operacao_referencia before insert on public.conhecimento_operacoes
  for each row execute function public.conhecimento_validar_operacao();
 
+-- Knowledge follows the application's legacy NULL-as-active convention.
+-- Keep private_deletion_admin() unchanged: private erasure has a separate contract.
+create function public.conhecimento_exclusao_admin() returns boolean
+language sql stable security definer set search_path=pg_catalog as $$
+ select session_user not in ('authenticator','authenticated','anon') and exists(
+  select 1 from public.app_users u join public.user_roles r on r.user_id=u.id and r.igreja_id=u.igreja_id
+  where u.igreja_id=public.current_igreja_id() and (u.status is null or u.status='ativo') and r.papel='admin'
+   and u.clerk_user_id=coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',
+                              nullif(current_setting('request.jwt.claim.sub',true),'')))
+$$;
+revoke all on function public.conhecimento_exclusao_admin() from public,anon,authenticated,service_role;
+grant execute on function public.conhecimento_exclusao_admin() to authenticated;
+
 create table public.conhecimento_exclusoes (
  igreja_id uuid not null references public.igrejas(id) on delete cascade,
  operacao_id uuid not null, documento_id uuid not null, ator_id uuid not null,
@@ -38,7 +51,7 @@ alter table public.conhecimento_exclusoes force row level security;
 create policy receipt_read on public.conhecimento_exclusoes for select to authenticated
  using(igreja_id=public.current_igreja_id()
  and igreja_id=nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
- and public.private_deletion_admin());
+ and public.conhecimento_exclusao_admin());
 revoke all on public.conhecimento_exclusoes from public,anon,authenticated,service_role;
 grant select on public.conhecimento_exclusoes to authenticated;
 
@@ -64,7 +77,7 @@ begin
  if tg_table_name='conhecimento_documentos' then did:=old.id; else did:=old.documento_id; end if;
  if pg_trigger_depth()<>2
     or old.igreja_id is distinct from public.current_igreja_id()
-    or not public.private_deletion_admin()
+    or not public.conhecimento_exclusao_admin()
     or current_user<>(select pg_get_userbyid(proowner) from pg_proc
       where oid='public.conhecimento_excluir_documento(uuid,uuid,uuid,uuid)'::regprocedure)
     or not exists(select 1 from public.conhecimento_exclusoes e
@@ -88,10 +101,10 @@ language plpgsql security definer set search_path=pg_catalog as $$
 begin
  if new.igreja_id is distinct from public.current_igreja_id()
     or new.igreja_id is distinct from nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
-    or not public.private_deletion_admin()
+    or not public.conhecimento_exclusao_admin()
     or not exists(select 1 from public.app_users u join public.user_roles r
        on r.igreja_id=u.igreja_id and r.user_id=u.id
-       where u.igreja_id=new.igreja_id and u.id=new.ator_id and u.status='ativo' and r.papel='admin'
+       where u.igreja_id=new.igreja_id and u.id=new.ator_id and (u.status is null or u.status='ativo') and r.papel='admin'
        and u.clerk_user_id=coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',
                                   nullif(current_setting('request.jwt.claim.sub',true),''))) then
   raise exception 'Recibo exige administrador web da igreja' using errcode='42501';
@@ -115,13 +128,13 @@ declare recibo public.conhecimento_exclusoes; nversoes bigint; ntrechos bigint; 
 begin
  if p_tenant is distinct from public.current_igreja_id()
     or p_tenant is distinct from nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
-    or not public.private_deletion_admin() then
+    or not public.conhecimento_exclusao_admin() then
   raise exception 'Exige administrador web da igreja' using errcode='42501';
  end if;
  -- Lock live identity/role through commit, in the same order as the human service.
  perform u.id from public.app_users u join public.user_roles r
    on r.igreja_id=u.igreja_id and r.user_id=u.id
-   where u.igreja_id=p_tenant and u.id=p_ator and u.status='ativo' and r.papel='admin'
+   where u.igreja_id=p_tenant and u.id=p_ator and (u.status is null or u.status='ativo') and r.papel='admin'
    and u.clerk_user_id=coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub',
                                nullif(current_setting('request.jwt.claim.sub',true),'')) for share of u,r;
  if not found then raise exception 'Ator web indisponível' using errcode='42501'; end if;
@@ -193,6 +206,7 @@ grant execute on function public.conhecimento_excluir_documento(uuid,uuid,uuid,u
 -- drop trigger conhecimento_documento_tombstone on public.conhecimento_documentos;
 -- drop function public.conhecimento_impedir_recriacao();
 -- drop table public.conhecimento_exclusoes;
+-- drop function public.conhecimento_exclusao_admin();
 -- drop trigger conhecimento_operacao_referencia on public.conhecimento_operacoes;
 -- drop function public.conhecimento_validar_operacao();
 -- alter table public.conhecimento_operacoes add foreign key(igreja_id,documento_id,versao_id) references public.conhecimento_versoes(igreja_id,documento_id,id);

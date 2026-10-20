@@ -297,3 +297,37 @@ def test_deleted_document_actor_cannot_be_hard_deleted(database,seeded):
             s.execute(text('delete from app_users where id=:u'),dict(u=v['leader']))
     assert exc.value.orig.pgcode=='23503'
     assert exc.value.orig.diag.constraint_name=='conhecimento_exclusoes_ator_fk'
+
+
+@pytest.mark.parametrize('status,role,allowed', [
+    (None, 'admin', True), ('ativo', 'admin', True),
+    ('inativo', 'admin', False), ('suspenso', 'admin', False),
+    (None, 'pastor', False), ('ativo', 'pastor', False),
+])
+def test_live_status_authorization_in_web_and_sql(database, seeded, status, role, allowed):
+    v=seeded; subject(database,v)
+    with client(database,v) as c: p=create(c,v)
+    # Extend only the disposable enum to exercise these otherwise absent labels.
+    with database.connect().execution_options(isolation_level='AUTOCOMMIT') as s:
+        s.execute(text("alter type app_user_status add value if not exists 'inativo'"))
+        s.execute(text("alter type app_user_status add value if not exists 'suspenso'"))
+    with database.begin() as s:
+        s.execute(text('update app_users set status=:status where id=:u'), dict(status=status,u=v['uid']))
+        s.execute(text('update user_roles set papel=:role where user_id=:u'), dict(role=role,u=v['uid']))
+    # Exercise SQL independently so a service refusal cannot mask a SQL bypass.
+    with scoped(database,v['t']) as s:
+        s.execute(text("select set_config('request.jwt.claim.sub','synthetic',true)"))
+        params=dict(t=v['t'],d=p['id'],o=uuid4(),u=v['uid'])
+        if allowed:
+            assert s.execute(text('select conhecimento_excluir_documento(:t,:d,:o,:u)'),params).scalar()['estado']=='concluido'
+            assert s.execute(text('select count(*) from conhecimento_exclusoes')).scalar()==1
+        else:
+            with pytest.raises(DBAPIError) as exc:
+                s.execute(text('select conhecimento_excluir_documento(:t,:d,:o,:u)'),params)
+            assert exc.value.orig.pgcode=='42501'
+        s.rollback()
+    with client(database,v) as c:
+        response=erase(c,p)
+        assert response.status_code==(200 if allowed else 403),response.text
+    with database.connect() as s:
+        assert s.execute(text('select count(*) from conhecimento_documentos')).scalar()==(0 if allowed else 1)
