@@ -111,7 +111,7 @@ create trigger conhecimento_recibo_apagar after insert on public.conhecimento_ex
 
 create function public.conhecimento_excluir_documento(p_tenant uuid,p_documento uuid,p_operacao uuid,p_ator uuid)
 returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
-declare recibo public.conhecimento_exclusoes; nversoes bigint; ntrechos bigint;
+declare recibo public.conhecimento_exclusoes; nversoes bigint; ntrechos bigint; mensagens uuid[]; conversas uuid[];
 begin
  if p_tenant is distinct from public.current_igreja_id()
     or p_tenant is distinct from nullif(current_setting('app.tenant_igreja_id',true),'')::uuid
@@ -142,17 +142,36 @@ begin
  -- Fingerprints must no longer serve as an oracle for erased payloads.
  update public.conhecimento_operacoes set fingerprint=repeat('0',64)
  where igreja_id=p_tenant and documento_id=p_documento;
- -- #525 sources are server-owned metadata; redact the complete composite quote.
- update public.messages m set texto='[Conhecimento oficial excluído]',
-   agent_reply_state='ia_suprimida',
-   agent_privilege_context=jsonb_build_object('kind','conhecimento','stage','excluido')
+ -- Capture original text/identity before redaction, under message locks.
+ select coalesce(array_agg(m.id),'{}'::uuid[]),coalesce(array_agg(m.conversation_id),'{}'::uuid[])
+ into mensagens,conversas from (
+   select m.* from public.messages m
  where m.igreja_id=p_tenant and m.agent_privilege_context->>'kind'='conhecimento'
  and exists(select 1 from jsonb_array_elements(
    case when jsonb_typeof(m.agent_privilege_context->'fontes')='array'
      then m.agent_privilege_context->'fontes' else '[]'::jsonb end) f
    where f->>'documento_id'=p_documento::text or exists(
      select 1 from public.conhecimento_versoes v where v.igreja_id=p_tenant
-     and v.documento_id=p_documento and v.id::text=f->>'versao_id'));
+     and v.documento_id=p_documento and v.id::text=f->>'versao_id')) for update
+ ) m;
+ -- Preview may contain an older quote, or a stale/truncated latest message.
+ update public.conversations c set ultima_mensagem='[Conhecimento oficial excluído]'
+ where c.igreja_id=p_tenant and c.id=any(conversas) and (
+   exists(select 1 from public.messages m where m.igreja_id=p_tenant
+     and m.conversation_id=c.id and m.id=any(mensagens) and m.texto=c.ultima_mensagem)
+   or (select m.id from public.messages m where m.igreja_id=p_tenant
+       and m.conversation_id=c.id order by m.criado_em desc,m.id desc limit 1)=any(mensagens));
+ -- #526 may be installed later. Remove corrections too, which ordinary source
+ -- invalidation intentionally retains. Sources cascade; its trigger clears jobs.
+ if to_regclass('public.private_conversation_summaries') is not null then
+   execute 'delete from public.private_conversation_summaries where igreja_id=$1 and conversation_id=any($2)'
+     using p_tenant,conversas;
+ end if;
+ -- #525 sources are server-owned metadata; redact the complete composite quote.
+ update public.messages m set texto='[Conhecimento oficial excluído]',
+   agent_reply_state='ia_suprimida',
+   agent_privilege_context=jsonb_build_object('kind','conhecimento','stage','excluido')
+ where m.igreja_id=p_tenant and m.id=any(mensagens);
  insert into public.conhecimento_exclusoes(igreja_id,operacao_id,documento_id,ator_id,versoes,trechos)
  values(p_tenant,p_operacao,p_documento,p_ator,nversoes,ntrechos) returning * into recibo;
  return to_jsonb(recibo)||jsonb_build_object('estado','concluido');

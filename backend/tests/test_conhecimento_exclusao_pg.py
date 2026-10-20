@@ -215,11 +215,45 @@ def test_receipt_actor_requires_same_tenant_fk(database,seeded):
         s.rollback()
 
 
+def quoted_message(database,v,p,preview='quoted'):
+    import json
+    c,m=uuid4(),uuid4()
+    with database.begin() as s:
+        s.execute(text("insert into conversations(id,igreja_id,pessoa_id,telefone,ultima_mensagem) values(:c,:t,:p,'550000000001',:preview)"),dict(v,c=c,preview=preview))
+        s.execute(text("insert into messages(id,igreja_id,conversation_id,direcao,autor,tipo,texto,agent_privilege_context) values(:m,:t,:c,'out','ia','texto','quoted',cast(:metadata as jsonb))"),dict(v,c=c,m=m,metadata=json.dumps(dict(kind='conhecimento',fontes=[dict(versao_id=p['versao_id'])]))))
+    return c,m
+
+@pytest.mark.parametrize('preview,latest', [('quoted',False),('stale preview',True),('unrelated',False)])
+def test_erasure_cleans_preview_and_summary_inside_definer(database,seeded,preview,latest):
+    v=seeded; subject(database,v)
+    with client(database,v) as c: p=create(c,v)
+    conv,mid=quoted_message(database,v,p,preview)
+    with database.begin() as s:
+        if not latest:
+            s.execute(text("insert into messages(igreja_id,conversation_id,direcao,autor,tipo,texto,criado_em) values(:t,:c,'in','contato','texto','unrelated',now()+interval '1 minute')"),dict(v,c=conv))
+        revision=s.scalar(text('select private_summary_revision from conversations where id=:c'),dict(c=conv))
+        s.execute(text("insert into private_conversation_summaries(igreja_id,conversation_id,pessoa_id,source_revision,deletion_generation,state,summary,human_correction) values(:t,:c,:p,:r,0,'corrected','quoted','quoted')"),dict(v,c=conv,r=revision))
+        s.execute(text('insert into private_summary_sources(igreja_id,conversation_id,message_id) values(:t,:c,:m)'),dict(v,c=conv,m=mid))
+        s.execute(text('insert into private_summary_tasks(igreja_id,conversation_id,pessoa_id,source_revision,deletion_generation) values(:t,:c,:p,:r,0)'),dict(v,c=conv,r=revision))
+    with client(database,v) as c: assert erase(c,p).status_code==200
+    with database.connect() as s:
+        row=s.execute(text('select ultima_mensagem,private_summary_revision from conversations where id=:c'),dict(c=conv)).one()
+        assert row.ultima_mensagem == ('unrelated' if preview=='unrelated' else '[Conhecimento oficial excluído]')
+        assert row.private_summary_revision==revision+1
+        assert s.scalar(text('select texto from messages where id=:m'),dict(m=mid))=='[Conhecimento oficial excluído]'
+        for table in ('private_conversation_summaries','private_summary_sources','private_summary_tasks'):
+            assert s.scalar(text(f'select count(*) from {table} where conversation_id=:c'),dict(c=conv))==0
+
+
 def test_failure_after_redaction_rolls_back_every_layer(database,seeded):
     v=seeded; subject(database,v)
     with client(database,v) as c:
         p=create(c,v,publicos=['institucional_publico']); publish(c,p)
+    conv,mid=quoted_message(database,v,p)
     with database.begin() as s:
+        s.execute(text("insert into private_conversation_summaries(igreja_id,conversation_id,pessoa_id,source_revision,deletion_generation,state,summary,human_correction) values(:t,:c,:p,1,0,'corrected','quoted','quoted')"),dict(v,c=conv))
+        s.execute(text('insert into private_summary_sources(igreja_id,conversation_id,message_id) values(:t,:c,:m)'),dict(v,c=conv,m=mid))
+        s.execute(text('insert into private_summary_tasks(igreja_id,conversation_id,pessoa_id,source_revision,deletion_generation) values(:t,:c,:p,1,0)'),dict(v,c=conv))
         before=s.execute(text('select * from conhecimento_operacoes order by id')).all()
         s.execute(text("""create function conhecimento_test_fail() returns trigger language plpgsql as $$
             begin raise exception 'synthetic rollback'; end $$"""))
@@ -231,6 +265,12 @@ def test_failure_after_redaction_rolls_back_every_layer(database,seeded):
             with pytest.raises(RuntimeError): excluir(s,principal(v),p['id'],uuid4())
             s.commit()
         with database.connect() as s:
+            assert s.scalar(text('select ultima_mensagem from conversations where id=:c'),dict(c=conv))=='quoted'
+            assert s.scalar(text('select texto from messages where id=:m'),dict(m=mid))=='quoted'
+            assert s.execute(text('select summary,human_correction from private_conversation_summaries where conversation_id=:c'),dict(c=conv)).one()==('quoted','quoted')
+            assert s.scalar(text('select private_summary_revision from conversations where id=:c'),dict(c=conv))==1
+            for table in ('private_summary_sources','private_summary_tasks'):
+                assert s.scalar(text(f'select count(*) from {table} where conversation_id=:c'),dict(c=conv))==1
             assert s.execute(text('select * from conhecimento_operacoes order by id')).all()==before
             assert s.execute(text('select count(*) from conhecimento_exclusoes')).scalar()==0
             assert s.execute(text('select count(*) from conhecimento_versoes')).scalar()==1
@@ -240,3 +280,20 @@ def test_failure_after_redaction_rolls_back_every_layer(database,seeded):
         with database.begin() as s:
             s.execute(text('drop trigger conhecimento_test_fail on conhecimento_trechos'))
             s.execute(text('drop function conhecimento_test_fail()'))
+
+
+def test_deleted_document_actor_cannot_be_hard_deleted(database,seeded):
+    v=seeded; subject(database,v)
+    with client(database,v) as c: p=create(c,v)
+    # A different admin erases, isolating the receipt FK from editorial actors.
+    with database.begin() as s:
+        s.execute(text("update app_users set clerk_user_id=null where id=:u"),dict(u=v['uid']))
+        s.execute(text("update app_users set clerk_user_id='synthetic' where id=:u"),dict(u=v['leader']))
+        s.execute(text("update user_roles set papel='admin' where user_id=:u"),dict(u=v['leader']))
+    with client(database,v,'leader') as c: assert erase(c,p).status_code==200
+    with pytest.raises(DBAPIError) as exc:
+        with database.begin() as s:
+            s.execute(text('delete from user_roles where user_id=:u'),dict(u=v['leader']))
+            s.execute(text('delete from app_users where id=:u'),dict(u=v['leader']))
+    assert exc.value.orig.pgcode=='23503'
+    assert exc.value.orig.diag.constraint_name=='conhecimento_exclusoes_ator_fk'

@@ -36,3 +36,28 @@ recusa recibos existentes e não recupera conteúdo apagado.
 Sarah revisa RLS, função/migration e autorização antes da integração.
 Sem merge, migration remota, deploy, envio real ou abertura de gates.
 Produção, aplicação remota e cópias em backups: não verificadas.
+
+A prévia `conversations.ultima_mensagem` recebe o marcador antes da redação,
+quando coincide com o texto removido na conversa ou quando sua última mensagem
+(ordenada por `criado_em`, `id`) está entre as redigidas. Com a #526 instalada,
+o resumo privado inteiro e sua correção humana são removidos nas conversas
+afetadas, com fontes em cascata; o trigger `private_summary_source_changed`
+continua disparando no UPDATE e invalida as tarefas na mesma transação.
+O caminho tipado de conhecimento não grava o texto citado em
+`agent_conversation_logs`; o grafo está compilado sem checkpointer/store durável.
+Isso não atesta logs externos ou acervos de versões anteriores.
+
+Cópias já entregues ao WhatsApp do usuário ou ao provedor não são apagadas.
+Uma mensagem já lida da fila antes da exclusão pode ser enviada fora da
+transação: a supressão persistida não recolhe texto já carregado pelo consumidor.
+Backups e sua eventual retenção do conteúdo não foram verificados.
+
+Se o `app_user` autor de uma exclusão precisar ser removido depois, a FK
+`conhecimento_exclusoes_ator_fk` diferida impede o commit da remoção isolada.
+No procedimento atual, preserve esse registro e inative o acesso pelo fluxo
+administrativo, revogando seus papéis/sessões; confira a inativação no servidor.
+Não apague recibos, não substitua o ator por outra pessoa e não desabilite a FK
+para contornar o bloqueio. Hard delete individual exige uma mudança revisada
+que permita anonimização sem perder o recibo; ainda não está implementado.
+A cascata da igreja remove ambos na mesma transação e não autoriza, por si só,
+exclusão cadastral ou operação remota.
