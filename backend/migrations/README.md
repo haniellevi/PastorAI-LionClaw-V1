@@ -266,3 +266,15 @@ callers devem autorizar o acesso e revalidar a elegibilidade da Pessoa no uso.
 Instalação do zero e atualização acumulada são exercitadas em PG17 sintético.
 Aplicação remota, deploy e ativação permanecem **não verificados**; nenhum gate
 externo, catálogo do agente ou composição de Hoje é alterado nesta fatia.
+
+
+Pré-requisitos da release de responsabilidades: em PROD, `btree_gist` precisa
+estar disponível e instalada, ou o executor autorizado deve poder instalá-la
+(a migration executa `CREATE EXTENSION IF NOT EXISTS`). Sem essa extensão,
+a exclusão GiST por igreja/setor/período não pode ser criada: parar a release.
+Aplicar a migration **antes do backend**, conferir sucesso e grants, e somente
+então publicar os callers. `service_role` não tem grant na tabela
+`responsabilidades_setor`; BYPASSRLS não substitui privilégio de tabela.
+O backend usa sessão `authenticated` com tenant e autorização revalidada.
+Encerramentos novos exigem `fim >= hoje` em `America/Sao_Paulo`; o primeiro
+dia sem responsabilidade é `fim`. Repetição idêntica preserva o recibo gravado.

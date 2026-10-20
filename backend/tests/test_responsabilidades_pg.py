@@ -16,6 +16,11 @@ from app.deps import get_current_user
 pytestmark = pytest.mark.rls_integration
 
 
+@pytest.fixture(autouse=True)
+def church_today(monkeypatch):
+    monkeypatch.setattr('app.services.responsabilidades.hoje_da_igreja', lambda: date(2026, 10, 9))
+
+
 @pytest.fixture(scope='module')
 def rls_database_url():
     url = os.environ.get('RESPONSABILIDADES_TEST_DATABASE_URL') or os.environ['UV_TURMAS_DATABASE_URL']
@@ -209,3 +214,66 @@ def test_concurrent_different_people_cannot_own_same_sector(api, seeded, databas
                 return exc.status_code
     with ThreadPoolExecutor(2) as pool:
         assert sorted(pool.map(attempt,[v['p'],second]))==[201,409]
+
+
+@pytest.mark.parametrize('role', ['admin', 'pastor'])
+def test_today_boundary_and_real_role(api, seeded, database, role):
+    from dataclasses import replace
+    with database.begin() as c:
+        c.execute(text('update user_roles set papel=:r where user_id=:u'), dict(r=role,u=seeded['uid']))
+    api.app.dependency_overrides[get_current_user] = lambda: replace(principal(seeded), roles=frozenset({role}))
+    row = assign(api, seeded)
+    assert row.status_code == 201, row.text
+    assert row.json()['atribuida_por'] == str(seeded['uid'])
+    url = f"/responsabilidades/{row.json()['id']}/encerrar"
+    rejected = api.post(url, json={'fim':'2026-10-08'})
+    assert rejected.status_code == 422
+    assert 'retroativo' in rejected.json()['detail']
+    assert api.get('/responsabilidades').json()[0]['encerrada_em'] is None
+    closed = api.post(url, json={'fim':'2026-10-09'})
+    assert closed.status_code == 200, closed.text
+    assert closed.json()['encerrada_por'] == str(seeded['uid'])
+
+
+def test_concurrent_close_different_ends(api, seeded, database):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.services.responsabilidades import encerrar
+    from fastapi import HTTPException
+    row = assign(api, seeded).json()
+    barrier = Barrier(2)
+    def attempt(end):
+        with scoped(database, seeded['t']) as s:
+            barrier.wait(timeout=10)
+            try:
+                result = encerrar(s, principal(seeded), row['id'], end)
+                s.commit()
+                return 200, result['fim']
+            except HTTPException as exc:
+                s.rollback()
+                return exc.status_code, end
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(attempt, [date(2026,10,9), date(2026,10,10)]))
+    assert sorted(status for status, _ in results) == [200, 409]
+    winner = next(end for status, end in results if status == 200)
+    assert api.get('/responsabilidades').json()[0]['fim'] == winner.isoformat()
+
+
+def test_cross_tenant_authors_and_closed_extension_fail_sql(api, seeded, database):
+    other_user = uuid4()
+    with database.begin() as c:
+        c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Autor sintético','author@example.test')"), dict(u=other_user,t=seeded['other']))
+    row = assign(api, seeded).json()
+    with scoped(database, seeded['t']) as s, pytest.raises(DBAPIError) as error:
+        s.execute(text("insert into responsabilidades_setor(igreja_id,pessoa_id,setor,inicio,atribuida_por) values(:t,:p,'agenda','2026-10-01',:u)"), dict(t=seeded['t'],p=seeded['p'],u=other_user))
+    assert error.value.orig.pgcode == '23503'
+    with scoped(database, seeded['t']) as s, pytest.raises(DBAPIError) as error:
+        s.execute(text("update responsabilidades_setor set fim='2026-10-09',encerrada_por=:u,encerrada_em=clock_timestamp() where id=:id"), dict(u=other_user,id=row['id']))
+    assert error.value.orig.pgcode == '23503'
+    assert api.post(f"/responsabilidades/{row['id']}/encerrar", json={'fim':'2026-10-09'}).status_code == 200
+    with scoped(database, seeded['t']) as s, pytest.raises(DBAPIError) as error:
+        s.execute(text("update responsabilidades_setor set fim='2026-10-10' where id=:id"), dict(id=row['id']))
+    assert error.value.orig.pgcode == '23514'
+    with database.connect() as c:
+        for privilege in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'):
+            assert not c.scalar(text("select has_table_privilege('service_role','responsabilidades_setor',:p)"), dict(p=privilege))

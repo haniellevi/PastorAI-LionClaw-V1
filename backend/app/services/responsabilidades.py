@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from app.db.models import Pessoa
+from app.datas import hoje_da_igreja
 
 
 def _autor(db, user):
@@ -76,6 +77,8 @@ def encerrar(db, user, responsabilidade_id, fim):
         if row['fim'] == fim:
             return row
         raise HTTPException(409, 'Responsabilidade já encerrada')
+    if fim < hoje_da_igreja():
+        raise HTTPException(422, 'Fim não pode ser retroativo (America/Sao_Paulo)')
     if fim <= row['inicio'] or (row['fim'] is not None and fim > row['fim']):
         raise HTTPException(422, 'Encerramento deve reduzir a vigência sem eliminar o período')
     return _rows(db, """update responsabilidades_setor set fim=:fim,
