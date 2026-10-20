@@ -192,6 +192,13 @@ def _handle(db, contact, source):
             response, proposal = service.propose(db, user, command, args)
             return response, dict(meta, stage='proposal', proposal=proposal,
                 term_version=contact.term_version)
+        if command == 'clarify' and pending is not None:
+            raw = pending.agent_privilege_context
+            # Keep the original delivery deadline; clarification never confirms
+            # or extends the proposal and creates no domain request.
+            return ('Para registrar a solicitação, responda somente SIM ou NÃO em até 10 minutos da proposta original.',
+                dict(meta, stage='proposal', actor_id=raw['actor_id'], proposal=raw['proposal'],
+                    term_version=raw['term_version'], delivered_at=raw['delivered_at']))
         if command == 'confirm' and pending is not None:
             raw = pending.agent_privilege_context
             if raw['actor_id'] != user.app_user_id:
@@ -245,7 +252,14 @@ def reply_still_authorized(db, message, *, conversation, recipient_phone, instan
         if raw['stage'] == 'receipt':
             service.request_visible(db, user, raw['request_id'])
         if raw['stage'] == 'proposal':
-            if message.criado_em <= now(db) - dt.timedelta(minutes=10):
+            # Clarifications carry the original delivery time. A transport
+            # retry must not invite confirmation after that proposal expires.
+            deadline_start = message.criado_em
+            if raw.get('delivered_at'):
+                deadline_start = dt.datetime.fromisoformat(raw['delivered_at'])
+                if not deadline_start.tzinfo:
+                    return False
+            if deadline_start <= now(db) - dt.timedelta(minutes=10):
                 return False
             savepoint = db.begin_nested()
             try:

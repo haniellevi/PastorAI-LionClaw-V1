@@ -46,3 +46,11 @@ def test_closed_router():
     assert route('ENVIAR nomear Esperança; Ana') == ('nominate',('esperanca','ana'))
     for text in ['ENVIAR aprovar','ENVIAR avaliar apto','ENVIAR validar Reencontro']:
         assert route(text)[0]=='help'
+
+
+def test_unrelated_enviar_uses_normal_flow():
+    from app.agent.nodes import route_enviar_intent as route
+    for body in ['Enviar foto da célula', 'enviar mensagem', 'enviar pessoas', 'enviar abertura']:
+        assert route(body) == ('none', None)
+    for body in ['ENVIAR nomear', 'ENVIAR abrir', 'ENVIAR pessoa', 'ENVIAR solicitações extra']:
+        assert route(body) == ('help', None)
