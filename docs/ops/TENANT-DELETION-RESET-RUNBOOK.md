@@ -144,3 +144,19 @@ esta documentação habilita um efeito externo.
 
 Raniel autorizar o merge por número da PR B. A execução real continua fora deste
 escopo.
+
+## Integração da exclusão privada (candidata, 19/10)
+
+Após `20261019_090001_exclusao_privada_pessoa_igreja.sql`, o serviço nominal de
+exclusão cadastral adquire a barreira de ingestão e usa
+`private_delete_content` na mesma transação, antes de cascatas. Manifesto externo
+legado continua cobrindo namespace órfão, Clerk/Evolution/Asaas/logos; tarefas
+privadas cobrem objetos referenciados e sobrevivem à igreja. Não há envio nem
+chamada de provedor dentro da transação. Consulte também o recibo/fila privados;
+`platform_audit_log` sozinho não atesta que essas tarefas terminaram.
+
+O endpoint admin `/igreja/private-content` é apenas reset do acervo privado:
+preserva cadastro oficial, opt-out e consentimento, e não substitui o gate desta
+CLI. A política cadastral do ledger descrita acima permanece distinta.
+Detalhes e recuperação de uploads/envios órfãos: [exclusão privada](EXCLUSAO-PRIVADA.md).
+Não concluir ownership por expiração de lease; não abrir gate para reconciliar.

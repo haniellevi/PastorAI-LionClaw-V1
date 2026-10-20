@@ -1,4 +1,4 @@
-"""Shared privacy boundary; only conversation scope is implemented in slice 1.
+"""Shared privacy boundary for conversation, person and tenant content erasure.
 
 Receipts contain IDs/counts only. Object paths exist solely in pending tasks and
 are erased on success. Backups/provider copies are outside this receipt's scope;
@@ -20,7 +20,18 @@ from app.db.models import Conversation
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 
 DeletionScope = Literal['conversa', 'pessoa', 'igreja', 'reset']
-LAYERS = ('mensagens', 'midias', 'transcricoes', 'resumos', 'checkpoints', 'vetores', 'logs_agente', 'envios')
+LAYERS = ('mensagens', 'midias', 'transcricoes', 'resumos', 'checkpoints', 'vetores',
+          'logs_agente', 'envios', 'entradas_audio', 'logs_sem_ancora',
+          'agent_identity_challenges', 'agent_identity_proofs', 'agent_action_proposals',
+          'agent_action_receipts', 'cell_report_drafts', 'cell_report_audio_notices',
+          'cell_report_audio_consent_events', 'pedido_oracao', 'pedido_oracao_proposta', 'pedido_oracao_mensagem')
+
+
+def acquire_ingestion_barrier(db: Session, igreja_id: UUID, *, exclusive: bool = False) -> None:
+    """Before any domain row lock: erase vs ingest serialize only within tenant."""
+    function = 'pg_advisory_xact_lock' if exclusive else 'pg_advisory_xact_lock_shared'
+    db.execute(text(f"select {function}(hashtextextended('private-content:'||:tenant,0))"),
+               dict(tenant=str(igreja_id)))
 
 
 def receipt(db: Session, igreja_id: UUID, receipt_id: UUID) -> dict:
@@ -28,29 +39,40 @@ def receipt(db: Session, igreja_id: UUID, receipt_id: UUID) -> dict:
                      dict(t=igreja_id, id=receipt_id)).mappings().one_or_none()
     if row is None:
         raise HTTPException(404, 'Recibo não encontrado')
+    receipt_ids = [receipt_id, *db.execute(text('''select dependency_id from private_deletion_dependencies
+        where igreja_id=:t and receipt_id=:id'''), dict(t=igreja_id, id=receipt_id)).scalars().all()]
+    counts = db.execute(text('''select counts from private_deletion_receipts
+        where igreja_id=:t and id=any(:ids)'''), dict(t=igreja_id, ids=receipt_ids)).scalars().all()
+    totals = {layer: sum(c.get(layer, 0) for c in counts) for layer in LAYERS}
     tasks = db.execute(text("""select count(*) filter(where state='pendente') pending,
         count(*) filter(where state='pendente' and error_code is not null) failed,
         count(*) filter(where state='concluida') done
-        from private_deletion_tasks where igreja_id=:t and receipt_id=:id"""),
-        dict(t=igreja_id, id=receipt_id)).mappings().one()
-    sends = db.execute(text('select count(*) from private_deletion_sends where igreja_id=:t and conversation_id=:c and expires_at>clock_timestamp()'),
-                       dict(t=igreja_id, c=row['target_id'])).scalar_one()
-    layers = {layer: dict(encontradas=row['counts'].get(layer, 0),
-                         apagadas=row['counts'].get(layer, 0), pendentes=0, falhas=0) for layer in LAYERS}
+        from private_deletion_tasks where igreja_id=:t and receipt_id=any(:ids)"""),
+        dict(t=igreja_id, ids=receipt_ids)).mappings().one()
+    sends = db.execute(text('''select count(*) from private_deletion_sends s where s.igreja_id=:t
+        and exists(select 1 from private_deletion_members m where m.igreja_id=s.igreja_id
+         and m.receipt_id=any(:ids) and m.conversation_id=s.conversation_id)'''),
+        dict(t=igreja_id, ids=receipt_ids)).scalar_one()
+    layers = {layer: dict(encontradas=totals[layer],
+                         apagadas=totals[layer], pendentes=0, falhas=0) for layer in LAYERS}
     layers['midias'].update(apagadas=tasks['done'], pendentes=tasks['pending'], falhas=tasks['failed'])
-    layers['envios'].update(apagadas=row['counts'].get('envios', 0) - sends, pendentes=sends)
+    layers['envios'].update(apagadas=totals['envios'] - sends, pendentes=sends)
     return dict(id=str(row['id']), igreja_id=str(igreja_id), escopo=row['scope'],
                 alvo_id=str(row['target_id']), geracao=row['generation'],
                 estado='pendente_envio' if sends else ('pendente' if tasks['pending'] else 'concluido'), camadas=layers)
 
 
-def delete_private(db: Session, *, scope: DeletionScope, igreja_id: UUID, target_id: UUID) -> dict:
-    if scope != 'conversa':
-        raise NotImplementedError('Escopo reservado para as próximas fatias')
-    rid = db.execute(text('select private_delete_conversation(:t,:c)'),
-                     dict(t=igreja_id, c=target_id)).scalar_one_or_none()
+def delete_private(db: Session, *, scope: DeletionScope, igreja_id: UUID, target_id: UUID,
+                   operation_id: UUID | None = None) -> dict:
+    if scope not in ('conversa', 'pessoa', 'igreja'):
+        raise ValueError('Reset global usa o runbook de tenant, nunca o endpoint web')
+    if scope != 'conversa' and operation_id is None:
+        raise ValueError('Escopo coletivo exige identificador idempotente da operação')
+    rid = db.execute(text('select private_delete_scope(:t,:scope,:target,:operation)'),
+                     dict(t=igreja_id, scope=scope, target=target_id,
+                          operation=operation_id or target_id)).scalar_one_or_none()
     if rid is None:
-        raise HTTPException(404, 'Conversa não encontrada')
+        raise HTTPException(404, 'Alvo não encontrado')
     result = receipt(db, igreja_id, rid)
     db.commit()
     return result
@@ -71,9 +93,9 @@ def reopen_late_audio_upload(db: Session, *, igreja_id: UUID, conversation_id: U
     The worker holds this receipt lock before the task lock, as does cleanup.
     Pending work and its path survive process/tenant loss; no audio is recreated.
     """
-    rid = db.execute(text("""select id from private_deletion_receipts where igreja_id=:t
-        and scope='conversa' and target_id=:c"""),
-        dict(t=igreja_id, c=conversation_id)).scalar_one_or_none()
+    rid = db.execute(text("""select receipt_id from private_deletion_tasks
+        where igreja_id=:t and source_id=:source limit 1"""),
+        dict(t=igreja_id, source=source_id)).scalar_one_or_none()
     if rid is None:
         return False
     db.execute(text('select pg_advisory_xact_lock(hashtextextended(:id, 0))'), dict(id=str(rid)))

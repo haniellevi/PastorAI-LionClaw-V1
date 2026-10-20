@@ -226,7 +226,11 @@ create table whatsapp_connections (
 
 
 @pytest.fixture
-def tenant_deletion_engine(rls_database_url: str) -> Engine:
+def tenant_deletion_engine(rls_database_url: str, monkeypatch) -> Engine:
+    # This legacy fixture proves the tenant/FK cleanup against a minimal schema.
+    # The private erasure hook is exercised with the complete active migration
+    # chain by test_private_deletion_pg::test_platform_erasure_uses_private_queue.
+    monkeypatch.setattr(tenant_deletion_service, '_erase_tenant_private_content', lambda *args: None)
     admin = create_engine(rls_database_url, future=True)
     with admin.begin() as connection:
         connection.exec_driver_sql(f"drop schema if exists {_SCHEMA} cascade")
