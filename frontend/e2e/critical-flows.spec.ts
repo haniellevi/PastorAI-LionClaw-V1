@@ -49,7 +49,11 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     const safety = await armBrowserSafety(page);
 
     const metrics = await loginThroughUi(page);
+    await expect(page.getByRole("region", { name: "Pendências da Central" }))
+      .toContainText("Nenhuma pendência da Central agora.");
     const requests = await harnessRequests(request);
+    expect(requests.filter(entry => entry.path === "/cell-central/dashboard"))
+      .toMatchObject([{ method: "GET", status: 200 }]);
     const auth = requests.find(
       (entry) => entry.method === "POST" && entry.path === "/auth/login",
     );
