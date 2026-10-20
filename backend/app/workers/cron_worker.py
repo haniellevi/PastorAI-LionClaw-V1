@@ -395,6 +395,14 @@ class CronWorker:
         dispatched = 0
         storage = SupabaseStorage()
         from app.services.private_deletion import process_storage_tasks
+        from app.services.private_summaries import process_tasks as process_private_summary_tasks
+
+        try:
+            process_private_summary_tasks(self._session_factory)
+        except Exception:
+            logger.warning("Private summary processing failed", extra={"event": "private_summary_processing_failed"})
+        self._record_progress()
+
 
         try:
             process_storage_tasks(self._session_factory, storage=storage, now=now)
