@@ -166,21 +166,24 @@ def test_sensitive_tools_absent(enviar_turn,body):
     unchanged(p)
 
 
-@pytest.mark.parametrize('answer',['NÃO','sim!', 'confirmo','SIM por favor'])
-def test_explicit_literal_confirmation(enviar_turn,answer):
+@pytest.mark.parametrize('answer',['NÃO','Sim!', 'sim.', 'confirmo','SIM por favor'])
+def test_explicit_literal_confirmation(enviar_turn,answer,monkeypatch):
     p=enviar_turn
-    send(p,COMMAND)
-    if answer in {'sim!','confirmo','SIM por favor'}:
-        # General fallback is simulated, never catalogue/router/authorization.
-        from app.services.llm import LLMClient, LLMResult, LLMUsage
-        from pytest import MonkeyPatch
-        with MonkeyPatch.context() as mp:
-            mp.setattr(LLMClient,'complete',lambda *a,**kw:LLMResult('Esclareça.',LLMUsage('synthetic',0,0,0)))
-            send(p,answer)
+    _,proposal,_=send(p,COMMAND)
+    from app.services.llm import LLMClient, LLMResult, LLMUsage
+    monkeypatch.setattr(LLMClient,'complete',lambda *a,**kw:LLMResult('Esclareça.',LLMUsage('synthetic',0,0,0)))
+    _,r,t=send(p,answer)
+    assert len(t.calls)==1 and count(p)==0
+    if answer=='NÃO':
+        assert r.texto=='Proposta cancelada.'
+    elif answer=='SIM por favor':
+        assert r.texto=='Esclareça.'
     else:
-        _,r,_=send(p,answer)
-        assert 'cancelada' in r.texto
-    assert count(p)==0
+        assert r.texto=='Para registrar a solicitação, responda somente SIM ou NÃO em até 10 minutos da proposta original.'
+        assert r.agent_privilege_context['proposal']==proposal.agent_privilege_context['proposal']
+        assert r.agent_privilege_context['delivered_at']==proposal.agent_privilege_context['delivered_at']
+        _,r,_=send(p,'SIM')
+        assert r.texto==RECEIPT and count(p)==1
 
 
 @pytest.mark.parametrize('fence',['release','church','human'])
@@ -244,6 +247,31 @@ def test_expired_or_undelivered_never_writes(enviar_turn,state):
     assert count(p)==0
 
 
+@pytest.mark.parametrize('answer', ['Sim!', 'confirmo'])
+@pytest.mark.parametrize('retry_seconds', [599, 600, 601])
+def test_clarification_retry_respects_original_deadline(enviar_turn, monkeypatch, answer, retry_seconds):
+    from app.enviar_whatsapp import turn
+    p = enviar_turn
+    _, proposal, _ = send(p, COMMAND)
+    delivered = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=598)
+    # The answer arrives just before expiry; transport fails before delivery.
+    with p.factory.begin() as s:
+        row = s.get(Message, proposal.id)
+        row.criado_em = delivered - dt.timedelta(seconds=1)
+        row.agent_privilege_context = dict(row.agent_privilege_context, delivered_at=delivered.isoformat())
+    outcome = inbound(p, answer)
+    monkeypatch.setattr(turn, 'now', lambda db: delivered + dt.timedelta(seconds=598))
+    with pytest.raises(worker.AgentReplyRetryable):
+        send(p, answer, outcome=outcome, transport=_ClassifiedEvolution('falhou_retentavel'))
+    monkeypatch.setattr(turn, 'now', lambda db: delivered + dt.timedelta(seconds=retry_seconds))
+    _, reply, transport = send(p, answer, outcome=outcome)
+    assert reply.agent_privilege_context['delivered_at'] == delivered.isoformat()
+    assert len(transport.calls) == (1 if retry_seconds < 600 else 0)
+    assert reply.agent_reply_state == ('ia' if retry_seconds < 600 else 'ia_suprimida')
+    assert count(p) == 0
+    unchanged(p)
+
+
 def test_retry_receipt_after_commit(enviar_turn):
     p=enviar_turn
     send(p,COMMAND)
@@ -276,3 +304,76 @@ def test_read_revocation_before_transport(enviar_turn):
     with scoped(p.factory.kw['bind'],p.v['t']) as s:
         assert not reply_still_authorized(s,s.get(Message,reply.id),conversation=s.get(Conversation,p.conv),
             recipient_phone='5500000000000',instance='enviar-test')
+
+
+def test_unrelated_enviar_reaches_normal_agent_without_role(enviar_turn,monkeypatch):
+    p=enviar_turn
+    with p.factory.begin() as s:
+        s.execute(text('delete from user_roles where user_id=:u'),dict(u=p.v['leader']))
+    from app.services.llm import LLMClient, LLMResult, LLMUsage
+    monkeypatch.setattr(LLMClient,'complete',lambda *a,**kw:LLMResult('Resposta normal à foto.',LLMUsage('synthetic',0,0,0)))
+    _,r,t=send(p,'Enviar foto da célula')
+    assert r.texto=='Resposta normal à foto.' and len(t.calls)==1 and count(p)==0
+
+
+@pytest.mark.parametrize('body',['ENVIAR pessoa Aluno sintético',COMMAND,OPEN])
+def test_leader_cannot_target_other_leaders_person_or_cell(enviar_turn,body):
+    p=enviar_turn
+    with p.factory.begin() as s:
+        s.execute(text("update user_roles set papel='lider_celula' where user_id=:u"),dict(u=p.v['leader']))
+        other_person=s.execute(text('select pessoa_id from app_users where id=:u'),dict(u=p.v['uid'])).scalar_one()
+        s.execute(text('update celulas set lider_id=:p where id=:c'),dict(p=other_person,c=p.cell))
+        s.execute(text('insert into celula_membro(igreja_id,celula_id,pessoa_id) values(:t,:c,:p)'),dict(t=p.v['t'],c=p.cell,p=p.v['p']))
+    _,r,t=send(p,body)
+    assert 'não encontrado' in r.texto and len(t.calls)==1 and count(p)==0
+    _,r,_=send(p,'ENVIAR')
+    assert 'Aluno sintético' not in r.texto
+
+
+def test_leader_cannot_nominate_other_leaders_cell(enviar_turn):
+    p=enviar_turn
+    with p.factory.begin() as s:
+        s.execute(text("update user_roles set papel='lider_celula' where user_id=:u"),dict(u=p.v['leader']))
+        own=uuid4()
+        s.execute(text("insert into celulas(id,igreja_id,nome,cobertura_espiritual,lider_id,ativo) values(:c,:t,'Própria','Teste',:p,true)"),dict(c=own,t=p.v['t'],p=p.person))
+        s.execute(text('insert into celula_membro(igreja_id,celula_id,pessoa_id) values(:t,:c,:p)'),dict(t=p.v['t'],c=own,p=p.v['p']))
+        s.execute(text('update celulas set lider_id=(select pessoa_id from app_users where id=:u) where id=:c'),dict(u=p.v['uid'],c=p.cell))
+    _,r,t=send(p,COMMAND)
+    assert 'não encontrado' in r.texto and len(t.calls)==1 and count(p)==0
+
+
+def test_history_excludes_other_author_even_for_visible_cell(enviar_turn):
+    p=enviar_turn
+    send(p,COMMAND)
+    send(p,'SIM')
+    with p.factory.begin() as s:
+        own=s.execute(text('select id from celula_solicitacao')).scalar_one()
+        foreign=uuid4()
+        s.execute(text("insert into celula_solicitacao(id,igreja_id,tipo,celula_id,solicitante_id,payload_proposto,payload_atual,candidato_id,status) select :id,igreja_id,tipo,celula_id,(select pessoa_id from app_users where id=:u),payload_proposto,payload_atual,candidato_id,'rejeitada' from celula_solicitacao where id=:own"),dict(id=foreign,u=p.v['uid'],own=own))
+        s.execute(text("update user_roles set papel='lider_celula' where user_id=:u"),dict(u=p.v['leader']))
+        s.execute(text('update celulas set lider_id=:p where id=:c'),dict(p=p.person,c=p.cell))
+    _,r,t=send(p,'ENVIAR solicitações')
+    assert str(own) in r.texto and str(foreign) not in r.texto and len(t.calls)==1
+
+
+@pytest.mark.parametrize('command',['ENVIAR','ENVIAR solicitações'])
+@pytest.mark.parametrize('size',[25,26])
+def test_pagination_notice(enviar_turn,command,size):
+    p=enviar_turn
+    if command=='ENVIAR solicitações':
+        send(p,COMMAND)
+        send(p,'SIM')
+    with p.factory.begin() as s:
+        if command=='ENVIAR':
+            s.execute(text('delete from decisions'))
+            s.execute(text('update pessoas set arquivada_em=now()'))
+            for n in range(size-1):
+                s.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:id,:t,:name,:phone)"),dict(id=uuid4(),t=p.v['t'],name=f'Pessoa teste {n:02}',phone=f'550000001{n:03}'))
+            # Keep the known sender active for server contact resolution.
+            s.execute(text('update pessoas set arquivada_em=null where id=:p'),dict(p=p.person))
+        else:
+            for _ in range(size-1):
+                s.execute(text("insert into celula_solicitacao(id,igreja_id,tipo,celula_id,solicitante_id,payload_proposto,payload_atual,candidato_id,status) select :id,igreja_id,tipo,celula_id,solicitante_id,payload_proposto,payload_atual,candidato_id,'rejeitada' from celula_solicitacao limit 1"),dict(id=uuid4()))
+    _,r,t=send(p,command)
+    assert len(t.calls)==1
+    assert ('Há mais resultados, use o painel.' in r.texto)==(size>25)
