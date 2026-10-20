@@ -1,8 +1,9 @@
 # Resumo privado por conversa — fatia 3
 
-Candidata, desligada. Não usa resumo no prompt, não retoma contexto, não cria
-ficha por pessoa, não envia WhatsApp nem implementa pedido de exclusão (fatias
-4 e 5). Deploy, migration remota, credencial e ativação: **não verificados**.
+Geração candidata, desligada. Não cria ficha por pessoa nem implementa pedido
+de exclusão. A [retomada privada da fatia 4](RETOMADA-PRIVADA.md) acrescenta um
+consumidor separado, também desligado por padrão. Deploy, migration remota,
+credencial e ativação: **não verificados**.
 
 ## Conteúdo e acesso
 
@@ -59,7 +60,8 @@ para entrada limitada a códigos (menos de 2.048 bytes) e saída de até 512 tok
 sem retries, nos três modelos fixos da allowlist existente. É um teto interno de
 reserva, não conciliação de fatura. Preços/modelos devem ser reconferidos antes de
 qualquer ativação; mudança de preço exige ajustar a reserva/allowlist primeiro.
-Não há custo de reutilização: nenhum consumidor de prompt existe nesta fatia.
+A reutilização não chama o gerador: o consumidor separado da fatia 4 usa o
+turno normal, sujeito ao custo e gates desse turno.
 
 Todos precisam permitir geração: `APPROVED_RELEASE_ID` (**None**),
 `APPROVED_IGREJA_IDS` (**vazia**), `private_summary_settings.enabled` (**false**) e
