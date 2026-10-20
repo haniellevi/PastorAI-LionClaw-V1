@@ -252,7 +252,14 @@ def reply_still_authorized(db, message, *, conversation, recipient_phone, instan
         if raw['stage'] == 'receipt':
             service.request_visible(db, user, raw['request_id'])
         if raw['stage'] == 'proposal':
-            if message.criado_em <= now(db) - dt.timedelta(minutes=10):
+            # Clarifications carry the original delivery time. A transport
+            # retry must not invite confirmation after that proposal expires.
+            deadline_start = message.criado_em
+            if raw.get('delivered_at'):
+                deadline_start = dt.datetime.fromisoformat(raw['delivered_at'])
+                if not deadline_start.tzinfo:
+                    return False
+            if deadline_start <= now(db) - dt.timedelta(minutes=10):
                 return False
             savepoint = db.begin_nested()
             try:

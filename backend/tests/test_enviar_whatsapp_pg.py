@@ -247,6 +247,31 @@ def test_expired_or_undelivered_never_writes(enviar_turn,state):
     assert count(p)==0
 
 
+@pytest.mark.parametrize('answer', ['Sim!', 'confirmo'])
+@pytest.mark.parametrize('retry_seconds', [599, 600, 601])
+def test_clarification_retry_respects_original_deadline(enviar_turn, monkeypatch, answer, retry_seconds):
+    from app.enviar_whatsapp import turn
+    p = enviar_turn
+    _, proposal, _ = send(p, COMMAND)
+    delivered = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=598)
+    # The answer arrives just before expiry; transport fails before delivery.
+    with p.factory.begin() as s:
+        row = s.get(Message, proposal.id)
+        row.criado_em = delivered - dt.timedelta(seconds=1)
+        row.agent_privilege_context = dict(row.agent_privilege_context, delivered_at=delivered.isoformat())
+    outcome = inbound(p, answer)
+    monkeypatch.setattr(turn, 'now', lambda db: delivered + dt.timedelta(seconds=598))
+    with pytest.raises(worker.AgentReplyRetryable):
+        send(p, answer, outcome=outcome, transport=_ClassifiedEvolution('falhou_retentavel'))
+    monkeypatch.setattr(turn, 'now', lambda db: delivered + dt.timedelta(seconds=retry_seconds))
+    _, reply, transport = send(p, answer, outcome=outcome)
+    assert reply.agent_privilege_context['delivered_at'] == delivered.isoformat()
+    assert len(transport.calls) == (1 if retry_seconds < 600 else 0)
+    assert reply.agent_reply_state == ('ia' if retry_seconds < 600 else 'ia_suprimida')
+    assert count(p) == 0
+    unchanged(p)
+
+
 def test_retry_receipt_after_commit(enviar_turn):
     p=enviar_turn
     send(p,COMMAND)
