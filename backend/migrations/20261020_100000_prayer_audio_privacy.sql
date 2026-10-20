@@ -26,6 +26,17 @@ create policy prayer_request_read on public.pedido_oracao for select to authenti
    and (public.prayer_is_reader(igreja_id,null,'pastoral',null,null)
     or not public.prayer_proposal_has_audio(igreja_id,proposal_id)))));
 
+drop policy if exists prayer_request_update on public.pedido_oracao;
+create policy prayer_request_update on public.pedido_oracao for update to authenticated
+ using(igreja_id=public.current_igreja_id()
+  and public.prayer_is_reader(igreja_id,pessoa_id,audience,cell_id,leader_id)
+  and (public.prayer_is_reader(igreja_id,null,'pastoral',null,null)
+   or not public.prayer_proposal_has_audio(igreja_id,proposal_id)))
+ with check(igreja_id=public.current_igreja_id()
+  and public.prayer_is_reader(igreja_id,pessoa_id,audience,cell_id,leader_id)
+  and (public.prayer_is_reader(igreja_id,null,'pastoral',null,null)
+   or not public.prayer_proposal_has_audio(igreja_id,proposal_id)));
+
 create or replace function public.prayer_message_readable(tenant uuid, message uuid) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select tenant=public.current_igreja_id() and (
@@ -47,9 +58,10 @@ revoke all on function public.prayer_message_readable(uuid,uuid) from public,ano
 grant execute on function public.prayer_message_readable(uuid,uuid) to authenticated;
 commit;
 
--- Rollback: restore prayer_request_read from 20261016_180000_prayer_requests.sql,
+-- Rollback: restore prayer_request_read and prayer_request_update from
+-- 20261016_180000_prayer_requests.sql,
 -- then restore prayer_message_readable(uuid,uuid) from
 -- 20261018_120000_prayer_message_privacy.sql only after pastoral approval.
--- This restores legacy leader reads; never remove associations or audio files.
+-- This restores legacy leader reads/updates; never remove associations or audio files.
 
--- After restoring both callers, drop prayer_proposal_has_audio(uuid,uuid).
+-- After restoring all callers, drop prayer_proposal_has_audio(uuid,uuid).

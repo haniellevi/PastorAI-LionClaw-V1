@@ -295,6 +295,28 @@ def test_audio_reader_tenant_boundary_and_function_privileges(private_prayer, fu
         assert db.get(Message, outcome.inbound_message_id) is None
 
 
+@pytest.mark.parametrize('role', ['lider_celula', 'pastor'])
+@pytest.mark.parametrize('has_audio', ['source', 'associated', None])
+def test_legacy_request_direct_update_respects_audio_privacy(private_prayer, role, has_audio):
+    from tests.test_prayer_requests_pg import create_request
+    from tests.test_prayer_privacy_pg import scope
+    p = private_prayer
+    row = create_request(p, 'Pastores e meu líder')
+    if has_audio:
+        with p.factory.begin() as db:
+            mid = (db.get(PrayerProposal, row.proposal_id).source_message_id
+                   if has_audio == 'source' else row.confirmation_message_id)
+            db.get(Message, mid).tipo = 'audio'
+    allowed = role == 'pastor' or not has_audio
+    with p.factory.begin() as db:
+        scope(db, p, role)
+        # No WHERE/RETURNING: SELECT policy must not mask an unsafe UPDATE policy.
+        result = db.execute(text("update pedido_oracao set state='closed'"))
+        assert result.rowcount == int(allowed)
+    with p.factory() as db:
+        assert db.get(PrayerRequest, row.id).state == ('closed' if allowed else 'open')
+
+
 @pytest.mark.parametrize('has_audio', ['source', 'associated', None])
 def test_legacy_request_visibility_sql_backend_and_api(private_prayer, has_audio):
     from fastapi import FastAPI, HTTPException

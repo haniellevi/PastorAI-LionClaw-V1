@@ -84,6 +84,12 @@ não reexpor histórico como procedimento de recuperação.
 
 ## Áudio de oração retido (candidato desligado)
 
+Aplicar `20261020_100000_prayer_audio_privacy.sql` **antes do deploy do backend**,
+via `backend/scripts/migrate.py`, na release autorizada. Sem essa migration,
+a listagem e o detalhe de pedidos para o líder retornam HTTP 500: o backend
+depende de `prayer_proposal_has_audio` e falha fechada, sem liberar a leitura.
+Conferir a aplicação antes de publicar; gates fechados não removem essa dependência.
+
 Áudio recebido durante coleta protegida fica no `media_path` da mensagem,
 exclusivo dos pastores, sem transcrição e sem captura pelo V1b de relatório.
 O prazo da proposta limita seu processamento e confirmação, não a retenção:
