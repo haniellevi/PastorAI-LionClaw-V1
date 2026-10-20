@@ -239,6 +239,19 @@ const server = createServer(async (request, response) => {
     if (method === "GET" && (/^\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary)$/.test(pathname) || /^\/conversations\/[^/]+\/messages\/media-urls$/.test(pathname))) {
       record.status = 404; sendJson(response, 404, {detail:"Contrato adicional ausente nesta API sintética."}); return;
     }
+    // Hoje composes these counters for the synthetic admin/pastor session.
+    if (method === "GET" && pathname === "/cell-central/dashboard") {
+      record.status = 200;
+      sendJson(response, 200, {
+        relatorios_pendentes: 0,
+        solicitacoes_aguardando: 0,
+        celulas_com_alerta: 0,
+        multiplicacoes_pendentes: 0,
+        avisos_recentes: 0,
+        materiais_recentes: 0,
+      });
+      return;
+    }
     if (method === "GET" && pathname === "/auth/me") {
       record.status = 200;
       sendJson(response, 200, profile);
