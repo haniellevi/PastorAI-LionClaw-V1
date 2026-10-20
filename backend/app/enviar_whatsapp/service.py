@@ -52,7 +52,8 @@ def request_visible(db, user, request_id):
 def read(db, user, command, args):
     if command == 'history':
         result = enviar_panorama.listar_historico(db, user, page_size=25)
-        return 'Solicitações Enviar:\n' + ('\n'.join(f"{r['id']}: {r['tipo']} — {r['status']}" for r in result['items']) or 'Nenhuma.')
+        notice = '\nHá mais resultados, use o painel.' if result['total'] > 25 else ''
+        return 'Solicitações Enviar:\n' + ('\n'.join(f"{r['id']}: {r['tipo']} — {r['status']}" for r in result['items']) or 'Nenhuma.') + notice
     target = person(db, user, args) if command == 'read' else None
     result = enviar_panorama.listar_pessoas(db, user, q=target['nome'] if target else '', page_size=25)
     items = [r for r in result['items'] if not target or r['id'] == target['id']]
@@ -63,6 +64,8 @@ def read(db, user, command, args):
     for r in items:
         pending = '; '.join(p['descricao'] for p in r['pendencias']) or 'evidências comprovadas'
         lines.append(f"{label(r['nome'])}: aptidão {'confirmada' if r['apto_lider'] else 'pendente'}; {pending}.")
+    if result['total'] > 25:
+        lines.append('Há mais resultados, use o painel.')
     lines.append('Avaliação humana e aprovação de operações exigem o painel autenticado.')
     return '\n'.join(lines)
 

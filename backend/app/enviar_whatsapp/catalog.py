@@ -41,7 +41,7 @@ def route(text, *, pending=False):
     if match:
         # Preserve the spelling of user-proposed names, never treat them as identity.
         return 'open', tuple(p.strip() for p in ' '.join(text.split())[len('enviar abrir '):].split(';'))
-    if value.startswith('enviar '):
+    if re.match(r'^enviar (?:pessoa|solicitacoes|nomear|abrir|aprovar|avaliar|validar|revogar)(?: |$)', value):
         return 'help', None
     return ('clarify' if pending and value in {'sim', 'confirmo'} else 'none'), None
 
