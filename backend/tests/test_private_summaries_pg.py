@@ -671,3 +671,69 @@ def test_generic_information_does_not_infer_enrollment(database, ready, body, to
         )
     generate(database, ready, lambda **kw: {"topic": topic})
     assert "matrícula" not in get_summary(database, ready)["summary"].lower()
+
+
+def test_common_user_cannot_probe_origin(database, ready):
+    with database.begin() as c:
+        c.execute(text("update user_roles set papel='membro' where user_id=:admin"), ready)
+    with scoped(database, ready['tenant'], admin=True) as s:
+        assert s.scalar(text('select private_summary_origin_valid(:tenant,:conv,:person)'), ready) is False
+
+
+@pytest.mark.parametrize('kind', ['proposal', 'audio', 'live_audio', 'message_audio'])
+def test_sensitive_input_erases_permanently(database, ready, kind):
+    generate(database, ready)
+    with database.begin() as c:
+        if kind == 'message_audio':
+            c.execute(text("update messages set tipo='audio',media_path='synthetic.ogg' where id=:message"), ready)
+        elif kind == 'proposal':
+            c.execute(text("""insert into pedido_oracao_proposta
+            (id,igreja_id,pessoa_id,conversation_id,source_message_id,summary,term_version,expires_at)
+            values(gen_random_uuid(),:tenant,:person,:conv,:message,'Synthetic','test',now()+interval '1 hour')"""), ready)
+        else:
+            c.execute(text("""insert into cell_report_audio_inputs
+            (id,igreja_id,conversation_id,pessoa_id,inbound_message_id,live_conversation_id,live_pessoa_id,
+            provider_message_sha256,storage_path,state,transcription_attempts,purge_state,purge_attempts,received_at,expires_at,updated_at)
+            values(:audio,:tenant,:anchor,:person,:message,:live,:person,repeat('a',64),
+            'synthetic.ogg','processando',0,'ativa',0,now(),now()+interval '1 day',now())"""),
+            dict(ready, anchor=ready['conv'] if kind == 'audio' else ready['conv2'], live=ready['conv'] if kind == 'live_audio' else None))
+        for table in ('private_conversation_summaries','private_summary_sources','private_summary_tasks'):
+            assert c.scalar(text(f'select count(*) from {table}')) == 0
+        if kind == 'message_audio':
+            c.execute(text("update messages set tipo='texto',media_path=null where id=:message"), ready)
+        else:
+            c.execute(text('delete from pedido_oracao_proposta' if kind == 'proposal' else 'delete from cell_report_audio_inputs'))
+    with pytest.raises(HTTPException):
+        get_summary(database, ready)
+
+
+@pytest.mark.parametrize('entry', ['worker', 'web'])
+@pytest.mark.parametrize('reason', ['budget', 'credential'])
+def test_explicit_request_requeues_refused(database, ready, entry, reason):
+    from app.services import private_summaries as mem
+    with database.begin() as c:
+        c.execute(text('update private_summary_settings set monthly_limit_microusd=1' if reason == 'budget' else 'update llm_credentials set validado=false'))
+    assert generate(database, ready) == []
+    with database.connect() as c:
+        job = c.scalar(text('select id from private_summary_tasks'))
+        assert c.scalar(text('select state from private_summary_tasks')) == 'refused'
+    assert generate(database, ready) == []
+    with database.connect() as c:
+        assert c.scalar(text('select id from private_summary_tasks')) == job
+        assert c.scalar(text('select count(*) from private_summary_tasks')) == 1
+        assert c.scalar(text('select state from private_summary_tasks')) == 'refused'
+    with database.begin() as c:
+        c.execute(text('update private_summary_settings set monthly_limit_microusd=1000000'))
+        c.execute(text('update llm_credentials set validado=true'))
+    with scoped(database, ready['tenant'], admin=entry == 'web') as s:
+        new_job = s.scalar(text('select private_summary_enqueue(:conv)'), ready) if entry == 'web' else mem.enqueue(s, ready['tenant'], ready['conv'])
+        assert new_job == job
+        s.commit()
+    with database.connect() as c:
+        assert c.scalar(text('select count(*) from private_summary_tasks')) == 1
+        assert c.scalar(text('select state from private_summary_tasks')) == 'queued'
+        assert c.scalar(text('select error_code from private_summary_tasks')) is None
+    calls = []
+    mem.process_tasks(lambda: Session(database), provider=lambda **kw: calls.append(kw) or {'topic': 'uv'})
+    assert len(calls) == 1
+    assert get_summary(database, ready)['state'] == 'available'

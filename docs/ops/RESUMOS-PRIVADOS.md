@@ -26,7 +26,7 @@ caracteres. Saída inválida, duplicada, cortada pelo provedor ou fora das opç�
 recusada; não há truncamento, fallback ou retry externo automático.
 
 A API exige sessão web, tela inbox e admin/pastor atualmente autorizado à origem.
-O banco revalida subject, usuário ativo, papel, matriz inbox, pessoa ativa,
+A função de elegibilidade também exige leitor autorizado ou worker, impedindo sondagem por usuário comum. O banco revalida subject, usuário ativo, papel, matriz inbox, pessoa ativa,
 telefone canônico não ambíguo, origem e revisão. Apagar não concede leitura.
 Não há endpoint por pessoa nem busca/agregação. Respostas usam `private, no-store`.
 
@@ -49,7 +49,7 @@ expiração de 30 dias ou retenção de versões antigas.
 `private_summary_tasks` persiste IDs, revisão, geração, solicitante e estado;
 nenhum prompt ou conteúdo. O cron consome tarefas, com descoberta nominal e
 processamento tenant-scoped no papel `authenticated` NOBYPASSRLS. Duplicatas não
-repetem a chamada. Reserva mensal atômica por igreja antes de cruzar o provedor;
+repetem a chamada. Novo pedido explícito recoloca a mesma tarefa `refused/budget_or_credential` em `queued`, sem duplicar; o worker revalida gates, credencial e orçamento antes de qualquer chamada. Outras recusas, inclusive resultado ambíguo do provedor, não são reenviadas. Reserva mensal atômica por igreja antes de cruzar o provedor;
 falha, timeout ou crash conservam a reserva. Tarefa `running` abandonada por mais
 de dois minutos vira `refused/provider_outcome_unknown`; não se presume sucesso,
 não há nova chamada automática nem devolução de orçamento.
@@ -85,7 +85,7 @@ pessoa e igreja. Recibo declara texto já enviado ao provedor fora do alcance,
 além de backups/cópias externas. A retenção externa permanece não verificada.
 
 Triggers invalidam resumos/tarefas por edição/remoção da fonte; proteção de oração
-apaga derivados. Troca de pessoa/telefone/responsável, arquivamento, opt-out e
+ou criação de proposta apaga derivados; entrada de áudio (origem e âncora viva) e mensagem de mídia também apagam resumo, correção, fontes e tarefas. Remover a origem sensível não restaura o derivado. Troca de pessoa/telefone/responsável, arquivamento, opt-out e
 mudança de célula/líder/vínculo canônico removem derivados, sem transferi-los.
 O vínculo pessoa/conversa é sempre revalidado; identidade errada nunca é reparada
 pelo modelo. Fonte movida para outra conversa é recusada pela FK composta.

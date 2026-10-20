@@ -76,11 +76,14 @@ def enqueue(db, tenant: UUID, conversation: UUID):
     snapshot = _snapshot(db, tenant, conversation)
     if snapshot is None:
         return None
+    # Only explicit requests retry failures that never crossed the provider.
     return db.execute(
         text("""insert into private_summary_tasks
         (igreja_id,conversation_id,pessoa_id,source_revision,deletion_generation)
         values(:t,:c,:p,:r,:g) on conflict(igreja_id,conversation_id,source_revision)
-        do update set conversation_id=excluded.conversation_id returning id"""),
+        do update set state=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then 'queued' else private_summary_tasks.state end,
+        started_at=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then null else private_summary_tasks.started_at end,
+        error_code=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then null else private_summary_tasks.error_code end returning id"""),
         dict(
             t=tenant,
             c=conversation,

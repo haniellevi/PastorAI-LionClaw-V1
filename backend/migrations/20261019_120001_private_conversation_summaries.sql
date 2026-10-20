@@ -65,9 +65,20 @@ language sql stable set search_path=pg_catalog,public as $$
  select session_user not in ('authenticator','authenticated','anon') and public.prayer_jwt_sub() is null
 $$;
 -- SQL revalidation also protects direct SELECT, not only HTTP/service callers.
-create function public.private_summary_origin_valid(t uuid,c uuid,p uuid) returns boolean
+create function public.private_summary_reader(t uuid,c uuid) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select t=public.current_igreja_id() and exists(
+ select 1 from public.app_users a join public.user_roles r on r.igreja_id=a.igreja_id and r.user_id=a.id
+ join public.conversations cv on cv.igreja_id=a.igreja_id and cv.id=c
+ where a.igreja_id=t and a.status='ativo' and a.clerk_user_id=public.prayer_jwt_sub() and r.papel in ('admin','pastor')
+ and (a.pessoa_id is null or exists(select 1 from public.pessoas p where p.igreja_id=t and p.id=a.pessoa_id and p.arquivada_em is null))
+ and (r.papel='admin' or not exists(select 1 from public.role_permissions rp where rp.igreja_id=t and rp.papel::text=r.papel::text)
+ or exists(select 1 from public.role_permissions rp where rp.igreja_id=t and rp.papel::text=r.papel::text and rp.tela='inbox'))
+ )
+$$;
+create function public.private_summary_origin_valid(t uuid,c uuid,p uuid) returns boolean
+language sql stable security definer set search_path=pg_catalog,public as $$
+ select t=public.current_igreja_id() and (public.private_summary_worker() or public.private_summary_reader(t,c)) and exists(
  select 1 from public.conversations cv join public.pessoas person on person.igreja_id=cv.igreja_id and person.id=cv.pessoa_id
  where cv.igreja_id=t and cv.id=c and cv.pessoa_id=p and person.arquivada_em is null and not person.optout
  and public.private_deletion_phone_key(cv.telefone)<>''
@@ -81,17 +92,6 @@ language sql stable security definer set search_path=pg_catalog,public as $$
  and not exists(select 1 from public.pedido_oracao_mensagem pm where pm.igreja_id=t and pm.conversation_id=c)
  and not exists(select 1 from public.pedido_oracao_proposta pr where pr.igreja_id=t and pr.conversation_id=c)
  and not exists(select 1 from public.cell_report_audio_inputs ai where ai.igreja_id=t and (ai.conversation_id=c or ai.live_conversation_id=c))
- )
-$$;
-create function public.private_summary_reader(t uuid,c uuid) returns boolean
-language sql stable security definer set search_path=pg_catalog,public as $$
- select t=public.current_igreja_id() and exists(
- select 1 from public.app_users a join public.user_roles r on r.igreja_id=a.igreja_id and r.user_id=a.id
- join public.conversations cv on cv.igreja_id=a.igreja_id and cv.id=c
- where a.igreja_id=t and a.status='ativo' and a.clerk_user_id=public.prayer_jwt_sub() and r.papel in ('admin','pastor')
- and (a.pessoa_id is null or exists(select 1 from public.pessoas p where p.igreja_id=t and p.id=a.pessoa_id and p.arquivada_em is null))
- and (r.papel='admin' or not exists(select 1 from public.role_permissions rp where rp.igreja_id=t and rp.papel::text=r.papel::text)
- or exists(select 1 from public.role_permissions rp where rp.igreja_id=t and rp.papel::text=r.papel::text and rp.tela='inbox'))
  )
 $$;
 -- No HTTP role can enable generation or edit budget/tasks/sources. Worker
@@ -142,7 +142,11 @@ begin
  where igreja_id=t and enabled and monthly_limit_microusd>0) then return null; end if;
  insert into public.private_summary_tasks(igreja_id,conversation_id,pessoa_id,source_revision,deletion_generation,requester_id)
  values(t,c,person,revision,generation,(select id from public.app_users where igreja_id=t and clerk_user_id=public.prayer_jwt_sub())) on conflict(igreja_id,conversation_id,source_revision)
- do update set conversation_id=excluded.conversation_id returning id into job;
+ do update set state=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then 'queued' else private_summary_tasks.state end,
+ started_at=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then null else private_summary_tasks.started_at end,
+ error_code=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then null else private_summary_tasks.error_code end,
+ requester_id=case when private_summary_tasks.state='refused' and private_summary_tasks.error_code='budget_or_credential' then excluded.requester_id else private_summary_tasks.requester_id end
+ returning id into job;
  return job;
 end $$;
 revoke all on function public.private_summary_enqueue(uuid) from public,anon,authenticated,service_role;
@@ -155,7 +159,10 @@ declare t uuid; c uuid; destructive boolean:=false;
 begin
  if tg_op='DELETE' then t:=old.igreja_id; c:=old.conversation_id; destructive:=true;
  else t:=new.igreja_id; c:=new.conversation_id; end if;
- if tg_table_name='pedido_oracao_mensagem' then destructive:=true; end if;
+ if tg_table_name in ('pedido_oracao_mensagem','pedido_oracao_proposta','cell_report_audio_inputs') then destructive:=true; end if;
+ if tg_table_name='messages' and tg_op<>'DELETE' then
+  destructive:=destructive or coalesce(new.tipo,'texto')<>'texto' or new.media_path is not null;
+ end if;
  update public.conversations set private_summary_revision=private_summary_revision+1 where igreja_id=t and id=c;
  if destructive then delete from public.private_conversation_summaries where igreja_id=t and conversation_id=c;
  else
@@ -163,10 +170,19 @@ begin
  where igreja_id=t and conversation_id=c;
  end if;
  delete from public.private_summary_tasks where igreja_id=t and conversation_id=c;
+ if tg_table_name='cell_report_audio_inputs' then
+  -- Retained origin and live anchor can both carry private derivatives.
+  update public.conversations set private_summary_revision=private_summary_revision+1
+   where igreja_id=t and id=new.live_conversation_id and id<>c;
+  delete from public.private_conversation_summaries where igreja_id=t and conversation_id=new.live_conversation_id;
+  delete from public.private_summary_tasks where igreja_id=t and conversation_id=new.live_conversation_id;
+ end if;
  if tg_op='DELETE' then return old; end if; return new;
 end $$;
 create trigger private_summary_message_changed after insert or update of texto,tipo,media_path,agent_privilege_context,conversation_id,direcao,autor or delete on public.messages for each row execute function public.private_summary_source_changed();
 create trigger private_summary_prayer_protected after insert or update on public.pedido_oracao_mensagem for each row execute function public.private_summary_source_changed();
+create trigger private_summary_prayer_proposal after insert or update on public.pedido_oracao_proposta for each row execute function public.private_summary_source_changed();
+create trigger private_summary_audio_input after insert or update on public.cell_report_audio_inputs for each row execute function public.private_summary_source_changed();
 -- Identity and responsibility changes cannot transfer retained memories.
 create function public.private_summary_identity_changed() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
@@ -359,6 +375,8 @@ commit;
 -- Restore private_delete_content from 20261019_090001 before dropping tables.
 -- DROP TRIGGER private_summary_message_changed ON public.messages;
 -- DROP TRIGGER private_summary_prayer_protected ON public.pedido_oracao_mensagem;
+-- DROP TRIGGER private_summary_prayer_proposal ON public.pedido_oracao_proposta;
+-- DROP TRIGGER private_summary_audio_input ON public.cell_report_audio_inputs;
 -- DROP TRIGGER private_summary_identity ON public.conversations;
 -- DROP TRIGGER private_summary_membership ON public.celula_membro;
 -- DROP FUNCTION public.private_summary_membership_changed();
