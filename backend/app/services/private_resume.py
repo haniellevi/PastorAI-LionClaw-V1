@@ -45,11 +45,15 @@ def load(db, context):
     if not _live_context(db, context):
         return None
     acquire_ingestion_barrier(db, context.igreja_id)
-    params = dict(t=context.igreja_id, c=context.conversation_id, p=context.pessoa_id, inbound=context.inbound_message_id)
+    params = dict(t=context.igreja_id, c=context.conversation_id, p=context.pessoa_id, inbound=context.inbound_message_id, generated_texts=list(TOPIC_TEXT.values()))
     db.execute(text('select id from conversations where igreja_id=:t and id=:c for update'), params)
+    # Generated text stays closed; human corrections use the writer's validator.
     row = db.execute(text("""select s.version,s.source_revision,s.deletion_generation,
         coalesce(s.human_correction,s.summary) content """ + _BASE + """
         and s.state in ('available','corrected') and s.source_revision=c.private_summary_revision
+        and ((s.human_correction is null and s.summary = any(:generated_texts))
+          or (s.state='corrected' and s.human_correction is not null
+            and private_summary_topic(s.human_correction) is not null))
         and exists(select 1 from messages m where m.igreja_id=:t and m.conversation_id=:c and m.id=:inbound
           and m.direcao='in' and m.autor='contato' and m.texto='retomar conversa'
           and coalesce(m.tipo,'texto')='texto' and m.media_path is null and m.agent_privilege_context is null)
@@ -58,7 +62,7 @@ def load(db, context):
             where src.igreja_id=:t and src.conversation_id=:c and src.message_id=m.id)
           and not (m.direcao='out' and m.autor='ia' and m.texto is null and m.agent_reply_state='ia_reservada'))
         """), params).mappings().one_or_none()
-    if row is None or row['content'] not in TOPIC_TEXT.values():
+    if row is None:
         return None
     return dict(row)
 
