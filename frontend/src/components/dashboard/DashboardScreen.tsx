@@ -81,6 +81,7 @@ import { usePermissions } from "@/lib/permissions-context";
 import { normalizeRoles, ROLE_DEFS, sortedRoles } from "@/lib/roles";
 import { useHashRoute } from "@/lib/use-hash-route";
 
+import { CentralPendingContext } from "./CentralPendingContext";
 import { NextActions } from "./NextActions";
 import { TodayContext } from "./TodayContext";
 import { WorkQueueItem } from "./WorkQueueItem";
@@ -242,6 +243,7 @@ export function DashboardScreen() {
     showOverview,
     showTeamWorkload,
   } = responsibilities;
+  const canSeeCentral = user ? canSee("central-celula", user.roles, matrix) : false;
   const canSeeCalendar = user ? canSee("calendario", user.roles, matrix) : false;
   const canSeeMyCell = user ? canSee("minha-celula", user.roles, matrix) : false;
   const cellContextMode: CellContextMode = normalizedRoles.includes("lider_celula")
@@ -1245,6 +1247,14 @@ export function DashboardScreen() {
 
         {hasWorkQueue ? (
           <div className="dh-support" aria-label="Contexto das suas responsabilidades">
+          {canSeeCentral && token ? (
+            <CentralPendingContext
+              key={`${token}:${rolesKey}`}
+              token={token}
+              onNavigate={navigate}
+              onSessionError={handleSessionError}
+            />
+          ) : null}
           {showSkeleton ? (
             <div className="dh-panel" aria-hidden="true">
               <div className="sk-line sk-md" />
