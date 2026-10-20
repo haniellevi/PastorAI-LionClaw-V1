@@ -106,7 +106,7 @@ def buscar(db, usuario: CurrentUser | Visitante, consulta: str, limite: int = 10
         ), query as (select plainto_tsquery('public.conhecimento_portuguese',:q) as q)
         select a.titulo,a.versao_id,c.secao,c.ordem,
           ts_headline('public.conhecimento_portuguese',c.texto,query.q,
-            'StartSel=, StopSel=, MaxWords=35, MinWords=15, MaxFragments=1') as trecho
+            'StartSel="", StopSel="", MaxWords=35, MinWords=15, MaxFragments=1') as trecho
         from autorizados a join conhecimento_trechos c
           on c.igreja_id=a.igreja_id and c.versao_id=a.versao_id
         cross join query where c.busca @@ query.q
