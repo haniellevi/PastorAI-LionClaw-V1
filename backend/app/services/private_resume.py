@@ -21,18 +21,10 @@ _BASE = """
  join pessoas p on p.igreja_id=c.igreja_id and p.id=c.pessoa_id
  join private_summary_settings cfg on cfg.igreja_id=c.igreja_id
  where c.igreja_id=:t and c.id=:c and s.pessoa_id=:p and p.id=:p
- and cfg.resume_enabled and not p.optout and p.arquivada_em is null
+ and cfg.enabled and cfg.resume_enabled and not p.optout and p.arquivada_em is null
  and s.deletion_generation=c.deletion_generation
  and private_summary_worker()
- and exists(select 1 from private_summary_sources src where src.igreja_id=:t and src.conversation_id=:c)
- and not exists(select 1 from private_summary_sources src join messages m
-   on m.igreja_id=src.igreja_id and m.conversation_id=src.conversation_id and m.id=src.message_id
-   where src.igreja_id=:t and src.conversation_id=:c and
-   (m.direcao<>'in' or m.autor<>'contato' or coalesce(m.tipo,'texto')<>'texto'
-    or m.media_path is not null or m.agent_privilege_context is not null or private_summary_topic(m.texto) is null))
- and not exists(select 1 from pedido_oracao_mensagem x where x.igreja_id=:t and x.conversation_id=:c)
- and not exists(select 1 from pedido_oracao_proposta x where x.igreja_id=:t and x.conversation_id=:c)
- and not exists(select 1 from cell_report_audio_inputs x where x.igreja_id=:t and (x.conversation_id=:c or x.live_conversation_id=:c))
+ and private_summary_origin_valid(:t,:c,:p,true)
 """
 
 

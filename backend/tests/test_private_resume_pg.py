@@ -49,7 +49,7 @@ def memory(s3_turn, monkeypatch):
     assert summaries.process_tasks(turn.factory, provider=lambda **kw: {'topic': 'cultos'}) == 1
     return turn
 
-@pytest.mark.parametrize('case', ['available', 'missing', 'suspended', 'unlisted', 'disabled', 'no_release', 'wrong_person', 'optout', 'revoked', 'protected', 'corrected', 'incorrect', 'ordinary', 'during_edit', 'during_delete', 'during_correction', 'retry_protected', 'during_role', 'other_conversation'])
+@pytest.mark.parametrize('case', ['two_people', 'two_people_leader', 'available', 'missing', 'suspended', 'unlisted', 'disabled', 'generation_disabled', 'prior_resume', 'no_release', 'wrong_person', 'optout', 'revoked', 'protected', 'corrected', 'incorrect', 'ordinary', 'during_edit', 'during_generation_disabled', 'during_resume_disabled', 'during_delete', 'during_correction', 'retry_protected', 'during_role', 'other_conversation'])
 def test_private_resume_full_turn(memory, monkeypatch, case):
     from app.services import private_resume as resume
     turn = memory
@@ -62,6 +62,8 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
             s.execute(text("update private_conversation_summaries set state='suspended'"))
         elif case == 'disabled':
             s.execute(text('update private_summary_settings set resume_enabled=false'))
+        elif case == 'generation_disabled':
+            s.execute(text('update private_summary_settings set enabled=false'))
         elif case == 'wrong_person':
             s.execute(text('update conversations set pessoa_id=:p where id=:c'), dict(p=turn.target_id, c=turn.conversation_id))
         elif case == 'optout':
@@ -85,6 +87,32 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
             s.add(other)
             s.flush()
             turn.conversation_id = other.id
+    if case in {'two_people', 'two_people_leader'}:
+        from uuid import uuid4
+        from app.db.models import Conversation, AppUser, UserRole, ConsentRecord
+        import datetime as dt
+        with turn.factory.begin() as s:
+            other = Conversation(igreja_id=_IGREJA, pessoa_id=turn.target_id,
+                telefone='5500000000001', estado='ia', numero_oficial=True)
+            s.add(other)
+            s.flush()
+            turn.conversation_id = other.id
+            uid = uuid4()
+            s.add(AppUser(id=uid, igreja_id=_IGREJA, pessoa_id=turn.target_id,
+                nome='Equipe B sintética', email='b@example.test', clerk_user_id='synthetic-b', status='ativo'))
+            s.flush()
+            s.add(UserRole(igreja_id=_IGREJA, user_id=uid, papel='lider_celula' if case.endswith('leader') else 'membro'))
+            s.add(ConsentRecord(igreja_id=_IGREJA, pessoa_id=turn.target_id, termo_versao='s3-test-v1', aceite_em=dt.datetime.now(dt.timezone.utc)))
+        _inbound(turn, 'B-SOURCE', 'Como faço minha matrícula na UV?')
+        with turn.factory() as s:
+            mark_tenant_scoped(s, _IGREJA, source='second_summary')
+            assert summaries.enqueue(s, _IGREJA, turn.conversation_id)
+            s.commit()
+        assert summaries.process_tasks(turn.factory, provider=lambda **kw: {'topic': 'uv'}) == 1
+        with turn.factory() as s:
+            assert s.scalar(text('select count(*) from private_conversation_summaries')) == 2
+    if case == 'prior_resume':
+        _inbound(turn, 'PRIOR-RESUME', 'retomar conversa')
     prompts = []
     usage = LLMUsage(modelo='synthetic', tokens_in=2, tokens_out=1, custo=0)
     monkeypatch.setattr(LLMClient, 'generate_typed', lambda *a, **kw: TypedChoiceResult('nenhuma', usage))
@@ -95,6 +123,10 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
             with turn.factory.begin() as s:
                 if case == 'during_edit':
                     s.execute(text("update messages set texto='Qual o horário do culto?' where provider_message_id='RESUME-'||:case"), dict(case=case))
+                elif case == 'during_generation_disabled':
+                    s.execute(text('update private_summary_settings set enabled=false'))
+                elif case == 'during_resume_disabled':
+                    s.execute(text('update private_summary_settings set resume_enabled=false'))
                 elif case == 'during_delete':
                     s.execute(text('delete from private_conversation_summaries'))
                 elif case == 'during_role':
@@ -105,6 +137,9 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
     monkeypatch.setattr(LLMClient, 'complete_typed', answer)
     monkeypatch.setattr(runtime, 'decrypt_secret', lambda _: 'synthetic-key')
     request = _inbound(turn, 'RESUME-'+case, 'Qual o horário do culto?' if case == 'ordinary' else 'retomar conversa')
+    if case in {'two_people', 'two_people_leader'}:
+        from dataclasses import replace
+        request = replace(request, telefone='5500000000001')
     evolution = _ClassifiedEvolution('falhou_retentavel', 'aceito') if case == 'retry_protected' else _ClassifiedEvolution()
     if case == 'retry_protected':
         with pytest.raises(worker.AgentReplyRetryable):
@@ -113,10 +148,12 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
         with turn.factory.begin() as s:
             s.execute(text("insert into pedido_oracao_proposta(id,igreja_id,pessoa_id,conversation_id,source_message_id,summary,term_version,expires_at) select gen_random_uuid(),igreja_id,pessoa_id,id,(select id from messages where conversation_id=:c and direcao='in' order by criado_em limit 1),'Synthetic','test',now()+interval '1 hour' from conversations where id=:c"), dict(c=turn.conversation_id))
     worker.run_agent_for_message(turn.factory, request, evolution_client=evolution)
-    expected = case in {'available', 'corrected', 'retry_protected'} or case.startswith('during_')
+    expected = case in {'available', 'corrected', 'retry_protected', 'two_people', 'two_people_leader'} or case.startswith('during_')
     assert any('Memória privada' in p for p in prompts) is expected
     if expected:
-        assert (summaries.TOPIC_TEXT['uv'] if case == 'corrected' else summaries.TOPIC_TEXT['cultos']) in prompts[0]
+        assert (summaries.TOPIC_TEXT['uv'] if case in {'corrected', 'two_people', 'two_people_leader'} else summaries.TOPIC_TEXT['cultos']) in prompts[0]
+        if case in {'two_people', 'two_people_leader'}:
+            assert summaries.TOPIC_TEXT['cultos'] not in prompts[0]
         assert 'derivado, pode errar' in prompts[0]
     if case.startswith('during_'):
         assert evolution.calls == []
@@ -135,6 +172,9 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
         replies = [m for m in _rows(turn, Message) if m.direcao == 'out' and m.texto]
         assert len(replies) == 1
         assert replies[0].agent_reply_state == 'ia'
+        before = (len(prompts), len(evolution.calls))
+        worker.run_agent_for_message(turn.factory, request, evolution_client=evolution)
+        assert (len(prompts), len(evolution.calls)) == before
 
 
 def test_scope_and_forged_person_cannot_read_memory(memory):
@@ -158,3 +198,89 @@ def test_scope_and_forged_person_cannot_read_memory(memory):
         mark_tenant_scoped(s, other, source='resume_other_tenant_test')
         assert s.scalar(text('select count(*) from private_conversation_summaries')) == 0
         assert resume.load(s, replace(context, igreja_id=other)) is None
+
+
+@pytest.mark.parametrize('gate', ['resume_enabled', 'enabled'])
+@pytest.mark.parametrize('kind', ['command', 'reservation'])
+def test_closed_gate_preserves_invalidation(memory, gate, kind):
+    turn = memory
+    with turn.factory.begin() as s:
+        before = s.scalar(text('select private_summary_revision from conversations where id=:c'), dict(c=turn.conversation_id))
+        s.execute(text(f'update private_summary_settings set {gate}=false'))
+        s.execute(text('''insert into messages(igreja_id,conversation_id,direcao,autor,texto,tipo,agent_reply_state)
+            values(:t,:c,:direction,:author,:body,'texto',:state)'''), dict(
+            t=_IGREJA, c=turn.conversation_id, direction='in' if kind == 'command' else 'out',
+            author='contato' if kind == 'command' else 'ia', body='retomar conversa' if kind == 'command' else None,
+            state=None if kind == 'command' else 'ia_reservada'))
+        assert s.scalar(text('select private_summary_revision from conversations where id=:c'), dict(c=turn.conversation_id)) == before + 1
+        assert s.execute(text('select state,summary from private_conversation_summaries')).one() == ('suspended', None)
+
+
+@pytest.mark.parametrize('case', ['zero', 'max_sources', 'too_many', 'duplicate_phone', 'phone_mismatch'])
+def test_canonical_origin_validation(memory, case):
+    from app.services import private_resume as resume
+    from app.services.whatsapp_privilege import resolve_whatsapp_privilege_context
+    turn = memory
+    # Mutate only after generation, so these prove validation at consumption.
+    with turn.factory.begin() as s:
+        if case == 'zero':
+            s.execute(text('delete from private_summary_sources'))
+        elif case in {'max_sources', 'too_many'}:
+            # Isolate the source-count boundary without suspending the snapshot.
+            s.execute(text('alter table messages disable trigger private_summary_message_changed'))
+            s.execute(text('''insert into messages(igreja_id,conversation_id,direcao,autor,texto,tipo)
+                select :t,:c,'in','contato','Qual o horário do culto?','texto' from generate_series(1,:n)'''), dict(t=_IGREJA,c=turn.conversation_id,n=39 if case == 'max_sources' else 40))
+            s.execute(text('alter table messages enable trigger private_summary_message_changed'))
+            s.execute(text('''insert into private_summary_sources(igreja_id,conversation_id,message_id)
+                select igreja_id,conversation_id,id from messages where conversation_id=:c
+                on conflict do nothing'''), dict(c=turn.conversation_id))
+        else:
+            # Disable only the invalidation trigger to isolate the read-time check.
+            s.execute(text('alter table pessoas disable trigger private_summary_person'))
+            try:
+                if case == 'duplicate_phone':
+                    s.execute(text("update pessoas set telefone=(select '+'||telefone from conversations where id=:c) where id=:p"), dict(c=turn.conversation_id,p=turn.target_id))
+                else:
+                    s.execute(text("update pessoas set telefone='5500000000099' where id=(select pessoa_id from conversations where id=:c)"), dict(c=turn.conversation_id))
+            finally:
+                s.execute(text('alter table pessoas enable trigger private_summary_person'))
+    request = _inbound(turn, 'INVALID-ORIGIN', 'retomar conversa')
+    with turn.factory() as s:
+        mark_tenant_scoped(s, _IGREJA, source='origin_test')
+        context = resolve_whatsapp_privilege_context(s, igreja_id=_IGREJA,
+            conversation_id=turn.conversation_id, inbound_message_id=request.inbound_message_id)
+        assert s.scalar(text('select private_summary_origin_valid(:t,:c,(select pessoa_id from conversations where id=:c),true)'), dict(t=_IGREJA,c=turn.conversation_id)) is (case == 'max_sources')
+        if context is not None:
+            assert (resume.load(s, context) is not None) is (case == 'max_sources')
+
+
+def test_migration_security_contract(database):
+    from pathlib import Path
+    from scripts.migrate import strip_outer_transaction
+    migrations = Path(__file__).resolve().parents[1] / 'migrations'
+    with database.begin() as c:
+        base = (migrations / '20261019_120001_private_conversation_summaries.sql').read_text()
+        # Restore the base definitions to compare actual pre/post catalog state.
+        for name in ('private_summary_source_changed', 'private_summary_origin_valid'):
+            start = base.index('create function public.' + name)
+            end = base.index('$$;', start) + 3
+            c.exec_driver_sql(base[start:end].replace('create function', 'create or replace function', 1))
+        c.exec_driver_sql('drop function private_summary_origin_valid(uuid,uuid,uuid,boolean)')
+        c.exec_driver_sql('alter table private_summary_settings drop column resume_enabled')
+        before = c.exec_driver_sql("select proacl from pg_proc where oid='private_summary_source_changed()'::regprocedure").scalar_one()
+        origin_acl = c.exec_driver_sql("select proacl from pg_proc where oid='private_summary_origin_valid(uuid,uuid,uuid)'::regprocedure").scalar_one()
+        table_acl = c.exec_driver_sql("select relacl from pg_class where oid='private_summary_settings'::regclass").scalar_one()
+        # The migration runner strips the outer transaction; use the same parser.
+        sql = (migrations / '20261020_200000_private_resume.sql').read_text()
+        c.exec_driver_sql(strip_outer_transaction(sql))
+        config, acl = c.exec_driver_sql("select proconfig,proacl from pg_proc where oid='private_summary_source_changed()'::regprocedure").one()
+        assert config == ['search_path=pg_catalog, public']
+        assert acl == before
+        assert c.exec_driver_sql("select proacl from pg_proc where oid='private_summary_origin_valid(uuid,uuid,uuid)'::regprocedure").scalar_one() == origin_acl
+        for signature in ('private_summary_origin_valid(uuid,uuid,uuid)', 'private_summary_origin_valid(uuid,uuid,uuid,boolean)'):
+            assert c.execute(text('select proconfig,prosecdef from pg_proc where oid=cast(:sig as regprocedure)'), dict(sig=signature)).one() == (['search_path=pg_catalog, public'], True)
+        assert c.exec_driver_sql("select has_function_privilege('anon','private_summary_origin_valid(uuid,uuid,uuid,boolean)','execute')").scalar_one() is False
+        assert c.exec_driver_sql("show lock_timeout").scalar_one() == '2s'
+        assert c.exec_driver_sql("select relacl from pg_class where oid='private_summary_settings'::regclass").scalar_one() == table_acl
+        assert c.exec_driver_sql("select relforcerowsecurity from pg_class where oid='private_summary_settings'::regclass").scalar_one() is True
+        assert c.exec_driver_sql("select column_default from information_schema.columns where table_schema='public' and table_name='private_summary_settings' and column_name='resume_enabled'").scalar_one() == 'false'
