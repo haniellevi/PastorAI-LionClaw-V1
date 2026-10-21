@@ -4582,6 +4582,15 @@ def run_agent_for_message(
     if conhecimento_result is not None:
         return conhecimento_result
 
+    from app.agenda_whatsapp.turn import run_agenda_turn
+    agenda_result = run_agenda_turn(
+        session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client,
+    )
+    if agenda_result is not None:
+        return agenda_result
+
     from app.enviar_whatsapp.turn import run_enviar_turn
     enviar_result = run_enviar_turn(
         session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
