@@ -20,6 +20,10 @@ from tests.test_operational_usage import db, operational_database, rls_database_
 pytestmark = pytest.mark.rls_integration
 PATH = '/operations/private-memory'
 MIGRATION = '20261028_100000_private_memory_overview.sql'
+INDEX_MIGRATIONS = (
+    '20261028_100001_private_erasure_requests_overview_idx.sql',
+    '20261028_100002_private_resume_delivered_overview_idx.sql',
+)
 
 
 @pytest.fixture
@@ -116,14 +120,23 @@ def test_b_admin_sees_only_b_and_cannot_pass_a(db, inventory, app, client):
 
 
 @pytest.mark.parametrize('status', [None, 'ativo', 'convidado', 'revogado'])
-def test_live_active_status(db, inventory, client, status):
+def test_live_active_status(db, inventory, client, app, status):
     db.execute(text('reset role'))
-    db.execute(text("update app_users set status=:s where clerk_user_id='synthetic'"), dict(s=status))
+    actor = db.scalar(text("update app_users set status=:s where clerk_user_id='synthetic' returning id"), dict(s=status))
     db.execute(text('set local role authenticated'))
     response = client.get(PATH)
-    assert response.status_code == (200 if status in (None, 'ativo') else 403)
+    assert response.status_code == (200 if status == 'ativo' else 403)
     if response.status_code == 200:
         assert response.json()['pedidos_exclusao']['pendentes'] == 6
+    else:
+        with pytest.raises(DBAPIError) as error, db.begin_nested():
+            db.scalar(text('select private_memory_overview(:t)'), dict(t=IGREJA_A))
+        assert error.value.orig.pgcode == '42501'
+    # A stale identity must also be rejected by require_active_admin itself.
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        app_user_id=str(actor),clerk_user_id='synthetic',igreja_id=IGREJA_A,
+        nome='Synthetic',email='synthetic@example.invalid',roles=frozenset({'admin'}))
+    assert client.get(PATH).status_code == response.status_code
 
 
 @pytest.mark.parametrize('role', ['pastor', 'lider_g12', 'lider_celula', 'operador', 'membro', None])
@@ -205,7 +218,7 @@ def test_function_acl_rls_and_indexes(db):
 
 
 def test_rollback_and_accumulated_upgrade_keep_inventory(db, inventory, rls_database_url):
-    """Apply through migrate.py over existing requests, summaries and receipts."""
+    """Rollback, upgrade and replay via migrate.py preserve existing inventory."""
     from scripts import migrate
     db.execute(text('reset role'))
     db.execute(text("update private_erasure_requests set created_at=now()-interval '2 days' where state='pendente'"))
@@ -217,20 +230,31 @@ def test_rollback_and_accumulated_upgrade_keep_inventory(db, inventory, rls_data
     engine = db.get_bind()
     with engine.begin() as c:
         c.exec_driver_sql('drop function public.private_memory_overview(uuid)')
-        c.exec_driver_sql('drop index public.private_resume_delivered_overview_idx')
-        c.exec_driver_sql('drop index public.private_erasure_requests_overview_idx')
-        c.execute(text('delete from schema_migrations where name=:n'), dict(n=MIGRATION))
-    result = subprocess.run([sys.executable, str(migrate.__file__), 'apply', MIGRATION, '--yes'],
-        env=dict(os.environ, MIGRATION_DATABASE_URL=rls_database_url.replace('postgresql+psycopg2:', 'postgresql:')),
-        capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    db.execute(text('set local role authenticated'))
-    db.execute(text("select set_config('app.tenant_igreja_id',:t,true),set_config('request.jwt.claim.sub','synthetic',true)"), dict(t=IGREJA_A))
-    after = memory_overview(db, UUID(IGREJA_A))
-    assert after.pedidos_exclusao.mais_antigo_segundos >= before.pedidos_exclusao.mais_antigo_segundos
-    exclude_age = {'pedidos_exclusao': {'mais_antigo_segundos'}}
-    assert after.model_dump(exclude=exclude_age) == before.model_dump(exclude=exclude_age)
-    db.rollback()
+    with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as c:
+        c.exec_driver_sql('drop index concurrently if exists public.private_resume_delivered_overview_idx')
+        c.exec_driver_sql('drop index concurrently if exists public.private_erasure_requests_overview_idx')
+    for _ in range(2):
+        # The second pass keeps all objects, exercising CREATE OR REPLACE and
+        # IF NOT EXISTS after a missing ledger entry (concurrent DDL recovery).
+        with engine.begin() as c:
+            for name in (MIGRATION, *INDEX_MIGRATIONS):
+                c.execute(text('delete from schema_migrations where name=:n'), dict(n=name))
+        for name in (MIGRATION, *INDEX_MIGRATIONS):
+            cmd = [sys.executable, str(migrate.__file__), 'apply', name, '--yes']
+            if name in INDEX_MIGRATIONS:
+                cmd.append('--no-transaction')
+            result = subprocess.run(cmd,
+                env=dict(os.environ, MIGRATION_DATABASE_URL=rls_database_url.replace('postgresql+psycopg2:', 'postgresql:')),
+                capture_output=True, text=True)
+            assert result.returncode == 0, f'{name}: {result.stderr}'
+        db.execute(text('set local role authenticated'))
+        db.execute(text("select set_config('app.tenant_igreja_id',:t,true),set_config('request.jwt.claim.sub','synthetic',true)"), dict(t=IGREJA_A))
+        after = memory_overview(db, UUID(IGREJA_A))
+        assert after.pedidos_exclusao.mais_antigo_segundos >= before.pedidos_exclusao.mais_antigo_segundos
+        exclude_age = {'pedidos_exclusao': {'mais_antigo_segundos'}}
+        assert after.model_dump(exclude=exclude_age) == before.model_dump(exclude=exclude_age)
+        test_function_acl_rls_and_indexes(db)
+        db.rollback()
     # The request ledger intentionally survives church deletion; remove only
     # these synthetic committed audit rows so later tests stay independent.
     with engine.begin() as c:

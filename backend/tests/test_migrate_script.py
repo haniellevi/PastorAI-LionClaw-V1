@@ -157,8 +157,12 @@ def test_apply_executa_sem_o_wrapper_externo() -> None:
     )
 
 
-def test_cli_no_transaction_separa_timeout_do_indice(monkeypatch) -> None:
-    name = "20261023_100001_ai_usage_tenant_created_idx.sql"
+@pytest.mark.parametrize("name", [
+    "20261023_100001_ai_usage_tenant_created_idx.sql",
+    "20261028_100001_private_erasure_requests_overview_idx.sql",
+    "20261028_100002_private_resume_delivered_overview_idx.sql",
+])
+def test_cli_no_transaction_separa_timeout_do_indice(monkeypatch, name) -> None:
     conn = _Conn()
     monkeypatch.setattr(migrate, "_connect", lambda: conn)
     assert migrate.main(["apply", name, "--yes", "--no-transaction"]) == 0

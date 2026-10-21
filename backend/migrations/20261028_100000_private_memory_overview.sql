@@ -2,29 +2,12 @@
 begin;
 set local lock_timeout='2s';
 
-alter table public.private_erasure_requests enable row level security;
-alter table public.private_erasure_requests force row level security;
-alter table public.private_conversation_summaries enable row level security;
-alter table public.private_conversation_summaries force row level security;
-alter table public.private_summary_tasks enable row level security;
-alter table public.private_summary_tasks force row level security;
-alter table public.private_deletion_tasks enable row level security;
-alter table public.private_deletion_tasks force row level security;
-alter table public.messages enable row level security;
-alter table public.messages force row level security;
-
-create index private_erasure_requests_overview_idx
- on public.private_erasure_requests(igreja_id,state,created_at);
-create index private_resume_delivered_overview_idx on public.messages(igreja_id)
- where direcao='out' and autor='ia' and agent_reply_state='ia'
- and agent_privilege_context->>'kind'='private_resume';
-
 -- Existing policies deliberately hide summary tasks and suspended summaries
 -- from web readers. This definer exposes only counters, with its own live
 -- authorization and tenant predicates on every source. It never grants SELECT.
 -- row_security=off raises if a misconfigured owner would silently filter counts;
 -- it does not bypass RLS. The caller remains authenticated/NOBYPASSRLS.
-create function public.private_memory_overview(p_tenant uuid) returns jsonb
+create or replace function public.private_memory_overview(p_tenant uuid) returns jsonb
 language plpgsql stable security definer set search_path=pg_catalog,public set row_security=off as $$
 declare result jsonb;
 begin
@@ -34,7 +17,7 @@ begin
   select 1 from public.app_users a
   join public.user_roles r on r.igreja_id=a.igreja_id and r.user_id=a.id
   where a.igreja_id=p_tenant and a.clerk_user_id=public.prayer_jwt_sub()
-  and (a.status is null or a.status='ativo') and r.papel='admin'
+  and a.status='ativo' and r.papel='admin'
   and (a.pessoa_id is null or exists(select 1 from public.pessoas p
    where p.igreja_id=p_tenant and p.id=a.pessoa_id and p.arquivada_em is null))
  ) then
@@ -82,7 +65,5 @@ commit;
 
 -- Rollback (no data is removed; existing RLS and grants remain unchanged):
 -- BEGIN;
--- DROP FUNCTION public.private_memory_overview(uuid);
--- DROP INDEX public.private_resume_delivered_overview_idx;
--- DROP INDEX public.private_erasure_requests_overview_idx;
+-- DROP FUNCTION IF EXISTS public.private_memory_overview(uuid);
 -- COMMIT;

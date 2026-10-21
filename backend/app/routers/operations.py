@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import AppUser
@@ -24,7 +24,7 @@ def require_active_admin(
         AppUser.id == UUID(user.app_user_id),
         AppUser.igreja_id == UUID(user.igreja_id),
         AppUser.clerk_user_id == user.clerk_user_id,
-        or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+        AppUser.status == "ativo",
     ))
     if active is None:
         raise HTTPException(403, "Acesso restrito a administrador ativo")
