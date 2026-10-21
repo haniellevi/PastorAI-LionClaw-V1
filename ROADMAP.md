@@ -84,7 +84,7 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatia 1 integrada (#509). Fatia 2 integrada em 19/10 (#518): pessoa/igreja no mesmo serviço/fila/recibo, integração antes das cascatas do reset nominal e exclusão de camadas privadas sem leitura pelo admin. Reset privado preserva cadastros/opt-out/consentimento; não altera o contrato do arquivamento nem autoriza reset cadastral. Novos derivados acompanham sua implementação. | não verificado |
 | UX, acessibilidade e desempenho do painel | em andamento | Hoje/atendimento e UX v3 implementados; proteção do microfone ao trocar de conversa em candidato. Faltam teclado, leitor de tela, zoom, mobile e métricas autenticadas de campo; integração atual desse candidato: não verificado. | Frontend publicado conforme registros; backend/telemetria e operação completa: não verificado. |
 | Agenda completa e importação Google | em andamento | Base de cadastro/consulta existe; falta fechar o especialista, entrega de avisos e integração com credencial isolada por igreja antes de usar Google. | não verificado |
-| Observabilidade de IA e operação | em andamento | Há logs/custos/filas; faltam métricas por igreja/rota, retenção, metas de serviço e alertas de fluxos presos. | não verificado |
+| Observabilidade de IA e operação | em andamento | Há logs/custos/filas, consumo de IA por igreja (#537) e idade/contagem agregada de mensagens e tarefas pendentes por igreja (#544, só admin, sem conteúdo); faltam métricas por rota, retenção, metas de serviço, alertas de fluxos presos, webhooks/outbox na medição e índices parciais para as consultas de pendências. | não verificado |
 
 **Segurança e decisões que permanecem abertas:**
 

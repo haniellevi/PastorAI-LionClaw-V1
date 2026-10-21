@@ -4,35 +4,26 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.deps import CurrentUser, get_current_user
 from app.db.session import get_db
-from tests.conftest_rls import rls_database_url, _provision_schema, IGREJA_A, IGREJA_B
+from tests.conftest_rls import IGREJA_A, IGREJA_B
+
+from tests.operational_pg import operational_database, rls_database_url
 
 pytestmark = pytest.mark.rls_integration
 
 
 @pytest.fixture
-def db(rls_database_url):
-    engine = create_engine(rls_database_url)
-    _provision_schema(engine)
+def db(operational_database):
+    engine = operational_database
     with engine.begin() as conn:
-        conn.exec_driver_sql('''
-        create table if not exists ai_usage_logs (
-          id uuid primary key, igreja_id uuid not null, modelo text,
-          tokens_in integer, tokens_out integer, custo numeric, ferramenta text,
-          created_at timestamptz not null);
-        alter table ai_usage_logs enable row level security;
-        alter table ai_usage_logs force row level security;
-        drop policy if exists tenant_isolation on ai_usage_logs;
-        create policy tenant_isolation on ai_usage_logs for all
-          using (igreja_id = current_igreja_id())
-          with check (igreja_id = current_igreja_id());
-        grant select on ai_usage_logs to authenticated;
-        delete from ai_usage_logs;
-        ''')
+        conn.exec_driver_sql("delete from igrejas")
+        conn.execute(text("insert into igrejas(id,nome) values(:a,'Synthetic A'),(:b,'Synthetic B')"), dict(a=IGREJA_A,b=IGREJA_B))
+        conn.execute(text("insert into app_users(igreja_id,clerk_user_id,nome,email,status) values(:t,'synthetic','Synthetic','synthetic@example.invalid','ativo')"), dict(t=IGREJA_A))
+        conn.execute(text("insert into user_roles(igreja_id,user_id,papel) select igreja_id,id,'admin' from app_users where clerk_user_id='synthetic'"))
         now = dt.datetime.now(dt.UTC)
         for tenant, tokens, age in [(IGREJA_A, 10, 1), (IGREJA_B, 999, 1),
                                     (IGREJA_A, 777, 9), (IGREJA_A, 888, -1)]:
@@ -44,8 +35,9 @@ def db(rls_database_url):
     with Session(engine) as session:
         session.execute(text('set local role authenticated'))
         session.execute(text("select set_config('app.tenant_igreja_id', :id, true)"), {'id': IGREJA_A})
+        session.execute(text("select set_config('request.jwt.claim.sub', 'synthetic', true)"))
         yield session
-    engine.dispose()
+
 
 
 def test_bounded_usage_isolates_and_omits_content(db):
@@ -62,10 +54,19 @@ def test_bounded_usage_isolates_and_omits_content(db):
     assert operational_usage(db, uuid.UUID(IGREJA_B)).calls == 0
 
 
-@pytest.mark.parametrize('roles,expected', [(['admin'], 200), (['pastor'], 403), ([], 403)])
-def test_admin_endpoint(app, db, roles, expected):
+@pytest.mark.parametrize('roles,user_status,expected', [
+    (['admin'], None, 200), (['admin'], 'ativo', 200),
+    (['admin'], 'convidado', 403), (['admin'], 'revogado', 403),
+    (['pastor'], 'ativo', 403), ([], 'ativo', 403),
+])
+def test_admin_endpoint(app, db, roles, user_status, expected):
+    db.execute(text('reset role'))
+    user_id = db.scalar(text("""update app_users set status=:status
+        where clerk_user_id='synthetic' and igreja_id=:t returning id"""),
+        dict(status=user_status, t=IGREJA_A))
+    db.execute(text('set local role authenticated'))
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        app_user_id=str(uuid.uuid4()), clerk_user_id='synthetic', igreja_id=IGREJA_A,
+        app_user_id=str(user_id), clerk_user_id='synthetic', igreja_id=IGREJA_A,
         email='synthetic@example.invalid', nome='Synthetic', roles=frozenset(roles))
     app.dependency_overrides[get_db] = lambda: db
     response = TestClient(app).get('/operations/ai-usage?igreja_id=' + IGREJA_B)
