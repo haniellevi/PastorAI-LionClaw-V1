@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -460,3 +461,28 @@ def test_invite_requires_admin_not_pastor_or_cell_leader(app) -> None:
         )
         assert resp.status_code == 403
         assert session.added == []
+
+
+def test_resend_rejects_invite_from_another_church_even_without_rls(app) -> None:
+    target = SimpleNamespace(
+        id=uuid.uuid4(), igreja_id=uuid.uuid4(), pessoa_id=None,
+        nome="Convite sintético", email="invite@example.test",
+        status="convidado", clerk_user_id=None,
+    )
+    session = _InviteSession(app_users=[target])
+    resp = _client(app, session=session, current_user=_admin()).post(
+        f"/team/{target.id}/resend", headers=_AUTH
+    )
+    assert resp.status_code == 404
+    assert session.added == []
+
+
+@pytest.mark.parametrize('role', ['pastor', 'lider_g12', 'membro'])
+def test_resend_requires_admin(app, role) -> None:
+    user = replace(_admin(), roles=frozenset({role}))
+    session = _InviteSession()
+    resp = _client(app, session=session, current_user=user).post(
+        f"/team/{uuid.uuid4()}/resend", headers=_AUTH
+    )
+    assert resp.status_code == 403
+    assert session.statements == []

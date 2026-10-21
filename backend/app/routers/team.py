@@ -692,7 +692,10 @@ def resend_invite(
         ) from exc
 
     app_user = db.execute(
-        select(AppUser).where(AppUser.id == user_uuid)
+        select(AppUser).where(
+            AppUser.id == user_uuid,
+            AppUser.igreja_id == uuid.UUID(current_user.igreja_id),
+        )
     ).scalar_one_or_none()
     if app_user is None:
         raise HTTPException(

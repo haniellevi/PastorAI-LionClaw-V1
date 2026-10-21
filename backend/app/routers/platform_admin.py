@@ -1260,7 +1260,11 @@ def list_igreja_agente_requests(
     ig_uuid = uuid.UUID(igreja_id)
     rows = db.execute(
         select(AgentConfigRequest, AppUser.nome, AppUser.email)
-        .outerjoin(AppUser, AppUser.id == AgentConfigRequest.solicitante_user_id)
+        .outerjoin(
+            AppUser,
+            (AppUser.id == AgentConfigRequest.solicitante_user_id)
+            & (AppUser.igreja_id == AgentConfigRequest.igreja_id),
+        )
         .where(AgentConfigRequest.igreja_id == ig_uuid)
         .order_by(AgentConfigRequest.criado_em.desc())
     ).all()
@@ -1435,7 +1439,11 @@ def list_igreja_admins(
     rows = db.execute(
         select(AppUser).options(noload(AppUser.roles), noload(AppUser.igreja))
         .join(UserRole, UserRole.user_id == AppUser.id)
-        .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
+        .where(
+            UserRole.igreja_id == ig_uuid,
+            UserRole.papel == "admin",
+            AppUser.igreja_id == ig_uuid,
+        )
         .order_by(AppUser.created_at)
     ).scalars().all()
     dono_id = igreja.dono_id
