@@ -162,6 +162,8 @@ function InboxSession() {
   );
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1149,7 +1151,9 @@ function InboxSession() {
               telefone={selected.telefone}
               avatarUrl={photoUrl}
               onClose={() => setPanelOpen(false)}
-              onResetPrivateContent={() => { setPanelOpen(false); setResetTarget(selected); setResetOpen(true); }}
+              onResetPrivateContent={selected.pessoaId && token && user?.roles.includes("admin")
+                ? () => { setPanelOpen(false); setResetTarget(selected); setResetOpen(true); }
+                : undefined}
             />
           </>
         ) : null}
@@ -1164,7 +1168,7 @@ function InboxSession() {
           conversationsRequestRef.current = null;
           for (const controller of mediaControllers.current) controller.abort();
           mediaSignedAt.current.clear();
-          const deletedIds = new Set(conversations.filter(row => row.pessoaId === resetTarget.pessoaId).map(row => row.id));
+          const deletedIds = new Set(conversationsRef.current.filter(row => row.pessoaId === resetTarget.pessoaId).map(row => row.id));
           setDrafts(rows => Object.fromEntries(Object.entries(rows).filter(([id]) => !deletedIds.has(id))));
           setConversations(rows => rows.filter(row => row.pessoaId !== resetTarget.pessoaId));
           setSelectedId(null);

@@ -340,7 +340,7 @@ export function ContactPanel({
             </Button>
           ) : null}
 
-          {canEdit && token && detail.id === pessoaId && onResetPrivateContent ? <section className="panel-section">
+          {canEdit && token && pessoaId && detail.id === pessoaId && onResetPrivateContent ? <section className="panel-section">
             <h4>Conteúdo privado</h4>
             <Button size="sm" variant="danger" onClick={onResetPrivateContent}>Excluir conteúdo privado da pessoa</Button>
           </section> : null}

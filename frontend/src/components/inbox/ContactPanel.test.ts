@@ -412,3 +412,12 @@ it.each(["admin", "pastor", "lider_celula", "operador"])(
     if (button) { act(() => button.click()); expect(resetPrivate).toHaveBeenCalledOnce(); }
   },
 );
+
+
+it('não oferece reset sem pessoa vinculada', async () => {
+  apiMock.fetchContactDetail.mockResolvedValue(detail());
+  await act(async () => root.render(h(ContactPanel, {
+    pessoaId: null, telefone: '550000000000', onClose: vi.fn(), onResetPrivateContent: resetPrivate,
+  })));
+  expect(findButton('Excluir conteúdo privado da pessoa')).toBeUndefined();
+});

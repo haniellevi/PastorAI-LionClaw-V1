@@ -172,6 +172,15 @@ limpam seus **payloads** na igreja inteira, conservando IDs/eventos de dedupe:
 apagar o marcador operacional poderia provocar reenvio. Logs vinculados a
 outra conversa/pessoa e todos os dados de outra igreja permanecem intactos.
 
+Reset manual por pessoa também atende o pedido pendente da mesma pessoa/igreja:
+na mesma transação, usa o estado existente `aprovado`, com administrador, data e
+recibo do reset (sem conteúdo). A aprovação posterior devolve esse recibo;
+a recusa retorna conflito e não reabre memória apagada. A limpeza externa pode
+continuar pendente no recibo. Repetir uma operação antiga não encerra pedidos
+novos. Migration `20261027_100000_reset_settles_erasure_requests.sql` deve ser
+aplicada após `20261022_100000`, antes do backend/painel desta correção.
+Nenhuma migration anterior foi editada; policies RLS e permissões são preservadas.
+
 ## Concorrência e limpeza externa
 
 Ingestão adquire barreira advisory compartilhada por igreja antes dos locks de
