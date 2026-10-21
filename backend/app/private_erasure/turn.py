@@ -3,7 +3,8 @@
 import uuid
 from types import SimpleNamespace
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi import HTTPException
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from app.db.models import Message
 from app.domain import consent
 from app.domain.agent_reply import (
@@ -97,22 +98,33 @@ def run_private_erasure_turn(
                     reply.agent_reply_state = AGENT_REPLY_NO_RESPONSE
                 else:
                     source = _source(db, outcome)
-                    if not route_private_erasure_intent(source.texto):
+                    if source is None or not route_private_erasure_intent(source.texto):
                         reply.agent_reply_state = AGENT_REPLY_NO_RESPONSE
                         db.commit()
                         return w.AgentRunDisposition.COMPLETED
-                    request = service.register(db, tenant=igreja_id,
-                        person=contact.pessoa_id, conversation=contact.conversation_id,
-                        inbound=source.id)
-                    reply.texto = service.RESPONSE
-                    reply.agent_reply_state = AGENT_REPLY_PENDING
-                    reply.public_info_reply = False
-                    reply.agent_privilege_context = {
-                        "kind": "private_erasure",
-                        "inbound_message_id": str(source.id),
-                        "person_id": str(contact.pessoa_id),
-                        "request_id": str(request["id"]),
-                    }
+                    try:
+                        # Roll back SQL denial without aborting the reply update.
+                        with db.begin_nested():
+                            request = service.register(db, tenant=igreja_id,
+                                person=contact.pessoa_id, conversation=contact.conversation_id,
+                                inbound=source.id)
+                    except (HTTPException, DBAPIError) as exc:
+                        if isinstance(exc, HTTPException):
+                            if exc.status_code not in (403, 409):
+                                raise
+                        elif getattr(exc.orig, "pgcode", None) != "42501":
+                            raise
+                        reply.agent_reply_state = AGENT_REPLY_NO_RESPONSE
+                    else:
+                        reply.texto = service.RESPONSE
+                        reply.agent_reply_state = AGENT_REPLY_PENDING
+                        reply.public_info_reply = False
+                        reply.agent_privilege_context = {
+                            "kind": "private_erasure",
+                            "inbound_message_id": str(source.id),
+                            "person_id": str(contact.pessoa_id),
+                            "request_id": str(request["id"]),
+                        }
                 if ownership_guard is not None:
                     ownership_guard()
                 db.commit()  # Workflow reply commits before delivery.

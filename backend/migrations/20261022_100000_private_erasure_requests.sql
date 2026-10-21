@@ -81,6 +81,9 @@ begin
   raise exception 'Request unavailable' using errcode='42501';
  end if;
  perform pg_advisory_xact_lock(hashtextextended('private-content:'||t::text,0));
+ -- Replay survives approval deleting the source conversation and inbound.
+ select request_id into result from public.private_erasure_request_inbounds where igreja_id=t and inbound_id=m;
+ if found then return result; end if;
  -- A worker passes IDs revalidated from inbound, never identity from a model.
  if not exists(select 1 from public.conversations cv join public.pessoas person on person.igreja_id=t and person.id=cv.pessoa_id
  join public.messages msg on msg.igreja_id=t and msg.conversation_id=cv.id and msg.id=m
@@ -92,11 +95,9 @@ begin
  and public.private_deletion_phone_key(peers.telefone)=public.private_deletion_phone_key(cv.telefone))=1
  and msg.direcao='in' and msg.autor='contato' and coalesce(msg.tipo,'texto')='texto' and msg.media_path is null
  and msg.media_mime is null and msg.media_nome is null and msg.media_tamanho is null
- and msg.texto='QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO') then
+ and upper(btrim(regexp_replace(msg.texto,'[[:space:]]+',' ','g')))='QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO') then
   raise exception 'Request identity invalid' using errcode='42501';
  end if;
- select request_id into result from public.private_erasure_request_inbounds where igreja_id=t and inbound_id=m;
- if found then return result; end if;
  select id into result from public.private_erasure_requests where igreja_id=t and pessoa_id=p and state='pendente';
  if not found then
   insert into public.private_erasure_requests(igreja_id,pessoa_id,conversation_id,inbound_id) values(t,p,c,m) returning id into result;
@@ -110,6 +111,7 @@ language plpgsql security definer set search_path=pg_catalog,public as $$
 declare t uuid:=public.current_igreja_id(); row public.private_erasure_requests; actor uuid; rid uuid;
 begin
  if decision not in ('aprovado','recusado') then raise exception 'Invalid decision' using errcode='22023'; end if;
+ if not public.private_erasure_admin() then raise exception 'Web admin required' using errcode='42501'; end if;
  perform pg_advisory_xact_lock(hashtextextended('private-content:'||t::text,0));
  if not public.private_erasure_admin() then raise exception 'Web admin required' using errcode='42501'; end if;
  select * into row from public.private_erasure_requests where igreja_id=t and id=r for update;
@@ -130,17 +132,26 @@ end $$;
 revoke all on function public.private_erasure_request(uuid,uuid,uuid,uuid),public.private_erasure_decide(uuid,text) from public,anon,authenticated,service_role;
 grant execute on function public.private_erasure_request(uuid,uuid,uuid,uuid),public.private_erasure_decide(uuid,text) to authenticated;
 
-create or replace function public.private_summary_origin_valid(t uuid,c uuid,p uuid) returns boolean
+-- Preserve the three-argument delegate installed by #531. Both generation
+-- and resume must enforce suspension, including callers that bypass RLS.
+create or replace function public.private_summary_origin_valid(t uuid,c uuid,p uuid,sources_only boolean) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
- select not public.private_memory_pending(t,p) and t=public.current_igreja_id() and (public.private_summary_worker() or public.private_summary_reader(t,c)) and exists(
+ -- Generation validates the complete conversation. Resume validates the saved
+ -- source set; its caller separately fences the command/reservation/history.
+ with origin_messages as (
+  select m.* from public.messages m where m.igreja_id=t and m.conversation_id=c
+  and (not sources_only or exists(select 1 from public.private_summary_sources src
+   where src.igreja_id=t and src.conversation_id=c and src.message_id=m.id))
+ )
+ select not public.private_memory_pending(t,p) and t=public.current_igreja_id() and (not sources_only or public.private_summary_worker()) and (public.private_summary_worker() or public.private_summary_reader(t,c)) and exists(
  select 1 from public.conversations cv join public.pessoas person on person.igreja_id=cv.igreja_id and person.id=cv.pessoa_id
  where cv.igreja_id=t and cv.id=c and cv.pessoa_id=p and person.arquivada_em is null and not person.optout
  and public.private_deletion_phone_key(cv.telefone)<>''
  and public.private_deletion_phone_key(cv.telefone)=public.private_deletion_phone_key(person.telefone)
  and (select count(*) from public.pessoas peers where peers.igreja_id=t and peers.arquivada_em is null
   and public.private_deletion_phone_key(peers.telefone)=public.private_deletion_phone_key(cv.telefone))=1
- and (select count(*) from public.messages m where m.igreja_id=t and m.conversation_id=c) between 1 and 40
- and not exists(select 1 from public.messages m where m.igreja_id=t and m.conversation_id=c and (
+ and (select count(*) from origin_messages) between 1 and 40
+ and not exists(select 1 from origin_messages m where (
    m.direcao<>'in' or m.autor<>'contato' or coalesce(m.tipo,'texto')<>'texto' or m.media_path is not null
    or m.agent_privilege_context is not null or public.private_summary_topic(m.texto) is null))
  and not exists(select 1 from public.pedido_oracao_mensagem pm where pm.igreja_id=t and pm.conversation_id=c)
@@ -153,7 +164,8 @@ commit;
 -- Rollback: close feature gates and stop consumers first. Preserve requests,
 -- decisions and deletion receipts; never drop a pending suspension silently.
 -- Refuse rollback while any request is pending; complete/reconcile media tasks.
--- Restore private_summary_origin_valid from 20261019_120001 only after that.
+-- Restore the four-argument private_summary_origin_valid from 20261020_200000
+-- only after resolving pending requests; preserve its three-argument delegate.
 -- DROP POLICY request_suspends_sources ON public.private_summary_sources;
 -- DROP POLICY request_suspends_summary ON public.private_conversation_summaries;
 -- DROP FUNCTION public.private_erasure_decide(uuid,text),public.private_erasure_request(uuid,uuid,uuid,uuid);

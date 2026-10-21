@@ -5,7 +5,8 @@ próprio acervo privado com o comando exato (texto puro):
 
 `QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO`
 
-O catálogo e o roteador são determinísticos. A identidade vem do inbound
+O catálogo e o roteador são determinísticos; ignoram caixa e espaços extras
+no comando, preservando integralmente o alvo próprio. A identidade vem do inbound
 persistido e da conversa oficial, nunca do texto ou do modelo. A fatia não aceita
 alvos de terceiros nem razões livres. Não cria um canal de pedido pela equipe.
 
@@ -20,8 +21,9 @@ A pendência suspende leitura de resumos/fontes, enfileiramento e publicação d
 novos resumos, inclusive se o pedido chegar durante a chamada simulada do
 provedor. RLS restritiva e `private_summary_origin_valid` revalidam a suspensão.
 Consumidores de retomada devem usar essa mesma validade no uso e na entrega.
-A #531 está em integração separada; sua compatibilidade **não foi verificada**
-nesta branch e precisa ser testada antes da integração conjunta/ativação.
+A barreira está na função de origem de quatro argumentos da #531; a de três
+continua como repasse. Testes PG sintéticos cobrem retomada, revalidação antes
+da entrega, corrida após o load, publicação e worker com BYPASSRLS.
 
 O admin decide pelo painel autenticado, nos pedidos do painel do contato.
 Aprovar exige confirmação explícita e aciona `private_delete_scope` por pessoa:
@@ -36,6 +38,15 @@ Recusar remove somente a suspensão: não recria resumos invalidados por mudanç
 de fonte, identidade ou acesso. Correções vigentes em fontes ainda válidas são
 preservadas. Repetir decisão idêntica é seguro; trocar decisão encerrada é
 recusado. Fechar admissão de pedidos não impede o admin de resolver pendências.
+
+## Prazo e indicador futuro
+
+Não há prazo automático de expiração nem SLA operacional definido nesta fatia.
+Enquanto o admin não decidir, a suspensão permanece; nunca encerrar ou recusar
+automaticamente para liberar a memória. Antes da ativação, definir responsável,
+SLA de triagem/decisão e escalonamento humano. Indicador futuro: quantidade de
+pedidos pendentes, idade do mais antigo e quantidade acima do SLA, por igreja,
+sem conteúdo privado; alertas e painel desse indicador ainda não implementados.
 
 ## Gates e futura release
 
@@ -52,7 +63,7 @@ o endpoint administrativo e o helper de resumo dependem do novo schema mesmo
 com o canal desligado. Somente PG17 local descartável é autorizado nesta entrega.
 Conferir proprietário/BYPASSRLS das funções SECURITY DEFINER na futura release;
 a identidade worker por ausência de `sub` é herdada da exclusão/resumos e ainda
-precisa de endurecimento. Revisão RLS/migration da Sarah pendente.
+precisa de endurecimento. Revisão da Sarah: GO condicionado; esta revisão trata os ajustes solicitados.
 
 Rollback está comentado no SQL: fechar gates/parar consumidores, resolver
 pendências e preservar trilha/recibos antes de retirar a barreira. Nunca remover

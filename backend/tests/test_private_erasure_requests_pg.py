@@ -299,3 +299,128 @@ def test_approval_enqueues_retained_audio_and_preserves_consent(database, privat
     with Session(database) as db:
         assert db.scalar(select(func.count()).select_from(ConsentRecord).where(ConsentRecord.igreja_id==v['tenant'],ConsentRecord.pessoa_id==v['person']))==1
         assert db.scalar(text('select count(*) from cell_report_audio_inputs where igreja_id=:tenant'),v)==0
+
+
+@pytest.mark.parametrize('body', [
+    '  quero solicitar exclusao do meu conteudo privado  ',
+    'Quero   Solicitar\tExclusao do Meu Conteudo Privado',
+])
+def test_normalized_command_full_turn(database, channel, body):
+    from app.workers.queue_worker import run_agent_for_message
+    from tests.test_messages_inbound_idempotency import _ClassifiedEvolution
+    with database.begin() as c:
+        c.execute(text('update messages set texto=:body where id=:message'), dict(channel, body=body))
+    transport = _ClassifiedEvolution()
+    run_agent_for_message(lambda: Session(database), outcome(channel), evolution_client=transport)
+    assert len(transport.calls) == 1
+    assert 'pendente' in transport.calls[0][2]
+
+
+def test_approved_inbound_replay_survives_deleted_identity(database, enabled):
+    v = enabled
+    prepare_request(database, v)
+    row = request(database, v)
+    with api(database, v) as client:
+        result = client.post(f"/private-erasure-requests/{row['id']}/decision", json={
+            'decision': 'aprovado', 'confirmacao': 'DECIDIR PEDIDO DE EXCLUSAO'})
+        assert result.status_code == 200, result.text
+    replay = request(database, v)
+    assert replay['id'] == row['id']
+    assert replay['state'] == 'aprovado'
+
+
+def test_registration_denial_closes_reserved_reply(database, channel, monkeypatch):
+    from app.workers.queue_worker import run_agent_for_message
+    from tests.test_messages_inbound_idempotency import _ClassifiedEvolution
+    from app.services import private_erasure_requests as service
+    original = service.register
+
+    def denied(db, **kwargs):
+        # Exercise an actual SQL 42501 after contact validation/reservation.
+        return original(db, **dict(kwargs, person=channel['person2']))
+
+    monkeypatch.setattr(service, 'register', denied)
+    transport = _ClassifiedEvolution()
+    run_agent_for_message(lambda: Session(database), outcome(channel), evolution_client=transport)
+    assert transport.calls == []
+    with database.connect() as c:
+        assert c.execute(text("select agent_reply_state,texto from messages where igreja_id=:tenant and direcao='out'"), channel).one() == ('ia_sem_resposta', None)
+        assert c.scalar(text('select count(*) from private_erasure_requests where igreja_id=:tenant'), channel) == 0
+
+
+@pytest.mark.parametrize('decisions', [('aprovado', 'aprovado'), ('aprovado', 'recusado')])
+def test_two_admins_decide_concurrently(database, enabled, decisions):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from fastapi import HTTPException
+    from app.services.private_erasure_requests import decide
+    v = enabled
+    prepare_request(database, v)
+    row = request(database, v)
+    second = uuid4()
+    with database.begin() as c:
+        c.execute(text("insert into app_users(id,igreja_id,nome,email,status,clerk_user_id) values(:u,:tenant,'Synthetic','admin2@example.test','ativo','erasure-admin2')"), dict(v,u=second))
+        c.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:tenant,:u,'admin')"), dict(v,u=second))
+    barrier = Barrier(2)
+
+    def run(args):
+        sub, decision = args
+        with scoped(database, v['tenant']) as db:
+            db.execute(text("select set_config('request.jwt.claims',:claims,true)"), dict(claims='{"sub":"'+sub+'"}'))
+            barrier.wait(timeout=10)
+            try:
+                return decide(db, v['tenant'], row['id'], decision)['state']
+            except HTTPException as exc:
+                return exc.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, zip(('deletion-admin', 'erasure-admin2'), decisions)))
+    if decisions[0] == decisions[1]:
+        assert results == ['aprovado', 'aprovado']
+    else:
+        assert results in (['aprovado', 409], [409, 'recusado'])
+    with database.connect() as c:
+        final = c.execute(text('select state,decided_by,receipt_id from private_erasure_requests where id=:id'), row).one()
+        assert final.decided_by in (v['admin'], second)
+        assert (final.receipt_id is not None) is (final.state == 'aprovado')
+        assert c.scalar(text("select count(*) from private_deletion_receipts where igreja_id=:tenant and scope='pessoa'"),v) == int(final.state == 'aprovado')
+
+
+def test_unauthorized_decision_does_not_wait_for_tenant_lock(database, enabled):
+    from sqlalchemy.exc import DBAPIError
+    v = enabled
+    prepare_request(database, v)
+    row = request(database, v)
+    with database.begin() as holder:
+        holder.execute(text("select pg_advisory_xact_lock(hashtextextended('private-content:'||cast(:t as text),0))"), dict(t=v['tenant']))
+        with scoped(database, v['tenant']) as db:
+            db.execute(text("set local lock_timeout='100ms'"))
+            with pytest.raises(DBAPIError) as exc:
+                db.execute(text("select private_erasure_decide(:r,'aprovado')"), dict(r=row['id']))
+            assert exc.value.orig.pgcode == '42501'
+
+
+def test_full_turn_leader_cannot_request_for_another_person(database, channel):
+    from app.workers.queue_worker import run_agent_for_message
+    from tests.test_messages_inbound_idempotency import _ClassifiedEvolution
+    v = channel
+    with database.begin() as c:
+        c.execute(text('update app_users set pessoa_id=:person where id=:admin'), v)
+        c.execute(text("update user_roles set papel='lider_celula' where user_id=:admin"), v)
+        # Persisted conversation targets another person; leader role grants no override.
+        c.execute(text('update conversations set pessoa_id=:person2 where id=:conv'), v)
+    transport = _ClassifiedEvolution()
+    run_agent_for_message(lambda: Session(database), outcome(v), evolution_client=transport)
+    assert transport.calls == []
+    with database.connect() as c:
+        assert c.scalar(text('select count(*) from private_erasure_requests where igreja_id=:tenant'),v) == 0
+
+
+@pytest.mark.parametrize('body', [
+    'QUERO SOLICITAR EXCLUSAO DO CONTEUDO PRIVADO DE MARIA',
+    'QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO E DO DISCIPULO',
+    'EXCLUA MEU CONTEUDO PRIVADO', '', None,
+])
+def test_catalog_does_not_expand_the_target(rls_database_url, body):
+    from app.private_erasure.catalog import route
+    assert route(body) is False

@@ -3,4 +3,4 @@ from app.services.private_erasure_requests import COMMAND
 
 
 def route(text):
-    return text == COMMAND
+    return isinstance(text, str) and " ".join(text.split()).upper() == COMMAND
