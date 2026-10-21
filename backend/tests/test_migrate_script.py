@@ -53,6 +53,9 @@ class _Conn:
     def rollback(self) -> None:
         self.rollbacks += 1
 
+    def close(self) -> None:
+        self.closed = True
+
 
 def test_pendentes_em_ordem_de_nome() -> None:
     files = ["0001_a.sql", "20260101_000000_b.sql", "20260201_000000_c.sql"]
@@ -152,3 +155,41 @@ def test_apply_executa_sem_o_wrapper_externo() -> None:
     assert not any(
         line.strip().lower() in {"begin;", "commit;"} for line in executed_sql.splitlines()
     )
+
+
+def test_cli_no_transaction_separa_timeout_do_indice(monkeypatch) -> None:
+    name = "20261023_100001_ai_usage_tenant_created_idx.sql"
+    conn = _Conn()
+    monkeypatch.setattr(migrate, "_connect", lambda: conn)
+    assert migrate.main(["apply", name, "--yes", "--no-transaction"]) == 0
+    assert conn.autocommit and conn.closed
+    timeout, ddl = conn.executed[2:4]
+    assert "SET lock_timeout = '2s';" in timeout
+    assert "CREATE INDEX" not in timeout
+    assert ddl.lstrip().startswith("CREATE INDEX CONCURRENTLY")
+    assert conn.executed[4].startswith("INSERT INTO public.schema_migrations")
+    assert name in conn.applied
+
+
+@pytest.mark.parametrize("failure", ["SET lock_timeout", "CREATE INDEX CONCURRENTLY"])
+def test_falha_sem_transacao_nao_registra_e_permite_retentativa(failure) -> None:
+    name = "20261023_100001_ai_usage_tenant_created_idx.sql"
+    conn = _Conn(fail_on=failure)
+    with pytest.raises(RuntimeError):
+        migrate.cmd_apply(conn, name, transactional=False)
+    assert name not in conn.applied
+    assert conn.rollbacks == 0
+    conn.fail_on = None
+    assert migrate.cmd_apply(conn, name, transactional=False) == 0
+    assert name in conn.applied
+
+
+def test_timeout_transacional_permanece_no_mesmo_comando(tmp_path, monkeypatch) -> None:
+    name = "20261023_100000_timeout_test.sql"
+    sql = "SET LOCAL lock_timeout = '2s';\nCREATE TABLE synthetic (igreja_id uuid);\n"
+    (tmp_path / name).write_text(sql, encoding="utf-8")
+    monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+    conn = _Conn()
+    migrate.cmd_apply(conn, name, transactional=True)
+    assert conn.autocommit is False
+    assert conn.executed[2] == sql
