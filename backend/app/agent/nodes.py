@@ -574,6 +574,11 @@ def route_conhecimento_intent(text):
     return route(text)
 
 
+def route_agenda_intent(text, *, pending=False):
+    from app.agenda_whatsapp.catalog import route
+    return route(text, pending=pending)
+
+
 def route_private_erasure_intent(text):
     from app.private_erasure.catalog import route
     return route(text)
