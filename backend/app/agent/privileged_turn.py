@@ -149,11 +149,14 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
             or type(raw['sensitive']) is not bool
             or raw['kind'] not in {
                 'summary', 'receipt', 'readonly', 'challenge', 'clarify', 'audio_notice',
-                'agenda', 'consolidation',
+                'agenda', 'consolidation', 'private_resume',
             }
         ):
             return False
-        if raw['kind'] == 'agenda':
+        if raw['kind'] == 'private_resume':
+            if raw.keys() - required - {'proof_id', 'private_resume'}:
+                return False
+        elif raw['kind'] == 'agenda':
             from app.services.whatsapp_agenda import valid_agenda_reply_metadata
             if (
                 raw.keys() - required - {'proof_id', 'agenda'}
@@ -178,6 +181,9 @@ def reply_still_authorized(session, message, *, conversation, recipient_phone, i
         valid = (type(context) is PrivilegeContext
                 and context.context_fingerprint == raw['context_fingerprint']
                 and (str(context.proof_id) if context.proof_id else None) == raw.get('proof_id'))
+        if valid and raw['kind'] == 'private_resume':
+            from app.services.private_resume import still_current
+            return still_current(session, context, raw.get('private_resume'), delivered=True)
         if valid and raw['kind'] == 'challenge':
             from sqlalchemy import func
             from app.db.models import AgentIdentityChallenge
@@ -1336,10 +1342,13 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     if routed.status == 'handoff' or time.monotonic() >= started + 9:
         return handoff('privilege_router_handoff')
     general_response = None
+    private_resume_reference = None
     if v3_projection is not None and routed.status == 'clarify':
         return handoff('privilege_router_handoff')
     if routed.status == 'clarify' and routed.route is None:
         generated = _general_answer(runtime_session_factory, outcome, preflight, context, started + 9)
+        if isinstance(generated, tuple):
+            generated, private_resume_reference = generated
         if generated is not None:
             routing_usage += (generated.usage,)
         if generated is None or generated.handoff or not generated.resposta:
@@ -1368,6 +1377,9 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
         ):
             return qw.AgentRunDisposition.COMPLETED
         invalid = error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint
+        if not invalid and private_resume_reference is not None:
+            from app.services.private_resume import still_current
+            invalid = not still_current(session, current, private_resume_reference)
         if not invalid:
             selected = mapping.get((routed.tool, routed.handle))
             if routed.status == 'selected' and selected is None:
@@ -1375,7 +1387,10 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
             elif selected is None:
                 _store_response(message, current,
                     general_response or 'Não identifiquei uma ação ou alvo autorizado. Diga qual registro deseja consultar ou confirmar.',
-                    kind='clarify')
+                    kind='private_resume' if private_resume_reference else 'clarify')
+                if private_resume_reference:
+                    message.agent_privilege_context = dict(
+                        message.agent_privilege_context, private_resume=private_resume_reference)
             else:
                 invalid = not _apply_selection(
                     session,
@@ -1577,15 +1592,21 @@ def _general_answer(factory, outcome, preflight, context, deadline):
             conversation_id=preflight.conversation_id, inbound_message_id=preflight.inbound_message_id)
         if error or type(current) is not PrivilegeContext or current.context_fingerprint != context.context_fingerprint:
             return None
+        from app.services import private_resume
+        memory = private_resume.load(session, current)
         history = _load_recent_conversation_history(session, igreja_id=preflight.igreja_id,
             conversation_id=preflight.conversation_id, current_message_id=preflight.inbound_message_id,
             provider_message_id=preflight.provider_message_id)
         plan = _build_tier_a_plan(preflight, effects=empty_turn_effects(),
             draft_response='Como posso ajudar?', history=history)
+        if memory is not None and plan is not None:
+            from dataclasses import replace
+            # Sources are private context, never router/catalog instructions.
+            plan = replace(plan, user_prompt=plan.user_prompt + private_resume.prompt(memory))
     remaining = deadline - time.monotonic()
     if plan is None or remaining <= 0:
         return None
     result = reply_tier_a_plan_with_llm(plan, timeout_seconds=min(4.0, remaining))
     if time.monotonic() >= deadline or type(result) is not TypedLLMResult:
         return None
-    return result
+    return (result, private_resume.reference(memory)) if memory is not None else result
