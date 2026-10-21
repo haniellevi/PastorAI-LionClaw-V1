@@ -282,10 +282,15 @@ def test_suggestion_page_batches_queries_independent_of_people_count(candidate):
     event.listen(p.engine, 'before_cursor_execute', count)
     try:
         with p.factory() as db:
+            # Establish the fixture's tenant context before measuring domain SQL.
+            db.connection()
+            statements.clear()
             single = suggestions(db, p.actors['pastor'], page=1, page_size=1)
             single_count = len(statements)
         statements.clear()
         with p.factory() as db:
+            db.connection()
+            statements.clear()
             page = suggestions(db, p.actors['pastor'], page=1, page_size=20)
         assert page['total'] == len(page['items']) == 9
         assert all(not item['blocked_reason'] for item in page['items'])
