@@ -19,7 +19,8 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, noload
 
 from app.config import get_settings
@@ -539,6 +540,76 @@ def invite_member(
     return InviteResponse(
         usuarioId=str(app_user.id), status="convidado", emailEnviado=email_sent
     )
+
+
+class PessoaLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pessoaId: uuid.UUID | None  # noqa: N815 - null explícito para desvincular
+
+
+class PessoaLinkResponse(BaseModel):
+    usuarioId: str  # noqa: N815
+    pessoaId: str | None  # noqa: N815
+
+
+@router.put("/{usuario_id}/pessoa", response_model=PessoaLinkResponse)
+def link_pessoa(
+    usuario_id: uuid.UUID,
+    payload: PessoaLinkRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> PessoaLinkResponse:
+    """Vínculo web idempotente; não altera acesso, papéis nem liderança."""
+    tenant = uuid.UUID(current_user.igreja_id)
+    _lock_admin_floor(db, tenant)
+    target = db.execute(select(AppUser).where(
+        AppUser.id == usuario_id, AppUser.igreja_id == tenant,
+    )).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    # Igreja -> Pessoas ordenadas -> acesso: mesma ordem da gestão de equipe.
+    ids = sorted({p for p in (target.pessoa_id, payload.pessoaId) if p}, key=str)
+    people = db.execute(select(Pessoa).where(
+        Pessoa.igreja_id == tenant, Pessoa.id.in_(ids),
+    ).order_by(Pessoa.id).with_for_update()).scalars().all() if ids else []
+    by_id = {p.id: p for p in people}
+    if payload.pessoaId is not None:
+        person = by_id.get(payload.pessoaId)
+        if person is None:
+            raise HTTPException(404, "Pessoa não encontrada")
+        if person.arquivada_em is not None or person.sem_interesse:
+            raise HTTPException(409, "Selecione uma Pessoa ativa com interesse ministerial")
+        linked = db.execute(select(AppUser.id).where(
+            AppUser.igreja_id == tenant, AppUser.pessoa_id == person.id,
+            AppUser.id != usuario_id,
+        ).limit(1)).scalar_one_or_none()
+        if linked is not None:
+            raise HTTPException(409, "Esta Pessoa já está vinculada a outro usuário")
+    target = _lock_target_identity(db, igreja_id=tenant, app_user=target)
+    if target.pessoa_id != payload.pessoaId:
+        # Desvincular/trocar não pode contornar o bloqueio da revogação de líder.
+        if target.pessoa_id is not None:
+            leads = db.execute(select(Celula.id).where(
+                Celula.igreja_id == tenant, Celula.lider_id == target.pessoa_id,
+                Celula.ativo.is_(True),
+            ).limit(1)).scalar_one_or_none()
+            if leads is not None:
+                raise HTTPException(409, "Transfira ou encerre a liderança antes de alterar o vínculo")
+        target.pessoa_id = payload.pessoaId
+        try:
+            db.flush()
+            db.execute(text("""insert into team_pessoa_eventos
+                (igreja_id,actor_id,usuario_id,operacao)
+                values(:t,:a,:u,:o)"""), dict(
+                    t=tenant, a=uuid.UUID(current_user.app_user_id), u=usuario_id,
+                    o="vincular" if payload.pessoaId else "desvincular"))
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(409, "Vínculo indisponível; atualize a equipe e tente novamente") from exc
+    return PessoaLinkResponse(usuarioId=str(usuario_id),
+                              pessoaId=str(payload.pessoaId) if payload.pessoaId else None)
 
 
 @router.put("/{usuario_id}/roles", response_model=RolesResponse)

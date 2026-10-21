@@ -251,6 +251,11 @@ class AppUser(Base):
             name="app_users_tenant_pessoa_fkey",
         ),
         Index(
+            "app_users_pessoa_unica_por_igreja",
+            "igreja_id", "pessoa_id", unique=True,
+            postgresql_where=text("pessoa_id IS NOT NULL"),
+        ),
+        Index(
             "app_users_igreja_id_pessoa_id_idx",
             "igreja_id",
             "pessoa_id",
