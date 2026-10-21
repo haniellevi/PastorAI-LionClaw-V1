@@ -1020,3 +1020,30 @@ def test_secretaria_offer_erasure_clears_anchors_before_messages(database, priva
     finally:
         with database.begin() as c:
             c.exec_driver_sql('alter table messages enable trigger clear_secretaria_offer_before_message_delete')
+
+
+@pytest.mark.parametrize('role', ['operador', 'lider_celula', 'membro'])
+def test_person_reset_denies_non_admin(database, private_data, role):
+    v = private_data
+    with api(database, v, roles=(role,)) as client:
+        result = client.request('DELETE', f"/contacts/{v['person']}/private-content", json={
+            'operation_id': str(uuid4()), 'confirmacao': 'EXCLUIR CONTEUDO PRIVADO'})
+        assert result.status_code == 403
+    with database.connect() as c:
+        assert c.scalar(text('select count(*) from conversations where id=:conv'), v) == 1
+
+
+def test_person_reset_http_replay_preserves_new_content(database, private_data):
+    v = private_data
+    payload = {'operation_id': str(uuid4()), 'confirmacao': 'EXCLUIR CONTEUDO PRIVADO'}
+    with api(database, v) as client:
+        first = client.request('DELETE', f"/contacts/{v['person']}/private-content", json=payload)
+        assert first.status_code == 200, first.text
+        with database.begin() as c:
+            c.execute(text("insert into conversations(id,igreja_id,pessoa_id,telefone) values(:id,:tenant,:person,'000000000000')"), dict(v, id=uuid4()))
+        replay = client.request('DELETE', f"/contacts/{v['person']}/private-content", json=payload)
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first.json()
+    with database.connect() as c:
+        assert c.scalar(text('select count(*) from conversations where igreja_id=:tenant and pessoa_id=:person'), v) == 1
+        assert c.scalar(text('select count(*) from private_deletion_receipts where igreja_id=:tenant'), v) == 1

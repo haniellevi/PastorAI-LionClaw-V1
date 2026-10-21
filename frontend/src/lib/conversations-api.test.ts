@@ -189,12 +189,12 @@ describe("sigilo pastoral e recibo privado", () => {
     expect(String(spy.mock.calls[0]?.[0])).toContain("before=cursor");
   });
 
-  it("lista ignora caches e recibos guardam apenas estado e contagens conhecidas", async () => {
-    const receipt = {id:"r-synthetic",estado:"pendente",camadas:{midias:{encontradas:1,apagadas:0,pendentes:1,falhas:1,texto:"não reter"},conteudo:{texto:"não reter"}},texto:"não reter"};
+  it("lista ignora caches e recibos retêm todas as camadas somente com contagens", async () => {
+    const receipt = {id:"r-synthetic",estado:"pendente",camadas:{midias:{encontradas:1,apagadas:0,pendentes:1,falhas:1,texto:"não reter"},nova_camada:{encontradas:3,apagadas:1,pendentes:2,falhas:0,texto:"não reter"}},texto:"não reter"};
     const spy=vi.fn().mockResolvedValue({ok:true,json:async()=>receipt});
     vi.stubGlobal("fetch",spy);
     const result=await deleteConversation("t","c");
-    expect(result).toEqual({id:"r-synthetic",estado:"pendente",camadas:{midias:{encontradas:1,apagadas:0,pendentes:1,falhas:1}}});
+    expect(result).toEqual({id:"r-synthetic",estado:"pendente",camadas:{midias:{encontradas:1,apagadas:0,pendentes:1,falhas:1},nova_camada:{encontradas:3,apagadas:1,pendentes:2,falhas:0}}});
     await fetchConversationDeletionReceipt("t","c");
     await fetchConversations("t");
     expect(spy.mock.calls[1]?.[1]).toMatchObject({cache:"no-store"});

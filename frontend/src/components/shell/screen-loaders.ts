@@ -48,9 +48,12 @@ export const loadWhatsappScreen = () =>
   import("@/components/whatsapp/WhatsappScreen");
 export const loadPerfilScreen = () => import("@/components/profile/PerfilScreen");
 
+export const loadResponsabilidadesScreen = () => import("@/components/responsabilidades/ResponsabilidadesScreen");
+
 const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
   "pedidos-oracao": loadPrayerRequestsScreen,
   calendario: loadCalendarioScreen,
+  responsabilidades: loadResponsabilidadesScreen,
   celulas: loadCelulasScreen,
   agente: loadAgenteScreen,
   assinatura: loadAssinaturaScreen,
