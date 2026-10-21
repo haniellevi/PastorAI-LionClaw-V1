@@ -31,6 +31,39 @@ Esse caminho agora chama a mesma limpeza privada **antes** das cascatas,
 na mesma transação e sem provedores. Seu contrato cadastral de consentimento
 não foi alterado. Não existe endpoint web para reset global.
 
+## Painel: reset privado por pessoa — Memória 6, primeira fatia
+
+No inbox, o admin abre **Ver pessoa → Excluir conteúdo privado da pessoa**.
+O diálogo identifica a pessoa selecionada e exige digitar exatamente
+`EXCLUIR CONTEUDO PRIVADO`. O servidor continua revalidando admin web,
+igreja e alvo na rota e no serviço SQL existentes; o botão não concede acesso
+a conteúdo protegido. Nenhuma migration, capability do agente ou gate novo.
+Gates de geração, retomada, pedidos e efeitos externos permanecem inalterados.
+
+O cliente gera um UUID por operação e mantém o mesmo UUID em tentativas após
+falha/resultado ambíguo, enquanto o diálogo desta pessoa permanecer montado na
+mesma sessão. Cancelar/reabrir para a mesma pessoa conserva a operação.
+Não recarregue a página nem troque de pessoa para tentar novamente após falha:
+isso pode criar outra operação. O UUID aparece no diálogo para conferência.
+Após recibo válido, limpa conversas/rascunhos locais da pessoa e invalida cargas
+em andamento; mantém o diálogo fora do painel desmontado. **Atualizar recibo**
+faz somente GET, distingue envio em andamento, limpeza externa pendente e
+conclusão operacional, mostrando contagens e ID. Backups e cópias do provedor
+permanecem fora do alcance. Não há envio automático à pessoa.
+
+O recibo fica na sessão da tela; recuperação pela interface após reload,
+histórico de operações e uma segunda exclusão explícita de conteúdo novo da
+mesma pessoa são fatias futuras (as rotas existentes já suportam novo UUID).
+Não confundir reset privado com exclusão cadastral ou reset global.
+
+**Inventário restante de Memória 6:** visão admin agregada de flags/contagens
+sem conteúdo/PII; reset privado por igreja no painel; registro de pedido pela
+equipe (decisão 28); indicador na Central de pendências e idade do mais antigo.
+Não há SLA definido: nenhuma expiração/recusa automática deve liberar memória.
+Esta fatia **não conclui Memória 6**. Próxima fatia sugerida: indicador agregado
+de pedidos pendentes e idade do mais antigo, admin-only, sem inventar SLA.
+Deploy, banco remoto, funcionamento em produção e ativação: **não verificados**.
+
 ## Retenção V1b — decisão pastoral 15
 
 Em 18/10/2026, Raniel decidiu retirar a exclusão automática em 24 horas

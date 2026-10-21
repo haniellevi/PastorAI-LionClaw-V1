@@ -91,7 +91,7 @@ export interface PrivateDeletionReceipt {
   camadas: Record<string, { encontradas: number; apagadas: number; pendentes: number; falhas: number }>;
 }
 
-function readDeletionReceipt(value: unknown): PrivateDeletionReceipt {
+export function readDeletionReceipt(value: unknown): PrivateDeletionReceipt {
   if (!isRecord(value) || typeof value.id !== "string" ||
       !["pendente", "pendente_envio", "concluido"].includes(String(value.estado)) || !isRecord(value.camadas)) {
     throw new ApiError(502, "Recibo de exclusão inválido.");

@@ -108,11 +108,13 @@ export function ContactPanel({
   pessoaId,
   telefone,
   avatarUrl,
+  onResetPrivateContent,
   onClose,
 }: {
   pessoaId: string | null;
   telefone: string;
   avatarUrl?: string | null;
+  onResetPrivateContent?: () => void;
   onClose: () => void;
 }) {
   const { token, user, expireSession } = useAuth();
@@ -338,6 +340,10 @@ export function ContactPanel({
             </Button>
           ) : null}
 
+          {canEdit && token && detail.id === pessoaId && onResetPrivateContent ? <section className="panel-section">
+            <h4>Conteúdo privado</h4>
+            <Button size="sm" variant="danger" onClick={onResetPrivateContent}>Excluir conteúdo privado da pessoa</Button>
+          </section> : null}
           {canEdit && token ? <PrivateErasureRequests token={token} personId={detail.id} expireSession={expireSession} /> : null}
 
           <section className="panel-section">
