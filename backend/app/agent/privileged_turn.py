@@ -100,6 +100,10 @@ def reply_metadata(
 def reply_still_authorized(session, message, *, conversation, recipient_phone, instance) -> bool:
     """Revalidate every S3 reply immediately before transport, including retry."""
     raw = message.agent_privilege_context
+    if isinstance(raw, dict) and raw.get('kind') == 'private_erasure':
+        from app.private_erasure.turn import reply_still_authorized as erasure_authorized
+        return erasure_authorized(session, message, conversation=conversation,
+                                  recipient_phone=recipient_phone, instance=instance)
     if isinstance(raw, dict) and raw.get('kind') == 'conhecimento':
         from app.conhecimento_whatsapp.turn import reply_still_authorized as conhecimento_authorized
         return conhecimento_authorized(session, message, conversation=conversation,
