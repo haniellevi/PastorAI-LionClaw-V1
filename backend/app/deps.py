@@ -228,7 +228,10 @@ def _resolve_current_user(
     loaded_roles = getattr(app_user, "roles", None)
     if loaded_roles is None:  # compatibilidade com doubles unitários legados
         roles = db.execute(
-            select(UserRole.papel).where(UserRole.user_id == app_user.id)
+            select(UserRole.papel).where(
+                UserRole.user_id == app_user.id,
+                UserRole.igreja_id == app_user.igreja_id,
+            )
         ).scalars().all()
     else:
         roles = [role.papel for role in loaded_roles]
