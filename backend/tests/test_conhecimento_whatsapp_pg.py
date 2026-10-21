@@ -170,19 +170,37 @@ def test_public_visitor_and_document_text_never_becomes_instruction(knowledge_tu
     with p.factory() as s: assert s.execute(text('select count(*) from conhecimento_documentos')).scalar()==1
 
 
+@pytest.fixture
+def legacy_access_id(database):
+    """Reconstitui a ambiguidade pré-migration e restaura o índice ao sair."""
+    user_id = uuid4()
+    with database.begin() as c:
+        definition = c.scalar(text("SELECT pg_get_indexdef('app_users_pessoa_unica_por_igreja'::regclass)"))
+        c.exec_driver_sql('DROP INDEX app_users_pessoa_unica_por_igreja')
+    try:
+        yield user_id
+    finally:
+        with database.begin() as c:
+            c.execute(text('DELETE FROM app_users WHERE id=:u'), dict(u=user_id))
+            c.exec_driver_sql('SET CONSTRAINTS ALL IMMEDIATE')
+            c.exec_driver_sql(definition)
+
+
 @pytest.mark.parametrize('state',['consent','release','allowlist','link','ambiguous'])
-def test_pending_read_is_suppressed_when_access_boundary_changes(knowledge_turn,monkeypatch,state):
+def test_pending_read_is_suppressed_when_access_boundary_changes(knowledge_turn,monkeypatch,state,request):
     from app.conhecimento_whatsapp import policy
     p=knowledge_turn; document(p)
     outcome,r,t=send(p,'CONHECIMENTO buscar orientação',transport=_ClassifiedEvolution('falhou_retentavel'))
     assert r.agent_reply_state=='ia_pendente'
+    # Só o cenário legado de ambiguidade precisa suspender a unicidade.
+    legacy_id = request.getfixturevalue('legacy_access_id') if state=='ambiguous' else None
     if state=='release': monkeypatch.setattr(policy,'CONHECIMENTO_WHATSAPP_APPROVED_RELEASE_ID',None)
     elif state=='allowlist': monkeypatch.setenv('CONHECIMENTO_WHATSAPP_ENABLED_IGREJA_IDS','')
     else:
         with p.factory.begin() as s:
             if state=='consent': s.execute(text('delete from consent_records'))
             if state=='link': s.execute(text('update app_users set pessoa_id=null where id=:u'),dict(u=p.v['leader']))
-            if state=='ambiguous': s.execute(text("insert into app_users(id,igreja_id,pessoa_id,status,nome,email) values(:u,:t,:p,'ativo','Sintético','ambiguous@example.test')"),dict(u=uuid4(),t=p.v['t'],p=p.person))
+            if state=='ambiguous': s.execute(text("insert into app_users(id,igreja_id,pessoa_id,status,nome,email) values(:u,:t,:p,'ativo','Sintético','ambiguous@example.test')"),dict(u=legacy_id,t=p.v['t'],p=p.person))
     t=_ClassifiedEvolution()
     from app.workers.queue_worker import _deliver_agent_reply_intent
     # Use the durable pipeline directly: a closed feature must not start a new turn.
