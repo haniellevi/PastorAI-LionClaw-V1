@@ -43,6 +43,10 @@ vi.mock("@/lib/contacts-api", async (importOriginal) => {
   };
 });
 
+vi.mock("./PrivateErasureRequests", () => ({
+  PrivateErasureRequests: () => h("div", { "data-testid": "private-erasure-requests" }),
+}));
+
 const { ContactPanel } = await import("./ContactPanel");
 
 declare global {
@@ -380,3 +384,15 @@ describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+
+it.each(["admin", "pastor", "lider_celula", "operador"])(
+  "shows private erasure requests only to admin (%s)",
+  async (role) => {
+    authState.roles = [role];
+    apiMock.fetchContactDetail.mockResolvedValue(detail());
+    await renderPanel();
+    expect(Boolean(container.querySelector('[data-testid="private-erasure-requests"]')))
+      .toBe(role === "admin");
+  },
+);
