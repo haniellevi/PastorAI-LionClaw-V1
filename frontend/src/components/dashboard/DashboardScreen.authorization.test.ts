@@ -1015,7 +1015,8 @@ describe("DashboardScreen — composição por responsabilidades", () => {
 it.each(["admin", "pastor"])("compõe Central em Hoje para %s", async (role) => {
   authState.roles = [role];
   await renderScreen();
-  expect(apiMock.getCentralDashboard).toHaveBeenCalledWith("tok-1");
+  expect(apiMock.getCentralDashboard).toHaveBeenCalledWith("tok-1", true);
+  expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledWith("tok-1", 1, 25, { hoje: true });
   expect(container.textContent).toContain("3 relatórios pendentes");
 });
 it.each(["lider_g12", "lider_consol", "lider_celula", "lider_mult", "operador", "membro"])("não consulta nem exibe contadores da Central para %s", async (role) => {
