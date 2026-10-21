@@ -27,7 +27,7 @@ def escopo_vigente(db, user):
     actor = db.execute(text('''select u.pessoa_id, p.id as pessoa_ativa
         from app_users u left join pessoas p on p.id=u.pessoa_id
         and p.igreja_id=u.igreja_id and p.arquivada_em is null
-        where u.id=:u and u.igreja_id=:t and u.status='ativo' '''),dict(t=tenant,u=uid)).mappings().first()
+        where u.id=:u and u.igreja_id=:t and (u.status is null or u.status='ativo') '''),dict(t=tenant,u=uid)).mappings().first()
     if actor is None:
         raise HTTPException(403, 'Acesso inativo')
     roles = frozenset(db.execute(text('select papel from user_roles where igreja_id=:t and user_id=:u'),dict(t=tenant,u=uid)).scalars())

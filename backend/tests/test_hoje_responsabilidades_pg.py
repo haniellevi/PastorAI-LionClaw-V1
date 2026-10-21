@@ -64,6 +64,24 @@ def test_live_period_and_sector(api, database, seeded, queue, path, period, expe
     assert {i['tipo'] for i in response.json()['items']} <= {'visitante','fonovisita','conectar_celula'}
 
 
+@pytest.mark.parametrize('path', ['/work-queue', '/work-queue/snapshot'])
+@pytest.mark.parametrize('status', [None, 'ativo', 'inativo', 'suspenso', 'revogado'])
+def test_live_user_status(api, database, seeded, queue, path, status):
+    responsibility(database, seeded)
+    # Only in this disposable PG: exercise denied states absent from today's enum.
+    with database.begin() as c:
+        c.execute(text("alter type app_user_status add value if not exists 'inativo'"))
+        c.execute(text("alter type app_user_status add value if not exists 'suspenso'"))
+    with database.begin() as c:
+        c.execute(text('update app_users set status=:status where id=:u'),
+                  dict(status=status, u=seeded['leader']))
+    response = api.get(path, params={'hoje': True})
+    assert response.status_code == (200 if status in (None, 'ativo') else 403), response.text
+    if response.status_code == 200:
+        assert response.json()['total'] == 3
+        assert {i['tipo'] for i in response.json()['items']} == {'visitante', 'fonovisita', 'conectar_celula'}
+
+
 @pytest.mark.parametrize('change', ['unlinked','archived','revoked','no_role','other_person','no_responsibility'])
 def test_revalidation_each_use(api, database, seeded, queue, change):
     if change != 'no_responsibility':
