@@ -29,7 +29,7 @@ async function render(token = "synthetic-a") {
 }
 it("compõe contadores sem somar multiplicações duas vezes e navega à Central", async () => {
   await render();
-  expect(api.getDashboard).toHaveBeenCalledWith("synthetic-a");
+  expect(api.getDashboard).toHaveBeenCalledWith("synthetic-a", true);
   expect(container.textContent).toContain("3 relatórios pendentes");
   expect(container.textContent).toContain("2 solicitações aguardando");
   expect(container.textContent).toContain("1 célula com alerta");

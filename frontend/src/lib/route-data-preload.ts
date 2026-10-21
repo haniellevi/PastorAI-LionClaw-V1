@@ -27,7 +27,7 @@ export async function preloadRouteData(
   switch (route) {
     case "dashboard":
       jobs = [
-        ...(responsibilities.hasWorkQueue ? [fetchWorkQueuePage(token, 1, 25)] : []),
+        ...(responsibilities.hasWorkQueue ? [fetchWorkQueuePage(token, 1, 25, { hoje: true })] : []),
         ...(responsibilities.showOverview ? [fetchOverview(token)] : []),
         ...(canSee("calendario", roles, matrix) ? [fetchUpcomingEvents(token)] : []),
       ];

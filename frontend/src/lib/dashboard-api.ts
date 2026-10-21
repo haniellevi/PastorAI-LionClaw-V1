@@ -308,16 +308,17 @@ export async function fetchWorkQueuePage(
   token: string,
   page = 1,
   pageSize = 100,
-  options?: { revalidate?: boolean; revision?: string },
+  options?: { revalidate?: boolean; revision?: string; hoje?: boolean },
 ): Promise<Page<WorkItem>> {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (options?.revision) query.set("revision", options.revision);
+  if (options?.hoje) query.set("hoje", "true");
   const preferSnapshot = Boolean(options?.revision) || (legacyQueueUntil.get(token) ?? 0) <= Date.now();
-  let res = await authedFetch(token, `${preferSnapshot ? "/work-queue/snapshot" : "/work-queue"}?${query}`, options?.revalidate ? { cache: "reload" } : undefined);
+  let res = await authedFetch(token, `${preferSnapshot ? "/work-queue/snapshot" : "/work-queue"}?${query}`, options?.revalidate || options?.hoje ? { cache: "reload" } : undefined);
   if (preferSnapshot && res.status === 404 && !options?.revision) {
     if (legacyQueueUntil.size >= 64) legacyQueueUntil.delete(legacyQueueUntil.keys().next().value!);
     legacyQueueUntil.set(token, Date.now() + 60_000);
-    res = await authedFetch(token, `/work-queue?${query}`, options?.revalidate ? { cache: "reload" } : undefined);
+    res = await authedFetch(token, `/work-queue?${query}`, options?.revalidate || options?.hoje ? { cache: "reload" } : undefined);
   } else if (preferSnapshot && res.ok) {
     const result = await res.json() as Page<WorkItem>;
     if (typeof result.revision !== "string" || !/^[a-f0-9]{32}$/.test(result.revision) || (options?.revision && result.revision !== options.revision)) {
@@ -360,11 +361,12 @@ async function collectWorkQueueSnapshot(
   token: string,
   pageSize: number,
   initialFirstPage?: Page<WorkItem>,
+  hoje = false,
 ): Promise<WorkQueueSnapshot> {
   const firstPage =
     initialFirstPage ??
     (await fetchWorkQueuePage(token, 1, pageSize, {
-      revalidate: true,
+      revalidate: true, hoje,
     }));
   const seenIds = new Set<string>();
   const items: WorkItem[] = [];
@@ -389,7 +391,7 @@ async function collectWorkQueueSnapshot(
   while (seenIds.size < firstPage.total && pageRequests < maxPageRequests) {
     const chunk = await fetchWorkQueuePage(token, page, firstPage.pageSize, {
       revalidate: true,
-      revision: firstPage.revision,
+      revision: firstPage.revision, hoje,
     });
     pageRequests += 1;
     if (chunk.total !== firstPage.total) totalsStayedStable = false;
@@ -433,19 +435,20 @@ function sameWorkQueueSnapshot(
 export async function fetchRemainingWorkQueuePages(
   token: string,
   firstPage: Page<WorkItem>,
+  hoje = false,
 ): Promise<WorkQueueRemainder> {
   if (firstPage.revision) {
     let current = firstPage;
     for (let attempt = 0; attempt < WORK_QUEUE_SNAPSHOT_ATTEMPTS; attempt += 1) {
       try {
-        const snapshot = await collectWorkQueueSnapshot(token, current.pageSize, current);
-        const verification = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true });
+        const snapshot = await collectWorkQueueSnapshot(token, current.pageSize, current, hoje);
+        const verification = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true, hoje });
         if (!snapshot.complete || verification.revision !== current.revision) throw new ApiError(409, "A fila mudou.");
         const firstIds = new Set(current.items.map((item) => item.id));
         return { firstPage: current, items: snapshot.items.filter((item) => !firstIds.has(item.id)), total: current.total };
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
-        if (attempt + 1 < WORK_QUEUE_SNAPSHOT_ATTEMPTS) current = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true });
+        if (attempt + 1 < WORK_QUEUE_SNAPSHOT_ATTEMPTS) current = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true, hoje });
       }
     }
     throw new ApiError(409, "A fila mudou enquanto era carregada. A primeira página permanece disponível; tente novamente para confirmar todas as ações.");
@@ -455,10 +458,11 @@ export async function fetchRemainingWorkQueuePages(
     token,
     firstPage.pageSize,
     firstPage,
+    hoje,
   );
 
   for (let attempt = 0; attempt < WORK_QUEUE_SNAPSHOT_ATTEMPTS; attempt += 1) {
-    const verification = await collectWorkQueueSnapshot(token, firstPage.pageSize);
+    const verification = await collectWorkQueueSnapshot(token, firstPage.pageSize, undefined, hoje);
     if (sameWorkQueueSnapshot(snapshot, verification)) {
       const firstPageIds = new Set(
         verification.firstPage.items.map((item) => item.id),
