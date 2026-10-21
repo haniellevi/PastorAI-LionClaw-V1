@@ -19,6 +19,7 @@ def test_panel_lifecycle_history_and_reader_scope(database, seeded):
         new = edit(c, p)
         publish(c, new, p['versao_id'])
         panel = c.get('/conhecimento/documentos').json()
+        assert panel['documentos'][0]['total_versoes'] == 3
         versions = panel['documentos'][0]['versoes']
         assert [r['estado'] for r in versions] == ['substituida', 'substituida', 'publicada']
         assert not versions[1]['pode_ler']
@@ -28,6 +29,7 @@ def test_panel_lifecycle_history_and_reader_scope(database, seeded):
         panel = c.get('/conhecimento/documentos').json()
         assert not panel['pode_criar'] and panel['responsavel_id'] is None
         assert len(panel['documentos'][0]['versoes']) == 1
+        assert 'total_versoes' not in panel['documentos'][0]
         assert panel['documentos'][0]['versoes'][0]['acoes'] == []
     with client(database, v) as c:
         assert action(c, new, 'revogar').status_code == 200
@@ -133,6 +135,7 @@ def test_panel_pages_history_with_bounded_database_round_trips(database, seeded)
             event.remove(database, 'before_cursor_execute', count)
         assert len(queries) <= 20
         assert first['tem_mais'] and first['pagina'] == 1
+        assert first['documentos'][0]['total_versoes'] == 26
         second = c.get('/conhecimento/documentos?pagina=2').json()
         assert not second['tem_mais']
         versions = first['documentos'][0]['versoes'] + second['documentos'][0]['versoes']

@@ -133,3 +133,14 @@ def buscar(q: str=Query(min_length=1,max_length=200),
 @router.get('/documentos')
 def listar(pagina: int=Query(default=1,ge=1,le=100),db: Session=DB,user: CurrentUser=USER):
     return service.painel(db,user,pagina)
+
+
+class ExcluirInput(Input):
+    confirmacao: Literal['EXCLUIR DOCUMENTO']
+
+
+@router.post('/documentos/{did}/excluir')
+def excluir(did: UUID,payload: ExcluirInput,db: Session=DB,user: CurrentUser=USER):
+    result=service.excluir(db,user,did,payload.operacao_id)
+    db.commit()
+    return result

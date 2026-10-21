@@ -19,6 +19,13 @@ def citation_text(value):
 
 def source_versions(db, usuario, results):
     context = conhecimento.contexto_leitura(db, usuario)
+    # Hold the official source until its quote commits. Erasure locks the same
+    # document before redacting messages, so an in-flight quote cannot escape.
+    conhecimento.rows(db, '''select d.id from conhecimento_documentos d
+        join conhecimento_versoes v on v.igreja_id=d.igreja_id and v.documento_id=d.id
+        where d.igreja_id=:t and v.id=any(cast(:ids as uuid[]))
+        order by d.id for share of d''', t=context['t'],
+        ids=[str(r['versao_id']) for r in results])
     return {str(r['id']): r for r in conhecimento.rows(db, f"""
         with legiveis as (
             select v.id,v.documento_id,
