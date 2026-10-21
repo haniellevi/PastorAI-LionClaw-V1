@@ -22,7 +22,27 @@ from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
 from app.domain.phone import normalize_phone
 from app.prayer import policy
 from app.prayer.catalog import AUTHORIZATION_VERSION
-from app.prayer.models import PrayerProposal, PrayerRequest
+from app.prayer.models import PrayerMessage, PrayerProposal, PrayerRequest
+
+
+def protected_message(db, *, igreja_id, message_id):
+    # V1b can be deployed before prayer privacy; absence must not abort its txn.
+    if db.scalar(text("select to_regclass('pedido_oracao_mensagem')")) is None:
+        return False
+    return db.scalar(select(exists().where(
+        PrayerMessage.igreja_id == igreja_id,
+        PrayerMessage.message_id == message_id,
+    )))
+
+
+def has_audio(db, proposal):
+    return bool(db.scalar(select(exists().where(
+        PrayerMessage.igreja_id == proposal.igreja_id,
+        PrayerMessage.proposal_id == proposal.id,
+        Message.igreja_id == PrayerMessage.igreja_id,
+        Message.id == PrayerMessage.message_id,
+        Message.tipo == "audio",
+    ))))
 
 
 @dataclass(frozen=True)
@@ -64,14 +84,15 @@ def resolve_contact(
             Message.provider_message_id == provider_id,
         )
     ).scalar_one_or_none()
-    if (
-        inbound is None
-        or inbound.tipo != "texto"
-        or any(
+    audio = inbound is not None and inbound.tipo == "audio" and protected_message(
+        db, igreja_id=igreja_id, message_id=inbound.id,
+    )
+    if inbound is None or (not audio and (
+        inbound.tipo != "texto" or any(
             getattr(inbound, k) is not None
             for k in ("media_path", "media_mime", "media_nome", "media_tamanho")
         )
-    ):
+    )):
         return None
     from app.workers.queue_worker import _resolve_unique_active_pessoa_by_phone
 
@@ -160,6 +181,8 @@ def register(
     """Write once after a delivered, unexpired exact summary and strict SIM."""
     if not policy.enabled(contact.igreja_id) or proposal.state != "pending":
         raise HTTPException(403, "Pedido não autorizado")
+    if has_audio(db, proposal) and proposal.audience != "pastoral":
+        raise HTTPException(403, "Áudio de oração é restrito aos pastores")
     fresh = resolve_contact(
         db,
         igreja_id=contact.igreja_id,
@@ -272,6 +295,8 @@ def _visible(db, user):
     return and_(
         PrayerRequest.igreja_id == tenant,
         PrayerRequest.audience == "pastoral_lider",
+        # The SQL helper sees protected associations even under caller RLS.
+        ~func.prayer_proposal_has_audio(tenant, PrayerRequest.proposal_id),
         PrayerRequest.leader_id == actor.pessoa_id,
         exists(
             select(Celula.id)

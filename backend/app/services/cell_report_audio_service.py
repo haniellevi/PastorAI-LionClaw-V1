@@ -366,6 +366,10 @@ def audio_capture_scope_allows(
     inbound = _required_uuid(inbound_message_id, field="mensagem")
     current_time = _utc_now(now)
     try:
+        from app.prayer.service import protected_message
+
+        if protected_message(session, igreja_id=tenant, message_id=inbound):
+            return False
         from app.services.cell_report_v1a_service import _eligible_meeting
         from app.services.whatsapp_privilege import (
             PrivilegeContext,

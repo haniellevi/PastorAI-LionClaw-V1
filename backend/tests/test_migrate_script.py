@@ -91,10 +91,15 @@ def test_apply_recusa_caminho_fora_da_pasta() -> None:
         migrate.cmd_apply(_Conn(), "../README.md", transactional=True)
 
 
-def test_falha_faz_rollback_e_nao_registra() -> None:
-    name = migrate.migration_files()[-1]
-    sql = (migrate.MIGRATIONS_DIR / name).read_text(encoding="utf-8")
-    conn = _Conn(fail_on=sql[:40])
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_falha_faz_rollback_e_nao_registra(tmp_path, monkeypatch, wrapped) -> None:
+    name = "20261020_200000_failure.sql"
+    sql = "select migration_failure();\n"
+    if wrapped:
+        sql = f"begin;\n{sql}commit;\n"
+    (tmp_path / name).write_text(sql, encoding="utf-8")
+    monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+    conn = _Conn(fail_on="select migration_failure();")
     with pytest.raises(RuntimeError):
         migrate.cmd_apply(conn, name, transactional=True)
     assert conn.rollbacks == 1
