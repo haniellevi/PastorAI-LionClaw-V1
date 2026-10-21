@@ -4573,6 +4573,15 @@ def run_agent_for_message(
 
     igreja_id = _require_agent_igreja_id(outcome)
 
+    from app.private_erasure.turn import run_private_erasure_turn
+    erasure_result = run_private_erasure_turn(
+        session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
+        uses_dedicated_agent_session=uses_dedicated_agent_session,
+        ownership_guard=ownership_guard, evolution_client=evolution_client,
+    )
+    if erasure_result is not None:
+        return erasure_result
+
     from app.conhecimento_whatsapp.turn import run_conhecimento_turn
     conhecimento_result = run_conhecimento_turn(
         session_factory, runtime_session_factory, outcome, igreja_id=igreja_id,
