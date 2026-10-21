@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select, func, text, delete
+from sqlalchemy import select, func, text, delete, event
 from cryptography.fernet import Fernet
 from app.config import get_settings
 from app.db.models import (
@@ -71,6 +71,11 @@ def prayer(msg_engine_fx, monkeypatch):  # noqa: F811 - imported pytest fixture
 
     monkeypatch.setattr(LLMClient, "complete", forbidden_llm)
     factory = _factory(msg_engine_fx)
+    # Mirror the tenant context established by the real request/worker entrypoint.
+    @event.listens_for(factory, "after_begin")
+    def tenant_context(session, transaction, connection):
+        connection.execute(text("select set_config('app.tenant_igreja_id',:t,true)"),
+                           {'t': str(TENANT)})
     _seed_igreja_with_connection(factory, igreja_id=TENANT, instance="prayer-test")
     _seed_igreja_with_connection(factory, igreja_id=FOREIGN, instance="prayer-other")
     conv, person, _ = _seed_tier_a_handoff_anchor(
@@ -159,6 +164,14 @@ def prayer(msg_engine_fx, monkeypatch):  # noqa: F811 - imported pytest fixture
     )
     with msg_engine_fx.begin() as conn:
         conn.exec_driver_sql(sql)
+        # Current backend visibility requires the audio privacy migration too.
+        audio_sql = MIGRATION.with_name('20261020_100000_prayer_audio_privacy.sql').read_text()
+        audio_sql = audio_sql.replace('public.', _SCHEMA + '.').replace(
+            'pg_catalog,public', 'pg_catalog,' + _SCHEMA)
+        conn.exec_driver_sql("do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role; end if; end $$")
+        # Parent-only tests need the backend helper, without preinstalling the
+        # inbox function created by the later privacy fixture.
+        conn.exec_driver_sql(audio_sql.split('drop policy if exists prayer_request_read')[0] + 'commit;')
     yield SimpleNamespace(
         factory=factory,
         engine=msg_engine_fx,

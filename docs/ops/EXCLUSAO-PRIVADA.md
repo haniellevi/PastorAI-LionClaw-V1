@@ -80,6 +80,26 @@ e backups não é alterada nem verificada por esta fatia.
 
 ## Camadas, inventário e recibos anteriores
 
+### Áudio de oração — decisão pastoral 15
+
+Após iniciar explicitamente a coleta de oração, o contato pode enviar áudio.
+O arquivo permanece em `messages.media_path`, protegido desde a transação de
+entrada pela associação `pedido_oracao_mensagem`. Não há transcrição automática,
+entrada V1b nem TTL de mídia: expiração/cancelamento da coleta não apagam áudio.
+O resumo de confirmação identifica o pedido em áudio, sem inventar seu conteúdo.
+Pedidos com áudio aceitam somente destinatários pastores. A proteção do inbox
+também restringe a pastores coletas legadas com áudio anteriormente compartilhadas
+com líder; mensagens de texto sem áudio conservam a regra anterior.
+
+A exclusão administrativa de conversa/pessoa/igreja enumera o caminho do áudio
+na fila `private_deletion_tasks` antes de remover a mensagem, sem conceder leitura
+pastoral ao admin. Pedido de exclusão da pessoa depende de aprovação do admin;
+esta fatia não cria canal de aprovação pelo WhatsApp. Áudio enviado antes da
+coleta explícita ou após seu prazo não é reclassificado por esta implementação.
+Migration candidata: `20261020_100000_prayer_audio_privacy.sql`; aplicação e
+operação remotas **não verificadas**. Gates permanecem desligados. Riscos de
+volume retido e retenção nos provedores/backups seguem os limites acima.
+
 A transação enumera e apaga mensagens (incluindo protegidas), logs vinculados,
 entradas V1b com âncoras vivas ou imutáveis e suas transcrições/hashes/leases.
 Pessoa inclui entradas V1b órfãs identificadas pela pessoa; igreja inclui todas.

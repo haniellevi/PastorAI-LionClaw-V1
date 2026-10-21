@@ -46,6 +46,7 @@ def install_privacy(prayer):
             '20261018_090000_exclusao_privada.sql',
             MIGRATION.name,
             '20261019_090001_exclusao_privada_pessoa_igreja.sql',
+            '20261020_100000_prayer_audio_privacy.sql',
         ):
             # The SQL contains PostgreSQL format('%I', ...), not DBAPI binds.
             conn.exec_driver_sql(schema_sql(MIGRATION.with_name(migration)),

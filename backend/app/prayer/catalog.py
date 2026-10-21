@@ -18,12 +18,12 @@ AUDIENCE_QUESTION = (
     "PASTORES E MEU LÍDER. Sem uma escolha clara, o pedido não será registrado na lista de oração."
 )
 COLLECT_QUESTION = (
-    "A coleta protegida começou. Envie seu pedido próprio por texto: "
+    "A coleta protegida começou. Envie seu pedido próprio por áudio ou por texto: "
     "Peço oração por mim: ..."
 )
 OWN_QUESTION = (
     "Para começar a coleta protegida, envie QUERO INICIAR PEDIDO DE ORAÇÃO. "
-    "Depois envie seu pedido próprio por texto: Peço oração por mim: ..."
+    "Depois envie seu pedido próprio por áudio ou por texto: Peço oração por mim: ..."
 )
 
 
