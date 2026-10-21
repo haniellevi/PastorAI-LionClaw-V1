@@ -35,6 +35,7 @@ from app.deps import CurrentUser, require_central
 from app.domain.cell_meetings_schedule import now_in_sao_paulo
 from app.domain.cell_requests import STATUS_AGUARDANDO, TIPO_MULTIPLICACAO
 from app.services import cell_health_service
+from app.services.hoje import escopo_vigente
 from app.services.cell_health_service import (
     RELATORIO_ENVIADO,
     STATUS_CANCELADA,
@@ -114,10 +115,14 @@ def _past_meeting_filter(now: dt.datetime):
 # ---------------------------------------------------------------------------
 @router.get("/dashboard", response_model=DashboardOut)
 def get_dashboard(
+    hoje: bool = False,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_central),
 ) -> DashboardOut:
     """Contadores operacionais da própria igreja (E16). Não paginado (resumo)."""
+    if hoje:
+        current_user, _ = escopo_vigente(db, current_user)
+        require_central(current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     now = dt.datetime.now(dt.timezone.utc)
     recent_cutoff = now - dt.timedelta(days=RECENT_DAYS)

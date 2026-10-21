@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { PrivateErasureRequests } from "./PrivateErasureRequests";
 import { EditContactModal } from "@/components/contacts/EditContactModal";
 import { Dialog } from "@/components/ds/Dialog";
 import { getFocusable, trapNextIndex } from "@/components/ds/a11y";
@@ -336,6 +337,8 @@ export function ContactPanel({
               <span>Editar dados</span>
             </Button>
           ) : null}
+
+          {canEdit && token ? <PrivateErasureRequests token={token} personId={detail.id} expireSession={expireSession} /> : null}
 
           <section className="panel-section">
             <h4>Contato</h4>

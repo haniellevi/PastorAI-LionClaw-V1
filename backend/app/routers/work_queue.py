@@ -44,6 +44,7 @@ from app.domain.work_queue import (
 )
 from app.routers._common import Page, PaginationParams
 from app.services.consolidation_workflow import assign_consolidacao
+from app.services.hoje import tipos_vigentes
 
 logger = logging.getLogger("pastorai.work_queue")
 
@@ -136,19 +137,25 @@ class MessageResponse(BaseModel):
 # ---------------------------------------------------------------------------
 @router.get("", response_model=Page[WorkItemOut])
 def list_items(
+    hoje: bool = False,
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[WorkItemOut]:
     """List queue items the caller is allowed to resolve (delta-006)."""
 
-    tipos = list(resolvable_tipos(current_user.roles))
+    if hoje:
+        current_user, allowed = tipos_vigentes(db, current_user)
+    else:
+        allowed = resolvable_tipos(current_user.roles)
+    tipos = list(allowed)
     if not tipos:
         return Page[WorkItemOut](
             items=[], page=pagination.page, pageSize=pagination.page_size, total=0
         )
 
     cond = and_(
+        WorkQueueItem.igreja_id == uuid.UUID(current_user.igreja_id),
         WorkQueueItem.tipo.in_(tipos),
         _operational_status_condition(),
         _work_item_scope_condition(db, current_user),
@@ -185,6 +192,7 @@ def list_items(
 
 @router.get("/snapshot", response_model=WorkSnapshot)
 def list_snapshot(
+    hoje: bool = False,
     revision: Annotated[str | None, Query(pattern=r"^[0-9a-f]{32}$", max_length=32)] = None,
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
@@ -198,8 +206,13 @@ def list_snapshot(
     """
     if pagination.page > 1 and revision is None:
         raise HTTPException(status_code=422, detail="Revisão obrigatória após a primeira página")
+    if hoje:
+        current_user, allowed = tipos_vigentes(db, current_user)
+    else:
+        allowed = resolvable_tipos(current_user.roles)
     filtered = select(WorkQueueItem).where(
-        WorkQueueItem.tipo.in_(list(resolvable_tipos(current_user.roles))),
+        WorkQueueItem.igreja_id == uuid.UUID(current_user.igreja_id),
+        WorkQueueItem.tipo.in_(list(allowed)),
         _operational_status_condition(),
         _work_item_scope_condition(db, current_user),
     ).cte("visible_queue")

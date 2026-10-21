@@ -260,3 +260,21 @@ it("confirms 1,005 stable items in 42 snapshot reads preserving the early 25", a
   expect(queries.every(url=>url.pathname === "/work-queue/snapshot")).toBe(true);
   expect(queries.filter(url=>url.searchParams.get("revision") === revision)).toHaveLength(40);
 });
+
+it.each([true, false])("Hoje revalida no servidor e mantém o filtro em todas as páginas (snapshot=%s)", async (snapshot) => {
+  vi.stubEnv("NODE_ENV", "production");
+  const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+    const parsed = new URL(String(url));
+    if (!snapshot && parsed.pathname.endsWith("/snapshot")) return new Response(null, { status: 404 });
+    const page = Number(parsed.searchParams.get("page"));
+    return Response.json({ items: [item(`q${page}`)], page, pageSize: 1, total: 2, ...(snapshot ? { revision: "a".repeat(32) } : {}) });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    const first = await fetchWorkQueuePage("hoje", 1, 1, { hoje: true });
+    await fetchRemainingWorkQueuePages("hoje", first, true);
+    await fetchWorkQueuePage("hoje", 1, 1, { hoje: true });
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4);
+    expect(fetchMock.mock.calls.every(([url]) => new URL(String(url)).searchParams.get("hoje") === "true")).toBe(true);
+  } finally { vi.unstubAllEnvs(); }
+});
