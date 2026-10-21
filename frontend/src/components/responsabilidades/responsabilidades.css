@@ -1,0 +1,6 @@
+.responsabilidades { max-width: 960px; margin-inline: auto; }
+.responsabilidades .card { margin-block: 16px; overflow-wrap: anywhere; }
+.responsabilidades fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.responsabilidades .field { max-width: 480px; }
+.responsabilidades-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.responsabilidades :focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
