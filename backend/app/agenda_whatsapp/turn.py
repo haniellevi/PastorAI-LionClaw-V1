@@ -186,12 +186,17 @@ def _handle(db, contact, source):
         user = service.actor(db, contact)
         meta['actor_id'] = user.app_user_id
         if command == 'list':
-            return service.read(db, user), dict(meta, stage='read')
+            return service.read(db, user), dict(meta, stage='read', roles=sorted(user.roles))
         if command in {'create', 'update', 'delete'}:
             response, proposal = service.propose(db, user, command, args)
             if pending is not None:
                 pending.agent_privilege_context = dict(pending.agent_privilege_context, stage='cancelled')
             return response, dict(meta, stage='proposal', proposal=proposal)
+        if pending is not None and command in {'clarify', 'confirm'}:
+            raw = pending.agent_privilege_context
+            if not isinstance(raw.get('actor_id'), str) or not isinstance(raw.get('proposal'), dict):
+                raise ValueError('invalid proposal context')
+            catalog.EventTool.model_validate(raw['proposal'])
         if command == 'clarify' and pending is not None:
             raw = pending.agent_privilege_context
             return ('Para alterar a agenda, responda somente SIM ou NÃO em até 10 minutos da proposta original.',
@@ -252,7 +257,8 @@ def reply_still_authorized(db, message, *, conversation, recipient_phone, instan
         if user.app_user_id != raw['actor_id']:
             return False
         if raw['stage'] == 'read':
-            return message.texto == service.read(db, user)
+            # Events may change after this read committed; actor and role identity must not.
+            return raw.get('roles') == sorted(user.roles)
         if raw['stage'] == 'receipt':
             service.event_commands._write_allowed(user)
         if raw['stage'] == 'proposal':

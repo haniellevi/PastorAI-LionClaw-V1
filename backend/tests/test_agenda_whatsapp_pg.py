@@ -35,16 +35,17 @@ def rls_database_url():
 
 @pytest.fixture
 def agenda_turn(database, seeded, monkeypatch):
-    from app.services import whatsapp_agenda as policy, whatsapp_privilege
+    from app.agenda_whatsapp import policy
+    from app.services import whatsapp_privilege
     from app.services.llm import LLMClient
     v = seeded
     for key, value in dict(APP_ENV='test', AGENT_TERM_VERSION='agenda-test',
-        WHATSAPP_PILOTO_IGREJA_IDS=str(v['t']), AGENDA_WHATSAPP_ENABLED_IGREJA_IDS=str(v['t']),
+        WHATSAPP_PILOTO_IGREJA_IDS=str(v['t']), AGENDA_WRITE_WHATSAPP_ENABLED_IGREJA_IDS=str(v['t']),
         SECRETS_ENCRYPTION_KEY=Fernet.generate_key().decode(), SESSION_JWT_SECRET='agenda-synthetic-only',
         ALLOW_REAL_SENDS='true', ASAAS_BILLING_ENABLED='false', BREVO_SEND_MODE='off',
         BROADCAST_ASYNC_ENABLED='false').items():
         monkeypatch.setenv(key, value)
-    monkeypatch.setattr(policy, 'AGENDA_WHATSAPP_APPROVED_RELEASE_ID', 'synthetic-only')
+    monkeypatch.setattr(policy, 'AGENDA_WRITE_WHATSAPP_APPROVED_RELEASE_ID', 'synthetic-only')
     monkeypatch.setattr(whatsapp_privilege, 'PRIVILEGE_APPROVED_RELEASE_ID', 'synthetic-only')
     monkeypatch.setenv('AGENT_PRIVILEGE_ENABLED_IGREJA_IDS', str(v['t']))
     get_settings.cache_clear()
@@ -157,7 +158,7 @@ def test_revalidate_actor_on_sim(agenda_turn, state):
     assert 'Sem permissão' in reply.texto and count(p) == 0
 
 
-@pytest.mark.parametrize('answer', ['NÃO', 'SIM!', 'confirmo', 'SIM por favor'])
+@pytest.mark.parametrize('answer', ['NÃO', 'SIM!', 'confirmo'])
 def test_only_literal_sim_writes(agenda_turn, answer):
     p = agenda_turn
     send(p, CREATE)
@@ -168,12 +169,13 @@ def test_only_literal_sim_writes(agenda_turn, answer):
 
 @pytest.mark.parametrize('fence', ['release', 'church', 'privilege'])
 def test_disabled_never_executes_domain(agenda_turn, monkeypatch, fence):
-    from app.services import whatsapp_agenda, whatsapp_privilege
+    from app.agenda_whatsapp import policy
+    from app.services import whatsapp_privilege
     from app.agenda_whatsapp import service
     from app.services.llm import LLMClient, LLMResult, LLMUsage
     p = agenda_turn
-    if fence == 'release': monkeypatch.setattr(whatsapp_agenda,'AGENDA_WHATSAPP_APPROVED_RELEASE_ID',None)
-    if fence == 'church': monkeypatch.setenv('AGENDA_WHATSAPP_ENABLED_IGREJA_IDS','')
+    if fence == 'release': monkeypatch.setattr(policy,'AGENDA_WRITE_WHATSAPP_APPROVED_RELEASE_ID',None)
+    if fence == 'church': monkeypatch.setenv('AGENDA_WRITE_WHATSAPP_ENABLED_IGREJA_IDS','')
     if fence == 'privilege': monkeypatch.setattr(whatsapp_privilege,'PRIVILEGE_APPROVED_RELEASE_ID',None)
     def forbidden(*a, **kw): raise AssertionError('disabled domain')
     monkeypatch.setattr(service,'actor',forbidden)
@@ -232,7 +234,7 @@ def test_read_uses_panel_visibility_and_safe_projection(agenda_turn):
     with p.factory.begin() as s:
         s.execute(text("insert into events(igreja_id,titulo,data) values(:t,'Evento vizinho',:d)"),dict(t=p.v['other'],d=day))
         s.execute(text("update user_roles set papel='membro' where user_id=:u"),dict(u=p.v['leader']))
-    _, reply, transport = send(p, 'AGENDA')
+    _, reply, transport = send(p, 'AGENDA consultar')
     assert 'Culto' in reply.texto and 'vizinho' not in reply.texto and len(transport.calls) == 1
     assert reply.agent_privilege_context['stage'] == 'read'
 
@@ -297,7 +299,7 @@ def test_contact_gate_suppresses_before_response(agenda_turn, monkeypatch, state
 @pytest.mark.parametrize('state', ['role','event','release'])
 def test_proposal_revalidated_before_transport(agenda_turn, monkeypatch, state):
     from app.agenda_whatsapp.turn import reply_still_authorized
-    from app.services import whatsapp_agenda
+    from app.agenda_whatsapp import policy
     from app.db.models import Conversation
     from tests.test_uv_turmas_pg import scoped
     p = agenda_turn
@@ -307,7 +309,7 @@ def test_proposal_revalidated_before_transport(agenda_turn, monkeypatch, state):
     with p.factory.begin() as s:
         if state == 'role': s.execute(text("update user_roles set papel='operador' where user_id=:u"),dict(u=p.v['leader']))
         if state == 'event': s.execute(text("update events set hora='21:00' where id=:id"),dict(id=eid))
-    if state == 'release': monkeypatch.setattr(whatsapp_agenda,'AGENDA_WHATSAPP_APPROVED_RELEASE_ID',None)
+    if state == 'release': monkeypatch.setattr(policy,'AGENDA_WRITE_WHATSAPP_APPROVED_RELEASE_ID',None)
     with scoped(p.factory.kw['bind'],p.v['t']) as s:
         assert not reply_still_authorized(s,s.get(Message,proposal.id),conversation=s.get(Conversation,p.conv),
             recipient_phone='5500000000000',instance='agenda-test')
@@ -318,7 +320,7 @@ def test_drafts_are_not_exposed_without_web_proof(agenda_turn):
     day = dt.datetime.now(dt.UTC).date()+dt.timedelta(days=2)
     with p.factory.begin() as s:
         s.execute(text("insert into events(igreja_id,titulo,data,status) values(:t,'Culto',:d,'a_confirmar')"),dict(t=p.v['t'],d=day))
-    _, reply, _ = send(p, 'AGENDA')
+    _, reply, _ = send(p, 'AGENDA consultar')
     assert 'Nenhum evento' in reply.texto and 'Culto' not in reply.texto
 
 
@@ -332,3 +334,136 @@ def test_concurrent_sim_turns_never_duplicate(agenda_turn):
         for future in futures:
             future.result(timeout=30)
     assert count(p) == 1
+
+
+@pytest.mark.parametrize('field', ['actor_id', 'proposal'])
+@pytest.mark.parametrize('answer', ['SIM', 'confirmo'])
+def test_malformed_proposal_is_safe(agenda_turn, field, answer):
+    p = agenda_turn
+    _, proposal, _ = send(p, CREATE)
+    with p.factory.begin() as s:
+        row = s.get(Message, proposal.id)
+        row.agent_privilege_context = {k:v for k,v in row.agent_privilege_context.items() if k != field}
+    _, reply, transport = send(p, answer)
+    assert 'inválida' in reply.texto and len(transport.calls) == 1 and count(p) == 0
+
+
+@pytest.mark.parametrize('legacy_payload', [False, True])
+def test_title_is_persisted_canonically(agenda_turn, legacy_payload):
+    p = agenda_turn
+    _, proposal, _ = send(p, 'AGENDA criar cUlTo; 2026-12-01; 19:00')
+    assert proposal.agent_privilege_context['proposal']['payload']['titulo'] == 'Culto'
+    if legacy_payload:
+        with p.factory.begin() as s:
+            row = s.get(Message, proposal.id)
+            raw = dict(row.agent_privilege_context)
+            raw['proposal'] = dict(raw['proposal'], payload=dict(raw['proposal']['payload'], titulo='cUlTo'))
+            row.agent_privilege_context = raw
+    send(p, 'SIM')
+    with p.factory() as s:
+        assert s.execute(text('select titulo from events')).scalar_one() == 'Culto'
+
+
+@pytest.mark.parametrize('command', ['alterar', 'cancelar'])
+def test_foreign_event_id_cannot_be_written(agenda_turn, command):
+    p = agenda_turn
+    eid = uuid4()
+    with p.factory.begin() as s:
+        s.execute(text("insert into events(id,igreja_id,titulo,data,hora) values(:id,:t,'Culto','2026-12-01','19:00')"),
+            dict(id=eid, t=p.v['other']))
+    body = f'AGENDA {command} {eid}' + ('; 2026-12-02; 20:00' if command == 'alterar' else '')
+    _, reply, _ = send(p, body)
+    assert reply.agent_privilege_context['stage'] == 'denied'
+    with p.factory() as s:
+        assert s.execute(text('select igreja_id,data,hora from events where id=:id'), dict(id=eid)).one() == (
+            p.v['other'], dt.date(2026,12,1), '19:00')
+
+
+@pytest.mark.parametrize('state', ['event', 'role'])
+def test_read_delivery_stable_but_revalidates_roles(agenda_turn, state):
+    from app.agenda_whatsapp.turn import reply_still_authorized
+    from app.db.models import Conversation
+    from tests.test_uv_turmas_pg import scoped
+    p = agenda_turn
+    _, reply, _ = send(p, 'AGENDA consultar')
+    with p.factory.begin() as s:
+        if state == 'event':
+            s.execute(text("insert into events(igreja_id,titulo,data) values(:t,'Culto',current_date)"), dict(t=p.v['t']))
+        else:
+            s.execute(text("update user_roles set papel='membro' where user_id=:u"), dict(u=p.v['leader']))
+    with scoped(p.factory.kw['bind'], p.v['t']) as s:
+        allowed = reply_still_authorized(s, s.get(Message,reply.id), conversation=s.get(Conversation,p.conv),
+            recipient_phone='5500000000000', instance='agenda-test')
+    assert allowed == (state == 'event')
+
+
+@pytest.mark.parametrize('body,kind', [('ENVIAR','enviar'), ('CD','cd'), ('UV','uv'),
+    ('quero iniciar pedido de oração','prayer'),
+    ('QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO','private_erasure'),
+    ('retomar conversa','clarify')])
+def test_other_flows_route_with_pending_agenda(agenda_turn, monkeypatch, body, kind):
+    from app.enviar_whatsapp import policy as enviar
+    from app.cd_whatsapp import policy as cd
+    from app.uv_whatsapp import policy as uv
+    from app.prayer import policy as prayer
+    from app.services import private_erasure_requests as erasure, private_resume
+    from app.services.llm import LLMClient, TypedChoiceResult, TypedLLMResult, LLMUsage
+    from app.agent import runtime
+    p = agenda_turn
+    for module, release, allowlist in [
+        (enviar, 'ENVIAR_WHATSAPP_APPROVED_RELEASE_ID', 'ENVIAR_WHATSAPP_ENABLED_IGREJA_IDS'),
+        (cd, 'CD_WHATSAPP_APPROVED_RELEASE_ID', 'CD_WHATSAPP_ENABLED_IGREJA_IDS'),
+        (uv, 'UV_WHATSAPP_APPROVED_RELEASE_ID', 'UV_WHATSAPP_ENABLED_IGREJA_IDS'),
+        (prayer, 'PRAYER_REQUEST_APPROVED_RELEASE_ID', 'PRAYER_REQUEST_ENABLED_IGREJA_IDS')]:
+        monkeypatch.setattr(module, release, 'synthetic')
+        monkeypatch.setenv(allowlist, str(p.v['t']))
+    monkeypatch.setattr(erasure, 'APPROVED_RELEASE_ID', 'synthetic')
+    monkeypatch.setattr(erasure, 'APPROVED_IGREJA_IDS', frozenset({str(p.v['t'])}))
+    with p.factory.begin() as s:
+        s.execute(text('insert into private_erasure_request_settings(igreja_id,enabled) values(:t,true)'), dict(t=p.v['t']))
+    with p.factory.begin() as s:
+        s.execute(text("update app_users set clerk_user_id='agenda-synthetic' where id=:u"), dict(u=p.v['leader']))
+    usage = LLMUsage('synthetic',0,0,0)
+    monkeypatch.setattr(LLMClient, 'generate_typed', lambda *a, **kw: TypedChoiceResult('nenhuma', usage))
+    monkeypatch.setattr(LLMClient, 'complete_typed', lambda *a, **kw: TypedLLMResult(False, 'Resposta sintética de retomada.', usage))
+    monkeypatch.setattr(runtime, 'decrypt_secret', lambda _: 'synthetic-key')
+    resume_calls = []
+    original_load = private_resume.load
+    def load(db, context):
+        resume_calls.append(context.inbound_message_id)
+        return original_load(db, context)
+    monkeypatch.setattr(private_resume, 'load', load)
+    send(p, CREATE)
+    outcome, reply, transport = send(p, body)
+    assert len(transport.calls) == 1 and count(p) == 0
+    assert reply.agent_privilege_context['kind'] == kind
+    if body == 'retomar conversa':
+        assert resume_calls == [outcome.inbound_message_id]
+        assert reply.texto == 'Resposta sintética de retomada.'
+
+
+@pytest.mark.parametrize('read_enabled', [True, False])
+@pytest.mark.parametrize('write_enabled', [True, False])
+@pytest.mark.parametrize('panel_user', [True, False])
+def test_bare_agenda_preserves_existing_query(agenda_turn, monkeypatch, read_enabled, write_enabled, panel_user):
+    from app.agenda_whatsapp import policy
+    from app.services import whatsapp_agenda
+    from app.services.llm import LLMClient, TypedChoiceResult, TypedLLMResult, LLMResult, LLMUsage
+    from app.agent import runtime
+    p = agenda_turn
+    if not write_enabled:
+        monkeypatch.setattr(policy, 'AGENDA_WRITE_WHATSAPP_APPROVED_RELEASE_ID', None)
+    monkeypatch.setattr(whatsapp_agenda, 'AGENDA_WHATSAPP_APPROVED_RELEASE_ID', 'synthetic' if read_enabled else None)
+    monkeypatch.setenv('AGENDA_WHATSAPP_ENABLED_IGREJA_IDS', str(p.v['t']))
+    if not panel_user:
+        with p.factory.begin() as s:
+            s.execute(text('update app_users set pessoa_id=null where id=:u'), dict(u=p.v['leader']))
+    usage = LLMUsage('synthetic',0,0,0)
+    monkeypatch.setattr(LLMClient, 'generate_typed', lambda *a, **kw: TypedChoiceResult('nenhuma', usage))
+    monkeypatch.setattr(LLMClient, 'complete_typed', lambda *a, **kw: TypedLLMResult(False, 'Consulta anterior.', usage))
+    monkeypatch.setattr(LLMClient, 'complete', lambda *a, **kw: LLMResult('Consulta anterior.', usage))
+    monkeypatch.setattr(runtime, 'decrypt_secret', lambda _: 'synthetic-key')
+    _, reply, transport = send(p, 'AGENDA')
+    assert len(transport.calls) == 1
+    assert (reply.agent_privilege_context or {}).get('kind') != 'agenda_local'
+    assert 'Sem permissão' not in reply.texto

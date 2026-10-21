@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from app.prayer.catalog import normalized
 from app.routers.events import CreateEventRequest, UpdateEventRequest
 
-HELP = ('Agenda local: AGENDA para consultar os próximos 30 dias; '
+HELP = ('Agenda local: AGENDA consultar para consultar os próximos 30 dias; '
         'AGENDA criar TÍTULO; AAAA-MM-DD; HH:MM; '
         'AGENDA alterar ID; AAAA-MM-DD; HH:MM; AGENDA cancelar ID. '
         'Criar, alterar data/hora e cancelar exigem pastor/admin e SIM literal. '
@@ -28,7 +28,7 @@ def route(text, *, pending=False):
             return 'confirm', None
         if value in {'nao', 'cancelar'}:
             return 'cancel', None
-    if value == 'agenda':
+    if value == 'agenda consultar':
         return 'list', None
     match = re.fullmatch(r'agenda (criar|alterar) ([^;]+);\s*([^;]+);\s*([^;]+)', value)
     if match:
@@ -40,7 +40,7 @@ def route(text, *, pending=False):
         return 'delete', match[1]
     if re.match(r'^agenda (?:criar|alterar|cancelar|importar|confirmar|avisar)(?: |$)', value):
         return 'help', None
-    return ('clarify' if pending else 'none'), None
+    return ('clarify' if pending and value in {'sim', 'confirmo'} else 'none'), None
 
 
 def execute(db, user, proposal):
@@ -49,7 +49,9 @@ def execute(db, user, proposal):
     tool = EventTool.model_validate(proposal)
     event = validate(db, user, tool)
     if tool.action == 'create':
-        return event_commands.create(db, user, tool.payload)
+        from app.services.whatsapp_agenda import project_institutional_title
+        payload = tool.payload.model_copy(update={'titulo': project_institutional_title(tool.payload.titulo)})
+        return event_commands.create(db, user, payload)
     if tool.action == 'update':
         return event_commands.update(db, user, str(event.id), UpdateEventRequest(
             data=tool.payload.data, hora=tool.payload.hora))

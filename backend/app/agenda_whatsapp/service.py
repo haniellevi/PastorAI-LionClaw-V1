@@ -67,7 +67,7 @@ def propose(db, user, command, args):
     event_commands._write_allowed(user)
     if command == 'create':
         title, day, hour = args
-        tool = EventTool(action='create', payload=CreateEventRequest(titulo=title, data=day, hora=hour))
+        tool = EventTool(action='create', payload=CreateEventRequest(titulo=project_institutional_title(title) or '', data=day, hora=hour))
         description = f'Criar {tool.payload.titulo} em {tool.payload.data:%d/%m/%Y} às {tool.payload.hora}.'
     else:
         eid = UUID(args[0] if command == 'update' else args)
