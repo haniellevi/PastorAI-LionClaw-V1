@@ -12,7 +12,7 @@ Backup, teste de restauração e firewall: consulte
 | Camada | Produção |
 |---|---|
 | Supabase | `pffafnchtxbimpwyaczq` |
-| VPS Hostinger | `76.13.234.127` — `srv1728329.hstgr.cloud` — Campinas |
+| VPS Hostinger | `srv2031318.hstgr.cloud` (VPS nova, produção desde out/2026; a `srv1728329` é a antiga e será desativada) |
 | Backend público | `https://api.igreja12.com.br` |
 | Releases na VPS | `/opt/pastorai-releases/<sha>` |
 | Release ativo | `/opt/pastorai-current` (symlink para um release imutável) |

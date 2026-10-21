@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$vps = 'root@76.13.234.127'
+$vps = 'root@srv2031318.hstgr.cloud'
 $sshKey = Join-Path $env:USERPROFILE '.ssh\pastorai_vps'
 $oneDriveRoot = Join-Path $env:USERPROFILE 'OneDrive\Documentos\Backups\PastorAI'
 $masterKey = Join-Path $oneDriveRoot 'pastorai-backup-master.key.dpapi'
