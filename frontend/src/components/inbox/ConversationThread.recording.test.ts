@@ -82,7 +82,7 @@ function render(c = A, context = contextA, overrides: Partial<ComponentProps<typ
   const props: TestThreadProps = {
     conversation: c, selfId: "operador-sintetico", recordingContext: context,
     holderName: null, degraded: false, agentAvailability: "active", busy: false,
-    conflict: null, messages: [], messagesLoading: false, panelOpen: false,
+    conflict: null, messages: [], messagesLoading: false, messagesInitialized: true, panelOpen: false,
     isAdmin: false, avatarUrl: null, onAssume: vi.fn(), onReturn: vi.fn(),
     onSend: async () => true, onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
     onTransfer: vi.fn(), ...overrides,
@@ -122,7 +122,8 @@ async function readyAudio() {
   return current;
 }
 beforeEach(() => {
-  vi.useFakeTimers();
+  // Count recorder intervals, excluding jsdom selectionchange timeouts caused by focus.
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   Recorder.instances = [];
   Recorder.fail = null;
   requests = [];
@@ -319,7 +320,7 @@ describe("AUD02 microphone ownership", () => {
     act(() => root.render(h(StrictMode, {}, h(ConversationThread, {
       conversation: A, selfId: "operador-sintetico", recordingContext: contextA,
       holderName: null, degraded: false, agentAvailability: "active", busy: false,
-      conflict: null, messages: [], messagesLoading: false, panelOpen: false,
+      conflict: null, messages: [], messagesLoading: false, messagesInitialized: true, panelOpen: false,
       isAdmin: false, avatarUrl: null, onAssume: vi.fn(), onReturn: vi.fn(),
       onSend: async () => true, onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
       onTransfer: vi.fn(), draft: "", onDraftChange: vi.fn(), sendingText: false,

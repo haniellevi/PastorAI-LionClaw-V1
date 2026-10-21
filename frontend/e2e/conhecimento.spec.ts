@@ -33,6 +33,8 @@ test('admin cria, envia, revisa, publica, substitui e revoga com público explí
     } else if (path.endsWith('/enviar-revisao')) state = 'em_revisao';
     else if (path.endsWith('/publicar')) { expect(input.vigente_esperada_id).toBe(current); expect(input.publicos).toEqual(audiences); current = id; state = 'publicada'; }
     else if (path.endsWith('/revogar')) { current = null; state = 'revogada'; }
+    // Exercise a delayed acknowledgement: the old open details must not be reused.
+    if (path.endsWith("/revisar")) await new Promise(resolve => setTimeout(resolve, 500));
     await json(route, { documento_id: documentId, versao_id: id });
   });
   await loginThroughUi(page);
@@ -47,6 +49,8 @@ test('admin cria, envia, revisa, publica, substitui e revoga com público explí
   await page.getByRole('button', { name: 'Enviar rascunho salvo para revisão' }).click();
   const article = page.getByRole('article');
   const expand = async () => {
+    // Mutations unmount the list; wait for its replacement before inspecting details.
+    await expect(page.locator(".conhecimento-screen")).toHaveAttribute("aria-busy", "false");
     await expect(article).toBeVisible();
     if (!await article.locator('details').evaluate(el => el.hasAttribute('open'))) await article.locator('summary').click();
   };
