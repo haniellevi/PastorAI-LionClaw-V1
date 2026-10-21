@@ -434,6 +434,7 @@ def require_screen(screen: str):
             return current_user
         rows = db.execute(
             select(RolePermission.papel, RolePermission.tela).where(
+                RolePermission.igreja_id == uuid.UUID(current_user.igreja_id),
                 RolePermission.papel.in_(current_user.roles)
             )
         ).all()
