@@ -34,7 +34,9 @@ export function TeamPessoaDialog({ member, token, onClose, onSaved, onSessionErr
     } finally { setSaving(false); }
   }
 
-  return <Dialog open title={`Vincular Pessoa · ${member.nome}`} onClose={() => { if (!saving) onClose(); }}>
+  return <Dialog open title={`Vincular Pessoa · ${member.nome}`}
+    description="O vínculo dá ao telefone cadastrado nesta Pessoa a identidade deste usuário no WhatsApp. Confira a quem pertence o número antes de salvar."
+    onClose={() => { if (!saving) onClose(); }}>
     <p>Associe esta conta a uma Pessoa ativa. Os papéis e o acesso ao painel permanecem iguais.</p>
     <p>{member.pessoaId ? "Esta conta possui Pessoa vinculada." : "Esta conta ainda não possui Pessoa vinculada."}</p>
     <label htmlFor="team-pessoa-query">Buscar Pessoa</label>

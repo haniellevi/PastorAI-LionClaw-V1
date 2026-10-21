@@ -27,6 +27,16 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
+it("descreve a identidade no WhatsApp e a conferência do dono do número de forma acessível", async () => {
+  await render();
+  const dialog = container.querySelector('[role="dialog"]')!;
+  expect(dialog.getAttribute("aria-modal")).toBe("true");
+  expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)?.textContent).toBe(`Vincular Pessoa · ${member.nome}`);
+  expect(document.getElementById(dialog.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "O vínculo dá ao telefone cadastrado nesta Pessoa a identidade deste usuário no WhatsApp. Confira a quem pertence o número antes de salvar.",
+  );
+});
+
 it("seleciona Pessoa, salva somente vínculo e informa conclusão", async () => {
   await render();
   expect(container.querySelector('label[for="team-pessoa-query"]')?.textContent).toBe("Buscar Pessoa");

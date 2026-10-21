@@ -587,6 +587,8 @@ def link_pessoa(
         if linked is not None:
             raise HTTPException(409, "Esta Pessoa já está vinculada a outro usuário")
     target = _lock_target_identity(db, igreja_id=tenant, app_user=target)
+    if payload.pessoaId is not None and target.status == REVOKED_USER_STATUS:
+        raise HTTPException(409, "Reative o acesso do usuário antes de vincular uma Pessoa")
     if target.pessoa_id != payload.pessoaId:
         # Desvincular/trocar não pode contornar o bloqueio da revogação de líder.
         if target.pessoa_id is not None:
@@ -596,14 +598,19 @@ def link_pessoa(
             ).limit(1)).scalar_one_or_none()
             if leads is not None:
                 raise HTTPException(409, "Transfira ou encerre a liderança antes de alterar o vínculo")
+        previous_pessoa_id = target.pessoa_id
         target.pessoa_id = payload.pessoaId
         try:
             db.flush()
-            db.execute(text("""insert into team_pessoa_eventos
-                (igreja_id,actor_id,usuario_id,operacao)
-                values(:t,:a,:u,:o)"""), dict(
+            for operation, pessoa_id in (("desvincular", previous_pessoa_id),
+                                        ("vincular", payload.pessoaId)):
+                if pessoa_id is None:
+                    continue
+                db.execute(text("""insert into team_pessoa_eventos
+                (igreja_id,actor_id,usuario_id,pessoa_id,operacao)
+                values(:t,:a,:u,:p,:o)"""), dict(
                     t=tenant, a=uuid.UUID(current_user.app_user_id), u=usuario_id,
-                    o="vincular" if payload.pessoaId else "desvincular"))
+                    p=pessoa_id, o=operation))
             db.commit()
         except IntegrityError as exc:
             db.rollback()
