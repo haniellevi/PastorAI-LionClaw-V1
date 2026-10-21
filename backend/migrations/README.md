@@ -252,3 +252,29 @@ Compatibilidade Enviar/#511: `cd_conclusoes.revogada` não revoga certificado j�
 emitido; a evidência CD do Enviar continua baseada em `cd_certificados.revogada`.
 A mudança da conclusão é reservada à manutenção futura, sem grant de aplicação.
 Veja [a fatia](../../docs/ops/ENVIAR-EVIDENCIAS.md).
+
+## Faixa B/2: responsabilidade por setor (candidata)
+
+`20261021_100000_responsabilidades_setor.sql` deve ser aplicada via
+`scripts/migrate.py` antes de publicar o backend que expõe `/responsabilidades`.
+Não faz backfill dos vínculos existentes. Admin/pastor atribui uma Pessoa não
+arquivada; isso não concede papel ou permissão. Há um responsável por setor em
+cada data, com intervalo `[inicio, fim)` e encerramento único auditado; trocar
+responsável exige encerrar o anterior e criar outro registro. O histórico não
+é apagado pela API. O leitor interno exige `igreja_id` explícito; seus futuros
+callers devem autorizar o acesso e revalidar a elegibilidade da Pessoa no uso.
+Instalação do zero e atualização acumulada são exercitadas em PG17 sintético.
+Aplicação remota, deploy e ativação permanecem **não verificados**; nenhum gate
+externo, catálogo do agente ou composição de Hoje é alterado nesta fatia.
+
+
+Pré-requisitos da release de responsabilidades: em PROD, `btree_gist` precisa
+estar disponível e instalada, ou o executor autorizado deve poder instalá-la
+(a migration executa `CREATE EXTENSION IF NOT EXISTS`). Sem essa extensão,
+a exclusão GiST por igreja/setor/período não pode ser criada: parar a release.
+Aplicar a migration **antes do backend**, conferir sucesso e grants, e somente
+então publicar os callers. `service_role` não tem grant na tabela
+`responsabilidades_setor`; BYPASSRLS não substitui privilégio de tabela.
+O backend usa sessão `authenticated` com tenant e autorização revalidada.
+Encerramentos novos exigem `fim >= hoje` em `America/Sao_Paulo`; o primeiro
+dia sem responsabilidade é `fim`. Repetição idêntica preserva o recibo gravado.

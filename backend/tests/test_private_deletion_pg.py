@@ -45,6 +45,73 @@ def private_data(database):
     return v
 
 
+@pytest.fixture
+def responsibilities(database, private_data):
+    """Official history in both churches, alongside the private deletion graph."""
+    v = private_data
+    other_admin = uuid4()
+    with database.begin() as c:
+        c.execute(text("insert into app_users(id,igreja_id,nome,email,status) values(:u,:other,'Synthetic','other@example.invalid','ativo')"), dict(v, u=other_admin))
+        for tenant, person, author in ((v['tenant'], v['person'], v['admin']),
+                                       (v['other'], v['person3'], other_admin)):
+            c.execute(text("insert into responsabilidades_setor(igreja_id,pessoa_id,setor,inicio,atribuida_por) values(:t,:p,'agenda','2026-10-01',:u)"), dict(t=tenant, p=person, u=author))
+    return v
+
+
+def test_person_cascade_after_approved_private_erasure(database, responsibilities):
+    from app.services.private_deletion import event_was_deleted
+    v = responsibilities
+    with database.begin() as c:
+        c.execute(text("update messages set provider_message_id='responsibility-erasure' where id=:message"), v)
+    with api(database, v) as client:
+        response = client.request('DELETE', f"/contacts/{v['person']}/private-content", json=dict(
+            operation_id=str(uuid4()), confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+        assert response.status_code == 200, response.text
+        receipt_id = response.json()['id']
+    with database.begin() as c:
+        # #518 erases private content, preserving official records and opt-out.
+        assert c.scalar(text('select count(*) from responsabilidades_setor where igreja_id=:tenant'), v) == 1
+        c.execute(text('delete from pessoas where id=:person and igreja_id=:tenant'), v)
+        assert c.scalar(text('select count(*) from responsabilidades_setor where igreja_id=:tenant'), v) == 0
+        assert c.scalar(text('select count(*) from responsabilidades_setor where igreja_id=:other'), v) == 1
+        assert c.scalar(text('select count(*) from pessoas where id=:person3'), v) == 1
+        assert c.scalar(text('select count(*) from messages where igreja_id=:other'), v) == 1
+        assert c.scalar(text('select count(*) from private_deletion_receipts where id=:id'), dict(id=receipt_id)) == 1
+    with scoped(database, v['tenant']) as s:
+        assert event_was_deleted(s, v['tenant'], 'responsibility-erasure')
+
+
+@pytest.mark.parametrize('author_column', ['atribuida_por', 'encerrada_por'])
+def test_responsibility_authors_remain_protected(database, responsibilities, author_column):
+    from sqlalchemy.exc import IntegrityError
+    v = responsibilities
+    author = uuid4()
+    with database.begin() as c:
+        c.execute(text("insert into app_users(id,igreja_id,nome,email,status) values(:u,:tenant,'Synthetic','history@example.invalid','ativo')"), dict(v, u=author))
+        if author_column == 'atribuida_por':
+            c.execute(text("insert into responsabilidades_setor(igreja_id,pessoa_id,setor,inicio,atribuida_por) values(:tenant,:person,'consolidacao','2026-10-01',:u)"), dict(v, u=author))
+        else:
+            c.execute(text("update responsabilidades_setor set fim='2026-10-20',encerrada_por=:u,encerrada_em=now() where igreja_id=:tenant"), dict(v, u=author))
+    with database.begin() as c, pytest.raises(IntegrityError) as error:
+        c.execute(text('delete from app_users where id=:u'), dict(u=author))
+    assert error.value.orig.pgcode == '23503'
+    assert 'responsabilidades_setor' in str(error.value.orig)
+
+
+def test_reset_with_responsibilities(database, responsibilities):
+    from app.db.tenant_session import mark_cross_tenant
+    from app.services.tenant_deletion import reset_all_tenants, TenantDeletionActor
+    with Session(database) as s:
+        mark_cross_tenant(s, source='synthetic_responsibility_reset')
+        result = reset_all_tenants(s, TenantDeletionActor(None, 'reset_tudo'))
+        s.commit()
+        assert result.igrejas_deleted == 2
+    with database.connect() as c:
+        for table in ('igrejas', 'pessoas', 'responsabilidades_setor'):
+            assert c.scalar(text(f'select count(*) from {table}')) == 0
+        assert c.scalar(text('select count(*) from private_deletion_receipts')) >= 2
+
+
 def scoped(engine, tenant, *, admin=False):
     s = Session(engine)
     mark_tenant_scoped(s, tenant, source='private_deletion_test')
@@ -895,7 +962,7 @@ def test_prayer_collection_media_erased_without_admin_read(database, private_dat
         assert c.execute(text("select count(*) from private_deletion_tasks where igreja_id=:tenant and (state!='concluida' or storage_path is not null)"), v).scalar_one() == 0
 
 
-def test_privileged_church_erasure_keeps_protected_media_in_manifest(database, private_data):
+def test_privileged_church_erasure_keeps_protected_media_in_manifest(database, private_data, responsibilities):
     from app.db.tenant_session import mark_cross_tenant
     from app.services.tenant_deletion import delete_tenant_locally, TenantDeletionActor
     v = private_data
@@ -910,6 +977,9 @@ def test_privileged_church_erasure_keeps_protected_media_in_manifest(database, p
         assert c.execute(text('select count(*) from pedido_oracao_mensagem where igreja_id=:tenant'), v).scalar_one() == 0
         assert c.execute(text('select count(*) from messages where igreja_id=:tenant'), v).scalar_one() == 0
         assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+        assert c.scalar(text('select count(*) from responsabilidades_setor where igreja_id=:tenant'), v) == 0
+        assert c.scalar(text('select count(*) from responsabilidades_setor where igreja_id=:other'), v) == 1
+        assert c.scalar(text('select count(*) from pessoas where id=:person3'), v) == 1
         manifest = c.execute(text('select detalhe from platform_audit_log where alvo_id=:tenant'), v).scalars().all()
         assert f"{v['tenant']}/{v['conv']}/synthetic.png" in json.dumps(manifest)
         assert c.execute(text('select count(*) from private_deletion_tasks where igreja_id=:tenant and storage_path=:path'), dict(v,path=f"{v['tenant']}/{v['conv']}/synthetic.png")).scalar_one()==1
