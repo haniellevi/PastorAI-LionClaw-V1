@@ -2,7 +2,7 @@
 
 Stack: **VPS Hostinger** roda Evolution + backend + workers + Redis. O **banco** é o Supabase (externo) e o **frontend** vai na Vercel. Em produção, 8000/8080 ficam presos ao localhost e o acesso público passa por HTTPS/Nginx.
 
-> VPS atual: `76.13.234.127` (`srv1728329.hstgr.cloud`, Campinas). O procedimento canônico de produção está em [`docs/ops/PRODUCTION-RUNBOOK.md`](../docs/ops/PRODUCTION-RUNBOOK.md).
+> VPS atual: `srv2031318.hstgr.cloud` (VPS nova; a `srv1728329` é a antiga e será desativada). O procedimento canônico de produção está em [`docs/ops/PRODUCTION-RUNBOOK.md`](../docs/ops/PRODUCTION-RUNBOOK.md).
 
 ---
 
@@ -11,7 +11,7 @@ Stack: **VPS Hostinger** roda Evolution + backend + workers + Redis. O **banco**
 Pelo terminal (Windows tem `ssh` nativo) ou pelo **Browser Terminal** no painel da Hostinger:
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\pastorai_vps root@76.13.234.127
+ssh -i $env:USERPROFILE\.ssh\pastorai_vps root@srv2031318.hstgr.cloud
 ```
 
 ## 2. Instalar Docker (uma vez)
@@ -88,7 +88,7 @@ Conectar o número (2 caminhos):
 PowerShell local e mantenha essa janela aberta:
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\pastorai_vps -L 8080:127.0.0.1:8080 root@76.13.234.127
+ssh -i $env:USERPROFILE\.ssh\pastorai_vps -L 8080:127.0.0.1:8080 root@srv2031318.hstgr.cloud
 ```
 
 Depois abra `http://127.0.0.1:8080/manager`, entre com a
