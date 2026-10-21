@@ -191,6 +191,7 @@ function InboxSession() {
   const messagesRef = useRef<ChatMessage[]>([]);
   useEffect(() => { messagesRef.current = messages; },[messages]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesSnapshotId, setMessagesSnapshotId] = useState<string | null>(null);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -459,6 +460,7 @@ function InboxSession() {
       const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
       if (mode === "older") setOlderMessagesLoading(true);
       if (mode === "initial") {
+        setMessagesSnapshotId(null);
         setMessagesLoading(true);
         setMessagesError(null);
       }
@@ -506,6 +508,7 @@ function InboxSession() {
               const nextMessages = renewMedia(merge(messagesRef.current));
               setMessages((current) => renewMedia(merge(current)));
               setMessagesError(null);
+              setMessagesSnapshotId(convId);
               if (mode !== "older") window.after = page.nextAfter ?? window.after;
               if (mode === "older" || mode === "initial" || page.rangeReconciled || !window.supported) window.before = page.nextBefore;
               window.supported = page.cursorSupported;
@@ -590,6 +593,7 @@ function InboxSession() {
     selectionGenRef.current += 1;
     const requestKey = `${selectionGenRef.current}:${selectedId ?? ""}`;
     setMessages([]);
+    setMessagesSnapshotId(null);
     mediaSignedAt.current.clear();
     mediaInFlight.current = new Set();
     setMessagesError(null);
@@ -1091,6 +1095,7 @@ function InboxSession() {
             conflict={conflicts[selected.id] ?? null}
             messages={messages}
             messagesLoading={messagesLoading}
+            messagesInitialized={messagesSnapshotId === selected.id}
             messagesError={messagesError}
             hasOlderMessages={hasOlderMessages}
             olderMessagesLoading={olderMessagesLoading}

@@ -1125,3 +1125,17 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     expect(container.textContent).toContain("Não foi possível carregar as conversas");
 });
 });
+
+it("não anuncia o snapshot ao abrir conversas e anuncia somente o próximo inbound", async () => {
+  vi.useFakeTimers();
+  const status = () => container.querySelector('.thread-head [role="status"]')?.textContent;
+  await renderInbox();
+  await resolveMessages(CONV_A.id, MSGS_A);
+  expect(status()).toBe("");
+  selectConversation(CONV_B.nome!);
+  await resolveMessages(CONV_B.id, MSGS_B);
+  expect(status()).toBe("");
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  await resolveMessages(CONV_B.id, [...MSGS_B, msg("new-inbound", "Nova entrada sintética")]);
+  expect(status()).toBe("1 nova mensagem recebida.");
+});
