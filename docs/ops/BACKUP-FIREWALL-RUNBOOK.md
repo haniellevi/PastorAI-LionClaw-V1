@@ -5,7 +5,7 @@ Atualizado em 2026-08-10. Este documento não contém segredos.
 ## Estado verificado
 
 - Supabase PROD: `pffafnchtxbimpwyaczq`, plano Free.
-- VPS: `srv1728329.hstgr.cloud` (`76.13.234.127`).
+- VPS: `srv2031318.hstgr.cloud` (VPS nova; a antiga `srv1728329` será desativada). Verificado em 2026-10-21: backup diário OK e API local 200; unit `pastorai-monitor` não encontrada.
 - Backup semanal da Hostinger confirmado em 2026-08-05, com 1,99 GB.
 - Firewall Hostinger ativo: grupo `pastorai-production`.
 - Firewall Ubuntu (UFW) ativo e habilitado no boot.

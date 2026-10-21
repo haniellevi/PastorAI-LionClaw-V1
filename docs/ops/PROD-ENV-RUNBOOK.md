@@ -64,7 +64,7 @@ destinatário explicitamente autorizado.
 
 ## 2. Infra de produção (VPS)
 
-- **VPS:** Hostinger, `76.13.234.127` (`srv1728329.hstgr.cloud`, Campinas).
+- **VPS:** Hostinger, `srv2031318.hstgr.cloud` (VPS nova; a `srv1728329` é a antiga e será desativada).
 - **Caminho real do projeto:** `/opt/pastorai-lionclaw` (⚠️ **não** `/opt/pastorai`).
 - **A VPS NÃO tem `.git`** — o código não é versionado lá; deploy é por **cópia/tarball**
   do backend versionado (ver §3).
