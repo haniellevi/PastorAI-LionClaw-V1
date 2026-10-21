@@ -172,3 +172,12 @@ describe("ConversationList — Gate 8", () => {
     }
   });
 });
+
+it("voltar restaura o foco no item aberto e usa busca se o filtro o removeu", () => {
+  render({ selectedId: "c2" });
+  render({ selectedId: null });
+  expect((document.activeElement as HTMLElement).dataset.conversationId).toBe("c2");
+  render({ selectedId: "c2" });
+  render({ selectedId: null, conversations: [] });
+  expect(document.activeElement).toBe(container.querySelector('input[type="search"]'));
+});

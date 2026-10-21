@@ -69,6 +69,16 @@ export function ConversationList({
 }) {
   const searchId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
+  const previousSelection = useRef(selectedId);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (previousSelection.current && !selectedId) {
+      const row = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("[data-conversation-id]") ?? [])
+        .find((item) => item.dataset.conversationId === previousSelection.current);
+      (row ?? searchRef.current)?.focus();
+    }
+    previousSelection.current = selectedId;
+  }, [selectedId]);
   const loadMoreHadFocus = useRef(false);
   useEffect(() => {
     if (loadingMore) return;
@@ -78,7 +88,7 @@ export function ConversationList({
     loadMoreHadFocus.current = false;
   }, [hasMore, loadingMore]);
   return (
-    <div className="conv-list">
+    <div className="conv-list" ref={listRef}>
       <div className="ib-filter" role="group" aria-label="Filtrar conversas">
         <button
           type="button"
@@ -140,6 +150,7 @@ export function ConversationList({
             <button
               type="button"
               key={c.id}
+              data-conversation-id={c.id}
               className={`conv${active ? " active" : ""}`}
               aria-current={active ? "true" : undefined}
               onClick={() => onSelect(c.id)}
