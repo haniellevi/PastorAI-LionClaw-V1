@@ -37,6 +37,10 @@ def test_other_closed_commands_pass_pending_protocol(pending_router, text, targe
 @pytest.mark.parametrize('pending_router', PENDING_ROUTERS)
 def test_private_resume_passes_pending_protocol(pending_router):
     assert action(pending_router(RESUME_COMMAND, pending=True)) == 'none'
+    if pending_router is nodes.route_prayer_intent:
+        from app.prayer.catalog import classify
+
+        assert classify(RESUME_COMMAND, pending=True) == 'none'
 
 
 @pytest.mark.parametrize('router', PENDING_ROUTERS[:4])
@@ -55,3 +59,30 @@ def test_pending_proposal_does_not_capture_arbitrary_text(router, text):
 
 def test_cell_suggestion_leaves_confirmo_to_pending_confirmation():
     assert nodes.route_cell_suggest_intent('confirmo', pending=True) == ('none', None)
+
+
+@pytest.mark.parametrize('text', [
+    'talvez com todos', 'com todos', 'só meu líder',
+    'pastores ou meu líder', 'somente a equipe pastoral',
+])
+def test_invalid_prayer_audience_stays_with_real_catalog_and_router(text):
+    from app.prayer.catalog import classify
+
+    assert classify(text, pending=True) == 'clarify'
+    assert nodes.route_prayer_intent(text, pending=True) == 'clarify'
+    assert classify(text, pending=False) == 'none'
+    assert nodes.route_prayer_intent(text, pending=False) == 'none'
+
+
+@pytest.mark.parametrize('text,target,expected', [
+    command for command in COMMANDS if command[1] is not nodes.route_prayer_intent
+] + [
+    ('CONHECIMENTO buscar pastores', nodes.route_conhecimento_intent,
+     ('search', 'pastores')),
+])
+def test_pending_prayer_catalog_leaves_other_commands_to_real_router(text, target, expected):
+    from app.prayer.catalog import classify
+
+    assert classify(text, pending=True) == 'none'
+    assert nodes.route_prayer_intent(text, pending=True) == 'none'
+    assert target(text) == expected

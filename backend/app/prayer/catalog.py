@@ -56,7 +56,22 @@ def classify(text: str, *, pending: bool) -> str:
             return "cancel"
     if re.search(r"\b(?:oracao|orar|orem|ore)\b", value):
         return "start"
-    return "clarify" if pending and value in {"sim", "confirmo"} else "none"
+    if pending:
+        if value in {"sim", "confirmo"}:
+            return "clarify"
+        # Audience-only phrases stay in this flow without swallowing another
+        # catalog's command (including searches that mention pastors/leaders).
+        words = set(value.split())
+        if (
+            words & {"todos", "pastor", "pastores", "pastoral", "lider", "lideres"}
+            and words <= {
+                "talvez", "com", "todos", "so", "somente", "apenas", "a", "o",
+                "os", "e", "ou", "meu", "minha", "equipe", "pastor", "pastores",
+                "pastoral", "lider", "lideres",
+            }
+        ):
+            return "clarify"
+    return "none"
 
 
 def own_summary(text: str) -> str | None:
