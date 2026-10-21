@@ -119,6 +119,8 @@ function findButton(label: string): HTMLButtonElement | undefined {
   );
 }
 
+const resetPrivate = vi.fn();
+
 async function renderPanel(onClose: () => void = () => {}) {
   act(() => {
     root.render(
@@ -126,6 +128,7 @@ async function renderPanel(onClose: () => void = () => {}) {
         pessoaId: "p1",
         telefone: "5511987654321",
         onClose,
+        onResetPrivateContent: resetPrivate,
       }),
     );
   });
@@ -146,6 +149,7 @@ function pressEscape(target: EventTarget = document) {
 
 beforeEach(() => {
   authState.roles = ["admin"];
+  resetPrivate.mockClear();
   authState.expireSession.mockClear();
   apiMock.fetchContactDetail.mockReset();
   apiMock.reactivateCommunications.mockReset();
@@ -396,3 +400,24 @@ it.each(["admin", "pastor", "lider_celula", "operador"])(
       .toBe(role === "admin");
   },
 );
+
+
+it.each(["admin", "pastor", "lider_celula", "operador"])(
+  "oferece reset privado somente a admin (%s)", async role => {
+    authState.roles = [role];
+    apiMock.fetchContactDetail.mockResolvedValue(detail());
+    await renderPanel();
+    const button = findButton("Excluir conteúdo privado da pessoa");
+    expect(Boolean(button)).toBe(role === "admin");
+    if (button) { act(() => button.click()); expect(resetPrivate).toHaveBeenCalledOnce(); }
+  },
+);
+
+
+it('não oferece reset sem pessoa vinculada', async () => {
+  apiMock.fetchContactDetail.mockResolvedValue(detail());
+  await act(async () => root.render(h(ContactPanel, {
+    pessoaId: null, telefone: '550000000000', onClose: vi.fn(), onResetPrivateContent: resetPrivate,
+  })));
+  expect(findButton('Excluir conteúdo privado da pessoa')).toBeUndefined();
+});
