@@ -49,6 +49,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "dashboard", label: "Painel de Hoje", icon: "dashboard" },
       { target: "minha-celula", label: "Minha Célula", icon: "central-celula" },
       { target: "calendario", label: "Agenda", icon: "calendar" },
+      { target: "responsabilidades", label: "Responsabilidades", icon: "team" },
       { target: "conhecimento", label: "Conhecimento oficial", icon: "university" },
       { target: "inbox", label: "Conversas", icon: "chat" },
       { target: "pedidos-oracao", label: "Pedidos de oração", icon: "chat" },
@@ -191,6 +192,7 @@ export const SCREEN_META: Record<
   string,
   { title: string; crumb: string; info?: string }
 > = {
+  responsabilidades: { title: "Responsabilidades", crumb: "Responsáveis por setor", info: "Gestão de vigência e histórico por setor." },
   conhecimento: { title: "Conhecimento oficial", crumb: "Documentos da igreja", info: "Documentos oficiais versionados, com público autorizado e publicação pelo administrador." },
   setup: {
     title: "Configuração Inicial",

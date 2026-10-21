@@ -56,7 +56,7 @@ export const LEGACY = ["celulas", "relatorios"] as const;
  * renderizaria um 403 ou "Acesso restrito". Espelha CENTRAL_ONLY de
  * `backend/app/domain/permissions.py`.
  */
-export const CENTRAL_ONLY = ["central-celula", "relatorios"] as const;
+export const CENTRAL_ONLY = ["central-celula", "relatorios", "responsabilidades"] as const;
 
 /** Papel que enxerga as telas CENTRAL_ONLY (espelha CENTRAL_ROLE do backend). */
 export const CENTRAL_ROLE = "pastor";
@@ -65,6 +65,8 @@ export const ALL_SCREENS: readonly string[] = [
   ...MENU_SCREENS,
   ...LEGACY,
   ...ADMIN_ONLY,
+  // Subtela da Central; não é uma nova concessão na matriz persistida.
+  "responsabilidades",
 ];
 
 const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
@@ -173,6 +175,12 @@ export function allowedScreens(
   }
 
   const set = new Set<string>(["dashboard"]);
+  // A API de responsabilidades usa o mesmo papel da Central. Matrizes já
+  // persistidas ainda não possuem a nova tela: acompanhe a visibilidade da
+  // Central sem conceder nada a outro papel ou reabrir uma Central removida.
+  if (roles.includes("pastor") && perms.pastor?.includes("central-celula")) {
+    set.add("responsabilidades");
+  }
 
   for (const role of roles) {
     if (role === "admin") continue;
