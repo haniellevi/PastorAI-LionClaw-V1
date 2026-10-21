@@ -58,10 +58,15 @@ def executar(db,user,kind,did,payload):
     # Stable integer in PG, scoped by tenant; no document text in locks/logs.
     db.execute(text('select pg_advisory_xact_lock(hashtextextended(:key,0))'),
                dict(key=f'conhecimento:{t}:{payload.operacao_id}'))
+    db.execute(text('select pg_advisory_xact_lock(hashtextextended(:key,0))'),
+               dict(key=f'conhecimento-documento:{t}:{did}'))
     prior=rows(db,'''select * from conhecimento_operacoes
         where igreja_id=:t and id=:id''',t=t,id=payload.operacao_id)
     if prior:
         receipt=prior[0]
+        if rows(db,'''select documento_id from conhecimento_exclusoes
+            where igreja_id=:t and documento_id=:d''',t=t,d=receipt['documento_id']):
+            raise HTTPException(410,'Documento excluído')
         if (receipt['ator_id'],receipt['fingerprint'])!=(uid,fingerprint):
             raise HTTPException(409,'Operação reutilizada com outros dados')
         if not roles & PUBLICADORES:
@@ -249,7 +254,7 @@ def painel(db, user, pagina=1):
                 actions.append('revogar')
         doc = documents.setdefault(version_row['documento_id'], dict(
             id=version_row['documento_id'], vigente_id=version_row['vigente_id'] if editorial else None,
-            vigente_numero=version_row['vigente_numero'] if editorial else 1, versoes=[]))
+            vigente_numero=version_row['vigente_numero'] if editorial else 1, pode_excluir=admin, versoes=[]))
         fields = ('id','numero','estado','publicos','criada_em','publicada_em','revisada_em')
         metadata = {k: version_row[k] for k in fields}
         if not editorial:
@@ -261,12 +266,34 @@ def painel(db, user, pagina=1):
             acoes=actions, vigente=version_row['id'] == version_row['vigente_id']))
     # Hydrate labels only after authorization, in one bounded query.
     if documents:
-        labels = rows(db, """select id,titulo,assunto from conhecimento_documentos
+        labels = rows(db, """select d.id,d.titulo,d.assunto,
+            (select count(*) from conhecimento_versoes v where v.igreja_id=d.igreja_id
+             and v.documento_id=d.id) as total_versoes from conhecimento_documentos d
             where igreja_id=:t and id=any(cast(:ids as uuid[]))""",
             t=context['t'], ids=list(documents))
         for label in labels:
             documents[label['id']].update(titulo=label['titulo'], assunto=label['assunto'])
+            if admin:
+                documents[label['id']]['total_versoes'] = label['total_versoes']
     for doc in documents.values():
         doc['versoes'].sort(key=lambda v: v['numero'])
     return dict(pode_criar=editor, responsavel_id=context['uid'] if editor else None,
         documentos=list(documents.values()), pendentes=pending, pagina=pagina, tem_mais=more)
+
+
+def excluir(db,user,did,operacao_id):
+    """Admin web; atomic erasure and receipt. Caller commits before response."""
+    from sqlalchemy.exc import DBAPIError
+    t,uid,roles=actor(db,user)
+    require(roles,PUBLICADORES)
+    try:
+        with db.begin_nested():
+            result=db.execute(text('select public.conhecimento_excluir_documento(:t,:d,:o,:u)'),
+                dict(t=t,d=did,o=operacao_id,u=uid)).scalar_one_or_none()
+    except DBAPIError as exc:
+        code=getattr(exc.orig,'pgcode',None) or getattr(exc.orig,'sqlstate',None)
+        if code=='42501': raise HTTPException(403,'Exige administrador web ativo') from None
+        if code=='23505': raise HTTPException(409,'Operação reutilizada') from None
+        raise RuntimeError('Falha na exclusão de conhecimento') from None
+    if result is None: raise HTTPException(404,'Documento não encontrado')
+    return result

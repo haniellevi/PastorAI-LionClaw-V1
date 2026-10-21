@@ -249,3 +249,101 @@ def test_pending_source_marker_is_revalidated(knowledge_turn,field):
         reply.agent_privilege_context=metadata
     _,r,t=send(p,'ignored',outcome=outcome)
     assert not t.calls and r.agent_reply_state in {'ia_suprimida','ia_sem_resposta'}
+
+
+@pytest.mark.parametrize('delivery',['enviado','falhou_retentavel'])
+@pytest.mark.parametrize('reference',['documento','versao'])
+def test_document_erasure_redacts_persisted_quote_and_blocks_retry(knowledge_turn,delivery,reference):
+    from tests.test_conhecimento_exclusao_pg import client as web_client, subject, erase
+    p=knowledge_turn; d=document(p)
+    transport=_ClassifiedEvolution() if delivery=='enviado' else _ClassifiedEvolution(delivery)
+    outcome,r,_=send(p,'CONHECIMENTO buscar orientação',transport=transport)
+    assert 'Orientação sintética aprovada' in r.texto
+    with p.factory.begin() as s:
+        unrelated=Message(igreja_id=p.v['t'],conversation_id=p.conv,direcao='out',autor='humano',
+            texto='Texto sintético não oficial',agent_privilege_context=dict(kind='outro',fontes=[dict(documento_id=d['id'])]))
+        s.add(unrelated); s.flush(); unrelated_id=unrelated.id
+        if reference=='versao':
+            quote=s.get(Message,r.id)
+            quote.agent_privilege_context=dict(quote.agent_privilege_context,
+                fontes=[dict(documento_id=str(uuid4()),versao_id=d['versao_id'])])
+    subject(p.factory.kw['bind'],p.v)
+    with web_client(p.factory.kw['bind'],p.v) as c:
+        assert erase(c,d).status_code==200
+    with p.factory() as s:
+        assert s.get(Message,unrelated_id).texto=='Texto sintético não oficial'
+        redacted=s.get(Message,r.id)
+        assert redacted.texto=='[Conhecimento oficial excluído]'
+        assert 'fontes' not in redacted.agent_privilege_context
+        assert redacted.agent_reply_state=='ia_suprimida'
+    _,again,t=send(p,'ignored',outcome=outcome)
+    assert 'Orientação sintética aprovada' not in (again.texto or '')
+    assert not t.calls
+
+
+def test_erasure_waits_for_quote_being_persisted(knowledge_turn,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    import time
+    from app.conhecimento_whatsapp import service
+    from tests.test_conhecimento_exclusao_pg import client as web_client, subject, erase
+    p=knowledge_turn; d=document(p); resolved=Event(); release=Event()
+    original=service.resolve
+    def paused(*args,**kwargs):
+        result=original(*args,**kwargs)
+        resolved.set()
+        assert release.wait(timeout=15)
+        return result
+    monkeypatch.setattr(service,'resolve',paused)
+    subject(p.factory.kw['bind'],p.v)
+    def delete():
+        with web_client(p.factory.kw['bind'],p.v) as c: return erase(c,d)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        quote=pool.submit(send,p,'CONHECIMENTO buscar orientação')
+        assert resolved.wait(timeout=10)
+        deletion=pool.submit(delete)
+        try:
+            deadline=time.monotonic()+5
+            waiting=False
+            while time.monotonic()<deadline and not deletion.done():
+                with p.factory() as s:
+                    waiting=s.scalar(text("select exists(select 1 from pg_locks where not granted)"))
+                if waiting: break
+                time.sleep(.01)
+            assert waiting, 'Deletion must wait until the quoted source transaction finishes'
+        finally:
+            release.set()
+        assert deletion.result(timeout=15).status_code==200
+        quote.result(timeout=15)
+    with p.factory() as s:
+        assert not s.scalar(text("select exists(select 1 from messages where texto like '%Orientação sintética aprovada%')"))
+
+
+def test_quote_redaction_and_fingerprint_are_rolled_back_on_failure(knowledge_turn):
+    from tests.test_conhecimento_exclusao_pg import subject
+    from app.services.conhecimento_editorial import excluir
+    p=knowledge_turn; d=document(p)
+    _,r,_=send(p,'CONHECIMENTO buscar orientação')
+    subject(p.factory.kw['bind'],p.v)
+    with p.factory.begin() as s:
+        before=s.execute(text('select fingerprint from conhecimento_operacoes order by id')).all()
+        s.execute(text("""create function conhecimento_test_receipt_fail() returns trigger language plpgsql as $$
+            begin raise exception 'synthetic receipt failure'; end $$"""))
+        s.execute(text('create trigger conhecimento_test_receipt_fail before insert on conhecimento_exclusoes for each row execute function conhecimento_test_receipt_fail()'))
+    try:
+        with scoped(p.factory.kw['bind'],p.v['t']) as s:
+            s.execute(text("select set_config('request.jwt.claim.sub','synthetic',true)"))
+            with pytest.raises(RuntimeError): excluir(s,principal(p.v),d['id'],uuid4())
+            s.commit()
+        with p.factory() as s:
+            quote=s.get(Message,r.id)
+            assert quote.texto==r.texto
+            assert quote.agent_privilege_context==r.agent_privilege_context
+            assert quote.agent_reply_state==r.agent_reply_state
+            assert s.execute(text('select fingerprint from conhecimento_operacoes order by id')).all()==before
+            assert s.scalar(text('select count(*) from conhecimento_exclusoes'))==0
+            assert s.scalar(text('select count(*) from conhecimento_trechos'))>0
+    finally:
+        with p.factory.begin() as s:
+            s.execute(text('drop trigger conhecimento_test_receipt_fail on conhecimento_exclusoes'))
+            s.execute(text('drop function conhecimento_test_receipt_fail()'))
