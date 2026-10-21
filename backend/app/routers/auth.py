@@ -566,8 +566,8 @@ def _lock_invite_for_activation(db: Session, app_user_id: uuid.UUID) -> AppUser:
 
 def _prepare_cadastro_pessoa(
     db: Session, app_user: AppUser, telefone_raw: str, normalized: str
-) -> None:
-    """Parte B: cria/vincula a Pessoa-membro do convidado na ativação.
+) -> uuid.UUID:
+    """Parte B: prepara a Pessoa-membro sem sobrescrever o vínculo do convite.
 
     Pré-login (service role / BYPASSRLS), por isso TODA query é escopada
     explicitamente por ``app_user.igreja_id``. O telefone auto-declarado não
@@ -624,9 +624,7 @@ def _prepare_cadastro_pessoa(
     pessoa = _lock_pessoa_and_assert_unique_access(
         db, app_user=app_user, pessoa_id=pessoa.id
     )
-    app_user.pessoa_id = pessoa.id
-
-    app_user.celula_pendente_id = None
+    return pessoa.id
 
 
 @router.post("/activate")
@@ -649,7 +647,8 @@ def activate(
     settings = get_settings()
     limiter.enforce_ip(request, "activate", settings.rate_limit_activate_ip_limit)
     app_user = _resolve_invite(payload.token, db, clerk)
-    needs_cadastro = app_user.pessoa_id is None
+    previous_pessoa_id = app_user.pessoa_id
+    needs_cadastro = previous_pessoa_id is None
 
     # Parte B: valida o telefone ANTES de criar a conta (evita conta órfã).
     normalized = ""
@@ -665,13 +664,9 @@ def activate(
     # provedor falhar, rollback explícito desfaz Pessoa/vínculo preparados.
     try:
         if needs_cadastro:
-            _prepare_cadastro_pessoa(
+            prepared_pessoa_id = _prepare_cadastro_pessoa(
                 db, app_user, payload.telefone or "", normalized
             )
-            # SessionLocal usa autoflush=False. Persiste o vínculo preparado
-            # antes da releitura populate_existing; sem isto, a releitura
-            # restaura pessoa_id/celula_pendente_id antigos e orfana a Pessoa.
-            db.flush()
         else:
             _lock_pessoa_and_assert_unique_access(
                 db,
@@ -684,6 +679,17 @@ def activate(
         app_user = _lock_invite_for_activation(
             db, uuid.UUID(str(app_user.id))
         )
+        if app_user.pessoa_id != previous_pessoa_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="O vínculo mudou. Atualize o convite antes de ativar o acesso.",
+            )
+        if needs_cadastro:
+            # Só decide/escreve a identidade depois da releitura FOR UPDATE.
+            # Conflito desfaz também a Pessoa preparada, antes de chamar Clerk.
+            app_user.pessoa_id = prepared_pessoa_id
+            app_user.celula_pendente_id = None
+            db.flush()
     except HTTPException:
         db.rollback()
         raise

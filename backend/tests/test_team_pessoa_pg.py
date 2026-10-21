@@ -3,17 +3,22 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from threading import Event, local
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import get_current_user
+from app.routers import auth, team
 from app.routers.team import router
 from tests.test_uv_turmas_pg import migrated_database, seeded, scoped, principal
 from tests.conftest_rls import assert_disposable_database
@@ -257,3 +262,168 @@ def test_concurrent_users_cannot_claim_same_person(database, seeded):
         expected = [('desvincular', previous[winner], winner)] if previous[winner] else []
         expected.append(('vincular', v['p'], winner))
         assert c.execute(text('select operacao,pessoa_id,usuario_id from team_pessoa_eventos order by criado_em')).all() == expected
+
+
+@pytest.mark.parametrize('bypass', [False, True])
+@pytest.mark.parametrize('leadership', ['active', 'inactive', 'foreign', 'none'])
+def test_link_reconciles_persisted_leader_role(database, seeded, bypass, leadership):
+    v = seeded
+    subject = 'clerk_synthetic_link'
+    with database.begin() as c:
+        c.execute(text('update app_users set clerk_user_id=:s where id=:u'),
+                  dict(s=subject, u=v['outsider']))
+        if leadership != 'none':
+            # The legacy FK permits a foreign cell to reference this Pessoa.
+            # Even BYPASSRLS must not derive a role from another church.
+            c.execute(text("insert into celulas(igreja_id,nome,lider_id,ativo,cobertura_espiritual) "
+                           "values(:t,'Célula sintética',:p,:a,'Teste sintético')"),
+                      dict(t=v['other'] if leadership == 'foreign' else v['t'],
+                           p=v['p'], a=leadership != 'inactive'))
+        other_roles = c.execute(text('select igreja_id,user_id,papel from user_roles where user_id<>:u order by id'),
+                                dict(u=v['outsider'])).all()
+        replacement = c.scalar(text('select pessoa_id from app_users where id=:u'), dict(u=v['leader']))
+    with client_for(database, v, bypass=bypass) as client:
+        for _ in range(2):
+            response = client.put(f"/team/{v['outsider']}/pessoa", json={'pessoaId': str(v['p'])})
+            assert response.status_code == 200, response.text
+        if leadership == 'active':
+            # Use a fresh eligible Pessoa so duplicate-access validation does
+            # not mask the active-leadership guard on replacement.
+            with database.begin() as c:
+                c.execute(text('update app_users set pessoa_id=null where id=:u'), dict(u=v['leader']))
+            for destination in (None, str(replacement)):
+                response = client.put(f"/team/{v['outsider']}/pessoa", json={'pessoaId': destination})
+                assert response.status_code == 409
+                assert 'Transfira ou encerre' in response.json()['detail']
+    expected = {'operador', 'lider_celula'} if leadership == 'active' else {'operador'}
+    with Session(database) as db:
+        # Exercise the real persisted-role authentication path on a new session.
+        clerk = SimpleNamespace(verify_session_token=lambda _: SimpleNamespace(clerk_user_id=subject, claims={}))
+        current = get_current_user('Bearer synthetic-session', db, clerk)
+        assert current.roles == frozenset(expected)
+    with database.connect() as c:
+        assert c.execute(text('select igreja_id,user_id,papel from user_roles where user_id<>:u order by id'),
+                         dict(u=v['outsider'])).all() == other_roles
+        assert c.scalar(text('select count(*) from team_pessoa_eventos')) == 1
+
+
+def test_leader_link_role_and_audit_rollback_together(database, seeded):
+    from sqlalchemy.exc import IntegrityError
+    v = seeded
+    with database.begin() as c:
+        c.execute(text("insert into celulas(igreja_id,nome,lider_id,ativo,cobertura_espiritual) "
+                       "values(:t,'Célula sintética',:p,true,'Teste sintético')"), dict(t=v['t'], p=v['p']))
+
+    def reject_commit(db):
+        db.flush()
+        assert db.scalar(text("select count(*) from user_roles where user_id=:u and papel='lider_celula'"),
+                         dict(u=v['outsider'])) == 1
+        assert db.scalar(text('select count(*) from team_pessoa_eventos')) == 1
+        raise IntegrityError('synthetic commit failure', {}, None)
+
+    event.listen(Session, 'before_commit', reject_commit)
+    try:
+        with client_for(database, v) as client:
+            response = client.put(f"/team/{v['outsider']}/pessoa", json={'pessoaId': str(v['p'])})
+            assert response.status_code == 409
+    finally:
+        event.remove(Session, 'before_commit', reject_commit)
+    with database.connect() as c:
+        assert c.scalar(text('select pessoa_id from app_users where id=:u'), dict(u=v['outsider'])) is None
+        assert c.execute(text('select papel from user_roles where user_id=:u'), dict(u=v['outsider'])).scalars().all() == ['operador']
+        assert c.scalar(text('select count(*) from team_pessoa_eventos')) == 0
+
+
+@pytest.mark.parametrize('winner', ['activation', 'link'])
+def test_activation_and_link_cannot_overwrite_identity(database, seeded, winner):
+    v = seeded
+    with database.begin() as c:
+        c.execute(text("update app_users set status='convidado',email='invite-race@example.test' where id=:u"),
+                  dict(u=v['outsider']))
+        initial_people = c.scalar(text('select count(*) from pessoas'))
+    paused, release, waiting = Event(), Event(), Event()
+    participant = local()
+    blocked = {}
+    calls = []
+
+    class Clerk:
+        def verify_invite_token(self, _):
+            return str(v['outsider'])
+
+        def find_user_id_by_email(self, _):
+            calls.append('lookup')
+            return None
+
+        def create_user(self, *_):
+            calls.append('create')
+            if winner == 'activation':
+                paused.set()
+                assert release.wait(15)
+            return 'clerk_synthetic_race'
+
+    def before_execute(conn, _cursor, statement, _params, _context, _many):
+        if getattr(participant, 'name', None) in {'activation', 'link'} - {winner}:
+            blocked['pid'] = conn.connection.dbapi_connection.get_backend_pid()
+            waiting.set()
+
+    def after_execute(_conn, _cursor, statement, _params, _context, _many):
+        if (winner == 'link' and getattr(participant, 'name', None) == 'link'
+                and statement.lower().startswith('update app_users set pessoa_id')):
+            paused.set()
+            assert release.wait(15)
+
+    def run(name):
+        participant.name = name
+        with (Session(database, autoflush=False) if name == 'activation' else scoped(database, v['t'])) as db:
+            db.execute(text("set local lock_timeout='10s'"))
+            try:
+                if name == 'activation':
+                    auth.activate(
+                        Request({'type': 'http', 'client': ('127.0.0.1', 1234)}),
+                        auth.ActivateRequest(token='synthetic', password='synthetic-password', telefone='550000000077'),
+                        db, Clerk(), SimpleNamespace(enforce_ip=lambda *_: None),
+                    )
+                else:
+                    team.link_pessoa(v['outsider'], team.PessoaLinkRequest(pessoaId=v['p']), db, principal(v))
+                return 200
+            except HTTPException as exc:
+                return exc.status_code
+
+    event.listen(database, 'before_cursor_execute', before_execute)
+    event.listen(database, 'after_cursor_execute', after_execute)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(run, winner)
+            try:
+                assert paused.wait(10)
+                second = pool.submit(run, 'link' if winner == 'activation' else 'activation')
+                assert waiting.wait(10)
+                deadline = time.monotonic() + 5
+                with database.connect() as c:
+                    while not c.scalar(text('select cardinality(pg_blocking_pids(:pid))'), blocked):
+                        assert time.monotonic() < deadline, 'A segunda sessão não aguardou o lock'
+                        time.sleep(0.01)
+                assert not first.done() and not second.done()
+            finally:
+                release.set()
+            assert first.result(timeout=10) == 200
+            assert second.result(timeout=10) == 409
+    finally:
+        event.remove(database, 'before_cursor_execute', before_execute)
+        event.remove(database, 'after_cursor_execute', after_execute)
+    with database.connect() as c:
+        pessoa, state, clerk_id = c.execute(text('select pessoa_id,status,clerk_user_id from app_users where id=:u'),
+                                           dict(u=v['outsider'])).one()
+        if winner == 'activation':
+            assert pessoa != v['p'] and pessoa is not None
+            assert state == 'ativo' and clerk_id == 'clerk_synthetic_race'
+            assert calls == ['lookup', 'create']
+            assert c.scalar(text('select count(*) from pessoas')) == initial_people + 1
+            assert c.scalar(text('select id from pessoas where telefone=:p'), dict(p='550000000077')) == pessoa
+            assert c.scalar(text('select count(*) from team_pessoa_eventos')) == 0
+        else:
+            assert pessoa == v['p'] and state == 'convidado' and clerk_id is None
+            assert calls == []
+            assert c.scalar(text('select count(*) from pessoas')) == initial_people
+            assert c.scalar(text('select count(*) from pessoas where telefone=:p'), dict(p='550000000077')) == 0
+            assert c.execute(text('select operacao,pessoa_id from team_pessoa_eventos')).one() == ('vincular', v['p'])
