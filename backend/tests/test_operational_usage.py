@@ -54,10 +54,19 @@ def test_bounded_usage_isolates_and_omits_content(db):
     assert operational_usage(db, uuid.UUID(IGREJA_B)).calls == 0
 
 
-@pytest.mark.parametrize('roles,expected', [(['admin'], 200), (['pastor'], 403), ([], 403)])
-def test_admin_endpoint(app, db, roles, expected):
+@pytest.mark.parametrize('roles,user_status,expected', [
+    (['admin'], None, 200), (['admin'], 'ativo', 200),
+    (['admin'], 'convidado', 403), (['admin'], 'revogado', 403),
+    (['pastor'], 'ativo', 403), ([], 'ativo', 403),
+])
+def test_admin_endpoint(app, db, roles, user_status, expected):
+    db.execute(text('reset role'))
+    user_id = db.scalar(text("""update app_users set status=:status
+        where clerk_user_id='synthetic' and igreja_id=:t returning id"""),
+        dict(status=user_status, t=IGREJA_A))
+    db.execute(text('set local role authenticated'))
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        app_user_id=str(uuid.uuid4()), clerk_user_id='synthetic', igreja_id=IGREJA_A,
+        app_user_id=str(user_id), clerk_user_id='synthetic', igreja_id=IGREJA_A,
         email='synthetic@example.invalid', nome='Synthetic', roles=frozenset(roles))
     app.dependency_overrides[get_db] = lambda: db
     response = TestClient(app).get('/operations/ai-usage?igreja_id=' + IGREJA_B)

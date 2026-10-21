@@ -42,11 +42,20 @@ def test_ages_boundaries_and_rls(db):
     assert result.webhooks_available is False
 
 
-@pytest.mark.parametrize('roles,code', [(['admin'],200), (['pastor'],403), ([],403)])
-def test_pending_endpoint(app, db, roles, code):
+@pytest.mark.parametrize('roles,user_status,code', [
+    (['admin'], None, 200), (['admin'], 'ativo', 200),
+    (['admin'], 'convidado', 403), (['admin'], 'revogado', 403),
+    (['pastor'], 'ativo', 403), ([], 'ativo', 403),
+])
+def test_pending_endpoint(app, db, roles, user_status, code):
     seed_tasks(db)
+    db.execute(text('reset role'))
+    user_id = db.scalar(text("""update app_users set status=:status
+        where clerk_user_id='synthetic' and igreja_id=:t returning id"""),
+        dict(status=user_status, t=IGREJA_A))
+    db.execute(text('set local role authenticated'))
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        app_user_id=str(uuid.uuid4()),clerk_user_id='synthetic',igreja_id=IGREJA_A,
+        app_user_id=str(user_id),clerk_user_id='synthetic',igreja_id=IGREJA_A,
         email='synthetic@example.invalid',nome='Synthetic',roles=frozenset(roles))
     app.dependency_overrides[get_db] = lambda: db
     client = TestClient(app)
