@@ -61,8 +61,8 @@ export interface CellHealthList {
 }
 
 /** Contadores do painel da Central (E16). */
-export async function getDashboard(token: string): Promise<CentralDashboard> {
-  const res = await authedFetch(token, `/cell-central/dashboard`);
+export async function getDashboard(token: string, hoje = false): Promise<CentralDashboard> {
+  const res = await authedFetch(token, `/cell-central/dashboard${hoje ? "?hoje=true" : ""}`);
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível carregar o painel da central.");
