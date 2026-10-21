@@ -9,6 +9,7 @@ import dynamic from "next/dynamic";
 
 import { ModuleTabs } from "./ModuleTabs";
 import {
+  loadResponsabilidadesScreen,
   loadAgenteScreen,
   loadPrayerRequestsScreen,
   loadAssinaturaScreen,
@@ -58,6 +59,8 @@ function ScreenLoading() {
     </div>
   );
 }
+
+const ResponsabilidadesScreen = dynamic(() => loadResponsabilidadesScreen().then(m => m.ResponsabilidadesScreen), { loading: ScreenLoading });
 
 const PrayerRequestsScreen = dynamic(
   () => loadPrayerRequestsScreen().then(m => m.PrayerRequestsScreen),
@@ -172,6 +175,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   const meta = SCREEN_META[route] ?? { title: "Tela", crumb: "" };
 
   // Telas implementadas.
+  if (route === "responsabilidades") return <ResponsabilidadesScreen key={identityKey} />;
   if (route === "pedidos-oracao") return <PrayerRequestsScreen key={identityKey} />;
   if (route === "dashboard") {
     return <DashboardScreen />;
