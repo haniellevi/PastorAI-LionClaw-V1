@@ -56,7 +56,7 @@ def classify(text: str, *, pending: bool) -> str:
             return "cancel"
     if re.search(r"\b(?:oracao|orar|orem|ore)\b", value):
         return "start"
-    return "clarify" if pending else "none"
+    return "clarify" if pending and value in {"sim", "confirmo"} else "none"
 
 
 def own_summary(text: str) -> str | None:

@@ -20,7 +20,7 @@ def test_disabled_without_both_release_and_tenant(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "text", ["talvez", "sim, mas não sei", "qualquer pessoa", "", "SIM!"]
+    "text", ["SIM!", "confirmo"]
 )
 def test_unclear_audience_never_becomes_consent(text):
     assert classify(text, pending=True) == "clarify"
@@ -48,3 +48,8 @@ def test_own_request_and_honest_disclosure():
     assert "não protege retroativamente" in text
     assert "SIM" in text
     assert "10 minutos" in text
+
+
+@pytest.mark.parametrize("text", ["talvez", "sim, mas não sei", "qualquer pessoa", ""])
+def test_unrelated_text_does_not_capture_pending_prayer(text):
+    assert classify(text, pending=True) == "none"
