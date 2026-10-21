@@ -14,6 +14,7 @@
  * `assumidoPor` real. A lista atualiza por polling (sem reload). Com o WhatsApp
  * offline/reconectando, exibe banner de degradação e desabilita o envio.
  */
+import { PrivateContentReset } from "./PrivateContentReset";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -161,6 +162,8 @@ function InboxSession() {
   );
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,6 +208,8 @@ function InboxSession() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [resetTarget, setResetTarget] = useState<Conversation | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
   const [deletionReceipt, setDeletionReceipt] = useState<PrivateDeletionReceipt | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -1146,10 +1151,35 @@ function InboxSession() {
               telefone={selected.telefone}
               avatarUrl={photoUrl}
               onClose={() => setPanelOpen(false)}
+              onResetPrivateContent={selected.pessoaId && token && user?.roles.includes("admin")
+                ? () => { setPanelOpen(false); setResetTarget(selected); setResetOpen(true); }
+                : undefined}
             />
           </>
         ) : null}
       </div>
+
+      {resetTarget?.pessoaId && token && user?.roles.includes("admin") ? <PrivateContentReset
+        key={`${token}:${resetTarget.pessoaId}`} open={resetOpen} token={token}
+        personId={resetTarget.pessoaId} personName={resetTarget.nome || "Contato selecionado"}
+        expireSession={expireSession} onClose={() => setResetOpen(false)}
+        onErased={() => {
+          conversationsRequestRef.current?.abort();
+          conversationsRequestRef.current = null;
+          setLoading(false);
+          for (const controller of mediaControllers.current) controller.abort();
+          mediaSignedAt.current.clear();
+          const deletedIds = new Set(conversationsRef.current.filter(row => row.pessoaId === resetTarget.pessoaId).map(row => row.id));
+          setDrafts(rows => Object.fromEntries(Object.entries(rows).filter(([id]) => !deletedIds.has(id))));
+          setConversations(rows => rows.filter(row => row.pessoaId !== resetTarget.pessoaId));
+          setSelectedId(null);
+          selectedIdRef.current = null;
+          selectionGenRef.current += 1;
+          messagesRef.current = [];
+          setMessages([]);
+          setPanelOpen(false);
+        }}
+      /> : null}
 
       {deleteTarget ? (
         <DeleteConversationDialog

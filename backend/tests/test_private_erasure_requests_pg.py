@@ -424,3 +424,52 @@ def test_full_turn_leader_cannot_request_for_another_person(database, channel):
 def test_catalog_does_not_expand_the_target(rls_database_url, body):
     from app.private_erasure.catalog import route
     assert route(body) is False
+
+
+@pytest.mark.parametrize('decision, status', [('aprovado', 200), ('recusado', 409)])
+def test_manual_reset_settles_pending_request(database, enabled, decision, status):
+    v = enabled
+    generate(database, v)
+    prepare_request(database, v)
+    pending = request(database, v)
+    with api(database, v) as client:
+        reset = client.request('DELETE', f"/contacts/{v['person']}/private-content", json={
+            'operation_id': str(uuid4()), 'confirmacao': 'EXCLUIR CONTEUDO PRIVADO'})
+        assert reset.status_code == 200, reset.text
+        assert reset.json()['camadas']['resumos']['apagadas'] == 1
+        response = client.post(f"/private-erasure-requests/{pending['id']}/decision", json={
+            'decision': decision, 'confirmacao': 'DECIDIR PEDIDO DE EXCLUSAO'})
+        assert response.status_code == status, response.text
+        if status == 200:
+            assert response.json()['receipt'] == reset.json()
+    with database.connect() as c:
+        row = c.execute(text('select * from private_erasure_requests where id=:id'),
+                        {'id': pending['id']}).mappings().one()
+        assert row['state'] == 'aprovado'
+        assert str(row['receipt_id']) == reset.json()['id']
+        assert row['decided_by'] == v['admin']
+        assert row['decided_at'] is not None
+        assert c.scalar(text('select count(*) from private_deletion_receipts where igreja_id=:tenant'), v) == 1
+        assert c.scalar(text('select count(*) from private_conversation_summaries where igreja_id=:tenant'), v) == 0
+
+
+def test_old_manual_reset_replay_does_not_settle_new_request(database, enabled):
+    v = enabled
+    payload = {'operation_id': str(uuid4()), 'confirmacao': 'EXCLUIR CONTEUDO PRIVADO'}
+    with api(database, v) as client:
+        path = f"/contacts/{v['person']}/private-content"
+        first = client.request('DELETE', path, json=payload)
+        assert first.status_code == 200, first.text
+        conv, inbound = uuid4(), uuid4()
+        with database.begin() as c:
+            c.execute(text("insert into conversations(id,igreja_id,pessoa_id,telefone,estado) values(:c,:tenant,:person,'550000000001','ia')"), dict(v, c=conv))
+            c.execute(text("insert into messages(id,igreja_id,conversation_id,direcao,autor,texto) values(:m,:tenant,:c,'in','contato','QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO')"), dict(v, c=conv, m=inbound))
+        pending = request(database, dict(v, conv=conv, message=inbound))
+        replay = client.request('DELETE', path, json=payload)
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first.json()
+        from app.services.private_erasure_requests import detail
+        with scoped(database, v['tenant'], admin=True) as db:
+            assert detail(db, v['tenant'], pending['id'])['state'] == 'pendente'
+        with database.connect() as c:
+            assert c.scalar(text('select count(*) from messages where id=:m'), {'m': inbound}) == 1
