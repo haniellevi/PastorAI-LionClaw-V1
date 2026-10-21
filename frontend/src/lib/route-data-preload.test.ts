@@ -73,7 +73,7 @@ describe("preloadRouteData — capacidades do dashboard", () => {
 
       expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledTimes(hasWorkQueue ? 1 : 0);
       if (hasWorkQueue) {
-        expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledWith("tok-1", 1, 25);
+        expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledWith("tok-1", 1, 25, { hoje: true });
       }
       expect(apiMock.fetchTeamLookup).not.toHaveBeenCalled();
       expect(apiMock.fetchOverview).toHaveBeenCalledTimes(hasWorkQueue ? 1 : 0);

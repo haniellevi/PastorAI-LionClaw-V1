@@ -338,6 +338,7 @@ export function DashboardScreen() {
           token,
           1,
           DASHBOARD_QUEUE_PAGE_SIZE,
+          { hoje: true },
         );
         if (requestId !== operationsRequest.current) return;
 
@@ -383,7 +384,7 @@ export function DashboardScreen() {
         const hydrateQueue = async () => {
           if (!needsHydration) return;
           try {
-            const remainder = await fetchRemainingWorkQueuePages(token, firstPage);
+            const remainder = await fetchRemainingWorkQueuePages(token, firstPage, true);
             if (requestId !== operationsRequest.current) return;
 
             const stableFirstPage = remainder.firstPage ?? firstPage;

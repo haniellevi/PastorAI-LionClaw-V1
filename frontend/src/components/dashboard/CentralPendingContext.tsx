@@ -17,7 +17,7 @@ export function CentralPendingContext({ token, onNavigate, onSessionError }: {
   } | null>(null);
   useEffect(() => {
     let active = true;
-    void getDashboard(token).then(
+    void getDashboard(token, true).then(
       (data) => { if (active) setResult({ token, attempt, data }); },
       (error: unknown) => {
         if (!active) return;
