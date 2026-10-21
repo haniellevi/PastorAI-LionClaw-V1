@@ -208,7 +208,10 @@ def _mark_password_changed(db: Session, clerk_user_id: str) -> None:
 def _login_profile(db: Session, app_user: AppUser) -> MeResponse:
     """Build the same principal snapshot returned by ``GET /auth/me``."""
     roles = db.execute(
-        select(UserRole.papel).where(UserRole.user_id == app_user.id)
+        select(UserRole.papel).where(
+            UserRole.user_id == app_user.id,
+            UserRole.igreja_id == app_user.igreja_id,
+        )
     ).scalars().all()
     igreja = app_user.igreja
     return MeResponse(
