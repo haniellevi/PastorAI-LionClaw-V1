@@ -357,7 +357,12 @@ def assume(db, user, request_id):
     if row.state == "closed":
         raise HTTPException(409, "Pedido encerrado")
     if row.responsavel_id not in (None, actor.id):
-        previous = db.get(AppUser, row.responsavel_id)
+        previous = db.execute(
+            select(AppUser).where(
+                AppUser.id == row.responsavel_id,
+                AppUser.igreja_id == row.igreja_id,
+            )
+        ).scalar_one_or_none()
         still_authorized = False
         if previous is not None:
             principal = CurrentUser(
