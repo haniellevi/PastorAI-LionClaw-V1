@@ -302,7 +302,8 @@ def test_migration_security_contract(database):
     from pathlib import Path
     from scripts.migrate import strip_outer_transaction
     migrations = Path(__file__).resolve().parents[1] / 'migrations'
-    with database.begin() as c:
+    # Roll back the historical schema replay so later tests retain all guards.
+    with database.connect() as c:
         base = (migrations / '20261019_120001_private_conversation_summaries.sql').read_text()
         # Restore the base definitions to compare actual pre/post catalog state.
         for name in ('private_summary_source_changed', 'private_summary_origin_valid'):
@@ -328,3 +329,108 @@ def test_migration_security_contract(database):
         assert c.exec_driver_sql("select relacl from pg_class where oid='private_summary_settings'::regclass").scalar_one() == table_acl
         assert c.exec_driver_sql("select relforcerowsecurity from pg_class where oid='private_summary_settings'::regclass").scalar_one() is True
         assert c.exec_driver_sql("select column_default from information_schema.columns where table_schema='public' and table_name='private_summary_settings' and column_name='resume_enabled'").scalar_one() == 'false'
+
+
+def _erasure_request(turn, monkeypatch):
+    """Real registration in another conversation preserves the summary source."""
+    from uuid import uuid4
+    from app.services import private_erasure_requests as erasure
+    monkeypatch.setattr(erasure, 'APPROVED_RELEASE_ID', 'synthetic')
+    monkeypatch.setattr(erasure, 'APPROVED_IGREJA_IDS', frozenset({str(_IGREJA)}))
+    cid, mid = uuid4(), uuid4()
+    with turn.factory.begin() as s:
+        s.execute(text('insert into private_erasure_request_settings(igreja_id,enabled) values(:t,true) on conflict(igreja_id) do update set enabled=true'), dict(t=_IGREJA))
+        s.execute(text("insert into conversations(id,igreja_id,pessoa_id,telefone,estado) select :c,igreja_id,pessoa_id,telefone,'ia' from conversations where id=:origin"), dict(c=cid,origin=turn.conversation_id))
+        s.execute(text("insert into messages(id,igreja_id,conversation_id,direcao,autor,texto) values(:m,:t,:c,'in','contato',:body)"), dict(m=mid,t=_IGREJA,c=cid,body=erasure.COMMAND))
+    with turn.factory() as s:
+        mark_tenant_scoped(s, _IGREJA, source='erasure_resume_test')
+        person = s.scalar(text('select pessoa_id from conversations where id=:c'), dict(c=cid))
+        row = erasure.register(s, tenant=_IGREJA, person=person, conversation=cid, inbound=mid)
+        s.commit()
+    return row
+
+
+@pytest.mark.parametrize('delivered', [False, True])
+def test_pending_blocks_resume_with_bypassrls_and_refusal_restores(memory, monkeypatch, delivered):
+    from app.services import private_resume as resume
+    from app.services.whatsapp_privilege import resolve_whatsapp_privilege_context
+    from app.db.tenant_session import mark_cross_tenant
+    from app.services.private_erasure_requests import decide
+    turn = memory
+    inbound = _inbound(turn, 'PENDING-RESUME', 'retomar conversa')
+
+    def context_for(s):
+        mark_tenant_scoped(s, _IGREJA, source='pending_resume_test')
+        return resolve_whatsapp_privilege_context(s, igreja_id=_IGREJA,
+            conversation_id=turn.conversation_id, inbound_message_id=inbound.inbound_message_id)
+
+    with turn.factory() as s:
+        context = context_for(s)
+        snapshot = resume.load(s, context)
+        assert snapshot is not None
+        ref = resume.reference(snapshot)
+        assert resume.still_current(s, context, ref)
+    if delivered:
+        with turn.factory.begin() as s:
+            s.execute(text("insert into messages(igreja_id,conversation_id,direcao,autor,texto) values(:t,:c,'out','ia','Resposta sintética segura.')"), dict(t=_IGREJA,c=turn.conversation_id))
+        with turn.factory() as s:
+            context_for(s)
+            assert resume.still_current(s, context, ref, delivered=True)
+    row = _erasure_request(turn, monkeypatch)
+    with turn.factory() as s:
+        context_for(s)
+        assert resume.load(s, context) is None
+        assert resume.still_current(s, context, ref, delivered=delivered) is False
+    # Bypass proves that the function itself blocks, independently of policies.
+    with turn.factory() as s:
+        mark_cross_tenant(s, source='synthetic_bypass_origin_test')
+        s.execute(text("select set_config('app.tenant_igreja_id', :t, true)"), dict(t=str(_IGREJA)))
+        assert s.scalar(text('select rolbypassrls from pg_roles where rolname=current_user')) is True
+        assert s.scalar(text('select count(*) from private_summary_sources')) > 0
+        assert s.scalar(text('select private_summary_worker()')) is True
+        for sources_only in (False, True):
+            assert s.scalar(text('select private_summary_origin_valid(:t,:c,:p,:sources)'),
+                dict(t=_IGREJA,c=turn.conversation_id,p=context.pessoa_id,sources=sources_only)) is False
+    with turn.factory.begin() as s:
+        s.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:t,:u,'admin') on conflict do nothing"), dict(t=_IGREJA,u=turn.app_user_id))
+    with turn.factory() as s:
+        mark_tenant_scoped(s, _IGREJA, source='synthetic_admin_refusal')
+        s.execute(text("select set_config('request.jwt.claims','{\"sub\":\"clerk-s3-synthetic\"}',true)"))
+        assert decide(s, _IGREJA, row['id'], 'recusado')['state'] == 'recusado'
+    with turn.factory() as s:
+        context = context_for(s)
+        if not delivered:
+            assert resume.load(s, context) is not None
+        assert resume.still_current(s, context, ref, delivered=delivered)
+
+
+@pytest.mark.parametrize('phase', ['after_load', 'before_delivery'])
+def test_request_between_load_and_delivery_blocks_response(memory, monkeypatch, phase):
+    turn = memory
+    usage = LLMUsage(modelo='synthetic', tokens_in=2, tokens_out=1, custo=0)
+    monkeypatch.setattr(LLMClient, 'generate_typed', lambda *a, **kw: TypedChoiceResult('nenhuma', usage))
+    prompts = []
+
+    def answer(_self, system, user, **kwargs):
+        prompts.append(user)
+        assert 'Memória privada' in user
+        if phase == 'after_load':
+            _erasure_request(turn, monkeypatch)
+        return TypedLLMResult(False, 'Resposta sintética segura.', usage)
+
+    monkeypatch.setattr(LLMClient, 'complete_typed', answer)
+    monkeypatch.setattr(runtime, 'decrypt_secret', lambda _: 'synthetic-key')
+    if phase == 'before_delivery':
+        deliver = worker._deliver_agent_reply_intent
+
+        def intercepted(*args, **kwargs):
+            _erasure_request(turn, monkeypatch)
+            return deliver(*args, **kwargs)
+
+        monkeypatch.setattr(worker, '_deliver_agent_reply_intent', intercepted)
+    inbound = _inbound(turn, 'ERASURE-RACE', 'retomar conversa')
+    transport = _ClassifiedEvolution()
+    worker.run_agent_for_message(turn.factory, inbound, evolution_client=transport)
+    assert len(prompts) == 1
+    assert transport.calls == []
+    assert not any(m.agent_reply_state in ('ia', 'ia_pendente', 'ia_reservada') and m.direcao == 'out' for m in _rows(turn, Message))

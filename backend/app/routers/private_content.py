@@ -2,8 +2,8 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -38,3 +38,33 @@ def erase_church(approval: ErasureApproval, db: Session = Depends(get_db),
 def progress(receipt_id: UUID, db: Session = Depends(get_db),
              user: CurrentUser = Depends(require_role(['admin']))) -> dict:
     return receipt(db, UUID(user.igreja_id), receipt_id)
+
+
+class RequestDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal['aprovado', 'recusado']
+    confirmacao: Literal['DECIDIR PEDIDO DE EXCLUSAO']
+
+
+@router.get('/contacts/{pessoa_id}/private-erasure-requests')
+def person_requests(pessoa_id: UUID, response: Response, db: Session = Depends(get_db),
+                    user: CurrentUser = Depends(require_role(['admin']))) -> dict:
+    from sqlalchemy import text
+    from app.services import private_erasure_requests as requests
+    response.headers['Cache-Control'] = 'private, no-store'
+    tenant = UUID(user.igreja_id)
+    ids = db.execute(
+        text('select id from private_erasure_requests where igreja_id=:t and pessoa_id=:p '
+             'order by created_at desc,id limit 50'),
+        dict(t=tenant, p=pessoa_id),
+    ).scalars().all()
+    return {'items': [requests.detail(db, tenant, rid) for rid in ids]}
+
+
+@router.post('/private-erasure-requests/{request_id}/decision')
+def decide_request(request_id: UUID, payload: RequestDecision, response: Response,
+                   db: Session = Depends(get_db),
+                   user: CurrentUser = Depends(require_role(['admin']))) -> dict:
+    from app.services import private_erasure_requests as requests
+    response.headers['Cache-Control'] = 'private, no-store'
+    return requests.decide(db, UUID(user.igreja_id), request_id, payload.decision)
