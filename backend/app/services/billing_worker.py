@@ -91,11 +91,18 @@ def _admin_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
     ).scalars().all()
     phones: list[str] = []
     for uid in set(admin_ids):
-        app_user = db.get(AppUser, uid)
+        # uid já vem dos papéis desta igreja; revalidar também o acesso.
+        app_user = db.execute(
+            select(AppUser).where(AppUser.id == uid, AppUser.igreja_id == igreja_id)
+        ).scalar_one_or_none()
         if app_user and app_user.pessoa_id:
             from app.db.models import Pessoa  # noqa: PLC0415
 
-            pessoa = db.get(Pessoa, app_user.pessoa_id)
+            pessoa = db.execute(
+                select(Pessoa).where(
+                    Pessoa.id == app_user.pessoa_id, Pessoa.igreja_id == igreja_id
+                )
+            ).scalar_one_or_none()
             if pessoa and pessoa.telefone:
                 phones.append(pessoa.telefone)
     return phones
