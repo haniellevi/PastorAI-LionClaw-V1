@@ -27,6 +27,9 @@ LEDGER = "public.schema_migrations"
 # marcador no cabeçalho: ficam fora de `status` e `apply` até a Fase 5.
 PAUSED_MARKER = "OPERATIONAL_AUTHORIZATION=BLOCKED"
 _TX_LINE = re.compile(r"^\s*(begin|commit|rollback|start\s+transaction)\s*;\s*$", re.I)
+_SESSION_LOCK_TIMEOUT = re.compile(
+    r"\A(?:\s|--[^\n]*\n)*SET\s+lock_timeout\s*=\s*'[^'\n]+'\s*;", re.I
+)
 
 
 def is_paused(path: pathlib.Path) -> bool:
@@ -120,6 +123,13 @@ def cmd_apply(conn, name: str, *, transactional: bool) -> int:
         conn.autocommit = True
     try:
         with conn.cursor() as cur:
+            if not transactional:
+                # Multiple statements in one execute create an implicit
+                # transaction, even with autocommit. Keep concurrent DDL alone.
+                setting = _SESSION_LOCK_TIMEOUT.match(sql)
+                if setting:
+                    cur.execute(setting.group())
+                    sql = sql[setting.end():]
             cur.execute(sql)
             cur.execute(f"INSERT INTO {LEDGER} (name) VALUES (%s)", (name,))
         if transactional:
