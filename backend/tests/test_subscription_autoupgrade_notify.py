@@ -12,6 +12,8 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
+
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
@@ -129,6 +131,12 @@ class FakeSubscriptionSession:
             )
             row = self.marker_rows.get((igreja, evento))
             return _FakeResult([row] if row is not None else [])
+        if entity in (AppUser, Pessoa):
+            bound = statement.compile().params
+            ident = next(v for k, v in bound.items() if k.startswith("id_"))
+            tenant = next(v for k, v in bound.items() if k.startswith("igreja_id"))
+            row = (self.users if entity is AppUser else self.pessoas).get(ident)
+            return _FakeResult([row] if row and row.igreja_id == tenant else [])
         if entity is UserRole:
             return _FakeResult(self.admin_user_ids)
         return _FakeResult([])
@@ -486,3 +494,15 @@ def test_no_recipients_releases_reservation_without_fake_delivery() -> None:
     assert result == "skipped"
     assert evo.sent == []
     assert session.reserved_markers == set()  # reserva liberada
+
+
+@pytest.mark.parametrize("foreign_link", ["user", "person"])
+def test_admin_phones_rejects_foreign_tenant_links(foreign_link):
+    from app.services.billing_worker import _admin_phones
+
+    admin = _admin(_IGREJA)
+    if foreign_link == "user":
+        next(iter(admin["users"].values())).igreja_id = uuid.uuid4()
+    else:
+        next(iter(admin["pessoas"].values())).igreja_id = uuid.uuid4()
+    assert _admin_phones(FakeSubscriptionSession(**admin), _IGREJA) == []

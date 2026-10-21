@@ -21,7 +21,7 @@ pytestmark = pytest.mark.rls_integration
 
 @pytest.fixture(scope='module')
 def rls_database_url():
-    url = os.environ['TEAM_RESEND_TEST_DATABASE_URL']
+    url = os.environ['UV_TURMAS_DATABASE_URL']
     assert_disposable_database(url)
     from sqlalchemy.engine import make_url
     parsed = make_url(url)
@@ -68,3 +68,25 @@ def test_resend_isolation_and_state(database, seeded, bypass_rls, target_kind):
         assert c.scalar(text('select status from app_users where id=:u'), dict(u=target)) == state
         assert c.scalar(text('select count(*) from app_users where id=:u'), dict(u=target)) == 1
         assert c.execute(text('select papel from user_roles where user_id=:u'), dict(u=target)).scalars().all() == ['membro']
+
+
+@pytest.mark.parametrize('for_update', [False, True])
+def test_invite_resolves_only_signed_subject(database, seeded, for_update):
+    from fastapi import HTTPException
+    from app.routers.auth import _resolve_invite
+    from types import SimpleNamespace
+    from app.services.clerk import ClerkClient
+
+    clerk = ClerkClient(SimpleNamespace(effective_session_secret='synthetic-invite-secret-for-regression-only'))
+    target, other, missing = [uuid4() for _ in range(3)]
+    with database.begin() as c:
+        for uid, tenant in ((target, seeded['t']), (other, seeded['other'])):
+            c.execute(text("insert into app_users(id,igreja_id,nome,email,status) values(:u,:t,'Convite sintético','invite@example.test','convidado')"), dict(u=uid, t=tenant))
+    with Session(database) as db:
+        # Pré-login sem RLS: nem mesmo outro convite válido pode trocar o sub.
+        for subject in (target, other):
+            resolved = _resolve_invite(clerk.mint_invite_token(str(subject)), db, clerk, for_update=for_update)
+            assert resolved.id == subject
+        with pytest.raises(HTTPException) as exc:
+            _resolve_invite(clerk.mint_invite_token(str(missing)), db, clerk, for_update=for_update)
+        assert exc.value.status_code == 400
