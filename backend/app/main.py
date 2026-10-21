@@ -47,6 +47,7 @@ from app.routers import (
     dashboard,
     events,
     multiplicacoes,
+    operations,
     pipeline,
     platform_admin,
     platform_consent_governance,
@@ -260,6 +261,7 @@ def create_app() -> FastAPI:
     from app.routers.private_content import router as private_content_router
     app.include_router(private_content_router)
     app.include_router(conversations.router)
+    app.include_router(operations.router)
     app.include_router(dashboard.router)
     app.include_router(agent.router)
     app.include_router(agent_identity.router)
