@@ -83,6 +83,7 @@ import { useHashRoute } from "@/lib/use-hash-route";
 
 import { CentralPendingContext } from "./CentralPendingContext";
 import { NextActions } from "./NextActions";
+import { PrivateMemoryIndicator } from "./PrivateMemoryIndicator";
 import { TodayContext } from "./TodayContext";
 import { WorkQueueItem } from "./WorkQueueItem";
 
@@ -1248,6 +1249,13 @@ export function DashboardScreen() {
 
         {hasWorkQueue ? (
           <div className="dh-support" aria-label="Contexto das suas responsabilidades">
+          {normalizedRoles.includes("admin") && token ? (
+            <PrivateMemoryIndicator
+              key={`${token}:${user?.churchId}:${user?.appUserId}:${rolesKey}`}
+              token={token}
+              onSessionError={handleSessionError}
+            />
+          ) : null}
           {canSeeCentral && token ? (
             <CentralPendingContext
               key={`${token}:${rolesKey}`}

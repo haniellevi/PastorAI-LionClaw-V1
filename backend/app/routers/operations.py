@@ -11,6 +11,7 @@ from app.deps import CurrentUser, require_role
 from app.services.operational_usage import (
     OperationalPending, OperationalUsage, operational_pending, operational_usage,
 )
+from app.services.private_memory_overview import PrivateMemoryOverview, memory_overview
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 
@@ -51,3 +52,14 @@ def pending(
     """Aggregate age only; the authenticated church supplies the tenant."""
     response.headers["Cache-Control"] = "no-store"
     return operational_pending(db, UUID(user.igreja_id), stuck_after_seconds=stuck_after_seconds)
+
+
+@router.get("/private-memory", response_model=PrivateMemoryOverview)
+def private_memory(
+    response: Response,
+    user: CurrentUser = Depends(require_active_admin),
+    db: Session = Depends(get_db),
+) -> PrivateMemoryOverview:
+    """Admin inventory; tenant comes exclusively from the server identity."""
+    response.headers["Cache-Control"] = "private, no-store"
+    return memory_overview(db, UUID(user.igreja_id))

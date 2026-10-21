@@ -13,6 +13,7 @@ const authState = vi.hoisted(() => ({
 }));
 
 const apiMock = vi.hoisted(() => ({
+  authedFetch: vi.fn(),
   fetchWorkQueuePage: vi.fn(),
   fetchRemainingWorkQueuePages: vi.fn(),
   fetchTeamLookup: vi.fn(),
@@ -56,6 +57,7 @@ vi.mock("@/lib/dashboard-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/dashboard-api")>();
   return {
     ...actual,
+    authedFetch: apiMock.authedFetch,
     fetchWorkQueuePage: apiMock.fetchWorkQueuePage,
     fetchRemainingWorkQueuePages: apiMock.fetchRemainingWorkQueuePages,
     fetchTeamLookup: apiMock.fetchTeamLookup,
@@ -142,6 +144,7 @@ beforeEach(() => {
   authState.chatNome = null;
   authState.expireSession.mockClear();
   for (const mock of Object.values(apiMock)) mock.mockReset();
+  apiMock.authedFetch.mockResolvedValue(Response.json({}, { status: 503 }));
 
   apiMock.fetchWorkQueuePage.mockResolvedValue({
     items: [workItem],
@@ -1010,6 +1013,14 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     expect(container.textContent).not.toContain("Nenhuma próxima reunião planejada");
     expect(container.textContent).not.toContain("Nenhum aviso novo");
   });
+});
+
+it.each(["admin", "pastor", "membro", "operador"])("restringe indicador privado em Hoje para %s", async role => {
+  authState.roles = [role];
+  await renderScreen();
+  expect(Boolean(container.querySelector('[aria-label="Memória privada"]'))).toBe(role === "admin");
+  expect(apiMock.authedFetch.mock.calls.filter(call => call[1] === "/operations/private-memory").length)
+    .toBe(role === "admin" ? 1 : 0);
 });
 
 it.each(["admin", "pastor"])("compõe Central em Hoje para %s", async (role) => {
