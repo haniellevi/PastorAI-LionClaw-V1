@@ -22,10 +22,15 @@ def enabled(igreja_id: uuid.UUID) -> bool:
 
 # Provisional until pastoral confirmation. Apply even when release is disabled.
 PROTECTED_MESSAGE = "Mensagem pastoral protegida"
+AUDIO_DISCLOSURE = (
+    "O áudio de oração fica restrito aos pastores e é guardado sem exclusão automática. "
+    "Só é apagado por exclusão do admin ou por seu pedido aprovado pelo admin."
+)
 DISCLOSURE = (
     "A coleta iniciada explicitamente fica restrita aos pastores ativos da igreja. "
-    "Seu líder nominal só terá acesso após sua confirmação de compartilhamento, "
+    "Em pedidos somente de texto, seu líder nominal só terá acesso após sua confirmação de compartilhamento, "
     "enquanto o vínculo permanecer válido. Admin e atendimento não têm acesso por cargo. "
     "Mesmo sem registro, as mensagens da coleta continuam protegidas. "
     "Isso não protege retroativamente mensagens enviadas antes de iniciar o fluxo."
+    " " + AUDIO_DISCLOSURE
 )

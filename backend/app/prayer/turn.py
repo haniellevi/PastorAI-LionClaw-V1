@@ -20,7 +20,7 @@ from app.domain.agent_reply import (
     AGENT_REPLY_EXECUTING,
 )
 from app.prayer import catalog, policy, service
-from app.prayer.models import PrayerProposal
+from app.prayer.models import PrayerMessage, PrayerProposal
 
 
 def _source(db, outcome):
@@ -102,6 +102,29 @@ def _handle(db, contact, inbound, reply):
 
     # Include expired active-state rows here only to retire them before a new draft.
     proposal = _active(db, contact, include_expired=True)
+    if inbound.tipo == "audio":
+        # The ingestion association is immutable across collection restarts.
+        audio_proposal_id = db.scalar(select(PrayerMessage.proposal_id).where(
+            PrayerMessage.igreja_id == contact.igreja_id,
+            PrayerMessage.conversation_id == contact.conversation_id,
+            PrayerMessage.message_id == inbound.id,
+        ))
+        if proposal is None or audio_proposal_id != proposal.id:
+            return catalog.OWN_QUESTION, None
+        if proposal.term_version != contact.term_version or proposal.expires_at <= service.now(db):
+            proposal.state = "expired"
+            return catalog.OWN_QUESTION, proposal
+        if not inbound.media_path:
+            return "O áudio ficou indisponível. Reenvie seu pedido dentro da coleta protegida.", proposal
+        # Audio is listened to by a pastor; no external transcription or inference.
+        proposal.summary = proposal.summary or "Pedido de oração em áudio."
+        proposal.audience = None
+        proposal.cell_id = proposal.leader_id = None
+        proposal.authorization_text = None
+        proposal.summary_message_id = None
+        proposal.delivered_at = None
+        proposal.state = "collecting"
+        return policy.AUDIO_DISCLOSURE + " Responda SÓ PASTORES para continuar.", proposal
     command = route_prayer_intent(inbound.texto or "", pending=proposal is not None)
     timestamp = service.now(db)
     if proposal is not None and (
@@ -171,6 +194,8 @@ def _handle(db, contact, inbound, reply):
         proposal.summary = summary
         return catalog.AUDIENCE_QUESTION, proposal
     if command in ("pastoral", "pastoral_lider"):
+        if command == "pastoral_lider" and service.has_audio(db, proposal):
+            return "Áudio de oração é restrito aos pastores. Responda SÓ PASTORES.", proposal
         if not service.has_pastoral_team(db, contact.igreja_id):
             return (
                 "A equipe pastoral precisa ser configurada antes do registro. Procure o atendimento humano.",
@@ -288,17 +313,22 @@ def run_prayer_turn(
             db, outcome, dedicated=uses_dedicated_agent_session
         )
         source = _source(db, outcome)
-        if source is None or source.tipo != "texto" or not source.texto:
+        if source is None:
+            return None
+        audio = source.tipo == "audio" and service.protected_message(
+            db, igreja_id=igreja_id, message_id=source.id,
+        )
+        if not audio and (source.tipo != "texto" or not source.texto):
             return None
         # Keep opt-out and crisis on the existing priority paths, before prayer.
-        if consent.is_optout_request(source.texto) or is_handoff_request(source.texto):
+        if consent.is_optout_request(source.texto or "") or is_handoff_request(source.texto or ""):
             return None
         contact = _contact(db, outcome)
         if contact is None:
             return None
         pending = _active(db, contact)
         candidate = (
-            route_prayer_intent(source.texto, pending=pending is not None) != "none"
+            audio or route_prayer_intent(source.texto, pending=pending is not None) != "none"
         )
         if not candidate and catalog.normalized(source.texto) == "sim":
             # Keep the existing expiry notice for just one minute after timeout.
