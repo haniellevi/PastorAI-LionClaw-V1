@@ -9,6 +9,22 @@ import { readDeletionReceipt, type PrivateDeletionReceipt } from "@/lib/conversa
 
 const CONFIRMATION = "EXCLUIR CONTEUDO PRIVADO";
 
+const LAYER_LABELS = new Map<string, string>([
+  ["mensagens", "Mensagens"], ["midias", "Mídias"], ["transcricoes", "Transcrições"],
+  ["resumos", "Resumos"], ["checkpoints", "Checkpoints"], ["vetores", "Vetores"],
+  ["logs_agente", "Logs do agente"], ["envios", "Envios"],
+  ["entradas_audio", "Entradas de áudio"], ["logs_sem_ancora", "Logs sem âncora"],
+  ["agent_identity_challenges", "Desafios de identidade do agente"],
+  ["agent_identity_proofs", "Provas de identidade do agente"],
+  ["agent_action_proposals", "Propostas de ação do agente"],
+  ["agent_action_receipts", "Recibos de ação do agente"],
+  ["cell_report_drafts", "Rascunhos de relatório de célula"],
+  ["cell_report_audio_notices", "Avisos de áudio do relatório de célula"],
+  ["cell_report_audio_consent_events", "Eventos de consentimento de áudio"],
+  ["pedido_oracao", "Pedidos de oração"], ["pedido_oracao_proposta", "Propostas de oração"],
+  ["pedido_oracao_mensagem", "Mensagens de oração"],
+]);
+
 /** Keep mounted/keyed by person and session so an ambiguous retry retains its operation. */
 export function PrivateContentReset({ open, token, personId, personName, onClose, onErased, expireSession }: {
   open: boolean; token: string; personId: string; personName: string;
@@ -63,7 +79,7 @@ export function PrivateContentReset({ open, token, personId, personName, onClose
         <p>Recibo: {receipt.id}</p>
       </div>
       <ul>{Object.entries(receipt.camadas).map(([layer, counts]) => <li key={layer}>
-        {layer}: {counts.apagadas} apagadas; {counts.pendentes} pendentes; {counts.falhas} falhas.
+        {LAYER_LABELS.get(layer) ?? "Outra camada privada"}: {counts.apagadas} apagadas; {counts.pendentes} pendentes; {counts.falhas} falhas.
       </li>)}</ul>
     </section> : <>
       <p>Apaga todas as conversas, mídias, transcrições, resumos e demais derivados privados desta pessoa nesta igreja. Esta ação não pode ser desfeita.</p>

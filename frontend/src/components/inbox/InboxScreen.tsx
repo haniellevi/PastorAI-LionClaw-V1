@@ -1166,6 +1166,7 @@ function InboxSession() {
         onErased={() => {
           conversationsRequestRef.current?.abort();
           conversationsRequestRef.current = null;
+          setLoading(false);
           for (const controller of mediaControllers.current) controller.abort();
           mediaSignedAt.current.clear();
           const deletedIds = new Set(conversationsRef.current.filter(row => row.pessoaId === resetTarget.pessoaId).map(row => row.id));

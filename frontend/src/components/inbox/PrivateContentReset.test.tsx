@@ -72,3 +72,16 @@ it('não aplica resposta antiga após desmontar por troca de sessão/pessoa', as
   await act(async () => resolve(Response.json(receipt)));
   expect(erased).not.toHaveBeenCalled();
 });
+
+it('retém todas as camadas e exibe apenas rótulos seguros e contagens', async () => {
+  const counts = { encontradas: 9, apagadas: 6, pendentes: 2, falhas: 1, texto: 'Conteúdo privado sintético' };
+  const payload = { ...receipt, camadas: { entradas_audio: counts, 'chave com PII sintética': counts, __proto__: null } };
+  fetch.mockResolvedValueOnce(Response.json(payload));
+  await render(); await confirm();
+  expect(el.textContent).toContain('Entradas de áudio');
+  expect(el.textContent).toContain('Outra camada privada');
+  expect(el.textContent).not.toContain('chave com PII');
+  expect(el.textContent).not.toContain('Conteúdo privado sintético');
+  expect(el.querySelectorAll('[aria-label="Recibo de exclusão privada"] li')).toHaveLength(2);
+  expect(el.textContent?.match(/6 apagadas; 2 pendentes; 1 falhas/g)).toHaveLength(2);
+});

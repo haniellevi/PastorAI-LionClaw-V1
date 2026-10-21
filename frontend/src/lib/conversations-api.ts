@@ -96,10 +96,9 @@ export function readDeletionReceipt(value: unknown): PrivateDeletionReceipt {
       !["pendente", "pendente_envio", "concluido"].includes(String(value.estado)) || !isRecord(value.camadas)) {
     throw new ApiError(502, "Recibo de exclusão inválido.");
   }
-  const camadas: PrivateDeletionReceipt["camadas"] = {};
-  for (const layer of DELETION_LAYERS) {
-    const row = value.camadas[layer];
-    if (!isRecord(row)) continue;
+  const camadas: PrivateDeletionReceipt["camadas"] = Object.create(null);
+  for (const [layer, row] of Object.entries(value.camadas)) {
+    if (!isRecord(row)) throw new ApiError(502, "Recibo de exclusão inválido.");
     const counts = { encontradas: row.encontradas, apagadas: row.apagadas, pendentes: row.pendentes, falhas: row.falhas };
     if (!Object.values(counts).every(n => typeof n === "number" && Number.isInteger(n) && n >= 0)) throw new ApiError(502, "Recibo de exclusão inválido.");
     camadas[layer] = counts as PrivateDeletionReceipt["camadas"][string];

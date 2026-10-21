@@ -86,3 +86,23 @@ it('limpa rascunho da nova conversa da pessoa e preserva rascunho novo de outra 
     expect(el.querySelector<HTMLInputElement>('input[aria-label="Resposta ao contato"]')!.value).toBe('');
   } finally { vi.useRealTimers(); }
 });
+
+it.each(['Atualizar', 'Carregar mais conversas'])('libera loading quando reset aborta %s em andamento', async action => {
+  api.fetchConversations.mockResolvedValue({ items: [conversation], total: 101, page: 1, pageSize: 100 });
+  await act(async () => root.render(h(InboxScreen)));
+  await act(async () => el.querySelector<HTMLButtonElement>('button.conv')!.click());
+  await act(async () => el.querySelector<HTMLButtonElement>('[aria-label="Ver pessoa"]')!.click());
+  await click('Reset sintético');
+  api.fetchConversations.mockReturnValue(new Promise(() => {}));
+  await click(action);
+  expect(button('Atualizar').disabled).toBe(true);
+  const input = el.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'EXCLUIR CONTEUDO PRIVADO'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  request.mockResolvedValue(Response.json({ id: 'receipt', estado: 'concluido', camadas: {} }));
+  await click('Confirmar exclusão');
+  await click('Fechar');
+  expect(button('Atualizar').disabled).toBe(false);
+  api.fetchConversations.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 100 });
+  await click('Atualizar');
+  expect(button('Atualizar').disabled).toBe(false);
+});
