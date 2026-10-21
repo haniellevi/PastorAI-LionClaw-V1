@@ -7,13 +7,12 @@ test.beforeEach(async ({ request }) => {
 });
 
 for (const width of [390, 320]) {
-  test(`conversas: foco, envio e retorno em ${width}px com zoom a 200%`, async ({ page }) => {
-    await page.setViewportSize({ width: width * 2, height: 844 * 2 });
+  test(`conversas: foco, envio e retorno em ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
     await page.goto("/#inbox");
-    // CSS zoom at 200% exercises layout at 390/320 effective CSS pixels.
-    await page.addStyleTag({ content: "html { zoom: 2; }" });
+    expect(await page.evaluate(() => matchMedia("(max-width: 480px)").matches)).toBe(true);
     const row = page.locator('.conv').filter({ hasText: "Contato A" });
     await row.click();
     await expect(page.getByRole("heading", { name: "Contato A", exact: true })).toBeFocused();

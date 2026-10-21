@@ -230,6 +230,7 @@ export function ConversationThread({
   conflict,
   messages,
   messagesLoading,
+  messagesInitialized,
   messagesError,
   hasOlderMessages,
   olderMessagesLoading,
@@ -263,6 +264,8 @@ export function ConversationThread({
   conflict: string | null;
   messages: ChatMessage[];
   messagesLoading: boolean;
+  /** A successful snapshot for this selection, including an empty history. */
+  messagesInitialized: boolean;
   messagesError?: string | null;
   hasOlderMessages?: boolean;
   olderMessagesLoading?: boolean;
@@ -359,7 +362,11 @@ export function ConversationThread({
   }, [conversation.id, setAnnouncement]);
 
   useEffect(() => {
-    if (messagesLoading || messagesError) return;
+    if (!messagesInitialized || messagesLoading || messagesError) {
+      latestMessages.current = null;
+      setAnnouncement("");
+      return;
+    }
     const previous = latestMessages.current;
     const last = messages[messages.length - 1];
     if (!last) {
@@ -375,7 +382,7 @@ export function ConversationThread({
       if (added.length) setAnnouncement(`${added.length} ${added.length === 1 ? "nova mensagem recebida" : "novas mensagens recebidas"}.`);
     }
     latestMessages.current = { id: last.id, time: last.criadoEm };
-  }, [messages, messagesLoading, messagesError, setAnnouncement]);
+  }, [messages, messagesLoading, messagesInitialized, messagesError, setAnnouncement]);
 
   function clearAttachment() {
     setPendingFile(null);

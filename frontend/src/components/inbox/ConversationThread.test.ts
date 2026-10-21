@@ -61,6 +61,7 @@ function render(
         conflict: null,
         messages,
         messagesLoading: false,
+        messagesInitialized: true,
         panelOpen: false,
         isAdmin: false,
         avatarUrl: null,
@@ -251,4 +252,25 @@ it.each([true, false])("anuncia envio e resultado sem conteúdo privado (sucesso
   await act(async () => finish(ok));
   expect(status.textContent).toBe(ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.");
   expect(status.textContent).not.toContain("Resposta sintética");
+});
+
+it("aguarda o snapshot inicial e silencia histórico após retry", () => {
+  const message = (id: string): ChatMessage => ({
+    id, direcao: "in", autor: "contato", autorNome: null, tipo: "texto",
+    texto: "Texto sintético", mediaUrl: null, mediaMime: null, mediaNome: null,
+    criadoEm: "2026-10-20T12:00:00Z",
+  });
+  const status = () => container.querySelector('.thread-head [role="status"]')?.textContent;
+  render(conv({}), "active", [], { messagesInitialized: false });
+  render(conv({}), "active", [], { messagesInitialized: false, messagesLoading: true });
+  render(conv({}), "active", [message("history")]);
+  expect(status()).toBe("");
+  render(conv({}), "active", [message("history"), message("new")]);
+  expect(status()).toBe("1 nova mensagem recebida.");
+  render(conv({}), "active", [], { messagesInitialized: false, messagesError: "Falha sintética" });
+  render(conv({}), "active", [], { messagesInitialized: false, messagesLoading: true });
+  render(conv({}), "active", [message("history"), message("new"), message("retry-history")]);
+  expect(status()).toBe("");
+  render(conv({}), "active", [message("history"), message("new"), message("retry-history"), message("after-retry")]);
+  expect(status()).toBe("1 nova mensagem recebida.");
 });
