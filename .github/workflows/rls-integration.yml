@@ -1,18 +1,10 @@
-# CI dedicado a suite de integracao RLS (PR1 — D5 / SPEC secao 10).
+# CI dedicado a suite de integracao RLS.
 #
-# Sobe um Postgres DESCARTAVEL (servico efemero do CI, nunca DEV/PROD), aplica a
-# DDL minima (via as fixtures de tests/conftest_rls.py) e roda a suite
-# `rls_integration`, exceto os guards de replay que exigem um cluster sem roles
-# globais e portanto executam exclusivamente no job dedicado de catálogo PG17.
-# Sem este job, os testes opt-in ficariam sempre em skip e o PR1 viraria
-# cobertura falsa (risco "CI sem Postgres -> T1-T6 sempre skip").
-#
-# O job FALHA se, com RLS_TEST_DATABASE_URL definida, houver zero testes,
-# qualquer skip, falha ou erro na suite selecionada. Ambiente local/offline sem a
-# env var mantem skip limpo — isso e responsabilidade do proprio pytest.
-#
-# NAO modifica nenhum runtime de producao: usa apenas config de CI + o guard e as
-# fixtures de teste ja existentes.
+# Quatro shards usam servicos descartaveis e mantem cada arquivo de teste junto
+# por causa das fixtures de modulo. O shard 0 tambem executa os contratos PG17
+# de deploy e manutencao. O job final soma os JUnit, valida cobertura por arquivo
+# e preserva o nome do check exigido pela main. Nenhum banco DEV/PROD ou efeito
+# real e usado por este workflow.
 name: RLS Integration
 
 on:
@@ -28,11 +20,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rls-integration:
+  rls-shard:
+    name: rls-shard (${{ matrix.shard }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
 
-    # Postgres DESCARTAVEL: servico efemero do runner, destruido ao fim do job.
+    # Cada shard recebe servicos efemeros independentes, destruidos com o job.
     services:
       redis:
         image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
@@ -59,8 +56,7 @@ jobs:
 
     env:
       F2B_TEST_REDIS_URL: redis://127.0.0.1:6379/13
-      # RLS_TEST_DATABASE_URL definida SOMENTE neste job, apontando para o
-      # Postgres descartavel efemero (loopback literal do runner). Nunca DEV/PROD.
+      # URL definida somente para o Postgres descartavel do runner.
       RLS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/rls_disposable
       S3_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/s3_migration_exact_test
       V3_TURN_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_consolidation_test
@@ -93,6 +89,12 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip install --require-hashes -r requirements.lock
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip check
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" scripts/verify_manifest_requirements.py requirements.txt
+
+      - name: Testar o divisor de shards
+        if: matrix.shard == 0
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest --strict-markers -o addopts= -p no:cacheprovider \
+            tests/test_ci_test_shards.py
 
       - name: Guard — bloquear DEV/PROD como alvo (reusa feat-002)
         run: |
@@ -128,21 +130,38 @@ jobs:
           engine.dispose()
           PY
 
-      - name: Rodar a suite marcada rls_integration fora dos guards de replay fresco
+      - name: Coletar a suite completa e selecionar arquivos do shard
         run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest --strict-markers \
-            -m rls_integration -o addopts= -p no:cacheprovider -rA \
-            --junitxml=rls-results.xml \
-            tests
+          runtime_python="$RUNNER_TEMP/backend-runtime-venv/bin/python"
+          "$runtime_python" -m pytest --collect-only -q --strict-markers -m rls_integration \
+            -o addopts= -p no:cacheprovider tests > rls-collected.txt
+          "$runtime_python" scripts/ci_test_shards.py partition \
+            --collection-file rls-collected.txt \
+            --shard "${{ matrix.shard }}" \
+            --shard-count 4 \
+            --manifest-file "rls-shard-${{ matrix.shard }}.json" \
+            > "rls-files-${{ matrix.shard }}.txt"
 
-      - name: Exercitar preflight de deploy em PG17 descartável
+      - name: Rodar arquivos completos do shard
+        run: |
+          runtime_python="$RUNNER_TEMP/backend-runtime-venv/bin/python"
+          mapfile -t shard_files < "rls-files-${{ matrix.shard }}.txt"
+          test "${#shard_files[@]}" -gt 0
+          "$runtime_python" -m pytest --strict-markers \
+            -m rls_integration -o addopts= -p no:cacheprovider -rA \
+            --junitxml="rls-results-${{ matrix.shard }}.xml" \
+            "${shard_files[@]}"
+
+      - name: Exercitar preflight de deploy em PG17 descartavel
+        if: matrix.shard == 0
         env:
           BACKEND_RELEASE_TEST_DATABASE_URL: ${{ env.RLS_TEST_DATABASE_URL }}
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -q \
             ../deploy/tests/test_backend_schema_pg17.py
 
-      - name: Exercitar contrato legado de manutenção em PG17 descartável
+      - name: Exercitar contrato legado de manutencao em PG17 descartavel
+        if: matrix.shard == 0
         env:
           MAINTENANCE_SCHEMA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/maintenance_schema_disposable
         run: |
@@ -157,37 +176,47 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover \
             -s ../deploy/tests -p test_maintenance_schema_pg.py -v
 
-      - name: Verificar execucao integral da suite RLS
-        run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" - <<'PY'
-          import sys, xml.etree.ElementTree as ET
+      - name: Publicar JUnit e mapa de cobertura do shard
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rls-shard-${{ matrix.shard }}
+          path: |
+            backend/rls-results-${{ matrix.shard }}.xml
+            backend/rls-shard-${{ matrix.shard }}.json
+          if-no-files-found: ignore
 
-          root = ET.parse("rls-results.xml").getroot()
-          suites = root.findall("testsuite") or [root]
-          total = skipped = failed = errors = 0
-          for s in suites:
-              total += int(s.get("tests", 0))
-              skipped += int(s.get("skipped", 0))
-              failed += int(s.get("failures", 0))
-              errors += int(s.get("errors", 0))
-          executed = total - skipped
-          print(
-              f"total={total} skipped={skipped} executed={executed} "
-              f"failed={failed} errors={errors}"
-          )
-          if total == 0:
-              sys.exit("FALHA: 0 testes rls_integration coletados — T1-T6 nao rodaram.")
-          if executed == 0:
-              sys.exit(
-                  "FALHA: todos os testes rls_integration selecionados em skip — "
-                  "RLS_TEST_DATABASE_URL nao ativou a suite."
-              )
-          if skipped != 0:
-              sys.exit(
-                  "FALHA: houve skip parcial na suite rls_integration selecionada; "
-                  "todo teste selecionado deve executar no Postgres descartavel."
-              )
-          if failed != 0 or errors != 0:
-              sys.exit("FALHA: suite rls_integration registrou falha ou erro.")
-          print("OK: suite rls_integration selecionada executou de fato.")
-          PY
+  rls-integration:
+    name: rls-integration
+    needs: rls-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      RLS_SHARD_JOB_RESULT: ${{ needs.rls-shard.result }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Baixar resultados dos shards
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: rls-shard-*
+          path: backend/rls-artifacts
+          merge-multiple: true
+
+      - name: Somar JUnit e verificar cobertura completa
+        if: always()
+        run: |
+          python scripts/ci_test_shards.py verify \
+            --artifact-directory rls-artifacts \
+            --shard-count 4 \
+            --shard-job-result "$RLS_SHARD_JOB_RESULT"
