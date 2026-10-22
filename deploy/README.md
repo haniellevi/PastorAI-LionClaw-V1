@@ -37,29 +37,24 @@ procedimento de release/rollback do runbook canônico.
 
 ## 5. Configurar as variáveis
 
-Nunca sobrescreva um `.env` existente. Em primeira instalação, copie o template,
-preencha os valores diretamente no console da VPS e mantenha o arquivo com modo
-`600`; em upgrades, preserve o arquivo já validado.
+Nunca sobrescreva um `.env` existente. Em uma primeira instalação autorizada,
+copie as seções **Comum/servidor** e **Produção/deploy** de
+[`/.env.example`](../.env.example) para `deploy/.env`, preencha as credenciais
+diretamente no console da VPS e mantenha o arquivo com modo `600`. O modelo usa
+defaults de produção, credenciais vazias e gates desligados; substitua os
+domínios `example.invalid` pelos destinos aprovados. Em upgrades, preserve o
+`.env` validado do release ativo.
 
-Para uma preparação **local**, o template seguro e versionado é
-[`deploy/.env.example`](.env.example):
-
-```bash
-cp deploy/.env.example deploy/.env
-chmod 600 deploy/.env
-```
-
-Ele nasce com `APP_ENV=development`, `ALLOW_REAL_SENDS=false`,
-`BREVO_SEND_MODE=off`, Asaas Sandbox e segredos vazios. Não o promova para
-produção; produção segue o runbook canônico e preserva o `.env` do release
-ativo.
+Para desenvolvimento local, use `./dev.sh`, que parte do mesmo modelo e aplica
+os endereços locais e o Asaas Sandbox ao criar `.env.dev`. Não copie os valores
+de produção para um `.env` local.
 
 Para validar somente a sintaxe do Compose sem criar um `.env` nem iniciar
 containers, execute da raiz do repositório:
 
 ```bash
-PASTORAI_ENV_FILE=.env.example docker compose \
-  --env-file deploy/.env.example \
+PASTORAI_ENV_FILE=../.env.example docker compose \
+  --env-file .env.example \
   -f deploy/docker-compose.yml config --quiet
 ```
 
