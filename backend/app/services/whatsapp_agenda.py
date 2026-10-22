@@ -320,6 +320,7 @@ def _query_rows(
     query: AgendaQuery,
     start: dt.date,
     end: dt.date,
+    whatsapp_only: bool = False,
 ) -> tuple[_AgendaEvent, ...] | None:
     status_filters: tuple[object, ...]
     if query.include_drafts:
@@ -328,6 +329,7 @@ def _query_rows(
     else:
         status_filters = (Event.status == "confirmado",)
         human_confirmed = case((_confirmed_by_human_predicate(), True), else_=False)
+    channel_filters = (Event.canal == "whatsapp",) if whatsapp_only else ()
     statement = (
         select(
             Event.id,
@@ -343,6 +345,7 @@ def _query_rows(
         .where(
             Event.igreja_id == igreja_id,
             *status_filters,
+            *channel_filters,
             or_(
                 Event.recorrencia == "semanal",
                 (Event.recorrencia == "pontual") & (Event.data >= start) & (Event.data <= end),

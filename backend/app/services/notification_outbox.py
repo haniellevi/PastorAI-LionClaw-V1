@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -38,6 +39,9 @@ _PROVEN_PRE_SEND_ERRORS = frozenset(
 )
 
 logger = logging.getLogger("pastorai.notification_outbox")
+
+AGENDA_REMINDERS_APPROVED_RELEASE_ID: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class NotificationResultTransition:
@@ -227,6 +231,37 @@ def agenda_delivery_enabled(igreja_id: object) -> bool:
     from app.services.whatsapp_agenda import agenda_enabled_from_environment
 
     return agenda_enabled_from_environment(igreja_id)
+
+
+def agenda_reminders_enabled(igreja_id: object) -> bool:
+    """G2 is inert without its own reviewed release and explicit tenant list.
+
+    Creation and transport share this fence. Neither Agenda writes nor the
+    older internal confirmation notice can activate commitment reminders.
+    """
+    from app.config import get_settings
+    from app.services.outbound_guard import external_sends_allowed
+
+    release = AGENDA_REMINDERS_APPROVED_RELEASE_ID
+    if (
+        _valid_uuid(igreja_id) is None
+        or type(release) is not str
+        or not release.strip()
+    ):
+        return False
+    raw = os.environ.get("AGENDA_REMINDERS_ENABLED_IGREJA_IDS", "")
+    try:
+        allowed = tuple(uuid.UUID(part.strip()) for part in raw.split(","))
+    except ValueError:
+        return False
+    settings = get_settings()
+    return (
+        len(allowed) == len(set(allowed))
+        and igreja_id in allowed
+        and external_sends_allowed(settings)
+        and settings.whatsapp_piloto(igreja_id)
+        and agenda_delivery_enabled(igreja_id)
+    )
 
 
 def _valid_uuid(value: object) -> uuid.UUID | None:
@@ -479,7 +514,7 @@ def execute_agenda_reminder_subscription(session: Session, execution: object):
         or action is not AgentAction.CONFIGURAR_LEMBRETE_AGENDA
         or getattr(context, "igreja_id", None) != tenant
         or not agenda_read_allowed(context)
-        or not agenda_delivery_enabled(tenant)
+        or not agenda_reminders_enabled(tenant)
     ):
         deny()
     try:
@@ -533,6 +568,7 @@ def execute_agenda_reminder_subscription(session: Session, execution: object):
     if (
         event is None
         or getattr(event, "status", None) != "confirmado"
+        or getattr(event, "canal", None) != "whatsapp"
         or _valid_uuid(getattr(event, "igreja_id", None)) != tenant
         or not _event_occurrence_matches(
             type("AgendaOccurrenceIntent", (), {
@@ -1321,7 +1357,9 @@ def _purpose_gate_allows(purpose: object, igreja_id: uuid.UUID) -> bool:
     settings = get_settings()
     if not external_sends_allowed(settings) or not settings.whatsapp_piloto(igreja_id):
         return False
-    if purpose in _AGENDA_PURPOSES:
+    if purpose == "agenda_reminder":
+        return agenda_reminders_enabled(igreja_id)
+    if purpose == "agenda_evt7":
         return agenda_delivery_enabled(igreja_id)
     if purpose == "cell_report_reminder":
         return cell_report_enabled_from_environment(igreja_id)
@@ -1459,9 +1497,9 @@ def _maintain_notification_tenant(
     now: dt.datetime,
     limit: int,
 ) -> int:
-    """Fence expired leases and gate-closed pending work without transport."""
+    """Fence expired leases, closed gates and changed Agenda sources without I/O."""
 
-    from app.db.models import NotificationOutbox
+    from app.db.models import Event, NotificationOutbox
 
     if limit <= 0:
         return 0
@@ -1525,6 +1563,25 @@ def _maintain_notification_tenant(
             ):
                 _terminalize(row, state="cancelado", reason="gate_fechado", now=now)
                 changed += 1
+                continue
+            if row.state in _PENDING_STATES and row.purpose == "agenda_reminder":
+                # A plain MVCC read never waits on Event after the outbox lock.
+                # Only committed source changes invalidate the immutable intent;
+                # the existing transport fence still revalidates after a claim.
+                event = session.execute(
+                    select(Event)
+                    .where(Event.igreja_id == igreja_id, Event.id == row.event_id)
+                    .execution_options(populate_existing=True)
+                ).scalar_one_or_none()
+                if (
+                    event is None
+                    or event.status != "confirmado"
+                    or event.canal != "whatsapp"
+                    or _event_fingerprint(event) != row.origin_fingerprint
+                    or not _event_occurrence_matches(row, event)
+                ):
+                    _terminalize(row, state="obsoleto", reason="evento_alterado", now=now)
+                    changed += 1
         session.commit()
         return changed
     except Exception:
@@ -3135,6 +3192,8 @@ def _source_transport_text(
                 return None, "destinatario_revogado"
             return _agenda_evt7_text(event), None
 
+        if getattr(event, "canal", None) != "whatsapp":
+            return None, "canal_invalido"
         subscription_id = _valid_uuid(getattr(row, "agenda_subscription_id", None))
         if subscription_id is None:
             return None, "inscricao_indisponivel"
@@ -3471,6 +3530,7 @@ __all__ = [
     "NotificationResultTransition",
     "SAO_PAULO_TZ",
     "agenda_delivery_enabled",
+    "agenda_reminders_enabled",
     "disable_whatsapp_reminders",
     "dispatch_notification_outbox",
     "enqueue_evt7_for_confirmed_event",

@@ -22,6 +22,7 @@ from app.db.models import (
     ConsentRecord,
     Conversation,
     Event,
+    Message,
     NotificationOutbox,
     Pessoa,
     WhatsappConnection,
@@ -79,6 +80,10 @@ def agenda_reminder_turn(agenda_turn, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ALLOW_REAL_SENDS", "true")
     monkeypatch.setenv("WHATSAPP_PILOTO_IGREJA_IDS", str(_IGREJA))
     monkeypatch.setenv("AGENDA_NOTIFY_ENABLED", "true")
+    monkeypatch.setenv("AGENDA_REMINDERS_ENABLED_IGREJA_IDS", str(_IGREJA))
+    monkeypatch.setattr(
+        notification_outbox, "AGENDA_REMINDERS_APPROVED_RELEASE_ID", "g2-synthetic-only"
+    )
     get_settings.cache_clear()
 
     current = dt.datetime.now(dt.UTC)
@@ -95,6 +100,7 @@ def agenda_reminder_turn(agenda_turn, monkeypatch: pytest.MonkeyPatch):
         event.hora = "19:30"
         event.publico_alvo = ["toda_igreja"]
         event.notificar_em = dispatch_at
+        event.canal = "whatsapp"
         event.notificado_em = None
         event.notification_outbox_fenced_at = None
         event.notification_outbox_fence_reason = None
@@ -192,6 +198,31 @@ def _reminder_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
     return stages
 
 
+def _no_reminder_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
+    stages: list[str] = []
+
+    def choose(_self, _system, prompt, *, schema_name, choices, timeout_seconds):
+        assert turn.engine.pool.checkedout() == 0
+        assert timeout_seconds > 0
+        stages.append(schema_name)
+        payload = json.loads(prompt)
+        if schema_name == "s3_route":
+            selected = "restrita"
+        elif schema_name == "s3_tool":
+            assert "configurar_lembrete_agenda" not in payload["ferramentas"]
+            selected = "nenhuma"
+        else:
+            pytest.fail(f"etapa LLM inesperada sem evento elegível: {schema_name}")
+        assert selected in choices
+        return TypedChoiceResult(
+            selected,
+            LLMUsage(modelo="agenda-reminder-synthetic", tokens_in=3, tokens_out=1, custo=0.0),
+        )
+
+    monkeypatch.setattr(LLMClient, "generate_typed", choose)
+    return stages
+
+
 class _ReceiptEvolution(_ClassifiedEvolution):
     def __init__(self, turn):
         super().__init__()
@@ -273,6 +304,14 @@ def test_agenda_reminder_s3_confirmation_creates_and_dispatches_outbox(
     assert outbox_rows[0].state == "pendente" and outbox_rows[0].attempts == 0
     assert len(receipts) == 1 and receipts[0].receipt_text == "Lembrete confirmado."
 
+    # Another persisted inbound SIM must never create a second occurrence intent.
+    duplicate = _inbound(turn, "AGENDA-REMINDER-HAPPY-REPEATED-SIM", "SIM")
+    worker_module.run_agent_for_message(
+        turn.factory, duplicate, evolution_client=_ClassifiedEvolution()
+    )
+    assert len(_scoped_rows(turn, NotificationOutbox)) == 1
+    assert len(_scoped_rows(turn, AgendaReminderSubscription)) == 1
+
     provider = _OutboxEvolution(turn)
     assert notification_outbox.dispatch_notification_outbox(
         turn.factory,
@@ -284,6 +323,210 @@ def test_agenda_reminder_s3_confirmation_creates_and_dispatches_outbox(
     assert len(provider.calls) == 1
     assert outbox_rows[0].state == "enviado" and outbox_rows[0].sent_at is not None
     assert outbox_rows[0].terminal_reason == "aviso_parada_incluido"
+    assert notification_outbox.dispatch_notification_outbox(
+        turn.factory, provider, worker_id="agenda-reminder-e2e-replay",
+        now=turn.dispatch_at + dt.timedelta(seconds=2),
+    ) == 0
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize("canal", (None, "email"))
+def test_agenda_reminder_catalog_omits_non_whatsapp_event_without_confirmation(
+    agenda_reminder_turn, monkeypatch: pytest.MonkeyPatch, canal: str | None
+):
+    turn = agenda_reminder_turn
+    with turn.factory.begin() as session:
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.canal = canal
+
+    stages = _no_reminder_choices(monkeypatch, turn)
+    evolution = _ClassifiedEvolution()
+    request = _inbound(
+        turn,
+        f"AGENDA-REMINDER-INELIGIBLE-{canal or 'null'}",
+        "Me avise do próximo evento da agenda.",
+    )
+    assert worker_module.run_agent_for_message(
+        turn.factory, request, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+
+    assert stages == ["s3_route", "s3_tool"]
+    assert _scoped_rows(turn, AgentActionProposal) == []
+    assert _scoped_rows(turn, NotificationOutbox) == []
+    assert _scoped_rows(turn, AgendaReminderSubscription) == []
+    assert len(evolution.calls) == 1
+    reply = evolution.calls[0][2]
+    assert reply and "Não identifiquei uma ação ou alvo autorizado" in reply
+    assert "Confirma esta ação?" not in reply
+    assert "Responda SIM ou NÃO" not in reply
+    replies = [message for message in _scoped_rows(turn, Message) if message.direcao == "out"]
+    assert len(replies) == 1 and replies[0].texto == reply
+    assert replies[0].agent_privilege_context["kind"] == "clarify"
+
+
+def _offer_g2_reminder(turn, monkeypatch):
+    _reminder_choices(monkeypatch, turn)
+    evolution = _ClassifiedEvolution()
+    request = _inbound(turn, "G2-OFFER", "Me avise do próximo evento da agenda.")
+    worker_module.run_agent_for_message(turn.factory, request, evolution_client=evolution)
+    assert len(_scoped_rows(turn, AgentActionProposal)) == 1
+    assert _scoped_rows(turn, NotificationOutbox) == []
+    return evolution
+
+
+@pytest.mark.parametrize("fence", ("release", "church", "global"))
+def test_g2_gate_closed_before_sim_persists_refusal_without_enqueue(
+    agenda_reminder_turn, monkeypatch, fence
+):
+    turn = agenda_reminder_turn
+    evolution = _offer_g2_reminder(turn, monkeypatch)
+    if fence == "release":
+        monkeypatch.setattr(notification_outbox, "AGENDA_REMINDERS_APPROVED_RELEASE_ID", None)
+    elif fence == "church":
+        monkeypatch.setenv("AGENDA_REMINDERS_ENABLED_IGREJA_IDS", "")
+    else:
+        monkeypatch.setenv("ALLOW_REAL_SENDS", "false")
+        get_settings.cache_clear()
+    confirmation = _inbound(turn, "G2-CLOSED-SIM", "SIM")
+    worker_module.run_agent_for_message(turn.factory, confirmation, evolution_client=evolution)
+    assert _scoped_rows(turn, NotificationOutbox) == []
+    assert _scoped_rows(turn, AgendaReminderSubscription) == []
+    assert _scoped_rows(turn, WhatsappReminderPreference) == []
+    assert not any(r.receipt_text == "Lembrete confirmado."
+                   for r in _scoped_rows(turn, AgentActionReceipt))
+    replies = [m for m in _scoped_rows(turn, Message) if m.direcao == "out"]
+    assert len(replies) == 2
+    assert "encerrada sem executar a ação" in max(replies, key=lambda m: (m.criado_em, m.id)).texto
+
+
+@pytest.mark.parametrize("revoke_after_offer", (False, True))
+def test_g2_member_cannot_subscribe_to_pastors_audience(
+    agenda_reminder_turn, monkeypatch, revoke_after_offer
+):
+    turn = agenda_reminder_turn
+    with turn.factory.begin() as session:
+        event = session.execute(select(Event).where(Event.igreja_id == _IGREJA)).scalar_one()
+        event.publico_alvo = ["pastores"]
+        if not revoke_after_offer:
+            session.execute(
+                text("update user_roles set papel='membro' where igreja_id=:t and user_id=:u"),
+                {"t": _IGREJA, "u": turn.app_user_id},
+            )
+    evolution = _offer_g2_reminder(turn, monkeypatch)
+    if revoke_after_offer:
+        with turn.factory.begin() as session:
+            session.execute(
+                text("update user_roles set papel='membro' where igreja_id=:t and user_id=:u"),
+                {"t": _IGREJA, "u": turn.app_user_id},
+            )
+    confirmation = _inbound(turn, "G2-UNAUTHORIZED-SIM", "SIM")
+    worker_module.run_agent_for_message(turn.factory, confirmation, evolution_client=evolution)
+    assert _scoped_rows(turn, NotificationOutbox) == []
+    assert _scoped_rows(turn, AgendaReminderSubscription) == []
+    assert not any(r.receipt_text == "Lembrete confirmado."
+                   for r in _scoped_rows(turn, AgentActionReceipt))
+    replies = [m for m in _scoped_rows(turn, Message) if m.direcao == "out"]
+    assert len(replies) == 2
+    assert "encerrada sem executar a ação" in max(replies, key=lambda m: (m.criado_em, m.id)).texto
+    proposal = _scoped_rows(turn, AgentActionProposal)[0]
+    assert proposal.terminal_reason == "domain_denied"
+
+
+@pytest.mark.parametrize("change", ("date", "channel", "release"))
+def test_g2_final_fence_rechecks_source_and_gate_after_claim(
+    agenda_reminder_turn, monkeypatch, change
+):
+    turn = agenda_reminder_turn
+    _request_and_confirm(turn, monkeypatch, suffix="G2-FENCE")
+    claim = notification_outbox._claim_next_notification(
+        turn.factory, igreja_id=_IGREJA, now=turn.dispatch_at,
+        lease_seconds=30, worker_id="g2-final-fence",
+    )
+    assert claim is not None
+    if change == "release":
+        monkeypatch.setattr(notification_outbox, "AGENDA_REMINDERS_APPROVED_RELEASE_ID", None)
+    else:
+        with turn.factory.begin() as session:
+            event = session.execute(select(Event).where(Event.igreja_id == _IGREJA)).scalar_one()
+            if change == "date":
+                event.data += dt.timedelta(days=1)
+            else:
+                event.canal = None
+    assert notification_outbox._renew_notification_transport_fence(
+        turn.factory, claim, now=turn.dispatch_at + dt.timedelta(seconds=1), lease_seconds=30,
+    ) is None
+    row = _scoped_rows(turn, NotificationOutbox)[0]
+    assert row.state == ("cancelado" if change == "release" else "obsoleto")
+    assert row.claim_token is None and row.transport_started_at is None
+
+
+@pytest.mark.parametrize("change", ("date", "time", "title", "cancel", "delete", "channel"))
+def test_g2_source_change_invalidates_future_intent_before_its_due_time(
+    agenda_reminder_turn, monkeypatch, change
+):
+    turn = agenda_reminder_turn
+    _request_and_confirm(turn, monkeypatch, suffix="G2-CHANGE")
+    with turn.factory.begin() as session:
+        event = session.execute(select(Event).where(Event.igreja_id == _IGREJA)).scalar_one()
+        if change == "date":
+            event.data += dt.timedelta(days=1)
+        elif change == "time":
+            event.hora = "20:00"
+        elif change == "title":
+            event.titulo = "Reunião"
+        elif change == "cancel":
+            event.status = "a_confirmar"
+        elif change == "channel":
+            event.canal = None
+        else:
+            session.delete(event)
+    now = dt.datetime.now(dt.UTC)
+    assert now < turn.dispatch_at
+    assert notification_outbox.maintain_notification_outbox(
+        turn.factory, igreja_id=_IGREJA, now=now,
+    ) == 1
+    row = _scoped_rows(turn, NotificationOutbox)[0]
+    assert row.state == "obsoleto" and row.terminal_reason == "evento_alterado"
+    provider = _ClassifiedEvolution()
+    assert notification_outbox.dispatch_notification_outbox(
+        turn.factory, provider, worker_id="g2-source-changed", now=turn.dispatch_at,
+    ) == 0
+    assert provider.calls == []
+
+
+@pytest.mark.parametrize("revocation", ("release", "church", "global", "optout", "consent", "preference"))
+def test_g2_dispatch_revalidates_gates_consent_and_optout(
+    agenda_reminder_turn, monkeypatch, revocation
+):
+    turn = agenda_reminder_turn
+    _request_and_confirm(turn, monkeypatch, suffix="G2-REVOKE")
+    if revocation == "release":
+        monkeypatch.setattr(notification_outbox, "AGENDA_REMINDERS_APPROVED_RELEASE_ID", None)
+    elif revocation == "church":
+        monkeypatch.setenv("AGENDA_REMINDERS_ENABLED_IGREJA_IDS", "")
+    elif revocation == "global":
+        monkeypatch.setenv("ALLOW_REAL_SENDS", "false")
+        get_settings.cache_clear()
+    else:
+        with turn.factory.begin() as session:
+            if revocation == "optout":
+                session.execute(text("update pessoas set optout=true where igreja_id=:t"), {"t": _IGREJA})
+            elif revocation == "consent":
+                session.execute(text("delete from consent_records where igreja_id=:t"), {"t": _IGREJA})
+            else:
+                session.execute(text("update whatsapp_reminder_preferences set state='disabled' where igreja_id=:t"), {"t": _IGREJA})
+    provider = _ClassifiedEvolution()
+    assert notification_outbox.dispatch_notification_outbox(
+        turn.factory, provider, worker_id="g2-revoked", now=turn.dispatch_at,
+    ) == 0
+    assert provider.calls == []
+    row = _scoped_rows(turn, NotificationOutbox)[0]
+    if revocation == "optout":
+        assert (row.state, row.terminal_reason) == ("obsoleto", "inscricao_alterada")
+    else:
+        assert row.state == "cancelado"
 
 
 def test_agenda_reminder_dispatch_fence_blocks_audience_revoked_after_sim(
@@ -423,6 +666,7 @@ def test_parar_then_new_future_occurrence_can_reactivate_only_the_new_intent(
             recorrencia="pontual",
             publico_alvo=["toda_igreja"],
             notificar_em=turn.dispatch_at,
+            canal="whatsapp",
             confirmado_em=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1),
             confirmado_por=existing_event.confirmado_por,
             notification_outbox_fenced_at=None,

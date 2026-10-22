@@ -79,6 +79,44 @@ def test_agenda_templates_always_include_the_global_stop_instruction() -> None:
     assert "PARAR LEMBRETES" in outbox._agenda_reminder_text(event)
 
 
+def test_g2_default_release_is_closed_before_settings_or_domain_access(monkeypatch):
+    assert outbox.AGENDA_REMINDERS_APPROVED_RELEASE_ID is None
+
+    def forbidden():
+        raise AssertionError("closed release must not read runtime settings")
+
+    monkeypatch.setattr(config, "get_settings", forbidden)
+    assert not outbox.agenda_reminders_enabled(uuid.uuid4())
+
+
+@pytest.mark.parametrize(
+    "fence",
+    ("release", "empty_list", "other_tenant", "invalid_list", "duplicate", "global", "pilot", "agenda"),
+)
+def test_g2_reminders_require_every_independent_fence(monkeypatch, fence):
+    tenant = uuid.UUID("00000000-0000-0000-0000-000000000091")
+    monkeypatch.setattr(outbox, "AGENDA_REMINDERS_APPROVED_RELEASE_ID", "g2-test")
+    monkeypatch.setenv("AGENDA_REMINDERS_ENABLED_IGREJA_IDS", str(tenant))
+    monkeypatch.setattr(outbox, "agenda_delivery_enabled", lambda _tenant: True)
+    settings = config.Settings(_env_file=None, allow_real_sends=True)
+    monkeypatch.setattr(config, "get_settings", lambda: settings)
+    assert outbox.agenda_reminders_enabled(tenant)
+    if fence == "release":
+        monkeypatch.setattr(outbox, "AGENDA_REMINDERS_APPROVED_RELEASE_ID", None)
+    elif fence in {"empty_list", "other_tenant", "invalid_list", "duplicate"}:
+        value = {"empty_list": "", "other_tenant": str(uuid.uuid4()),
+                 "invalid_list": f"{tenant},invalid", "duplicate": f"{tenant},{tenant}"}[fence]
+        monkeypatch.setenv("AGENDA_REMINDERS_ENABLED_IGREJA_IDS", value)
+    elif fence == "global":
+        settings.allow_real_sends = False
+    elif fence == "pilot":
+        monkeypatch.setattr(config.Settings, "whatsapp_piloto", lambda *_args: False)
+    else:
+        monkeypatch.setattr(outbox, "agenda_delivery_enabled", lambda _tenant: False)
+    assert not outbox.agenda_reminders_enabled(tenant)
+    assert not outbox._purpose_gate_allows("agenda_reminder", tenant)
+
+
 @pytest.mark.parametrize(
     ("occurrence_at", "expected_due_at"),
     (
@@ -557,6 +595,7 @@ def test_s3_agenda_confirmation_creates_one_subscription_and_outbox_without_comm
         tipo="culto",
         origem="manual",
         publico_alvo=["toda_igreja"],
+        canal="whatsapp",
     )
     pessoa = SimpleNamespace(
         id=pessoa_id,
@@ -598,7 +637,7 @@ def test_s3_agenda_confirmation_creates_one_subscription_and_outbox_without_comm
     session = _SubscriptionExecutionSession(event=event)
     monkeypatch.setattr(outbox, "_scoped", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(outbox, "_worker_now", lambda _now: current)
-    monkeypatch.setattr(outbox, "agenda_delivery_enabled", lambda _tenant: True)
+    monkeypatch.setattr(outbox, "agenda_reminders_enabled", lambda _tenant: True)
     monkeypatch.setattr(
         outbox,
         "_lock_notification_recipient_prefix",
@@ -773,6 +812,7 @@ def test_agenda_fence_rechecks_current_event_audience_after_s3_confirmation(
         tipo="culto",
         origem="manual",
         publico_alvo=["pastores"],
+        canal="whatsapp",
     )
     row = SimpleNamespace(
         igreja_id=igreja_id,
