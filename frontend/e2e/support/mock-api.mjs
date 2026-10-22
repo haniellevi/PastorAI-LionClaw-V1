@@ -252,6 +252,24 @@ const server = createServer(async (request, response) => {
       });
       return;
     }
+    // Hoje exposes only synthetic aggregate counts to the admin fixture.
+    if (method === "GET" && pathname === "/operations/private-memory") {
+      record.status = 200;
+      sendJson(response, 200, {
+        pedidos_exclusao: {
+          pendentes: 2,
+          atendidos: 1,
+          recusados: 0,
+          mais_antigo_segundos: 7200,
+          faixas_idade: { menos_24h: 2, de_1_a_3_dias: 0, mais_3_dias: 0 },
+        },
+        resumos_ativos: 3,
+        retomadas_entregues: 1,
+        tarefas_resumo: { queued: 0, running: 0, done: 3, refused: 0 },
+        limpezas_privadas: { pendente: 0, concluida: 2 },
+      });
+      return;
+    }
     if (method === "GET" && pathname === "/auth/me") {
       record.status = 200;
       sendJson(response, 200, profile);
