@@ -308,3 +308,15 @@ describe("EquipeScreen: acesso separado da célula", () => {
     );
   });
 });
+
+it.each([true, false])("ação de vínculo é exclusiva de admin (%s)", async (admin) => {
+  mocks.auth.user = { appUserId: "u-admin", roles: admin ? ["admin"] : ["pastor"] };
+  mocks.fetchTeam.mockResolvedValue({ items: [{ usuarioId: "u-synthetic", nome: "Conta sintética", email: "synthetic@example.test", status: "ativo", pessoaId: null, papeis: ["membro"] }], page: 1, pageSize: 100, total: 1 });
+  act(() => root.render(h(EquipeScreen))); await flushEffects();
+  const action = container.querySelector('[aria-label="Vincular Pessoa a Conta sintética"]');
+  expect(!!action).toBe(admin);
+  if (admin) {
+    act(() => (action as HTMLButtonElement).click()); await flushEffects();
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Vincular Pessoa · Conta sintética");
+  }
+});
