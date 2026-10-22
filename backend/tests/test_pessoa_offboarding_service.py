@@ -172,6 +172,9 @@ def offboarding_engine(rls_database_url: str) -> Iterator[Engine]:  # noqa: F811
             "end if; end $$;"
         )
 
+    # O arquivamento usa visitas mesmo ao rodar este arquivo isoladamente.
+    from app.visits.models import VisitEvent  # noqa: F401
+
     tables_sem_evento = [
         # This legacy fixture represents the pre-prayer schema. The V4 suite
         # applies its real migration and proves offboarding erases its content;
@@ -202,6 +205,22 @@ def offboarding_engine(rls_database_url: str) -> Iterator[Engine]:  # noqa: F811
 @pytest.fixture
 def factory(offboarding_engine: Engine) -> sessionmaker:
     return sessionmaker(bind=offboarding_engine, future=True, expire_on_commit=False)
+
+
+@pytest.fixture
+def legacy_factory(offboarding_engine: Engine) -> Iterator[sessionmaker]:
+    """Duplicidades legadas só neste teste; rollback restaura dados e índice."""
+    with offboarding_engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            conn.exec_driver_sql("DROP INDEX app_users_pessoa_unica_por_igreja")
+            yield sessionmaker(
+                bind=conn, expire_on_commit=False,
+                join_transaction_mode="create_savepoint",
+            )
+        finally:
+            transaction.rollback()
+        assert conn.scalar(text("SELECT to_regclass('app_users_pessoa_unica_por_igreja')")) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +278,7 @@ def _mk_app_user(
     admin: bool = False,
     clerk_user_id: str | None = None,
 ) -> uuid.UUID:
-    """app_user avulso (sem papel por padrão) — para cenários de MÚLTIPLOS
-    app_users por Pessoa (não há UNIQUE em app_users.pessoa_id)."""
+    """app_user avulso; duplicidades pré-migration usam legacy_factory."""
     app_user_id = uuid.uuid4()
     session.add(
         AppUser(
@@ -918,9 +936,10 @@ def test_bloqueio_auto_arquivamento(factory: sessionmaker) -> None:
 # quando a Pessoa tinha 2 app_users na mesma igreja. Agora avalia o CONJUNTO.
 # ---------------------------------------------------------------------------
 @pytest.mark.rls_integration
-def test_preflight_dois_app_users_nao_estoura_500(factory: sessionmaker) -> None:
+def test_preflight_dois_app_users_nao_estoura_500(legacy_factory: sessionmaker) -> None:
     """Dois app_users (ambos revogados, sem outro vínculo) -> GET preflight
     devolve resultado normal (pode_arquivar=True), NUNCA MultipleResultsFound."""
+    factory = legacy_factory
     session = factory()
     ctx = _base(session)
     pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
@@ -935,9 +954,10 @@ def test_preflight_dois_app_users_nao_estoura_500(factory: sessionmaker) -> None
 
 
 @pytest.mark.rls_integration
-def test_preflight_dois_app_users_um_ativo_bloqueia(factory: sessionmaker) -> None:
+def test_preflight_dois_app_users_um_ativo_bloqueia(legacy_factory: sessionmaker) -> None:
     """Dois app_users, um ATIVO e um revogado -> bloqueia (acesso_painel_ativo)
     e archive recusa (409), sem 500."""
+    factory = legacy_factory
     session = factory()
     ctx = _base(session)
     pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
@@ -950,11 +970,12 @@ def test_preflight_dois_app_users_um_ativo_bloqueia(factory: sessionmaker) -> No
 
 
 @pytest.mark.rls_integration
-def test_preflight_dois_app_users_um_dono_bloqueia(factory: sessionmaker) -> None:
+def test_preflight_dois_app_users_um_dono_bloqueia(legacy_factory: sessionmaker) -> None:
     """Dois app_users, um é o DONO da igreja (revogado de propósito, para
     isolar dono_igreja de acesso_painel_ativo) -> bloqueia (dono_igreja) e
     archive recusa (409), sem 500. Prova que o dono é bloqueador mesmo quando
     NÃO é o primeiro app_user retornado."""
+    factory = legacy_factory
     session = factory()
     ctx = _base(session)
     pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
@@ -972,10 +993,11 @@ def test_preflight_dois_app_users_um_dono_bloqueia(factory: sessionmaker) -> Non
 
 @pytest.mark.rls_integration
 def test_archive_dois_app_users_agrega_bloqueadores_e_nao_muta(
-    factory: sessionmaker,
+    legacy_factory: sessionmaker,
 ) -> None:
     """POST archive de Pessoa com DOIS app_users (um ativo, outro dono) -> 409
     com AMBOS os bloqueadores acumulados sobre o conjunto, sem mutação parcial."""
+    factory = legacy_factory
     session = factory()
     ctx = _base(session)
     pessoa_id = _mk_pessoa(session, ctx["igreja_id"])

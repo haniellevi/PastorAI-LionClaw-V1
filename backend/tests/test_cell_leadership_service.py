@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -184,6 +184,8 @@ def test_invited_revoked_or_clerkless_access_fails_closed(
 
 
 def test_zero_or_multiple_active_accesses_are_conflicts(db: Session) -> None:
+    # Estado legado anterior à unicidade, só neste SQLite descartável.
+    db.execute(text("DROP INDEX app_users_pessoa_unica_por_igreja"))
     igreja_id = _church(db)
     sem_acesso = _person(db, igreja_id)
     duplicado = _person(db, igreja_id)
@@ -201,6 +203,8 @@ def test_zero_or_multiple_active_accesses_are_conflicts(db: Session) -> None:
                 new_active=True,
             )
         assert exc.value.status_code == 409
+        assert cell.lider_id is None
+        assert cell.ativo is False
 
 
 def test_swap_moves_derived_role_and_deactivation_removes_it(db: Session) -> None:
