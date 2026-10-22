@@ -55,7 +55,7 @@ def test_bounded_usage_isolates_and_omits_content(db):
 
 
 @pytest.mark.parametrize('roles,user_status,expected', [
-    (['admin'], None, 403), (['admin'], 'ativo', 200),
+    (['admin'], None, 200), (['admin'], 'ativo', 200),
     (['admin'], 'convidado', 403), (['admin'], 'revogado', 403),
     (['pastor'], 'ativo', 403), ([], 'ativo', 403),
 ])

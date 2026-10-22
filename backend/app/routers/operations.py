@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AppUser
@@ -16,25 +16,53 @@ from app.services.private_memory_overview import PrivateMemoryOverview, memory_o
 router = APIRouter(prefix="/operations", tags=["operations"])
 
 
-def require_active_admin(
-    user: CurrentUser = Depends(require_role(["admin"])),
-    db: Session = Depends(get_db),
+def _require_admin_status(
+    user: CurrentUser,
+    db: Session,
+    *,
+    require_explicit_active_status: bool,
 ) -> CurrentUser:
+    status_predicate = (
+        AppUser.status == "ativo"
+        if require_explicit_active_status
+        else or_(AppUser.status.is_(None), AppUser.status == "ativo")
+    )
     active = db.scalar(select(AppUser.id).where(
         AppUser.id == UUID(user.app_user_id),
         AppUser.igreja_id == UUID(user.igreja_id),
         AppUser.clerk_user_id == user.clerk_user_id,
-        AppUser.status == "ativo",
+        status_predicate,
     ))
     if active is None:
-        raise HTTPException(403, "Acesso restrito a administrador ativo")
+        detail = (
+            "Acesso restrito a administrador ativo"
+            if require_explicit_active_status
+            else "Acesso restrito a administrador"
+        )
+        raise HTTPException(403, detail)
     return user
+
+
+def require_operational_admin(
+    user: CurrentUser = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+) -> CurrentUser:
+    """Preserve the project's NULL-or-active status convention for operations."""
+    return _require_admin_status(user, db, require_explicit_active_status=False)
+
+
+def require_active_admin(
+    user: CurrentUser = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+) -> CurrentUser:
+    """Require an explicit active status for private-memory access."""
+    return _require_admin_status(user, db, require_explicit_active_status=True)
 
 
 @router.get("/ai-usage", response_model=OperationalUsage)
 def ai_usage(
     response: Response,
-    user: CurrentUser = Depends(require_active_admin),
+    user: CurrentUser = Depends(require_operational_admin),
     db: Session = Depends(get_db),
 ) -> OperationalUsage:
     """Seven rolling days for the authenticated admin's church only."""
@@ -46,7 +74,7 @@ def ai_usage(
 def pending(
     response: Response,
     stuck_after_seconds: int = Query(default=3600, ge=1, le=2592000),
-    user: CurrentUser = Depends(require_active_admin),
+    user: CurrentUser = Depends(require_operational_admin),
     db: Session = Depends(get_db),
 ) -> OperationalPending:
     """Aggregate age only; the authenticated church supplies the tenant."""

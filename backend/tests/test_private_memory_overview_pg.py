@@ -120,7 +120,7 @@ def test_b_admin_sees_only_b_and_cannot_pass_a(db, inventory, app, client):
 
 
 @pytest.mark.parametrize('status', [None, 'ativo', 'convidado', 'revogado'])
-def test_live_active_status(db, inventory, client, app, status):
+def test_private_memory_requires_explicit_active_status(db, inventory, client, app, status):
     db.execute(text('reset role'))
     actor = db.scalar(text("update app_users set status=:s where clerk_user_id='synthetic' returning id"), dict(s=status))
     db.execute(text('set local role authenticated'))

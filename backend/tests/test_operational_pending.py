@@ -43,7 +43,7 @@ def test_ages_boundaries_and_rls(db):
 
 
 @pytest.mark.parametrize('roles,user_status,code', [
-    (['admin'], None, 403), (['admin'], 'ativo', 200),
+    (['admin'], None, 200), (['admin'], 'ativo', 200),
     (['admin'], 'convidado', 403), (['admin'], 'revogado', 403),
     (['pastor'], 'ativo', 403), ([], 'ativo', 403),
 ])
