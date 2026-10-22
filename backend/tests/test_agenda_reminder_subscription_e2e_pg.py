@@ -198,6 +198,31 @@ def _reminder_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
     return stages
 
 
+def _no_reminder_choices(monkeypatch: pytest.MonkeyPatch, turn) -> list[str]:
+    stages: list[str] = []
+
+    def choose(_self, _system, prompt, *, schema_name, choices, timeout_seconds):
+        assert turn.engine.pool.checkedout() == 0
+        assert timeout_seconds > 0
+        stages.append(schema_name)
+        payload = json.loads(prompt)
+        if schema_name == "s3_route":
+            selected = "restrita"
+        elif schema_name == "s3_tool":
+            assert "configurar_lembrete_agenda" not in payload["ferramentas"]
+            selected = "nenhuma"
+        else:
+            pytest.fail(f"etapa LLM inesperada sem evento elegível: {schema_name}")
+        assert selected in choices
+        return TypedChoiceResult(
+            selected,
+            LLMUsage(modelo="agenda-reminder-synthetic", tokens_in=3, tokens_out=1, custo=0.0),
+        )
+
+    monkeypatch.setattr(LLMClient, "generate_typed", choose)
+    return stages
+
+
 class _ReceiptEvolution(_ClassifiedEvolution):
     def __init__(self, turn):
         super().__init__()
@@ -303,6 +328,42 @@ def test_agenda_reminder_s3_confirmation_creates_and_dispatches_outbox(
         now=turn.dispatch_at + dt.timedelta(seconds=2),
     ) == 0
     assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize("canal", (None, "email"))
+def test_agenda_reminder_catalog_omits_non_whatsapp_event_without_confirmation(
+    agenda_reminder_turn, monkeypatch: pytest.MonkeyPatch, canal: str | None
+):
+    turn = agenda_reminder_turn
+    with turn.factory.begin() as session:
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.canal = canal
+
+    stages = _no_reminder_choices(monkeypatch, turn)
+    evolution = _ClassifiedEvolution()
+    request = _inbound(
+        turn,
+        f"AGENDA-REMINDER-INELIGIBLE-{canal or 'null'}",
+        "Me avise do próximo evento da agenda.",
+    )
+    assert worker_module.run_agent_for_message(
+        turn.factory, request, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+
+    assert stages == ["s3_route", "s3_tool"]
+    assert _scoped_rows(turn, AgentActionProposal) == []
+    assert _scoped_rows(turn, NotificationOutbox) == []
+    assert _scoped_rows(turn, AgendaReminderSubscription) == []
+    assert len(evolution.calls) == 1
+    reply = evolution.calls[0][2]
+    assert reply and "Não identifiquei uma ação ou alvo autorizado" in reply
+    assert "Confirma esta ação?" not in reply
+    assert "Responda SIM ou NÃO" not in reply
+    replies = [message for message in _scoped_rows(turn, Message) if message.direcao == "out"]
+    assert len(replies) == 1 and replies[0].texto == reply
+    assert replies[0].agent_privilege_context["kind"] == "clarify"
 
 
 def _offer_g2_reminder(turn, monkeypatch):

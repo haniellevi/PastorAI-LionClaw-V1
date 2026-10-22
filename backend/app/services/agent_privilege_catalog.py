@@ -525,6 +525,7 @@ def _agenda_reminder_targets(
         query=AgendaQuery(days=30, page=1, include_drafts=False),
         start=start,
         end=start + dt.timedelta(days=29),
+        whatsapp_only=True,
     )
     if rows is None:
         return ()
