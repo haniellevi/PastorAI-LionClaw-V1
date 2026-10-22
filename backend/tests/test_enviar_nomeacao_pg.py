@@ -76,7 +76,7 @@ def test_full_decision_confirmation_version_and_idempotency(nomination):
 def test_guards_leave_legacy_untouched(nomination,state,expected):
     v=nomination;row=create(v);u,p=decider(v)
     with v['factory'].begin() as s:
-        if state=='candidate':s.get(AppUser,u).pessoa_id=v['p']
+        if state=='candidate':v['who']=replace(v['who'],app_user_id=str(v['candidate_user']),clerk_user_id=str(v['candidate_user']))
         if state=='unlinked':s.get(AppUser,u).pessoa_id=None
         if state=='removed_role':s.execute(text('delete from user_roles where user_id=:u'),dict(u=u))
         if state=='revoked_actor':s.get(AppUser,u).status='revogado'

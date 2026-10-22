@@ -410,14 +410,13 @@ def test_activate_parte_b_legacy_pending_cell_creates_person_without_membership(
     assert invited.celula_pendente_id is None
 
 
-def test_activate_parte_b_persists_link_before_locked_reload(
+def test_activate_parte_b_persists_prepared_link_after_locked_reload(
     app, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Prova a regressão de SessionLocal(autoflush=False) com Session real.
 
-    A preparação escreve os atributos apenas na instância ORM. A releitura com
-    ``populate_existing`` restaura os valores antigos se ``activate`` não fizer
-    flush explícito antes do lock.
+    A preparação cria somente a Pessoa. O vínculo é escrito depois da releitura
+    ``populate_existing`` sob lock, sem perder a identidade recém-preparada.
     """
 
     engine = create_engine(
@@ -476,7 +475,7 @@ def test_activate_parte_b_persists_link_before_locked_reload(
 
         def _prepare_without_implicit_flush(
             db, app_user, telefone_raw: str, normalized: str
-        ) -> None:
+        ) -> uuid.UUID:
             pessoa = Pessoa(
                 id=created_person_id,
                 igreja_id=igreja_id,
@@ -487,8 +486,7 @@ def test_activate_parte_b_persists_link_before_locked_reload(
             )
             db.add(pessoa)
             db.flush()  # como insert_pessoa_or_get_winner: só Pessoa já existe
-            app_user.pessoa_id = pessoa.id
-            app_user.celula_pendente_id = None
+            return pessoa.id
 
         monkeypatch.setattr(
             auth_router, "_prepare_cadastro_pessoa", _prepare_without_implicit_flush

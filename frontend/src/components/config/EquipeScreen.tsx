@@ -37,6 +37,8 @@ import {
   updateRoles,
 } from "@/lib/team-api";
 
+import { TeamPessoaDialog } from "./TeamPessoaDialog";
+
 import { RolePick, RoleTags } from "./RolePick";
 
 interface Toast {
@@ -67,6 +69,8 @@ export function EquipeScreen() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [linking, setLinking] = useState<TeamMember | null>(null);
+
   // convite
   const [inviteOpen, setInviteOpen] = useState(false);
   const [invMode, setInvMode] = useState<"existente" | "nova">("existente");
@@ -90,6 +94,7 @@ export function EquipeScreen() {
   useEffect(() => {
     setInvPessoaId(null); setInvPessoa(null); setInvEmail(""); setInvNome("");
     setInviteOpen(false);
+    setLinking(null);
   }, [token]);
 
   // edição de papéis
@@ -390,6 +395,8 @@ export function EquipeScreen() {
         width: "1px",
         cell: (m) => (
           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <button type="button" className="btn btn-sm" onClick={() => setLinking(m)}
+              aria-label={`Vincular Pessoa a ${m.nome}`}>Vincular Pessoa</button>
             <button type="button" className="btn btn-sm" onClick={() => openEdit(m)}>
               Editar papéis
             </button>
@@ -689,6 +696,12 @@ export function EquipeScreen() {
           />
         )}
       </div>
+
+      {linking && token && isAdminUser ? <TeamPessoaDialog key={linking.usuarioId}
+        member={linking} token={token} onClose={() => setLinking(null)}
+        onSessionError={handleSessionError} onSaved={() => {
+          setLinking(null); flashToast({ kind: "ok", text: "Vínculo de Pessoa atualizado." }); void load("retry");
+        }} /> : null}
 
       {editing ? (
         // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do

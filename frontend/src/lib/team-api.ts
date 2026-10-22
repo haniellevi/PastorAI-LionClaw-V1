@@ -122,3 +122,19 @@ export async function revokeAccess(
   }
   return (await res.json()) as RevokeResult;
 }
+
+/** Altera somente a identidade da conta existente; null remove o vínculo. */
+export async function linkPessoa(
+  token: string,
+  usuarioId: string,
+  pessoaId: string | null,
+): Promise<{ usuarioId: string; pessoaId: string | null }> {
+  const res = await authedFetch(token, `/team/${usuarioId}/pessoa`, {
+    method: "PUT",
+    body: JSON.stringify({ pessoaId }),
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível alterar o vínculo.");
+  }
+  return await res.json() as { usuarioId: string; pessoaId: string | null };
+}
