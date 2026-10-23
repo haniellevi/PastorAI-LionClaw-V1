@@ -20,13 +20,27 @@ em `migrate.py::migration_files()`. `deploy/backend-release.sh` monta o manifest
 com todas as migrations ativas, e `deploy/check_backend_schema.py` bloqueia o
 release se qualquer nome esperado faltar em `public.schema_migrations`.
 
-Raniel, como dono, precisa decidir nominalmente entre duas opções: (1) manter as
-quatro ativas e aplicá-las na ordem lexical global, autorizando o deploy somente
-quando todas as migrations ativas do SHA candidato estiverem registradas no
-ledger; ou (2) excluí-las do manifesto em um SHA candidato revisado à parte e
-validar esse manifesto e seu checker. Enquanto a decisão e a condição escolhida
-não estiverem comprovadas para o SHA e o ledger alvo, o deploy fica bloqueado.
-Este runbook não decide pelo dono. Não inferir aplicação pelo número 78.
+**Decisão do dono (Raniel, 23/10/2026, no chat): opção (1), aplicar as quatro.**
+Elas ficam ativas no manifesto e são aplicadas na ordem lexical global. O deploy
+só é autorizado quando todas as migrations ativas do SHA candidato estiverem
+registradas no ledger do ambiente alvo. A decisão vale só para a escolha da
+opção; não autoriza aplicar nada: cada migration em PROD continua exigindo
+autorização nominal própria, backup verificado antes e SHA registrado.
+
+Condições por migration, acordadas com o Codex em análise só de leitura:
+
+| Migration | Condição antes de aplicar |
+|---|---|
+| `20260711_023515` (backfill de tipo "membro") | **Conferir antes.** Muda dados de pessoas reais e não tem reversão automática. O operador roda a consulta de candidatos da seção "Consultas de conferência" (somente `SELECT`), o dono vê quem mudaria (sem exportar telefone) e só então autoriza. Guardar id, igreja e tipo original fora do repositório para eventual reversão. |
+| `20260711_152127` (número de atendimento deixa de ser "membro") | **Conferir antes.** Mesma regra: consulta com o final de 4 dígitos do telefone, e o dono confirma que o alvo é o número conectado, não uma pessoa. Guardar o tipo anterior. |
+| `20260925_183811` (usuário de plataforma sem igreja) | Sem conferência de dados: não altera linhas. Necessária para a exclusão de igreja. Rollback exige tratar os `igreja_id` NULL. |
+| `20260926_120446` (configuração da Jev) | Cria tabela vazia e fechada. A Jev continua desligada: aplicar não abre gate, não insere chave nem lista de igrejas; ativação segue sujeita a DPA e gates próprios. |
+
+Se a conferência de uma das duas primeiras mostrar candidato inesperado, parar,
+não aplicar e voltar ao dono. O Codex sugeriu excluir a quarta enquanto a Jev
+estiver pausada; o dono decidiu aplicar, e a exclusão exigiria um SHA candidato
+revisado à parte, com risco maior do que uma tabela vazia. Não inferir aplicação
+pelo número 78.
 
 As migrations com `OPERATIONAL_AUTHORIZATION=BLOCKED` continuam fora da
 seleção de `migrate.py`; não remover o marcador nem aplicá-las neste release.
@@ -255,6 +269,70 @@ python3 backend/scripts/migrate.py apply 20261023_110005_work_queue_pending_crea
 python3 backend/scripts/migrate.py apply 20261028_100001_private_erasure_requests_overview_idx.sql --yes --no-transaction
 python3 backend/scripts/migrate.py apply 20261028_100002_private_resume_delivered_overview_idx.sql --yes --no-transaction
 ```
+
+## Consultas de conferência das migrations 1 e 2 (somente leitura)
+
+Rodar no banco correto, com autorização nominal, dentro de `BEGIN READ ONLY; ...
+ROLLBACK;`, e **antes** de aplicar `20260711_023515` e `20260711_152127`. O
+resultado mostra nomes e identificadores: ver só na sessão do operador e do dono;
+não copiar para chat, issue, log de CI nem documento. Nenhuma consulta mostra o
+telefone completo (a segunda mostra só o final de 4 dígitos).
+
+Para poder reverter, o operador guarda **fora do repositório** apenas
+`id`, `igreja_id` e o tipo atual (`atual`) de cada linha listada, em local
+autorizado, antes de aplicar. Se aparecer linha inesperada, parar e voltar ao dono.
+
+```sql
+-- Migration 1: pessoas com vínculo ativo na mesma igreja que passariam a "membro"
+SELECT p.id, p.igreja_id, p.nome, p.tipo AS atual, 'membro' AS proposto
+FROM public.pessoas p
+WHERE (p.tipo IS NULL OR p.tipo::text IN ('contato','visitante'))
+  AND EXISTS (SELECT 1 FROM public.celula_membro cm
+              WHERE cm.pessoa_id = p.id AND cm.igreja_id = p.igreja_id AND cm.ativo IS TRUE)
+ORDER BY p.igreja_id, p.nome, p.id;
+
+-- Migration 2: registro cujo telefone canônico coincide com o número conectado
+-- da mesma igreja, sem vínculo ativo, hoje "membro" (passaria a "contato")
+WITH p AS (
+  SELECT id, igreja_id, nome, tipo,
+         CASE WHEN length(d) > 11 AND left(d, 2) = '55' THEN substr(d, 3) ELSE d END AS d
+  FROM (SELECT id, igreja_id, nome, tipo,
+               regexp_replace(coalesce(telefone, ''), '\D', '', 'g') AS d
+        FROM public.pessoas) s),
+pn AS (
+  SELECT *, CASE WHEN length(d) = 10 THEN substr(d, 1, 2) || '9' || substr(d, 3) ELSE d END AS k
+  FROM p),
+w AS (
+  SELECT igreja_id,
+         CASE WHEN length(d) > 11 AND left(d, 2) = '55' THEN substr(d, 3) ELSE d END AS d
+  FROM (SELECT igreja_id, regexp_replace(coalesce(numero, ''), '\D', '', 'g') AS d
+        FROM public.whatsapp_connections WHERE numero IS NOT NULL) s),
+wn AS (
+  SELECT igreja_id,
+         CASE WHEN length(d) = 10 THEN substr(d, 1, 2) || '9' || substr(d, 3) ELSE d END AS k
+  FROM w)
+SELECT p.id, p.igreja_id, p.nome, right(p.k, 4) AS fone_final_4,
+       p.tipo AS atual, 'contato' AS proposto
+FROM pn p
+WHERE p.tipo = 'membro' AND p.k <> ''
+  AND NOT EXISTS (SELECT 1 FROM public.celula_membro cm
+                  WHERE cm.pessoa_id = p.id AND cm.igreja_id = p.igreja_id AND cm.ativo IS TRUE)
+  AND EXISTS (SELECT 1 FROM wn w WHERE w.igreja_id = p.igreja_id AND w.k = p.k)
+ORDER BY p.igreja_id, p.nome, p.id;
+```
+
+Estas consultas não são executadas por `release_preflight.py` nem pelo CI. Os
+dois `SELECT`s passaram por sintaxe e resultado em `BEGIN READ ONLY; ...
+ROLLBACK;` em PostgreSQL 17 descartável com duas igrejas e dados sintéticos. A
+consulta 1 retornou somente pessoas com vínculo ativo e tipo `contato`,
+`visitante` ou `NULL`. A consulta 2 retornou membros sem vínculo ativo nas
+formas `+55` com e sem 9º dígito e local com 9º dígito, incluindo vínculo
+inativo; não retornou vínculo ativo, pessoa de outra igreja com o mesmo
+telefone nem DDD distinto com o mesmo sufixo. A consulta 2 reproduz o predicado
+e os passos de canonicalização da função `pg_temp.pastorai_canon_phone` da
+migration `20260711_152127`, comparando o telefone canônico completo. A saída
+da consulta 2 não projeta o telefone completo e mostra somente seus quatro
+dígitos finais. Nenhum banco real foi consultado.
 
 ## Ensaio de restauração sintética
 
