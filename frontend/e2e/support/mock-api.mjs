@@ -258,6 +258,9 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, {
         pedidos_exclusao: {
           pendentes: 2,
+          vencidos: 0,
+          prazo_dias: 15,
+          prazo_versao: "v1",
           atendidos: 1,
           recusados: 0,
           mais_antigo_segundos: 7200,
