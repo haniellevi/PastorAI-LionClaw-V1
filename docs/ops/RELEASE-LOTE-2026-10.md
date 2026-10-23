@@ -31,7 +31,7 @@ Condições por migration, acordadas com o Codex em análise só de leitura:
 
 | Migration | Condição antes de aplicar |
 |---|---|
-| `20260711_023515` (backfill de tipo "membro") | **Conferir antes.** Muda dados de pessoas reais e não tem reversão automática. O operador roda a consulta de candidatos (somente `SELECT`), o dono vê quem mudaria (sem exportar telefone) e só então autoriza. Guardar os tipos originais para eventual reversão. |
+| `20260711_023515` (backfill de tipo "membro") | **Conferir antes.** Muda dados de pessoas reais e não tem reversão automática. O operador roda a consulta de candidatos da seção "Consultas de conferência" (somente `SELECT`), o dono vê quem mudaria (sem exportar telefone) e só então autoriza. Guardar id, igreja e tipo original fora do repositório para eventual reversão. |
 | `20260711_152127` (número de atendimento deixa de ser "membro") | **Conferir antes.** Mesma regra: consulta com o final de 4 dígitos do telefone, e o dono confirma que o alvo é o número conectado, não uma pessoa. Guardar o tipo anterior. |
 | `20260925_183811` (usuário de plataforma sem igreja) | Sem conferência de dados: não altera linhas. Necessária para a exclusão de igreja. Rollback exige tratar os `igreja_id` NULL. |
 | `20260926_120446` (configuração da Jev) | Cria tabela vazia e fechada. A Jev continua desligada: aplicar não abre gate, não insere chave nem lista de igrejas; ativação segue sujeita a DPA e gates próprios. |
@@ -269,6 +269,61 @@ python3 backend/scripts/migrate.py apply 20261023_110005_work_queue_pending_crea
 python3 backend/scripts/migrate.py apply 20261028_100001_private_erasure_requests_overview_idx.sql --yes --no-transaction
 python3 backend/scripts/migrate.py apply 20261028_100002_private_resume_delivered_overview_idx.sql --yes --no-transaction
 ```
+
+## Consultas de conferência das migrations 1 e 2 (somente leitura)
+
+Rodar no banco correto, com autorização nominal, dentro de `BEGIN READ ONLY; ...
+ROLLBACK;`, e **antes** de aplicar `20260711_023515` e `20260711_152127`. O
+resultado mostra nomes e identificadores: ver só na sessão do operador e do dono;
+não copiar para chat, issue, log de CI nem documento. Nenhuma consulta mostra o
+telefone completo (a segunda mostra só o final de 4 dígitos).
+
+Para poder reverter, o operador guarda **fora do repositório** apenas
+`id`, `igreja_id` e o tipo atual (`atual`) de cada linha listada, em local
+autorizado, antes de aplicar. Se aparecer linha inesperada, parar e voltar ao dono.
+
+```sql
+-- Migration 1: pessoas com vínculo ativo na mesma igreja que passariam a "membro"
+SELECT p.id, p.igreja_id, p.nome, p.tipo AS atual, 'membro' AS proposto
+FROM public.pessoas p
+WHERE (p.tipo IS NULL OR p.tipo::text IN ('contato','visitante'))
+  AND EXISTS (SELECT 1 FROM public.celula_membro cm
+              WHERE cm.pessoa_id = p.id AND cm.igreja_id = p.igreja_id AND cm.ativo IS TRUE)
+ORDER BY p.igreja_id, p.nome, p.id;
+
+-- Migration 2: registro cujo telefone canônico coincide com o número conectado
+-- da mesma igreja, sem vínculo ativo, hoje "membro" (passaria a "contato")
+WITH p AS (
+  SELECT id, igreja_id, nome, tipo,
+         CASE WHEN length(d) > 11 AND left(d, 2) = '55' THEN substr(d, 3) ELSE d END AS d
+  FROM (SELECT id, igreja_id, nome, tipo,
+               regexp_replace(coalesce(telefone, ''), '\D', '', 'g') AS d
+        FROM public.pessoas) s),
+pn AS (
+  SELECT *, CASE WHEN length(d) = 10 THEN substr(d, 1, 2) || '9' || substr(d, 3) ELSE d END AS k
+  FROM p),
+w AS (
+  SELECT igreja_id,
+         CASE WHEN length(d) > 11 AND left(d, 2) = '55' THEN substr(d, 3) ELSE d END AS d
+  FROM (SELECT igreja_id, regexp_replace(coalesce(numero, ''), '\D', '', 'g') AS d
+        FROM public.whatsapp_connections WHERE numero IS NOT NULL) s),
+wn AS (
+  SELECT igreja_id,
+         CASE WHEN length(d) = 10 THEN substr(d, 1, 2) || '9' || substr(d, 3) ELSE d END AS k
+  FROM w)
+SELECT p.id, p.igreja_id, p.nome, right(p.k, 4) AS fone_final_4,
+       p.tipo AS atual, 'contato' AS proposto
+FROM pn p
+WHERE p.tipo = 'membro' AND p.k <> ''
+  AND NOT EXISTS (SELECT 1 FROM public.celula_membro cm
+                  WHERE cm.pessoa_id = p.id AND cm.igreja_id = p.igreja_id AND cm.ativo IS TRUE)
+  AND EXISTS (SELECT 1 FROM wn w WHERE w.igreja_id = p.igreja_id AND w.k = p.k)
+ORDER BY p.igreja_id, p.nome, p.id;
+```
+
+Estas consultas não são executadas por `release_preflight.py` nem pelo CI; foram
+escritas contra o texto das migrations e **não foram rodadas em nenhum banco
+real**. Validar a sintaxe no ensaio sintético antes de usá-las em PROD.
 
 ## Ensaio de restauração sintética
 
