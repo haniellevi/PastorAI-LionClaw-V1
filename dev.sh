@@ -36,6 +36,35 @@ porta_simulador() { local p; p=$(env_valor DEV_SIMULADOR_PORT); echo "${p:-8090}
 
 # --- .env.dev ----------------------------------------------------------------
 
+definir_env_dev() {
+  local chave="$1" valor="$2"
+  grep -qE "^${chave}=" "$env_file" \
+    || erro "o modelo raiz .env.example não contém $chave"
+  sed -i "s|^${chave}=.*|${chave}=${valor}|" "$env_file"
+}
+
+aplicar_diferencas_dev() {
+  local api_porta front_porta redis_porta evolution_porta
+  api_porta=$(env_valor DEV_BACKEND_PORT)
+  front_porta=$(env_valor DEV_FRONTEND_PORT)
+  redis_porta=$(env_valor DEV_REDIS_PORT)
+  evolution_porta=$(env_valor DEV_EVOLUTION_PORT)
+
+  definir_env_dev APP_ENV development
+  definir_env_dev APP_BASE_URL "http://localhost:${api_porta}"
+  definir_env_dev FRONTEND_URL "http://localhost:${front_porta}"
+  definir_env_dev CALENDAR_OAUTH_RETURN_ORIGINS "http://localhost:${front_porta}"
+  definir_env_dev SUPABASE_URL http://127.0.0.1:54321
+  definir_env_dev DATABASE_URL postgresql://postgres:postgres@127.0.0.1:54322/postgres
+  definir_env_dev REDIS_URL "redis://127.0.0.1:${redis_porta}/0"
+  definir_env_dev EVOLUTION_SERVER_URL "http://127.0.0.1:${evolution_porta}"
+  definir_env_dev EVOLUTION_API_URL "http://127.0.0.1:${evolution_porta}"
+  definir_env_dev EVOLUTION_WEBHOOK_CALLBACK_URL "http://127.0.0.1:${api_porta}/whatsapp/webhook"
+  definir_env_dev ASAAS_API_URL https://api-sandbox.asaas.com/v3
+  definir_env_dev GOOGLE_OAUTH_REDIRECT_URI "http://localhost:${api_porta}/calendar/callback"
+  definir_env_dev NEXT_PUBLIC_API_URL "http://localhost:${api_porta}"
+}
+
 garantir_env() {
   # O .env.dev mora no checkout principal: o exclude local do Git o protege em
   # qualquer branch, mesmo antes de o .gitignore novo chegar lá.
@@ -44,9 +73,11 @@ garantir_env() {
   mkdir -p "$(dirname "$exclude")"
   grep -qxF '/.env.dev' "$exclude" 2>/dev/null || printf '/.env.dev\n/.dev/\n' >>"$exclude"
   if [[ ! -f "$env_file" ]]; then
-    cp "$root/deploy/.env.dev.example" "$env_file"
+    mkdir -p "$(dirname "$env_file")"
+    cp "$root/.env.example" "$env_file"
+    aplicar_diferencas_dev
     chmod 600 "$env_file"
-    info "criei $env_file a partir de deploy/.env.dev.example"
+    info "criei $env_file a partir de .env.example com os valores locais de desenvolvimento"
   fi
   local chave valor
   for chave in SECRETS_ENCRYPTION_KEY SESSION_JWT_SECRET EVOLUTION_API_KEY EVOLUTION_WEBHOOK_SECRET; do

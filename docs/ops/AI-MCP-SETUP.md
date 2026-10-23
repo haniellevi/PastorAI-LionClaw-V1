@@ -109,15 +109,17 @@ Docker Engine com Compose é suficiente para a stack local. Docker Desktop não
 Para validar o Compose sem criar um arquivo de segredos:
 
 ```bash
-PASTORAI_ENV_FILE=.env.example docker compose \
-  --env-file deploy/.env.example \
+PASTORAI_ENV_FILE=../.env.example docker compose \
+  --env-file .env.example \
   -f deploy/docker-compose.yml config --quiet
 ```
 
-Para subir serviços, copie o template para `deploy/.env`, use modo `600` e
-preencha somente esse arquivo ignorado pelo Git. Não execute a stack completa
-enquanto o Supabase DEV e o Clerk de teste não estiverem definidos. Mantenha
-`ALLOW_REAL_SENDS=false` e `BREVO_SEND_MODE=off`.
+Para provisionar `deploy/.env`, copie as seções **Comum/servidor** e
+**Produção/deploy** de `/.env.example`, use modo `600` e preencha somente esse
+arquivo ignorado pelo Git. A stack local de desenvolvimento é criada por
+`./dev.sh`, que aplica os endereços locais e Asaas Sandbox ao `.env.dev`. Não
+execute a stack completa enquanto o Supabase local e o Clerk de teste não
+estiverem definidos. Mantenha `ALLOW_REAL_SENDS=false` e `BREVO_SEND_MODE=off`.
 
 ## 3. Codex no Linux
 
@@ -281,7 +283,8 @@ alcançáveis.
 
 Validações executadas em 2026-08-20:
 
-- `docker compose config --quiet` passou usando `deploy/.env.example`;
+- Evidência histórica de 2026-08-20: `docker compose config --quiet` passou com
+  o antigo `deploy/.env.example`; isso não atesta o modelo raiz consolidado.
 - Docker Engine 29.7.2 respondeu pelo grupo `docker`; a stack Supabase local
   subiu saudável e todas as portas publicadas ficaram vinculadas a `127.0.0.1`;
 - `npm audit` da raiz e do frontend: 0 vulnerabilidades;
