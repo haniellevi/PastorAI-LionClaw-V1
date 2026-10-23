@@ -206,7 +206,7 @@ def test_concurrent_different_people_cannot_own_same_sector(api, seeded, databas
         with scoped(database,v['t']) as s:
             barrier.wait(timeout=10)
             try:
-                row=atribuir(s,principal(v),AtribuicaoInput(pessoa_id=pid,setor='agenda',inicio=date(2026,10,1)))
+                atribuir(s,principal(v),AtribuicaoInput(pessoa_id=pid,setor='agenda',inicio=date(2026,10,1)))
                 s.commit()
                 return 201
             except HTTPException as exc:

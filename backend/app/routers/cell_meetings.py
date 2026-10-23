@@ -463,7 +463,7 @@ def materialize_next_reuniao(
         db.flush()
         db.refresh(reuniao)
         db.commit()
-    except IntegrityError as exc:
+    except IntegrityError:
         # Corrida no UNIQUE (igreja_id, celula_id, data, coalesce(hora,'')): outra
         # requisição materializou o mesmo slot entre o pré-check e o INSERT.
         # Recupera a linha existente e devolve 200 — nunca 409/500 nem duplicata.
