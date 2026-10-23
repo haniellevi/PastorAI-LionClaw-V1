@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from app.main import _install_uvicorn_access_log_filter
+from app.main import _install_uvicorn_access_log_filter, _redact_access_query
 
 
 @pytest.mark.parametrize("status_code", [202, 401])
@@ -25,10 +25,24 @@ def test_access_log_redacts_query_values_for_success_and_error(caplog, status_co
 
     assert marker not in caplog.text
     assert (
-        "/whatsapp/webhook?token=%3Credacted%3E&debug=%3Credacted%3E"
+        "/whatsapp/webhook?redacted=%3Credacted%3E&redacted=%3Credacted%3E"
         in caplog.text
     )
     assert f'" {status_code}' in caplog.text
+
+
+def test_access_query_redacts_unknown_names_and_keeps_safe_pagination_names():
+    assert _redact_access_query(
+        "/whatsapp/webhook?SEGREDO&token=synthetic&Page=2&limit=10&offset=20"
+    ) == (
+        "/whatsapp/webhook?redacted=%3Credacted%3E&redacted=%3Credacted%3E"
+        "&Page=%3Credacted%3E&limit=%3Credacted%3E&offset=%3Credacted%3E"
+    )
+
+
+@pytest.mark.parametrize("logger_name", ["httpx", "httpcore"])
+def test_http_client_loggers_are_limited_to_warning(logger_name):
+    assert logging.getLogger(logger_name).level == logging.WARNING
 
 
 def test_access_log_filter_drops_unrecognized_record_shape():

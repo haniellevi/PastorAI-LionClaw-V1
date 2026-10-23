@@ -75,6 +75,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+for _http_logger_name in ("httpx", "httpcore"):
+    logging.getLogger(_http_logger_name).setLevel(logging.WARNING)
 logger = logging.getLogger("pastorai")
 
 _REQUEST_ID_HEADER = "X-Request-ID"
@@ -93,14 +95,20 @@ def _request_id(value: str | None) -> str:
     return uuid.uuid4().hex
 
 
+_ACCESS_LOG_SAFE_QUERY_NAMES = frozenset({"limit", "offset", "page"})
+
+
 def _redact_access_query(path: str) -> str:
-    """Remove query values from access-log targets, including webhook secrets."""
+    """Hide query values and names except a few safe pagination names."""
     parts = urlsplit(path)
     if not parts.query:
         return path
     query = urlencode(
         [
-            (name, "<redacted>")
+            (
+                name if name.lower() in _ACCESS_LOG_SAFE_QUERY_NAMES else "redacted",
+                "<redacted>",
+            )
             for name, _ in parse_qsl(parts.query, keep_blank_values=True)
         ]
     )
