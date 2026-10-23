@@ -137,6 +137,76 @@ afterEach(() => {
 });
 
 describe("EquipeScreen: acesso separado da célula", () => {
+  it("sinaliza os vínculos ausentes para admin e abre o diálogo existente", async () => {
+    mocks.fetchTeam.mockResolvedValue({
+      items: [
+        {
+          usuarioId: "u-coordenacao-sem-pessoa",
+          nome: "Conta sintética sem vínculo",
+          email: "sem-vinculo@example.test",
+          status: "ativo",
+          papeis: ["pastor"],
+          pessoaId: null,
+          pessoaVinculo: "sem_vinculo",
+        },
+        {
+          usuarioId: "u-coordenacao-pessoa-inativa",
+          nome: "Conta sintética inativa",
+          email: "pessoa-inativa@example.test",
+          status: "ativo",
+          papeis: ["lider_consol"],
+          pessoaId: "p-inativa",
+          pessoaVinculo: "pessoa_inativa",
+        },
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 2,
+      sem_pessoa_ativa_coordenacao: 2,
+    });
+
+    await act(async () => root.render(h(EquipeScreen)));
+    await flushEffects();
+
+    const notice = container.querySelector('.info-banner[role="status"]');
+    expect(notice?.getAttribute("aria-live")).toBe("polite");
+    expect(notice?.textContent).toContain("Há 2 membros ativos da coordenação sem Pessoa ativa.");
+    expect(container.textContent).toContain("Sem Pessoa vinculada");
+    expect(container.textContent).toContain("Pessoa inativa");
+    expect(container.textContent).toContain("Vínculo com Pessoa:");
+
+    const linkButton = notice?.querySelector("button");
+    expect(linkButton?.textContent).toContain("Vincular Pessoa");
+    act(() => linkButton?.click());
+    expect(container.textContent).toContain("Associe esta conta a uma Pessoa ativa.");
+  });
+
+  it("não exibe estados do vínculo para quem não é admin", async () => {
+    mocks.auth.user = { appUserId: "u-pastor", roles: ["pastor"] };
+    mocks.fetchTeam.mockResolvedValue({
+      items: [{
+        usuarioId: "u-sem-pessoa",
+        nome: "Conta sintética",
+        email: "conta@example.test",
+        status: "ativo",
+        papeis: ["pastor"],
+        pessoaId: null,
+        pessoaVinculo: "sem_vinculo",
+      }],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+      sem_pessoa_ativa_coordenacao: 1,
+    });
+
+    await act(async () => root.render(h(EquipeScreen)));
+    await flushEffects();
+
+    expect(container.querySelector(".info-banner")).toBeNull();
+    expect(container.textContent).not.toContain("Sem Pessoa vinculada");
+    expect(container.textContent).not.toContain("Pessoa inativa");
+  });
+
   it("mantém o alvo e o e-mail escolhidos ao paginar além da base inicial", async () => {
     mocks.fetchContacts.mockReset().mockResolvedValueOnce({ items: [linkedLeader], page: 1, pageSize: 25, total: 301 })
       .mockResolvedValueOnce({ items: [{ ...linkedLeader, id: "p-250", nome: "Outra Pessoa" }], page: 2, pageSize: 25, total: 301 });
