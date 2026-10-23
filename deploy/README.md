@@ -32,7 +32,8 @@ free -h   # deve mostrar 2.0Gi de swap
 ## 4. Trazer o código pra VPS
 
 Produção recebe um tarball do SHA revisado em `/opt/pastorai-releases/<sha>`;
-não execute `git clone`/`git pull` na VPS. Preserve o `.env` existente e siga o
+não execute `git clone`/`git pull` na VPS. O tarball inclui o modelo único
+`.env.example` (na raiz da release). Preserve o `.env` existente e siga o
 procedimento de release/rollback do runbook canônico.
 
 ## 5. Configurar as variáveis
