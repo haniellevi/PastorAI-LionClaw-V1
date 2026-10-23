@@ -382,7 +382,6 @@ def test_tenant_namespace_cleanup_renews_before_each_page_and_remove_batch(
     monkeypatch,
 ) -> None:
     igreja_id = uuid.uuid4()
-    prefix = f"{igreja_id}/"
     renewals = 0
 
     monkeypatch.setattr(storage_service, "_TENANT_LIST_PAGE_SIZE", 1)
