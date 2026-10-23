@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, noload
 
 from app.config import get_settings
-from app.db.models import AppUser, PasswordResetToken, Pessoa, UserRole
+from app.db.models import AppUser, Igreja, PasswordResetToken, Pessoa, UserRole
 from app.db.session import get_db
 from app.db.tenant_session import mark_tenant_scoped
 from app.deps import (
@@ -537,6 +537,18 @@ def _lock_pessoa_and_assert_unique_access(
     return pessoa
 
 
+def _lock_church_for_activation(db: Session, igreja_id: uuid.UUID) -> None:
+    """Trava a igreja antes de a ativação travar Pessoa ou AppUser."""
+
+    # Premissa: o papel de conexão ignora RLS e a igreja do convite existe.
+    # Se ela sumir em paralelo, a FK de user_roles recusa a ativação depois.
+    db.execute(
+        select(Igreja.id)
+        .where(Igreja.id == igreja_id)
+        .with_for_update(read=True, key_share=True)
+    ).scalar_one_or_none()
+
+
 def _lock_invite_for_activation(db: Session, app_user_id: uuid.UUID) -> AppUser:
     """Trava e relê o convite depois da Pessoa, preservando a ordem de locks."""
 
@@ -647,6 +659,9 @@ def activate(
     settings = get_settings()
     limiter.enforce_ip(request, "activate", settings.rate_limit_activate_ip_limit)
     app_user = _resolve_invite(payload.token, db, clerk)
+    # As operações de equipe travam a Igreja (FOR UPDATE) antes de Pessoa e
+    # AppUser. Pegar antes a trava compatível evita o ciclo inverso de espera.
+    _lock_church_for_activation(db, app_user.igreja_id)
     previous_pessoa_id = app_user.pessoa_id
     needs_cadastro = previous_pessoa_id is None
 
