@@ -21,6 +21,12 @@ _BREVO_KEYS = (
     "BREVO_FROM_EMAIL",
     "BREVO_FROM_NAME",
 )
+_PENDING_MONITOR_KEYS = (
+    "MONITOR_STUCK_FLOW_ENABLED",
+    "MONITOR_STUCK_FLOW_URL",
+    "MONITOR_STUCK_FLOW_TOKEN",
+    "MONITOR_STUCK_FLOW_MAX_AGE_SECONDS",
+)
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -57,10 +63,18 @@ def build_config(
         "MONITOR_RETRY_HOURS": "1",
         "MONITOR_AMBIGUOUS_RETRY_HOURS": "6",
         "MONITOR_LOCAL_API_BASE": "http://127.0.0.1:8000",
+        "MONITOR_STUCK_FLOW_ENABLED": "false",
+        "MONITOR_STUCK_FLOW_MAX_AGE_SECONDS": "3600",
+        "MONITOR_STUCK_FLOW_URL": "",
+        "MONITOR_STUCK_FLOW_TOKEN": "",
         "BREVO_API_URL": "https://api.brevo.com/v3",
         "BREVO_FROM_NAME": "Igreja 12",
     }
     for key in _BREVO_KEYS:
+        configured = application_values.get(key)
+        if configured:
+            values[key] = configured
+    for key in _PENDING_MONITOR_KEYS:
         configured = application_values.get(key)
         if configured:
             values[key] = configured

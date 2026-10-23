@@ -230,3 +230,18 @@ def test_listener_reapplies_when_marked() -> None:
     assert IGREJA_A not in statement
     # Só formas transaction-local: is_local=true em ambos os set_config.
     assert "false)" not in statement
+
+
+def test_listener_reapplies_validated_actor_claim_when_available() -> None:
+    s = _FakeSession()
+    s.info[TENANT_IGREJA_KEY] = IGREJA_A
+    s.info[TENANT_META_KEY] = {"actor_sub": "clerk-x"}
+    conn = _FakeConnection()
+
+    _reapply_tenant_scope(s, transaction=None, connection=conn)
+
+    assert len(conn.calls) == 1
+    statement, parameters = conn.calls[0]
+    assert "set_config('request.jwt.claims', %s, true)" in statement
+    assert "set_config('request.jwt.claim.sub', '', true)" in statement
+    assert parameters == (IGREJA_A, '{"sub": "clerk-x"}')
