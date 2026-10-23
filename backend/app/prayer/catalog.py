@@ -39,9 +39,36 @@ def normalized(text: str) -> str:
     )
 
 
+def _is_other_catalog_command(text: str) -> bool:
+    """Let valid closed commands reach their own deterministic router."""
+    from app.agenda_whatsapp.catalog import route as agenda_route
+    from app.cell_suggest.catalog import route as cell_route
+    from app.cd_whatsapp.catalog import route as cd_route
+    from app.conhecimento_whatsapp.catalog import route as knowledge_route
+    from app.enviar_whatsapp.catalog import route as enviar_route
+    from app.private_erasure.catalog import route as erasure_route
+    from app.services.private_resume import RESUME_COMMAND
+    from app.uv_whatsapp.catalog import route as uv_route
+
+    return (
+        cd_route(text)[0] in {"list", "read", "attendance"}
+        or uv_route(text)[0] in {"list", "read", "attendance"}
+        or enviar_route(text)[0] in {"list", "history", "read", "nominate", "open"}
+        or knowledge_route(text)[0] == "search"
+        or agenda_route(text)[0] in {"list", "create", "update", "delete"}
+        or cell_route(text)[0] in {"ask", "lookup"}
+        or erasure_route(text)
+        or text.strip().casefold() == RESUME_COMMAND
+    )
+
+
 def classify(text: str, *, pending: bool) -> str:
     value = normalized(text)
     if pending:
+        if _is_other_catalog_command(text):
+            return "none"
+        if value == START_COMMAND:
+            return "start"
         if value in {"so pastores", "somente pastores", "pastores", "equipe pastoral"}:
             return "pastoral"
         if value in {
@@ -54,9 +81,13 @@ def classify(text: str, *, pending: bool) -> str:
             return "confirm"
         if value in {"nao", "cancelar", "cancela"}:
             return "cancel"
+        # Keep every non-command turn inside the privacy flow. "none" lets the
+        # worker continue to the general agent, where private prayer text can
+        # reach an external LLM.
+        return "clarify"
     if re.search(r"\b(?:oracao|orar|orem|ore)\b", value):
         return "start"
-    return "clarify" if pending else "none"
+    return "none"
 
 
 def own_summary(text: str) -> str | None:
