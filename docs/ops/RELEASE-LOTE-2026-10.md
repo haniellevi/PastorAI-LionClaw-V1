@@ -20,13 +20,27 @@ em `migrate.py::migration_files()`. `deploy/backend-release.sh` monta o manifest
 com todas as migrations ativas, e `deploy/check_backend_schema.py` bloqueia o
 release se qualquer nome esperado faltar em `public.schema_migrations`.
 
-Raniel, como dono, precisa decidir nominalmente entre duas opções: (1) manter as
-quatro ativas e aplicá-las na ordem lexical global, autorizando o deploy somente
-quando todas as migrations ativas do SHA candidato estiverem registradas no
-ledger; ou (2) excluí-las do manifesto em um SHA candidato revisado à parte e
-validar esse manifesto e seu checker. Enquanto a decisão e a condição escolhida
-não estiverem comprovadas para o SHA e o ledger alvo, o deploy fica bloqueado.
-Este runbook não decide pelo dono. Não inferir aplicação pelo número 78.
+**Decisão do dono (Raniel, 23/10/2026, no chat): opção (1), aplicar as quatro.**
+Elas ficam ativas no manifesto e são aplicadas na ordem lexical global. O deploy
+só é autorizado quando todas as migrations ativas do SHA candidato estiverem
+registradas no ledger do ambiente alvo. A decisão vale só para a escolha da
+opção; não autoriza aplicar nada: cada migration em PROD continua exigindo
+autorização nominal própria, backup verificado antes e SHA registrado.
+
+Condições por migration, acordadas com o Codex em análise só de leitura:
+
+| Migration | Condição antes de aplicar |
+|---|---|
+| `20260711_023515` (backfill de tipo "membro") | **Conferir antes.** Muda dados de pessoas reais e não tem reversão automática. O operador roda a consulta de candidatos (somente `SELECT`), o dono vê quem mudaria (sem exportar telefone) e só então autoriza. Guardar os tipos originais para eventual reversão. |
+| `20260711_152127` (número de atendimento deixa de ser "membro") | **Conferir antes.** Mesma regra: consulta com o final de 4 dígitos do telefone, e o dono confirma que o alvo é o número conectado, não uma pessoa. Guardar o tipo anterior. |
+| `20260925_183811` (usuário de plataforma sem igreja) | Sem conferência de dados: não altera linhas. Necessária para a exclusão de igreja. Rollback exige tratar os `igreja_id` NULL. |
+| `20260926_120446` (configuração da Jev) | Cria tabela vazia e fechada. A Jev continua desligada: aplicar não abre gate, não insere chave nem lista de igrejas; ativação segue sujeita a DPA e gates próprios. |
+
+Se a conferência de uma das duas primeiras mostrar candidato inesperado, parar,
+não aplicar e voltar ao dono. O Codex sugeriu excluir a quarta enquanto a Jev
+estiver pausada; o dono decidiu aplicar, e a exclusão exigiria um SHA candidato
+revisado à parte, com risco maior do que uma tabela vazia. Não inferir aplicação
+pelo número 78.
 
 As migrations com `OPERATIONAL_AUTHORIZATION=BLOCKED` continuam fora da
 seleção de `migrate.py`; não remover o marcador nem aplicá-las neste release.
