@@ -10,6 +10,8 @@ from app.services.private_deletion import receipt
 APPROVED_RELEASE_ID: str | None = None
 APPROVED_IGREJA_IDS: frozenset[str] = frozenset()
 COMMAND = 'QUERO SOLICITAR EXCLUSAO DO MEU CONTEUDO PRIVADO'
+PRIVATE_ERASURE_SLA_POLICY_VERSION = 'v1'
+PRIVATE_ERASURE_SLA_DAYS_V1 = 15
 RESPONSE = (
     'Pedido de exclusão registrado e pendente de decisão do administrador no painel. '
     'O uso da sua memória está suspenso. Nenhum conteúdo foi apagado por este pedido.'
@@ -27,14 +29,25 @@ def enabled(db, tenant: UUID) -> bool:
     ).scalar_one_or_none())
 
 
-def detail(db, tenant: UUID, request_id: UUID) -> dict:
+def detail(db, tenant: UUID, request_id: UUID, *, include_sla: bool = False) -> dict:
+    projection = '''select * from private_erasure_requests where igreja_id=:t and id=:r'''
+    params = dict(t=tenant, r=request_id)
+    if include_sla:
+        projection = '''select r.*,
+            greatest(0,floor(extract(epoch from now()-case when r.state='pendente'
+                then r.created_at else coalesce(r.decided_at,r.created_at) end)))::bigint as idade_segundos,
+            (r.state='pendente' and r.created_at<=now()-make_interval(days=>:sla_days)) as vencido
+            from private_erasure_requests r where r.igreja_id=:t and r.id=:r'''
+        params['sla_days'] = PRIVATE_ERASURE_SLA_DAYS_V1
     row = db.execute(
-        text('select * from private_erasure_requests where igreja_id=:t and id=:r'),
-        dict(t=tenant, r=request_id),
+        text(projection), params,
     ).mappings().one_or_none()
     if row is None:
         raise HTTPException(404, 'Pedido indisponível')
     result = dict(row)
+    if include_sla:
+        result['prazo_dias'] = PRIVATE_ERASURE_SLA_DAYS_V1
+        result['prazo_versao'] = PRIVATE_ERASURE_SLA_POLICY_VERSION
     result['receipt'] = receipt(db, tenant, row['receipt_id']) if row['receipt_id'] else None
     return result
 
@@ -71,6 +84,6 @@ def decide(db, tenant: UUID, request_id: UUID, decision: str) -> dict:
         raise
     if rid is None:
         raise HTTPException(404, 'Pedido indisponível')
-    result = detail(db, tenant, rid)
+    result = detail(db, tenant, rid, include_sla=True)
     db.commit()
     return result

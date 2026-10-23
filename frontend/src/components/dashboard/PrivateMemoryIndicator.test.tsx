@@ -13,7 +13,7 @@ let root: Root;
 const onSessionError = vi.fn();
 const counts = {
   pedidos_exclusao: {
-    pendentes: 6, atendidos: 2, recusados: 1, mais_antigo_segundos: 259201,
+    pendentes: 6, vencidos: 2, prazo_dias: 15, prazo_versao: "v1", atendidos: 2, recusados: 1, mais_antigo_segundos: 259201,
     faixas_idade: { menos_24h: 3, de_1_a_3_dias: 2, mais_3_dias: 1 },
   },
   resumos_ativos: 4, retomadas_entregues: 8,
@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 async function render(token = "synthetic-a") {
-  await act(async () => { root.render(h(PrivateMemoryIndicator, { token, onSessionError })); });
+  await act(async () => { root.render(h(PrivateMemoryIndicator, { token, churchName: "Igreja sintética", onSessionError })); });
 }
 
 it("mostra texto, faixas e contagens sem afirmar que a limpeza terminou", async () => {
@@ -39,6 +39,8 @@ it("mostra texto, faixas e contagens sem afirmar que a limpeza terminou", async 
   });
   expect(container.textContent).toContain("6 pedidos de exclusão pendentes");
   expect(container.textContent).toContain("2 atendidos e 1 recusados");
+  expect(container.textContent).toContain("2 pedidos vencidos");
+  expect(container.textContent).toContain("Prazo configurado: 15 dias");
   expect(container.textContent).toContain("mais antigo: 3 d e 0 h");
   expect(container.textContent).toContain("Menos de 24 h: 3");
   expect(container.textContent).toContain("De 1 a 3 dias: 2");
@@ -65,11 +67,12 @@ it("oferece link nativo e controles focáveis pelo teclado", async () => {
   button.focus();
   expect(document.activeElement).toBe(button);
   expect(button.disabled).toBe(false);
+  expect(container.textContent).toContain("Resetar conteúdo privado da igreja");
 });
 
 it("mostra zero somente após leitura bem-sucedida", async () => {
   api.fetch.mockResolvedValue(Response.json({ ...counts, pedidos_exclusao: {
-    ...counts.pedidos_exclusao, pendentes: 0, mais_antigo_segundos: null,
+    ...counts.pedidos_exclusao, pendentes: 0, vencidos: 0, mais_antigo_segundos: null,
     faixas_idade: { menos_24h: 0, de_1_a_3_dias: 0, mais_3_dias: 0 },
   } }));
   await render();

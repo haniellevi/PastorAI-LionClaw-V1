@@ -1253,6 +1253,7 @@ export function DashboardScreen() {
             <PrivateMemoryIndicator
               key={`${token}:${user?.churchId}:${user?.appUserId}:${rolesKey}`}
               token={token}
+              churchName={user?.igrejaNome ?? null}
               onSessionError={handleSessionError}
             />
           ) : null}

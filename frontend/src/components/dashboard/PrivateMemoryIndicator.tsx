@@ -3,10 +3,14 @@
 import { useEffect, useState } from "react";
 import { DsButton } from "@/components/ds/Button";
 import { authedFetch } from "@/lib/dashboard-api";
+import { PrivateChurchContentReset } from "./PrivateChurchContentReset";
 
 interface MemoryOverview {
   pedidos_exclusao: {
     pendentes: number;
+    vencidos: number;
+    prazo_dias: number;
+    prazo_versao: string;
     atendidos: number;
     recusados: number;
     mais_antigo_segundos: number | null;
@@ -25,11 +29,13 @@ function age(seconds: number): string {
 }
 
 /** Mounted only for admins by Hoje. Backend independently authorizes every read. */
-export function PrivateMemoryIndicator({ token, onSessionError }: {
+export function PrivateMemoryIndicator({ token, churchName, onSessionError }: {
   token: string;
+  churchName: string | null;
   onSessionError: (error: unknown) => unknown;
 }) {
   const [attempt, setAttempt] = useState(0);
+  const [resetOpen, setResetOpen] = useState(false);
   const [result, setResult] = useState<{
     token: string; attempt: number; data: MemoryOverview | null;
   } | null>(null);
@@ -65,6 +71,7 @@ export function PrivateMemoryIndicator({ token, onSessionError }: {
           <p>{requests.pendentes === 0 ? "Nenhum pedido de exclusão pendente."
             : `${requests.pendentes} ${requests.pendentes === 1 ? "pedido de exclusão pendente" : "pedidos de exclusão pendentes"}.`}</p>
           <p>{requests.atendidos} atendidos e {requests.recusados} recusados.</p>
+          <p><strong>{requests.vencidos} {requests.vencidos === 1 ? "pedido vencido" : "pedidos vencidos"}.</strong> Prazo configurado: {requests.prazo_dias} dias.</p>
           {requests.mais_antigo_segundos !== null ? <p>Pedido pendente mais antigo: {age(requests.mais_antigo_segundos)}.</p> : null}
           <ul aria-label="Idade dos pedidos pendentes">
             <li>Menos de 24 h: {requests.faixas_idade.menos_24h}</li>
@@ -90,7 +97,13 @@ export function PrivateMemoryIndicator({ token, onSessionError }: {
         </DsButton>
         <p>No Atendimento, abra os dados do contato para aprovar ou recusar o pedido.</p>
         <a className="dh-shortcut" href="#inbox">Decidir pedidos no Atendimento</a>
+        {churchName ? <DsButton variant="secondary" onClick={() => setResetOpen(true)}>
+          Resetar conteúdo privado da igreja
+        </DsButton> : <p>Reset da igreja indisponível sem o nome canônico da sessão.</p>}
       </div>
+      {churchName ? <PrivateChurchContentReset open={resetOpen} token={token} churchName={churchName}
+        onClose={() => setResetOpen(false)} onErased={() => setAttempt(value => value + 1)}
+        onSessionError={onSessionError} /> : null}
     </section>
   );
 }
