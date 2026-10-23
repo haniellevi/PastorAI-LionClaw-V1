@@ -51,5 +51,6 @@ def test_own_request_and_honest_disclosure():
 
 
 @pytest.mark.parametrize("text", ["talvez", "sim, mas não sei", "qualquer pessoa", ""])
-def test_unrelated_text_does_not_capture_pending_prayer(text):
-    assert classify(text, pending=True) == "none"
+def test_unrelated_text_stays_in_pending_prayer_flow(text):
+    assert classify(text, pending=True) == "clarify"
+    assert classify(text, pending=False) == "none"

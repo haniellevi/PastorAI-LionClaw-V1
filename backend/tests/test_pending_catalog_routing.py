@@ -1,9 +1,8 @@
-"""Pending protocols must leave other closed commands to their real routers."""
+"""Pending protocols preserve closed commands and keep private text local."""
 import pytest
 from app.agent import nodes
 from app.services.private_resume import RESUME_COMMAND
 from app.services.private_erasure_requests import COMMAND as ERASURE_COMMAND
-from app.services.whatsapp_agenda import parse_agenda_query
 
 PENDING_ROUTERS = [nodes.route_cd_intent, nodes.route_uv_intent,
                    nodes.route_enviar_intent, nodes.route_prayer_intent,
@@ -14,8 +13,9 @@ COMMANDS = [
     ('ENVIAR', nodes.route_enviar_intent, ('list', None)),
     ('quero iniciar pedido de oração', nodes.route_prayer_intent, 'start'),
     ('CONHECIMENTO buscar culto', nodes.route_conhecimento_intent, ('search', 'culto')),
+    ('CONHECIMENTO buscar oração', nodes.route_conhecimento_intent, ('search', 'oração')),
     (ERASURE_COMMAND, nodes.route_private_erasure_intent, True),
-    ('agenda', parse_agenda_query, parse_agenda_query('agenda')),
+    ('AGENDA consultar', nodes.route_agenda_intent, ('list', None)),
 ]
 
 
@@ -51,10 +51,23 @@ def test_confirmation_stays_with_pending_protocol(router, text, expected):
     assert action(router(text, pending=False)) == 'none'
 
 
-@pytest.mark.parametrize('router', PENDING_ROUTERS[:4])
+@pytest.mark.parametrize('router', [router for router in PENDING_ROUTERS[:4]
+                                    if router is not nodes.route_prayer_intent])
 @pytest.mark.parametrize('text', ['texto livre', 'talvez', 'sim, pode fazer', ''])
 def test_pending_proposal_does_not_capture_arbitrary_text(router, text):
     assert action(router(text, pending=True)) == 'none'
+
+
+@pytest.mark.parametrize('text', [
+    'texto livre', 'talvez', 'sim, pode fazer', 'conteúdo pastoral sintético rápido',
+])
+def test_pending_prayer_keeps_free_text_in_private_flow(text):
+    from app.prayer.catalog import classify
+
+    assert classify(text, pending=True) == 'clarify'
+    assert nodes.route_prayer_intent(text, pending=True) == 'clarify'
+    assert classify(text, pending=False) == 'none'
+    assert nodes.route_prayer_intent(text, pending=False) == 'none'
 
 
 def test_cell_suggestion_leaves_confirmo_to_pending_confirmation():
@@ -79,6 +92,8 @@ def test_invalid_prayer_audience_stays_with_real_catalog_and_router(text):
 ] + [
     ('CONHECIMENTO buscar pastores', nodes.route_conhecimento_intent,
      ('search', 'pastores')),
+    ('CONHECIMENTO buscar oração', nodes.route_conhecimento_intent,
+     ('search', 'oração')),
 ])
 def test_pending_prayer_catalog_leaves_other_commands_to_real_router(text, target, expected):
     from app.prayer.catalog import classify
@@ -86,3 +101,26 @@ def test_pending_prayer_catalog_leaves_other_commands_to_real_router(text, targe
     assert classify(text, pending=True) == 'none'
     assert nodes.route_prayer_intent(text, pending=True) == 'none'
     assert target(text) == expected
+
+
+def test_prayer_intent_without_pending_proposal_keeps_current_behavior():
+    from app.prayer.catalog import classify
+
+    text = 'Peço oração por mim: preciso de paz.'
+    assert classify(text, pending=False) == 'start'
+    assert nodes.route_prayer_intent(text, pending=False) == 'start'
+
+
+def test_pending_prayer_keeps_exact_start_command_available():
+    from app.prayer.catalog import START_COMMAND, classify
+
+    assert classify(START_COMMAND, pending=True) == 'start'
+    assert nodes.route_prayer_intent(START_COMMAND, pending=True) == 'start'
+
+
+def test_pending_prayer_content_does_not_fall_through_to_general_agent():
+    from app.prayer.catalog import classify
+
+    text = 'Peço oração por mim: preciso de paz.'
+    assert classify(text, pending=True) == 'clarify'
+    assert nodes.route_prayer_intent(text, pending=True) == 'clarify'
