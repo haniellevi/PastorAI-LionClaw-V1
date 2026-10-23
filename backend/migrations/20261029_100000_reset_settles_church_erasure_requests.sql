@@ -1,4 +1,5 @@
 -- Church private reset fulfills every pending request covered by its receipt.
+begin;
 set local lock_timeout='2s';
 
 -- Keep the existing tenant boundary and policies in force for the audit ledger.
@@ -35,8 +36,10 @@ end $$;
 -- Preserve the existing SECURITY DEFINER grant boundary; callers get no table write grant.
 revoke all on function public.private_delete_scope(uuid,text,uuid,uuid) from public,anon,service_role;
 grant execute on function public.private_delete_scope(uuid,text,uuid,uuid) to authenticated;
+commit;
 
--- Rollback: restore the 20261027 wrapper, which fulfills person requests only.
+-- Rollback: stop consumers first; preserve approved requests and linked receipts.
+-- Restore the 20261027 wrapper, which fulfills person requests only.
 -- CREATE OR REPLACE FUNCTION public.private_delete_scope(p_tenant uuid,p_scope text,p_target uuid,p_operation uuid) RETURNS uuid
 -- LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $rollback$
 -- DECLARE rid uuid; replay boolean; actor uuid;
