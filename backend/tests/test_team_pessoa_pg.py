@@ -14,6 +14,7 @@ import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import event, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -486,3 +487,171 @@ def test_activation_and_link_cannot_overwrite_identity(database, seeded, winner)
             assert c.scalar(text('select count(*) from pessoas')) == initial_people
             assert c.scalar(text('select count(*) from pessoas where telefone=:p'), dict(p='550000000077')) == 0
             assert c.execute(text('select operacao,pessoa_id from team_pessoa_eventos')).one() == ('vincular', v['p'])
+
+
+@pytest.mark.parametrize('operation', ['link', 'revoke'])
+def test_activation_existing_person_serializes_before_team_mutation(database, seeded, operation):
+    """Parte A: convite já vinculado não forma ciclo Igreja/Pessoa na ativação."""
+    v = seeded
+    destination = uuid4()
+    with database.begin() as c:
+        c.execute(text("update app_users set status='convidado',email='invite-linked-race@example.test',pessoa_id=:p where id=:u"),
+                  dict(p=v['p'], u=v['outsider']))
+        c.execute(text("insert into celulas(igreja_id,nome,lider_id,ativo,cobertura_espiritual) "
+                       "values(:t,'Célula sintética',:p,true,'Teste sintético')"),
+                  dict(t=v['t'], p=v['p']))
+        if operation == 'link':
+            c.execute(text("insert into pessoas(id,igreja_id,nome,telefone) "
+                           "values(:p,:t,'Destino sintético','550000000078')"),
+                      dict(p=destination, t=v['t']))
+        c.execute(text("delete from user_roles where user_id=:u and papel='lider_celula'"),
+                  dict(u=v['outsider']))
+        initial_people = c.scalar(text('select count(*) from pessoas'))
+
+    clerk_paused, release_clerk, team_lock_started = Event(), Event(), Event()
+    role_insert_started, release_role_insert = Event(), Event()
+    participant = local()
+    activation_pid = {}
+    team_wait = {}
+
+    class Clerk:
+        def verify_invite_token(self, _):
+            return str(v['outsider'])
+
+        def find_user_id_by_email(self, _):
+            return None
+
+        def create_user(self, *_):
+            clerk_paused.set()
+            assert release_clerk.wait(8), 'A ativação não foi liberada pelo teste'
+            return 'clerk_synthetic_existing_person_race'
+
+        def delete_user(self, *_):
+            return None
+
+    def before_execute(conn, _cursor, statement, _params, _context, _many):
+        name = getattr(participant, 'name', None)
+        pid = conn.connection.dbapi_connection.get_backend_pid()
+        normalized = ' '.join(statement.lower().split())
+        if name == 'activation':
+            activation_pid.setdefault('pid', pid)
+        if name == 'team' and ' for update' in normalized and (
+            ' from igrejas ' in normalized or ' from pessoas ' in normalized
+        ):
+            team_wait.update(pid=pid, current_statement=normalized)
+            team_lock_started.set()
+        if name == 'activation' and normalized.startswith('insert into user_roles'):
+            role_insert_started.set()
+            assert release_role_insert.wait(5), 'A inserção sintética de papel não foi liberada'
+
+    def run_activation():
+        participant.name = 'activation'
+        with Session(database, autoflush=False) as db:
+            db.execute(text("set local lock_timeout='1500ms'"))
+            try:
+                auth.activate(
+                    Request({'type': 'http', 'client': ('127.0.0.1', 1234)}),
+                    auth.ActivateRequest(token='synthetic', password='synthetic-password', telefone=None),
+                    db, Clerk(), SimpleNamespace(enforce_ip=lambda *_: None),
+                )
+                return ('ok', 200)
+            except HTTPException as exc:
+                db.rollback()
+                return ('http', exc.status_code)
+            except DBAPIError as exc:
+                db.rollback()
+                return ('db', getattr(exc.orig, 'pgcode', None))
+
+    def run_team():
+        participant.name = 'team'
+        with scoped(database, v['t']) as db:
+            db.execute(text("set local lock_timeout='4s'"))
+            try:
+                if operation == 'link':
+                    team.link_pessoa(
+                        v['outsider'],
+                        team.PessoaLinkRequest(pessoaId=destination),
+                        db,
+                        principal(v),
+                    )
+                else:
+                    team.revoke_member(str(v['outsider']), db, principal(v))
+                return ('ok', 200)
+            except HTTPException as exc:
+                db.rollback()
+                return ('http', exc.status_code)
+            except DBAPIError as exc:
+                db.rollback()
+                return ('db', getattr(exc.orig, 'pgcode', None))
+
+    event.listen(database, 'before_cursor_execute', before_execute)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            activation = pool.submit(run_activation)
+            try:
+                assert clerk_paused.wait(5), 'A ativação não chegou à chamada sintética do Clerk'
+                team_mutation = pool.submit(run_team)
+                assert team_lock_started.wait(5), 'A operação de equipe não iniciou sua trava'
+                deadline = time.monotonic() + 3
+                with database.connect() as c:
+                    blockers = []
+                    while time.monotonic() < deadline:
+                        blockers = c.scalar(
+                            text('select pg_blocking_pids(:pid)'),
+                            dict(pid=team_wait['pid']),
+                        )
+                        if activation_pid.get('pid') in blockers:
+                            team_wait['blocked_statement'] = team_wait['current_statement']
+                            break
+                        time.sleep(0.01)
+                    assert activation_pid.get('pid') in blockers, (
+                        'A operação de equipe não aguardou a conexão de ativação'
+                    )
+                release_clerk.set()
+                assert role_insert_started.wait(5), 'A ativação não sincronizou o papel de liderança'
+                release_role_insert.set()
+                cycle_deadline = time.monotonic() + 0.75
+                mutual_wait_observed = False
+                with database.connect() as c:
+                    while time.monotonic() < cycle_deadline:
+                        blockers = c.scalar(
+                            text('select pg_blocking_pids(:pid)'),
+                            dict(pid=activation_pid['pid']),
+                        )
+                        if team_wait['pid'] in blockers:
+                            mutual_wait_observed = True
+                            break
+                        time.sleep(0.01)
+            finally:
+                release_clerk.set()
+                release_role_insert.set()
+            activation_result = activation.result(timeout=6)
+            team_result = team_mutation.result(timeout=6)
+    finally:
+        release_clerk.set()
+        event.remove(database, 'before_cursor_execute', before_execute)
+
+    # Na ordem antiga, a equipe segurava a Igreja enquanto aguardava Pessoa;
+    # a FK de user_roles fechava o ciclo e o PostgreSQL cancelava uma transação.
+    assert activation_result == ('ok', 200), (
+        f'ativação={activation_result}, equipe={team_result}, '
+        f'espera_equipe={team_wait["blocked_statement"]!r}, ciclo={mutual_wait_observed}'
+    )
+    assert team_result == ('http', 409), (
+        f'ativação={activation_result}, equipe={team_result}, '
+        f'espera_equipe={team_wait["blocked_statement"]!r}, ciclo={mutual_wait_observed}'
+    )
+    assert ' from igrejas ' in team_wait['blocked_statement']
+    assert not mutual_wait_observed
+    with database.connect() as c:
+        pessoa, state, clerk_id = c.execute(
+            text('select pessoa_id,status,clerk_user_id from app_users where id=:u'),
+            dict(u=v['outsider']),
+        ).one()
+        assert pessoa == v['p']
+        assert state == 'ativo'
+        assert clerk_id == 'clerk_synthetic_existing_person_race'
+        assert c.scalar(text('select count(*) from pessoas')) == initial_people
+        assert c.scalar(text('select count(*) from team_pessoa_eventos')) == 0
+        assert c.scalar(text("select count(*) from user_roles where user_id=:u and papel='lider_celula'"),
+                        dict(u=v['outsider'])) == 1
