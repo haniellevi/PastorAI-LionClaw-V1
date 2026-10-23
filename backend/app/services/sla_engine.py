@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session_factory
-from app.db.tenant_session import mark_tenant_scoped
+from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 
 from app.db.models import (
     AgentConversationLog,
@@ -477,10 +477,16 @@ def run_all_igrejas(
     try:
         # Descoberta cross-tenant: a `session` compartilhada roda no papel de
         # conexão (BYPASSRLS), então enxerga todas as igrejas com pendências.
-        # Nenhuma escrita acontece aqui — só a coleta do conjunto de tenants.
+        # O escopo fica nomeado e a saída contém somente igreja_ids; nenhuma
+        # escrita acontece nessa sessão.
+        mark_cross_tenant(session, source="cron_sla_discovery")
         igreja_ids: set[uuid.UUID] = set()
         igreja_ids.update(
-            session.execute(select(WorkQueueItem.igreja_id).distinct())
+            session.execute(
+                select(WorkQueueItem.igreja_id)
+                .where(WorkQueueItem.igreja_id.is_not(None))
+                .distinct()
+            )
             .scalars()
             .all()
         )
@@ -490,6 +496,7 @@ def run_all_igrejas(
                 .where(
                     Consolidacao.concluida.is_(False),
                     Consolidacao.abandonada_em.is_(None),
+                    Consolidacao.igreja_id.is_not(None),
                 )
                 .distinct()
             )
@@ -500,7 +507,7 @@ def run_all_igrejas(
             progress_callback()
 
         total = 0
-        for igreja_id in igreja_ids:
+        for igreja_id in sorted(igreja_ids, key=str):
             # Uma NOVA sessão tenant-scoped por igreja (D3). Fresh a cada
             # iteração: mark_tenant_scoped a pina no tenant sem re-fixação.
             tenant_session = session_factory()

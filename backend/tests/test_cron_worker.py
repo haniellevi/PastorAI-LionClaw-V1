@@ -12,12 +12,18 @@ import datetime as dt
 import uuid
 from types import SimpleNamespace
 
+from app.db.models import Cron
 from app.workers.cron_worker import (
     CronWorker,
     WORKER_HEARTBEAT_TTL_SECONDS,
     parse_interval,
     run_due_crons,
     _should_run,
+)
+from app.db.tenant_session import (
+    CROSS_TENANT_KEY,
+    TENANT_IGREJA_KEY,
+    TENANT_META_KEY,
 )
 
 _T0 = dt.datetime(2026, 6, 13, 12, 0, tzinfo=dt.timezone.utc)
@@ -64,10 +70,16 @@ class FakeCronSession:
 
     def __init__(self, crons: list) -> None:
         self._crons = crons
+        self.info: dict = {}
+        self.statements: list[object] = []
         self.rolled_back = False
         self.closed = False
 
     def execute(self, statement, params=None) -> _FakeResult:
+        self.statements.append(statement)
+        descriptions = getattr(statement, "column_descriptions", ())
+        if descriptions and descriptions[0].get("name") == "igreja_id":
+            return _FakeResult([cron.igreja_id for cron in self._crons])
         return _FakeResult(self._crons)
 
     def rollback(self) -> None:
@@ -82,12 +94,14 @@ class FakeEngine:
 
     def __init__(self, handled: int = 1) -> None:
         self.calls: list[uuid.UUID] = []
+        self.sessions: list[object] = []
         self._handled = handled
 
     def run_for_igreja(
         self, session, igreja_id, now=None, *, progress_callback=None
     ) -> list:
         self.calls.append(igreja_id)
+        self.sessions.append(session)
         if progress_callback is not None:
             progress_callback()
         return [object()] * self._handled
@@ -155,18 +169,48 @@ def test_unparseable_recurring_never_runs() -> None:
 # ---------------------------------------------------------------------------
 def test_sla_action_cron_invokes_engine() -> None:
     cron = _cron(acao="rodar_sla_cobranca", frequencia="continuo")
-    session = FakeCronSession([cron])
+    discovery = FakeCronSession([cron])
+    tenant_session = FakeCronSession([cron])
     engine = FakeEngine()
-    dispatched = run_due_crons(session, engine=engine, now=_T0, last_run={})
+    dispatched = run_due_crons(
+        discovery,
+        engine=engine,
+        session_factory=lambda: tenant_session,
+        now=_T0,
+        last_run={},
+    )
     assert dispatched == 1
     assert engine.calls == [cron.igreja_id]
+    assert engine.sessions == [tenant_session]
+    assert discovery.info[CROSS_TENANT_KEY] is True
+    assert discovery.info[TENANT_META_KEY]["source"] == "cron_due_discovery"
+    assert tenant_session.info[TENANT_IGREJA_KEY] == str(cron.igreja_id)
+    assert tenant_session.info[TENANT_META_KEY]["source"] == "cron_due"
+    assert tenant_session.closed is True
+    discovery_query = discovery.statements[0]
+    assert discovery_query.column_descriptions[0].get("name") == "igreja_id"
+    assert "select distinct crons.igreja_id" in str(discovery_query).lower()
+    tenant_query = next(
+        statement
+        for statement in tenant_session.statements
+        if getattr(statement, "column_descriptions", ())
+        and statement.column_descriptions[0].get("entity") is Cron
+    )
+    assert "crons.igreja_id =" in str(tenant_query)
 
 
 def test_non_sla_action_is_skipped_but_counted() -> None:
     cron = _cron(acao="enviar_relatorio_semanal", frequencia="continuo")
-    session = FakeCronSession([cron])
+    discovery = FakeCronSession([cron])
+    tenant_session = FakeCronSession([cron])
     engine = FakeEngine()
-    dispatched = run_due_crons(session, engine=engine, now=_T0, last_run={})
+    dispatched = run_due_crons(
+        discovery,
+        engine=engine,
+        session_factory=lambda: tenant_session,
+        now=_T0,
+        last_run={},
+    )
     # It is "dispatched" (marked as run) but the engine is not touched.
     assert dispatched == 1
     assert engine.calls == []
@@ -174,14 +218,20 @@ def test_non_sla_action_is_skipped_but_counted() -> None:
 
 def test_not_due_cron_is_not_dispatched() -> None:
     cron = _cron(acao="rodar_sla", frequencia="hourly")
-    session = FakeCronSession([cron])
+    discovery = FakeCronSession([cron])
+    tenant_session = FakeCronSession([cron])
     engine = FakeEngine()
     last_run = {str(cron.id): _T0}
     dispatched = run_due_crons(
-        session, engine=engine, now=_T0 + dt.timedelta(minutes=1), last_run=last_run
+        discovery,
+        engine=engine,
+        session_factory=lambda: tenant_session,
+        now=_T0 + dt.timedelta(minutes=1),
+        last_run=last_run,
     )
     assert dispatched == 0
     assert engine.calls == []
+    assert tenant_session.closed is True
 
 
 def test_failing_cron_rolls_back_and_does_not_break_others() -> None:
@@ -190,12 +240,18 @@ def test_failing_cron_rolls_back_and_does_not_break_others() -> None:
             raise RuntimeError("boom")
 
     cron = _cron(acao="rodar_sla", frequencia="continuo")
-    session = FakeCronSession([cron])
+    discovery = FakeCronSession([cron])
+    tenant_session = FakeCronSession([cron])
     dispatched = run_due_crons(
-        session, engine=_BoomEngine(), now=_T0, last_run={}
+        discovery,
+        engine=_BoomEngine(),
+        session_factory=lambda: tenant_session,
+        now=_T0,
+        last_run={},
     )
     assert dispatched == 0
-    assert session.rolled_back is True
+    assert tenant_session.rolled_back is True
+    assert tenant_session.closed is True
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +259,9 @@ def test_failing_cron_rolls_back_and_does_not_break_others() -> None:
 # ---------------------------------------------------------------------------
 def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
     cron = _cron(acao="rodar_sla", frequencia="continuo")
-    session = FakeCronSession([cron])
+    discovery = FakeCronSession([cron])
+    tenant_session = FakeCronSession([cron])
+    sessions = iter((discovery, tenant_session))
     engine = FakeEngine()
 
     # Stub the global sweep so tick() does not need a real tenant set.
@@ -221,14 +279,24 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
     )
 
     worker = CronWorker(
-        session_factory=lambda: session, engine=engine, tick_seconds=300
+        session_factory=lambda: next(sessions),
+        engine=engine,
+        tick_seconds=300,
+    )
+    monkeypatch.setattr(worker, "_purge_oauth_flows", lambda now: 0)
+    monkeypatch.setattr(
+        worker, "_run_cell_report_reminder_cycle", lambda **kwargs: (0, 0)
+    )
+    monkeypatch.setattr(
+        worker, "_run_cell_report_audio_cycle", lambda **kwargs: (0, 0)
     )
     counters = worker.tick(now=_T0)
 
     assert counters["sla_handled"] == 3
     assert counters["crons_run"] == 1
     assert counters["plan_changes_completed"] == 0
-    assert session.closed is True
+    assert discovery.closed is True
+    assert tenant_session.closed is True
 
 
 def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
@@ -302,7 +370,9 @@ def test_audio_cycle_purges_legacy_audio_when_transport_is_closed(monkeypatch) -
 def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> None:
     """Fronteira própria: billing quebrado nunca derruba SLA nem crons."""
     cron = _cron(acao="rodar_sla", frequencia="continuo")
-    session = FakeCronSession([cron])
+    discovery = FakeCronSession([cron])
+    tenant_session = FakeCronSession([cron])
+    sessions = iter((discovery, tenant_session))
     import app.workers.cron_worker as worker_module
 
     monkeypatch.setattr(
@@ -317,14 +387,24 @@ def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> No
     monkeypatch.setattr(worker_module, "run_pending_plan_changes", _boom)
 
     worker = CronWorker(
-        session_factory=lambda: session, engine=FakeEngine(), tick_seconds=300
+        session_factory=lambda: next(sessions),
+        engine=FakeEngine(),
+        tick_seconds=300,
+    )
+    monkeypatch.setattr(worker, "_purge_oauth_flows", lambda now: 0)
+    monkeypatch.setattr(
+        worker, "_run_cell_report_reminder_cycle", lambda **kwargs: (0, 0)
+    )
+    monkeypatch.setattr(
+        worker, "_run_cell_report_audio_cycle", lambda **kwargs: (0, 0)
     )
     counters = worker.tick(now=_T0)
 
     assert counters["sla_handled"] == 3
     assert counters["crons_run"] == 1
     assert counters["plan_changes_completed"] == 0
-    assert session.closed is True
+    assert discovery.closed is True
+    assert tenant_session.closed is True
 
 
 def test_run_closes_engine_created_by_worker_even_after_tick_error(
