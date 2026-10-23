@@ -330,6 +330,49 @@ def test_agenda_reminder_s3_confirmation_creates_and_dispatches_outbox(
     assert len(provider.calls) == 1
 
 
+def test_pending_agenda_reminder_is_invalidated_when_window_changes(
+    agenda_reminder_turn, monkeypatch: pytest.MonkeyPatch
+):
+    turn = agenda_reminder_turn
+    with turn.factory.begin() as session:
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.antecedencia_horas = 24
+        event.notificar_em = None
+
+    _request_and_confirm(turn, monkeypatch, suffix="WINDOW-CHANGE")
+    before = _scoped_rows(turn, NotificationOutbox)[0]
+    subscription = _scoped_rows(turn, AgendaReminderSubscription)[0]
+    assert before.state == "pendente"
+    assert before.due_at == subscription.occurrence_at - dt.timedelta(hours=24)
+
+    with turn.factory.begin() as session:
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.antecedencia_horas = 2
+
+    assert notification_outbox.maintain_notification_outbox(
+        turn.factory,
+        igreja_id=_IGREJA,
+        now=dt.datetime.now(dt.UTC),
+        limit=10,
+    ) == 1
+    after = _scoped_rows(turn, NotificationOutbox)[0]
+    assert after.state == "obsoleto"
+    assert after.terminal_reason == "evento_alterado"
+
+    provider = _ClassifiedEvolution()
+    assert notification_outbox.dispatch_notification_outbox(
+        turn.factory,
+        provider,
+        worker_id="agenda-reminder-window-changed",
+        now=before.due_at + dt.timedelta(seconds=1),
+    ) == 0
+    assert provider.calls == []
+
+
 @pytest.mark.parametrize("canal", (None, "email"))
 def test_agenda_reminder_catalog_omits_non_whatsapp_event_without_confirmation(
     agenda_reminder_turn, monkeypatch: pytest.MonkeyPatch, canal: str | None

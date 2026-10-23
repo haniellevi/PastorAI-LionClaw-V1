@@ -16,6 +16,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventFormModal } from "./EventFormModal";
+import type { EventItem } from "@/lib/events-api";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -30,15 +31,37 @@ let unmounted = false;
 const onClose = vi.fn();
 const onSubmit = vi.fn();
 
-function render(busy: boolean) {
+function render(busy: boolean, event?: EventItem) {
   act(() => {
     root.render(
       h(EventFormModal, {
+        event,
         busy,
         error: null,
         onClose,
         onSubmit,
       }),
+    );
+  });
+}
+
+function setValue(element: HTMLInputElement | HTMLSelectElement, value: string) {
+  const prototype = element instanceof HTMLSelectElement
+    ? HTMLSelectElement.prototype
+    : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  act(() => {
+    setter?.call(element, value);
+    element.dispatchEvent(
+      new Event(element instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }),
+    );
+  });
+}
+
+function submitForm() {
+  act(() => {
+    container.querySelector("form")?.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
     );
   });
 }
@@ -103,5 +126,58 @@ describe("EventFormModal — migração DsDialog", () => {
     render(true);
     pressEscape();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("salva uma janela permitida e públicos existentes com rótulos acessíveis", () => {
+    render(false);
+    const title = [...container.querySelectorAll<HTMLInputElement>("input")].find(
+      (input) => input.labels?.[0]?.textContent === "Título",
+    );
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const window = container.querySelector<HTMLSelectElement>('select[id$="-reminder-window"]');
+    const cellLeaders = [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .find((input) => input.labels?.[0]?.textContent?.includes("Líderes de célula"));
+
+    expect(window?.labels?.[0]?.textContent).toBe("Janela do lembrete");
+    expect(cellLeaders?.labels?.length).toBe(1);
+    expect(cellLeaders?.closest("fieldset")?.querySelector("legend")?.textContent)
+      .toBe("Público elegível para o lembrete");
+
+    if (!title || !date || !window || !cellLeaders) throw new Error("Campos do formulário ausentes");
+    setValue(title, "Encontro da igreja");
+    setValue(date, "2026-11-01");
+    setValue(window, "24");
+    act(() => cellLeaders.click());
+    submitForm();
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      titulo: "Encontro da igreja",
+      data: "2026-11-01",
+      antecedenciaHoras: 24,
+      publicoAlvo: ["lideres_celula"],
+    }));
+  });
+
+  it("associa o erro de público ao grupo quando há janela sem público", () => {
+    render(false);
+    const title = [...container.querySelectorAll<HTMLInputElement>("input")].find(
+      (input) => input.labels?.[0]?.textContent === "Título",
+    );
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const window = container.querySelector<HTMLSelectElement>('select[id$="-reminder-window"]');
+    if (!title || !date || !window) throw new Error("Campos do formulário ausentes");
+
+    setValue(title, "Encontro da igreja");
+    setValue(date, "2026-11-01");
+    setValue(window, "2");
+    submitForm();
+
+    const fieldset = container.querySelector("fieldset");
+    const error = container.querySelector("#" + fieldset?.getAttribute("aria-describedby"));
+    expect(error?.textContent).toContain("Selecione ao menos um público");
+    expect(error?.getAttribute("role")).toBe("alert");
+    expect(container.querySelector('input[type="checkbox"]')?.getAttribute("aria-invalid"))
+      .toBe("true");
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

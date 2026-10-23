@@ -40,6 +40,20 @@ export const PUBLICO_ALVO_LABEL: Record<PublicoAlvo, string> = {
   lideres_celula: "Líderes de célula",
 };
 
+export const PUBLICOS_ALVO = Object.keys(PUBLICO_ALVO_LABEL) as PublicoAlvo[];
+
+export type ReminderWindowHours = 2 | 24 | 72 | 168;
+
+export const REMINDER_WINDOW_OPTIONS: {
+  value: ReminderWindowHours;
+  label: string;
+}[] = [
+  { value: 2, label: "2 horas antes" },
+  { value: 24, label: "1 dia antes" },
+  { value: 72, label: "3 dias antes" },
+  { value: 168, label: "7 dias antes" },
+];
+
 // Contato individual da notificação: vem de uma conversa existente (pessoaId
 // preferido; senão o telefone da conversa). NUNCA telefone digitado à mão — o
 // backend valida cada item contra as conversas do tenant (EVT-8 PR1, D3).
@@ -96,19 +110,21 @@ export interface CreateEventInput {
   hora?: string | null;
   descricao?: string | null;
   tipo?: EventTipo | null; // P0b-3
+  publicoAlvo?: PublicoAlvo[] | null;
+  antecedenciaHoras?: ReminderWindowHours | null;
 }
 
-// EVT-4: edição parcial. O backend (PUT /events/{id}) trata campos None como
-// "inalterados" — não dá pra zerar hora/descrição por aqui (limitação aceita;
-// sem mudança de backend nesta fase). P0b-3: `tipo` é apagável na edição via
-// `null` explícito — o backend usa `model_fields_set`, então null limpa a
-// categoria; difere de campos legados como hora/descrição, onde null não limpa.
+// EVT-4: edição parcial. O backend preserva campos omitidos. `tipo`, públicos e
+// janela podem ser limpos com null explícito; hora/descrição mantêm a semântica
+// legada em que null não apaga o valor salvo.
 export interface UpdateEventInput {
   titulo?: string;
   data?: string; // YYYY-MM-DD
   hora?: string | null;
   descricao?: string | null;
   tipo?: EventTipo | null; // P0b-3
+  publicoAlvo?: PublicoAlvo[] | null;
+  antecedenciaHoras?: ReminderWindowHours | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +229,8 @@ export async function createEvent(
       hora: input.hora ?? null,
       descricao: input.descricao ?? null,
       tipo: input.tipo ?? null, // P0b-3
+      publicoAlvo: input.publicoAlvo ?? null,
+      antecedenciaHoras: input.antecedenciaHoras ?? null,
     }),
   });
   if (res.status === 403) {
