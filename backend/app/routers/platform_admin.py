@@ -1079,7 +1079,7 @@ def get_igreja_agente(
     _admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> AdminAgenteOut:
     """Lê a config do agente de uma igreja (cross-tenant) para o master editar."""
-    igreja = _get_igreja_or_404(db, igreja_id)
+    _get_igreja_or_404(db, igreja_id)
     ig_uuid = uuid.UUID(igreja_id)  # já validado em _get_igreja_or_404
     cred_status = _credencial_status(db, ig_uuid)
     cfg = db.execute(
