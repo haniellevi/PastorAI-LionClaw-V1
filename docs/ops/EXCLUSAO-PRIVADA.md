@@ -65,7 +65,10 @@ backend compara o nome com o cadastro da igreja antes de criar a operação.
 Cada operação usa UUID idempotente. Repetição recupera o mesmo recibo; uma nova
 operação exige novo acionamento e nova confirmação. O recibo é cumulativo pelas
 dependências de exclusão existentes. Cadastros, opt-out, consentimentos e o
-ledger de consentimento são preservados. Não há migration ou gate novo.
+ledger de consentimento são preservados. Os pedidos de exclusão privados
+pendentes da igreja são aprovados e vinculados ao recibo do reset na mesma
+transação, deixando de aparecer como pendentes ou vencidos no painel. A migration
+preserva as policies e os grants existentes; nenhum gate novo é introduzido.
 
 ## SLA dos pedidos de exclusão
 

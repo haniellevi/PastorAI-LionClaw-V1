@@ -499,6 +499,86 @@ def test_manual_reset_settles_pending_request(database, enabled, decision, statu
         assert c.scalar(text('select count(*) from private_conversation_summaries where igreja_id=:tenant'), v) == 0
 
 
+def test_church_reset_settles_all_pending_requests_and_clears_overdue_panel(database, private_data):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.db.session import get_db
+    from app.deps import CurrentUser, get_current_user
+    from app.routers.operations import router as operations_router
+    from app.routers.private_content import router as private_router
+
+    v = private_data
+    request_ids = [uuid4(), uuid4()]
+    other_request_id = uuid4()
+    with database.begin() as c:
+        for request_id, person, conversation in (
+            (request_ids[0], v['person'], v['conv']),
+            (request_ids[1], v['person2'], v['conv2']),
+        ):
+            c.execute(text("""insert into private_erasure_requests
+                (id,igreja_id,pessoa_id,conversation_id,inbound_id,created_at)
+                values(:id,:tenant,:person,:conversation,:inbound,now()-interval '16 days')"""),
+                dict(id=request_id, tenant=v['tenant'], person=person,
+                     conversation=conversation, inbound=uuid4()))
+        c.execute(text("""insert into private_erasure_requests
+            (id,igreja_id,pessoa_id,conversation_id,inbound_id,created_at)
+            values(:id,:tenant,:person,:conversation,:inbound,now()-interval '16 days')"""),
+            dict(id=other_request_id, tenant=v['other'], person=v['person3'],
+                 conversation=v['conv3'], inbound=uuid4()))
+
+    app = FastAPI()
+    app.include_router(private_router)
+    app.include_router(operations_router)
+
+    def db_session():
+        with scoped(database, v['tenant'], admin=True) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = db_session
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        app_user_id=str(v['admin']), igreja_id=str(v['tenant']),
+        clerk_user_id='deletion-admin', nome='Synthetic',
+        email='synthetic@example.invalid', roles=frozenset({'admin'}))
+
+    with TestClient(app) as client:
+        before = client.get('/operations/private-memory')
+        assert before.status_code == 200, before.text
+        assert before.json()['pedidos_exclusao']['pendentes'] == 2
+        assert before.json()['pedidos_exclusao']['vencidos'] == 2
+
+        reset = client.request('DELETE', '/igreja/private-content', json={
+            'operation_id': str(uuid4()),
+            'nome_igreja': 'Synthetic church A',
+            'confirmacao': 'EXCLUIR CONTEUDO PRIVADO DA IGREJA',
+        })
+        assert reset.status_code == 200, reset.text
+        receipt_id = reset.json()['id']
+
+        after = client.get('/operations/private-memory')
+        assert after.status_code == 200, after.text
+        assert after.json()['pedidos_exclusao']['pendentes'] == 0
+        assert after.json()['pedidos_exclusao']['vencidos'] == 0
+
+    with database.connect() as c:
+        settled = c.execute(text("""select state,decided_at,decided_by,receipt_id
+            from private_erasure_requests where igreja_id=:tenant and id=any(:ids)"""),
+            dict(tenant=v['tenant'], ids=request_ids)).all()
+        assert len(settled) == 2
+        assert all(row.state == 'aprovado' and row.decided_at is not None
+                   and row.decided_by == v['admin'] and str(row.receipt_id) == receipt_id
+                   for row in settled)
+        other = c.execute(text("""select state,decided_at,decided_by,receipt_id
+            from private_erasure_requests where igreja_id=:tenant and id=:id"""),
+            dict(tenant=v['other'], id=other_request_id)).one()
+        assert other.state == 'pendente'
+        assert other.decided_at is None
+        assert other.decided_by is None
+        assert other.receipt_id is None
+        assert c.scalar(text("""select count(*) from private_deletion_receipts
+            where igreja_id=:tenant and id=:receipt and scope='igreja'"""),
+            dict(tenant=v['tenant'], receipt=receipt_id)) == 1
+
+
 def test_old_manual_reset_replay_does_not_settle_new_request(database, enabled):
     v = enabled
     payload = {'operation_id': str(uuid4()), 'confirmacao': 'EXCLUIR CONTEUDO PRIVADO'}
