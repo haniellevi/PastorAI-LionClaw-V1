@@ -56,12 +56,30 @@ histórico de operações e uma segunda exclusão explícita de conteúdo novo d
 mesma pessoa são fatias futuras (as rotas existentes já suportam novo UUID).
 Não confundir reset privado com exclusão cadastral ou reset global.
 
+## Painel: reset privado por igreja
+
+No Hoje do admin, o reset da igreja usa a rota e o serviço/fila de exclusão
+privada já existentes. O admin precisa estar ativo (`status='ativo'`) e digitar
+o nome canônico exato da igreja e `EXCLUIR CONTEUDO PRIVADO DA IGREJA`; o
+backend compara o nome com o cadastro da igreja antes de criar a operação.
+Cada operação usa UUID idempotente. Repetição recupera o mesmo recibo; uma nova
+operação exige novo acionamento e nova confirmação. O recibo é cumulativo pelas
+dependências de exclusão existentes. Cadastros, opt-out, consentimentos e o
+ledger de consentimento são preservados. Não há migration ou gate novo.
+
+## SLA dos pedidos de exclusão
+
+O painel administrativo mostra a idade do pedido e destaca o vencimento; Hoje
+exibe a contagem vencida. A política atual é
+`PRIVATE_ERASURE_SLA_POLICY_VERSION='v1'` e `PRIVATE_ERASURE_SLA_DAYS_V1=15`.
+O prazo afeta somente a apresentação e as contagens: não aprova, recusa ou apaga
+pedidos automaticamente.
+
 **Inventário restante de Memória 6:** visão admin agregada de flags/contagens
-sem conteúdo/PII; reset privado por igreja no painel; registro de pedido pela
-equipe (decisão 28); indicador na Central de pendências e idade do mais antigo.
-Não há SLA definido: nenhuma expiração/recusa automática deve liberar memória.
-Esta fatia **não conclui Memória 6**. Próxima fatia sugerida: indicador agregado
-de pedidos pendentes e idade do mais antigo, admin-only, sem inventar SLA.
+sem conteúdo/PII; registro de pedido pela equipe (decisão 28); indicador na
+Central de pendências. O reset por igreja e o SLA são candidatos locais sem
+release ou ativação. Nenhuma expiração/recusa automática libera memória. Esta
+fatia **não conclui Memória 6**.
 Deploy, banco remoto, funcionamento em produção e ativação: **não verificados**.
 
 ## Retenção V1b — decisão pastoral 15

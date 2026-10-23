@@ -107,6 +107,27 @@ def test_default_closed_and_wrong_person(database, private_data):
         register(db,tenant=v['tenant'],person=v['person'],conversation=v['conv'],inbound=v['message'])
 
 
+def test_admin_request_list_reports_age_and_overdue_without_content(database, enabled):
+    from app.services.private_erasure_requests import PRIVATE_ERASURE_SLA_DAYS_V1
+    v = enabled
+    prepare_request(database, v)
+    row = request(database, v)
+    with database.begin() as c:
+        c.execute(text("update private_erasure_requests set created_at=now()-interval '16 days' where id=:id"),
+                  dict(id=row['id']))
+    with api(database, v) as client:
+        response = client.get(f"/contacts/{v['person']}/private-erasure-requests")
+        assert response.status_code == 200, response.text
+        item = response.json()['items'][0]
+        assert item['id'] == str(row['id'])
+        assert item['idade_segundos'] >= 16 * 86400
+        assert item['prazo_dias'] == PRIVATE_ERASURE_SLA_DAYS_V1 == 15
+        assert item['prazo_versao'] == 'v1'
+        assert item['vencido'] is True
+        assert 'QUERO SOLICITAR' not in response.text
+        assert 'telefone' not in response.text
+
+
 def test_other_person_tenant_and_web_roles_denied(database, enabled):
     from fastapi import HTTPException
     from app.services.private_erasure_requests import register

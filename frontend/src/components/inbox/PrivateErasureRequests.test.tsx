@@ -7,7 +7,7 @@ vi.mock('@/lib/dashboard-api',()=>({authedFetch:mocks.fetch}));
 import { PrivateErasureRequests } from './PrivateErasureRequests';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 let container:HTMLDivElement,root:Root;
-const pending={id:'request-a',state:'pendente',created_at:'2026-10-20T12:00:00Z',receipt:null};
+const pending={id:'request-a',state:'pendente',created_at:'2026-10-20T12:00:00Z',idade_segundos:16*86400,prazo_dias:15,prazo_versao:'v1',vencido:true,receipt:null};
 beforeEach(()=>{mocks.fetch.mockReset();container=document.createElement('div');document.body.append(container);root=createRoot(container);});
 afterEach(()=>{act(()=>root.unmount());container.remove();});
 function render(person='person-a') {root.render(h(PrivateErasureRequests,{token:'synthetic',personId:person,expireSession:vi.fn()}));}
@@ -16,6 +16,8 @@ it('requires confirmation and shows durable pending receipt',async()=>{
  mocks.fetch.mockResolvedValueOnce(Response.json({items:[pending]}));
  await act(async()=>render());
  expect(container.textContent).toContain('memória suspenso');
+ expect(container.textContent).toContain('Idade: 16 d e 0 h. Prazo de atendimento: 15 dias.');
+ expect(container.textContent).toContain('Prazo vencido');
  await act(async()=>button('Aprovar exclusão').click());
  expect(mocks.fetch).toHaveBeenCalledTimes(1);
  mocks.fetch.mockResolvedValueOnce(Response.json({...pending,state:'aprovado',receipt:{estado:'pendente',fora_do_alcance:'backups'}}));

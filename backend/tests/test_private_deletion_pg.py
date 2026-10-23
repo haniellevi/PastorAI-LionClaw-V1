@@ -27,8 +27,8 @@ def private_data(database):
                          'delete from private_deletion_uploads; delete from private_deletion_sends; delete from private_deletion_dependencies; delete from private_deletion_members; delete from private_deletion_receipts')
     v = {k: uuid4() for k in ('tenant', 'other', 'person', 'person2', 'person3', 'admin', 'conv', 'conv2', 'conv3', 'message', 'audio')}
     with database.begin() as c:
-        for tenant in (v['tenant'], v['other']):
-            c.execute(text("insert into igrejas(id,nome) values(:id,'Synthetic')"), dict(id=tenant))
+        c.execute(text("insert into igrejas(id,nome) values(:id,'Synthetic church A')"), dict(id=v['tenant']))
+        c.execute(text("insert into igrejas(id,nome) values(:id,'Synthetic church B')"), dict(id=v['other']))
         for person, tenant in ((v['person'], v['tenant']), (v['person2'], v['tenant']), (v['person3'], v['other'])):
             c.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:id,:tenant,'Synthetic',:phone)"), dict(id=person, tenant=tenant, phone=str(person.int)[-12:]))
         c.execute(text("insert into app_users(id,igreja_id,nome,email,status,clerk_user_id) values(:admin,:tenant,'Synthetic','synthetic@example.invalid','ativo','deletion-admin')"), v)
@@ -636,8 +636,13 @@ def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, 
     operation = str(uuid4())
     payload = dict(operation_id=operation, confirmacao='EXCLUIR CONTEUDO PRIVADO')
     path = f"/contacts/{v['person']}/private-content" if scope == 'pessoa' else '/igreja/private-content'
+    if scope == 'igreja':
+        payload = dict(operation_id=operation, nome_igreja='Synthetic church A',
+                       confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')
     with api(database, v) as client:
         assert client.request('DELETE', path, json={**payload, 'confirmacao':'wrong'}).status_code == 422
+        if scope == 'igreja':
+            assert client.request('DELETE', path, json={**payload, 'nome_igreja':'Synthetic church B'}).status_code == 422
         result = client.request('DELETE', path, json=payload)
         assert result.status_code == 200, result.text
         initial = result.json()
@@ -648,7 +653,8 @@ def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, 
         assert initial['camadas']['logs_sem_ancora']['apagadas'] == 1
         assert client.request('DELETE',path,json=payload).json() == initial
         assert client.get(f"/igreja/private-deletions/{initial['id']}").json() == initial
-        assert client.request('DELETE',f"/contacts/{v['person3']}/private-content",json=payload).status_code == 404
+        person_payload = dict(operation_id=operation, confirmacao='EXCLUIR CONTEUDO PRIVADO')
+        assert client.request('DELETE',f"/contacts/{v['person3']}/private-content",json=person_payload).status_code == 404
     with scoped(database, v['tenant']) as s:
         assert event_was_deleted(s, v['tenant'], 'bulk-synthetic')
     calls = []
@@ -658,6 +664,8 @@ def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, 
     with database.connect() as c:
         assert c.execute(text('select optout from pessoas where id=:person'),v).scalar_one()
         assert c.execute(text('select count(*) from consent_records where pessoa_id=:person'),v).scalar_one() == 1
+        if scope == 'igreja':
+            assert c.execute(text('select count(*) from pessoas where igreja_id=:tenant'),v).scalar_one() == 2
         assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one() == 1
         assert c.execute(text('select payload from agent_conversation_logs where conversation_id is null')).scalar_one() is None
     with api(database,v) as client:
@@ -672,6 +680,9 @@ def test_bulk_web_and_sql_deny_nonadmin_and_cross_tenant(database,private_data,s
     v=private_data
     payload=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')
     path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
+    if scope == 'igreja':
+        payload = dict(operation_id=payload['operation_id'], nome_igreja='Synthetic church A',
+                       confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')
     with api(database,v,('pastor',)) as client:
         assert client.request('DELETE',path,json=payload).status_code==403
     for tenant,sub in ((v['tenant'],'unknown'),(v['other'],'deletion-admin')):
@@ -683,10 +694,34 @@ def test_bulk_web_and_sql_deny_nonadmin_and_cross_tenant(database,private_data,s
             s.rollback()
     with database.begin() as c:
         c.execute(text("update app_users set status='revogado' where id=:admin"),v)
+    if scope == 'igreja':
+        with api(database, v) as client:
+            assert client.request('DELETE', path, json=payload).status_code == 403
     with scoped(database,v['tenant'],admin=True) as s:
         with pytest.raises(DBAPIError):
             s.execute(text('select private_delete_scope(:t,:scope,:target,:operation)'),
                 dict(t=v['tenant'],scope=scope,target=v['person'] if scope=='pessoa' else v['tenant'],operation=uuid4()))
+
+
+def test_church_reset_receipt_accumulates_prior_private_deletions(database, private_data):
+    v = private_data
+    payload = dict(operation_id=str(uuid4()), nome_igreja='Synthetic church A',
+                   confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')
+    with api(database, v) as client:
+        prior = client.delete(f"/conversations/{v['conv']}")
+        assert prior.status_code == 200, prior.text
+        response = client.request('DELETE', '/igreja/private-content', json=payload)
+        assert response.status_code == 200, response.text
+        receipt = response.json()
+        assert receipt['escopo'] == 'igreja'
+        assert receipt['camadas']['mensagens']['encontradas'] == 2
+        assert receipt['camadas']['mensagens']['apagadas'] == 2
+        assert receipt['camadas']['midias']['pendentes'] == 3
+        assert client.request('DELETE', '/igreja/private-content', json=payload).json() == receipt
+        assert client.get(f"/igreja/private-deletions/{receipt['id']}").json() == receipt
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where igreja_id=:tenant'), v).scalar_one() == 0
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
 
 
 def test_bulk_new_operation_erases_new_content_but_retry_is_snapshot(database,private_data):

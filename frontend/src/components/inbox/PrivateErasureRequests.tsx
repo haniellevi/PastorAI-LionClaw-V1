@@ -10,12 +10,22 @@ type Request = {
   id: string;
   state: "pendente" | "aprovado" | "recusado";
   created_at: string;
+  idade_segundos: number;
+  prazo_dias: number;
+  prazo_versao: string;
+  vencido: boolean;
   receipt: { estado: string; fora_do_alcance: string } | null;
 };
 type Props = { token: string; personId: string; expireSession: () => void };
 
 export function PrivateErasureRequests(props: Props) {
   return <Requests key={`${props.personId}:${props.token}`} {...props} />;
+}
+
+function age(seconds: number): string {
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h`;
+  return `${Math.floor(seconds / 86400)} d e ${Math.floor(seconds % 86400 / 3600)} h`;
 }
 
 function Requests({ token, personId, expireSession }: Props) {
@@ -61,8 +71,8 @@ function Requests({ token, personId, expireSession }: Props) {
         body: JSON.stringify({ decision: choice.approve ? "aprovado" : "recusado", confirmacao: "DECIDIR PEDIDO DE EXCLUSAO" }),
       });
       if (!response.ok) throw new Error("decision_failed");
-      const result = await response.json() as Request;
-      setItems(rows => rows.map(row => row.id === result.id ? result : row));
+      const result = await response.json() as Pick<Request, "id" | "state" | "receipt">;
+      setItems(rows => rows.map(row => row.id === result.id ? { ...row, ...result, vencido: false } : row));
       setChoice(null);
     } catch (cause) {
       if (cause instanceof SessionExpiredError) expireSession();
@@ -76,6 +86,8 @@ function Requests({ token, personId, expireSession }: Props) {
     <Button size="sm" onClick={() => void refresh()} disabled={busy}>Atualizar pedidos</Button>
     {items.map(row => <div key={row.id}>
       <p>Pedido de {new Date(row.created_at).toLocaleDateString("pt-BR")}: {row.state}.</p>
+      <p>Idade: {age(row.idade_segundos)}. Prazo de atendimento: {row.prazo_dias} dias.</p>
+      {row.state === "pendente" && row.vencido ? <p><strong className="pill danger" role="status">Prazo vencido</strong></p> : null}
       {row.state === "pendente" ? <>
         <p>Uso da memória suspenso até a decisão. O conteúdo ainda está preservado.</p>
         <Button size="sm" variant="danger" disabled={busy} onClick={() => setChoice({ id: row.id, approve: true })}>Aprovar exclusão</Button>
