@@ -41,9 +41,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Instalar decodificador V1b limitado
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes ffmpeg util-linux
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.19.0"
@@ -55,6 +52,7 @@ jobs:
           cache-dependency-path: |
             backend/requirements.lock
             backend/requirements-audit.lock
+            backend/requirements-ci-ffmpeg.lock
 
       - name: Criar ambiente runtime limpo (lock e hashes exatos)
         run: |
@@ -62,6 +60,18 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip install --require-hashes -r requirements.lock
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip check
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" scripts/verify_manifest_requirements.py requirements.txt
+
+      - name: Instalar FFmpeg estático para áudio V1b
+        run: |
+          runtime_python="$RUNNER_TEMP/backend-runtime-venv/bin/python"
+          "$runtime_python" -m pip install --require-hashes --no-deps --only-binary=:all: \
+            -r requirements-ci-ffmpeg.lock
+          ffmpeg_path="$("$runtime_python" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          test -x "$ffmpeg_path"
+          mkdir -p "$RUNNER_TEMP/ffmpeg-bin"
+          ln -sfn "$ffmpeg_path" "$RUNNER_TEMP/ffmpeg-bin/ffmpeg"
+          printf '%s\n' "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
+          command -v prlimit
 
       - name: Criar ambiente de auditoria limpo e auditar
         run: |
