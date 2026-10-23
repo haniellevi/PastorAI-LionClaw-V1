@@ -16,6 +16,44 @@ e, portanto, Evolution não causa restart loop.
 | Manifesto de backup ausente, velho ou não verificado | nenhum reinício | Brevo |
 | TLS/páginas públicas falham | nenhum reinício | GitHub issue |
 
+## Fluxo parado de outbox e webhooks
+
+`/operations/pending` inclui contagem e idade do item mais antigo da outbox
+(`pendente`, `retry` e lease vencida) e dos webhooks ainda ativos nas filas
+Redis. Dead letters aparecem em `webhook_dead_letters`, fora de pendências,
+vencimentos e do alerta `stuck_flow`. O endpoint continua restrito a
+administrador ativo e usa a igreja da identidade autenticada. Ele retorna
+somente contagens e idades, sem payload, texto, telefone ou identificador de
+pessoa. Webhooks anteriores à inclusão do timestamp continuam contados, com
+`age_complete=false` até saírem da fila. O snapshot Redis lê no máximo 128
+envelopes por fotografia, com limite independente para filas ativas e DLQ.
+Se a DLQ exceder o limite ou tiver envelope inválido, só sua métrica fica
+indisponível; isso não afeta `stuck_flow`. Se a fotografia ativa ficar
+incompleta, a projeção de webhooks fica indisponível em vez de aparecer como
+zero.
+
+O check `stuck_flow` do monitor fica desligado por padrão. Para ativá-lo, defina
+no `.env` de implantação:
+
+```dotenv
+MONITOR_STUCK_FLOW_ENABLED=true
+MONITOR_STUCK_FLOW_URL=http://127.0.0.1:8000/operations/pending
+MONITOR_STUCK_FLOW_TOKEN=<credencial dedicada de leitura>
+MONITOR_STUCK_FLOW_MAX_AGE_SECONDS=3600
+```
+
+Hoje o endpoint só aceita a sessão de um administrador ativo e ainda não existe
+credencial dedicada de leitura para o monitor. Não habilite o check até essa
+credencial existir; não use token de sessão de pessoa. O check cobre apenas a igreja vinculada
+ao administrador dessa credencial, não todas as igrejas. O monitor só aceita
+endpoint loopback nessa rota. A credencial é copiada pelo
+allowlist para `/etc/pastorai-monitor.env`, com modo `0600`, e nunca entra nos
+logs. O endpoint é consultado no escopo da igreja do administrador autenticado;
+credencial inválida, métrica indisponível ou idade incompleta degrada o check.
+Ele separa pendências ainda não vencidas da idade de vencimento, portanto um
+lembrete futuro não gera alerta. A fila degrada quando o item vencido mais
+antigo excede o limite. O monitor não tenta renovar credenciais.
+
 Os relatórios expõem somente estados fechados e tipos de erro. URLs privadas,
 chaves, corpos de webhook e strings de conexão não são impressos.
 

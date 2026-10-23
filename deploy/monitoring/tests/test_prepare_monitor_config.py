@@ -26,6 +26,10 @@ def test_monitor_config_is_an_explicit_allowlist(tmp_path: Path) -> None:
                 "BREVO_API_KEY=brevo-test-key",
                 "BREVO_FROM_EMAIL=no-reply@example.invalid",
                 "BREVO_FROM_NAME=Igreja \"12\"",
+                "MONITOR_STUCK_FLOW_ENABLED=true",
+                "MONITOR_STUCK_FLOW_URL=http://127.0.0.1:8000/operations/pending",
+                "MONITOR_STUCK_FLOW_TOKEN=synthetic-admin-token",
+                "MONITOR_STUCK_FLOW_MAX_AGE_SECONDS=1800",
             )
         )
         + "\n",
@@ -48,8 +52,25 @@ def test_monitor_config_is_an_explicit_allowlist(tmp_path: Path) -> None:
     assert 'BREVO_API_KEY="brevo-test-key"' in contents
     assert 'BREVO_FROM_NAME="Igreja \\"12\\""' in contents
     assert "MONITOR_BACKUP_MANIFEST=\"/var/lib/pastorai-backup/backup-status.json\"" in contents
+    assert 'MONITOR_STUCK_FLOW_ENABLED="true"' in contents
+    assert 'MONITOR_STUCK_FLOW_URL="http://127.0.0.1:8000/operations/pending"' in contents
+    assert 'MONITOR_STUCK_FLOW_TOKEN="synthetic-admin-token"' in contents
+    assert 'MONITOR_STUCK_FLOW_MAX_AGE_SECONDS="1800"' in contents
     if os.name != "nt":
         assert stat.S_IMODE(output.stat().st_mode) == 0o600
+
+
+def test_stuck_flow_monitor_defaults_to_disabled() -> None:
+    config = prepare.build_config(
+        {},
+        alert_email="ops@example.invalid",
+        manifest_path="/var/lib/pastorai-backup/backup-status.json",
+    )
+
+    assert config["MONITOR_STUCK_FLOW_ENABLED"] == "false"
+    assert config["MONITOR_STUCK_FLOW_MAX_AGE_SECONDS"] == "3600"
+    assert config["MONITOR_STUCK_FLOW_URL"] == ""
+    assert config["MONITOR_STUCK_FLOW_TOKEN"] == ""
 
 
 def test_monitor_config_rejects_line_breaks_without_echoing_value(tmp_path: Path, capsys) -> None:
