@@ -2,48 +2,151 @@
 
 from __future__ import annotations
 
+import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from scripts.ci_test_shards import parse_collection, partition_files, verify_artifacts
 from tests import conftest as suite_conftest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "rls-integration.yml"
 PYTEST_INI = REPOSITORY_ROOT / "backend" / "pytest.ini"
 
 
-def _marker_step(workflow: str) -> str:
-    return workflow.split(
-        "- name: Rodar a suite marcada rls_integration fora dos guards de replay fresco",
-        maxsplit=1,
-    )[1].split(
-        "- name: Verificar execucao integral da suite RLS",
-        maxsplit=1,
-    )[0]
+def _write_shard_artifacts(
+    artifact_directory: Path,
+    collected_files: dict[str, int],
+    assignments: list[list[str]],
+    junit_results: list[dict[str, int]],
+) -> None:
+    shard_count = len(assignments)
+    for shard, assigned_files in enumerate(assignments):
+        manifest = {
+            "schema_version": 1,
+            "shard": shard,
+            "shard_count": shard_count,
+            "collected_files": collected_files,
+            "collected_total": sum(collected_files.values()),
+            "assigned_files": assigned_files,
+            "assigned_total": sum(collected_files[path] for path in assigned_files),
+        }
+        (artifact_directory / f"rls-shard-{shard}.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        counts = junit_results[shard]
+        (artifact_directory / f"rls-results-{shard}.xml").write_text(
+            '<testsuites><testsuite '
+            f'tests="{counts["tests"]}" '
+            f'skipped="{counts["skipped"]}" '
+            f'failures="{counts["failures"]}" '
+            f'errors="{counts["errors"]}"/>'
+            "</testsuites>",
+            encoding="utf-8",
+        )
 
 
-def test_workflow_coleta_backend_por_marker_e_isola_somente_replay_fresco() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
-    marker_step = _marker_step(workflow)
+def test_shard_verifier_sums_junit_and_accepts_exact_collection_coverage(
+    tmp_path: Path,
+) -> None:
+    collected_files = parse_collection(
+        "tests/test_alpha.py::test_one\n"
+        "tests/test_alpha.py::test_two\n"
+        "tests/test_beta.py::test_three\n"
+        "tests/test_gamma.py::test_four\n"
+    )
+    assignments = partition_files(collected_files, shard_count=2)
+    junit_results = [
+        {
+            "tests": sum(collected_files[path] for path in assigned_files),
+            "skipped": 0,
+            "failures": 0,
+            "errors": 0,
+        }
+        for assigned_files in assignments
+    ]
+    _write_shard_artifacts(tmp_path, collected_files, assignments, junit_results)
 
-    assert "--strict-markers" in marker_step
-    assert "-m rls_integration" in marker_step
-    assert "--junitxml=rls-results.xml" in marker_step
-    assert "\n            tests\n" in marker_step
-    # Sem deselects: toda a suíte marcada roda no Postgres descartável.
-    assert "--deselect" not in marker_step
+    output = io.StringIO()
+    assert verify_artifacts(tmp_path, 2, "success", output)
+    assert "total=4 skipped=0 executed=4 failed=0 errors=0" in output.getvalue()
+    assert "OK: suite rls_integration selecionada executou de fato." in output.getvalue()
 
 
-def test_workflow_falha_com_skip_parcial_ou_zero_testes() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
+def test_shard_verifier_rejects_incomplete_junit_and_duplicate_or_missing_files(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        (
+            1,
+            {"tests": 0, "skipped": 0, "failures": 0, "errors": 0},
+            "0 testes",
+        ),
+        (
+            1,
+            {"tests": 1, "skipped": 1, "failures": 0, "errors": 0},
+            "todos os testes rls_integration selecionados em skip",
+        ),
+        (
+            2,
+            {"tests": 2, "skipped": 1, "failures": 0, "errors": 0},
+            "houve skip parcial",
+        ),
+        (
+            1,
+            {"tests": 1, "skipped": 0, "failures": 1, "errors": 0},
+            "registrou falha ou erro",
+        ),
+        (
+            1,
+            {"tests": 1, "skipped": 0, "failures": 0, "errors": 1},
+            "registrou falha ou erro",
+        ),
+    ]
+    for case_index, (collected_count, junit_counts, expected_message) in enumerate(cases):
+        artifact_directory = tmp_path / f"case-{case_index}"
+        artifact_directory.mkdir()
+        collection = "".join(
+            f"tests/test_synthetic.py::test_{index}\n"
+            for index in range(collected_count)
+        )
+        collected_files = parse_collection(collection)
+        _write_shard_artifacts(
+            artifact_directory,
+            collected_files,
+            [["tests/test_synthetic.py"]],
+            [junit_counts],
+        )
 
-    assert "if total == 0:" in workflow
-    assert "if executed == 0:" in workflow
-    assert "if skipped != 0:" in workflow
-    assert "if failed != 0 or errors != 0:" in workflow
+        output = io.StringIO()
+        assert not verify_artifacts(artifact_directory, 1, "success", output)
+        assert expected_message in output.getvalue()
+
+    collected_files = parse_collection(
+        "tests/test_alpha.py::test_one\n"
+        "tests/test_beta.py::test_two\n"
+    )
+    complete_assignments = partition_files(collected_files, shard_count=2)
+    duplicate_assignments = [complete_assignments[0], complete_assignments[0]]
+    artifact_directory = tmp_path / "duplicate-files"
+    artifact_directory.mkdir()
+    _write_shard_artifacts(
+        artifact_directory,
+        collected_files,
+        duplicate_assignments,
+        [
+            {"tests": 1, "skipped": 0, "failures": 0, "errors": 0},
+            {"tests": 1, "skipped": 0, "failures": 0, "errors": 0},
+        ],
+    )
+
+    output = io.StringIO()
+    assert not verify_artifacts(artifact_directory, 2, "success", output)
+    assert "arquivo atribuido aos shards" in output.getvalue()
+    assert "arquivos sem shard" in output.getvalue()
 
 
 def test_pytest_rejeita_marker_desconhecido_globalmente() -> None:
