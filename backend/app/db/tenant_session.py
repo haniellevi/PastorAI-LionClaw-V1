@@ -242,10 +242,11 @@ def _reapply_tenant_scope(
 
     No-op quando `session.info` não tem `TENANT_IGREJA_KEY` (sessão não-marcada
     ou cross-tenant explícito). Quando marcado, reafirma o GUC
-    `app.tenant_igreja_id`, o `sub` autenticado em `request.jwt.claims` e o papel
-    `authenticated`, todos transaction-local, numa única ida ao banco. O `sub`
-    vem do metadado da identidade HTTP já validada, permitindo que funções SQL
+    `app.tenant_igreja_id` e o papel `authenticated`, ambos transaction-local,
+    numa única ida ao banco. Se houver `actor_sub` validado nos metadados, também
+    reaplica a claim `request.jwt.claims`, permitindo que funções SQL
     SECURITY DEFINER mantenham suas verificações após um commit intermediário.
+    Sem identidade, preserva exatamente o SQL e os parâmetros anteriores.
 
     Usa `connection.exec_driver_sql` (NÃO `session.execute`) de propósito: emitir
     via ORM aqui reentraria no ciclo de transação (o próprio `after_begin`). O
@@ -262,19 +263,23 @@ def _reapply_tenant_scope(
 
     meta = session.info.get(TENANT_META_KEY)
     actor_sub = meta.get("actor_sub") if isinstance(meta, dict) else None
-    claims = (
-        json.dumps({"sub": actor_sub})
-        if isinstance(actor_sub, str) and actor_sub
-        else ""
-    )
+    if isinstance(actor_sub, str) and actor_sub:
+        claims = json.dumps({"sub": actor_sub})
+        statement = (
+            "select set_config('app.tenant_igreja_id', %s, true), "
+            "set_config('request.jwt.claims', %s, true), "
+            "set_config('request.jwt.claim.sub', '', true), "
+            f"{ROLE_AUTHENTICATED_SQL}"
+        )
+        parameters = (str(igreja_id), claims)
+    else:
+        statement = (
+            "select set_config('app.tenant_igreja_id', %s, true), "
+            f"{ROLE_AUTHENTICATED_SQL}"
+        )
+        parameters = (str(igreja_id),)
 
-    connection.exec_driver_sql(
-        "select set_config('app.tenant_igreja_id', %s, true), "
-        "set_config('request.jwt.claims', %s, true), "
-        "set_config('request.jwt.claim.sub', '', true), "
-        f"{ROLE_AUTHENTICATED_SQL}",
-        (str(igreja_id), claims),
-    )
+    connection.exec_driver_sql(statement, parameters)
 
 
 def register_after_begin_listener(target: Any = Session) -> None:
