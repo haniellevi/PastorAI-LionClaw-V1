@@ -60,6 +60,26 @@ recibo.
 Precisa de Docker, Node 24 (`nvm install`) e da CLI do Supabase, que vem com o
 `npm ci` na raiz do checkout principal.
 
+O único modelo versionado é `/.env.example`. Se preparar o arquivo local
+manualmente, copie as seções **Comum/servidor**, **Produção/deploy**,
+**Ambiente de teste Docker** e **Tela/frontend NEXT_PUBLIC_*** para
+`/.env.dev`, depois aplique os valores locais descritos abaixo. Normalmente,
+`./dev.sh` cria o arquivo a partir do modelo raiz e faz esses ajustes sem
+substituir um `.env.dev` existente.
+
+Para executar o backend diretamente, copie **Comum/servidor** e
+**Produção/deploy** de `/.env.example` para `backend/.env` e aplique os mesmos
+valores locais de desenvolvimento. Para executar o Next.js fora de `dev.sh`,
+copie **Tela/frontend NEXT_PUBLIC_*** para `frontend/.env`; `dev.sh` exporta
+essas duas variáveis automaticamente. Os valores de produção do frontend
+permanecem configurados na Vercel.
+
+Os valores locais diferem dos padrões de produção: `APP_ENV=development`, URLs
+de backend/frontend e Google OAuth em loopback, Supabase local em
+`127.0.0.1:54321`, Postgres local em `127.0.0.1:54322`, Redis na porta 6380,
+frontend na 3012 e Asaas Sandbox. As chaves de teste do Clerk e os segredos
+gerados ficam somente no `.env.dev`.
+
 1. Rode `./dev.sh up`. Ele cria o `.env.dev` na raiz do checkout principal (vale
    para todos os worktrees e é ignorado pelo Git), gera os segredos locais, sobe
    o Supabase local, cria o banco com os dados de teste e sobe o resto.

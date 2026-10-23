@@ -23,6 +23,12 @@ O Clerk está na instância PROD. Publishable key, secret key, issuer e JWKS
 precisam pertencer à mesma instância; nunca misture prefixos `pk_test_` ou
 `sk_test_` com o issuer de produção.
 
+O modelo versionado único fica em `/.env.example`. Em um provisionamento inicial
+autorizado, copie as seções **Comum/servidor** e **Produção/deploy** do modelo
+para `/opt/pastorai-current/deploy/.env` e preencha as credenciais pelo canal
+secreto aprovado. Em atualização de VPS, preserve o `deploy/.env` real já
+validado; atualizar o código não substitui esse arquivo.
+
 ### Baseline imutável da V1
 
 - estado: `V1_ENCERRADA`, piloto controlado;

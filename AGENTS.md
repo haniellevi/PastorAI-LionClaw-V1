@@ -57,15 +57,15 @@ pode cancelar pendências; contenção e retomada exigem procedimento próprio.
 
 ## Caminhos protegidos
 
-Nunca abra, resuma, imprima ou versione:
+Agentes podem ler e editar qualquer arquivo do repositório, inclusive o modelo
+único de configuração `.env.example` (sem valores reais). Em arquivos com
+segredos reais (`.env` reais, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`,
+`secrets/`), consulte só nomes de variáveis e se estão preenchidas: nunca
+imprima, copie, resuma ou versione os valores. Ao achar segredo real fora
+desses arquivos, avise o dono sem reproduzi-lo.
 
-- `.env` e `.env.*`, salvo exemplos sanitizados explicitamente autorizados;
-- `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*` e diretórios `secrets/`;
-- `backend/scripts/clerk_*`, `backend/scripts/target_users*.json` e
-  `backend/scripts/migrate_clerk_production.py`;
-- dumps, backups, exports e mídias que possam conter dados reais.
-
-Se precisar de caminho protegido, pare e solicite gate específico sem lê-lo.
+Dados reais de pessoas (`backend/scripts/target_users*.json`, dumps, backups,
+exports e mídias) não são copiados para prompts, documentação, logs ou commits.
 Nunca copie dados/segredos de PROD para DEV/local nem conecte o número da
 Filadélfia neles. Desenvolvimento usa dados fictícios e provedores simulados;
 DEV online é planejado, não disponível por presunção. Stack local opcional:
