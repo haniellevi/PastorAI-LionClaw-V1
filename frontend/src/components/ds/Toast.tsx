@@ -20,7 +20,7 @@ import { DsIconButton } from "./IconButton";
 /** Região live persistente (fixed bottom, z toast). Monte-a UMA vez por tela. */
 export function DsToastRegion({ children }: { children?: ReactNode }) {
   return (
-    <div className="ds-toast-region" aria-live="polite" aria-label="Notificações">
+    <div className="ds-toast-region" role="region" aria-live="polite" aria-label="Notificações">
       {children}
     </div>
   );
