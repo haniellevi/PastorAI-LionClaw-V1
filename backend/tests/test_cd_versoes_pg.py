@@ -136,7 +136,7 @@ def test_equivalence_rls_grants_and_database_guard(database,seeded):
     from sqlalchemy.exc import IntegrityError, ProgrammingError
     v=seeded
     with scoped(database,v['t']) as s:
-        _,c2,source=version_pair(s,v); receipt=equivalent(s,v,c2,source); other=curriculum(s,v)
+        _,c2,source=version_pair(s,v); equivalent(s,v,c2,source); other=curriculum(s,v)
         for privilege in ('USAGE','SELECT','UPDATE'):
             assert not s.execute(text("select has_sequence_privilege(current_user,'cd_curriculos_ordem_versao_seq',:p)"),dict(p=privilege)).scalar_one()
         with pytest.raises(IntegrityError),s.begin_nested():

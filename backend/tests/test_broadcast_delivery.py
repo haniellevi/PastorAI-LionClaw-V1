@@ -455,7 +455,7 @@ def test_two_workers_only_owner_of_transport_fence_can_send(monkeypatch) -> None
 
 
 def test_long_send_interval_keeps_liveness_callback_active(monkeypatch) -> None:
-    state = _install_in_memory_dispatch(monkeypatch)
+    _install_in_memory_dispatch(monkeypatch)
     evolution = _SequenceEvolution([BroadcastSendResult("aceito")])
     clock = {"seconds": 0.0, "last_heartbeat": 0.0}
     heartbeat_times: list[float] = []

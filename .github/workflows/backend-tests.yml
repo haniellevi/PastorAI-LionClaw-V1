@@ -84,6 +84,10 @@ jobs:
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements.lock
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements-audit.lock
 
+      - name: Verificar erros estáticos no backend (Ruff)
+        working-directory: .
+        run: PATH="$RUNNER_TEMP/pip-audit-venv/bin:$PATH" ruff check backend
+
       - name: Build da imagem backend (sem publicar)
         run: docker build --tag pastorai-backend:ci .
 
