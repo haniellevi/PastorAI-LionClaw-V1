@@ -56,7 +56,7 @@ class CellFkFinding:
 
 @dataclass(frozen=True)
 class DuplicateFinding:
-    church_id: UUID
+    church_id: UUID | None
     person_id: UUID
     rows: int
 
@@ -118,13 +118,13 @@ def _require_public_tables(cursor, tables: tuple[str, ...]) -> tuple[str, ...]:
         """
         SELECT expected.table_name
         FROM unnest(%s::text[]) AS expected(table_name)
-        LEFT JOIN pg_catalog.pg_class AS relation
-          ON relation.relname = expected.table_name
-         AND relation.relkind IN ('r', 'p')
         LEFT JOIN pg_catalog.pg_namespace AS namespace
-          ON namespace.oid = relation.relnamespace
-         AND namespace.nspname = %s
-        WHERE relation.oid IS NULL OR namespace.oid IS NULL
+          ON namespace.nspname = %s
+        LEFT JOIN pg_catalog.pg_class AS relation
+          ON relation.relnamespace = namespace.oid
+         AND relation.relname = expected.table_name
+         AND relation.relkind IN ('r', 'p')
+        WHERE relation.oid IS NULL
         ORDER BY expected.table_name
         """,
         (list(tables), BACKUP_SCHEMA),
@@ -207,7 +207,11 @@ def inspect_connection(connection) -> PreflightReport:
                 """
             )
             duplicate_findings = tuple(
-                DuplicateFinding(_as_uuid(row[0]), _as_uuid(row[1]), int(row[2]))
+                DuplicateFinding(
+                    None if row[0] is None else _as_uuid(row[0]),
+                    _as_uuid(row[1]),
+                    int(row[2]),
+                )
                 for row in cursor.fetchall()
             )
 
@@ -256,9 +260,10 @@ def render_report(report: PreflightReport, stream=None) -> None:
 
     print(f"app_users_duplicate_groups={len(report.duplicate_findings)}", file=stream)
     for finding in report.duplicate_findings:
+        church_id = "NULL" if finding.church_id is None else str(finding.church_id)
         print(
             "app_users_duplicate "
-            f"igreja_id={finding.church_id} pessoa_id={finding.person_id} "
+            f"igreja_id={church_id} pessoa_id={finding.person_id} "
             f"linhas={finding.rows}",
             file=stream,
         )

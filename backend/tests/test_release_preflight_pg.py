@@ -74,7 +74,7 @@ def rls_database_url() -> str:
                     """
                     CREATE TABLE public.app_users (
                       id uuid PRIMARY KEY,
-                      igreja_id uuid NOT NULL,
+                      igreja_id uuid,
                       pessoa_id uuid
                     )
                     """
@@ -86,6 +86,10 @@ def rls_database_url() -> str:
                       igreja_id uuid NOT NULL
                     )
                     """
+                )
+                cursor.execute("CREATE SCHEMA other")
+                cursor.execute(
+                    "CREATE TABLE other.responsabilidades_setor (id uuid PRIMARY KEY)"
                 )
                 private_tables = (
                     "private_deletion_event_fences",
@@ -125,7 +129,9 @@ def rls_database_url() -> str:
                     """
                     INSERT INTO public.app_users (id, igreja_id, pessoa_id) VALUES
                       ('70000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001'),
-                      ('70000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001')
+                      ('70000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001'),
+                      ('70000000-0000-0000-0000-000000000003', NULL, '80000000-0000-0000-0000-000000000002'),
+                      ('70000000-0000-0000-0000-000000000004', NULL, '80000000-0000-0000-0000-000000000002')
                     """
                 )
             connection.commit()
@@ -169,8 +175,15 @@ def test_release_preflight_reports_synthetic_findings_and_refuses_writes(
         assert report.missing_backup_tables == ()
         assert len(report.fk_findings) == 1
         assert str(report.fk_findings[0].request_id) == "60000000-0000-0000-0000-000000000002"
-        assert len(report.duplicate_findings) == 1
+        assert len(report.duplicate_findings) == 2
         assert report.duplicate_findings[0].rows == 2
+        null_church_duplicate = next(
+            finding for finding in report.duplicate_findings if finding.church_id is None
+        )
+        assert str(null_church_duplicate.person_id) == (
+            "80000000-0000-0000-0000-000000000002"
+        )
+        assert null_church_duplicate.rows == 2
 
         output = io.StringIO()
         release_preflight.render_report(report, stream=output)
@@ -178,8 +191,13 @@ def test_release_preflight_reports_synthetic_findings_and_refuses_writes(
         assert "PENDENTE 20261016_180000_prayer_requests.sql" in rendered
         assert "APLICADA 20261021_100000_responsabilidades_setor.sql" in rendered
         assert "celula_solicitacao_fk_violations=1" in rendered
-        assert "app_users_duplicate_groups=1" in rendered
+        assert "app_users_duplicate_groups=2" in rendered
+        assert (
+            "igreja_id=NULL pessoa_id=80000000-0000-0000-0000-000000000002 linhas=2"
+            in rendered
+        )
         assert "backup_public_tables: esperadas=6 ausentes=0" in rendered
+        assert "responsabilidades_setor" not in report.missing_backup_tables
         assert "unknown_synthetic_migration.sql" not in rendered
         assert "synthetic-only" not in rendered
 
@@ -199,6 +217,10 @@ def test_release_preflight_reports_synthetic_findings_and_refuses_writes(
     cli_output = capsys.readouterr().out
     assert "RESULTADO=ACHADOS" in cli_output
     assert "60000000-0000-0000-0000-000000000002" in cli_output
+    assert (
+        "igreja_id=NULL pessoa_id=80000000-0000-0000-0000-000000000002 linhas=2"
+        in cli_output
+    )
     assert "unknown_synthetic_migration.sql" not in cli_output
 
     admin = psycopg2.connect(rls_database_url)
