@@ -298,9 +298,12 @@ def test_authorized_leader_loses_access_after_membership_change(prayer):
         assert service.list_requests(db, prayer.actors["lider_celula"]) == []
 
 
-def test_ambiguous_choice_and_confirmation_never_record_request(prayer):
+@pytest.mark.parametrize("audience", [
+    "talvez com todos", "com todos", "só meu líder", "pastores ou meu líder",
+])
+def test_ambiguous_choice_and_confirmation_never_record_request(prayer, audience):
     send(prayer, "Peço oração por mim: estou preocupado.")
-    _, reply, _ = send(prayer, "talvez com todos")
+    _, reply, _ = send(prayer, audience)
     assert "Com quem autoriza" in reply.texto
     send(prayer, "SIM")
     with prayer.factory() as db:
