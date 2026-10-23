@@ -24,7 +24,9 @@ import signal
 import time
 from collections.abc import Callable
 from threading import Event, Lock, Thread
+from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,7 +34,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import Cron
 from app.db.session import get_session_factory
-from app.db.tenant_session import mark_cross_tenant
+from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.services.billing_worker import run_pending_plan_changes
 from app.services.calendar_oauth_flows import purge_expired_flows
 from app.services.cell_report_reminders import (
@@ -92,18 +94,18 @@ def _now() -> dt.datetime:
 # ---------------------------------------------------------------------------
 def _action_sla(
     session: Session,
-    cron: Cron,
+    igreja_id: UUID,
     engine: SlaEngine,
     *,
     progress_callback: Callable[[], None] | None = None,
 ) -> int:
     """Run the SLA engine for the cron's igreja (idempotent)."""
     if progress_callback is None:
-        return len(engine.run_for_igreja(session, cron.igreja_id))
+        return len(engine.run_for_igreja(session, igreja_id))
     return len(
         engine.run_for_igreja(
             session,
-            cron.igreja_id,
+            igreja_id,
             progress_callback=progress_callback,
         )
     )
@@ -120,6 +122,7 @@ def run_due_crons(
     session: Session,
     *,
     engine: SlaEngine,
+    session_factory: Callable[[], Session] | None = None,
     now: dt.datetime | None = None,
     last_run: dict[str, dt.datetime] | None = None,
     progress_callback: Callable[[], None] | None = None,
@@ -128,45 +131,93 @@ def run_due_crons(
 
     `last_run` is an in-process map {cron_id: instant} used only to throttle
     recurring jobs; state-driven crons (with a `gatilho_estado`) always run.
+    Global discovery returns only igreja ids and is explicitly marked
+    cross-tenant. Each igreja's cron rows and SLA action run in a fresh,
+    tenant-pinned session.
+
     Returns the number of cron rows actually dispatched.
     """
     now = now or _now()
     last_run = last_run if last_run is not None else {}
+    session_factory = session_factory or get_session_factory()
 
-    crons = session.execute(
-        select(Cron).where(Cron.ativo.is_(True))
-    ).scalars().all()
+    mark_cross_tenant(session, source="cron_due_discovery")
+    igreja_ids = sorted(
+        set(
+            session.execute(
+                select(Cron.igreja_id)
+                .where(Cron.ativo.is_(True))
+                .distinct()
+            )
+            .scalars()
+            .all()
+        ),
+        key=str,
+    )
     if progress_callback is not None:
         progress_callback()
 
     dispatched = 0
-    for cron in crons:
-        if progress_callback is not None:
-            progress_callback()
-        if not _should_run(cron, now, last_run):
-            continue
+    for igreja_id in igreja_ids:
+        tenant_session = session_factory()
         try:
-            if _is_sla_action(cron.acao):
-                _action_sla(
-                    session,
-                    cron,
-                    engine,
-                    progress_callback=progress_callback,
+            try:
+                mark_tenant_scoped(
+                    tenant_session, igreja_id, source="cron_due"
                 )
-            else:
-                logger.info(
-                    "Cron '%s' has no executable action handler (acao=%s); skipped",
-                    cron.nome,
-                    cron.acao,
+                cron_rows = tenant_session.execute(
+                    select(Cron)
+                    .where(
+                        Cron.igreja_id == igreja_id,
+                        Cron.ativo.is_(True),
+                    )
+                    .order_by(Cron.id)
+                ).scalars().all()
+            except Exception:  # noqa: BLE001 - one tenant must not break others
+                logger.exception("Cron discovery failed for igreja %s", igreja_id)
+                tenant_session.rollback()
+                continue
+
+            for row in cron_rows:
+                if progress_callback is not None:
+                    progress_callback()
+                # Snapshot scalar fields before an SLA action commits the
+                # session, avoiding expired ORM objects and implicit reloads.
+                cron = SimpleNamespace(
+                    id=row.id,
+                    igreja_id=row.igreja_id,
+                    nome=row.nome,
+                    frequencia=row.frequencia,
+                    gatilho_estado=row.gatilho_estado,
+                    acao=row.acao,
                 )
-            last_run[str(cron.id)] = now
-            dispatched += 1
-        except Exception:  # noqa: BLE001 - one cron must not break the others
-            logger.exception("Cron '%s' execution failed", cron.nome)
-            session.rollback()
+                cron_key = str(cron.id)
+                if not _should_run(cron, now, last_run):
+                    continue
+                try:
+                    if _is_sla_action(cron.acao):
+                        _action_sla(
+                            tenant_session,
+                            cron.igreja_id,
+                            engine,
+                            progress_callback=progress_callback,
+                        )
+                    else:
+                        logger.info(
+                            "Cron '%s' has no executable action handler (acao=%s); skipped",
+                            cron.nome,
+                            cron.acao,
+                        )
+                    last_run[cron_key] = now
+                    dispatched += 1
+                except Exception:  # noqa: BLE001 - one cron must not break the others
+                    logger.exception("Cron '%s' execution failed", cron.nome)
+                    tenant_session.rollback()
+                finally:
+                    if progress_callback is not None:
+                        progress_callback()
         finally:
-            if progress_callback is not None:
-                progress_callback()
+            tenant_session.close()
     return dispatched
 
 
@@ -453,9 +504,9 @@ class CronWorker:
         self._record_progress()
         session: Session = self._session_factory()
         try:
-            # A `session` compartilhada só faz a DESCOBERTA cross-tenant do sweep
-            # (e serve o run_due_crons legado). O processamento por igreja abre
-            # uma nova sessão tenant-scoped via `session_factory` (D3, pinning).
+            # A sessão compartilhada só faz descobertas cross-tenant nomeadas,
+            # que retornam igreja_ids. Cada leitura/ação de domínio abre uma
+            # sessão nova tenant-scoped via `session_factory` (D3, pinning).
             sla_handled = run_all_igrejas(
                 session,
                 self._engine,
@@ -467,6 +518,7 @@ class CronWorker:
             crons_run = run_due_crons(
                 session,
                 engine=self._engine,
+                session_factory=self._session_factory,
                 now=now,
                 last_run=self._last_run,
                 progress_callback=self._record_progress,
