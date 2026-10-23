@@ -20,6 +20,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.domain.event_notifications import AGENDA_REMINDER_WINDOW_HOURS
+
 
 _UTC = dt.timezone.utc
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
@@ -448,7 +450,7 @@ def _agenda_reminder_due_at(
     valid_antecedence = (
         type(antecedence) is int
         and not isinstance(antecedence, bool)
-        and antecedence >= 0
+        and antecedence in AGENDA_REMINDER_WINDOW_HOURS
     )
     if getattr(event, "recorrencia", None) == "semanal":
         if valid_antecedence:

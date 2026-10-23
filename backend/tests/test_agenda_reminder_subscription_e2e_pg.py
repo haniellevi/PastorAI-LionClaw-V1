@@ -30,7 +30,9 @@ from app.db.models import (
 )
 from app.db.rls_observability import probe_tenant_scope
 from app.db.tenant_session import mark_tenant_scoped
-from app.services import notification_outbox
+from app.deps import CurrentUser
+from app.routers.events import UpdateEventRequest
+from app.services import event_commands, notification_outbox
 from app.services.llm import LLMClient, LLMUsage, TypedChoiceResult
 from app.workers import queue_worker as worker_module
 from tests.test_agent_privileged_turn_pg import (  # noqa: F401 - fixtures
@@ -328,6 +330,111 @@ def test_agenda_reminder_s3_confirmation_creates_and_dispatches_outbox(
         now=turn.dispatch_at + dt.timedelta(seconds=2),
     ) == 0
     assert len(provider.calls) == 1
+
+
+def test_pending_agenda_reminder_is_invalidated_when_window_changes(
+    agenda_reminder_turn, monkeypatch: pytest.MonkeyPatch
+):
+    turn = agenda_reminder_turn
+    with turn.factory.begin() as session:
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.antecedencia_horas = 24
+        event.notificar_em = None
+
+    _request_and_confirm(turn, monkeypatch, suffix="WINDOW-CHANGE")
+    before = _scoped_rows(turn, NotificationOutbox)[0]
+    subscription = _scoped_rows(turn, AgendaReminderSubscription)[0]
+    assert before.state == "pendente"
+    assert before.due_at == subscription.occurrence_at - dt.timedelta(hours=24)
+
+    with turn.factory.begin() as session:
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.antecedencia_horas = 2
+
+    assert notification_outbox.maintain_notification_outbox(
+        turn.factory,
+        igreja_id=_IGREJA,
+        now=dt.datetime.now(dt.UTC),
+        limit=10,
+    ) == 1
+    after = _scoped_rows(turn, NotificationOutbox)[0]
+    assert after.state == "obsoleto"
+    assert after.terminal_reason == "evento_alterado"
+
+    provider = _ClassifiedEvolution()
+    assert notification_outbox.dispatch_notification_outbox(
+        turn.factory,
+        provider,
+        worker_id="agenda-reminder-window-changed",
+        now=before.due_at + dt.timedelta(seconds=1),
+    ) == 0
+    assert provider.calls == []
+
+
+def test_removing_relative_reminder_hides_catalog_and_subscription_offer_pg(
+    agenda_reminder_turn, monkeypatch: pytest.MonkeyPatch
+):
+    turn = agenda_reminder_turn
+    with turn.factory.begin() as session:
+        mark_tenant_scoped(
+            session, _IGREJA, source="agenda_reminder_relative_removal_setup"
+        )
+        event = session.execute(
+            select(Event).where(Event.igreja_id == _IGREJA)
+        ).scalar_one()
+        event.antecedencia_horas = 24
+        event.publico_alvo = ["toda_igreja"]
+        event.notificar_em = None
+        event.canal = "whatsapp"
+        event_id = event.id
+        pastor_id = event.confirmado_por
+
+    pastor = CurrentUser(
+        app_user_id=str(pastor_id),
+        clerk_user_id="clerk-agenda-author-synthetic",
+        igreja_id=str(_IGREJA),
+        email="agenda-author@example.test",
+        nome="Autor da agenda sintético",
+        roles=frozenset({"pastor"}),
+    )
+    with turn.factory.begin() as session:
+        mark_tenant_scoped(
+            session, _IGREJA, source="agenda_reminder_relative_removal_update"
+        )
+        event = event_commands.update(
+            session,
+            pastor,
+            str(event_id),
+            UpdateEventRequest(antecedenciaHoras=None, publicoAlvo=None),
+        )
+        assert event.antecedencia_horas is None
+        assert event.notificar_em is None
+        assert event.canal is None
+
+    stages = _no_reminder_choices(monkeypatch, turn)
+    evolution = _ClassifiedEvolution()
+    request = _inbound(
+        turn,
+        "AGENDA-REMINDER-RELATIVE-REMOVED",
+        "Me avise do próximo evento da agenda.",
+    )
+    assert worker_module.run_agent_for_message(
+        turn.factory, request, evolution_client=evolution
+    ) is worker_module.AgentRunDisposition.COMPLETED
+
+    assert stages == ["s3_route", "s3_tool"]
+    assert _scoped_rows(turn, AgentActionProposal) == []
+    assert _scoped_rows(turn, NotificationOutbox) == []
+    assert _scoped_rows(turn, AgendaReminderSubscription) == []
+    assert len(evolution.calls) == 1
+    reply = evolution.calls[0][2]
+    assert reply and "Não identifiquei uma ação ou alvo autorizado" in reply
+    assert "Confirma esta ação?" not in reply
+    assert "Responda SIM ou NÃO" not in reply
 
 
 @pytest.mark.parametrize("canal", (None, "email"))

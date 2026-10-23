@@ -29,6 +29,7 @@ NÃO envia nada e não faz I/O: o disparo real (WhatsApp/Evolution) é EVT-9.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, get_args
 
 from app.domain.phone import normalize_phone
 
@@ -36,6 +37,13 @@ from app.domain.phone import normalize_phone
 # (app/routers/events.py). A seleção individual NÃO faz parte deste conjunto.
 PUBLICOS_COLETIVOS: frozenset[str] = frozenset(
     {"toda_igreja", "pastores", "g12_pastoral", "lideres_celula"}
+)
+
+# Janelas relativas disponíveis no formulário e no agendamento. O valor 0
+# continua permitido no fluxo legado de confirmação, mas não agenda lembrete.
+ReminderWindowHours = Literal[2, 24, 72, 168]
+AGENDA_REMINDER_WINDOW_HOURS: frozenset[int] = frozenset(
+    get_args(ReminderWindowHours)
 )
 
 

@@ -270,6 +270,53 @@ def test_put_rejects_invalid_hora(app) -> None:
     assert resp.status_code == 422
 
 
+def test_put_persists_closed_reminder_window_and_existing_publics(app) -> None:
+    event = make_event(
+        publico_alvo=None,
+        antecedencia_horas=None,
+        notificar_em=dt.datetime(2026, 1, 1, 12, tzinfo=dt.timezone.utc),
+        canal=None,
+    )
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}",
+        headers=_AUTH,
+        json={
+            "antecedenciaHoras": 24,
+            "publicoAlvo": ["lideres_celula", "lideres_celula"],
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["antecedenciaHoras"] == 24
+    assert resp.json()["publicoAlvo"] == ["lideres_celula"]
+    assert event.antecedencia_horas == 24
+    assert event.publico_alvo == ["lideres_celula"]
+    assert event.notificar_em is None
+    assert event.canal == "whatsapp"
+
+
+def test_put_rejects_unlisted_reminder_window(app) -> None:
+    session = _session(roles=["pastor"], event=make_event())
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}",
+        headers=_AUTH,
+        json={"antecedenciaHoras": 12, "publicoAlvo": ["pastores"]},
+    )
+    assert resp.status_code == 422
+    assert session.committed is False
+
+
+def test_put_rejects_window_without_reminder_public(app) -> None:
+    session = _session(roles=["pastor"], event=make_event())
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}",
+        headers=_AUTH,
+        json={"antecedenciaHoras": 24},
+    )
+    assert resp.status_code == 422
+    assert session.committed is False
+
+
 def test_put_404_when_missing(app) -> None:
     session = _session(roles=["pastor"], event=None)
     resp = _wire(app, session=session).put(
