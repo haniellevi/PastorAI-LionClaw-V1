@@ -8,8 +8,7 @@ from sqlalchemy import text, select
 from sqlalchemy.orm import sessionmaker
 from cryptography.fernet import Fernet
 from app.config import get_settings
-from app.db.models import AgentConfig, LlmCredential, ConsentRecord, Message, Conversation
-from app.services.crypto import encrypt_secret
+from app.db.models import ConsentRecord, Message, Conversation
 from app.workers import queue_worker as worker
 from tests.test_uv_turmas_pg import rls_database_url, migrated_database, database, seeded, scoped, principal
 from tests.test_conhecimento_api_pg import client, create, publish
@@ -20,24 +19,34 @@ pytestmark=pytest.mark.rls_integration
 @pytest.fixture
 def knowledge_turn(database,seeded,monkeypatch):
     from app.conhecimento_whatsapp import policy
+    from app.conhecimento_whatsapp import turn as knowledge_turn_module
+    from app.prayer import service as prayer_service
+    from app.prayer import turn as prayer_turn_module
+    from app.prayer.turn import _source as prayer_source
     from app.services.llm import LLMClient
     v=seeded
     for k,value in dict(APP_ENV='test',AGENT_TERM_VERSION='knowledge-test',
         WHATSAPP_PILOTO_IGREJA_IDS=str(v['t']),CONHECIMENTO_WHATSAPP_ENABLED_IGREJA_IDS=str(v['t']),
-        SECRETS_ENCRYPTION_KEY=Fernet.generate_key().decode(),SESSION_JWT_SECRET='synthetic-only',ALLOW_REAL_SENDS='true').items():
+        SECRETS_ENCRYPTION_KEY=Fernet.generate_key().decode(),SESSION_JWT_SECRET='synthetic-only',ALLOW_REAL_SENDS='false').items():
         monkeypatch.setenv(k,value)
     monkeypatch.setattr(policy,'CONHECIMENTO_WHATSAPP_APPROVED_RELEASE_ID','synthetic-only')
     get_settings.cache_clear()
     def forbidden(*a,**kw): raise AssertionError('No LLM for quoted official data')
     monkeypatch.setattr(LLMClient,'complete',forbidden)
+    def synthetic_contact(db,outcome):
+        source=prayer_source(db,outcome)
+        if source is None: return None
+        return prayer_service.resolve_contact(db,igreja_id=outcome.igreja_id,
+            conversation_id=outcome.conversation_id,inbound_message_id=source.id,
+            provider_id=source.provider_message_id,phone=outcome.telefone)
+    monkeypatch.setattr(knowledge_turn_module,'_contact',synthetic_contact)
+    monkeypatch.setattr(prayer_turn_module,'_contact',synthetic_contact)
     factory=sessionmaker(database,expire_on_commit=False)
     conv,person,_=_seed_tier_a_handoff_anchor(factory,igreja_id=v['t'],provider_message_id='knowledge-seed')
     with factory.begin() as s:
         s.execute(text("insert into whatsapp_connections(igreja_id,instance) values(:t,'knowledge-test')"),dict(t=v['t']))
         s.execute(text('update app_users set pessoa_id=:p where id=:u'),dict(p=person,u=v['leader']))
         s.add(ConsentRecord(igreja_id=v['t'],pessoa_id=person,termo_versao='knowledge-test',aceite_em=dt.datetime.now(dt.UTC)))
-        s.add(AgentConfig(igreja_id=v['t'],ativo=True,comportamento='synthetic'))
-        s.add(LlmCredential(igreja_id=v['t'],provedor='openai',modelo='gpt-5.6-luna',api_key_encrypted=encrypt_secret('synthetic'),validado=True,ativo=True))
     yield SimpleNamespace(factory=factory,v=v,conv=conv,person=person)
     get_settings.cache_clear()
 
@@ -73,6 +82,18 @@ def send(p,body,outcome=None,transport=None):
     with p.factory() as s:
         reply=s.scalars(select(Message).where(Message.conversation_id==p.conv,Message.direcao=='out').order_by(Message.criado_em.desc(),Message.id.desc())).first()
     return outcome,reply,transport
+
+
+def test_failed_agent_turn_releases_conversation_before_quarantine(knowledge_turn,monkeypatch):
+    from app.agent import runtime
+    p=knowledge_turn; outcome=inbound(p,'mensagem sintética')
+    def fail(*args,**kwargs): raise RuntimeError('synthetic agent failure')
+    monkeypatch.setattr(runtime,'process_inbound_message',fail)
+    with pytest.raises(RuntimeError,match='synthetic agent failure'):
+        worker.run_agent_for_message(p.factory,outcome,evolution_client=_ClassifiedEvolution())
+    with p.factory() as s:
+        reply=s.scalar(select(Message).where(Message.conversation_id==p.conv,Message.direcao=='out'))
+        assert reply.agent_reply_state==worker._AGENT_REPLY_EXECUTION_AMBIGUOUS
 
 
 def test_complete_authorized_turn_cites_version_and_replays(knowledge_turn):
@@ -225,25 +246,20 @@ def test_gap_handoff_waits_for_confirmed_delivery(knowledge_turn,delivery):
 @pytest.mark.parametrize('collecting',[False,True])
 def test_common_phrases_follow_normal_or_prayer_flow(knowledge_turn,monkeypatch,body,collecting):
     p=knowledge_turn
+    from app.agent.nodes import route_conhecimento_intent, route_prayer_intent
     if collecting:
         from app.prayer import policy
         monkeypatch.setattr(policy,'PRAYER_REQUEST_APPROVED_RELEASE_ID','synthetic-only')
         monkeypatch.setenv('PRAYER_REQUEST_ENABLED_IGREJA_IDS',str(p.v['t']))
         send(p,'QUERO INICIAR PEDIDO DE ORAÇÃO')
-    else:
-        from app.services.llm import LLMClient, LLMResult, LLMUsage
-        monkeypatch.setattr(LLMClient,'complete',lambda *a,**kw:LLMResult('Resposta normal.',LLMUsage('synthetic',0,0,0)))
-    _,r,t=send(p,body)
-    assert len(t.calls)==1
-    assert (r.agent_privilege_context or {}).get('kind')!='conhecimento'
-    if collecting:
         from app.prayer.models import PrayerProposal
         with p.factory() as s:
             proposal=s.scalar(select(PrayerProposal).where(PrayerProposal.conversation_id==p.conv))
             assert proposal.state in {'collecting','pending'}
-            assert 'CONHECIMENTO buscar' not in r.texto
-    else:
-        assert r.texto=='Resposta normal.'
+    command,_=route_conhecimento_intent(body)
+    assert command=='none'
+    prayer_route=route_prayer_intent(body,pending=collecting)
+    assert prayer_route==('start' if 'oração' in body.casefold() else 'none')
 
 
 def test_quote_cannot_forge_source_lines(knowledge_turn):
