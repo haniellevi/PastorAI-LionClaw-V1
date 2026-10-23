@@ -540,17 +540,13 @@ def _lock_pessoa_and_assert_unique_access(
 def _lock_church_for_activation(db: Session, igreja_id: uuid.UUID) -> None:
     """Trava a igreja antes de a ativação travar Pessoa ou AppUser."""
 
-    locked = db.execute(
+    # Premissa: o papel de conexão ignora RLS e a igreja do convite existe.
+    # Se ela sumir em paralelo, a FK de user_roles recusa a ativação depois.
+    db.execute(
         select(Igreja.id)
         .where(Igreja.id == igreja_id)
         .with_for_update(read=True, key_share=True)
     ).scalar_one_or_none()
-    if locked is None:
-        # Igreja removida em paralelo: sem a trava a ordem de locks não vale.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Não foi possível ativar agora. Tente novamente.",
-        )
 
 
 def _lock_invite_for_activation(db: Session, app_user_id: uuid.UUID) -> AppUser:
