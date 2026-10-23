@@ -7,6 +7,7 @@ from app.db.models import AppUser, Celula, CelulaSolicitacao, EnviarAvaliacao, P
 from app.deps import CENTRAL_ROLES, resolve_actor_pessoa_id
 from app.services.enviar_avaliacoes import _coord
 from app.services.enviar_read import ler_pendencias_oficiais
+from app.services.contact_scope import _contact_scope_conditions
 
 
 def _scope(db, user):
@@ -24,7 +25,6 @@ def _scope(db, user):
         raise HTTPException(403, 'Acesso à liderança indisponível')
     # Reuse the canonical human visibility (no assigned inbox exception and no
     # expansion from another accumulated role such as formation/consolidation).
-    from app.routers.contacts import _contact_scope_conditions
     restricted = replace(user, roles=frozenset({'lider_celula'}))
     person = resolve_actor_pessoa_id(db, restricted)
     return _contact_scope_conditions(db, restricted), UUID(person) if person else None

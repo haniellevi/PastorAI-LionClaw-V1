@@ -53,8 +53,8 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.db.session  # noqa: F401
 from app.db.models import AppUser, Base, Celula, CelulaSolicitacao, Igreja, Pessoa
 from app.deps import CurrentUser
-from app.routers import cell_requests
 from app.routers.cell_requests import CreateCellRequest, create_cell_request
+from app.services import cell_request_contract
 from app.services import cell_requests_service
 
 # Fixture opt-in (guard de produção + skip sem a env var). noqa: F401 — fixture
@@ -284,7 +284,7 @@ def test_create_index_serializes_when_precheck_races(
 ) -> None:
     # Modela a janela TOCTOU: ambas as criações passam o pré-check (leram 0
     # abertas antes de qualquer commit). Só o índice único as serializa.
-    monkeypatch.setattr(cell_requests, "_has_open_conflict", lambda *a, **k: False)
+    monkeypatch.setattr(cell_request_contract, "_has_open_conflict", lambda *a, **k: False)
 
     factory = _factory(create_engine_fx)
     _seed_church(
@@ -307,7 +307,7 @@ def test_create_toctou_reproduces_without_index(
     create_engine_fx: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Regressão: sem os índices o TOCTOU volta (duas solicitações abertas)."""
-    monkeypatch.setattr(cell_requests, "_has_open_conflict", lambda *a, **k: False)
+    monkeypatch.setattr(cell_request_contract, "_has_open_conflict", lambda *a, **k: False)
     with create_engine_fx.begin() as conn:
         conn.exec_driver_sql(f"drop index {_SCHEMA}.uq_celula_solicitacao_aberta_tipo")
         conn.exec_driver_sql(f"drop index {_SCHEMA}.uq_celula_solicitacao_aberta_membro")
