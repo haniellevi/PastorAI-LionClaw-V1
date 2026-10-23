@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -49,7 +50,10 @@ from app.services.clerk import (
     ClerkUnavailableError,
     get_clerk_client,
 )
-from app.services.auth_sessions import register_session, revoke_session
+from app.services.auth_sessions import (
+    get_auth_session_registrar,
+    revoke_session,
+)
 from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 from app.services.storage import logo_public_url
@@ -244,6 +248,9 @@ def login(
     db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
     limiter: RateLimiter = Depends(get_rate_limiter),
+    register_auth_session: Callable[[ClerkClient, str, AppUser], None] = Depends(
+        get_auth_session_registrar
+    ),
 ) -> LoginResponse:
     """Authenticate and return the token plus the bootstrap profile.
 
@@ -323,7 +330,7 @@ def login(
     permissions = PermissionsSnapshot(
         matriz=effective_permissions(db, str(app_user.igreja_id))
     )
-    register_session(db, clerk, token, app_user)
+    register_auth_session(clerk, token, app_user)
     db.commit()
     return LoginResponse(token=token, **profile.model_dump(), permissions=permissions)
 

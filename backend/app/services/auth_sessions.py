@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -9,6 +10,8 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AppUser, AuthSession
+from app.db.session import get_session_factory
+from app.db.tenant_session import mark_cross_tenant
 from app.services.clerk import ClerkClient, ClerkIdentity
 
 _INVALID_SESSION = "Sessão inválida ou expirada"
@@ -31,6 +34,12 @@ def session_jti(identity: ClerkIdentity) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return value
+
+
+def purge_expired_auth_sessions(db: Session, *, now: datetime) -> int:
+    """Delete expired session metadata across tenants from the maintenance path."""
+    result = db.execute(delete(AuthSession).where(AuthSession.expires_at <= now))
+    return int(getattr(result, "rowcount", 0) or 0)
 
 
 def register_session(db: Session, clerk: ClerkClient, token: str, app_user: AppUser) -> None:
@@ -61,6 +70,31 @@ def register_session(db: Session, clerk: ClerkClient, token: str, app_user: AppU
             expires_at=expires_at,
         )
     )
+
+
+def register_session_with_backend_role(
+    clerk: ClerkClient,
+    token: str,
+    app_user: AppUser,
+    *,
+    session_factory: Callable[[], Session] | None = None,
+) -> None:
+    """Persist a login session on a separate privileged backend connection."""
+    db = (session_factory or get_session_factory())()
+    try:
+        mark_cross_tenant(db, source="auth-session-register")
+        register_session(db, clerk, token, app_user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def get_auth_session_registrar() -> Callable[[ClerkClient, str, AppUser], None]:
+    """Resolve the lazy writer so failed login attempts do not open a DB session."""
+    return register_session_with_backend_role
 
 
 def require_active_session(

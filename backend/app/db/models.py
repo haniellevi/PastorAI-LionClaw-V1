@@ -348,10 +348,12 @@ class AuthSession(Base):
             "app_user_id",
             "expires_at",
         ),
+        Index("auth_sessions_expiry_idx", "expires_at"),
     )
 
     jti: Mapped[str] = mapped_column(Text, primary_key=True)
-    # NULL only for an allowlisted platform admin detached from a church.
+    # NULL only for a detached platform admin; the composite FK intentionally
+    # skips its tenant-pair check, while app_user_id still requires the user.
     igreja_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import time
+import datetime as dt
+from types import SimpleNamespace
 from uuid import uuid4
 from urllib.parse import urlsplit
 
@@ -11,14 +13,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text, update
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import AuthSession
+from app.db.models import AppUser, AuthSession
 from app.db.session import get_db
 from app.db.tenant_session import mark_tenant_scoped
 from app.deps import CurrentUser, get_current_user
 from app.routers import auth, team
+from app.services.auth_sessions import register_session_with_backend_role
 from app.services.clerk import ClerkClient, get_clerk_client
+from app.workers.cron_worker import AUTH_SESSION_PURGE_INTERVAL, CronWorker
 from tests.conftest_rls import assert_disposable_database
 from tests.test_uv_turmas_pg import database, migrated_database, seeded  # noqa: F401
 
@@ -30,13 +35,13 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def rls_database_url():
-    url = os.environ.get("UV_TURMAS_DATABASE_URL", "").strip()
+    url = os.environ.get("RLS_TEST_DATABASE_URL", "").strip()
     if not url:
-        pytest.fail("Logout exige PostgreSQL local sintético; nenhum skip permitido")
+        pytest.fail("Logout exige PostgreSQL local sintético via RLS_TEST_DATABASE_URL; nenhum skip permitido")
     assert_disposable_database(url)
     parsed = urlsplit(url)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.path != "/uv_turmas_test":
-        pytest.fail("Use somente o banco local descartável uv_turmas_test")
+    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        pytest.fail("Use somente PostgreSQL local descartável em RLS_TEST_DATABASE_URL")
     return url
 
 
@@ -102,6 +107,174 @@ def _insert_session(database, *, jti, tenant, app_user_id, issued_at=None):
             ),
             {"jti": jti, "tenant": tenant, "user": app_user_id, "iat": issued_at},
         )
+
+
+def test_authenticated_cannot_delete_or_reinsert_revoked_session(database, seeded):
+    subject, jti = "session-owner-acl", "revoked-session-acl"
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": subject, "id": seeded["uid"]},
+        )
+    _insert_session(database, jti=jti, tenant=seeded["t"], app_user_id=seeded["uid"])
+    with database.begin() as connection:
+        connection.execute(
+            text("update auth_sessions set revoked_at=now() where jti=:jti"),
+            {"jti": jti},
+        )
+
+    with database.connect() as connection:
+        assert not connection.scalar(
+            text("select has_table_privilege('authenticated','auth_sessions','INSERT')")
+        )
+        assert not connection.scalar(
+            text("select has_table_privilege('authenticated','auth_sessions','DELETE')")
+        )
+
+    with pytest.raises(DBAPIError):
+        with _scoped_db(database, seeded["t"], subject) as session:
+            session.execute(text("delete from auth_sessions where jti=:jti"), {"jti": jti})
+
+    with pytest.raises(DBAPIError):
+        with _scoped_db(database, seeded["t"], subject) as session:
+            session.execute(
+                text(
+                    "insert into auth_sessions(jti,igreja_id,app_user_id,issued_at,expires_at) "
+                    "values(:jti,:tenant,:user,now(),now()+interval '1 hour')"
+                ),
+                {"jti": jti, "tenant": seeded["t"], "user": seeded["uid"]},
+            )
+
+    with database.connect() as connection:
+        assert connection.scalar(
+            text("select revoked_at is not null from auth_sessions where jti=:jti"),
+            {"jti": jti},
+        ) is True
+
+
+def test_backend_session_registrar_writes_without_authenticated_insert(database, seeded):
+    subject = "session-backend-registrar"
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": subject, "id": seeded["uid"]},
+        )
+    with Session(database) as session:
+        app_user = session.get(AppUser, seeded["uid"])
+    clerk = _clerk()
+    token, jti = _token(clerk, subject)
+
+    register_session_with_backend_role(
+        clerk,
+        token,
+        app_user,
+        session_factory=lambda: Session(database),
+    )
+
+    with database.connect() as connection:
+        assert connection.scalar(
+            text("select count(*) from auth_sessions where jti=:jti"), {"jti": jti}
+        ) == 1
+
+
+def test_composite_session_fk_allows_detached_platform_admin_null_tenant(
+    database, seeded
+):
+    user_id = uuid4()
+    jti = str(uuid4())
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "insert into app_users(id,igreja_id,nome,email,status,clerk_user_id) "
+                "values(:id,:tenant,'Admin de plataforma sintético',:email,'ativo',:subject)"
+            ),
+            {
+                "id": user_id,
+                "tenant": seeded["t"],
+                "email": f"platform-{user_id}@example.test",
+                "subject": f"platform-admin-{user_id}",
+            },
+        )
+        connection.execute(
+            text("insert into platform_admins(app_user_id,email) values(:id,:email)"),
+            {"id": user_id, "email": f"platform-{user_id}@example.test"},
+        )
+        connection.execute(
+            text("update app_users set igreja_id=null where id=:id"), {"id": user_id}
+        )
+        connection.execute(
+            text(
+                "insert into auth_sessions(jti,igreja_id,app_user_id,issued_at,expires_at) "
+                "values(:jti,null,:user,now(),now()+interval '1 hour')"
+            ),
+            {"jti": jti, "user": user_id},
+        )
+    with database.connect() as connection:
+        assert connection.scalar(
+            text("select igreja_id is null from auth_sessions where jti=:jti"),
+            {"jti": jti},
+        ) is True
+    with pytest.raises(IntegrityError):
+        with database.begin() as connection:
+            connection.execute(
+                text(
+                    "insert into auth_sessions(jti,igreja_id,app_user_id,issued_at,expires_at) "
+                    "values(:jti,null,:user,now(),now()+interval '1 hour')"
+                ),
+                {"jti": str(uuid4()), "user": uuid4()},
+            )
+
+
+def test_cron_purges_expired_sessions_across_tenants(database, seeded):
+    now = dt.datetime.now(dt.timezone.utc)
+    old_issued_at = int((now - dt.timedelta(hours=2)).timestamp())
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id='session-expiry-a' where id=:id"),
+            {"id": seeded["uid"]},
+        )
+        connection.execute(
+            text(
+                "insert into app_users(id,igreja_id,nome,email,status,clerk_user_id) "
+                "values(:id,:tenant,'Equipe expirada sintética','expiry@example.test','ativo','session-expiry-b')"
+            ),
+            {"id": uuid4(), "tenant": seeded["other"]},
+        )
+        other_user = connection.scalar(
+            text("select id from app_users where clerk_user_id='session-expiry-b'")
+        )
+    expired_a, expired_b, active = "expired-session-a", "expired-session-b", "active-session"
+    _insert_session(
+        database,
+        jti=expired_a,
+        tenant=seeded["t"],
+        app_user_id=seeded["uid"],
+        issued_at=old_issued_at,
+    )
+    _insert_session(
+        database,
+        jti=expired_b,
+        tenant=seeded["other"],
+        app_user_id=other_user,
+        issued_at=old_issued_at,
+    )
+    _insert_session(database, jti=active, tenant=seeded["t"], app_user_id=seeded["uid"])
+
+    worker = CronWorker(
+        session_factory=lambda: Session(database),
+        engine=object(),
+        settings=SimpleNamespace(cron_tick_seconds=30, redis_url=""),
+    )
+    assert worker._purge_auth_sessions(now) == 2
+    assert worker._purge_auth_sessions(now + AUTH_SESSION_PURGE_INTERVAL / 2) == 0
+    with database.connect() as connection:
+        assert connection.scalar(
+            text("select count(*) from auth_sessions where jti in (:a,:b)"),
+            {"a": expired_a, "b": expired_b},
+        ) == 0
+        assert connection.scalar(
+            text("select count(*) from auth_sessions where jti=:jti"), {"jti": active}
+        ) == 1
 
 
 def test_tenant_a_cannot_revoke_tenant_b_session(database, seeded):

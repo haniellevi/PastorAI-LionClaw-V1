@@ -109,9 +109,10 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 
 - **em andamento:** auditoria de 03/10: redação de segredo em logs e escopo
   de igreja nas rotinas automáticas integrados (#558). Faltam MFA no console
-  (depende de ligar no Clerk) e logout no servidor. Acessibilidade automática
-  (axe WCAG 2.1 A/AA) nas telas principais integrada (#559); leitor de tela e
-  celular reais: **não verificado**.
+  (depende de ligar no Clerk). Logout no servidor é candidato em
+  `feat/logout-servidor`, ainda pendente de integração. Acessibilidade
+  automática (axe WCAG 2.1 A/AA) nas telas principais integrada (#559); leitor
+  de tela e celular reais: **não verificado**.
 - **em andamento:** dependências corrigidas e triadas (#463/#469/#470; Next 15.5.28 em #552);
   auditorias das dependências de produção registradas como limpas em 10/10, mas permaneciam cinco
   alertas altos nas ferramentas ligados a `braces`. Situação atual **não verificado**.
