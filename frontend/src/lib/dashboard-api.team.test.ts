@@ -27,7 +27,13 @@ describe("fetchTeam", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ items: first, page: 1, pageSize: 100, total: 101 }), {
+        new Response(JSON.stringify({
+          items: first,
+          page: 1,
+          pageSize: 100,
+          total: 101,
+          sem_pessoa_ativa_coordenacao: 4,
+        }), {
           status: 200,
         }),
       )
@@ -45,5 +51,6 @@ describe("fetchTeam", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2&pageSize=100");
     expect(result.items).toHaveLength(101);
     expect(result.items.at(-1)).toEqual(last);
+    expect(result.sem_pessoa_ativa_coordenacao).toBe(4);
   });
 });

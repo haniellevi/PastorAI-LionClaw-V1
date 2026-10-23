@@ -41,6 +41,15 @@ import { TeamPessoaDialog } from "./TeamPessoaDialog";
 
 import { RolePick, RoleTags } from "./RolePick";
 
+const ENVIAR_COORDINATION_ROLES = new Set([
+  "admin",
+  "pastor",
+  "lider_consol",
+  "lider_g12",
+  "lider_celula",
+  "lider_mult",
+]);
+
 interface Toast {
   kind: "ok" | "err";
   text: string;
@@ -65,6 +74,7 @@ export function EquipeScreen() {
   const podeConvidar = isAdminUser;
 
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [semPessoaAtivaCoordenacao, setSemPessoaAtivaCoordenacao] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +149,7 @@ export function EquipeScreen() {
       try {
         const page = await fetchTeam(token);
         setMembers(page.items);
+        setSemPessoaAtivaCoordenacao(page.sem_pessoa_ativa_coordenacao ?? null);
         setLoaded(true);
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -373,7 +384,22 @@ export function EquipeScreen() {
     const base: Array<Column<TeamMember>> = [
       {
         header: "Pessoa",
-        cell: (m) => <span className="nm">{m.nome}</span>,
+        cell: (m) => (
+          <div style={{ display: "grid", gap: 4 }}>
+            <span className="nm">{m.nome}</span>
+            {isAdminUser && m.pessoaVinculo === "sem_vinculo" ? (
+              <StatusPill tone="warn">
+                <span className="sr-only">Vínculo com Pessoa: </span>
+                Sem Pessoa vinculada
+              </StatusPill>
+            ) : isAdminUser && m.pessoaVinculo === "pessoa_inativa" ? (
+              <StatusPill tone="warn">
+                <span className="sr-only">Vínculo com Pessoa: </span>
+                Pessoa inativa
+              </StatusPill>
+            ) : null}
+          </div>
+        ),
       },
       {
         header: "E-mail",
@@ -432,6 +458,11 @@ export function EquipeScreen() {
   }, [openEdit, isSelf, handleResend, handleRevoke, busyId, isAdminUser]);
 
   const showSkeleton = loading && !loaded;
+  const firstCoordinationWithoutActivePerson = members.find((member) =>
+    (member.status === null || member.status === "ativo") &&
+    member.papeis.some((role) => ENVIAR_COORDINATION_ROLES.has(role)) &&
+    (member.pessoaVinculo === "sem_vinculo" || member.pessoaVinculo === "pessoa_inativa"),
+  );
 
   return (
     <div className="screen admin-screen team-screen administration-ux" key="equipe">
@@ -453,6 +484,26 @@ export function EquipeScreen() {
           ) : null}
         </div>
       </div>
+
+      {isAdminUser && semPessoaAtivaCoordenacao !== null && semPessoaAtivaCoordenacao > 0 ? (
+        <div className="info-banner" role="status" aria-live="polite">
+          <span>
+            {semPessoaAtivaCoordenacao === 1
+              ? "Há 1 membro ativo da coordenação sem Pessoa ativa."
+              : `Há ${semPessoaAtivaCoordenacao} membros ativos da coordenação sem Pessoa ativa.`}
+            {" "}Use “Vincular Pessoa” para regularizar o vínculo.
+          </span>
+          {firstCoordinationWithoutActivePerson ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setLinking(firstCoordinationWithoutActivePerson)}
+            >
+              Vincular Pessoa
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="error-banner" role="alert">
