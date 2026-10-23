@@ -22,7 +22,11 @@ from app.db.models import (
     WhatsappConnection,
     WorkQueueItem,
 )
-from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
+from app.db.tenant_session import (
+    CROSS_TENANT_KEY,
+    TENANT_IGREJA_KEY,
+    TENANT_META_KEY,
+)
 from app.domain.sla import SlaStatus
 from app.services.evolution import EvolutionError
 from app.services.sla_engine import (
@@ -535,6 +539,7 @@ class _DiscoverySession:
     def __init__(self, *, work_igrejas=None, cons_igrejas=None) -> None:
         self._work = work_igrejas or []
         self._cons = cons_igrejas or []
+        self.info: dict = {}
 
     def execute(self, statement, params=None) -> _FakeResult:
         entity = statement.column_descriptions[0].get("entity")
@@ -599,6 +604,8 @@ def test_run_all_igrejas_scopes_a_new_session_per_igreja() -> None:
     engine = _RecordingEngine()
     total = run_all_igrejas(discovery, engine, _T0, session_factory=factory)
 
+    assert discovery.info[CROSS_TENANT_KEY] is True
+    assert discovery.info[TENANT_META_KEY]["source"] == "cron_sla_discovery"
     # Uma nova sessão tenant-scoped por igreja distinta (A e B).
     assert len(created) == 2
     assert {ig for _, ig in engine.calls} == {ig_a, ig_b}
@@ -630,6 +637,8 @@ def test_run_all_igrejas_closes_session_even_when_engine_raises() -> None:
     engine = _RecordingEngine(boom_on=ig_a)
     total = run_all_igrejas(discovery, engine, _T0, session_factory=factory)
 
+    assert discovery.info[CROSS_TENANT_KEY] is True
+    assert discovery.info[TENANT_META_KEY]["source"] == "cron_sla_discovery"
     # A falha de um tenant não derruba os demais; a sessão que falhou foi
     # revertida e fechada, sem devolver a conexão ao pool em role authenticated.
     assert len(created) == 2
