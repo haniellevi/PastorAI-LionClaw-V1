@@ -19,13 +19,18 @@ e, portanto, Evolution não causa restart loop.
 ## Fluxo parado de outbox e webhooks
 
 `/operations/pending` inclui contagem e idade do item mais antigo da outbox
-(`pendente`, `retry` e lease vencida) e dos webhooks ainda presentes nas filas
-Redis. O endpoint continua restrito a administrador ativo e usa a igreja da
-identidade autenticada. Ele retorna somente contagens e idades, sem payload,
-texto, telefone ou identificador de pessoa. Webhooks anteriores à inclusão do
-timestamp continuam contados, com `age_complete=false` até saírem da fila.
-O snapshot Redis tem limite de 5.000 itens; acima dele ou diante de envelope
-inválido, a contagem fica indisponível em vez de aparecer como zero.
+(`pendente`, `retry` e lease vencida) e dos webhooks ainda ativos nas filas
+Redis. Dead letters aparecem em `webhook_dead_letters`, fora de pendências,
+vencimentos e do alerta `stuck_flow`. O endpoint continua restrito a
+administrador ativo e usa a igreja da identidade autenticada. Ele retorna
+somente contagens e idades, sem payload, texto, telefone ou identificador de
+pessoa. Webhooks anteriores à inclusão do timestamp continuam contados, com
+`age_complete=false` até saírem da fila. O snapshot Redis lê no máximo 128
+envelopes por fotografia, com limite independente para filas ativas e DLQ.
+Se a DLQ exceder o limite ou tiver envelope inválido, só sua métrica fica
+indisponível; isso não afeta `stuck_flow`. Se a fotografia ativa ficar
+incompleta, a projeção de webhooks fica indisponível em vez de aparecer como
+zero.
 
 O check `stuck_flow` do monitor fica desligado por padrão. Para ativá-lo, defina
 no `.env` de implantação:
@@ -33,11 +38,14 @@ no `.env` de implantação:
 ```dotenv
 MONITOR_STUCK_FLOW_ENABLED=true
 MONITOR_STUCK_FLOW_URL=http://127.0.0.1:8000/operations/pending
-MONITOR_STUCK_FLOW_TOKEN=<bearer aceito para um administrador ativo>
+MONITOR_STUCK_FLOW_TOKEN=<credencial dedicada de leitura>
 MONITOR_STUCK_FLOW_MAX_AGE_SECONDS=3600
 ```
 
-O monitor só aceita endpoint loopback nessa rota. A credencial é copiada pelo
+Antes de habilitar, configure uma credencial dedicada, somente de leitura, para
+esse monitor. Não use token de sessão. O check cobre apenas a igreja vinculada
+ao administrador dessa credencial, não todas as igrejas. O monitor só aceita
+endpoint loopback nessa rota. A credencial é copiada pelo
 allowlist para `/etc/pastorai-monitor.env`, com modo `0600`, e nunca entra nos
 logs. O endpoint é consultado no escopo da igreja do administrador autenticado;
 credencial inválida, métrica indisponível ou idade incompleta degrada o check.

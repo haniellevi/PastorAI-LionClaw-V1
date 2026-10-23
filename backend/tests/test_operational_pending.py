@@ -6,10 +6,12 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from tests.test_operational_usage import db, operational_database, rls_database_url, IGREJA_A, IGREJA_B
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.services.clerk import get_clerk_client
+from tests.conftest import FakeClerk
 
 pytestmark = pytest.mark.rls_integration
 
@@ -27,12 +29,20 @@ def seed_tasks(db):
 
 
 class SnapshotWebhookQueue:
-    def __init__(self, items=(), *, complete=True):
+    def __init__(
+        self, items=(), *, dead_letters=(), complete=True,
+        dead_letters_complete=True,
+    ):
         self.items = list(items)
+        self.dead_letters = list(dead_letters)
         self.complete = complete
+        self.dead_letters_complete = dead_letters_complete
 
     def pending_metadata(self):
         return self.items, self.complete
+
+    def dead_letter_metadata(self):
+        return self.dead_letters, self.dead_letters_complete
 
 
 def seed_outbox(db, now):
@@ -109,6 +119,7 @@ def test_outbox_counts_and_oldest_age_are_tenant_scoped(db):
     assert result.notification_outbox['expired_lease'].count == 1
     assert result.notification_outbox['expired_lease'].oldest_age_seconds == 72000
     assert result.notification_outbox['expired_lease'].oldest_overdue_age_seconds == 120
+    assert result.webhook_dead_letters.count is None
     assert 'Synthetic' not in result.model_dump_json()
 
     # Explicitly asking for church B cannot cross the authenticated A context.
@@ -143,6 +154,8 @@ def test_webhook_counts_and_age_are_resolved_by_tenant_without_payload(db):
     assert webhooks.count == 2
     assert webhooks.oldest_age_seconds == 7200
     assert webhooks.age_complete is True
+    assert result.webhook_dead_letters.count == 0
+    assert result.webhook_dead_letters.overdue_count == 0
     assert 'claim-a-old' not in result.model_dump_json()
     assert 'synthetic-instance-a' not in result.model_dump_json()
 
@@ -150,6 +163,65 @@ def test_webhook_counts_and_age_are_resolved_by_tenant_without_payload(db):
         db, uuid.UUID(IGREJA_B), now=now, webhook_queue=queue
     )
     assert other.webhooks.count == 0
+
+
+def test_dead_letter_webhooks_are_reported_separately_from_stuck_flow(db):
+    from app.services.operational_usage import operational_pending
+    from app.workers.queue_worker import PendingWebhookMetadata
+
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+    db.execute(text('reset role'))
+    db.execute(text("""insert into whatsapp_connections
+      (id,igreja_id,instance,status) values
+      (:a,:tenant_a,'synthetic-instance-a','online'),
+      (:b,:tenant_b,'synthetic-instance-b','online')"""),
+      dict(a=uuid.uuid4(),b=uuid.uuid4(),tenant_a=IGREJA_A,tenant_b=IGREJA_B))
+    db.execute(text('set local role authenticated'))
+    queue = SnapshotWebhookQueue(
+        [PendingWebhookMetadata('claim-active', 'synthetic-instance-a', now.timestamp()-90)],
+        dead_letters=[
+            PendingWebhookMetadata('claim-dead-a', 'synthetic-instance-a', now.timestamp()-90000),
+            PendingWebhookMetadata('claim-dead-b', 'synthetic-instance-b', now.timestamp()-180000),
+        ],
+    )
+
+    result = operational_pending(
+        db, uuid.UUID(IGREJA_A), now=now, webhook_queue=queue
+    )
+
+    assert result.webhooks_available is True
+    assert result.webhooks.count == 1
+    assert result.webhooks.oldest_age_seconds == 90
+    assert result.webhooks.overdue_count == 1
+    assert result.webhook_dead_letters.count == 1
+    assert result.webhook_dead_letters.oldest_age_seconds == 90000
+    assert result.webhook_dead_letters.overdue_count == 0
+    assert result.webhook_dead_letters.oldest_overdue_age_seconds is None
+
+
+def test_incomplete_dead_letter_snapshot_does_not_hide_active_webhooks(db):
+    from app.services.operational_usage import operational_pending
+    from app.workers.queue_worker import PendingWebhookMetadata
+
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+    db.execute(text('reset role'))
+    db.execute(text("insert into whatsapp_connections(id,igreja_id,instance,status) values(:id,:tenant,'synthetic-instance-a','online')"),
+      dict(id=uuid.uuid4(),tenant=IGREJA_A))
+    db.execute(text('set local role authenticated'))
+    queue = SnapshotWebhookQueue(
+        [PendingWebhookMetadata('claim-active', 'synthetic-instance-a', now.timestamp()-90)],
+        dead_letters_complete=False,
+    )
+
+    result = operational_pending(
+        db, uuid.UUID(IGREJA_A), now=now, webhook_queue=queue
+    )
+
+    assert result.webhooks_available is True
+    assert result.webhooks.count == 1
+    assert result.webhooks.overdue_count == 1
+    assert result.webhook_dead_letters.count is None
+    assert result.webhook_dead_letters.overdue_count is None
 
 
 def test_legacy_webhooks_are_counted_with_unknown_age(db):
@@ -190,6 +262,7 @@ def test_incomplete_webhook_snapshot_does_not_report_a_zero_count(db):
     assert result.webhooks_available is False
     assert result.webhooks.count is None
     assert result.webhooks.overdue_count is None
+    assert result.webhook_dead_letters.count is None
 
 
 @pytest.mark.parametrize('roles,user_status,code', [
@@ -198,29 +271,139 @@ def test_incomplete_webhook_snapshot_does_not_report_a_zero_count(db):
     (['pastor'], 'ativo', 403), ([], 'ativo', 403),
 ])
 def test_pending_endpoint(app, db, roles, user_status, code):
-    seed_tasks(db)
+    now = seed_tasks(db)
+    seed_outbox(db, now)
     db.execute(text('reset role'))
     user_id = db.scalar(text("""update app_users set status=:status
         where clerk_user_id='synthetic' and igreja_id=:t returning id"""),
         dict(status=user_status, t=IGREJA_A))
+    db.execute(text('delete from user_roles where igreja_id=:t and user_id=:id'),
+               dict(t=IGREJA_A, id=user_id))
+    for role in roles:
+        db.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:t,:id,:role)"),
+                   dict(t=IGREJA_A, id=user_id, role=role))
     db.execute(text('set local role authenticated'))
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        app_user_id=str(user_id),clerk_user_id='synthetic',igreja_id=IGREJA_A,
-        email='synthetic@example.invalid',nome='Synthetic',roles=frozenset(roles))
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk(
+        clerk_user_id='synthetic'
+    )
     from app.routers.operations import get_pending_webhook_queue
     app.dependency_overrides[get_pending_webhook_queue] = lambda: SnapshotWebhookQueue()
     client = TestClient(app)
-    r = client.get('/operations/pending', params={'igreja_id':IGREJA_B,'stuck_after_seconds':1})
+    r = client.get(
+        '/operations/pending',
+        params={'igreja_id':IGREJA_B,'stuck_after_seconds':1},
+        headers={'Authorization': 'Bearer synthetic-session-token'},
+    )
     assert r.status_code == code
     if code == 200:
         assert r.json()['sources']['tasks']['count'] == 4
-        assert r.json()['notification_outbox']['pending']['count'] == 0
+        assert r.json()['outbox_available'] is True
+        assert r.json()['notification_outbox']['pending']['count'] == 3
         assert r.json()['webhooks']['count'] == 0
+        assert json.loads(db.scalar(
+            text("select current_setting('request.jwt.claims', true)")
+        )) == {'sub': 'synthetic'}
         assert r.headers['cache-control'] == 'no-store'
         assert 'PRIVATE' not in r.text
         for threshold in (0, -1, 2592001):
-            assert client.get('/operations/pending',params={'stuck_after_seconds':threshold}).status_code == 422
+            assert client.get(
+                '/operations/pending',
+                params={'stuck_after_seconds':threshold},
+                headers={'Authorization': 'Bearer synthetic-session-token'},
+            ).status_code == 422
+
+
+def test_pending_endpoint_reapplies_json_claim_after_intermediate_commit(app, db):
+    now = seed_tasks(db)
+    seed_outbox(db, now)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk(
+        clerk_user_id='synthetic'
+    )
+    from app.routers.operations import get_pending_webhook_queue
+
+    def commit_before_snapshot():
+        db.commit()
+        return SnapshotWebhookQueue()
+
+    app.dependency_overrides[get_pending_webhook_queue] = commit_before_snapshot
+    response = TestClient(app).get(
+        '/operations/pending',
+        headers={'Authorization': 'Bearer synthetic-session-token'},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()['outbox_available'] is True
+    assert response.json()['notification_outbox']['pending']['count'] == 3
+    assert json.loads(db.scalar(
+        text("select current_setting('request.jwt.claims', true)")
+    )) == {'sub': 'synthetic'}
+
+
+def test_pending_metrics_acl_and_admin_scope(db):
+    function = (
+        'public.operations_notification_outbox_pending_metrics(uuid,timestamptz)'
+    )
+    db.execute(text('reset role'))
+    assert not db.scalar(
+        text("select has_function_privilege('anon', :fn, 'EXECUTE')"),
+        {'fn': function},
+    )
+    assert db.scalar(
+        text("select has_function_privilege('authenticated', :fn, 'EXECUTE')"),
+        {'fn': function},
+    )
+    assert not db.scalar(
+        text("select has_function_privilege('service_role', :fn, 'EXECUTE')"),
+        {'fn': function},
+    )
+
+    with pytest.raises(DBAPIError, match='permission denied for function') as denied:
+        with db.begin_nested():
+            db.execute(text('set local role anon'))
+            db.execute(text("""select * from public.
+              operations_notification_outbox_pending_metrics(:tenant, now())"""),
+              {'tenant': IGREJA_A})
+    denied_sqlstate = (
+        getattr(denied.value.orig, 'sqlstate', None)
+        or getattr(denied.value.orig, 'pgcode', None)
+    )
+    assert denied_sqlstate == '42501'
+
+    db.execute(text("""insert into app_users
+      (igreja_id,clerk_user_id,nome,email,status)
+      values(:tenant,'synthetic-admin-b','Synthetic Admin B',
+             'synthetic-admin-b@example.invalid','ativo')"""),
+      {'tenant': IGREJA_B})
+    db.execute(text("""insert into user_roles(igreja_id,user_id,papel)
+      select igreja_id,id,'admin' from app_users
+      where clerk_user_id='synthetic-admin-b' and igreja_id=:tenant"""),
+      {'tenant': IGREJA_B})
+    db.execute(text("""update app_users set status='revogado'
+      where clerk_user_id='synthetic' and igreja_id=:tenant"""),
+      {'tenant': IGREJA_A})
+
+    def assert_not_authorized(clerk_sub, current_tenant):
+        db.execute(text("select set_config('request.jwt.claims', :claims, true)"),
+                   {'claims': json.dumps({'sub': clerk_sub})})
+        db.execute(text("select set_config('app.tenant_igreja_id', :tenant, true)"),
+                   {'tenant': current_tenant})
+        db.execute(text('set local role authenticated'))
+        with pytest.raises(DBAPIError, match='not authorized') as rejected:
+            with db.begin_nested():
+                db.execute(text("""select * from public.
+                  operations_notification_outbox_pending_metrics(:tenant, now())"""),
+                  {'tenant': IGREJA_A})
+        rejected_sqlstate = (
+            getattr(rejected.value.orig, 'sqlstate', None)
+            or getattr(rejected.value.orig, 'pgcode', None)
+        )
+        assert rejected_sqlstate == '42501'
+        db.execute(text('reset role'))
+
+    assert_not_authorized('synthetic', IGREJA_A)
+    assert_not_authorized('synthetic-admin-b', IGREJA_B)
 
 
 def test_index_and_rls(db):

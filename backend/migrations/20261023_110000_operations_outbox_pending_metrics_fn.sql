@@ -90,5 +90,11 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION public.operations_notification_outbox_pending_metrics(uuid, timestamptz)
+    FROM public, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.operations_notification_outbox_pending_metrics(uuid, timestamptz)
+    TO authenticated;
+
 -- Rollback (authorized maintenance):
+-- Dropping the function also removes its explicit ACL.
 -- DROP FUNCTION IF EXISTS public.operations_notification_outbox_pending_metrics(uuid, timestamptz);

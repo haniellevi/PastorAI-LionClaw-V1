@@ -32,6 +32,7 @@ o mesmo tenant.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -125,7 +126,7 @@ def mark_tenant_scoped(
     Args:
         session: sessão SQLAlchemy a escopar.
         igreja_id: tenant alvo (uuid; coagido a str).
-        actor_sub: (opcional) subject Clerk que originou a marcação (auditoria).
+        actor_sub: subject Clerk validado, reaplicado como claim nas transações.
         actor_role: (opcional) papel do ator (auditoria).
         source: rótulo obrigatório da origem da marcação (ex.: "http", "worker").
     """
@@ -241,9 +242,10 @@ def _reapply_tenant_scope(
 
     No-op quando `session.info` não tem `TENANT_IGREJA_KEY` (sessão não-marcada
     ou cross-tenant explícito). Quando marcado, reafirma o GUC
-    `app.tenant_igreja_id` + o papel `authenticated`, ambos transaction-local
-    (`set_config(..., true)`, equivalente a `SET LOCAL ROLE`), numa única ida
-    ao banco.
+    `app.tenant_igreja_id`, o `sub` autenticado em `request.jwt.claims` e o papel
+    `authenticated`, todos transaction-local, numa única ida ao banco. O `sub`
+    vem do metadado da identidade HTTP já validada, permitindo que funções SQL
+    SECURITY DEFINER mantenham suas verificações após um commit intermediário.
 
     Usa `connection.exec_driver_sql` (NÃO `session.execute`) de propósito: emitir
     via ORM aqui reentraria no ciclo de transação (o próprio `after_begin`). O
@@ -258,10 +260,20 @@ def _reapply_tenant_scope(
     if not igreja_id:
         return  # no-op: sessão não-marcada ou cross-tenant explícito
 
+    meta = session.info.get(TENANT_META_KEY)
+    actor_sub = meta.get("actor_sub") if isinstance(meta, dict) else None
+    claims = (
+        json.dumps({"sub": actor_sub})
+        if isinstance(actor_sub, str) and actor_sub
+        else ""
+    )
+
     connection.exec_driver_sql(
         "select set_config('app.tenant_igreja_id', %s, true), "
+        "set_config('request.jwt.claims', %s, true), "
+        "set_config('request.jwt.claim.sub', '', true), "
         f"{ROLE_AUTHENTICATED_SQL}",
-        (str(igreja_id),),
+        (str(igreja_id), claims),
     )
 
 

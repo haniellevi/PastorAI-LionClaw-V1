@@ -176,6 +176,29 @@ def test_stuck_flow_check_accepts_recent_and_empty_queues(monkeypatch) -> None:
     assert empty == monitor.CheckResult("stuck_flow", True, "fila vazia")
 
 
+def test_stuck_flow_does_not_count_dead_letter_webhooks(monkeypatch) -> None:
+    body = _pending_body(count=0, age=None)
+    body["webhook_dead_letters"] = {
+        "count": 12,
+        "oldest_age_seconds": 86400,
+        "age_complete": True,
+        "unaged_count": 0,
+        "overdue_count": 0,
+        "oldest_overdue_age_seconds": None,
+    }
+    monkeypatch.setattr(monitor, "request_json", lambda *_args, **_kwargs: body)
+
+    result = monitor.check_stuck_flow(
+        {
+            "MONITOR_STUCK_FLOW_ENABLED": "true",
+            "MONITOR_STUCK_FLOW_URL": "http://127.0.0.1:8000/operations/pending",
+            "MONITOR_STUCK_FLOW_TOKEN": "synthetic-token",
+        }
+    )
+
+    assert result == monitor.CheckResult("stuck_flow", True, "fila vazia")
+
+
 def test_stuck_flow_ignores_old_but_not_yet_due_outbox_items(monkeypatch) -> None:
     body = _pending_body(source="notification_outbox_pending", age=86400)
     pending = body["notification_outbox"]["pending"]

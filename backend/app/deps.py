@@ -248,7 +248,8 @@ def _resolve_current_user(
     # TODA transação futura desta sessão, inclusive leituras pós-commit — e
     # reafirma o escopo agora. current_igreja_id() prioriza o GUC, então daqui em
     # diante o GUC (não mais a semente via `sub`) governa o tenant efetivo, que
-    # permanece o MESMO. actor_sub/actor_role viajam só como metadado de auditoria.
+    # permanece o MESMO. actor_sub restaura o claim JSON em novas transações;
+    # actor_role continua apenas como metadado de auditoria.
     mark_tenant_scoped(
         db,
         igreja_id,

@@ -133,7 +133,7 @@ WEBHOOK_QUEUE = "pastorai:webhooks"
 PROCESSING_QUEUE = "pastorai:webhooks:processing"
 DEAD_LETTER_QUEUE = "pastorai:webhooks:dead"
 SCHEDULED_RETRY_QUEUE = "pastorai:webhooks:retry-scheduled"
-WEBHOOK_METRICS_MAX_ITEMS = 5000
+WEBHOOK_METRICS_MAX_ITEMS = 128
 RETRY_STATE_PREFIX = "pastorai:webhooks:retry-state:"
 PROCESSED_PREFIX = "pastorai:processed:"
 WORKER_REGISTRY = "pastorai:webhooks:workers"
@@ -1705,7 +1705,7 @@ class _Envelope:
 
 @dataclass(frozen=True)
 class PendingWebhookMetadata:
-    """Tenant lookup and age inputs only; never return the webhook payload."""
+    """Tenant lookup and age inputs without webhook payload."""
 
     claim_id: str
     instance: str | None
@@ -1773,16 +1773,14 @@ class WebhookQueue:
     def pending_metadata(
         self, *, max_items: int = WEBHOOK_METRICS_MAX_ITEMS
     ) -> tuple[list[PendingWebhookMetadata], bool]:
-        """Read bounded metadata for accepted webhooks that remain unacked.
+        """Read bounded metadata for active webhook envelopes.
 
         Queue contents stay in Redis. The returned metadata omits all payload
         fields except the provider instance name needed to resolve the tenant.
-        A false completeness flag means a cap or malformed legacy item made
-        the snapshot incomplete, so callers must not claim an exact total.
+        No more than ``max_items`` complete envelopes are read. A false
+        completeness flag means the cap or malformed legacy item made the
+        snapshot incomplete, so callers must not claim an exact total.
         """
-        if max_items < 1:
-            raise ValueError("max_items must be positive")
-
         worker_ids = self._redis.smembers(WORKER_REGISTRY)
         processing_keys = [
             self.processing_queue(
@@ -1793,18 +1791,52 @@ class WebhookQueue:
             for worker_id in worker_ids
         ]
         list_keys = [
-            WEBHOOK_QUEUE, PROCESSING_QUEUE, *processing_keys, DEAD_LETTER_QUEUE
+            WEBHOOK_QUEUE, PROCESSING_QUEUE, *processing_keys
         ]
+        return self._metadata_snapshot(
+            list_keys, retry_queue=SCHEDULED_RETRY_QUEUE, max_items=max_items
+        )
+
+    def dead_letter_metadata(
+        self, *, max_items: int = WEBHOOK_METRICS_MAX_ITEMS
+    ) -> tuple[list[PendingWebhookMetadata], bool]:
+        """Read a separately bounded metadata snapshot of terminal failures."""
+        return self._metadata_snapshot(
+            [DEAD_LETTER_QUEUE], retry_queue=None, max_items=max_items
+        )
+
+    def _metadata_snapshot(
+        self,
+        list_keys: list[str],
+        *,
+        retry_queue: str | None,
+        max_items: int,
+    ) -> tuple[list[PendingWebhookMetadata], bool]:
+        if max_items < 1:
+            raise ValueError("max_items must be positive")
+
         list_count = sum(int(self._redis.llen(key)) for key in list_keys)
-        retry_count = int(self._redis.zcard(SCHEDULED_RETRY_QUEUE))
+        retry_count = int(self._redis.zcard(retry_queue)) if retry_queue else 0
         if list_count + retry_count > max_items:
             return [], False
 
         raw_items: list[Any] = []
+        remaining = max_items
         for key in list_keys:
-            raw_items.extend(self._redis.lrange(key, 0, -1))
-        raw_items.extend(self._redis.zrange(SCHEDULED_RETRY_QUEUE, 0, -1))
+            if remaining == 0:
+                break
+            values = self._redis.lrange(key, 0, remaining - 1)
+            raw_items.extend(values)
+            remaining -= len(values)
+        if remaining and retry_queue:
+            raw_items.extend(self._redis.zrange(retry_queue, 0, remaining - 1))
         if len(raw_items) > max_items:
+            return [], False
+
+        observed_count = sum(int(self._redis.llen(key)) for key in list_keys)
+        if retry_queue:
+            observed_count += int(self._redis.zcard(retry_queue))
+        if observed_count != len(raw_items):
             return [], False
 
         complete = True

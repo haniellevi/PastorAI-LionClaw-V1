@@ -1,6 +1,7 @@
 """Read-only tenant operational aggregates. No payloads or free-text labels."""
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -74,6 +75,7 @@ class OperationalPending(BaseModel):
     outbox_available: bool = False
     notification_outbox: dict[str, QueueAge]
     webhooks: QueueAge
+    webhook_dead_letters: QueueAge
     sources: dict[str, PendingAge]
 
 
@@ -141,49 +143,102 @@ def _webhook_pending_age(
     igreja_id: UUID,
     measured_at: datetime,
     queue: object | None,
-) -> tuple[QueueAge, bool]:
+) -> tuple[QueueAge, QueueAge, bool]:
     if queue is None:
-        return _empty_queue_age(), False
+        return _empty_queue_age(), _empty_queue_age(), False
+
+    items: list[Any] = []
+    snapshot_complete = False
+    registered: set[str] = set()
     try:
         with db.begin_nested():
             items, snapshot_complete = queue.pending_metadata()  # type: ignore[attr-defined]
-            if not snapshot_complete:
-                return _empty_queue_age(), False
-            instances = {
-                item.instance
-                for item in items
-                if isinstance(item.instance, str) and item.instance
-            }
-            registered = set()
-            if instances:
-                registered = set(
-                    db.execute(
-                        select(WhatsappConnection.instance).where(
-                            WhatsappConnection.igreja_id == igreja_id,
-                            WhatsappConnection.instance.in_(instances),
-                            WhatsappConnection.instance.is_not(None),
-                        )
-                    ).scalars()
-                )
+            if snapshot_complete:
+                instances = {
+                    item.instance
+                    for item in items
+                    if isinstance(item.instance, str) and item.instance
+                }
+                if instances:
+                    registered = set(
+                        db.execute(
+                            select(WhatsappConnection.instance).where(
+                                WhatsappConnection.igreja_id == igreja_id,
+                                WhatsappConnection.instance.in_(instances),
+                                WhatsappConnection.instance.is_not(None),
+                            )
+                        ).scalars()
+                    )
     except Exception:
-        return _empty_queue_age(), False
+        items = []
+        snapshot_complete = False
+        registered = set()
+    if not snapshot_complete:
+        return _empty_queue_age(), _empty_queue_age(), False
+
+    dead_letters: list[Any] = []
+    dead_letters_complete = False
+    registered_dead_letters: set[str] = set()
+    try:
+        with db.begin_nested():
+            dead_letters, dead_letters_complete = queue.dead_letter_metadata()  # type: ignore[attr-defined]
+            if dead_letters_complete:
+                instances = {
+                    item.instance
+                    for item in dead_letters
+                    if isinstance(item.instance, str) and item.instance
+                }
+                if instances:
+                    registered_dead_letters = set(
+                        db.execute(
+                            select(WhatsappConnection.instance).where(
+                                WhatsappConnection.igreja_id == igreja_id,
+                                WhatsappConnection.instance.in_(instances),
+                                WhatsappConnection.instance.is_not(None),
+                            )
+                        ).scalars()
+                    )
+    except Exception:
+        dead_letters = []
+        dead_letters_complete = False
+        registered_dead_letters = set()
+
+    def queue_age(
+        queue_items: list[Any], *, overdue: bool, complete: bool
+    ) -> QueueAge:
+        if not complete:
+            return _empty_queue_age()
+        unaged_count = sum(item.received_at is None for item in queue_items)
+        ages = [
+            max(0.0, measured_at.timestamp() - float(item.received_at))
+            for item in queue_items
+            if item.received_at is not None
+        ]
+        age_complete = unaged_count == 0
+        return QueueAge(
+            count=len(queue_items),
+            oldest_age_seconds=max(ages) if ages and age_complete else None,
+            age_complete=age_complete,
+            unaged_count=unaged_count,
+            overdue_count=len(queue_items) if overdue else 0,
+            oldest_overdue_age_seconds=(
+                max(ages) if overdue and ages and age_complete else None
+            ),
+        )
 
     tenant_items = [item for item in items if item.instance in registered]
-    unaged_count = sum(item.received_at is None for item in tenant_items)
-    ages = [
-        max(0.0, measured_at.timestamp() - float(item.received_at))
-        for item in tenant_items
-        if item.received_at is not None
+    tenant_dead_letters = [
+        item for item in dead_letters if item.instance in registered_dead_letters
     ]
-    age_complete = bool(snapshot_complete) and unaged_count == 0
-    return QueueAge(
-        count=len(tenant_items),
-        oldest_age_seconds=max(ages) if ages and age_complete else None,
-        age_complete=age_complete,
-        unaged_count=unaged_count,
-        overdue_count=len(tenant_items),
-        oldest_overdue_age_seconds=max(ages) if ages and age_complete else None,
-    ), bool(snapshot_complete)
+    return (
+        queue_age(tenant_items, overdue=True, complete=snapshot_complete),
+        queue_age(
+            tenant_dead_letters,
+            overdue=False,
+            complete=dead_letters_complete,
+        ),
+        bool(snapshot_complete),
+    )
 
 
 def operational_pending(
@@ -228,7 +283,7 @@ def operational_pending(
             stuck_count=row[6], stuck_oldest_age_seconds=row[7],
         )
     outbox_sources, outbox_available = _outbox_pending_ages(db, igreja_id, end)
-    webhooks, webhooks_available = _webhook_pending_age(
+    webhooks, webhook_dead_letters, webhooks_available = _webhook_pending_age(
         db, igreja_id, end, webhook_queue
     )
     return OperationalPending(
@@ -238,5 +293,6 @@ def operational_pending(
         webhooks_available=webhooks_available,
         notification_outbox=outbox_sources,
         webhooks=webhooks,
+        webhook_dead_letters=webhook_dead_letters,
         sources=sources,
     )
