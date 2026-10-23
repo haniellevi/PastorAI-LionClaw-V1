@@ -538,13 +538,19 @@ def _lock_pessoa_and_assert_unique_access(
 
 
 def _lock_church_for_activation(db: Session, igreja_id: uuid.UUID) -> None:
-    """Takes the church lock before activation locks Pessoa or AppUser."""
+    """Trava a igreja antes de a ativação travar Pessoa ou AppUser."""
 
-    db.execute(
+    locked = db.execute(
         select(Igreja.id)
         .where(Igreja.id == igreja_id)
         .with_for_update(read=True, key_share=True)
     ).scalar_one_or_none()
+    if locked is None:
+        # Igreja removida em paralelo: sem a trava a ordem de locks não vale.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Não foi possível ativar agora. Tente novamente.",
+        )
 
 
 def _lock_invite_for_activation(db: Session, app_user_id: uuid.UUID) -> AppUser:
@@ -657,8 +663,8 @@ def activate(
     settings = get_settings()
     limiter.enforce_ip(request, "activate", settings.rate_limit_activate_ip_limit)
     app_user = _resolve_invite(payload.token, db, clerk)
-    # Team mutations take Igreja FOR UPDATE before Pessoa/AppUser. Taking the
-    # compatible FK lock first prevents the reverse Igreja/Pessoa wait cycle.
+    # As operações de equipe travam a Igreja (FOR UPDATE) antes de Pessoa e
+    # AppUser. Pegar antes a trava compatível evita o ciclo inverso de espera.
     _lock_church_for_activation(db, app_user.igreja_id)
     previous_pessoa_id = app_user.pessoa_id
     needs_cadastro = previous_pessoa_id is None
