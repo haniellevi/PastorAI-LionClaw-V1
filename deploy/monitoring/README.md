@@ -42,8 +42,9 @@ MONITOR_STUCK_FLOW_TOKEN=<credencial dedicada de leitura>
 MONITOR_STUCK_FLOW_MAX_AGE_SECONDS=3600
 ```
 
-Antes de habilitar, configure uma credencial dedicada, somente de leitura, para
-esse monitor. Não use token de sessão. O check cobre apenas a igreja vinculada
+Hoje o endpoint só aceita a sessão de um administrador ativo e ainda não existe
+credencial dedicada de leitura para o monitor. Não habilite o check até essa
+credencial existir; não use token de sessão de pessoa. O check cobre apenas a igreja vinculada
 ao administrador dessa credencial, não todas as igrejas. O monitor só aceita
 endpoint loopback nessa rota. A credencial é copiada pelo
 allowlist para `/etc/pastorai-monitor.env`, com modo `0600`, e nunca entra nos
