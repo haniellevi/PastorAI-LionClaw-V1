@@ -15,10 +15,18 @@ O registro de 14/10 informa 78 migrations aplicadas e quatro pendentes:
 `20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql`,
 `20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql`,
 `20260925_183811_preserve_platform_admins_on_tenant_deletion.sql` e
-`20260926_120446_platform_jev_settings.sql`. O ROADMAP atualizado em 22/10
-marca o estado vivo como não verificado e ainda pede decisão sobre o destino
-dessas quatro. Raniel, como dono, precisa decidir nominalmente se cada uma
-entra neste lote ou permanece pendente. Não inferir aplicação pelo número 78.
+`20260926_120446_platform_jev_settings.sql`. Os quatro arquivos continuam ativos
+em `migrate.py::migration_files()`. `deploy/backend-release.sh` monta o manifesto
+com todas as migrations ativas, e `deploy/check_backend_schema.py` bloqueia o
+release se qualquer nome esperado faltar em `public.schema_migrations`.
+
+Raniel, como dono, precisa decidir nominalmente entre duas opções: (1) manter as
+quatro ativas e aplicá-las na ordem lexical global, autorizando o deploy somente
+quando todas as migrations ativas do SHA candidato estiverem registradas no
+ledger; ou (2) excluí-las do manifesto em um SHA candidato revisado à parte e
+validar esse manifesto e seu checker. Enquanto a decisão e a condição escolhida
+não estiverem comprovadas para o SHA e o ledger alvo, o deploy fica bloqueado.
+Este runbook não decide pelo dono. Não inferir aplicação pelo número 78.
 
 As migrations com `OPERATIONAL_AUTHORIZATION=BLOCKED` continuam fora da
 seleção de `migrate.py`; não remover o marcador nem aplicá-las neste release.
@@ -92,7 +100,10 @@ Este documento e o merge do código não são autorizações operacionais.
    depois da decisão sobre as quatro antigas e sobre a lista nova. Exit `0`
    significa apenas ausência desses achados; não significa schema liberado,
    migrations concluídas ou release pronto. Exit `1` exige reconciliação; exit
-   `2` indica que o preflight não conseguiu verificar o alvo.
+   `2` indica que o preflight não conseguiu verificar o alvo. Para autorizar o
+   deploy, nenhuma migration ativa do manifesto do SHA candidato pode faltar no
+   ledger; aplique todas ou use a opção de exclusão em SHA revisado descrita em
+   Estado e gates.
    A checagem da FK reproduz o par `(igreja_id, celula_id)` que será validado
    pela migration `20261018_080000`; a checagem de duplicidade usa
    `(igreja_id, pessoa_id)` não nulo, como o índice da #543.
@@ -113,6 +124,9 @@ Este documento e o merge do código não são autorizações operacionais.
    python3 backend/scripts/migrate.py apply <arquivo.sql> --yes
    ```
 
+   Para as migrations marcadas `CONCURRENTLY` na tabela abaixo e a migration
+   anterior à base indicada após a tabela, usar as invocações exatas com
+   `--no-transaction` listadas ali. Para as demais, manter a transação padrão.
    Não usar `apply_migrations.py`, SQL manual, wrappers catalog-bound,
    `--no-transaction` sem requisito explícito da migration, nem tentar fazer um
    teste passar abrindo gate. Antes da #543, repetir a checagem de duplicidades
@@ -164,6 +178,23 @@ ao fim da lista, e #562 adiciona as seis migrations de métricas e índices
 operacionais abaixo. As origens de cada arquivo foram conferidas no histórico
 Git.
 
+A busca literal `grep -il 'concurrently' backend/migrations/*.sql` encontrou
+`20260701_014654_evt6_google_event_dedup_index.sql`,
+`20260808_011500_messages_outbound_provider_id_uidx.sql`,
+`20261023_100001_ai_usage_tenant_created_idx.sql`,
+`20261023_110001_notification_outbox_pending_created_idx.sql`,
+`20261023_110002_notification_outbox_retry_created_idx.sql`,
+`20261023_110003_notification_outbox_expired_lease_idx.sql`,
+`20261023_110004_messages_pending_agent_created_idx.sql`,
+`20261023_110005_work_queue_pending_created_idx.sql`,
+`20261028_100001_private_erasure_requests_overview_idx.sql` e
+`20261028_100002_private_resume_delivered_overview_idx.sql`. A migration
+`20260701_014654` só cita `CONCURRENTLY` em comentário e executa `CREATE UNIQUE
+INDEX` comum; as outras nove executam `CREATE INDEX CONCURRENTLY` ou
+`CREATE UNIQUE INDEX CONCURRENTLY`. `20260808_011500` antecede a base de 14/10,
+por isso não integra esta tabela, mas também exige `--no-transaction` se estiver
+pendente. As oito posteriores à base estão identificadas nas linhas da tabela.
+
 | Ordem | Origem | Migration e efeito | Rollback resumido |
 |---:|---|---|---|
 | 1 | #484 | `20261016_180000_prayer_requests.sql`: persiste propostas e pedidos próprios de oração com RLS. | Drenar respostas, preservar pedidos confirmados e autorização; manter gates fechados e remover schema só por compensação aprovada. |
@@ -194,19 +225,36 @@ Git.
 | 26 | #530 | `20261021_100000_responsabilidades_setor.sql`: registra responsabilidades por setor e vigência sem conceder acesso. | Restaurar callers e preservar histórico; remover tabela e função em compensação aprovada. |
 | 27 | #535 | `20261022_100000_private_erasure_requests.sql`: registra pedidos de exclusão privada e decisões do admin. | Parar consumidores e preservar pedidos, decisões e recibos; não compensar enquanto houver pedido pendente. |
 | 28 | #544 | `20261023_100000_ai_usage_force_rls.sql`: força RLS na tabela de logs de uso, mantendo a política existente. | Restaurar apenas o comportamento anterior de FORCE RLS; manter RLS habilitada e a política. |
-| 29 | #544 | `20261023_100001_ai_usage_tenant_created_idx.sql`: indexa logs de uso por igreja e data. | Conferir validade e remover índice com `DROP INDEX CONCURRENTLY` em migration compensatória. |
+| 29 | #544 | `20261023_100001_ai_usage_tenant_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa logs de uso por igreja e data. | Conferir validade e remover índice com `DROP INDEX CONCURRENTLY` em migration compensatória. |
 | 30 | #562 | `20261023_110000_operations_outbox_pending_metrics_fn.sql`: agrega métricas pendentes por igreja para admin ativo. | Remover a função por compensação após conter callers; a remoção também elimina seu ACL. |
-| 31 | #562 | `20261023_110001_notification_outbox_pending_created_idx.sql`: indexa itens pendentes da outbox por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
-| 32 | #562 | `20261023_110002_notification_outbox_retry_created_idx.sql`: indexa itens de retry da outbox por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
-| 33 | #562 | `20261023_110003_notification_outbox_expired_lease_idx.sql`: indexa leases expirados da outbox por igreja e claim. | Conferir validade e remover índice concorrentemente por compensação. |
-| 34 | #562 | `20261023_110004_messages_pending_agent_created_idx.sql`: indexa intenções de saída da IA por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
-| 35 | #562 | `20261023_110005_work_queue_pending_created_idx.sql`: indexa itens acionáveis da fila por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
+| 31 | #562 | `20261023_110001_notification_outbox_pending_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa itens pendentes da outbox por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
+| 32 | #562 | `20261023_110002_notification_outbox_retry_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa itens de retry da outbox por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
+| 33 | #562 | `20261023_110003_notification_outbox_expired_lease_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa leases expirados da outbox por igreja e claim. | Conferir validade e remover índice concorrentemente por compensação. |
+| 34 | #562 | `20261023_110004_messages_pending_agent_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa intenções de saída da IA por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
+| 35 | #562 | `20261023_110005_work_queue_pending_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa itens acionáveis da fila por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
 | 36 | #543 | `20261025_100000_team_pessoa.sql`: aplica unicidade de Pessoa por igreja e cria auditoria técnica. Exige reconciliação manual prévia de duplicidades `(igreja_id, pessoa_id)`. | Reverter callers e preservar auditoria; remover índice e tabela somente por compensação aprovada. |
 | 37 | #541 | `20261027_100000_reset_settles_erasure_requests.sql`: faz reset manual de pessoa cumprir pedidos privados pendentes. | Parar consumidores, preservar pedidos/recibos e restaurar wrapper anterior; não reabrir pedidos cumpridos. |
 | 38 | #546 | `20261028_100000_private_memory_overview.sql`: expõe contagens administrativas sem conteúdo ou ação automática. | Remover a função por compensação; não há dados apagados e RLS/grants existentes permanecem. |
-| 39 | #546 | `20261028_100001_private_erasure_requests_overview_idx.sql`: indexa inventário de pedidos por igreja, estado e idade. | Conferir validade e remover índice concorrentemente por compensação. |
-| 40 | #546 | `20261028_100002_private_resume_delivered_overview_idx.sql`: indexa retomadas privadas entregues por igreja. | Conferir validade e remover índice concorrentemente por compensação. |
+| 39 | #546 | `20261028_100001_private_erasure_requests_overview_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa inventário de pedidos por igreja, estado e idade. | Conferir validade e remover índice concorrentemente por compensação. |
+| 40 | #546 | `20261028_100002_private_resume_delivered_overview_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa retomadas privadas entregues por igreja. | Conferir validade e remover índice concorrentemente por compensação. |
 | 41 | #561 | `20261029_100000_reset_settles_church_erasure_requests.sql`: faz reset privado da igreja cumprir os pedidos cobertos pelo recibo. | Parar consumidores, preservar pedidos/recibos e restaurar wrapper #541; não reabrir pedidos cumpridos. |
+
+As invocações abaixo usam a ordem lexical entre as migrations concorrentes. Cada
+uma deve ser aplicada somente quando alcançar sua posição na ordem global
+mostrada por `migrate.py status`, depois dos prechecks descritos no próprio
+arquivo:
+
+```bash
+python3 backend/scripts/migrate.py apply 20260808_011500_messages_outbound_provider_id_uidx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261023_100001_ai_usage_tenant_created_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261023_110001_notification_outbox_pending_created_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261023_110002_notification_outbox_retry_created_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261023_110003_notification_outbox_expired_lease_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261023_110004_messages_pending_agent_created_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261023_110005_work_queue_pending_created_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261028_100001_private_erasure_requests_overview_idx.sql --yes --no-transaction
+python3 backend/scripts/migrate.py apply 20261028_100002_private_resume_delivered_overview_idx.sql --yes --no-transaction
+```
 
 ## Ensaio de restauração sintética
 
