@@ -17,6 +17,10 @@ NODE24_ACTIONS = {
         "3d3c42e5aac5ba805825da76410c181273ba90b1",
         "v7.0.1",
     ),
+    "actions/download-artifact": (
+        "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+        "v8",
+    ),
     "actions/github-script": (
         "3a2844b7e9c422d3c10d287c895573f7108da1b3",
         "v9.0.0",
