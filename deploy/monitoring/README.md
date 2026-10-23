@@ -16,6 +16,35 @@ e, portanto, Evolution não causa restart loop.
 | Manifesto de backup ausente, velho ou não verificado | nenhum reinício | Brevo |
 | TLS/páginas públicas falham | nenhum reinício | GitHub issue |
 
+## Fluxo parado de outbox e webhooks
+
+`/operations/pending` inclui contagem e idade do item mais antigo da outbox
+(`pendente`, `retry` e lease vencida) e dos webhooks ainda presentes nas filas
+Redis. O endpoint continua restrito a administrador ativo e usa a igreja da
+identidade autenticada. Ele retorna somente contagens e idades, sem payload,
+texto, telefone ou identificador de pessoa. Webhooks anteriores à inclusão do
+timestamp continuam contados, com `age_complete=false` até saírem da fila.
+O snapshot Redis tem limite de 5.000 itens; acima dele ou diante de envelope
+inválido, a contagem fica indisponível em vez de aparecer como zero.
+
+O check `stuck_flow` do monitor fica desligado por padrão. Para ativá-lo, defina
+no `.env` de implantação:
+
+```dotenv
+MONITOR_STUCK_FLOW_ENABLED=true
+MONITOR_STUCK_FLOW_URL=http://127.0.0.1:8000/operations/pending
+MONITOR_STUCK_FLOW_TOKEN=<bearer aceito para um administrador ativo>
+MONITOR_STUCK_FLOW_MAX_AGE_SECONDS=3600
+```
+
+O monitor só aceita endpoint loopback nessa rota. A credencial é copiada pelo
+allowlist para `/etc/pastorai-monitor.env`, com modo `0600`, e nunca entra nos
+logs. O endpoint é consultado no escopo da igreja do administrador autenticado;
+credencial inválida, métrica indisponível ou idade incompleta degrada o check.
+Ele separa pendências ainda não vencidas da idade de vencimento, portanto um
+lembrete futuro não gera alerta. A fila degrada quando o item vencido mais
+antigo excede o limite. O monitor não tenta renovar credenciais.
+
 Os relatórios expõem somente estados fechados e tipos de erro. URLs privadas,
 chaves, corpos de webhook e strings de conexão não são impressos.
 

@@ -62,6 +62,42 @@ def _install_checks(monkeypatch, *, failed: set[str] | None = None) -> None:
     )
 
 
+def _pending_body(
+    *, source: str = "webhooks", count: int = 1, age: float | None = 120.0,
+    age_complete: bool = True,
+) -> dict[str, object]:
+    metric = {
+        "count": 0,
+        "oldest_age_seconds": None,
+        "age_complete": True,
+        "overdue_count": 0,
+        "oldest_overdue_age_seconds": None,
+    }
+    outbox = {
+        name: dict(metric)
+        for name in ("pending", "retryable", "expired_lease")
+    }
+    webhook_metrics = dict(metric)
+    selected = {
+        "count": count,
+        "oldest_age_seconds": age,
+        "age_complete": age_complete,
+        "overdue_count": count,
+        "oldest_overdue_age_seconds": age if age_complete else None,
+    }
+    if source == "webhooks":
+        webhook_metrics = selected
+    else:
+        outbox_state = source.removeprefix("notification_outbox_")
+        outbox[outbox_state] = selected
+    return {
+        "outbox_available": True,
+        "webhooks_available": True,
+        "notification_outbox": outbox,
+        "webhooks": webhook_metrics,
+    }
+
+
 def test_recent_verified_backup_manifest_is_healthy(tmp_path) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
     manifest = _manifest(tmp_path, now - dt.timedelta(hours=2))
@@ -73,6 +109,162 @@ def test_recent_verified_backup_manifest_is_healthy(tmp_path) -> None:
 
     assert result.ok is True
     assert result.name == "backup"
+
+
+def test_stuck_flow_check_is_off_by_default(monkeypatch) -> None:
+    def unexpected_request(*_args, **_kwargs):
+        raise AssertionError("disabled check must not call an endpoint")
+
+    monkeypatch.setattr(monitor, "request_json", unexpected_request)
+
+    result = monitor.check_stuck_flow({})
+
+    assert result == monitor.CheckResult("stuck_flow", True, "desativado")
+
+
+def test_stuck_flow_check_uses_local_admin_endpoint_and_degrades_when_old(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    def pending_request(url: str, *, bearer_token: str | None = None):
+        calls.append((url, bearer_token))
+        return _pending_body(source="notification_outbox_retryable", age=3601)
+
+    monkeypatch.setattr(monitor, "request_json", pending_request)
+    token = "synthetic-admin-token"
+    result = monitor.check_stuck_flow(
+        {
+            "MONITOR_STUCK_FLOW_ENABLED": "true",
+            "MONITOR_STUCK_FLOW_URL": "http://127.0.0.1:8000/operations/pending",
+            "MONITOR_STUCK_FLOW_TOKEN": token,
+            "MONITOR_STUCK_FLOW_MAX_AGE_SECONDS": "3600",
+        }
+    )
+
+    assert result.ok is False
+    assert result.detail == (
+        "atrasado source=notification_outbox_retryable "
+        "overdue_age_seconds=3601.0 limit_seconds=3600"
+    )
+    assert calls == [
+        ("http://127.0.0.1:8000/operations/pending", token),
+    ]
+    assert token not in result.detail
+
+
+def test_stuck_flow_check_accepts_recent_and_empty_queues(monkeypatch) -> None:
+    body = _pending_body(age=3599)
+    monkeypatch.setattr(monitor, "request_json", lambda *_args, **_kwargs: body)
+    config = {
+        "MONITOR_STUCK_FLOW_ENABLED": "1",
+        "MONITOR_STUCK_FLOW_URL": "http://localhost:8000/operations/pending",
+        "MONITOR_STUCK_FLOW_TOKEN": "synthetic-token",
+        "MONITOR_STUCK_FLOW_MAX_AGE_SECONDS": "3600",
+    }
+
+    recent = monitor.check_stuck_flow(config)
+    assert recent.ok is True
+    assert "overdue_age_seconds=3599.0" in recent.detail
+
+    monkeypatch.setattr(
+        monitor,
+        "request_json",
+        lambda *_args, **_kwargs: _pending_body(count=0, age=None),
+    )
+    empty = monitor.check_stuck_flow(config)
+    assert empty == monitor.CheckResult("stuck_flow", True, "fila vazia")
+
+
+def test_stuck_flow_ignores_old_but_not_yet_due_outbox_items(monkeypatch) -> None:
+    body = _pending_body(source="notification_outbox_pending", age=86400)
+    pending = body["notification_outbox"]["pending"]
+    pending["overdue_count"] = 0
+    pending["oldest_overdue_age_seconds"] = None
+    monkeypatch.setattr(monitor, "request_json", lambda *_args, **_kwargs: body)
+
+    result = monitor.check_stuck_flow(
+        {
+            "MONITOR_STUCK_FLOW_ENABLED": "true",
+            "MONITOR_STUCK_FLOW_URL": "http://127.0.0.1:8000/operations/pending",
+            "MONITOR_STUCK_FLOW_TOKEN": "synthetic-token",
+        }
+    )
+
+    assert result == monitor.CheckResult("stuck_flow", True, "fila vazia")
+
+
+def test_stuck_flow_check_fails_closed_for_unavailable_or_unaged_metrics(
+    monkeypatch,
+) -> None:
+    config = {
+        "MONITOR_STUCK_FLOW_ENABLED": "true",
+        "MONITOR_STUCK_FLOW_URL": "http://127.0.0.1:8000/operations/pending",
+        "MONITOR_STUCK_FLOW_TOKEN": "synthetic-token",
+    }
+    monkeypatch.setattr(
+        monitor,
+        "request_json",
+        lambda *_args, **_kwargs: _pending_body(age=None, age_complete=False),
+    )
+    result = monitor.check_stuck_flow(config)
+    assert result == monitor.CheckResult(
+        "stuck_flow", False, "idade indisponivel source=webhooks"
+    )
+
+    unavailable = _pending_body()
+    unavailable["webhooks_available"] = False
+    monkeypatch.setattr(
+        monitor, "request_json", lambda *_args, **_kwargs: unavailable
+    )
+    assert monitor.check_stuck_flow(config) == monitor.CheckResult(
+        "stuck_flow", False, "indisponivel source=webhooks"
+    )
+
+
+def test_stuck_flow_rejects_remote_endpoint_without_sending_token(monkeypatch) -> None:
+    monkeypatch.setattr(
+        monitor,
+        "request_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("remote endpoint must be rejected before request")
+        ),
+    )
+    result = monitor.check_stuck_flow(
+        {
+            "MONITOR_STUCK_FLOW_ENABLED": "true",
+            "MONITOR_STUCK_FLOW_URL": "https://example.invalid/operations/pending",
+            "MONITOR_STUCK_FLOW_TOKEN": "synthetic-secret",
+        }
+    )
+    assert result == monitor.CheckResult("stuck_flow", False, "endpoint invalido")
+
+
+def test_run_includes_stuck_flow_in_degradation_signature(monkeypatch, tmp_path) -> None:
+    _install_checks(monkeypatch)
+    monkeypatch.setattr(
+        monitor,
+        "request_json",
+        lambda *_args, **_kwargs: _pending_body(age=7200),
+    )
+    monkeypatch.setattr(
+        monitor,
+        "send_brevo_alert",
+        lambda *_args, **_kwargs: monitor.AlertDelivery.SENT,
+    )
+
+    result = monitor.run(
+        {
+            "MONITOR_STATE_FILE": str(tmp_path / "state.json"),
+            "MONITOR_STUCK_FLOW_ENABLED": "true",
+            "MONITOR_STUCK_FLOW_URL": "http://127.0.0.1:8000/operations/pending",
+            "MONITOR_STUCK_FLOW_TOKEN": "synthetic-token",
+        },
+        now=dt.datetime(2026, 8, 9, 12, tzinfo=UTC),
+    )
+
+    assert result == 0
+    assert monitor.load_state(tmp_path / "state.json")["signature"] == "stuck_flow"
 
 
 def test_future_verified_backup_manifest_fails_closed(tmp_path) -> None:

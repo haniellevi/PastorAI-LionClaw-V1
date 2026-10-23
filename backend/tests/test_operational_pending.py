@@ -1,5 +1,6 @@
 """Pending projection through real PG schema and tenant RLS, without payloads."""
 import datetime as dt
+import json
 import uuid
 
 import pytest
@@ -25,6 +26,55 @@ def seed_tasks(db):
     return now
 
 
+class SnapshotWebhookQueue:
+    def __init__(self, items=(), *, complete=True):
+        self.items = list(items)
+        self.complete = complete
+
+    def pending_metadata(self):
+        return self.items, self.complete
+
+
+def seed_outbox(db, now):
+    db.execute(text('reset role'))
+    people = {
+        IGREJA_A: uuid.uuid4(),
+        IGREJA_B: uuid.uuid4(),
+    }
+    for tenant, person_id in people.items():
+        db.execute(
+            text("insert into pessoas(id,igreja_id,nome,telefone) values(:id,:t,'Synthetic',:phone)"),
+            dict(id=person_id, t=tenant, phone=f"+5500000000{len(tenant)}"),
+        )
+
+    def add(tenant, state, age, *, due_at=None, claimed_until=None):
+        db.execute(
+            text("""insert into notification_outbox
+              (id,igreja_id,pessoa_id,origin_kind,origin_id,occurrence_at,
+               origin_fingerprint,purpose,state,due_at,claimed_until,created_at,updated_at)
+              values(:id,:tenant,:person,'event',:origin,:occurrence,:fingerprint,
+                     'agenda_reminder',:state,:due,:claimed,:created,:created)"""),
+            dict(
+                id=uuid.uuid4(), tenant=tenant, person=people[tenant],
+                origin=uuid.uuid4(), occurrence=now-dt.timedelta(seconds=age),
+                fingerprint='a' * 64, state=state,
+                due=due_at or now-dt.timedelta(seconds=age),
+                claimed=claimed_until,
+                created=now-dt.timedelta(seconds=age),
+            ),
+        )
+
+    add(IGREJA_A, 'pendente', 40)
+    add(IGREJA_A, 'pendente', 5000)
+    add(IGREJA_A, 'pendente', 100000, due_at=now+dt.timedelta(seconds=3600))
+    add(IGREJA_A, 'retry', 3600)
+    add(IGREJA_A, 'em_envio', 72000, claimed_until=now-dt.timedelta(seconds=120))
+    add(IGREJA_A, 'em_envio', 80000, claimed_until=now+dt.timedelta(seconds=60))
+    add(IGREJA_B, 'pendente', 50000)
+    db.execute(text('set local role authenticated'))
+    return people
+
+
 def test_ages_boundaries_and_rls(db):
     from app.services.operational_usage import operational_pending
     now = seed_tasks(db)
@@ -40,6 +90,106 @@ def test_ages_boundaries_and_rls(db):
     db.execute(text("select set_config('app.tenant_igreja_id', :id, true)"), {'id': IGREJA_B})
     assert operational_pending(db, uuid.UUID(IGREJA_B), now=now).sources['tasks'].count == 1
     assert result.webhooks_available is False
+
+
+def test_outbox_counts_and_oldest_age_are_tenant_scoped(db):
+    from app.services.operational_usage import operational_pending
+
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+    seed_outbox(db, now)
+    result = operational_pending(db, uuid.UUID(IGREJA_A), now=now)
+
+    assert result.outbox_available is True
+    assert result.notification_outbox['pending'].count == 3
+    assert result.notification_outbox['pending'].oldest_age_seconds == 100000
+    assert result.notification_outbox['pending'].overdue_count == 2
+    assert result.notification_outbox['pending'].oldest_overdue_age_seconds == 5000
+    assert result.notification_outbox['retryable'].count == 1
+    assert result.notification_outbox['retryable'].oldest_age_seconds == 3600
+    assert result.notification_outbox['expired_lease'].count == 1
+    assert result.notification_outbox['expired_lease'].oldest_age_seconds == 72000
+    assert result.notification_outbox['expired_lease'].oldest_overdue_age_seconds == 120
+    assert 'Synthetic' not in result.model_dump_json()
+
+    # Explicitly asking for church B cannot cross the authenticated A context.
+    other = operational_pending(db, uuid.UUID(IGREJA_B), now=now)
+    assert other.outbox_available is False
+    assert other.notification_outbox['pending'].count is None
+
+
+def test_webhook_counts_and_age_are_resolved_by_tenant_without_payload(db):
+    from app.services.operational_usage import operational_pending
+    from app.workers.queue_worker import PendingWebhookMetadata
+
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+    db.execute(text('reset role'))
+    db.execute(text("""insert into whatsapp_connections
+      (id,igreja_id,instance,status) values
+      (:a,:tenant_a,'synthetic-instance-a','online'),
+      (:b,:tenant_b,'synthetic-instance-b','online')"""),
+      dict(a=uuid.uuid4(),b=uuid.uuid4(),tenant_a=IGREJA_A,tenant_b=IGREJA_B))
+    db.execute(text('set local role authenticated'))
+    queue = SnapshotWebhookQueue([
+        PendingWebhookMetadata('claim-a-old', 'synthetic-instance-a', now.timestamp()-7200),
+        PendingWebhookMetadata('claim-a-new', 'synthetic-instance-a', now.timestamp()-30),
+        PendingWebhookMetadata('claim-b', 'synthetic-instance-b', now.timestamp()-90000),
+    ])
+
+    result = operational_pending(
+        db, uuid.UUID(IGREJA_A), now=now, webhook_queue=queue
+    )
+    webhooks = result.webhooks
+    assert result.webhooks_available is True
+    assert webhooks.count == 2
+    assert webhooks.oldest_age_seconds == 7200
+    assert webhooks.age_complete is True
+    assert 'claim-a-old' not in result.model_dump_json()
+    assert 'synthetic-instance-a' not in result.model_dump_json()
+
+    other = operational_pending(
+        db, uuid.UUID(IGREJA_B), now=now, webhook_queue=queue
+    )
+    assert other.webhooks.count == 0
+
+
+def test_legacy_webhooks_are_counted_with_unknown_age(db):
+    from app.services.operational_usage import operational_pending
+    from app.workers.queue_worker import PendingWebhookMetadata
+
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+    db.execute(text('reset role'))
+    db.execute(text("insert into whatsapp_connections(id,igreja_id,instance,status) values(:id,:tenant,'synthetic-legacy','online')"),
+      dict(id=uuid.uuid4(),tenant=IGREJA_A))
+    db.execute(text('set local role authenticated'))
+    queue = SnapshotWebhookQueue([
+        PendingWebhookMetadata('legacy-claim', 'synthetic-legacy', None),
+    ])
+
+    result = operational_pending(
+        db, uuid.UUID(IGREJA_A), now=now, webhook_queue=queue
+    )
+    webhooks = result.webhooks
+    assert result.webhooks_available is True
+    assert webhooks.count == 1
+    assert webhooks.oldest_age_seconds is None
+    assert webhooks.age_complete is False
+    assert webhooks.unaged_count == 1
+
+
+def test_incomplete_webhook_snapshot_does_not_report_a_zero_count(db):
+    from app.services.operational_usage import operational_pending
+
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+    result = operational_pending(
+        db,
+        uuid.UUID(IGREJA_A),
+        now=now,
+        webhook_queue=SnapshotWebhookQueue(complete=False),
+    )
+
+    assert result.webhooks_available is False
+    assert result.webhooks.count is None
+    assert result.webhooks.overdue_count is None
 
 
 @pytest.mark.parametrize('roles,user_status,code', [
@@ -58,11 +208,15 @@ def test_pending_endpoint(app, db, roles, user_status, code):
         app_user_id=str(user_id),clerk_user_id='synthetic',igreja_id=IGREJA_A,
         email='synthetic@example.invalid',nome='Synthetic',roles=frozenset(roles))
     app.dependency_overrides[get_db] = lambda: db
+    from app.routers.operations import get_pending_webhook_queue
+    app.dependency_overrides[get_pending_webhook_queue] = lambda: SnapshotWebhookQueue()
     client = TestClient(app)
     r = client.get('/operations/pending', params={'igreja_id':IGREJA_B,'stuck_after_seconds':1})
     assert r.status_code == code
     if code == 200:
         assert r.json()['sources']['tasks']['count'] == 4
+        assert r.json()['notification_outbox']['pending']['count'] == 0
+        assert r.json()['webhooks']['count'] == 0
         assert r.headers['cache-control'] == 'no-store'
         assert 'PRIVATE' not in r.text
         for threshold in (0, -1, 2592001):
@@ -74,6 +228,55 @@ def test_index_and_rls(db):
     assert db.scalar(text("select count(*) from pg_indexes where tablename='ai_usage_logs' and indexdef like '%(igreja_id, created_at)%'")) == 1
     assert db.scalar(text("select indisvalid from pg_index where indexrelid='ai_usage_logs_igreja_created_at_idx'::regclass"))
     assert db.scalar(text("select relrowsecurity and relforcerowsecurity from pg_class where oid='ai_usage_logs'::regclass"))
+
+
+def test_partial_pending_indexes_are_valid_and_used_by_explain(db):
+    indexes = {
+        'notification_outbox_pending_igreja_created_idx': """select count(*), max(created_at)
+          from public.notification_outbox
+          where igreja_id='0a0a0a0a-0000-0000-0000-00000000000a'::uuid
+            and state='pendente'""",
+        'notification_outbox_retry_igreja_created_idx': """select count(*), max(created_at)
+          from public.notification_outbox
+          where igreja_id='0a0a0a0a-0000-0000-0000-00000000000a'::uuid
+            and state='retry'""",
+        'notification_outbox_lease_igreja_claimed_idx': """select count(*), max(created_at)
+          from public.notification_outbox
+          where igreja_id='0a0a0a0a-0000-0000-0000-00000000000a'::uuid
+            and state='em_envio' and claimed_until is not null
+            and claimed_until <= timestamptz '2026-10-21 00:00:00+00'""",
+        'messages_pending_agent_igreja_created_idx': """select count(*), max(criado_em)
+          from public.messages
+          where igreja_id='0a0a0a0a-0000-0000-0000-00000000000a'::uuid
+            and direcao='out' and autor='ia'
+            and agent_reply_state in ('ia_reservada', 'ia_executando',
+                                      'ia_pendente', 'ia_em_transporte')""",
+        'work_queue_pending_igreja_created_idx': """select count(*), max(created_at)
+          from public.work_queue_items
+          where igreja_id='0a0a0a0a-0000-0000-0000-00000000000a'::uuid
+            and (status is null or status in ('aberto', 'assumido'))""",
+    }
+    db.execute(text('reset role'))
+    db.execute(text('set local enable_seqscan = off'))
+    for index_name, query in indexes.items():
+        assert db.scalar(text(
+            "select indisvalid from pg_index where indexrelid=to_regclass(:name)"
+        ), {'name': f'public.{index_name}'}) is True
+        plan = db.execute(text(f'EXPLAIN (FORMAT JSON) {query}')).scalar_one()
+        if isinstance(plan, str):
+            plan = json.loads(plan)
+
+        def find_index_names(node):
+            if isinstance(node, dict):
+                if 'Index Name' in node:
+                    yield node['Index Name']
+                for value in node.values():
+                    yield from find_index_names(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from find_index_names(value)
+
+        assert index_name in set(find_index_names(plan)), index_name
 
 
 def test_message_states_empty_and_future(db):
