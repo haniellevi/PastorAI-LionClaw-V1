@@ -75,6 +75,18 @@ def send(p,body,outcome=None,transport=None):
     return outcome,reply,transport
 
 
+def test_failed_agent_turn_releases_conversation_before_quarantine(knowledge_turn,monkeypatch):
+    from app.agent import runtime
+    p=knowledge_turn; outcome=inbound(p,'mensagem sintética')
+    def fail(*args,**kwargs): raise RuntimeError('synthetic agent failure')
+    monkeypatch.setattr(runtime,'process_inbound_message',fail)
+    with pytest.raises(RuntimeError,match='synthetic agent failure'):
+        worker.run_agent_for_message(p.factory,outcome,evolution_client=_ClassifiedEvolution())
+    with p.factory() as s:
+        reply=s.scalar(select(Message).where(Message.conversation_id==p.conv,Message.direcao=='out'))
+        assert reply.agent_reply_state==worker._AGENT_REPLY_EXECUTION_AMBIGUOUS
+
+
 def test_complete_authorized_turn_cites_version_and_replays(knowledge_turn):
     p=knowledge_turn; d=document(p)
     with p.factory() as s:
