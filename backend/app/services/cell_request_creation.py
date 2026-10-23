@@ -7,7 +7,7 @@ from app.db.models import Celula, CelulaSolicitacao, CelulaSolicitacaoEvento
 from app.deps import get_current_cell_for_leader, resolve_actor_pessoa_id
 from app.domain.cell_requests import (TIPO_ABRIR_CELULA, TIPO_NOMEAR_LIDER, InvalidPayload,
     validate_payload, referenced_pessoa_ids, conflict_pessoa_id, STATUS_AGUARDANDO, ACAO_CRIADA)
-from app.services import cell_requests_service
+from app.services import cell_request_contract, cell_requests_service
 from app.services.celula_membro import assert_pessoas_nao_arquivadas
 
 
@@ -19,9 +19,7 @@ def create_request(db, current_user, body):
     derivada da propriedade do líder (nunca do payload).
     """
 
-    from app.routers.cell_requests import (CellRequestOut, _reject_member_tipo,
-        _has_open_conflict, _PG_UNIQUE_VIOLATION, _require_requests_enabled)
-    _require_requests_enabled()
+    cell_request_contract._require_requests_enabled()
 
     # Ownership: só o líder da célula de origem abre a solicitação (404 senão).
     igreja_id = uuid.UUID(current_user.igreja_id)
@@ -45,7 +43,7 @@ def create_request(db, current_user, body):
         cell = get_current_cell_for_leader(db, current_user, body.celula_id)
 
     # Membro (transferir/remover) é gerido pela Central, não pela tela do líder.
-    _reject_member_tipo(body.tipo)
+    cell_request_contract._reject_member_tipo(body.tipo)
 
     try:
         payload = validate_payload(body.tipo, body.payload_proposto)
@@ -77,7 +75,7 @@ def create_request(db, current_user, body):
             candidato_id=uuid.UUID(payload["novo_lider_id"]),
             app_user_id=uuid.UUID(current_user.app_user_id))
     pessoa_id = conflict_pessoa_id(body.tipo, payload)
-    if _has_open_conflict(
+    if cell_request_contract._has_open_conflict(
         db,
         igreja_id=igreja_id,
         celula_id=cell.id if cell else None,
@@ -131,10 +129,10 @@ def create_request(db, current_user, body):
         # serializa a corrida — a 2ª a commitar recebe unique_violation. Traduz
         # DETERMINÍSTICO para o mesmo 409 do pré-check. Qualquer outra violação de
         # integridade (não-unique) sobe e vira 500: não é conflito de estado.
-        if getattr(exc.orig, "pgcode", None) == _PG_UNIQUE_VIOLATION:
+        if getattr(exc.orig, "pgcode", None) == cell_request_contract._PG_UNIQUE_VIOLATION:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Já existe uma solicitação aberta conflitante para esta célula",
             ) from exc
         raise
-    return CellRequestOut.from_model(solicitacao, db)
+    return cell_request_contract.CellRequestOut.from_model(solicitacao, db)
