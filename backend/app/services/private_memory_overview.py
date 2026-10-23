@@ -57,11 +57,14 @@ def memory_overview(db: Session, tenant: UUID) -> PrivateMemoryOverview:
         if getattr(exc.orig, "pgcode", None) == "42501":
             raise HTTPException(403, "Acesso restrito a administrador ativo") from None
         raise
-    data['pedidos_exclusao']['vencidos'] = db.scalar(text('''
+    vencidos = db.scalar(text('''
         select count(*) from private_erasure_requests
         where igreja_id=:t and state='pendente'
           and created_at<=now()-make_interval(days=>:sla_days)
     '''), {'t': tenant, 'sla_days': PRIVATE_ERASURE_SLA_DAYS_V1})
+    if vencidos > data['pedidos_exclusao']['pendentes']:
+        raise HTTPException(503, 'Contagem de pedidos de exclusão inconsistente')
+    data['pedidos_exclusao']['vencidos'] = vencidos
     data['pedidos_exclusao']['prazo_dias'] = PRIVATE_ERASURE_SLA_DAYS_V1
     data['pedidos_exclusao']['prazo_versao'] = PRIVATE_ERASURE_SLA_POLICY_VERSION
     return PrivateMemoryOverview.model_validate(data)

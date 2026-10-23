@@ -128,6 +128,31 @@ def test_admin_request_list_reports_age_and_overdue_without_content(database, en
         assert 'telefone' not in response.text
 
 
+def test_decided_request_age_uses_decided_at(database, enabled):
+    v = enabled
+    prepare_request(database, v)
+    row = request(database, v)
+    with database.begin() as c:
+        c.execute(text("update private_erasure_requests set created_at=now()-interval '30 days' where id=:id"),
+                  dict(id=row['id']))
+    with api(database, v) as client:
+        decision = client.post(f"/private-erasure-requests/{row['id']}/decision", json={
+            'decision': 'recusado', 'confirmacao': 'DECIDIR PEDIDO DE EXCLUSAO',
+        })
+        assert decision.status_code == 200, decision.text
+        assert decision.json()['idade_segundos'] == 0
+    with database.begin() as c:
+        c.execute(text("update private_erasure_requests set decided_at=now()-interval '2 hours' where id=:id"),
+                  dict(id=row['id']))
+    with api(database, v) as client:
+        response = client.get(f"/contacts/{v['person']}/private-erasure-requests")
+        assert response.status_code == 200, response.text
+        item = response.json()['items'][0]
+        assert item['state'] == 'recusado'
+        assert 2 * 3600 <= item['idade_segundos'] < 2 * 3600 + 60
+        assert item['vencido'] is False
+
+
 def test_other_person_tenant_and_web_roles_denied(database, enabled):
     from fastapi import HTTPException
     from app.services.private_erasure_requests import register

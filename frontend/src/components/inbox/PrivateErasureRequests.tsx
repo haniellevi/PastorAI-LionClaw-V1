@@ -71,7 +71,7 @@ function Requests({ token, personId, expireSession }: Props) {
         body: JSON.stringify({ decision: choice.approve ? "aprovado" : "recusado", confirmacao: "DECIDIR PEDIDO DE EXCLUSAO" }),
       });
       if (!response.ok) throw new Error("decision_failed");
-      const result = await response.json() as Pick<Request, "id" | "state" | "receipt">;
+      const result = await response.json() as Pick<Request, "id" | "state" | "receipt" | "idade_segundos" | "prazo_dias" | "prazo_versao" | "vencido">;
       setItems(rows => rows.map(row => row.id === result.id ? { ...row, ...result, vencido: false } : row));
       setChoice(null);
     } catch (cause) {
@@ -86,7 +86,7 @@ function Requests({ token, personId, expireSession }: Props) {
     <Button size="sm" onClick={() => void refresh()} disabled={busy}>Atualizar pedidos</Button>
     {items.map(row => <div key={row.id}>
       <p>Pedido de {new Date(row.created_at).toLocaleDateString("pt-BR")}: {row.state}.</p>
-      <p>Idade: {age(row.idade_segundos)}. Prazo de atendimento: {row.prazo_dias} dias.</p>
+      <p>Idade: {age(row.idade_segundos)}{row.state === "pendente" ? "" : " desde a decisão"}. Prazo de atendimento: {row.prazo_dias} dias.</p>
       {row.state === "pendente" && row.vencido ? <p><strong className="pill danger" role="status">Prazo vencido</strong></p> : null}
       {row.state === "pendente" ? <>
         <p>Uso da memória suspenso até a decisão. O conteúdo ainda está preservado.</p>

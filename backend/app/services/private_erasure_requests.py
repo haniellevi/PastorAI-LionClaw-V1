@@ -34,7 +34,8 @@ def detail(db, tenant: UUID, request_id: UUID, *, include_sla: bool = False) -> 
     params = dict(t=tenant, r=request_id)
     if include_sla:
         projection = '''select r.*,
-            greatest(0,floor(extract(epoch from now()-r.created_at)))::bigint as idade_segundos,
+            greatest(0,floor(extract(epoch from now()-case when r.state='pendente'
+                then r.created_at else coalesce(r.decided_at,r.created_at) end)))::bigint as idade_segundos,
             (r.state='pendente' and r.created_at<=now()-make_interval(days=>:sla_days)) as vencido
             from private_erasure_requests r where r.igreja_id=:t and r.id=:r'''
         params['sla_days'] = PRIVATE_ERASURE_SLA_DAYS_V1
@@ -83,6 +84,6 @@ def decide(db, tenant: UUID, request_id: UUID, decision: str) -> dict:
         raise
     if rid is None:
         raise HTTPException(404, 'Pedido indisponível')
-    result = detail(db, tenant, rid)
+    result = detail(db, tenant, rid, include_sla=True)
     db.commit()
     return result

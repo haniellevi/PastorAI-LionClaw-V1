@@ -26,6 +26,15 @@ it('requires confirmation and shows durable pending receipt',async()=>{
  expect(JSON.parse(mocks.fetch.mock.calls[1]![2].body).decision).toBe('aprovado');
  expect(container.textContent).toContain('Limpeza externa pendente');
 });
+it('shows elapsed time since decision after a request is decided',async()=>{
+ mocks.fetch.mockResolvedValueOnce(Response.json({items:[pending]}));
+ await act(async()=>render());
+ await act(async()=>button('Recusar pedido').click());
+ mocks.fetch.mockResolvedValueOnce(Response.json({...pending,state:'recusado',idade_segundos:2*3600,vencido:false}));
+ await act(async()=>button('Confirmar recusa').click());
+ expect(container.textContent).toContain('Idade: 2 h desde a decisão. Prazo de atendimento: 15 dias.');
+ expect(container.textContent).not.toContain('Idade: 16 d e 0 h.');
+});
 it('keeps failed decision available for retry',async()=>{
  mocks.fetch.mockResolvedValueOnce(Response.json({items:[pending]}));
  await act(async()=>render());

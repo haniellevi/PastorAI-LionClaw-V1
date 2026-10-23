@@ -209,6 +209,20 @@ def test_sla_count_uses_versioned_fifteen_day_deadline_and_tenant_scope(db, inve
     assert response.json()['pedidos_exclusao']['prazo_dias'] == 15
 
 
+def test_inconsistent_overdue_count_fails_closed(db, inventory, client, monkeypatch):
+    original_scalar = db.scalar
+
+    def inconsistent_scalar(statement, *args, **kwargs):
+        if 'select count(*) from private_erasure_requests' in str(statement):
+            return 7
+        return original_scalar(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, 'scalar', inconsistent_scalar)
+    response = client.get(PATH)
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Contagem de pedidos de exclusão inconsistente'
+
+
 def test_wrong_definer_owner_fails_instead_of_reporting_filtered_zero(db):
     db.execute(text('reset role'))
     db.execute(text('create role memory6b_test_owner nologin nosuperuser nobypassrls inherit'))

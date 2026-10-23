@@ -49,7 +49,7 @@ def erase_church(approval: ChurchErasureApproval, db: Session = Depends(get_db),
 
 @router.get('/igreja/private-deletions/{receipt_id}')
 def progress(receipt_id: UUID, db: Session = Depends(get_db),
-             user: CurrentUser = Depends(require_role(['admin']))) -> dict:
+             user: CurrentUser = Depends(require_active_admin)) -> dict:
     return receipt(db, UUID(user.igreja_id), receipt_id)
 
 

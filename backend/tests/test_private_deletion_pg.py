@@ -330,7 +330,11 @@ def test_real_ingestion_upload_serializes_with_deletion(database, private_data, 
             if scope=='conversa':
                 return client.delete(f"/conversations/{v['conv']}")
             path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
-            return client.request('DELETE',path,json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+            payload=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')
+            if scope=='igreja':
+                payload=dict(operation_id=payload['operation_id'],nome_igreja='Synthetic church A',
+                             confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')
+            return client.request('DELETE',path,json=payload)
     with ThreadPoolExecutor(max_workers=2) as pool:
         uploaded=pool.submit(ingest)
         assert entered.wait(10)
@@ -788,12 +792,28 @@ def test_platform_erasure_uses_private_queue_and_preserves_other_tenant(database
     assert calls==[v['tenant']]*3
 
 
+def test_private_deletion_receipt_requires_active_admin(database, private_data):
+    v = private_data
+    with api(database, v) as client:
+        erased = client.request('DELETE', f"/contacts/{v['person']}/private-content", json={
+            'operation_id': str(uuid4()), 'confirmacao': 'EXCLUIR CONTEUDO PRIVADO',
+        })
+        assert erased.status_code == 200, erased.text
+        receipt_id = erased.json()['id']
+    with database.begin() as c:
+        c.execute(text("update app_users set status='revogado' where id=:admin"), v)
+    with api(database, v) as client:
+        response = client.get(f"/igreja/private-deletions/{receipt_id}")
+        assert response.status_code == 403
+
+
 def test_church_receipt_includes_older_conversation_cleanup(database,private_data):
     v=private_data
     with api(database,v) as client:
         earlier=client.delete(f"/conversations/{v['conv']}").json()
         bulk=client.request('DELETE','/igreja/private-content',json=dict(
-            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+            operation_id=str(uuid4()),nome_igreja='Synthetic church A',
+            confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')).json()
         assert earlier['camadas']['midias']['pendentes']==2
         assert bulk['camadas']['midias']['pendentes']==3
         assert bulk['camadas']['mensagens']['apagadas']==2
@@ -821,7 +841,8 @@ def test_person_receipt_includes_prior_church_cleanup(database,private_data):
     v=private_data
     with api(database,v) as client:
         church=client.request('DELETE','/igreja/private-content',json=dict(
-            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+            operation_id=str(uuid4()),nome_igreja='Synthetic church A',
+            confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')).json()
         person=client.request('DELETE',f"/contacts/{v['person']}/private-content",json=dict(
             operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
         assert person['camadas']['midias']['pendentes']==church['camadas']['midias']['pendentes']==3
@@ -846,7 +867,11 @@ def test_admin_bulk_erases_protected_messages_without_read_permission(database,p
             response=client.delete(f"/conversations/{v['conv']}")
         else:
             path=f"/contacts/{v['person']}/private-content" if scope=='pessoa' else '/igreja/private-content'
-            response=client.request('DELETE',path,json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+            payload=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')
+            if scope=='igreja':
+                payload=dict(operation_id=payload['operation_id'],nome_igreja='Synthetic church A',
+                             confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')
+            response=client.request('DELETE',path,json=payload)
         assert response.status_code==200,response.text
         result=response.json()
         assert result['camadas']['pedido_oracao_mensagem']['apagadas']==1
@@ -891,7 +916,8 @@ def test_private_scope_owner_helper_and_dependency_rls(database,private_data):
     with api(database,v) as client:
         client.delete(f"/conversations/{v['conv']}")
         result=client.request('DELETE','/igreja/private-content',json=dict(
-            operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')).json()
+            operation_id=str(uuid4()),nome_igreja='Synthetic church A',
+            confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')).json()
     with scoped(database,v['other']) as s:
         assert s.execute(text('select count(*) from private_deletion_dependencies')).scalar_one()==0
         assert s.execute(text('select count(*) from private_deletion_members')).scalar_one()==0
@@ -1043,7 +1069,11 @@ def test_secretaria_offer_erasure_clears_anchors_before_messages(database, priva
                 response = client.delete(f"/conversations/{v['conv']}")
             else:
                 path = f"/contacts/{v['person']}/private-content" if scope == 'pessoa' else '/igreja/private-content'
-                response = client.request('DELETE', path, json=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO'))
+                payload=dict(operation_id=str(uuid4()),confirmacao='EXCLUIR CONTEUDO PRIVADO')
+                if scope=='igreja':
+                    payload=dict(operation_id=payload['operation_id'],nome_igreja='Synthetic church A',
+                                 confirmacao='EXCLUIR CONTEUDO PRIVADO DA IGREJA')
+                response = client.request('DELETE', path, json=payload)
             assert response.status_code == 200, response.text
             receipt = response.json()
             assert receipt['camadas']['mensagens']['apagadas'] == (2 if scope == 'igreja' else 1)
