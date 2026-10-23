@@ -100,6 +100,11 @@ export interface TeamMember {
   status: string | null;
   papeis: string[];
   pessoaId: string | null;
+  pessoaVinculo?: "ativa" | "sem_vinculo" | "pessoa_inativa";
+}
+
+export interface TeamPage extends Page<TeamMember> {
+  sem_pessoa_ativa_coordenacao?: number;
 }
 
 export interface TeamLookupMember extends TeamMember {
@@ -502,24 +507,36 @@ export async function fetchWorkQueue(token: string, pageSize = 100): Promise<Pag
   };
 }
 
-export async function fetchTeam(token: string, pageSize = 100): Promise<Page<TeamMember>> {
+export async function fetchTeam(token: string, pageSize = 100): Promise<TeamPage> {
   const items: TeamMember[] = [];
   let page = 1;
   let total = 0;
+  let semPessoaAtivaCoordenacao: number | undefined;
 
   do {
     const res = await authedFetch(token, `/team?page=${page}&pageSize=${pageSize}`);
     if (!res.ok) {
       throw new ApiError(res.status, "Não foi possível carregar a equipe.");
     }
-    const chunk = (await res.json()) as Page<TeamMember>;
+    const chunk = (await res.json()) as TeamPage;
     total = chunk.total;
+    if (chunk.sem_pessoa_ativa_coordenacao !== undefined) {
+      semPessoaAtivaCoordenacao = chunk.sem_pessoa_ativa_coordenacao;
+    }
     items.push(...chunk.items);
     if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
-  return { items, page: 1, pageSize, total };
+  return {
+    items,
+    page: 1,
+    pageSize,
+    total,
+    ...(semPessoaAtivaCoordenacao !== undefined
+      ? { sem_pessoa_ativa_coordenacao: semPessoaAtivaCoordenacao }
+      : {}),
+  };
 }
 
 /**
