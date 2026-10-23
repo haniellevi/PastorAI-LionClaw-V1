@@ -107,7 +107,7 @@ test("telas principais atendem WCAG 2.1 A e AA", async ({ page, request }, testI
       id: "atendimento",
       path: "/#inbox",
       heading: page.locator(".ib-head h2"),
-      ready: () => expect(page.getByText("Contato A", { exact: true })).toBeVisible(),
+      ready: () => expect(page.getByText("Contato A", { exact: true }).first()).toBeVisible(),
     },
     {
       id: "contatos",
