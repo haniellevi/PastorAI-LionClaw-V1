@@ -13,6 +13,7 @@ import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from http.cookiejar import CookieJar, DefaultCookiePolicy
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, Request
@@ -92,6 +93,41 @@ def _request_id(value: str | None) -> str:
     return uuid.uuid4().hex
 
 
+def _redact_access_query(path: str) -> str:
+    """Remove query values from access-log targets, including webhook secrets."""
+    parts = urlsplit(path)
+    if not parts.query:
+        return path
+    query = urlencode(
+        [
+            (name, "<redacted>")
+            for name, _ in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+class _UvicornAccessLogFilter(logging.Filter):
+    """Redact every request query value before Uvicorn formats its access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # Uvicorn access records use (client, method, path, version, status).
+        # Drop an unrecognized shape rather than risk logging an unsanitized URL.
+        if not isinstance(args, tuple) or len(args) < 3 or not isinstance(args[2], str):
+            return False
+        record.args = (*args[:2], _redact_access_query(args[2]), *args[3:])
+        return True
+
+
+def _install_uvicorn_access_log_filter() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(
+        isinstance(item, _UvicornAccessLogFilter) for item in access_logger.filters
+    ):
+        access_logger.addFilter(_UvicornAccessLogFilter())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Validate config on boot and release shared clients on shutdown."""
@@ -144,6 +180,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    _install_uvicorn_access_log_filter()
     app = FastAPI(
         title="PastorAI API",
         version="1.0.0",
