@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import time
 import uuid
 from collections.abc import Iterator
 
@@ -54,9 +55,15 @@ class _Clerk:
         self._clerk_user_id = clerk_user_id
 
     def verify_session_token(self, _token: str) -> ClerkIdentity:
+        now = int(time.time())
         return ClerkIdentity(
             clerk_user_id=self._clerk_user_id,
-            claims={"sub": self._clerk_user_id},
+            claims={
+                "sub": self._clerk_user_id,
+                "iat": now - 60,
+                "exp": now + 3600,
+                "jti": f"profile-session-{self._clerk_user_id}",
+            },
         )
 
 
@@ -115,6 +122,11 @@ def _prepare_pre_s2_baseline(engine: Engine) -> _CatalogFingerprint:
             "id uuid primary key default gen_random_uuid(), igreja_id uuid, clerk_user_id text unique, pessoa_id uuid, "
             "celula_pendente_id uuid, nome text, email text, status varchar, chat_nome text, "
             "created_at timestamptz default now(), password_changed_at timestamptz)"
+        )
+        conn.exec_driver_sql(
+            "create table if not exists public.auth_sessions ("
+            "jti text primary key, igreja_id uuid, app_user_id uuid not null, "
+            "issued_at timestamptz not null, expires_at timestamptz not null, revoked_at timestamptz)"
         )
         for column_sql in (
             "add column if not exists status varchar default 'ativa'",
@@ -192,6 +204,16 @@ def _prepare_pre_s2_baseline(engine: Engine) -> _CatalogFingerprint:
                 "using (igreja_id = current_igreja_id()) "
                 "with check (igreja_id = current_igreja_id())"
             )
+        conn.exec_driver_sql("alter table public.auth_sessions enable row level security")
+        conn.exec_driver_sql("alter table public.auth_sessions force row level security")
+        conn.exec_driver_sql("drop policy if exists auth_sessions_test_self on public.auth_sessions")
+        conn.exec_driver_sql(
+            "create policy auth_sessions_test_self on public.auth_sessions for select to authenticated "
+            "using (igreja_id = current_igreja_id() and app_user_id = ("
+            "select id from public.app_users where igreja_id = current_igreja_id() and clerk_user_id = "
+            "nullif(coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', "
+            "current_setting('request.jwt.claim.sub', true)), '') limit 1))"
+        )
         conn.exec_driver_sql("alter table public.igrejas enable row level security")
         conn.exec_driver_sql("drop policy if exists igrejas_self_select on public.igrejas")
         conn.exec_driver_sql(
@@ -202,6 +224,7 @@ def _prepare_pre_s2_baseline(engine: Engine) -> _CatalogFingerprint:
         conn.exec_driver_sql("grant execute on function public.current_igreja_id() to authenticated")
         conn.exec_driver_sql("grant select on public.igrejas to authenticated")
         conn.exec_driver_sql("grant select on public.app_users to authenticated")
+        conn.exec_driver_sql("grant select on public.auth_sessions to authenticated")
         conn.exec_driver_sql("grant select on public.user_roles to authenticated")
         conn.exec_driver_sql("grant select, update on public.agent_configs to authenticated")
         conn.exec_driver_sql("grant select on public.celulas to authenticated")
@@ -236,6 +259,24 @@ def _prepare_pre_s2_baseline(engine: Engine) -> _CatalogFingerprint:
                 "tenant_b": _TENANT_B,
                 "clerk_a": _CLERK_A,
                 "clerk_b": _CLERK_B,
+            },
+        )
+        conn.execute(
+            text(
+                "insert into public.auth_sessions (jti, igreja_id, app_user_id, issued_at, expires_at) values "
+                "(:jti_a, :tenant_a, :user_a, now() - interval '1 minute', now() + interval '1 hour'), "
+                "(:jti_b, :tenant_b, :user_b, now() - interval '1 minute', now() + interval '1 hour') "
+                "on conflict (jti) do update set igreja_id = excluded.igreja_id, "
+                "app_user_id = excluded.app_user_id, issued_at = excluded.issued_at, "
+                "expires_at = excluded.expires_at, revoked_at = null"
+            ),
+            {
+                "jti_a": f"profile-session-{_CLERK_A}",
+                "jti_b": f"profile-session-{_CLERK_B}",
+                "tenant_a": _TENANT_A,
+                "tenant_b": _TENANT_B,
+                "user_a": _USER_A,
+                "user_b": _USER_B,
             },
         )
         conn.execute(

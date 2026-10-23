@@ -123,9 +123,21 @@ function parseMeResult(value: unknown): MeResult | null {
 
 // Cobre Clerk (até ~10s) + rate limit + banco frio sem afetar deadlines do Inbox.
 const AUTH_REQUEST_TIMEOUT_MS = 20_000;
+const LOGOUT_REQUEST_TIMEOUT_MS = 5_000;
 
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetchWithDeadline(url, init, AUTH_REQUEST_TIMEOUT_MS);
+}
+
+/** Revoke one persisted tenant JWT before the provider clears local state. */
+export async function logoutSession(token: string): Promise<void> {
+  const response = await fetchWithDeadline(
+    `${API_BASE}/auth/logout`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+    LOGOUT_REQUEST_TIMEOUT_MS,
+  );
+  if (response.status === 401) return; // já expirou ou foi revogada
+  if (!response.ok) throw new Error("O servidor não confirmou o logout.");
 }
 
 export async function login(email: string, password: string): Promise<LoginResult> {

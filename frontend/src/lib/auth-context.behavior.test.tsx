@@ -6,15 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiMocks = vi.hoisted(() => ({
   fetchMe: vi.fn(),
   login: vi.fn(),
+  logoutSession: vi.fn(),
 }));
 const adminApiMocks = vi.hoisted(() => ({
   fetchAdminMe: vi.fn(),
   adminLogin: vi.fn(),
+  logoutAdminSession: vi.fn(),
 }));
 
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
-  return { ...actual, fetchMe: apiMocks.fetchMe, fetchBootstrap: async (token: string) => ({ user: await apiMocks.fetchMe(token), permissions: null }), login: apiMocks.login };
+  return { ...actual, fetchMe: apiMocks.fetchMe, fetchBootstrap: async (token: string) => ({ user: await apiMocks.fetchMe(token), permissions: null }), login: apiMocks.login, logoutSession: apiMocks.logoutSession };
 });
 vi.mock("./admin-api", async () => {
   const actual = await vi.importActual<typeof import("./admin-api")>("./admin-api");
@@ -22,6 +24,7 @@ vi.mock("./admin-api", async () => {
     ...actual,
     fetchAdminMe: adminApiMocks.fetchAdminMe,
     adminLogin: adminApiMocks.adminLogin,
+    logoutAdminSession: adminApiMocks.logoutAdminSession,
   };
 });
 vi.mock("@/components/shell/AppShell", () => ({ AppShell: () => null }));
@@ -64,8 +67,10 @@ beforeEach(() => {
   document.cookie = "pastorai_token=; max-age=0; path=/";
   apiMocks.fetchMe.mockReset();
   apiMocks.login.mockReset();
+  apiMocks.logoutSession.mockReset();
   adminApiMocks.fetchAdminMe.mockReset();
   adminApiMocks.adminLogin.mockReset();
+  adminApiMocks.logoutAdminSession.mockReset();
 });
 
 afterEach(() => {
@@ -120,11 +125,44 @@ describe("AuthProvider — restauração de sessão", () => {
     let resolve!: (value: MeResult) => void;
     apiMocks.fetchMe.mockImplementation(() => new Promise<MeResult>(done => { resolve = done; }));
     await renderProvider(<AuthProvider><Probe /></AuthProvider>);
-    act(() => latest?.logout());
+    await act(async () => {
+      await latest?.logout();
+    });
     await act(async () => { resolve(me); });
     expect(latest?.status).toBe("unauthenticated");
     expect(latest?.user).toBeNull();
     expect(window.localStorage.getItem("pastorai:token")).toBeNull();
+  });
+
+  it("revoga a sessão no servidor antes de limpar o token local", async () => {
+    apiMocks.fetchMe.mockResolvedValue(me);
+    apiMocks.logoutSession.mockImplementation(async () => {
+      expect(window.localStorage.getItem("pastorai:token")).toBe("tenant-token");
+    });
+
+    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    await waitForState(() => expect(latest?.status).toBe("authenticated"));
+    await act(async () => {
+      await latest?.logout({ revokeServer: true });
+    });
+
+    expect(apiMocks.logoutSession).toHaveBeenCalledWith("tenant-token");
+    expect(window.localStorage.getItem("pastorai:token")).toBeNull();
+    expect(latest?.status).toBe("unauthenticated");
+  });
+
+  it("limpa a sessão local e avisa se o servidor não confirmar a revogação", async () => {
+    apiMocks.fetchMe.mockResolvedValue(me);
+    apiMocks.logoutSession.mockRejectedValue(new Error("network"));
+
+    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    await waitForState(() => expect(latest?.status).toBe("authenticated"));
+    await act(async () => {
+      await latest?.logout({ revokeServer: true });
+    });
+
+    expect(window.localStorage.getItem("pastorai:token")).toBeNull();
+    expect(latest?.accessMessage).toContain("o servidor não confirmou");
   });
 
   it("encerra 403, apaga o token e preserva a mensagem para o fluxo de acesso", async () => {
@@ -177,6 +215,7 @@ describe("AuthProvider — restauração de sessão", () => {
     expect(latest?.user?.appUserId).toBe("user-1");
     expect(window.localStorage.getItem("pastorai:token")).toBe("tenant-token");
   });
+
 });
 
 describe("AdminAuthProvider — restauração de sessão", () => {
@@ -241,6 +280,21 @@ describe("AdminAuthProvider — restauração de sessão", () => {
     await waitForState(() => expect(latest?.status).toBe("authenticated"));
     expect(latest?.admin?.appUserId).toBe("admin-1");
     expect(window.localStorage.getItem("pastorai:admin-token")).toBe("admin-token");
+  });
+
+  it("revoga a sessão do console de plataforma e avisa quando a API falha", async () => {
+    adminApiMocks.fetchAdminMe.mockResolvedValue(adminMe);
+    adminApiMocks.logoutAdminSession.mockRejectedValue(new Error("network"));
+
+    await renderProvider(<AdminAuthProvider><Probe /></AdminAuthProvider>);
+    await waitForState(() => expect(latest?.status).toBe("authenticated"));
+    await act(async () => {
+      await latest?.logout({ revokeServer: true });
+    });
+
+    expect(adminApiMocks.logoutAdminSession).toHaveBeenCalledWith("admin-token");
+    expect(window.localStorage.getItem("pastorai:admin-token")).toBeNull();
+    expect(latest?.accessMessage).toContain("o servidor não confirmou");
   });
 });
 

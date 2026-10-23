@@ -39,6 +39,7 @@ from app.domain.work_queue import TIPO_RESOLVER_ROLES, resolvable_tipos
 from app.routers._common import Page, PaginationParams
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkClient, get_clerk_client
+from app.services.auth_sessions import revoke_user_sessions
 from app.services.cell_leadership import resolve_effective_access, sync_role_after_activation
 from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.invite_identity import (
@@ -910,13 +911,11 @@ def revoke_member(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> RevokeResponse:
-    """Revoke a member's access (RF-04 / US-03). Soft: status -> 'revogado'.
+    """Revoke a member and all persisted panel sessions (RF-04 / US-03).
 
-    The app_user row is kept for auditability; access is blocked at auth time
-    (get_current_user and /auth/login both reject a revoked app_user). The panel
-    session is a PastorAI-issued JWT (not a Clerk session), so the status gate is
-    what enforces revocation — there is no live Clerk session created at login to
-    revoke. Revoking the last *active* admin is blocked (409) so the church is
+    The app_user row is kept for auditability. Its active JWT sessions are
+    revoked in the same transaction, so later authenticated requests fail with
+    401. Revoking the last *active* admin is blocked (409) so the church is
     never left without an administrator. A cross-tenant id is invisible under RLS
     and returns 404 (S4: never reveal existence). Already-revoked is idempotent.
     """
@@ -946,6 +945,11 @@ def revoke_member(
     )
 
     if app_user.status == REVOKED_USER_STATUS:
+        revoked_sessions = revoke_user_sessions(
+            db, app_user_id=str(user_uuid), igreja_id=str(igreja_uuid)
+        )
+        if revoked_sessions:
+            db.commit()
         return RevokeResponse(usuarioId=str(user_uuid), status=REVOKED_USER_STATUS)
 
     if getattr(app_user, "pessoa_id", None) is not None:
@@ -975,6 +979,9 @@ def revoke_member(
         )
 
     app_user.status = REVOKED_USER_STATUS
+    revoke_user_sessions(
+        db, app_user_id=str(user_uuid), igreja_id=str(igreja_uuid)
+    )
     igreja = db.get(Igreja, igreja_uuid)
     if igreja is not None and igreja.dono_id == user_uuid:
         igreja.dono_id = None

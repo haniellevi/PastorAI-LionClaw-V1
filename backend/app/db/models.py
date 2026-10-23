@@ -331,6 +331,44 @@ class PasswordResetToken(Base):
     )
 
 
+class AuthSession(Base):
+    """Persisted state for one PastorAI-issued panel session JWT."""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id", "app_user_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="auth_sessions_tenant_user_fkey",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "auth_sessions_user_expiry_idx",
+            "igreja_id",
+            "app_user_id",
+            "expires_at",
+        ),
+    )
+
+    jti: Mapped[str] = mapped_column(Text, primary_key=True)
+    # NULL only for an allowlisted platform admin detached from a church.
+    igreja_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    app_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    issued_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class UserRole(Base):
     """Accumulated roles per user (F3). A user may hold many roles."""
 

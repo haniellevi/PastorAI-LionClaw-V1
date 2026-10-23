@@ -25,6 +25,7 @@ import {
   AdminAuthError,
   AdminSessionExpiredError,
   fetchAdminMe,
+  logoutAdminSession,
   type AdminMe,
 } from "./admin-api";
 
@@ -46,7 +47,7 @@ interface AdminAuthValue {
   login: (email: string, password: string) => Promise<void>;
   /** Repete a validação de um token preservado após falha transitória. */
   retrySession: () => void;
-  logout: () => void;
+  logout: (options?: { revokeServer?: boolean }) => Promise<void>;
 }
 
 const AdminAuthContext = createContext<AdminAuthValue | null>(null);
@@ -144,11 +145,20 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async (options: { revokeServer?: boolean } = {}) => {
+    const token = tokenRef.current;
+    let warning: string | null = null;
+    if (options.revokeServer && token) {
+      try {
+        await logoutAdminSession(token);
+      } catch {
+        warning = "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
+      }
+    }
     tokenRef.current = null;
     writeToken(null);
     setAdmin(null);
-    setAccessMessage(null);
+    setAccessMessage(warning);
     setStatus("unauthenticated");
   }, []);
 

@@ -17,14 +17,22 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.db.models import AppUser, Celula, PlatformAdmin, RolePermission, UserRole
+from app.db.models import (
+    AppUser,
+    AuthSession,
+    Celula,
+    PlatformAdmin,
+    RolePermission,
+    UserRole,
+)
 from app.db.rls import set_tenant_context
 from app.db.session import get_db
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.domain.permissions import can_access_screen
+from app.services.auth_sessions import require_active_session, session_jti
 from app.services.clerk import ClerkAuthError, ClerkClient, ClerkIdentity, get_clerk_client
 
 # Role that is granted access implicitly to every protected resource (F4).
@@ -84,6 +92,16 @@ class CurrentUser:
         if ADMIN_ROLE in self.roles:
             return True
         return any(r in self.roles for r in roles)
+
+
+@dataclass(frozen=True)
+class AuthenticatedSession:
+    """Tenant-scoped session principal for logout, independent of billing gates."""
+
+    app_user_id: str
+    clerk_user_id: str
+    igreja_id: str
+    jti: str
 
 
 def _extract_bearer_token(authorization: str | None) -> str:
@@ -170,23 +188,41 @@ def _resolve_current_user(
     # a governar — a sessão final nunca fica não-escopada.
     set_tenant_context(db, identity.clerk_user_id)
 
+    jti = session_jti(identity)
     app_user_result = db.execute(
-        select(AppUser)
+        select(AppUser, AuthSession)
+        .outerjoin(
+            AuthSession,
+            and_(
+                AuthSession.jti == jti,
+                AuthSession.app_user_id == AppUser.id,
+                AuthSession.igreja_id == AppUser.igreja_id,
+                AuthSession.revoked_at.is_(None),
+            ),
+        )
         .options(joinedload(AppUser.roles))
         .where(AppUser.clerk_user_id == identity.clerk_user_id)
     )
-    # SQLAlchemy exige unique() quando joinedload popula uma coleção. Alguns
-    # doubles unitários antigos expõem apenas scalar_one_or_none(); o fallback
-    # mantém esses testes duck-typed sem alterar o caminho de produção.
+    # SQLAlchemy exige unique() quando joinedload popula uma coleção. A sessão
+    # ativa vem no mesmo SELECT externo para não acrescentar uma ida ao banco
+    # em cada requisição autenticada.
     if hasattr(app_user_result, "unique"):
         app_user_result = app_user_result.unique()
-    app_user = app_user_result.scalar_one_or_none()
+    app_user_row = app_user_result.one_or_none()
 
-    if app_user is None:
+    if app_user_row is None:
         # Authenticated at Clerk but not linked to any igreja.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sua conta não está vinculada a nenhuma igreja",
+        )
+
+    app_user, active_session = app_user_row
+    if active_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_STALE_SESSION_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     # A allowlisted platform admin can remain authenticated after its tenant is
@@ -197,16 +233,14 @@ def _resolve_current_user(
             detail="Sua conta não está vinculada a nenhuma igreja",
         )
 
+    _reject_session_predating_password_change(app_user, identity)
+
     if app_user.status == REVOKED_USER_STATUS:
         # Access revoked by an admin (RF-04): block even on a still-valid JWT.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Seu acesso foi revogado. Contate o administrador da igreja.",
         )
-
-    # SEC-3A / MEDIO-002: a session minted before the last password change is
-    # a stale credential — reject it like any other invalid session.
-    _reject_session_predating_password_change(app_user, identity)
 
     igreja_status = app_user.igreja.status if app_user.igreja else None
     delinquent_owner = bool(
@@ -280,6 +314,59 @@ def get_current_user(
     """Authenticate a principal for ordinary protected application access."""
     return _resolve_current_user(
         authorization, db, clerk, allow_delinquent_owner=False
+    )
+
+
+def get_current_session(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> AuthenticatedSession:
+    """Authenticate a tenant session for logout without billing restrictions."""
+    token = _extract_bearer_token(authorization)
+    try:
+        identity = clerk.verify_session_token(token)
+    except ClerkAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_STALE_SESSION_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    set_tenant_context(db, identity.clerk_user_id)
+    app_user = db.execute(
+        select(AppUser).options(joinedload(AppUser.igreja)).where(
+            AppUser.clerk_user_id == identity.clerk_user_id
+        )
+    ).scalar_one_or_none()
+    if app_user is None or app_user.igreja_id is None or app_user.igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_STALE_SESSION_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    igreja_id = str(app_user.igreja_id)
+    mark_tenant_scoped(
+        db,
+        igreja_id,
+        actor_sub=identity.clerk_user_id,
+        source="auth-logout",
+    )
+    _reject_session_predating_password_change(app_user, identity)
+    if app_user.status == REVOKED_USER_STATUS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_STALE_SESSION_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    require_active_session(db, app_user, identity)
+
+    return AuthenticatedSession(
+        app_user_id=str(app_user.id),
+        clerk_user_id=identity.clerk_user_id,
+        igreja_id=igreja_id,
+        jti=session_jti(identity),
     )
 
 
@@ -471,6 +558,7 @@ class PlatformAdminUser:
     clerk_user_id: str
     email: str
     nome: str
+    session_jti: str = ""
 
 
 def get_platform_admin(
@@ -525,6 +613,7 @@ def get_platform_admin(
 
     # SEC-3A / MEDIO-002: same stale-session rejection as the tenant plane.
     _reject_session_predating_password_change(app_user, identity)
+    require_active_session(db, app_user, identity)
 
     is_platform_admin = db.execute(
         select(PlatformAdmin.id).where(PlatformAdmin.app_user_id == app_user.id)
@@ -539,4 +628,5 @@ def get_platform_admin(
         clerk_user_id=identity.clerk_user_id,
         email=app_user.email,
         nome=app_user.nome,
+        session_jti=session_jti(identity),
     )

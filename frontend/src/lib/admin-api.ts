@@ -12,9 +12,21 @@ import { fetchWithDeadline } from "./request-with-deadline";
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 // Cobre Clerk (até ~10s) + rate limit + banco frio sem afetar deadlines do Inbox.
 const ADMIN_AUTH_TIMEOUT_MS = 20_000;
+const ADMIN_LOGOUT_TIMEOUT_MS = 5_000;
 
 async function adminAuthFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetchWithDeadline(url, init, ADMIN_AUTH_TIMEOUT_MS);
+}
+
+/** Revoke one persisted platform console JWT before clearing local state. */
+export async function logoutAdminSession(token: string): Promise<void> {
+  const response = await fetchWithDeadline(
+    `${API_BASE}/admin/logout`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+    ADMIN_LOGOUT_TIMEOUT_MS,
+  );
+  if (response.status === 401) return; // já expirou ou foi revogada
+  if (!response.ok) throw new Error("O servidor não confirmou o logout.");
 }
 
 export interface AdminMe {

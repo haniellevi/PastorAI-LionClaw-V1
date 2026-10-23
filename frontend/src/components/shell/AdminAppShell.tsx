@@ -113,8 +113,7 @@ export function AdminAppShell() {
         onNavigate={navigate}
         onToggleCollapse={() => setCollapsed((v) => !v)}
         onLogout={() => {
-          logout();
-          navigate("login");
+          void logout({ revokeServer: true }).then(() => navigate("login"));
         }}
       />
       <main

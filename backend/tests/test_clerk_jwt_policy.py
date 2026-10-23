@@ -187,7 +187,7 @@ def test_oauth_state_is_no_longer_a_signed_token() -> None:
 # roundtrip tests above already prove every minted token passes its verify_*
 # counterpart (which delegates to verify_purpose_token). These tests pin the
 # EMITTED artifact itself: exact claim set, claim values, TTL and algorithm
-# stay identical to the pre-refactor per-method payloads.
+# keep purpose tokens isolated while session JWTs gain a persisted revocation id.
 # ---------------------------------------------------------------------------
 def _decode_minted(token: str) -> tuple[dict, dict]:
     """Decode header+claims verifying only signature/alg (no issuer pinning)."""
@@ -200,9 +200,10 @@ def test_minted_session_token_claims_ttl_and_algorithm() -> None:
     token = _clerk()._mint_session_token("clerk_user_1")  # noqa: SLF001
     header, claims = _decode_minted(token)
     assert header["alg"] == "HS256"
-    assert set(claims) == {"sub", "iss", "iat", "exp"}
+    assert set(claims) == {"sub", "iss", "iat", "exp", "jti"}
     assert claims["sub"] == "clerk_user_1"
     assert claims["iss"] == "pastorai"
+    assert isinstance(claims["jti"], str) and claims["jti"]
     assert claims["exp"] - claims["iat"] == _SETTINGS.session_ttl_hours * 3600
 
 

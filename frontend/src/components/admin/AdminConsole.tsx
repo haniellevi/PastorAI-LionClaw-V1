@@ -227,7 +227,11 @@ export function AdminConsole() {
           <Button variant="ghost" size="sm" onClick={() => setAuditOpen(true)}>
             Auditoria
           </Button>
-          <Button variant="ghost" size="sm" onClick={logout}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void logout({ revokeServer: true })}
+          >
             Sair
           </Button>
         </nav>

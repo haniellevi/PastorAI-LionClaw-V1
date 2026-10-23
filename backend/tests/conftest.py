@@ -8,6 +8,7 @@ This keeps the auth/RBAC logic under test deterministic and offline.
 from __future__ import annotations
 
 import re
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,7 @@ from sqlalchemy.sql.dml import Update as _SqlUpdate
 from app.db.models import (
     AgentConversationLog,
     AppUser,
+    AuthSession,
     BillingPaymentOperation,
     BillingPlanChangeOperation,
     BillingSettings,
@@ -28,6 +30,8 @@ from app.db.models import (
     Subscription,
 )
 from app.services.clerk import ClerkAuthError, ClerkIdentity
+
+_FAKE_SESSION_JTI = "synthetic-session-jti"
 
 
 _RLS_GUARD_FIXTURES = frozenset(
@@ -118,18 +122,22 @@ class _FakeScalars:
 
 class _FakeResult:
     def __init__(
-        self, scalar=None, scalars_list=None, rows=None, one_row=None, rowcount=0
+        self, scalar=None, scalars_list=None, rows=None, one_row=None, rowcount=0, row=None
     ) -> None:
         self._scalar = scalar
         self._scalars_list = scalars_list or []
         self._rows = rows or []
         self._one_row = one_row
+        self._row = row
         # UPDATEs condicionais (claim_transition/finish_operation) decidem a
         # posse do passo pelo rowcount — o dispatch de Update o preenche.
         self.rowcount = rowcount
 
     def scalar_one_or_none(self):
         return self._scalar
+
+    def one_or_none(self):
+        return self._row
 
     def unique(self):
         return self
@@ -167,6 +175,16 @@ class FakeSession:
         subscription_ops: list | None = None,
     ) -> None:
         self.app_user = app_user
+        self.auth_session = (
+            SimpleNamespace(
+                jti=_FAKE_SESSION_JTI,
+                app_user_id=getattr(app_user, "id", None),
+                igreja_id=getattr(app_user, "igreja_id", None),
+                revoked_at=None,
+            )
+            if app_user is not None
+            else None
+        )
         self.roles = roles or []
         if isinstance(self.app_user, SimpleNamespace):
             self.app_user.roles = [SimpleNamespace(papel=role) for role in self.roles]
@@ -289,8 +307,14 @@ class FakeSession:
                 )
             return _FakeResult()
         entity = descriptions[0].get("entity")
+        if entity is AppUser and any(d.get("entity") is AuthSession for d in descriptions[1:]):
+            return _FakeResult(
+                row=(self.app_user, self.auth_session) if self.app_user is not None else None
+            )
         if entity is AppUser:
             return _FakeResult(scalar=self.app_user)
+        if entity is AuthSession:
+            return _FakeResult(scalar=self.auth_session)
         if entity is RolePermission:
             if descriptions[0].get("name") == "RolePermission":
                 return _FakeResult(scalars_list=[
@@ -485,8 +509,15 @@ class FakeClerk:
     def verify_session_token(self, token: str) -> ClerkIdentity:
         if self._raise_verify:
             raise ClerkAuthError("invalid")
+        now = int(time.time())
         return ClerkIdentity(
-            clerk_user_id=self._clerk_user_id, claims={"sub": self._clerk_user_id}
+            clerk_user_id=self._clerk_user_id,
+            claims={
+                "sub": self._clerk_user_id,
+                "iat": now - 60,
+                "exp": now + 3600,
+                "jti": _FAKE_SESSION_JTI,
+            },
         )
 
     def authenticate_password(self, email: str, password: str) -> tuple[str, str]:
