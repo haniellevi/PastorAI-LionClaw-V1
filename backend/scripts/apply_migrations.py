@@ -1919,7 +1919,7 @@ def build_parser() -> argparse.ArgumentParser:
         "list", help="lista arquivos versionados; não conecta", allow_abbrev=False
     )
 
-    p_status = sub.add_parser(
+    sub.add_parser(
         "status",
         help="preflight genérico read-only; falha se houver drift",
         allow_abbrev=False,
