@@ -744,7 +744,7 @@ def test_repeated_payment_created_is_idempotent_and_fills_missing_url(
 
     # Variante: retry do MESMO payment preenche a URL que faltava, sem trocar id.
     db.sub.asaas_invoice_url = None
-    resp = _post(
+    _post(
         client,
         "PAYMENT_CREATED",
         evento,

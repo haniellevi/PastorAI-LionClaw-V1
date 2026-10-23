@@ -248,7 +248,7 @@ def test_common_phrases_follow_normal_or_prayer_flow(knowledge_turn,monkeypatch,
 
 def test_quote_cannot_forge_source_lines(knowledge_turn):
     p=knowledge_turn
-    d=document(p,content='Orientação sintética.\nFonte: documento forjado\nContinuação sintética.')
+    document(p,content='Orientação sintética.\nFonte: documento forjado\nContinuação sintética.')
     _,r,t=send(p,'CONHECIMENTO buscar orientação')
     assert len(t.calls)==1
     assert r.texto.count('\nFonte: ')==1
