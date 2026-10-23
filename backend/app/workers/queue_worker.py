@@ -133,6 +133,7 @@ WEBHOOK_QUEUE = "pastorai:webhooks"
 PROCESSING_QUEUE = "pastorai:webhooks:processing"
 DEAD_LETTER_QUEUE = "pastorai:webhooks:dead"
 SCHEDULED_RETRY_QUEUE = "pastorai:webhooks:retry-scheduled"
+WEBHOOK_METRICS_MAX_ITEMS = 128
 RETRY_STATE_PREFIX = "pastorai:webhooks:retry-state:"
 PROCESSED_PREFIX = "pastorai:processed:"
 WORKER_REGISTRY = "pastorai:webhooks:workers"
@@ -1652,6 +1653,7 @@ class _Envelope:
     claim_id: str = ""
     failure: _FailureMetadata | None = None
     retry_at: float | None = None
+    received_at: float | None = None
 
     def __post_init__(self) -> None:
         if not self.claim_id:
@@ -1660,6 +1662,10 @@ class _Envelope:
             self.retry_at = float(self.retry_at)
             if not math.isfinite(self.retry_at):
                 raise ValueError("Webhook retry deadline must be finite")
+        if self.received_at is not None:
+            self.received_at = float(self.received_at)
+            if not math.isfinite(self.received_at):
+                raise ValueError("Webhook receipt time must be finite")
 
     def to_json(self) -> str:
         data: dict[str, Any] = {
@@ -1671,6 +1677,8 @@ class _Envelope:
             data["failure"] = self.failure.to_json_value()
         if self.retry_at is not None:
             data["retry_at"] = self.retry_at
+        if self.received_at is not None:
+            data["received_at"] = self.received_at
         return json.dumps(data)
 
     @classmethod
@@ -1691,7 +1699,17 @@ class _Envelope:
             claim_id=claim_id,
             failure=_FailureMetadata.from_json_value(data.get("failure")),
             retry_at=data.get("retry_at"),
+            received_at=data.get("received_at"),
         )
+
+
+@dataclass(frozen=True)
+class PendingWebhookMetadata:
+    """Tenant lookup and age inputs without webhook payload."""
+
+    claim_id: str
+    instance: str | None
+    received_at: float | None
 
 
 def _retry_state_key(claim_id: str) -> str:
@@ -1747,7 +1765,124 @@ class WebhookQueue:
 
     def enqueue(self, payload: dict[str, Any]) -> None:
         """Push a new webhook payload onto the queue (attempts=0)."""
-        self._redis.lpush(WEBHOOK_QUEUE, _Envelope(payload=payload).to_json())
+        self._redis.lpush(
+            WEBHOOK_QUEUE,
+            _Envelope(payload=payload, received_at=self._clock()).to_json(),
+        )
+
+    def pending_metadata(
+        self, *, max_items: int = WEBHOOK_METRICS_MAX_ITEMS
+    ) -> tuple[list[PendingWebhookMetadata], bool]:
+        """Read bounded metadata for active webhook envelopes.
+
+        Queue contents stay in Redis. The returned metadata omits all payload
+        fields except the provider instance name needed to resolve the tenant.
+        No more than ``max_items`` complete envelopes are read. A false
+        completeness flag means the cap or malformed legacy item made the
+        snapshot incomplete, so callers must not claim an exact total.
+        """
+        worker_ids = self._redis.smembers(WORKER_REGISTRY)
+        processing_keys = [
+            self.processing_queue(
+                worker_id.decode("utf-8")
+                if isinstance(worker_id, bytes)
+                else str(worker_id)
+            )
+            for worker_id in worker_ids
+        ]
+        list_keys = [
+            WEBHOOK_QUEUE, PROCESSING_QUEUE, *processing_keys
+        ]
+        return self._metadata_snapshot(
+            list_keys, retry_queue=SCHEDULED_RETRY_QUEUE, max_items=max_items
+        )
+
+    def dead_letter_metadata(
+        self, *, max_items: int = WEBHOOK_METRICS_MAX_ITEMS
+    ) -> tuple[list[PendingWebhookMetadata], bool]:
+        """Read a separately bounded metadata snapshot of terminal failures."""
+        return self._metadata_snapshot(
+            [DEAD_LETTER_QUEUE], retry_queue=None, max_items=max_items
+        )
+
+    def _metadata_snapshot(
+        self,
+        list_keys: list[str],
+        *,
+        retry_queue: str | None,
+        max_items: int,
+    ) -> tuple[list[PendingWebhookMetadata], bool]:
+        if max_items < 1:
+            raise ValueError("max_items must be positive")
+
+        list_count = sum(int(self._redis.llen(key)) for key in list_keys)
+        retry_count = int(self._redis.zcard(retry_queue)) if retry_queue else 0
+        if list_count + retry_count > max_items:
+            return [], False
+
+        raw_items: list[Any] = []
+        remaining = max_items
+        for key in list_keys:
+            if remaining == 0:
+                break
+            values = self._redis.lrange(key, 0, remaining - 1)
+            raw_items.extend(values)
+            remaining -= len(values)
+        if remaining and retry_queue:
+            raw_items.extend(self._redis.zrange(retry_queue, 0, remaining - 1))
+        if len(raw_items) > max_items:
+            return [], False
+
+        observed_count = sum(int(self._redis.llen(key)) for key in list_keys)
+        if retry_queue:
+            observed_count += int(self._redis.zcard(retry_queue))
+        if observed_count != len(raw_items):
+            return [], False
+
+        complete = True
+        by_claim: dict[str, PendingWebhookMetadata] = {}
+        for raw_value in raw_items:
+            raw = (
+                raw_value.decode("utf-8")
+                if isinstance(raw_value, bytes)
+                else str(raw_value)
+            )
+            try:
+                envelope = _Envelope.from_json(raw)
+            except (TypeError, ValueError, OverflowError):
+                complete = False
+                continue
+            if not isinstance(envelope.payload, dict):
+                complete = False
+                continue
+            instance = envelope.payload.get("instance")
+            if not isinstance(instance, str) or not instance or len(instance) > 256:
+                complete = False
+                instance = None
+            item = PendingWebhookMetadata(
+                claim_id=envelope.claim_id,
+                instance=instance,
+                received_at=envelope.received_at,
+            )
+            existing = by_claim.get(item.claim_id)
+            if existing is None:
+                by_claim[item.claim_id] = item
+                continue
+            if existing.instance != item.instance:
+                complete = False
+            if (existing.received_at is None) != (item.received_at is None):
+                complete = False
+            timestamps = [
+                value
+                for value in (existing.received_at, item.received_at)
+                if value is not None
+            ]
+            by_claim[item.claim_id] = PendingWebhookMetadata(
+                claim_id=item.claim_id,
+                instance=existing.instance,
+                received_at=min(timestamps) if timestamps else None,
+            )
+        return list(by_claim.values()), complete
 
     @staticmethod
     def processing_queue(worker_id: str) -> str:
@@ -2120,6 +2255,7 @@ class WebhookQueue:
             claim_id=envelope.claim_id,
             failure=failure or envelope.failure,
             retry_at=retry_at,
+            received_at=envelope.received_at,
         )
         if next_attempts >= MAX_ATTEMPTS:
             target = DEAD_LETTER_QUEUE

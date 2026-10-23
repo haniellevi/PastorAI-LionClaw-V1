@@ -1209,6 +1209,15 @@ class Message(Base):
                 "direcao = 'out' AND provider_message_id IS NOT NULL"
             ),
         ),
+        Index(
+            "messages_pending_agent_igreja_created_idx",
+            "igreja_id",
+            "criado_em",
+            postgresql_where=text(
+                "direcao = 'out' AND autor = 'ia' AND agent_reply_state IN "
+                "('ia_reservada', 'ia_executando', 'ia_pendente', 'ia_em_transporte')"
+            ),
+        ),
         CheckConstraint(
             "agent_reply_state IS NULL OR ("
             "direcao = 'out' AND autor = 'ia' AND agent_reply_state IN ("
@@ -2062,6 +2071,29 @@ class NotificationOutbox(Base):
             "due_at",
         ),
         Index(
+            "notification_outbox_pending_igreja_created_idx",
+            "igreja_id",
+            "created_at",
+            postgresql_where=text("state = 'pendente'"),
+            postgresql_include=["due_at"],
+        ),
+        Index(
+            "notification_outbox_retry_igreja_created_idx",
+            "igreja_id",
+            "created_at",
+            postgresql_where=text("state = 'retry'"),
+            postgresql_include=["due_at"],
+        ),
+        Index(
+            "notification_outbox_lease_igreja_claimed_idx",
+            "igreja_id",
+            "claimed_until",
+            postgresql_where=text(
+                "state = 'em_envio' AND claimed_until IS NOT NULL"
+            ),
+            postgresql_include=["created_at"],
+        ),
+        Index(
             "notification_outbox_recipient_claim_idx",
             "igreja_id",
             "pessoa_id",
@@ -2556,6 +2588,14 @@ class WorkQueueItem(Base):
             unique=True,
             postgresql_where=text(
                 "tipo = 'fonovisita' AND consolidacao_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            "work_queue_pending_igreja_created_idx",
+            "igreja_id",
+            "created_at",
+            postgresql_where=text(
+                "status IS NULL OR status IN ('aberto', 'assumido')"
             ),
         ),
         ForeignKeyConstraint(
