@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session, load_only
 from app.db.models import AppUser, Conversation, Event, EventNotifyTarget
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
+from app.domain.event_notifications import ReminderWindowHours
 from app.domain.phone import normalize_phone
 from app.routers._common import Page, PaginationParams
 from app.services.notification_outbox import enqueue_evt7_for_confirmed_event
@@ -93,6 +94,18 @@ def _normalize_hora(value: str | None) -> str | None:
     if not _HORA_RE.match(value):
         raise ValueError("hora deve estar no formato HH:MM (24h)")
     return value
+
+
+def _normalize_publico_alvo(value: list[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    if len(value) > _PUBLICO_ALVO_MAX:
+        raise ValueError(f"publicoAlvo aceita no máximo {_PUBLICO_ALVO_MAX} itens")
+    deduped: list[str] = []
+    for item in value:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped or None
 
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -172,6 +185,8 @@ class CreateEventRequest(BaseModel):
     hora: str | None = Field(default=None, max_length=10)
     descricao: str | None = Field(default=None, max_length=2000)
     tipo: EventTipo | None = None
+    publicoAlvo: list[PublicoAlvo] | None = None  # noqa: N815
+    antecedenciaHoras: ReminderWindowHours | None = None  # noqa: N815
 
     @field_validator("titulo")
     @classmethod
@@ -186,15 +201,22 @@ class CreateEventRequest(BaseModel):
     def _hora(cls, value: str | None) -> str | None:
         return _normalize_hora(value)
 
+    @field_validator("publicoAlvo")
+    @classmethod
+    def _publico(cls, value: list[str] | None) -> list[str] | None:
+        return _normalize_publico_alvo(value)
+
 
 class UpdateEventRequest(BaseModel):
-    """Edição parcial de um evento manual (EVT-2). Campos None = inalterados."""
+    """Edição parcial de evento manual. Omitidos preservam; null limpa campos."""
 
     titulo: str | None = Field(default=None, max_length=200)
     data: dt.date | None = None
     hora: str | None = Field(default=None, max_length=10)
     descricao: str | None = Field(default=None, max_length=2000)
     tipo: EventTipo | None = None
+    publicoAlvo: list[PublicoAlvo] | None = None  # noqa: N815
+    antecedenciaHoras: ReminderWindowHours | None = None  # noqa: N815
 
     @field_validator("titulo")
     @classmethod
@@ -210,6 +232,11 @@ class UpdateEventRequest(BaseModel):
     @classmethod
     def _hora(cls, value: str | None) -> str | None:
         return _normalize_hora(value)
+
+    @field_validator("publicoAlvo")
+    @classmethod
+    def _publico(cls, value: list[str] | None) -> list[str] | None:
+        return _normalize_publico_alvo(value)
 
 
 class IndividualTargetInput(BaseModel):
@@ -251,17 +278,7 @@ class ConfirmEventRequest(BaseModel):
     @field_validator("publicoAlvo")
     @classmethod
     def _publico(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return None
-        # teto checado no BRUTO (antes do dedup), como no EVT-8a.
-        if len(value) > _PUBLICO_ALVO_MAX:
-            raise ValueError(f"publicoAlvo aceita no máximo {_PUBLICO_ALVO_MAX} itens")
-        # dedup preservando a ordem; lista vazia normaliza para None.
-        deduped: list[str] = []
-        for item in value:
-            if item not in deduped:
-                deduped.append(item)
-        return deduped or None
+        return _normalize_publico_alvo(value)
 
     @field_validator("contatos")
     @classmethod

@@ -5,6 +5,7 @@ from sqlalchemy import select, or_, and_, func
 from sqlalchemy.orm import Session
 from app.db.models import Event
 from app.deps import CurrentUser
+from app.domain.event_notifications import AGENDA_REMINDER_WINDOW_HOURS
 
 STATUS_A_CONFIRMAR = 'a_confirmar'
 
@@ -72,8 +73,23 @@ def _write_allowed(current_user):
         raise HTTPException(403, 'Sem permissão para alterar a agenda')
 
 
+def _validate_reminder_configuration(publico_alvo, antecedencia_horas):
+    if (
+        type(antecedencia_horas) is int
+        and antecedencia_horas in AGENDA_REMINDER_WINDOW_HOURS
+        and not publico_alvo
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selecione ao menos um público para configurar o lembrete",
+        )
+
+
 def create(db, current_user, payload):
     _write_allowed(current_user)
+    _validate_reminder_configuration(
+        payload.publicoAlvo, payload.antecedenciaHoras
+    )
     event = Event(
         igreja_id=uuid.UUID(current_user.igreja_id),
         titulo=payload.titulo,
@@ -81,6 +97,9 @@ def create(db, current_user, payload):
         hora=payload.hora,
         descricao=payload.descricao,
         tipo=payload.tipo,
+        publico_alvo=payload.publicoAlvo,
+        antecedencia_horas=payload.antecedenciaHoras,
+        canal="whatsapp" if payload.antecedenciaHoras is not None else None,
         google_event_id=None,
     )
     db.add(event)
@@ -92,7 +111,18 @@ def create(db, current_user, payload):
 
 def update(db, current_user, event_id, payload):
     _write_allowed(current_user)
-    event = _get_event(db, current_user, event_id)
+    event = _get_event(db, current_user, event_id, for_update=True)
+    fields = payload.model_fields_set
+    reminder_fields = {"publicoAlvo", "antecedenciaHoras"}
+    if fields.intersection(reminder_fields):
+        _validate_reminder_configuration(
+            payload.publicoAlvo
+            if "publicoAlvo" in fields
+            else event.publico_alvo,
+            payload.antecedenciaHoras
+            if "antecedenciaHoras" in fields
+            else event.antecedencia_horas,
+        )
 
     if payload.titulo is not None:
         event.titulo = payload.titulo
@@ -107,6 +137,20 @@ def update(db, current_user, event_id, payload):
     # not None` como os demais campos — que não são apagáveis por design.
     if "tipo" in payload.model_fields_set:
         event.tipo = payload.tipo
+    if "publicoAlvo" in fields:
+        event.publico_alvo = payload.publicoAlvo
+    if "antecedenciaHoras" in fields:
+        event.antecedencia_horas = payload.antecedenciaHoras
+        if payload.antecedenciaHoras is not None:
+            # A newly selected relative window supersedes any absolute time
+            # stored by event confirmation. Removing the relative window alone
+            # leaves that independent absolute schedule intact.
+            event.notificar_em = None
+    if fields.intersection(reminder_fields):
+        if event.antecedencia_horas is not None or event.notificar_em is not None:
+            event.canal = "whatsapp"
+        else:
+            event.canal = None
 
     db.flush()
     db.refresh(event)
