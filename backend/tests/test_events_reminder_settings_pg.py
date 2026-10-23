@@ -105,6 +105,42 @@ def test_pastor_can_edit_event_reminder_settings_pg(
     session.close()
 
 
+def test_removing_relative_window_preserves_absolute_reminder_pg(
+    app, agenda_rls, rls_database_url: str
+):
+    event_id = uuid.uuid5(_TENANT_A, "agenda-event")
+    absolute_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    with agenda_rls.begin() as setup:
+        mark_tenant_scoped(setup, _TENANT_A, source="agenda_reminder_absolute_setup")
+        event = setup.execute(
+            select(Event).where(Event.igreja_id == _TENANT_A, Event.id == event_id)
+        ).scalar_one()
+        event.publico_alvo = ["toda_igreja"]
+        event.antecedencia_horas = 24
+        event.notificar_em = absolute_at
+        event.canal = "whatsapp"
+
+    client, session = _client(app, agenda_rls, _TENANT_A, ("pastor",))
+    response = client.put(
+        f"/events/{event_id}",
+        json={"antecedenciaHoras": None},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["antecedenciaHoras"] is None
+    assert body["canal"] == "whatsapp"
+    assert dt.datetime.fromisoformat(
+        body["notificarEm"].replace("Z", "+00:00")
+    ) == absolute_at
+    assert _read_event(agenda_rls, _TENANT_A, event_id) == (
+        None,
+        ["toda_igreja"],
+        "whatsapp",
+    )
+    session.close()
+
+
 def test_member_cannot_edit_event_reminder_settings_pg(
     app, agenda_rls, rls_database_url: str
 ):

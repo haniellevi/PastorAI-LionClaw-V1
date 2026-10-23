@@ -141,11 +141,16 @@ def update(db, current_user, event_id, payload):
         event.publico_alvo = payload.publicoAlvo
     if "antecedenciaHoras" in fields:
         event.antecedencia_horas = payload.antecedenciaHoras
-        # The panel exposes relative windows only. Clear an older absolute
-        # confirmation timestamp so the outbox derives due_at from this window.
-        event.notificar_em = None
-    if fields.intersection(reminder_fields) and event.antecedencia_horas is not None:
-        event.canal = "whatsapp"
+        if payload.antecedenciaHoras is not None:
+            # A newly selected relative window supersedes any absolute time
+            # stored by event confirmation. Removing the relative window alone
+            # leaves that independent absolute schedule intact.
+            event.notificar_em = None
+    if fields.intersection(reminder_fields):
+        if event.antecedencia_horas is not None or event.notificar_em is not None:
+            event.canal = "whatsapp"
+        else:
+            event.canal = None
 
     db.flush()
     db.refresh(event)
