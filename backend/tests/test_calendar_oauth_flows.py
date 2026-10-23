@@ -145,7 +145,7 @@ def stub_tick(monkeypatch):
             progress_callback()
         return 7
 
-    def _crons(session, *, engine, now, last_run, progress_callback=None):
+    def _crons(session, *, engine, now, last_run, session_factory=None, progress_callback=None):
         calls["crons"] += 1
         if progress_callback is not None:
             progress_callback()
