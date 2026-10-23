@@ -57,7 +57,7 @@ jobs:
             git show "$sha:deploy/backend-release.sh" |
               grep -qx 'BACKEND_RELEASE_SAFETY_VERSION=2'
           done
-          git archive --format=tar "$RELEASE_SHA" backend deploy |
+          git archive --format=tar "$RELEASE_SHA" backend deploy .env.example |
             gzip -9 > "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
 
       - name: Deploy backend with schema gate and code rollback

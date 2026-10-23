@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables.
 
 Centralizes configuration and validates required variables at startup
-(SPEC 5.3 / .env.example). Secrets are never logged.
+(SPEC 5.3 / modelo raiz .env.example). Secrets are never logged.
 """
 
 from __future__ import annotations
