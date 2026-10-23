@@ -70,6 +70,8 @@ jobs:
           test -x "$ffmpeg_path"
           mkdir -p "$RUNNER_TEMP/ffmpeg-bin"
           ln -sfn "$ffmpeg_path" "$RUNNER_TEMP/ffmpeg-bin/ffmpeg"
+          # O teste de fronteira do decodificador V1b usa o caminho da imagem de produção.
+          sudo ln -sfn "$ffmpeg_path" /usr/bin/ffmpeg
           printf '%s\n' "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
           command -v prlimit
 
