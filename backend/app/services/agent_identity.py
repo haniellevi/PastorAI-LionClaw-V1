@@ -407,9 +407,9 @@ def _session_is_current(claims: Mapping[str, Any], *, at: dt.datetime) -> bool:
 
 def _require_scope(session: Session, igreja_id: uuid.UUID, *, clerk_user_id: str | None) -> None:
     if clerk_user_id is not None:
-        # ``request.jwt.claims`` is transaction-local.  The seam restores only
-        # tenant + role after a fresh BEGIN, so the server-verified sub is
-        # deliberately reapplied before policies that distinguish panel users.
+        # ``request.jwt.claims`` is transaction-local.  The seam reapplies the
+        # pinned ``actor_sub`` after a fresh BEGIN; this also sets the validated
+        # subject for callers whose tenant-scoped session did not store it.
         set_tenant_context(session, clerk_user_id)
     require_tenant_scope(
         session,

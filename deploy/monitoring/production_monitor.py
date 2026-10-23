@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import ipaddress
 import json
+import math
 import os
 import re
 import urllib.error
@@ -20,6 +22,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 UTC = dt.timezone.utc
 DEFAULT_STATE_FILE = Path("/var/lib/pastorai-monitor/state.json")
@@ -56,13 +59,30 @@ def load_config() -> dict[str, str]:
     return dict(os.environ)
 
 
-def request_json(url: str, *, timeout: float = 8.0) -> Any:
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def request_json(
+    url: str, *, timeout: float = 8.0, bearer_token: str | None = None
+) -> Any:
+    headers = {
+        "accept": "application/json",
+        "user-agent": "PastorAI-Monitor/1",
+    }
+    if bearer_token:
+        headers["authorization"] = f"Bearer {bearer_token}"
     request = urllib.request.Request(
         url,
-        headers={"accept": "application/json", "user-agent": "PastorAI-Monitor/1"},
+        headers=headers,
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    open_request = urllib.request.urlopen
+    if bearer_token:
+        # Never forward the admin token through a redirect.
+        open_request = urllib.request.build_opener(_NoRedirectHandler()).open
+    with open_request(request, timeout=timeout) as response:
         if not 200 <= response.status < 300:
             raise RuntimeError("unexpected HTTP status")
         return json.loads(response.read(131072).decode("utf-8"))
@@ -141,6 +161,122 @@ def check_backup(
     if age_hours > max_age:
         return CheckResult("backup", False, f"atrasado age_hours={age_hours:.1f}")
     return CheckResult("backup", True, f"recente age_hours={age_hours:.1f}")
+
+
+def _valid_pending_endpoint(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        if (
+            parsed.scheme not in {"http", "https"}
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path.rstrip("/") != "/operations/pending"
+        ):
+            return False
+        if hostname.casefold() == "localhost":
+            return True
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def check_stuck_flow(config: dict[str, str]) -> CheckResult:
+    """Optionally alert on old outbox or inbound webhook work for one admin scope."""
+    enabled = config.get("MONITOR_STUCK_FLOW_ENABLED", "false").strip().lower()
+    if enabled in {"", "0", "false", "no", "off"}:
+        return CheckResult("stuck_flow", True, "desativado")
+    if enabled not in {"1", "true", "yes", "on"}:
+        return CheckResult("stuck_flow", False, "configuracao invalida")
+
+    url = config.get("MONITOR_STUCK_FLOW_URL", "").strip()
+    token = config.get("MONITOR_STUCK_FLOW_TOKEN", "")
+    if not url or not token:
+        return CheckResult("stuck_flow", False, "configuracao incompleta")
+    if len(token) > 4096 or not _valid_pending_endpoint(url):
+        return CheckResult("stuck_flow", False, "endpoint invalido")
+    try:
+        max_age = int(config.get("MONITOR_STUCK_FLOW_MAX_AGE_SECONDS", "3600"))
+    except ValueError:
+        return CheckResult("stuck_flow", False, "limite invalido")
+    if not 1 <= max_age <= 2592000:
+        return CheckResult("stuck_flow", False, "limite invalido")
+
+    try:
+        body = request_json(url, bearer_token=token)
+    except Exception as exc:  # noqa: BLE001 - monitor reports dependency state
+        return CheckResult("stuck_flow", False, f"indisponivel ({type(exc).__name__})")
+    if not isinstance(body, dict):
+        return CheckResult("stuck_flow", False, "resposta invalida")
+    if body.get("outbox_available") is not True:
+        return CheckResult("stuck_flow", False, "indisponivel source=notification_outbox")
+    if body.get("webhooks_available") is not True:
+        return CheckResult("stuck_flow", False, "indisponivel source=webhooks")
+    outbox = body.get("notification_outbox")
+    webhook_metrics = body.get("webhooks")
+    if not isinstance(outbox, dict) or not isinstance(webhook_metrics, dict):
+        return CheckResult("stuck_flow", False, "resposta invalida")
+    sources = (
+        ("notification_outbox_pending", outbox.get("pending")),
+        ("notification_outbox_retryable", outbox.get("retryable")),
+        ("notification_outbox_expired_lease", outbox.get("expired_lease")),
+        ("webhooks", webhook_metrics),
+    )
+    oldest_items: list[tuple[str, float]] = []
+    for name, item in sources:
+        if not isinstance(item, dict):
+            return CheckResult("stuck_flow", False, f"resposta invalida source={name}")
+        count = item.get("count")
+        age = item.get("oldest_age_seconds")
+        overdue_count = item.get("overdue_count")
+        overdue_age = item.get("oldest_overdue_age_seconds")
+        if type(count) is not int or count < 0:
+            return CheckResult("stuck_flow", False, f"resposta invalida source={name}")
+        if type(overdue_count) is not int or not 0 <= overdue_count <= count:
+            return CheckResult("stuck_flow", False, f"resposta invalida source={name}")
+        if count == 0:
+            if age is not None or overdue_age is not None:
+                return CheckResult("stuck_flow", False, f"resposta invalida source={name}")
+            continue
+        if item.get("age_complete") is not True:
+            return CheckResult("stuck_flow", False, f"idade indisponivel source={name}")
+        if (
+            isinstance(age, bool)
+            or not isinstance(age, (int, float))
+            or not math.isfinite(age)
+            or age < 0
+        ):
+            return CheckResult("stuck_flow", False, f"idade indisponivel source={name}")
+        if overdue_count == 0:
+            if overdue_age is not None:
+                return CheckResult("stuck_flow", False, f"resposta invalida source={name}")
+            continue
+        if (
+            isinstance(overdue_age, bool)
+            or not isinstance(overdue_age, (int, float))
+            or not math.isfinite(overdue_age)
+            or overdue_age < 0
+        ):
+            return CheckResult("stuck_flow", False, f"idade indisponivel source={name}")
+        oldest_items.append((name, float(overdue_age)))
+
+    if not oldest_items:
+        return CheckResult("stuck_flow", True, "fila vazia")
+    name, age = max(oldest_items, key=lambda item: item[1])
+    if age > max_age:
+        return CheckResult(
+            "stuck_flow",
+            False,
+            f"atrasado source={name} overdue_age_seconds={age:.1f} limit_seconds={max_age}",
+        )
+    return CheckResult(
+        "stuck_flow",
+        True,
+        f"dentro_limite source={name} overdue_age_seconds={age:.1f} limit_seconds={max_age}",
+    )
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -293,6 +429,7 @@ def run(config: dict[str, str], *, now: dt.datetime | None = None) -> int:
         check_liveness(config),
         check_readiness(config),
         check_backup(config, now=checked_at),
+        check_stuck_flow(config),
     ]
     for item in checks:
         print(

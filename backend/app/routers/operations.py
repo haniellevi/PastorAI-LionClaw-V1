@@ -12,6 +12,7 @@ from app.services.operational_usage import (
     OperationalPending, OperationalUsage, operational_pending, operational_usage,
 )
 from app.services.private_memory_overview import PrivateMemoryOverview, memory_overview
+from app.workers.queue_worker import WebhookQueue
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 
@@ -59,6 +60,11 @@ def require_active_admin(
     return _require_admin_status(user, db, require_explicit_active_status=True)
 
 
+def get_pending_webhook_queue() -> WebhookQueue:
+    """Provide the live Redis queue only to the read-only pending projection."""
+    return WebhookQueue()
+
+
 @router.get("/ai-usage", response_model=OperationalUsage)
 def ai_usage(
     response: Response,
@@ -76,10 +82,16 @@ def pending(
     stuck_after_seconds: int = Query(default=3600, ge=1, le=2592000),
     user: CurrentUser = Depends(require_operational_admin),
     db: Session = Depends(get_db),
+    webhook_queue: WebhookQueue = Depends(get_pending_webhook_queue),
 ) -> OperationalPending:
-    """Aggregate age only; the authenticated church supplies the tenant."""
+    """Aggregate queue age only; the authenticated church supplies the tenant."""
     response.headers["Cache-Control"] = "no-store"
-    return operational_pending(db, UUID(user.igreja_id), stuck_after_seconds=stuck_after_seconds)
+    return operational_pending(
+        db,
+        UUID(user.igreja_id),
+        stuck_after_seconds=stuck_after_seconds,
+        webhook_queue=webhook_queue,
+    )
 
 
 @router.get("/private-memory", response_model=PrivateMemoryOverview)
