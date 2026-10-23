@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -63,6 +64,12 @@ VALID_ROLES = {
 # Papel atribuído automaticamente a quem é convidado: convites não escolhem
 # papéis — somente pessoas já cadastradas têm os papéis editados (delta-049).
 MEMBRO_ROLE = "membro"
+
+# Papéis de coordenação do Enviar: os que têm acesso padrão à tela, mais
+# lider_consol, explicitamente incluído no pré-requisito de vínculo.
+ENVIAR_COORDINATION_ROLES = frozenset({
+    "admin", "pastor", "lider_consol", "lider_g12", "lider_celula", "lider_mult",
+})
 
 
 class InviteRequest(BaseModel):
@@ -147,6 +154,18 @@ class TeamMemberOut(BaseModel):
     pessoaId: str | None = None  # noqa: N815 - liga ao registro de Pessoa
 
 
+class TeamListMemberOut(TeamMemberOut):
+    """Status do vínculo exposto somente ao admin na lista de equipe."""
+
+    pessoa_vinculo: Literal["ativa", "sem_vinculo", "pessoa_inativa"] | None = None
+
+
+class TeamListOut(Page[TeamListMemberOut]):
+    """Lista de equipe com resumo administrativo opcional."""
+
+    sem_pessoa_ativa_coordenacao: int | None = None
+
+
 class TeamLookupOut(TeamMemberOut):
     """Minimal assignment-picker projection with server-derived capabilities."""
 
@@ -189,6 +208,58 @@ def _active_admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
         )
     ).scalars().all()
     return set(rows)
+
+
+def _pessoa_ativa_para_vinculo(pessoa: Pessoa | None) -> bool:
+    """Repete a regra de elegibilidade do vínculo administrativo."""
+
+    return pessoa is not None and pessoa.arquivada_em is None and not pessoa.sem_interesse
+
+
+def _pessoa_ativa_query_conditions(pessoa_model=Pessoa):
+    """Predicados SQL equivalentes a ``_pessoa_ativa_para_vinculo``."""
+
+    return (pessoa_model.arquivada_em.is_(None), pessoa_model.sem_interesse.is_(False))
+
+
+def _pessoas_ativas_para_vinculo(
+    db: Session, igreja_id: uuid.UUID, pessoa_ids: set[uuid.UUID]
+) -> set[uuid.UUID]:
+    if not pessoa_ids:
+        return set()
+    pessoas = db.scalars(
+        select(Pessoa).where(
+            Pessoa.igreja_id == igreja_id,
+            Pessoa.id.in_(pessoa_ids),
+        )
+    ).all()
+    return {pessoa.id for pessoa in pessoas if _pessoa_ativa_para_vinculo(pessoa)}
+
+
+def _count_coordenacao_sem_pessoa_ativa(db: Session, igreja_id: uuid.UUID) -> int:
+    pessoa_ativa = (
+        select(Pessoa.id)
+        .where(
+            Pessoa.igreja_id == AppUser.igreja_id,
+            Pessoa.id == AppUser.pessoa_id,
+            *_pessoa_ativa_query_conditions(),
+        )
+        .correlate(AppUser)
+        .exists()
+    )
+    coordination_user_ids = select(UserRole.user_id).where(
+        UserRole.igreja_id == igreja_id,
+        UserRole.papel.in_(tuple(sorted(ENVIAR_COORDINATION_ROLES))),
+    )
+    count = db.scalar(
+        select(func.count(AppUser.id)).where(
+            AppUser.igreja_id == igreja_id,
+            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+            AppUser.id.in_(coordination_user_ids),
+            or_(AppUser.pessoa_id.is_(None), ~pessoa_ativa),
+        )
+    )
+    return int(count or 0)
 
 
 def _lock_target_identity(
@@ -243,14 +314,18 @@ def _lock_admin_floor(db: Session, igreja_id: uuid.UUID) -> None:
         )
 
 
-@router.get("", response_model=Page[TeamMemberOut])
+@router.get(
+    "",
+    response_model=TeamListOut,
+    response_model_exclude_unset=True,
+)
 def list_members(
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(
         require_role(["admin", "pastor", "lider_g12"])
     ),
-) -> Page[TeamMemberOut]:
+) -> TeamListOut:
     """List tenant members with e-mail and accumulated roles (F3).
 
     Restrita a quem enxerga a tela Equipe (admin/pastor/lider_g12): a resposta
@@ -277,22 +352,43 @@ def list_members(
     for user_id, papel in role_rows:
         roles_by_user.setdefault(user_id, []).append(papel)
 
-    return Page[TeamMemberOut](
-        items=[
-            TeamMemberOut(
-                usuarioId=str(u.id),
-                nome=u.nome,
-                email=u.email,
-                status=u.status,
-                papeis=sorted(roles_by_user.get(u.id, [])),
-                pessoaId=str(u.pessoa_id) if u.pessoa_id else None,
+    is_admin = ADMIN_ROLE in current_user.roles
+    active_pessoa_ids: set[uuid.UUID] = set()
+    missing_active_coordination = 0
+    if is_admin:
+        page_pessoa_ids = {u.pessoa_id for u in users if u.pessoa_id is not None}
+        active_pessoa_ids = _pessoas_ativas_para_vinculo(db, igreja_id, page_pessoa_ids)
+        missing_active_coordination = _count_coordenacao_sem_pessoa_ativa(db, igreja_id)
+
+    items = []
+    for user in users:
+        item = dict(
+            usuarioId=str(user.id),
+            nome=user.nome,
+            email=user.email,
+            status=user.status,
+            papeis=sorted(roles_by_user.get(user.id, [])),
+            pessoaId=str(user.pessoa_id) if user.pessoa_id else None,
+        )
+        if is_admin:
+            item["pessoa_vinculo"] = (
+                "sem_vinculo"
+                if user.pessoa_id is None
+                else "ativa"
+                if user.pessoa_id in active_pessoa_ids
+                else "pessoa_inativa"
             )
-            for u in users
-        ],
+        items.append(TeamListMemberOut(**item))
+
+    response = TeamListOut(
+        items=items,
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
     )
+    if is_admin:
+        response.sem_pessoa_ativa_coordenacao = missing_active_coordination
+    return response
 
 
 @router.get("/lookup", response_model=Page[TeamLookupOut])
@@ -580,7 +676,7 @@ def link_pessoa(
         person = by_id.get(payload.pessoaId)
         if person is None:
             raise HTTPException(404, "Pessoa não encontrada")
-        if person.arquivada_em is not None or person.sem_interesse:
+        if not _pessoa_ativa_para_vinculo(person):
             raise HTTPException(409, "Selecione uma Pessoa ativa com interesse ministerial")
         linked = db.execute(select(AppUser.id).where(
             AppUser.igreja_id == tenant, AppUser.pessoa_id == person.id,

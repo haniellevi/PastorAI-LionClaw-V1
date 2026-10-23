@@ -76,6 +76,65 @@ def test_link_unlink_idempotent_and_audited(database, seeded):
                         for operation in ('vincular', 'desvincular')]
 
 
+def test_admin_team_list_reports_person_link_states_and_tenant_count(database, seeded):
+    v = seeded
+
+    def add_member(connection, *, tenant, role, status='ativo', inactive=None):
+        user_id = uuid4()
+        person_id = uuid4() if inactive else None
+        if person_id:
+            connection.execute(text("""insert into pessoas
+                (id,igreja_id,nome,telefone) values(:p,:t,'Pessoa sintética',:phone)"""), dict(
+                    p=person_id, t=tenant, phone=f'55{person_id.int % 10**11:011d}'))
+            if inactive == 'arquivada':
+                connection.execute(text('update pessoas set arquivada_em=now() where id=:p'), dict(p=person_id))
+            else:
+                connection.execute(text('update pessoas set sem_interesse=true where id=:p'), dict(p=person_id))
+        connection.execute(text("""insert into app_users
+            (id,igreja_id,status,nome,email,pessoa_id)
+            values(:u,:t,:s,'Conta sintética',:e,:p)"""), dict(
+                u=user_id, t=tenant, s=status, e=f'{user_id}@example.test', p=person_id))
+        connection.execute(text("""insert into user_roles(igreja_id,user_id,papel)
+            values(:t,:u,:r)"""), dict(t=tenant, u=user_id, r=role))
+        return user_id
+
+    with database.begin() as connection:
+        missing = add_member(connection, tenant=v['t'], role='pastor', status=None)
+        archived = add_member(connection, tenant=v['t'], role='lider_g12', inactive='arquivada')
+        uninterested = add_member(connection, tenant=v['t'], role='lider_mult', inactive='sem_interesse')
+        invited = add_member(connection, tenant=v['t'], role='lider_celula', status='convidado')
+        revoked = add_member(connection, tenant=v['t'], role='pastor', status='revogado')
+        foreign = add_member(connection, tenant=v['other'], role='admin')
+
+    with client_for(database, v) as client:
+        response = client.get('/team?page=1&pageSize=100')
+    assert response.status_code == 200, response.text
+    body = response.json()
+    members = {item['usuarioId']: item for item in body['items']}
+    assert members[str(v['uid'])]['pessoa_vinculo'] == 'ativa'
+    assert members[str(v['leader'])]['pessoa_vinculo'] == 'ativa'
+    assert members[str(missing)]['pessoa_vinculo'] == 'sem_vinculo'
+    assert members[str(archived)]['pessoa_vinculo'] == 'pessoa_inativa'
+    assert members[str(uninterested)]['pessoa_vinculo'] == 'pessoa_inativa'
+    assert members[str(v['outsider'])]['pessoa_vinculo'] == 'sem_vinculo'
+    assert members[str(invited)]['pessoa_vinculo'] == 'sem_vinculo'
+    assert members[str(revoked)]['pessoa_vinculo'] == 'sem_vinculo'
+    assert str(foreign) not in members
+    assert body['sem_pessoa_ativa_coordenacao'] == 3
+
+
+def test_team_list_hides_person_link_signals_from_nonadmin(database, seeded):
+    v = seeded
+    with client_for(database, v, admin=False) as client:
+        response = client.get('/team?page=1&pageSize=100')
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['items']
+    assert all('pessoa_vinculo' not in item for item in body['items'])
+    assert 'sem_pessoa_ativa_coordenacao' not in body
+
+
 @pytest.mark.parametrize('bypass', [False, True])
 @pytest.mark.parametrize('kind,expected', [('other_person',404), ('other_user',404), ('inactive',409), ('uninterested',409), ('duplicate',409), ('revoked',409), ('nonadmin',403)])
 def test_refusals(database, seeded, kind, expected, bypass):
