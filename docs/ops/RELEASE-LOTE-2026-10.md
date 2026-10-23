@@ -321,9 +321,18 @@ WHERE p.tipo = 'membro' AND p.k <> ''
 ORDER BY p.igreja_id, p.nome, p.id;
 ```
 
-Estas consultas não são executadas por `release_preflight.py` nem pelo CI; foram
-escritas contra o texto das migrations e **não foram rodadas em nenhum banco
-real**. Validar a sintaxe no ensaio sintético antes de usá-las em PROD.
+Estas consultas não são executadas por `release_preflight.py` nem pelo CI. Os
+dois `SELECT`s passaram por sintaxe e resultado em `BEGIN READ ONLY; ...
+ROLLBACK;` em PostgreSQL 17 descartável com duas igrejas e dados sintéticos. A
+consulta 1 retornou somente pessoas com vínculo ativo e tipo `contato`,
+`visitante` ou `NULL`. A consulta 2 retornou membros sem vínculo ativo nas
+formas `+55` com e sem 9º dígito e local com 9º dígito, incluindo vínculo
+inativo; não retornou vínculo ativo, pessoa de outra igreja com o mesmo
+telefone nem DDD distinto com o mesmo sufixo. A consulta 2 reproduz o predicado
+e os passos de canonicalização da função `pg_temp.pastorai_canon_phone` da
+migration `20260711_152127`, comparando o telefone canônico completo. A saída
+da consulta 2 não projeta o telefone completo e mostra somente seus quatro
+dígitos finais. Nenhum banco real foi consultado.
 
 ## Ensaio de restauração sintética
 
