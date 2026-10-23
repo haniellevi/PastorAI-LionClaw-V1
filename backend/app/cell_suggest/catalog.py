@@ -34,6 +34,22 @@ def route(text, *, pending=False):
         )
     ):
         return "none", None
+    # A pending neighborhood prompt cannot consume another closed protocol.
+    from app.cd_whatsapp.catalog import route as cd_route
+    from app.uv_whatsapp.catalog import route as uv_route
+    from app.enviar_whatsapp.catalog import route as enviar_route
+    from app.conhecimento_whatsapp.catalog import route as conhecimento_route
+    from app.private_erasure.catalog import route as erasure_route
+    from app.services.private_resume import RESUME_COMMAND
+
+    if (
+        any(route(text)[0] != "none" for route in
+            (cd_route, uv_route, enviar_route, conhecimento_route))
+        or erasure_route(text)
+        or text.strip().casefold() == RESUME_COMMAND
+        or key.strip(" .!?") == "confirmo"
+    ):
+        return "none", None
     request = canonical_public_info_request(text)
     if request and request[0] != "celula":
         return "none", None
