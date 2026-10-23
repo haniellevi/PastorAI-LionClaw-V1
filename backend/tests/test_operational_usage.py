@@ -23,6 +23,12 @@ def db(operational_database):
         conn.exec_driver_sql("delete from igrejas")
         conn.execute(text("insert into igrejas(id,nome) values(:a,'Synthetic A'),(:b,'Synthetic B')"), dict(a=IGREJA_A,b=IGREJA_B))
         conn.execute(text("insert into app_users(igreja_id,clerk_user_id,nome,email,status) values(:t,'synthetic','Synthetic','synthetic@example.invalid','ativo')"), dict(t=IGREJA_A))
+        # Match FakeClerk's fixed JTI so authenticated endpoint tests exercise
+        # their role checks with a valid synthetic server-side session.
+        conn.execute(text("""insert into auth_sessions
+          (jti,igreja_id,app_user_id,issued_at,expires_at)
+          select 'synthetic-session-jti', igreja_id, id, now(), now()+interval '1 hour'
+          from app_users where clerk_user_id='synthetic' and igreja_id=:t"""), dict(t=IGREJA_A))
         conn.execute(text("insert into user_roles(igreja_id,user_id,papel) select igreja_id,id,'admin' from app_users where clerk_user_id='synthetic'"))
         now = dt.datetime.now(dt.UTC)
         for tenant, tokens, age in [(IGREJA_A, 10, 1), (IGREJA_B, 999, 1),

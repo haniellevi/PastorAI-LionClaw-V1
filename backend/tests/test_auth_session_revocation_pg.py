@@ -35,13 +35,18 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def rls_database_url():
-    url = os.environ.get("RLS_TEST_DATABASE_URL", "").strip()
+    # The imported migration fixture belongs to test_uv_turmas_pg and must stay
+    # on its dedicated database, away from the shared minimal RLS schema.
+    url = os.environ.get("UV_TURMAS_DATABASE_URL", "").strip()
     if not url:
-        pytest.fail("Logout exige PostgreSQL local sintético via RLS_TEST_DATABASE_URL; nenhum skip permitido")
+        pytest.fail("Logout exige PostgreSQL local sintético via UV_TURMAS_DATABASE_URL; nenhum skip permitido")
     assert_disposable_database(url)
     parsed = urlsplit(url)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        pytest.fail("Use somente PostgreSQL local descartável em RLS_TEST_DATABASE_URL")
+    if (
+        parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or parsed.path != "/uv_turmas_test"
+    ):
+        pytest.fail("Use somente o PostgreSQL local descartável uv_turmas_test para logout")
     return url
 
 
