@@ -80,7 +80,7 @@ def test_inventory_boundaries_and_payload_absence(db, inventory, client):
     assert response.headers['cache-control'] == 'private, no-store'
     result = response.json()
     assert result == {
-        'pedidos_exclusao': {'pendentes': 6, 'atendidos': 1, 'recusados': 1,
+        'pedidos_exclusao': {'pendentes': 6, 'vencidos': 0, 'prazo_dias': 15, 'prazo_versao': 'v1', 'atendidos': 1, 'recusados': 1,
             'mais_antigo_segundos': 259201,
             'faixas_idade': {'menos_24h': 3, 'de_1_a_3_dias': 2, 'mais_3_dias': 1}},
         'resumos_ativos': 1, 'retomadas_entregues': 4,
@@ -100,7 +100,7 @@ def test_empty_is_zero_with_no_oldest_age(db, client):
     response = client.get(PATH)
     assert response.status_code == 200
     result = response.json()
-    assert result['pedidos_exclusao'] == {'pendentes': 0, 'atendidos': 0, 'recusados': 0,
+    assert result['pedidos_exclusao'] == {'pendentes': 0, 'vencidos': 0, 'prazo_dias': 15, 'prazo_versao': 'v1', 'atendidos': 0, 'recusados': 0,
         'mais_antigo_segundos': None, 'faixas_idade': {'menos_24h': 0, 'de_1_a_3_dias': 0, 'mais_3_dias': 0}}
     assert result['resumos_ativos'] == result['retomadas_entregues'] == 0
     assert sum(result['tarefas_resumo'].values()) == sum(result['limpezas_privadas'].values()) == 0
@@ -193,6 +193,34 @@ def test_future_pending_age_is_clamped_to_zero(db, client):
     result = client.get(PATH).json()['pedidos_exclusao']
     assert result['pendentes'] == result['faixas_idade']['menos_24h'] == 1
     assert result['mais_antigo_segundos'] == 0
+    assert result['vencidos'] == 0
+
+
+def test_sla_count_uses_versioned_fifteen_day_deadline_and_tenant_scope(db, inventory, client):
+    db.execute(text('reset role'))
+    for tenant, age in ((IGREJA_A, 16), (IGREJA_A, 14), (IGREJA_B, 20)):
+        db.execute(text("""insert into private_erasure_requests(igreja_id,pessoa_id,conversation_id,inbound_id,created_at)
+            values(:t,:p,:c,:m,now()-make_interval(days=>:age))"""),
+            dict(t=tenant,p=uuid4(),c=uuid4(),m=uuid4(),age=age))
+    db.execute(text('set local role authenticated'))
+    response = client.get(PATH)
+    assert response.status_code == 200, response.text
+    assert response.json()['pedidos_exclusao']['vencidos'] == 1
+    assert response.json()['pedidos_exclusao']['prazo_dias'] == 15
+
+
+def test_inconsistent_overdue_count_fails_closed(db, inventory, client, monkeypatch):
+    original_scalar = db.scalar
+
+    def inconsistent_scalar(statement, *args, **kwargs):
+        if 'select count(*) from private_erasure_requests' in str(statement):
+            return 7
+        return original_scalar(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, 'scalar', inconsistent_scalar)
+    response = client.get(PATH)
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Contagem de pedidos de exclusão inconsistente'
 
 
 def test_wrong_definer_owner_fails_instead_of_reporting_filtered_zero(db):
