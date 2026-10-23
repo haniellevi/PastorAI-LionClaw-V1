@@ -75,9 +75,9 @@ jobs:
 
       - name: Validar Compose com template seguro
         run: |
-          PASTORAI_ENV_FILE=.env.example docker compose \
-            --env-file deploy/.env.example \
+          PASTORAI_ENV_FILE=../.env.example docker compose \
+            --env-file .env.example \
             -f deploy/docker-compose.yml config --quiet
-          PASTORAI_DEV_ENV_FILE=.env.dev.example docker compose \
-            --env-file deploy/.env.dev.example \
+          PASTORAI_DEV_ENV_FILE=../.env.example docker compose \
+            --env-file .env.example \
             -f deploy/docker-compose.dev.yml config --quiet

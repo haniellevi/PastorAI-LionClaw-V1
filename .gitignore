@@ -3,8 +3,7 @@
 Thumbs.db
 
 # ===== Segredos / variaveis de ambiente =====
-# (os *.env.example e deploy/.env.dev.example NAO sao ignorados de proposito —
-#  sao templates sem segredo, devem ir pro repo)
+# O único modelo versionado é /.env.example, sem valores reais.
 .env
 .env.local
 .env.*.local
@@ -71,8 +70,7 @@ pastorai-deploy.tar
 
 # Segredos e arquivos locais de ferramentas.
 .env.*
-!.env.example
-!.env.*.example
+!/.env.example
 *.pem
 *.key
 id_rsa*

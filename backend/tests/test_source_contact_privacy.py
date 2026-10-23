@@ -214,7 +214,14 @@ class SourceContactPrivacyTests(unittest.TestCase):
             self.assertTrue(contacts("synthetic-probe" + chr(64) + provider))
 
     def test_protected_paths_are_excluded(self):
-        for name in ["backend/.env", "backend/.env.example", "backend/secrets/a.json", "backend/scripts/clerk_test.py", "backend/scripts/target_users.json", "backend/backups/test.json"]:
+        for name in [
+            "backend/.env",
+            ".env.example",
+            "backend/secrets/a.json",
+            "backend/scripts/clerk_test.py",
+            "backend/scripts/target_users.json",
+            "backend/backups/test.json",
+        ]:
             self.assertFalse(permitted_path(name))
 
     def test_current_tree_has_no_unreviewed_contacts(self):
