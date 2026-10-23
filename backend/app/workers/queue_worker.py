@@ -4909,6 +4909,9 @@ def run_agent_for_message(
                 except BaseException:
                     # A process failure after ``ia_executando`` may have crossed
                     # a non-transactional tool boundary.  Do not re-run it.
+                    # Release any conversation row lock before quarantine opens
+                    # a second session for the same conversation.
+                    session.close()
                     _quarantine_agent_execution(session_factory, outcome, intent)
                     raise
                 finally:
