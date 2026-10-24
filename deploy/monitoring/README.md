@@ -155,6 +155,23 @@ cada 30 minutos. Ele usa apenas o `GITHUB_TOKEN` do repositório e mantém uma
 da issue roda mesmo se o probe falhar; em seguida, o job falha para que o
 histórico do GitHub Actions também sinalize a indisponibilidade.
 
+## Alerta externo
+
+O workflow `.github/workflows/uptime-externo.yml` consulta `/health` (HTTP 200 e
+`status=ok`), `/ready` (HTTP 200 e `status=ready`) e a página pública do app
+(HTTP 200) a cada cinco minutos ou por execução manual (`workflow_dispatch`). O
+cron só executa na branch padrão; esta branch ainda não ativa o agendamento.
+Cada endpoint tem até três tentativas, com
+timeout de cinco segundos e intervalo de dez segundos; o job falha se algum
+continuar indisponível. Os logs mostram somente o status HTTP e o campo
+`status`. A falha agendada é enviada ao e-mail de notificações do GitHub do
+usuário que criou o workflow; se alguém alterar o cron ou reabilitar o workflow,
+as notificações passam a essa conta. Confirme que a conta é do dono e mantém
+notificações de e-mail de Actions habilitadas. Em queda contínua, cada execução
+falha separadamente e pode gerar nova notificação. O cron pode atrasar ou ser
+descartado em períodos de alta carga do GitHub. Para pausar o alerta, desabilite
+esse workflow nas configurações de Actions do repositório.
+
 ## Limite de recuperação
 
 O backup privilegiado calcula e compara o SHA-256 real do pacote e seu sidecar
