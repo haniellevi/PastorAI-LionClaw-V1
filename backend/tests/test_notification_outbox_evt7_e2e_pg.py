@@ -12,6 +12,7 @@ from sqlalchemy import select, text
 from app.config import get_settings
 from app.db.models import (
     AgendaAlertRecipient,
+    AppUser,
     Conversation,
     Event,
     NotificationOutbox,
@@ -21,6 +22,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.db.tenant_session import mark_tenant_scoped
 from app.services import notification_outbox, whatsapp_agenda, whatsapp_privilege
+from app.services.auth_sessions import register_session
 from app.services.clerk import get_clerk_client
 from app.services.notification_outbox import dispatch_notification_outbox
 from tests.conftest import FakeClerk
@@ -118,6 +120,11 @@ def evt7_turn(s3_turn, monkeypatch):
                 accepted_at=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1),
                 changed_at=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1),
             )
+        )
+        register_session(
+            session, FakeClerk(clerk_user_id="clerk-s3-synthetic"),
+            _AUTH["Authorization"].removeprefix("Bearer "),
+            session.get(AppUser, s3_turn.app_user_id),
         )
     try:
         yield s3_turn, event.id

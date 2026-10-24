@@ -43,6 +43,7 @@ from app.db.session import get_db
 from app.db.tenant_session import mark_tenant_scoped
 from app.routers import conversations, whatsapp
 from app.services import crypto, whatsapp_privilege
+from app.services.auth_sessions import register_session_with_backend_role
 from app.services.clerk import ClerkClient, get_clerk_client
 from app.services.evolution import EvolutionClient
 from app.workers import queue_worker as qw
@@ -184,6 +185,13 @@ def integrated_turn(migrated_factory, monkeypatch):
             yield session
     backend.dependency_overrides[get_db] = db
     clerk = ClerkClient(settings)
+    for actor in users:
+        actor.token = clerk._mint_session_token(actor.subject)
+        with factory() as session:
+            app_user = session.get(AppUser, actor.user)
+        register_session_with_backend_role(
+            clerk, actor.token, app_user, session_factory=factory,
+        )
     backend.dependency_overrides[get_clerk_client] = lambda: clerk
     api = TestClient(backend, base_url="http://backend:8000")
     simulator = create_app(webhook_url="http://backend:8000/whatsapp/webhook",
@@ -273,11 +281,11 @@ def test_visitor_queue_confirmation_rls_and_authenticated_inbox(integrated_turn)
     conversation = t.rows(Conversation)[0]
     url = f"/conversations/{conversation.id}/messages"
     assert t.api.get(url).status_code == 401
-    token = t.clerk._mint_session_token(t.users[0].subject)
+    token = t.users[0].token
     response = t.api.get(url, headers={"Authorization": "Bearer " + token})
     assert response.status_code == 200
     assert any(message["direcao"] == "out" for message in response.json()["items"])
-    token_b = t.clerk._mint_session_token(t.users[1].subject)
+    token_b = t.users[1].token
     assert t.api.get(url, headers={"Authorization": "Bearer " + token_b}).status_code == 404
     assert not t.rows(CelulaExpectativaVisitante, t.users[1].tenant)
     # The foreign church must work positively, rather than merely see no rows.
@@ -351,7 +359,7 @@ def test_authenticated_inbox_denied_after_role_revocation(integrated_turn):
     t = integrated_turn
     t.send(_COMMAND)
     url = f"/conversations/{t.rows(Conversation)[0].id}/messages"
-    headers = {"Authorization": "Bearer " + t.clerk._mint_session_token(t.users[0].subject)}
+    headers = {"Authorization": "Bearer " + t.users[0].token}
     assert t.api.get(url, headers=headers).status_code == 200
     with t.factory.begin() as session:
         for role in session.scalars(select(UserRole).where(UserRole.user_id == t.users[0].user)):

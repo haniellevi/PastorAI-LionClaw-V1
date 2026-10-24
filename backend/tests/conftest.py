@@ -480,6 +480,7 @@ class FakeClerk:
         self,
         *,
         clerk_user_id: str = "clerk_user_1",
+        session_jti: str = _FAKE_SESSION_JTI,
         login_result: tuple[str, str] | None = None,
         raise_verify: bool = False,
         raise_login: bool = False,
@@ -492,6 +493,7 @@ class FakeClerk:
         raise_delete: bool = False,
     ) -> None:
         self._clerk_user_id = clerk_user_id
+        self._session_jti = session_jti
         self._login_result = login_result
         self._raise_verify = raise_verify
         self._raise_login = raise_login
@@ -516,7 +518,7 @@ class FakeClerk:
                 "sub": self._clerk_user_id,
                 "iat": now - 60,
                 "exp": now + 3600,
-                "jti": _FAKE_SESSION_JTI,
+                "jti": self._session_jti,
             },
         )
 
