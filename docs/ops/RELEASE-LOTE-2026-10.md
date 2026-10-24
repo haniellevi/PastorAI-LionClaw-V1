@@ -129,7 +129,11 @@ Este documento e o merge do código não são autorizações operacionais.
    usar exclusão em lote, SQL de escrita, merge automático ou escolha do agente.
    Repetir o preflight depois da reconciliação. Só seguir com zero violações de
    FK e unicidade, zero tabela ausente e destino explícito para cada entrada
-   `sem_arquivo` e migration pendente que afete o lote.
+   `sem_arquivo` e migration pendente que afete o lote. O código ativo em PROD
+   não tem rota para desvincular; para esse caso existe a reconciliação
+   excepcional descrita em "Reconciliação excepcional de vínculo duplicado",
+   executada antes das migrations pendentes e com writers contidos até a
+   criação do índice único.
 4. **Migrations por `migrate.py`.** Com a lista aprovada, conferir primeiro
    `python3 backend/scripts/migrate.py status`. Aplicar uma migration por vez,
    na ordem apresentada e com registro nominal da saída:
@@ -172,6 +176,74 @@ Este documento e o merge do código não são autorizações operacionais.
    evidências. Corrigir adiante ou preparar uma compensação de banco revisada
    sob autorização própria. Nunca restaurar dump por cima de PROD como
    rollback improvisado.
+
+## Reconciliação excepcional de vínculo duplicado
+
+**Estado: preparação.** Código e testes sintéticos; não executado em nenhum
+ambiente real. Não autoriza a operação.
+
+O backend ativo não tem a rota de desvincular, e a migration
+`20261025_100000_team_pessoa.sql`, que cria a trilha `team_pessoa_eventos`, só
+pode ser aplicada sem duplicidades. Para esse impasse,
+`backend/scripts/reconcile_team_pessoa.py` desvincula **um** acesso escolhido
+nominalmente e mantém o outro. Ele nunca escolhe sozinho.
+
+**Escopo:** a leitura de 24/10 encontrou um único grupo duplicado, com duas
+linhas no maior grupo e sem liderança ativa. A ferramenta trata exatamente esse
+formato (duas contas) e recusa qualquer outro.
+
+**Momento:** usar a ferramenta de um SHA fixado e revisado, **antes** de
+aplicar as 46 migrations pendentes; os testes sintéticos rodam sobre o
+baseline real de 78 migrations. Da reconciliação até a criação do índice único
+por `20261025_100000`, manter contidos os writers que criam ou alteram vínculo
+Pessoa (convites, ativação, gestão de equipe), não apenas durante a transação
+da ferramenta. Repetir o preflight imediatamente antes da migration.
+
+- **Prévia (padrão):** transação `REPEATABLE READ READ ONLY`; nada é travado
+  nem alterado. Emite `CONFIRMACAO=DESVINCULAR:<sha256 do payload>`, código
+  técnico sem UUIDs ou dados pessoais que muda com qualquer campo aprovado.
+- **Aplicação (`--aplicar`):** exige igreja, pessoa esperada, conta a manter,
+  conta a corrigir, admin ativo da igreja, operador ativo em
+  `platform_admins` (pode ser o próprio admin, se tiver os dois papéis
+  atuais), id de operação UUID, SHA exato de 40 caracteres e, na entrada
+  padrão, a linha exata emitida pela prévia. Tudo é revalidado no servidor,
+  sob trava, na ordem Igreja → Pessoa → acessos → papel `admin` →
+  `platform_admins`. Revogação concorrente desses papéis faz a operação
+  esperar e, se confirmada, recusar.
+- **Recusa:** se o grupo atual não for exatamente as duas contas aprovadas
+  (resolvido ou com mais linhas), se a conta a manter não for acesso ativo
+  utilizável, se a pessoa liderar célula ativa, se a role não ignorar RLS, se
+  faltar schema ou auditoria, ou se `lock_timeout` sair de 1–30000 ms. Só o
+  vínculo muda: papéis não são sincronizados, e status, papéis, dono e
+  número de admins são conferidos antes do commit.
+- **Auditoria:** uma linha em `platform_audit_log` com UUIDs, operação, SHA e
+  hash do payload, na mesma transação. Falha da auditoria desfaz tudo. Não
+  cria tabelas.
+- **Idempotência:** o mesmo id com o mesmo conteúdo retorna `JA_APLICADA`
+  somente se admin e operador ainda estiverem autorizados; o mesmo id com
+  outro conteúdo é recusado.
+- **Saída:** só códigos, contagens e o código de confirmação. A conexão vem
+  apenas de `TEAM_PESSOA_RECONCILE_DATABASE_URL`, aceita só URL `postgresql`,
+  sem `.env` nem configuração da aplicação; erros de parser ou driver saem
+  como código fixo, sem DSN. O script não integra o catálogo do agente.
+
+**Autenticação:** o script não autentica pessoas. UUIDs informados não são
+login; a ferramenta só confere que eles têm, agora, os papéis exigidos. Quem
+executa responde pela sessão nominal autorizada (credencial de banco e acesso
+ao host), registrada fora do repositório com nome, horário e SHA.
+
+**Limite de concorrência:** as travas da Pessoa, dos acessos, do papel
+`admin` e da allowlist bloqueiam quem altera esses registros durante a
+transação (a FK também trava a Pessoa). `lock_timeout` (5 s por padrão, máximo
+30 s) faz a operação desistir em vez de esperar; nesse caso nada muda.
+Caminhos que alterem `app_users` sem travar Igreja ou Pessoa não são
+serializados; a verificação posterior recusa divergências visíveis até ali.
+Depois do commit, só a contenção de writers impede uma nova duplicidade.
+
+A execução em PROD exige backup verificado, autorização nominal de Raniel e do
+admin da igreja para as duas contas, operador nominal e SHA registrados.
+Anexar a saída sanitizada da prévia ao registro nominal antes da aplicação;
+o token vincula os argumentos, mas sozinho não prova que a prévia foi executada.
 
 ## Logout no servidor (migration 20261023_120000)
 

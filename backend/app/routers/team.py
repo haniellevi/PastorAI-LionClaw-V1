@@ -37,10 +37,11 @@ from app.deps import (
 from app.domain.conversations import INBOX_ROLES, can_access_inbox
 from app.domain.work_queue import TIPO_RESOLVER_ROLES, resolvable_tipos
 from app.routers._common import Page, PaginationParams
+from app.services import team_pessoa
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkClient, get_clerk_client
 from app.services.auth_sessions import revoke_user_sessions
-from app.services.cell_leadership import resolve_effective_access, sync_role_after_activation
+from app.services.cell_leadership import resolve_effective_access
 from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.invite_identity import (
     assert_invite_email_available,
@@ -191,30 +192,9 @@ def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     )
 
 
-def _active_admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
-    """Admins que possuem acesso utilizável, não apenas um papel persistido.
-
-    ``status IS NULL`` é legado ativo. Convidado/revogado e conta sem Clerk não
-    sustentam o piso de último administrador.
-    """
-    rows = db.execute(
-        select(UserRole.user_id)
-        .join(AppUser, AppUser.id == UserRole.user_id)
-        .where(
-            UserRole.igreja_id == igreja_id,
-            UserRole.papel == ADMIN_ROLE,
-            AppUser.igreja_id == igreja_id,
-            AppUser.clerk_user_id.is_not(None),
-            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
-        )
-    ).scalars().all()
-    return set(rows)
-
-
-def _pessoa_ativa_para_vinculo(pessoa: Pessoa | None) -> bool:
-    """Repete a regra de elegibilidade do vínculo administrativo."""
-
-    return pessoa is not None and pessoa.arquivada_em is None and not pessoa.sem_interesse
+# Regras compartilhadas com a reconciliação excepcional (services/team_pessoa).
+_active_admin_user_ids = team_pessoa.active_admin_user_ids
+_pessoa_ativa_para_vinculo = team_pessoa.pessoa_ativa_para_vinculo
 
 
 def _pessoa_ativa_query_conditions(pessoa_model=Pessoa):
@@ -658,64 +638,26 @@ def link_pessoa(
 ) -> PessoaLinkResponse:
     """Vínculo web idempotente; reconcilia somente o papel derivado de liderança."""
     tenant = uuid.UUID(current_user.igreja_id)
-    target = db.execute(select(AppUser).where(
-        AppUser.id == usuario_id, AppUser.igreja_id == tenant,
-    )).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(404, "Usuário não encontrado")
-    previous_pessoa_id = target.pessoa_id
-    _lock_admin_floor(db, tenant)
+    actor_id = uuid.UUID(current_user.app_user_id)
 
-    # Igreja -> Pessoas ordenadas -> acesso, compatível com Pessoa -> AppUser
-    # da ativação. Revalidar também a espera pela Igreja (FK da Pessoa nova).
-    ids = sorted({p for p in (previous_pessoa_id, payload.pessoaId) if p}, key=str)
-    people = db.execute(select(Pessoa).where(
-        Pessoa.igreja_id == tenant, Pessoa.id.in_(ids),
-    ).order_by(Pessoa.id).with_for_update()).scalars().all() if ids else []
-    by_id = {p.id: p for p in people}
-    if payload.pessoaId is not None:
-        person = by_id.get(payload.pessoaId)
-        if person is None:
-            raise HTTPException(404, "Pessoa não encontrada")
-        if not _pessoa_ativa_para_vinculo(person):
-            raise HTTPException(409, "Selecione uma Pessoa ativa com interesse ministerial")
-        linked = db.execute(select(AppUser.id).where(
-            AppUser.igreja_id == tenant, AppUser.pessoa_id == person.id,
-            AppUser.id != usuario_id,
-        ).limit(1)).scalar_one_or_none()
-        if linked is not None:
-            raise HTTPException(409, "Esta Pessoa já está vinculada a outro usuário")
-    target = _lock_target_identity(db, igreja_id=tenant, app_user=target)
-    if target.pessoa_id != previous_pessoa_id:
-        raise HTTPException(409, "O vínculo mudou; atualize a equipe e tente novamente")
-    if payload.pessoaId is not None and target.status == REVOKED_USER_STATUS:
-        raise HTTPException(409, "Reative o acesso do usuário antes de vincular uma Pessoa")
-    if target.pessoa_id != payload.pessoaId:
-        # Desvincular/trocar não pode contornar o bloqueio da revogação de líder.
-        if target.pessoa_id is not None:
-            leads = db.execute(select(Celula.id).where(
-                Celula.igreja_id == tenant, Celula.lider_id == target.pessoa_id,
-                Celula.ativo.is_(True),
-            ).limit(1)).scalar_one_or_none()
-            if leads is not None:
-                raise HTTPException(409, "Transfira ou encerre a liderança antes de alterar o vínculo")
-        target.pessoa_id = payload.pessoaId
-        try:
-            db.flush()
-            sync_role_after_activation(db, app_user=target)
-            for operation, pessoa_id in (("desvincular", previous_pessoa_id),
-                                        ("vincular", payload.pessoaId)):
-                if pessoa_id is None:
-                    continue
-                db.execute(text("""insert into team_pessoa_eventos
-                (igreja_id,actor_id,usuario_id,pessoa_id,operacao)
-                values(:t,:a,:u,:p,:o)"""), dict(
-                    t=tenant, a=uuid.UUID(current_user.app_user_id), u=usuario_id,
-                    p=pessoa_id, o=operation))
+    def record(operation: str, pessoa_id: uuid.UUID) -> None:
+        db.execute(text("""insert into team_pessoa_eventos
+        (igreja_id,actor_id,usuario_id,pessoa_id,operacao)
+        values(:t,:a,:u,:p,:o)"""), dict(
+            t=tenant, a=actor_id, u=usuario_id, p=pessoa_id, o=operation))
+
+    try:
+        changed = team_pessoa.change_pessoa_link(
+            db, igreja_id=tenant, usuario_id=usuario_id,
+            pessoa_id=payload.pessoaId, record=record,
+        )
+        if changed:
             db.commit()
-        except IntegrityError as exc:
-            db.rollback()
-            raise HTTPException(409, "Vínculo indisponível; atualize a equipe e tente novamente") from exc
+    except team_pessoa.TeamPessoaError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Vínculo indisponível; atualize a equipe e tente novamente") from exc
     return PessoaLinkResponse(usuarioId=str(usuario_id),
                               pessoaId=str(payload.pessoaId) if payload.pessoaId else None)
 
