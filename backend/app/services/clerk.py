@@ -147,6 +147,7 @@ class ClerkClient:
             clerk_user_id,
             issuer=_SESSION_ISSUER,
             ttl=timedelta(hours=self._settings.session_ttl_hours),
+            extra_claims={"jti": uuid.uuid4().hex},
         )
         return token
 
@@ -162,7 +163,7 @@ class ClerkClient:
         claims = self.verify_purpose_token(
             token,
             issuer=_SESSION_ISSUER,
-            required_claims=("exp", "sub", "iss"),
+            required_claims=("exp", "sub", "iss", "iat", "jti"),
             invalid_token_message="Invalid session token",
         )
         subject = claims.get("sub")

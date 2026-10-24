@@ -173,6 +173,28 @@ Este documento e o merge do código não são autorizações operacionais.
    sob autorização própria. Nunca restaurar dump por cima de PROD como
    rollback improvisado.
 
+## Logout no servidor (migration 20261023_120000)
+
+A migration `20261023_120000_auth_session_revocation.sql` precisa estar aplicada
+antes do código novo. Os logins de igreja em `auth.py` e de plataforma em
+`platform_admin.py` registram o `jti` na tabela; sem ela, esses logins falham.
+
+Tokens antigos sem `jti` passam a receber `401` quando o backend novo entra.
+Isso encerra as sessões de todos os usuários e admins da plataforma no deploy;
+comunicar essa saída à equipe antes da janela.
+
+A ordem é migration, backend e frontend. Aplicar a migration por
+`backend/scripts/migrate.py`, depois publicar o backend e, por último, o
+frontend que chama o logout no servidor. A execução em PROD exige backup
+verificado e autorização nominal de Raniel para o SHA, ambiente e janela.
+
+Se for necessário voltar, reverter backend e frontend ao SHA anterior. O SQL
+mantém o rollback comentado; qualquer remoção do schema deve seguir o processo
+de migration com autorização nominal. Sem o código novo, tokens emitidos pelo
+backend novo continuam válidos no fluxo antigo até expirarem. Migration aplicada,
+rollback de código e release são etapas distintas; não executar nenhuma etapa
+em PROD com base apenas neste registro.
+
 ## Migrations do lote posteriores à base de 14/10
 
 Conferi `backend/scripts/release_preflight.py` em

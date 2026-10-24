@@ -284,6 +284,7 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
         tick_seconds=300,
     )
     monkeypatch.setattr(worker, "_purge_oauth_flows", lambda now: 0)
+    monkeypatch.setattr(worker, "_purge_auth_sessions", lambda now: 2)
     monkeypatch.setattr(
         worker, "_run_cell_report_reminder_cycle", lambda **kwargs: (0, 0)
     )
@@ -294,6 +295,7 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
 
     assert counters["sla_handled"] == 3
     assert counters["crons_run"] == 1
+    assert counters["auth_sessions_purged"] == 2
     assert counters["plan_changes_completed"] == 0
     assert discovery.closed is True
     assert tenant_session.closed is True
@@ -322,6 +324,7 @@ def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
 
     factory = lambda: session  # noqa: E731
     worker = CronWorker(session_factory=factory, engine=FakeEngine(), tick_seconds=300)
+    monkeypatch.setattr(worker, "_purge_auth_sessions", lambda now: 0)
     counters = worker.tick(now=_T0)
 
     assert counters["plan_changes_completed"] == 2
@@ -392,6 +395,7 @@ def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> No
         tick_seconds=300,
     )
     monkeypatch.setattr(worker, "_purge_oauth_flows", lambda now: 0)
+    monkeypatch.setattr(worker, "_purge_auth_sessions", lambda now: 0)
     monkeypatch.setattr(
         worker, "_run_cell_report_reminder_cycle", lambda **kwargs: (0, 0)
     )
@@ -446,6 +450,7 @@ def test_run_does_not_close_injected_engine(monkeypatch) -> None:
             "sla_handled": 0,
             "crons_run": 0,
             "oauth_flows_purged": 0,
+            "auth_sessions_purged": 0,
             "plan_changes_completed": 0,
         }
 
@@ -471,6 +476,7 @@ def test_run_publishes_worker_progress_states(monkeypatch) -> None:
             "sla_handled": 0,
             "crons_run": 0,
             "oauth_flows_purged": 0,
+            "auth_sessions_purged": 0,
             "plan_changes_completed": 0,
         }
 

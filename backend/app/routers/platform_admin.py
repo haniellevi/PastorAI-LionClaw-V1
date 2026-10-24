@@ -22,7 +22,7 @@ import logging
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, noload
@@ -47,6 +47,7 @@ from app.db.models import (
     UserRole,
 )
 from app.db.session import get_db
+from app.db.tenant_session import mark_cross_tenant
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.asaas import AsaasClient, MIN_UNDEFINED_PAYMENT_VALUE, get_asaas_client
@@ -67,6 +68,7 @@ from app.services.clerk import (
     ClerkUnavailableError,
     get_clerk_client,
 )
+from app.services.auth_sessions import register_session, revoke_session
 from app.services.evolution import EvolutionClient, get_evolution_client
 from app.services.invite_identity import (
     assert_invite_email_available,
@@ -247,7 +249,10 @@ def admin_login(
     except ClerkAuthError:
         raise denied from None
 
-    # Sem set_tenant_context: resolve cross-tenant, igual ao gate de plataforma.
+    # Login da plataforma resolve identidade e allowlist fora do RLS de igreja.
+    mark_cross_tenant(
+        db, actor_sub=clerk_user_id, source="platform-admin-login"
+    )
     app_user = db.execute(
         select(AppUser).options(noload(AppUser.roles), noload(AppUser.igreja)).where(AppUser.clerk_user_id == clerk_user_id)
     ).scalar_one_or_none()
@@ -260,7 +265,19 @@ def admin_login(
     if is_admin is None:
         raise denied
 
+    register_session(db, clerk, token, app_user)
+    db.commit()
     return AdminLoginResponse(token=token)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def admin_logout(
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> Response:
+    """Revoke the authenticated platform console session."""
+    revoke_session(db, app_user_id=admin.app_user_id, jti=admin.session_jti)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class IgrejaOut(BaseModel):

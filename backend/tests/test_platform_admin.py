@@ -18,6 +18,7 @@ from app.db.models import (
     AgentConfig,
     AgentConfigRequest,
     AppUser,
+    AuthSession,
     BillingPlanChangeOperation,
     BillingSettings,
     BillingSubscriptionOperation,
@@ -171,6 +172,13 @@ class PlatformDB:
         self.subscription = subscription
         self.plan_changes = plan_changes or []
         self.subscription_ops = subscription_ops or []
+        self.info = {}
+        self.auth_session = SimpleNamespace(
+            jti="synthetic-session-jti",
+            app_user_id=getattr(gate_app_user, "id", None),
+            igreja_id=getattr(gate_app_user, "igreja_id", None),
+            revoked_at=None,
+        )
         for igreja in [*self.igrejas, self.igreja_scalar]:
             if igreja is not None and not hasattr(igreja, "setup_fee_override"):
                 igreja.setup_fee_override = None
@@ -221,6 +229,8 @@ class PlatformDB:
             return _Result(scalar=self.gate_app_user, scalars=self.igreja_admins)
         if ent is PlatformAdmin:
             return _Result(scalar=self.admin_marker)
+        if ent is AuthSession:
+            return _Result(scalar=self.auth_session)
         if ent is Igreja:
             return _Result(scalar=self.igreja_scalar, scalars=self.igrejas)
         if ent is BillingSettings:
@@ -896,6 +906,17 @@ def test_admin_login_returns_token_for_master(app) -> None:
     resp = client.post("/admin/login", json={"email": "pr@x.com", "password": "x"})
     assert resp.status_code == 200
     assert resp.json()["token"]
+    assert db.committed is True
+    assert any(isinstance(obj, AuthSession) for obj in db.added)
+
+
+def test_admin_logout_revokes_the_platform_session(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    response = _wire(app, db=db, clerk=FakeClerk()).post("/admin/logout", headers=_AUTH)
+
+    assert response.status_code == 204
+    assert db.auth_session.revoked_at is not None
+    assert db.committed is True
 
 
 def test_admin_login_ignores_billing_block(app) -> None:

@@ -16,9 +16,10 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, noload
@@ -30,8 +31,10 @@ from app.db.tenant_session import mark_tenant_scoped
 from app.deps import (
     BLOCKING_IGREJA_STATUSES,
     REVOKED_USER_STATUS,
+    AuthenticatedSession,
     CurrentUser,
     get_billing_recovery_user,
+    get_current_session,
     get_current_user,
 )
 from app.domain.phone import normalize_phone, phone_suffix
@@ -46,6 +49,10 @@ from app.services.clerk import (
     ClerkClient,
     ClerkUnavailableError,
     get_clerk_client,
+)
+from app.services.auth_sessions import (
+    get_auth_session_registrar,
+    revoke_session,
 )
 from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.rate_limit import RateLimiter, get_rate_limiter
@@ -241,6 +248,9 @@ def login(
     db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
     limiter: RateLimiter = Depends(get_rate_limiter),
+    register_auth_session: Callable[[ClerkClient, str, AppUser], None] = Depends(
+        get_auth_session_registrar
+    ),
 ) -> LoginResponse:
     """Authenticate and return the token plus the bootstrap profile.
 
@@ -317,10 +327,27 @@ def login(
         db, app_user.igreja_id, actor_sub=clerk_user_id, source="auth-login-bootstrap"
     )
     profile = _login_profile(db, app_user)
-    return LoginResponse(
-        token=token, **profile.model_dump(),
-        permissions=PermissionsSnapshot(matriz=effective_permissions(db, str(app_user.igreja_id))),
+    permissions = PermissionsSnapshot(
+        matriz=effective_permissions(db, str(app_user.igreja_id))
     )
+    register_auth_session(clerk, token, app_user)
+    db.commit()
+    return LoginResponse(token=token, **profile.model_dump(), permissions=permissions)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    db: Session = Depends(get_db),
+    current_session: AuthenticatedSession = Depends(get_current_session),
+) -> Response:
+    """Revoke only the authenticated tenant session represented by this JWT."""
+    revoke_session(
+        db,
+        app_user_id=current_session.app_user_id,
+        igreja_id=current_session.igreja_id,
+        jti=current_session.jti,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/forgot-password")

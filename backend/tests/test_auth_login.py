@@ -5,12 +5,18 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db
+from app.services.auth_sessions import get_auth_session_registrar, register_session
 from app.services.clerk import ClerkUnavailableError, get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
 
 def _client(app, *, session: FakeSession, clerk: FakeClerk) -> TestClient:
+    def register_auth_session(clerk_client, token, app_user):
+        register_session(session, clerk_client, token, app_user)
+        session.commit()
+
     app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_auth_session_registrar] = lambda: register_auth_session
     app.dependency_overrides[get_clerk_client] = lambda: clerk
     return TestClient(app)
 

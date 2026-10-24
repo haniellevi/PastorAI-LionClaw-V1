@@ -36,6 +36,7 @@ from app.db.models import Cron
 from app.db.session import get_session_factory
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.services.billing_worker import run_pending_plan_changes
+from app.services.auth_sessions import purge_expired_auth_sessions
 from app.services.calendar_oauth_flows import purge_expired_flows
 from app.services.cell_report_reminders import (
     purge_expired_cell_report_state,
@@ -53,6 +54,7 @@ logger = logging.getLogger("pastorai.cron_worker")
 
 WORKER_HEARTBEAT_SECONDS = 10
 WORKER_HEARTBEAT_TTL_SECONDS = 30
+AUTH_SESSION_PURGE_INTERVAL = dt.timedelta(days=1)
 
 # Named frequencies mapped to an interval. Anything not matched is parsed as a
 # compact "<n><unit>" form (e.g. "5m", "2h", "30s", "1d").
@@ -259,6 +261,7 @@ class CronWorker:
         self._engine = engine if engine is not None else SlaEngine()
         self._tick_seconds = tick_seconds or boot_settings.cron_tick_seconds
         self._last_run: dict[str, dt.datetime] = {}
+        self._last_auth_session_purge_at: dt.datetime | None = None
         self._running = False
         redis_url = str(getattr(boot_settings, "redis_url", "") or "")
         self._heartbeat_publisher = heartbeat_publisher
@@ -362,6 +365,37 @@ class CronWorker:
                     session.close()
                 except Exception:  # noqa: BLE001
                     logger.exception("OAuth flow purge close failed")
+
+    def _purge_auth_sessions(self, now: dt.datetime) -> int:
+        """Purge expired session metadata once a day in a cross-tenant session."""
+        if (
+            self._last_auth_session_purge_at is not None
+            and now - self._last_auth_session_purge_at < AUTH_SESSION_PURGE_INTERVAL
+        ):
+            return 0
+
+        session: Session | None = None
+        try:
+            session = self._session_factory()
+            mark_cross_tenant(session, source="worker-auth-session-purge")
+            purged = purge_expired_auth_sessions(session, now=now)
+            session.commit()
+            self._last_auth_session_purge_at = now
+            return purged
+        except Exception:  # noqa: BLE001 - maintenance failure cannot stop cron
+            logger.exception("Auth-session purge failed")
+            if session is not None:
+                try:
+                    session.rollback()
+                except Exception:  # noqa: BLE001
+                    logger.exception("Auth-session purge rollback failed")
+            return 0
+        finally:
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:  # noqa: BLE001
+                    logger.exception("Auth-session purge close failed")
 
     def _run_cell_report_reminder_cycle(
         self,
@@ -499,6 +533,7 @@ class CronWorker:
         reminder_now = now
         now = now or _now()
         oauth_flows_purged = self._purge_oauth_flows(now)
+        auth_sessions_purged = 0
         audio_purged = 0
         audio_dispatched = 0
         self._record_progress()
@@ -546,6 +581,7 @@ class CronWorker:
                 # SLA or cron pass raises, but the original legacy exception
                 # still propagates after the hook has finished.
                 # With no injected clock, reminder fences read a fresh clock.
+                auth_sessions_purged = self._purge_auth_sessions(now)
                 self._run_cell_report_reminder_cycle(now=reminder_now)
                 audio_purged, audio_dispatched = self._run_cell_report_audio_cycle(
                     now=reminder_now,
@@ -554,6 +590,8 @@ class CronWorker:
             "sla_handled": sla_handled,
             "crons_run": crons_run,
             "oauth_flows_purged": oauth_flows_purged,
+            # Preserve the legacy zero-work counter shape.
+            **({"auth_sessions_purged": auth_sessions_purged} if auth_sessions_purged else {}),
             "plan_changes_completed": plan_changes,
             "audio_purged": audio_purged,
             "audio_dispatched": audio_dispatched,
@@ -586,11 +624,12 @@ class CronWorker:
                     # está no artefato novo. Não remover.
                     logger.info(
                         "Cron tick done (sla=%d, crons=%d, plan_changes=%d, "
-                        "oauth_flows_purged=%d)",
+                        "oauth_flows_purged=%d auth_sessions_purged=%d)",
                         counters["sla_handled"],
                         counters["crons_run"],
                         counters["plan_changes_completed"],
                         counters["oauth_flows_purged"],
+                        counters.get("auth_sessions_purged", 0),
                     )
                     self._publish_health("ready")
                 except Exception:  # noqa: BLE001 - one tick cannot kill worker

@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.models import UserRole
 from app.db.session import get_db
+from app.services.auth_sessions import get_auth_session_registrar, register_session
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
@@ -42,9 +43,17 @@ def test_auth_excludes_foreign_church_role(app, endpoint, status):
                     return super().execute(statement, *args, **kwargs)
 
             session = RoleSession(app_user=user)
+
+            def register_auth_session(clerk, token, app_user):
+                register_session(session, clerk, token, app_user)
+                session.commit()
+
             # Exercise the legacy fallback rather than the joinedload collection.
             del user.roles
             app.dependency_overrides[get_db] = lambda: session
+            app.dependency_overrides[get_auth_session_registrar] = (
+                lambda: register_auth_session
+            )
             app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
             with TestClient(app) as client:
                 if endpoint == '/auth/login':

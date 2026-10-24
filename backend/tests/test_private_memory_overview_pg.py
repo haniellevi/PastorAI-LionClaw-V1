@@ -7,11 +7,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
+from app.db.models import AppUser
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
+from app.services.auth_sessions import register_session
 from app.services.clerk import get_clerk_client
 from app.services.private_memory_overview import memory_overview
 from tests.conftest import FakeClerk
@@ -34,11 +36,19 @@ def client(app, db):
 
 
 @pytest.fixture
-def inventory(db):
+def clerk_b():
+    return FakeClerk(clerk_user_id='synthetic-b', session_jti='synthetic-b-session-jti')
+
+
+@pytest.fixture
+def inventory(db, clerk_b):
     now = db.scalar(text('select now()'))
     db.execute(text('reset role'))
     db.execute(text("insert into app_users(igreja_id,clerk_user_id,nome,email,status) values(:t,'synthetic-b','Synthetic B','b@example.invalid','ativo')"), dict(t=IGREJA_B))
     db.execute(text("insert into user_roles(igreja_id,user_id,papel) select igreja_id,id,'admin' from app_users where clerk_user_id='synthetic-b'"))
+    user_b = db.scalar(select(AppUser).where(AppUser.clerk_user_id == 'synthetic-b'))
+    register_session(db, clerk_b, 'synthetic', user_b)
+    db.flush()
     for tenant in (IGREJA_A, IGREJA_B):
         people = []
         for state, task_state in zip(('available','corrected','suspended','incorrect'), ('queued','running','done','refused')):
@@ -106,8 +116,8 @@ def test_empty_is_zero_with_no_oldest_age(db, client):
     assert sum(result['tarefas_resumo'].values()) == sum(result['limpezas_privadas'].values()) == 0
 
 
-def test_b_admin_sees_only_b_and_cannot_pass_a(db, inventory, app, client):
-    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk(clerk_user_id='synthetic-b')
+def test_b_admin_sees_only_b_and_cannot_pass_a(db, inventory, app, client, clerk_b):
+    app.dependency_overrides[get_clerk_client] = lambda: clerk_b
     # An independent request would have no tenant GUC from the earlier fixture.
     db.execute(text("select set_config('app.tenant_igreja_id','',true)"))
     response = client.get(PATH, params={'igreja_id': IGREJA_A})

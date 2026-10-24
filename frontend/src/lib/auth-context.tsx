@@ -25,6 +25,7 @@ import {
 import {
   fetchBootstrap,
   login as apiLogin,
+  logoutSession,
   SessionAccessDeniedError,
   SessionExpiredError,
   type MeResult,
@@ -69,7 +70,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   /** Repete a validação de um token preservado após falha transitória. */
   retrySession: () => void;
-  logout: () => void;
+  logout: (options?: { revokeServer?: boolean }) => Promise<void>;
   /** Atualiza localmente o nome de exibição após editar o perfil. */
   updateNome: (nome: string) => void;
   /** Atualiza localmente a assinatura do chat após editar o perfil. */
@@ -297,8 +298,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async (options: { revokeServer?: boolean } = {}) => {
     sessionGeneration.current += 1;
+    const token = tokenRef.current;
+    let warning: string | null = null;
+    if (options.revokeServer && token) {
+      try {
+        await logoutSession(token);
+      } catch {
+        warning = "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
+      }
+    }
     setPermissionSnapshot(null);
     clearAuthedResponseCache();
     tokenRef.current = null;
@@ -309,7 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
     setUser(null);
-    setAccessMessage(null);
+    setAccessMessage(warning);
     setStatus("unauthenticated");
   }, []);
 

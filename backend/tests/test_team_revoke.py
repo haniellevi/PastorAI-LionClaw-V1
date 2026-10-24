@@ -248,7 +248,7 @@ def test_revoke_already_revoked_is_idempotent(app) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "revogado"
-    assert session.committed is False  # no write on a no-op
+    assert session.committed is False  # no active sessions remain to revoke
 
 
 # ---------------------------------------------------------------------------

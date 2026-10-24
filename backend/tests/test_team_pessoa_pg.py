@@ -329,9 +329,14 @@ def test_concurrent_users_cannot_claim_same_person(database, seeded):
 def test_link_reconciles_persisted_leader_role(database, seeded, bypass, leadership):
     v = seeded
     subject = 'clerk_synthetic_link'
+    session_jti = 'synthetic-session-link'
+    issued_at = int(time.time())
     with database.begin() as c:
         c.execute(text('update app_users set clerk_user_id=:s where id=:u'),
                   dict(s=subject, u=v['outsider']))
+        c.execute(text('insert into auth_sessions(jti,igreja_id,app_user_id,issued_at,expires_at) '
+                        'values(:jti,:tenant,:user,to_timestamp(:iat),to_timestamp(:iat + 3600))'),
+                  dict(jti=session_jti, tenant=v['t'], user=v['outsider'], iat=issued_at))
         if leadership != 'none':
             # The legacy FK permits a foreign cell to reference this Pessoa.
             # Even BYPASSRLS must not derive a role from another church.
@@ -358,7 +363,10 @@ def test_link_reconciles_persisted_leader_role(database, seeded, bypass, leaders
     expected = {'operador', 'lider_celula'} if leadership == 'active' else {'operador'}
     with Session(database) as db:
         # Exercise the real persisted-role authentication path on a new session.
-        clerk = SimpleNamespace(verify_session_token=lambda _: SimpleNamespace(clerk_user_id=subject, claims={}))
+        clerk = SimpleNamespace(verify_session_token=lambda _: SimpleNamespace(
+            clerk_user_id=subject,
+            claims={"sub": subject, "iat": issued_at, "exp": issued_at + 3600, "jti": session_jti},
+        ))
         current = get_current_user('Bearer synthetic-session', db, clerk)
         assert current.roles == frozenset(expected)
     with database.connect() as c:
