@@ -1,6 +1,6 @@
 # Release em lote, outubro de 2026
 
-Atualizado em 23/10/2026 sobre a `main` no commit `4fd83232`.
+Atualizado em 24/10/2026 sobre a `main` no commit `354a83d`.
 
 Este runbook prepara a janela de release das migrations acumuladas e do
 backend. Ele não autoriza nem executa acesso a PROD. Use também o
@@ -45,8 +45,8 @@ pelo número 78.
 As migrations com `OPERATIONAL_AUTHORIZATION=BLOCKED` continuam fora da
 seleção de `migrate.py`; não remover o marcador nem aplicá-las neste release.
 O preflight e o deploy precisam usar o SHA exato aprovado da `main` e o ledger
-`public.schema_migrations` do banco correto. Estado atual de PROD, pendências,
-backup e gates: não verificado neste preparo.
+`public.schema_migrations` do banco correto. Pendências e gates lidos em
+24/10: ver "Bloqueios concretos". Backup real: não verificado.
 
 Manter fechados em todos os quatro serviços (`backend`, `queue-worker`,
 `cron-worker` e `broadcast-worker`):
@@ -66,7 +66,151 @@ serviço; `AgentConfig.ativo` e Jev continuam sendo verificações independentes
 Executar qualquer etapa em PROD exige autorização nominal do dono. Nenhum
 resultado local prova PROD.
 
+Esses gates fechados são condição da janela futura. A leitura de 24/10 mostra
+o piloto vivo com gates abertos (ver "Bloqueios concretos"); chegar à janela
+exige contenção e autorizações próprias. Isso não é ordem para fechar gates
+agora.
+
+## Bloqueios concretos em PROD (leitura de 24/10/2026)
+
+Leitura somente leitura autorizada pelo pedido da sessão; nenhum deploy,
+migration ou restart foi executado. Sem PII, UUIDs, `.env` ou valores secretos.
+
+1. **Migrations pendentes.** Comparação de nomes pelo CLI Supabase em
+   transação somente leitura: 124 migrations ativas no SHA `354a83d`, 78
+   registradas em `public.schema_migrations`, 46 pendentes (exatamente as 4
+   antigas e as 42 do lote) e 0 entradas desconhecidas. A migration de logout
+   `20261023_120000` está pendente e `public.auth_sessions` não existe.
+2. **Duplicidade de vínculo Pessoa.** Consulta agregada equivalente aos dois
+   checks de dados do preflight, em `REPEATABLE READ READ ONLY` com
+   `bypassrls=true`: `invalid_cell_links=0` e
+   `duplicate_user_person_groups=1`. Não é a execução integral de
+   `release_preflight.py` e não retornou UUIDs nem PII. Bloqueia
+   `20261025_100000_team_pessoa.sql` e o lote até reconciliar pelo fluxo
+   administrativo autorizado (passo 3 da sequência), sem SQL de escrita
+   automático, e repetir o preflight.
+3. **Gates abertos no piloto vivo.** `docker inspect` com allowlist restrita
+   aos quatro gates de serviço, sem ler `.env`:
+   - `backend`, `queue-worker` e `cron-worker`: `ALLOW_REAL_SENDS=true`,
+     `BREVO_SEND_MODE=live`, `BROADCAST_ASYNC_ENABLED=false`;
+     `ASAAS_BILLING_ENABLED` ausente.
+   - `broadcast-worker`: `ALLOW_REAL_SENDS=true` (entrada duplicada),
+     `BROADCAST_ASYNC_ENABLED=false`; `BREVO_SEND_MODE` e
+     `ASAAS_BILLING_ENABLED` ausentes.
+
+   Ausência não prova `false`; defaults efetivos não verificados.
+   `AgentConfig.ativo` e Jev: não verificados. Fechar gate não equivale a
+   pausar fila e pode cancelar pendências; a contenção para a janela exige
+   plano e autorização nominal próprios.
+4. **Instalação sem rastreio de versão.** Backend e workers usam imagem criada
+   em 02/10/2026 sem label de revisão; `/opt/pastorai-current` e
+   `/opt/pastorai-releases` ausentes; instalação em `/opt/pastorai-lionclaw`,
+   sem Git. O primeiro release por `deploy/backend-release.sh` exige uma
+   transição inicial testada a partir desse estado. Não inventar SHA anterior
+   nem contornar guardas do script; o plano de volta depende dessa transição.
+   Ver "Transição inicial da instalação atual".
+
+## Transição inicial da instalação atual
+
+**Estado: PREPARAÇÃO, não pronta para execução.** Complementa a sequência
+deste runbook; não autoriza nenhuma etapa nem é plano paralelo.
+
+**Ponto de partida (leitura de 24/10).** Instalação em `/opt/pastorai-lionclaw`,
+sem Git, sem `/opt/pastorai-releases` nem `/opt/pastorai-current`; imagem
+`sha256:4a65f30e…b241` sem label de revisão, cujo ID coincide com o recibo de
+manutenção de 02/10. Comparação somente leitura dentro do backend vivo com o
+`candidate_manifest` de `maintenance-profile.json` (`app/*.py` e
+`requirements.lock`, sem copiar conteúdo): 148 esperados, 148 iguais,
+0 ausentes, 0 diferentes, 0 inseguros. Isso comprova a identidade desse
+recorte com `07a3f4d`; não comprova a imagem inteira, a configuração nem os
+workers. Brevo `live` foi confirmado pelo dono e é preservado.
+
+**Requisitos antes de qualquer janela**, cada um com evidência revisada:
+
+1. **Release ativo verificável.** `deploy/backend-release.sh` recusa executar
+   sem `/opt/pastorai-releases`, sem `/opt/pastorai-current` resolvendo para
+   `releases/<SHA de 40 caracteres>` com `deploy/`, configuração privada,
+   `check_backend_schema.py` e manifesto de `migrate.py` daquele SHA e, na
+   promoção por imagem, sem label de revisão igual ao SHA ativo. Chegar a esse
+   estado exige procedimento revisado e ensaiado em ambiente sintético. Criar
+   symlink, diretório ou label não prova o SHA anterior e não deve ser usado
+   como prova.
+2. **Base de recuperação.** O código ativo é o backport de manutenção
+   `07a3f4d` (sobre `eb5a09b`), cujo contrato de 02/10 tinha 70 entradas no
+   ledger; hoje há 78. Conciliar essa diferença antes de usar o contrato de
+   manutenção como checker anterior. Release legado sem checker exige plano de
+   recuperação revisado, sem copiar o checker candidato para a árvore antiga
+   ([manual do release](../../deploy/BACKEND-RELEASE-MANUAL.md)).
+3. **Identidade dos quatro serviços.** O recibo de 02/10 mantinha os workers na
+   imagem legada; a leitura de 24/10 mostra os quatro na imagem da API.
+   Registrar a identidade de cada serviço antes de definir o estado anterior.
+4. **Gates e filas.** O script exige os quatro gates fechados em todos os
+   processos antes do preflight; o piloto vivo está com envios abertos. Fechar
+   `ALLOW_REAL_SENDS` cancela pendências de forma terminal. Antes da janela:
+   inventário somente leitura das filas, decisão nominal de Raniel entre pausa
+   que preserve fila (exige código e testes próprios) ou outra contenção, e
+   plano de aviso/tratamento das pendências.
+5. **Banco.** Backup verificado, reconciliação da duplicidade e preflight sem
+   achados, conforme a sequência do release.
+
+Leitura complementar de 24/10: Docker Compose 5.6.0 e `timeout` presentes;
+backend, queue e cron têm labels Compose do projeto `pastorai`, mas broadcast
+não tem labels de projeto/serviço. O procedimento deve identificar e conter
+explicitamente cada consumidor; não presumir cobertura dos quatro por Compose.
+Os dois backfills de julho retornaram 0 candidatos cada na consulta agregada
+dos predicados completos, somente leitura. O único grupo duplicado tem igreja
+e não envolve liderança ativa nesse instante. Revalidar esses fatos na janela;
+nenhuma conta foi escolhida e nenhuma linha foi alterada.
+
+**Recuperação**, escolhida antes da janela por decisão nominal de Raniel:
+
+Ensaio local de 24/10: baseline operacional nominal de 78 seguido das 46
+pendentes e reconstrução independente de 124 produzem catálogos idênticos.
+A guarda aditiva recusa `previous schema contract changed`: há mudanças em
+RLS, constraints, grants e função existentes, além de triggers, índices únicos
+e FKs novos sobre relações antigas. O runner de `07a3f4d` também não seleciona
+o mesmo conjunto das 78 entradas operacionais; contagem igual não prova
+manifesto igual. Nenhuma migration pausada foi executada no ensaio.
+Com dados fictícios, 10 verificações confirmaram recusa de duplicidades
+ativo/revogado e ativo/ativo, atomicidade da falha, índice e isolamento da
+auditoria; os dois backfills de julho tiveram 6 testes aprovados. A correção
+dos vínculos nesses testes é exclusiva da fixture, não procedimento de PROD.
+
+O painel atual não resolve a duplicidade no backend legado: a rota
+`PUT /team/{usuario_id}/pessoa` não existe em `07a3f4d`; revogar mantém o
+vínculo. A rota nova depende da auditoria criada pela própria migration que
+recusa duplicados. O procedimento nominal foi integrado pela PR #572 (`830decc1`),
+compartilhando as regras humanas, com auditoria atômica, testes e revisão
+independente. A execução real continua pendente de escolha privada das contas,
+backup, contenção e autorização nominal. Nenhuma conta pode ser escolhida automaticamente.
+
+- **(A) Voltar à imagem atual depois das migrations:** só é alternativa se
+  `deploy/schema_compatibility.py` comprovar, com catálogos reconstruídos das
+  migrations nominais (nunca capturados do banco vivo e rotulados como
+  esperados), que o schema resultante preserva o contrato do código ativo.
+  Sem essa prova, não usar.
+- **(B) Corrigir adiante com contenção:** manter os gates fechados, conter os
+  processos afetados, preservar schema e evidências e preparar correção
+  revisada; compensação de banco só com autorização própria.
+
+Nenhuma das duas garante rollback universal: migrations não são desfeitas
+automaticamente, cancelamentos de fila são terminais e a reversão das
+migrations 1 e 2 depende do registro guardado fora do repositório.
+
 ## Autorizações nominais
+
+Complemento de identidade (24/10): o ID completo da imagem viva coincide com
+o [recibo sanitizado de manutenção de 02/10](../performance/2026-10-02-backend-maintenance-production.json),
+associado ao candidato `07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02`.
+O header público atual informa `unknown`; não houve comparação integral de
+arquivos nesta consulta. O perfil antigo de manutenção exige exatamente 70
+migrations e não pode ser reutilizado automaticamente com as 78 atuais.
+O recibo preservava workers legados e Brevo `off`; a imagem comum aos quatro
+serviços e Brevo `live` em três são diferenças atuais. Raniel confirmou em
+24/10 no chat que Brevo `live` está autorizado; preservar o estado atual.
+A mudança das imagens dos workers ainda não foi esclarecida. Essa confirmação
+não autoriza testes de envio, fechar gates, recuperar imagens ou alterar
+configuração; a contenção para a janela continua exigindo procedimento próprio.
 
 Cada ação de PROD exige autorização própria de Raniel, com ambiente, SHA,
 escopo e operador registrados. A autorização para uma etapa não se estende à
@@ -129,11 +273,7 @@ Este documento e o merge do código não são autorizações operacionais.
    usar exclusão em lote, SQL de escrita, merge automático ou escolha do agente.
    Repetir o preflight depois da reconciliação. Só seguir com zero violações de
    FK e unicidade, zero tabela ausente e destino explícito para cada entrada
-   `sem_arquivo` e migration pendente que afete o lote. O código ativo em PROD
-   não tem rota para desvincular; para esse caso existe a reconciliação
-   excepcional descrita em "Reconciliação excepcional de vínculo duplicado",
-   executada antes das migrations pendentes e com writers contidos até a
-   criação do índice único.
+   `sem_arquivo` e migration pendente que afete o lote.
 4. **Migrations por `migrate.py`.** Com a lista aprovada, conferir primeiro
    `python3 backend/scripts/migrate.py status`. Aplicar uma migration por vez,
    na ordem apresentada e com registro nominal da saída:
@@ -176,6 +316,56 @@ Este documento e o merge do código não são autorizações operacionais.
    evidências. Corrigir adiante ou preparar uma compensação de banco revisada
    sob autorização própria. Nunca restaurar dump por cima de PROD como
    rollback improvisado.
+
+### Critérios de contenção — provas operacionais ainda pendentes
+
+A contenção do legado precisa identificar explicitamente backend, queue,
+cron e broadcast: este último não tem labels Compose na leitura de 24/10.
+Parar somente workers não bloqueia escritas humanas nem webhooks na API.
+Antes de autorizar uma janela, ensaiar com dados fictícios o bloqueio de
+entrada, término gracioso dos quatro processos, ausência de novas escritas
+após a parada e preservação de gates e pendências. Verificar também políticas
+de reinício e supervisores; uma leitura isolada de `Running=false` não prova
+contenção durável.
+
+O ensaio deve recusar identidade trocada/ausente, registrar timeout sem
+promover release nem retomar automaticamente, e incluir trabalho em curso
+na fronteira do provedor simulado. Retomada pré-DDL e recuperação pós-DDL
+são provas diferentes: a recusa de compatibilidade entre 78 e 124 migrations
+continua impedindo prometer retorno automático ao legado. Pendências podem
+expirar durante a janela; preservar filas não garante elegibilidade futura.
+
+Leitura estática do Git `07a3f4d` (não confirma configuração viva): Evolution
+aponta diretamente para `backend:8000/whatsapp/webhook`; bloquear só o proxy
+externo não contém esse ingresso. Queue termina o item atual depois do sinal;
+cron pode terminar o tick inteiro, incluindo etapas posteriores ao sinal;
+broadcast cerca a próxima requisição, mas permite concluir a já iniciada.
+Os quatro serviços declaram `restart: always`, sem prazo de parada explícito.
+O ensaio precisa medir término real e tratamento do efeito ambíguo, não apenas
+recebimento de SIGTERM. Configuração viva de supervisor e retry externo seguem
+não verificados.
+
+Consulta SSH somente leitura em 24/10 às 17:22 UTC confirmou nos quatro
+containers vivos `restart=always`; `StopSignal` e `StopTimeout` não constam
+explicitamente na configuração inspecionada. A consulta projetou somente
+esses campos e nomes, sem ler variáveis de ambiente. Isso não comprova o
+prazo efetivo de término nem ausência de outros supervisores. Nenhum serviço
+foi parado ou reiniciado.
+
+A segunda opinião independente do Claude Opus acrescentou três cenários ao
+ensaio: provedor simulado que reenvia ou não webhooks recusados, reinício por
+supervisor e envio concluído com commit ainda pendente. Não presumir retry de
+provedor real nem reenvio seguro de efeito ambíguo. A retomada com gates
+preservados pode drenar o acúmulo e também é um efeito externo a autorizar.
+Testes de reboot/daemon devem existir apenas em infraestrutura sintética
+isolada, nunca reiniciando o Docker do host compartilhado.
+
+A recusa do checker de compatibilidade aditiva não prova que todo caminho do
+legado falharia; prova que o retorno automático não está demonstrado e não
+pode ser oferecido como recuperação garantida.
+
+Esse é um requisito de preparação local, não uma autorização ou procedimento
+executável em produção. Nenhum gate deve ser fechado para realizar o ensaio.
 
 ## Reconciliação excepcional de vínculo duplicado
 
@@ -269,21 +459,21 @@ em PROD com base apenas neste registro.
 
 ## Migrations do lote posteriores à base de 14/10
 
-Conferi `backend/scripts/release_preflight.py` em
-`origin/chore/release-preflight-checks`: `BASELINE_DATE=20261014` limita a
+Conferi `backend/scripts/release_preflight.py`, integrado pela #563
+(`61e84383`): `BASELINE_DATE=20261014` limita a
 checagem de tabelas esperadas no backup, enquanto o relatório percorre
 `migrate.py::migration_files()` e classifica cada arquivo como aplicada ou
 pendente. Essa função exclui migrations pausadas e ordena os nomes
-lexicalmente. A tabela contém as 41 migrations ativas posteriores à base no
+lexicalmente. A tabela contém as 42 migrations ativas posteriores à base no
 checkout atual, na ordem de aplicação; não afirma que estejam aplicadas em
 PROD. Cada rollback resume o comentário da migration e exige reversão de
 callers, preservação de dados e migration compensatória aprovada via
 `backend/scripts/migrate.py`; não executar SQL de rollback manualmente.
 
-A main atual já integra #556, #558, #560, #561 e #562. As #556, #558 e #560
-não adicionam migrations; #561 adiciona a migration de reset privado da igreja
-ao fim da lista, e #562 adiciona as seis migrations de métricas e índices
-operacionais abaixo. As origens de cada arquivo foram conferidas no histórico
+A main atual já integra #556, #558, #560, #561, #562 e #568. As #556, #558 e
+#560 não adicionam migrations; #561 adiciona a migration de reset privado da
+igreja ao fim da lista, #562 adiciona as seis migrations de métricas e índices
+operacionais abaixo, e #568 adiciona a migration de logout no servidor. As origens de cada arquivo foram conferidas no histórico
 Git.
 
 A busca literal `grep -il 'concurrently' backend/migrations/*.sql` encontrou
@@ -340,12 +530,13 @@ pendente. As oito posteriores à base estão identificadas nas linhas da tabela.
 | 33 | #562 | `20261023_110003_notification_outbox_expired_lease_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa leases expirados da outbox por igreja e claim. | Conferir validade e remover índice concorrentemente por compensação. |
 | 34 | #562 | `20261023_110004_messages_pending_agent_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa intenções de saída da IA por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
 | 35 | #562 | `20261023_110005_work_queue_pending_created_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa itens acionáveis da fila por igreja e criação. | Conferir validade e remover índice concorrentemente por compensação. |
-| 36 | #543 | `20261025_100000_team_pessoa.sql`: aplica unicidade de Pessoa por igreja e cria auditoria técnica. Exige reconciliação manual prévia de duplicidades `(igreja_id, pessoa_id)`. | Reverter callers e preservar auditoria; remover índice e tabela somente por compensação aprovada. |
-| 37 | #541 | `20261027_100000_reset_settles_erasure_requests.sql`: faz reset manual de pessoa cumprir pedidos privados pendentes. | Parar consumidores, preservar pedidos/recibos e restaurar wrapper anterior; não reabrir pedidos cumpridos. |
-| 38 | #546 | `20261028_100000_private_memory_overview.sql`: expõe contagens administrativas sem conteúdo ou ação automática. | Remover a função por compensação; não há dados apagados e RLS/grants existentes permanecem. |
-| 39 | #546 | `20261028_100001_private_erasure_requests_overview_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa inventário de pedidos por igreja, estado e idade. | Conferir validade e remover índice concorrentemente por compensação. |
-| 40 | #546 | `20261028_100002_private_resume_delivered_overview_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa retomadas privadas entregues por igreja. | Conferir validade e remover índice concorrentemente por compensação. |
-| 41 | #561 | `20261029_100000_reset_settles_church_erasure_requests.sql`: faz reset privado da igreja cumprir os pedidos cobertos pelo recibo. | Parar consumidores, preservar pedidos/recibos e restaurar wrapper #541; não reabrir pedidos cumpridos. |
+| 36 | #568 | `20261023_120000_auth_session_revocation.sql`: registra o `jti` das sessões próprias (sem guardar o JWT) para logout no servidor e revogação, com RLS forçada. Precisa estar aplicada antes do backend novo. | Reverter backend e frontend ao SHA anterior antes; remover as quatro políticas e a tabela `auth_sessions` só por compensação aprovada, o que descarta registros de sessão e revogação. |
+| 37 | #543 | `20261025_100000_team_pessoa.sql`: aplica unicidade de Pessoa por igreja e cria auditoria técnica. Exige reconciliação manual prévia de duplicidades `(igreja_id, pessoa_id)`. | Reverter callers e preservar auditoria; remover índice e tabela somente por compensação aprovada. |
+| 38 | #541 | `20261027_100000_reset_settles_erasure_requests.sql`: faz reset manual de pessoa cumprir pedidos privados pendentes. | Parar consumidores, preservar pedidos/recibos e restaurar wrapper anterior; não reabrir pedidos cumpridos. |
+| 39 | #546 | `20261028_100000_private_memory_overview.sql`: expõe contagens administrativas sem conteúdo ou ação automática. | Remover a função por compensação; não há dados apagados e RLS/grants existentes permanecem. |
+| 40 | #546 | `20261028_100001_private_erasure_requests_overview_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa inventário de pedidos por igreja, estado e idade. | Conferir validade e remover índice concorrentemente por compensação. |
+| 41 | #546 | `20261028_100002_private_resume_delivered_overview_idx.sql` (**CONCURRENTLY; `--no-transaction`**): indexa retomadas privadas entregues por igreja. | Conferir validade e remover índice concorrentemente por compensação. |
+| 42 | #561 | `20261029_100000_reset_settles_church_erasure_requests.sql`: faz reset privado da igreja cumprir os pedidos cobertos pelo recibo. | Parar consumidores, preservar pedidos/recibos e restaurar wrapper #541; não reabrir pedidos cumpridos. |
 
 As invocações abaixo usam a ordem lexical entre as migrations concorrentes. Cada
 uma deve ser aplicada somente quando alcançar sua posição na ordem global
@@ -459,3 +650,95 @@ de produção. O script remove o container e os arquivos temporários ao termina
   conteúdo de `.env` para relatório, chat, log, teste ou commit.
 - Não usar backup real no ensaio local nem restaurar backup sobre banco de
   produção.
+
+## Ensaio sintético de contenção e retomada pré-DDL
+
+Validação local em 24/10, base `830decc1`: 54 testes unitários e os sete
+cenários Docker aprovados. O inventário independente confirmou que nenhum
+container ou rede preexistente foi removido e que não restaram recursos do
+ensaio. Revisão independente Claude Opus sem bloqueios de segurança para
+execução descartável. Também passaram 129 testes existentes dos workers
+no SHA `830decc1`, com dependências simuladas; não são testes de entrypoint
+legado. O campo `production_ready` do recibo permanece `false`.
+
+Redis foi um servidor real com dados fictícios; os workers e o provedor eram
+simulados. O campo textual `topology` do recibo usa “falsos” para Redis/provedor;
+a descrição precisa do alcance é esta. Não interpretar esse texto como mock
+do processo Redis ou como prova de domínio do backend.
+
+**Estado: preparação local.** Não é controlador de PROD, não toca release real,
+gates reais, workers da aplicação nem workflows.
+
+`deploy/rehearse_legacy_containment.py` cria os próprios recursos descartáveis
+(prefixo aleatório e label `pastorai.synthetic.owner` com o UUID da execução):
+uma rede `--internal` sem portas publicadas, Redis, um provedor falso com
+barreira e quatro processos **simulados** (`deploy/synthetic_legacy_worker.py`):
+`backend`, `queue-worker`, `cron-worker` e `broadcast-worker`. Todos são
+containers avulsos, sem labels de Compose, como o `broadcast-worker` observado
+em PROD. Entrypoint explícito (`python3` ou `redis-server`; o ENTRYPOINT da
+imagem nunca roda), usuário `65534:65534`, raiz somente leitura, sem
+capabilities, sem montagem do host, `.env`, credencial ou socket do Docker.
+Aceita só IDs de imagem locais (`sha256:...`, sem pull) e o caminho do
+relatório; não aceita nome, ID, DSN ou host de alvo existente.
+
+Antes de qualquer efeito, o controlador exige contexto Docker local (socket
+Unix, sem `DOCKER_HOST`/`DOCKER_CONTEXT`). Sobe o Redis e espera `PING`; depois
+o provedor e os quatro processos; espera os marcadores de partida, gravados só
+depois do bind; e por fim confirma o HTTP real de `backend` e provedor com uma
+probe interna. Valida o conjunto exato de seis containers próprios: posse,
+identidade no ledger, imagem, entrypoint, usuário, rede, ausência de portas e
+montagens, e configuração de gate sintética. Os valores de gate são fictícios e
+ilustrativos (envio aberto, Brevo `live`, broadcast assíncrono desligado), não
+um espelho de PROD: lá não há variável ASAAS real e o default não foi
+verificado. Eles permanecem inalterados durante todo o ensaio. Imagem ausente
+localmente é recusada como `image-not-local-immutable` antes de qualquer
+efeito; comando Docker que excede 120 s vira a recusa fixa `docker-timeout`,
+sem comando nem saída, e interrompe a contenção ou a retomada.
+
+A contenção envia só SIGTERM, um serviço por vez (`backend`, `cron-worker`,
+`broadcast-worker`, `queue-worker`), com prazo e sem SIGKILL. A retomada
+pré-DDL é explícita (token), religa os mesmos containers com a API primeiro e
+depois os consumidores, validando o conjunto antes de cada partida; uma falha
+de partida registra recusa, sem nova tentativa nem retomada automática.
+
+Cenários, cada um com recursos novos:
+
+| Cenário | Esperado |
+|---|---|
+| `in-flight-completes-after-sigterm` | Com a barreira fechada, um envio real fica em curso e duas pendências entram pela probe antes de qualquer SIGTERM. A barreira abre entre o sinal e a espera: o envio termina (`done`, efeito 1), saída 0. Com `backend` parado, a probe interna é recusada. A pendência que vence na pausa vai para `expired` com os bytes intactos; a outra é enviada uma vez após a retomada. Um broadcast pendente e um agendamento de cron futuro, semeados antes do SIGTERM, mantêm os mesmos bytes no Redis antes e depois da contenção e da retomada, sem efeito, com os gates inalterados. |
+| `in-flight-response-lost` | O efeito ocorre e a resposta não chega: o worker desiste no timeout, leva o item a `ambiguous` sem retry e sai com 0. Após a retomada, o efeito continua 1. Broadcast pendente e cron futuro: mesma verificação de bytes do cenário anterior. |
+| `post-ddl-mark` | Depois de marcar o ponto de DDL (sem SQL), a retomada do código antigo é recusada. |
+| `graceful-timeout` | Processo que ignora SIGTERM, prazo de 3 s: recusa, o processo continua vivo, DDL e retomada recusados. |
+| `identity-swapped` | Container trocado: recusa antes de qualquer sinal. |
+| `fifth-writer` | Quinto writer na rede: recusa antes de qualquer sinal. |
+| `interrupted` | Interrupção depois do primeiro sinal: a sequência para, sem retomada nem DDL. |
+
+Prazos dos cenários físicos: resposta do provedor 15 s, prazo gracioso 30 s,
+expiração 50 s.
+
+Como executar (somente em máquina local descartável, pelo runner do revisor):
+
+```bash
+python3 deploy/rehearse_legacy_containment.py \
+  --worker-image sha256:<ID local de imagem com python3> \
+  --redis-image sha256:<ID local de imagem com redis-server >= 6.2> \
+  --report /tmp/legacy-containment-report.json
+python3 -m pytest deploy/tests/test_legacy_containment.py
+```
+
+A limpeza percorre só o ledger de IDs que esta execução criou (containers,
+probes, substituto, intruso e rede) e remove cada um apenas se ainda tiver o
+label de posse; nunca procura recursos por label. Tenta todos os IDs mesmo se
+uma remoção falhar. Ausência só é concluída por uma listagem read-only de IDs;
+Docker indisponível ou `inspect` com falha viram erro e sobra no relatório,
+nunca "inexistente". Cenário com limpeza incompleta não é PASS, e o erro de
+limpeza não substitui o motivo original da falha. O `docker rm -f` da limpeza
+remove recurso descartável próprio e não faz parte da contenção. Nunca
+reinicia daemon ou host.
+
+**Limites.** Não é controlador de PROD nem prova de prontidão para PROD. O
+relatório prova a topologia e o controlador sintéticos. Os workers são
+simulados: não prova o tratamento de SIGTERM dos workers reais de `07a3f4d`,
+retries da Evolution, reinício do Docker, compatibilidade pós-DDL nem a
+semântica de fila dos workers legados. A marca de DDL é só estado do
+controlador; nenhum SQL é executado.

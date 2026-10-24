@@ -33,6 +33,15 @@ migrations ou branches remotas sem ordem própria.
 
 ## 2. Critério de pronto e saúde técnica
 
+Atualização operacional de 24/10: a reconciliação excepcional de vínculos
+Pessoa foi integrada pela #572 (`830decc1`), com checks aprovados; não foi
+executada em produção. A fatia local de contenção pré-DDL passou em 54 testes
+unitários e sete cenários Docker, com revisão Claude Opus e limpeza completa.
+Cobre controlador/topologia sintéticos, não os entrypoints legados nem
+recuperação após DDL real; `production_ready=false`. Ainda sem commit/PR.
+Ver [runbook atualizado e limites](docs/ops/RELEASE-LOTE-2026-10.md).
+
+
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;
 (2) release controlado para o piloto interno: migrations aplicadas com backup
