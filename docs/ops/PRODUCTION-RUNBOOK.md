@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-28. Este é o procedimento operacional vigente para o
+Atualizado em 2026-10-23. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -42,6 +42,20 @@ Commits documentais posteriores em `main` não mudam esse SHA de release. O
 acesso SSH temporário do fechamento foi revogado; uma nova manutenção na VPS
 exige credencial temporária própria, alvo nominal, rollback e nova revogação ao
 final. Mantenha o console de recuperação da Hostinger disponível.
+
+## Incidente 23/10
+
+Registro do incidente de 23/10/2026: a VPS nova estava com Clerk de teste e
+Brevo desligado, além do IP remetente sem autorização. A correção informada foi
+copiar as chaves Clerk da instância PROD, configurar `BREVO_SEND_MODE=live`,
+autorizar o IP no Brevo e aplicar o override de logs na VPS (`json-file`, 10 MB,
+cinco arquivos). Nenhum segredo é registrado aqui.
+
+Na próxima troca de VPS, conferir que as chaves Clerk usam os prefixos
+`sk_live_` e `pk_live_`, revisar `BREVO_SEND_MODE` conforme a autorização vigente,
+confirmar os IPs de saída autorizados no Brevo e validar a rotação de logs
+(`json-file`, `max-size: 10m`, `max-file: 5`). Mantenha os gates de efeito
+fechados até uma autorização operacional própria.
 
 ## 2. Travas obrigatórias no primeiro deploy
 

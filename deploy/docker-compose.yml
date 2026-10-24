@@ -24,11 +24,18 @@
 
 name: pastorai
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   # --------------------------------------------------------------------------
   # Redis — compartilhado: Evolution usa db 1, worker do app usa db 0
   # --------------------------------------------------------------------------
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     container_name: pastorai_redis
     restart: always
@@ -46,6 +53,7 @@ services:
   # Atenção: NÃO é o banco do PastorAI — esse é o Supabase (DATABASE_URL).
   # --------------------------------------------------------------------------
   evolution-postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     container_name: pastorai_evo_postgres
     restart: always
@@ -65,6 +73,7 @@ services:
   # Evolution API v2 (canal WhatsApp oficial da igreja)
   # --------------------------------------------------------------------------
   evolution-api:
+    logging: *default-logging
     image: evoapicloud/evolution-api:v2.3.7
     container_name: pastorai_evolution
     restart: always
@@ -111,6 +120,7 @@ services:
   # Backend FastAPI — usa o Supabase (DATABASE_URL no .env), Redis e a Evolution
   # --------------------------------------------------------------------------
   backend:
+    logging: *default-logging
     build:
       context: ../backend
     image: pastorai-backend:latest
@@ -149,6 +159,7 @@ services:
   # Worker de fila — drena webhooks do WhatsApp (Redis) → Postgres + agente
   # --------------------------------------------------------------------------
   queue-worker:
+    logging: *default-logging
     build:
       context: ../backend
     image: pastorai-backend:latest
@@ -184,6 +195,7 @@ services:
   # Worker de cron — motor de SLA + execução de crons (tick configurável)
   # --------------------------------------------------------------------------
   cron-worker:
+    logging: *default-logging
     build:
       context: ../backend
     image: pastorai-backend:latest
@@ -218,6 +230,7 @@ services:
   # em cache por processo e capabilities exige heartbeat fresco.
   # --------------------------------------------------------------------------
   broadcast-worker:
+    logging: *default-logging
     build:
       context: ../backend
     image: pastorai-backend:latest
