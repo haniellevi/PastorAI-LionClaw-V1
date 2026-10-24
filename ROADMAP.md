@@ -38,7 +38,15 @@ Pessoa foi integrada pela #572 (`830decc1`), com checks aprovados; não foi
 executada em produção. A fatia local de contenção pré-DDL passou em 54 testes
 unitários e sete cenários Docker, com revisão Claude Opus e limpeza completa.
 Cobre controlador/topologia sintéticos, não os entrypoints legados nem
-recuperação após DDL real; `production_ready=false`. Ainda sem commit/PR.
+recuperação após DDL real; `production_ready=false`. Integrada pela #573
+(`c5c180ca`), com backend-tests, frontend-ci, e2e-critical e rls-integration
+aprovados. A fatia seguinte passou localmente: ciclo de vida do entrypoint
+real do queue-worker de `07a3f4d`, Redis descartável e dependências do legado;
+88 testes (novo controlador + regressão da contenção) e sete verificações
+físicas aprovados, limpeza sem sobras. Entrega na branch
+`test/legacy-queue-entrypoint-20261024`; integração depende dos checks da PR.
+Não inclui turno ativo, envio externo ou produção. Próxima prova: ingestão
+ativa com barreira transacional em PostgreSQL sintético.
 Ver [runbook atualizado e limites](docs/ops/RELEASE-LOTE-2026-10.md).
 
 

@@ -742,3 +742,47 @@ simulados: não prova o tratamento de SIGTERM dos workers reais de `07a3f4d`,
 retries da Evolution, reinício do Docker, compatibilidade pós-DDL nem a
 semântica de fila dos workers legados. A marca de DDL é só estado do
 controlador; nenhum SQL é executado.
+
+## Ciclo de vida do queue-worker real do legado
+
+A fatia seguinte à #573 usa `deploy/rehearse_legacy_queue.py` para executar
+`python -m app.workers.queue_worker` do SHA fixo
+`07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02`, com dependências do respectivo
+`requirements.lock`. O código do aplicativo não é alterado. O evento fictício
+é ignorado pelo parser real antes de banco, agente ou provedor, mas percorre
+enfileiramento, claim e ACK reais.
+
+Preparação exclusivamente local e sintética:
+
+1. Executar `python3.13 deploy/rehearse_legacy_queue.py materialize --repo .
+   --out /tmp/legacy-queue-source-NOVO`. O destino precisa não existir.
+   A seleção lê apenas fontes Python permitidas de `backend/app` e o lock;
+   não usa checkout/archive completo nem arquivos de ambiente.
+2. Preparar uma imagem Python 3.13 com essa árvore em `/opt/legacy` e instalar
+   o lock com `pip install --require-hashes -r /opt/legacy/requirements.lock`.
+   Não copiar o workspace inteiro. A imagem não pode conter credenciais,
+   configurações externas, volumes declarados ou arquivos extras nessa árvore.
+3. Executar `python3.13 deploy/rehearse_legacy_queue.py run --repo .
+   --legacy-image sha256:ID_LOCAL --redis-image sha256:ID_LOCAL
+   --report /tmp/legacy-queue-report.json`, substituindo os IDs por imagens
+   locais imutáveis. O programa recusa daemon remoto e não baixa imagens.
+
+O preflight compara fontes com os blobs Git e nomes/versões instalados com o
+lock. O ensaio cria Redis e rede interna próprios, sem portas ou montagens do
+host, e exige heartbeat, lease e registro. Depois de SIGTERM exige saída zero,
+heartbeat parado e remoção do registro/lease; enfileira enquanto parado,
+confere preservação, reinicia o mesmo container e exige consumo/ACK e segunda
+parada limpa. A limpeza usa os IDs criados pela execução; sobras impedem PASS.
+
+Um PASS cobre esse ciclo de vida, não uma mensagem pastoral em processamento,
+transação PostgreSQL, transporte Evolution, demais workers, restart do host,
+compatibilidade pós-DDL ou produção. `production_ready=false` permanece.
+A etapa posterior é provar uma ingestão ativa com barreira transacional em
+PostgreSQL sintético antes de ampliar a conclusão operacional.
+
+Validação local em 24/10/2026: 88 testes aprovados, zero skip; ensaio físico
+com sete verificações aprovado, sem divergência de fonte/runtime, limpeza
+com zero erros e nenhum container/rede remanescente. Imagem sintética legada
+`34083a4f8d5a`, Redis `ff02b58f971e`; 148 fontes/lock conferidos contra o Git.
+A prova independente anterior também passou. Não equivale aos quatro checks
+de integração do futuro SHA publicado nem a uma verificação de produção.
