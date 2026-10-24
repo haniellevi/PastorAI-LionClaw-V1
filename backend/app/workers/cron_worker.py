@@ -533,7 +533,7 @@ class CronWorker:
         reminder_now = now
         now = now or _now()
         oauth_flows_purged = self._purge_oauth_flows(now)
-        auth_sessions_purged = self._purge_auth_sessions(now)
+        auth_sessions_purged = 0
         audio_purged = 0
         audio_dispatched = 0
         self._record_progress()
@@ -581,6 +581,7 @@ class CronWorker:
                 # SLA or cron pass raises, but the original legacy exception
                 # still propagates after the hook has finished.
                 # With no injected clock, reminder fences read a fresh clock.
+                auth_sessions_purged = self._purge_auth_sessions(now)
                 self._run_cell_report_reminder_cycle(now=reminder_now)
                 audio_purged, audio_dispatched = self._run_cell_report_audio_cycle(
                     now=reminder_now,
@@ -589,7 +590,8 @@ class CronWorker:
             "sla_handled": sla_handled,
             "crons_run": crons_run,
             "oauth_flows_purged": oauth_flows_purged,
-            "auth_sessions_purged": auth_sessions_purged,
+            # Preserve the legacy zero-work counter shape.
+            **({"auth_sessions_purged": auth_sessions_purged} if auth_sessions_purged else {}),
             "plan_changes_completed": plan_changes,
             "audio_purged": audio_purged,
             "audio_dispatched": audio_dispatched,
@@ -627,7 +629,7 @@ class CronWorker:
                         counters["crons_run"],
                         counters["plan_changes_completed"],
                         counters["oauth_flows_purged"],
-                        counters["auth_sessions_purged"],
+                        counters.get("auth_sessions_purged", 0),
                     )
                     self._publish_health("ready")
                 except Exception:  # noqa: BLE001 - one tick cannot kill worker
