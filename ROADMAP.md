@@ -49,6 +49,21 @@ Não inclui turno ativo, envio externo ou produção. Próxima prova: ingestão
 ativa com barreira transacional em PostgreSQL sintético.
 Ver [runbook atualizado e limites](docs/ops/RELEASE-LOTE-2026-10.md).
 
+Em 25/10, a #574 (`94a4b9ec`) está aberta com todos os checks aprovados.
+A etapa de ingestão ativa foi validada localmente na branch
+`test/legacy-queue-active-ingestion-20261025`, baseada nesse commit.
+Prova independente de ingestão ativa passou localmente em 25/10: espera no
+lock observada, nenhuma mensagem antes da liberação, commit único, consentimento,
+ACK e saída zero; limpeza concluída. A extensão independente também passou:
+reenvios após reinício com e sem marcador Redis, contagens/não lidas
+preservadas e sessão legada autenticada com leitura de outra igreja vazia
+e INSERT recusado por RLS (`42501`), com escrita permitida na própria igreja.
+O ensaio permanente passou em 130 testes (42 novos + 88 de regressão) e 20
+verificações físicas, limpeza sem erros/sobras, revisão Claude incorporada
+e verificação final pelo Codex. A barreira fica antes das escritas do domínio;
+não prova turno completo do agente nem produção. Integração depende dos
+checks do SHA publicado e da #574. Sem alterações em PROD.
+
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;

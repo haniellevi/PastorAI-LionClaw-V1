@@ -786,3 +786,54 @@ com zero erros e nenhum container/rede remanescente. Imagem sintética legada
 `34083a4f8d5a`, Redis `ff02b58f971e`; 148 fontes/lock conferidos contra o Git.
 A prova independente anterior também passou. Não equivale aos quatro checks
 de integração do futuro SHA publicado nem a uma verificação de produção.
+
+## Ingestão ativa durante SIGTERM — validada localmente
+
+A etapa seguinte à #574 usa `deploy/rehearse_legacy_queue_active.py` com o processo real do legado
+`07a3f4d`, Redis e PostgreSQL descartáveis. A base sintética usa as 78
+migrations selecionadas pelo aplicador atual, preservando RLS e triggers.
+São duas igrejas fictícias; não há conexão com banco ou número real.
+
+A barreira é o advisory lock já usado pela ingestão para o identificador da
+mensagem, antes de escrever Pessoa/Conversation/Message. Isso prova a parada
+enquanto a transação aguarda o fence; não prova parada com escritas ainda
+não confirmadas. O ensaio precisa observar o worker bloqueado na transação e com o
+envelope em processamento antes do SIGTERM. Enquanto a barreira estiver
+fechada, o processo deve permanecer vivo e a mensagem ainda não pode estar
+confirmada. Após liberar o lock, exige commit único, ACK, deregistro e saída
+zero. Reenvios com e sem o marcador Redis devem preservar as contagens.
+
+O tenant vem da instância oficial registrada, inclusive diante de um
+`igreja_id` forjado no payload. Uma prova separada usa a promoção real para
+`authenticated`, verifica leitura isolada e recusa de escrita na outra
+igreja. O trigger legado confirma `pessoas.consentimento`; não se exige
+registro em `consent_records` para este caminho.
+
+Esta etapa ainda não comprova turno completo do agente, envio por provedor,
+recuperação após DDL ou produção. Pilotos vazios e gates fechados mantêm a
+execução dentro do escopo sintético.
+
+Reprodução local, com as imagens imutáveis já preparadas e Docker local:
+
+```bash
+python3.13 deploy/rehearse_legacy_queue_active.py run --repo . --report /tmp/legacy-active-report.json
+```
+
+As opções `--legacy-image`, `--redis-image` e `--postgres-image` aceitam apenas
+IDs locais `sha256:...`; sem downloads ou alvos existentes. O preflight confere
+fonte/runtime legados. O banco recebe somente o aplicador atual e os 78 SQLs
+selecionados; registros de bootstrap são preservados e conferidos.
+
+Validação final em 25/10/2026: 130 testes aprovados, zero skip (42 novos e
+88 de regressão); 20 verificações físicas aprovadas. A barreira, contando
+desde antes do enqueue, durou 6,462 s; saída 0 em 0,636 s após liberação.
+ACK estável, TTL sem renovação (comparado pelo instante de expiração),
+contagens/não lidas preservadas, escrita na própria igreja permitida e
+escrita na outra negada especificamente por RLS. Limpeza sem erros, zero
+containers e redes remanescentes. Provas independentes também aprovadas.
+Revisão Claude incorporada e versão final verificada pelo Codex.
+
+Não se reproduzem papéis de login/timeouts de produção; não se atesta a
+integridade de wheels, sitecustomize ou pth instalados. Os testes/ensaio novos
+são evidências locais e não foram adicionados aos workflows existentes.
+Os quatro checks obrigatórios do futuro SHA publicado são uma prova separada.
