@@ -41,6 +41,7 @@ CHUNK = 96_000
 # Read-only observers over the owned container's local socket (controller and
 # rehearsal). Any other local session, or any remote one from an unexpected IP,
 # is a fifth writer.
+RECONCILE_ACTION = 'team_pessoa_reconciliar_duplicidade'  # backend/app/services/team_pessoa.py
 DSN = re.compile(r'postgresql://([a-z_][a-z0-9_]*):[A-Za-z0-9_.-]+@postgres:5432/([a-z_][a-z0-9_]*)')
 SUPPORT_ALIASES = {'postgres': 'postgres', 'redis': 'redis', 'evolution': 'evolution-api'}
 OBSERVER_APP = 'pastorai-transition-observer'
@@ -380,6 +381,36 @@ class DockerOps:
         rows = self.psql_json("select coalesce(json_object_agg(id, status), '{}') from public.broadcast_entregas "
                               f"where id in ({values})")
         return {i: rows.get(i) for i in ids}
+
+    def reconcile_scope(self, *, target, operation, operator, detail):
+        """Digests and counts (never values) delimiting the ONE effect the reconciliation may have.
+
+        Per-table digests; ``app_users`` without the corrected account; that
+        account without ``pessoa_id`` (the only column the service changes);
+        its current ``pessoa_id``; the audit log without this operation
+        (``IS NOT TRUE``: rows of the same action without ``operation_id`` stay
+        included); and, for this operation, the total of audit rows and of rows
+        EXACTLY as the service writes them (actor, target, NULL email/name,
+        complete ``detalhe``).
+        """
+        require(all(UUID.fullmatch(v) for v in (target, operation, operator)), 'reconcile-scope')
+        require(isinstance(detail, dict) and all(isinstance(v, str) and re.fullmatch(r'[0-9a-z_-]{1,64}', v)
+                                                 for v in detail.values()), 'reconcile-scope')
+        expected = json.dumps(detail, sort_keys=True)
+        rows = "md5(coalesce(string_agg(t::text, E'\\n' order by t::text), ''))"
+        mine = f"(t.acao = '{RECONCILE_ACTION}' and t.detalhe->>'operation_id' = '{operation}')"
+        exact = (f"{mine} is true and t.actor_id = '{operator}' and t.alvo_tipo = 'app_user' "
+                 f"and t.alvo_id = '{target}' and t.actor_email is null and t.alvo_nome is null "
+                 f"and t.detalhe = '{expected}'::jsonb")
+        return self.psql_json(
+            f"select json_build_object('tables', ({SNAPSHOT_SQL}), "
+            f"'app_users_others', (select {rows} from public.app_users t where t.id <> '{target}'), "
+            f"'target_row', (select md5((to_jsonb(t) - 'pessoa_id')::text) from public.app_users t "
+            f"where t.id = '{target}'), "
+            f"'target_pessoa', (select pessoa_id from public.app_users where id = '{target}'), "
+            f"'audit_others', (select {rows} from public.platform_audit_log t where {mine} is not true), "
+            f"'audit_op_total', (select count(*) from public.platform_audit_log t where {mine} is true), "
+            f"'audit_op_exact', (select count(*) from public.platform_audit_log t where {exact}))")
 
     def duplicate_groups(self):
         return int(self.psql("select count(*) from (select 1 from public.app_users where pessoa_id is not null "

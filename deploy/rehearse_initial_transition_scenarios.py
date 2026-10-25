@@ -21,6 +21,10 @@ from rehearse_legacy_queue_active import HOLDER_PROBE, lock_key, lock_parts
 PROD_SHAPE = {'ALLOW_REAL_SENDS': 'true', 'BREVO_SEND_MODE': 'live', 'BROADCAST_ASYNC_ENABLED': 'false'}
 BROADCAST_ON = {'ALLOW_REAL_SENDS': 'true', 'BREVO_SEND_MODE': 'live', 'BROADCAST_ASYNC_ENABLED': 'true'}
 EXTERNAL_LEDGER = '29990101_000000_synthetic_external_ddl.sql'
+RECONCILE_ACTION = 'team_pessoa_reconciliar_duplicidade'
+OP_AUDIT = ("select count(*) from platform_audit_log where acao = '" + RECONCILE_ACTION
+            + "' and detalhe->>'operation_id' = '{op}'")
+NULL_OP_AUDIT = "acao = '" + RECONCILE_ACTION + "' and detalhe->>'operation_id' is null"
 # Legacy queue keys (07a3f4d and candidate queue_worker.py): DLQ list, scheduled-retry zset.
 DEAD_LETTER = 'pastorai:webhooks:dead'
 RETRY_SCHEDULED = 'pastorai:webhooks:retry-scheduled'
@@ -85,10 +89,20 @@ def negative_control(f):
     f.until(lambda: ready() == 1, 'negative-ready')
     before = f.inspect(nid)
     observed = dict(restart_count=before['RestartCount'], started=before['State']['StartedAt'])
+    f.observed['negative_control_pre'] = dict(restart_count=observed['restart_count'],
+                                              handler_ready_lines=ready())
     f.docker('exec', nid, 'python3', '-I', '-c', SELF_TERM)
-    f.until(lambda: f.inspect(nid)['RestartCount'] >= 1 and f.inspect(nid)['State']['Running'], 'negative-restart')
+
+    def restarted_by_our_signal():
+        data = f.inspect(nid)  # one consistent read; relative to what was observed before the signal
+        return (data['RestartCount'] > observed['restart_count'] and data['State']['Running']
+                and data['State']['StartedAt'] != observed['started'])
+    f.until(restarted_by_our_signal, 'negative-restart')
     after = f.inspect(nid)
     code = verify_contained_exit(observed, after)
+    f.observed['negative_control_raw'] = dict(code=code, restart_before=observed['restart_count'],
+                                              restart_after=after['RestartCount'],
+                                              started_changed=after['State']['StartedAt'] != observed['started'])
     f.check(code == 'restarted-after-signal' and after['State']['StartedAt'] != observed['started'],
             'negative-control', 'negative-control-always-restarts-after-non-manual-sigterm-and-is-refused')
     f.until(lambda: ready() == 2, 'negative-ready-again')
@@ -227,12 +241,40 @@ def fixture_pre_ddl(f):
     holder = queue_in_flight(f)
     f.write_spec(dict(messages={'m0': 1, 'm1': 1}, redis_lists={QUEUE: f.m2_digest, **dead}, redis_zsets=retry,
                       redis_absent_prefixes=[PROCESSING]), {}, f.pending())
-    process = f.controller('run', background=True)
+    process = f.controller('run', '--pause-at', 'reconcile:after-apply', background=True)
     f.wait_journal(lambda e: e['kind'] == 'done' and e.get('step') == 'signal:queue-worker', 'signal', process)
     release(f, 'synthetic:release')
-    process.wait(timeout=900)
+    # Controller dies right after the reconciliation job COMMITTED, before verification/done/snapshot.
+    until_alive(f, process, lambda: (f.state / 'paused').exists(), 'pause-reconcile', 600)
+    f.check(f.psql(OP_AUDIT.format(op=f.reconcile['operacao'])) == '1' and f.duplicates() == 0
+            and not any(e['kind'] == 'done' and e.get('step') == 'reconcile' for e in f.journal()),
+            'reconcile-not-committed', 'reconciliation-committed-by-real-job-before-controller-crash')
+    f.kill_controller(process)
+    (f.state / 'paused').unlink()
+    # Real PostgreSQL, while recovery is pending: (B4) a same-action audit row WITHOUT operation_id and
+    # (B5) a field of the operation's own audit row are each changed; recovery must refuse, never absorb.
+    op = f.reconcile['operacao']
+    for label, change, revert in (
+            ('null-operation-audit-row', f"update platform_audit_log set alvo_nome = 'synthetic-changed' where {NULL_OP_AUDIT}",
+             f"update platform_audit_log set alvo_nome = null where {NULL_OP_AUDIT}"),
+            ('operation-audit-field', "update platform_audit_log set actor_email = 'synthetic-changed' where acao = '"
+             + RECONCILE_ACTION + f"' and detalhe->>'operation_id' = '{op}'",
+             "update platform_audit_log set actor_email = null where acao = '" + RECONCILE_ACTION
+             + f"' and detalhe->>'operation_id' = '{op}'")):
+        f.psql(change)
+        exit_code, out = f.controller('run')
+        f.check(exit_code == 3 and out.get('code') == 'reconcile-delta-mismatch'
+                and not any(e['kind'] == 'done' and e.get('step') == 'reconcile' for e in f.journal()),
+                'absorbed:' + label, f'pg-recovery-refuses-changed-{label}')
+        f.psql(revert)  # reviewed human reversal (synthetic)
+    exit_code, _ = f.controller('run')
     _, status = f.controller('status')
-    f.check(process.returncode == 3 and status.get('last_refusal') == 'backfill-candidates' and not ddl_marker(f)
+    recovered = [e for e in f.journal() if e['kind'] == 'done' and e.get('step') == 'reconcile']
+    apply_jobs = [e for e in f.journal() if e['kind'] == 'job' and e.get('step') == 'reconcile:apply']
+    f.check(recovered and recovered[-1].get('recovered') is True and len(apply_jobs) == 1
+            and f.psql(OP_AUDIT.format(op=f.reconcile['operacao'])) == '1', 'reconcile-recovery',
+            'replay-adopted-committed-apply-job-exact-delta-verified-no-reapplication')
+    f.check(exit_code == 3 and status.get('last_refusal') == 'backfill-candidates' and not ddl_marker(f)
             and status.get('resume_token'), 'pre-ddl-refusal',
             'pre-ddl-refusal-backfill-candidate-after-reconciliation-no-ddl-marker')
     f.assert_legacy_contained('pre-ddl-legacy-contained-restart-no')
@@ -273,7 +315,7 @@ def fixture_pre_ddl(f):
                 and data['Id'] == f.legacy[role], 'legacy-resumed')
     f.until(lambda: f.messages('m2')['m2'] == 1, 'legacy-backlog', 90)
     f.check(f.edge_get('/health') == 200 and f.duplicates() == 0
-            and f.psql("select count(*) from platform_audit_log") == '1', 'resume-state',
+            and f.psql(OP_AUDIT.format(op=f.reconcile['operacao'])) == '1', 'resume-state',
             'legacy-resumed-same-ids-policy-always-backlog-m2-once-reconciliation-kept-not-undone')
     expect_run(f, 'run-after-legacy-resume-refused', 'run', code=3, refusal='legacy-resumed-terminal')
 

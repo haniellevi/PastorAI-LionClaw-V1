@@ -506,46 +506,14 @@ class Transition:
         if problems:
             self.refuse('expectation-mismatch', step, problems=problems)
 
+    # -- reconciliation (initial_transition_reconcile) ---------------------------
     def reconcile(self):
-        """Pre-DDL data change by the real script; a later legacy resume does NOT undo it."""
-        if self.reached('reconciled'):
-            return
-        self.critical_state('reconcile')
-        spec = self.spec.get('reconcile')
-        if not spec:
-            if self.ops.duplicate_groups():
-                self.refuse('duplicate-without-reconciliation', 'reconcile')
-            self.j.append('done', step='reconcile', skipped=True)
-            self.phase('reconciled')
-            return
-        if self.baseline_snapshot() != self.snapshot():
-            self.refuse('writer-after-settle', 'reconcile')
-        argv = []
-        for flag in ('igreja', 'pessoa', 'manter', 'corrigir', 'admin_igreja', 'operador', 'operacao'):
-            argv += ['--' + flag.replace('_', '-'), spec[flag]]
-        argv += ['--release-sha', self.spec['candidate']['sha']]
-        env = {'TEAM_PESSOA_RECONCILE_DATABASE_URL': self.dsn()}
-        target, path = '/app/scripts/reconcile_team_pessoa.py', 'backend/scripts/reconcile_team_pessoa.py'
-        preview = self.j.last('done', 'reconcile:preview')
-        if preview is None:
-            _, code, out = self.script('reconcile:preview', self.probe_name('reconcile-preview'), target, path,
-                                       argv, env)
-            lines = out.strip().splitlines()
-            token = lines[-1].removeprefix('CONFIRMACAO=') if lines else ''
-            if code != 0 or not lines[0].startswith('RESULTADO=PREVIA_OK') or not token.startswith('DESVINCULAR:'):
-                self.refuse('reconcile-preview', 'reconcile:preview')
-            preview = self.j.append('done', step='reconcile:preview', token=token)
-        # Fixed name: the apply job is adopted on replay; same operation id => JA_APLICADA.
-        _, code, out = self.script('reconcile:apply', f'{self.prefix}-job-reconcile-apply', target, path,
-                                   [*argv, '--aplicar'], env, stdin=preview['token'] + '\n')
-        result = (out.strip().splitlines() or [''])[0]
-        if code != 0 or not re.match(r'RESULTADO=(APLICADA|JA_APLICADA) ', result):
-            self.refuse('reconcile-apply', 'reconcile:apply')
-        if self.ops.duplicate_groups():
-            self.refuse('duplicate-after-reconciliation', 'reconcile:apply')
-        self.j.append('done', step='reconcile', result=result.split()[0])
-        self.j.append('snapshot', reason='reconciled', **self.snapshot())
-        self.phase('reconciled')
+        from initial_transition_reconcile import reconcile
+        reconcile(self)
+
+    def recover_reconciliation(self):
+        from initial_transition_reconcile import recover_reconciliation
+        recover_reconciliation(self)
 
     def preflight(self):
         if self.reached('preflighted'):

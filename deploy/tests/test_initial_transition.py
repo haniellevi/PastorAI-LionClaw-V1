@@ -19,6 +19,7 @@ sys.path.insert(0, str(DEPLOY))
 import initial_transition as it  # noqa: E402
 import initial_transition_files as itf  # noqa: E402
 import initial_transition_ops as ops_mod  # noqa: E402
+import initial_transition_reconcile as itr  # noqa: E402
 from initial_transition_ops import Refused  # noqa: E402
 
 REPO = DEPLOY.parent
@@ -81,6 +82,10 @@ class FakeOps:
         self.migration_behaviour, self.ready_status, self.restart_on_term = {}, 'ready', set()
         self.ignore_term, self.duplicates, self.external = set(), 0, set()
         self.compose_created, self.ttl, self.lists, self.zsets = False, {}, {}, {}
+        self.recon = dict(tables={'app_users': 'u0', 'platform_audit_log': 'a0', 'pessoas': 'p0',
+                                  'schema_migrations': 's0'}, others='o0', target_row='t0',
+                          target_pessoa=None, audit_others='x0', audit_op=[])
+        self.recon_payload, self.scope_calls = None, []
         n = 0
         for role in it.ROLES:
             n += 1
@@ -172,7 +177,15 @@ class FakeOps:
         return {'membro_por_vinculo': 0, 'numero_atendimento': 0}
 
     def db_snapshot(self):
-        return {'db': self.snap['db']}
+        return dict(self.recon['tables'], db=self.snap['db'])
+
+    def reconcile_scope(self, *, target, operation, operator, detail):
+        r = self.recon
+        self.scope_calls.append(dict(target=target, operation=operation, operator=operator, detail=detail))
+        exact = sum(1 for row in r['audit_op'] if row == (operator, target, json.dumps(detail, sort_keys=True)))
+        return dict(tables=dict(r['tables'], db=self.snap['db']), app_users_others=r['others'],
+                    target_row=r['target_row'], target_pessoa=r['target_pessoa'], audit_others=r['audit_others'],
+                    audit_op_total=len(r['audit_op']), audit_op_exact=exact)
 
     def redis_snapshot(self):
         return {'redis': self.snap['redis']}
@@ -244,7 +257,14 @@ class FakeOps:
         elif args and args[0] == 'script':
             out = 'RESULTADO=PREVIA_OK x\nCONFIRMACAO=DESVINCULAR:abc' if 'reconcile' in args[1] else 'ok'
             if '--aplicar' in args:
-                out = 'RESULTADO=APLICADA x'
+                if self.recon['audit_op']:
+                    out = 'RESULTADO=JA_APLICADA x'
+                else:  # commit of the authorized effect: target unlinked + one audit row
+                    self.recon['target_pessoa'] = None
+                    self.recon['audit_op'] = [self.recon_payload]  # (actor, target, detail) as the service writes
+                    self.recon['tables'].update(app_users='u1', platform_audit_log='a1')
+                    self.duplicates = 0
+                    out = 'RESULTADO=APLICADA x'
         elif '/ready' in ' '.join(args):
             body = {'status': self.ready_status, 'required': {'database': 'ok', 'redis': 'ok'},
                     'workers': {'queue-worker': 'ok', 'cron-worker': 'ok', 'broadcast-worker': 'ok'}}
@@ -334,8 +354,208 @@ class Base(unittest.TestCase):
             self.run_until(until, **kwargs)
         self.assertEqual(str(caught.exception), code)
 
+    def die_at(self, t, checkpoint):
+        """Simulate SIGKILL exactly at ``checkpoint`` (and assert it was reached)."""
+        self.hit = []
+
+        def hook(name):
+            if name == checkpoint:
+                self.hit.append(name)
+                raise Killed()
+        t.checkpoint = hook
+
+    def tearDown(self):
+        if getattr(self, 'hit', None) is not None:
+            self.assertTrue(self.hit, 'crash checkpoint never reached')
+
     def kinds(self, kind, step_prefix=''):
         return [e for e in self.events if e['kind'] == kind and str(e.get('step', '')).startswith(step_prefix)]
+
+
+class ReconcileRecoveryTest(Base):
+    def setUp(self):
+        super().setUp()
+        ids = {k: str(__import__('uuid').UUID(int=i + 1)) for i, k in enumerate(
+            ('igreja', 'pessoa', 'manter', 'corrigir', 'admin_igreja', 'operador', 'operacao'))}
+        self.spec['reconcile'] = ids
+        self.ops.duplicates = 1
+        self.ops.recon['target_pessoa'] = ids['pessoa']
+        self.ops.recon_payload = (ids['operador'], ids['corrigir'],
+                                  json.dumps(itr.expected_audit_detail(self.spec), sort_keys=True))
+
+    def crash_after_apply_commit(self):
+        real = self.ops.job_start
+
+        def start(identifier, input=None, timeout=120):
+            real(identifier, input=input, timeout=timeout)
+            if '--aplicar' in self.ops.jobs[identifier]['args']:
+                raise Killed()  # committed; controller dies before done/snapshot/phase
+        self.ops.job_start = start
+        with itf.Journal(self.state) as journal:
+            self.observed(journal)
+            with self.assertRaises(Killed):
+                self.transition(journal).run('reconciled')
+        self.ops.job_start = real
+
+    def apply_jobs(self):
+        return [j for j in self.ops.jobs.values() if '--aplicar' in j['args']]
+
+    def kill_at(self, checkpoint):
+        hit = []
+
+        def checkpoint_hook(name):
+            if name == checkpoint:
+                hit.append(name)
+                raise Killed()
+        with itf.Journal(self.state) as journal:
+            self.observed(journal)
+            t = self.transition(journal)
+            t.checkpoint = checkpoint_hook
+            with self.assertRaises(Killed):
+                t.run('reconciled')
+        self.assertEqual(hit, [checkpoint])
+
+    def assert_refused_without_reapply(self, mutate, code='reconcile-delta-mismatch'):
+        self.crash_after_apply_commit()
+        mutate()
+        self.refused(code, 'preflighted')
+        self.assertEqual(len(self.apply_jobs()), 1)
+        self.assertFalse(self.kinds('ddl-marker'))
+
+    def test_foreign_write_in_other_table_refused(self):
+        self.assert_refused_without_reapply(lambda: self.ops.recon['tables'].update(pessoas='p-foreign'))
+
+    def test_foreign_write_in_other_app_user_refused(self):
+        self.assert_refused_without_reapply(lambda: self.ops.recon.update(others='o-foreign'))
+
+    def test_other_change_on_corrected_account_refused(self):
+        self.assert_refused_without_reapply(lambda: self.ops.recon.update(target_row='t-foreign'))
+
+    def test_foreign_audit_row_refused(self):
+        self.assert_refused_without_reapply(lambda: self.ops.recon.update(audit_others='x-foreign'))
+
+    def test_ledger_change_refused(self):
+        self.assert_refused_without_reapply(lambda: self.ops.recon['tables'].update(schema_migrations='s-foreign'))
+
+    def test_redis_change_refused(self):
+        self.assert_refused_without_reapply(lambda: self.ops.snap.update(redis=7))
+
+    def test_audit_row_with_altered_field_refused(self):
+        payload = self.ops.recon_payload
+        self.assert_refused_without_reapply(lambda: self.ops.recon.update(audit_op=[(payload[0], payload[1], '{}')]))
+
+    def test_second_audit_row_of_the_operation_refused(self):
+        payload = self.ops.recon_payload
+        self.assert_refused_without_reapply(lambda: self.ops.recon.update(audit_op=[payload, payload]))
+
+    def test_expected_detail_matches_service_fields(self):
+        detail = itr.expected_audit_detail(self.spec)
+        self.assertEqual(sorted(detail), sorted(['operation_id', 'payload_sha256', 'operacao', 'igreja_id', 'pessoa_id',
+                                                 'conta_mantida', 'conta_corrigida', 'admin_igreja', 'release_sha']))
+        self.assertEqual(detail['operacao'], 'desvincular')
+
+    def resume_after(self, checkpoint):
+        self.kill_at(checkpoint)
+        with itf.Journal(self.state) as journal:
+            t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep)
+            token = t.resume_token()
+            t.resume_legacy(token, token)
+            done = [e for e in journal.find('done', 'reconcile')]
+            snaps = [e for e in journal.find('snapshot') if e.get('reason') == 'reconciled']
+        self.assertEqual(len(self.apply_jobs()), 1)
+        self.assertEqual(len(done), 1)
+        self.assertEqual(len(snaps), 1)
+        self.assertEqual(sum(self.ops.inspect(i)['State']['Running'] for i in self.ops.legacy_ids.values()), 4)
+
+    def test_resume_after_apply_done_or_snapshot_completes_once(self):
+        for checkpoint in ('reconcile:after-apply', 'reconcile:after-done', 'reconcile:after-snapshot'):
+            with self.subTest(checkpoint=checkpoint):
+                self.setUp()
+                self.resume_after(checkpoint)
+
+    def test_run_after_apply_done_or_snapshot_completes_once(self):
+        for checkpoint in ('reconcile:after-apply', 'reconcile:after-done', 'reconcile:after-snapshot'):
+            with self.subTest(checkpoint=checkpoint):
+                self.setUp()
+                self.kill_at(checkpoint)
+                self.assertEqual(self.run_until('preflighted'), 'preflighted')
+                self.assertEqual(len(self.apply_jobs()), 1)
+                self.assertEqual(len([e for e in self.events if e['kind'] == 'done' and e.get('step') == 'reconcile']), 1)
+                self.assertEqual(len([e for e in self.events if e['kind'] == 'snapshot'
+                                      and e.get('reason') == 'reconciled']), 1)
+
+    def test_write_between_verification_and_journal_is_not_absorbed(self):
+        original = itr.verify_reconciliation
+
+        def verified_then_foreign_write(t, base):
+            verified = original(t, base)
+            self.ops.recon['tables']['pessoas'] = 'p-foreign-after-verify'
+            return verified
+        itr.verify_reconciliation = verified_then_foreign_write
+        try:
+            self.refused('writer-after-settle', 'preflighted')
+        finally:
+            itr.verify_reconciliation = original
+        self.assertFalse(self.kinds('ddl-marker'))
+
+    def test_redis_changed_before_baseline_is_not_absorbed(self):
+        original = self.ops.reconcile_scope
+
+        def change_then_scope(**kwargs):
+            self.ops.snap['redis'] = 'foreign-redis'
+            return original(**kwargs)
+        self.ops.reconcile_scope = change_then_scope
+        self.refused('writer-after-settle', 'preflighted')
+        self.assertFalse(self.kinds('reconcile-baseline'))
+        self.assertFalse(self.apply_jobs())
+
+    def test_duplicates_reappearing_refused(self):
+        self.assert_refused_without_reapply(lambda: setattr(self.ops, 'duplicates', 1))
+
+    def test_resume_legacy_recovers_committed_reconciliation_pre_ddl(self):
+        self.crash_after_apply_commit()
+        with itf.Journal(self.state) as journal:
+            t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep)
+            token = t.resume_token()
+            t.resume_legacy(token, token)
+            self.assertTrue(journal.last('done', 'reconcile')['recovered'])
+            self.assertIn('legacy-resumed', [e['name'] for e in journal.find('phase')])
+        self.assertEqual(len(self.apply_jobs()), 1)
+        self.assertEqual(len([i for i in self.ops.starts if i in self.ops.legacy_ids.values()]), 4)
+
+    def test_resume_legacy_refuses_committed_reconciliation_with_foreign_write(self):
+        self.crash_after_apply_commit()
+        self.ops.recon['tables']['pessoas'] = 'p-foreign'
+        with itf.Journal(self.state) as journal:
+            t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep)
+            token = t.resume_token()
+            with self.assertRaises(Refused) as caught:
+                t.resume_legacy(token, token)
+            self.assertEqual(str(caught.exception), 'reconcile-delta-mismatch')
+        self.assertFalse(set(self.ops.starts) & set(self.ops.legacy_ids.values()))
+
+    def test_resume_legacy_never_creates_or_starts_apply_job(self):
+        for drop in (False, True):
+            with self.subTest(dropped=drop):
+                self.setUp()
+                self.kill_at('job:' + PREFIX + '-job-reconcile-apply:before-start')  # created, never started
+                if drop:
+                    for identifier in [i for i, j in self.ops.jobs.items() if '--aplicar' in j['args']]:
+                        del self.ops.jobs[identifier], self.ops.containers[identifier]
+                with itf.Journal(self.state) as journal:
+                    t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep)
+                    token = t.resume_token()
+                    t.resume_legacy(token, token)  # no effect happened: settled snapshot holds
+                self.assertEqual(self.ops.recon['audit_op'], [])
+                self.assertEqual(len(self.apply_jobs()), 0 if drop else 1)
+                for j in self.apply_jobs():
+                    self.assertNotIn(j.get('out'), ('RESULTADO=APLICADA x',))
+
+    def test_committed_reconciliation_is_recovered_without_reapply(self):
+        self.crash_after_apply_commit()
+        self.assertEqual(self.run_until('preflighted'), 'preflighted')
+        self.assertEqual(len(self.apply_jobs()), 1)
+        self.assertEqual(self.kinds('done', 'reconcile')[-1].get('recovered'), True)
 
 
 class JournalTest(Base):
@@ -506,12 +726,10 @@ class ControllerTest(Base):
         self.assertEqual(self.run_until(decision='retry-candidate'), 'promoted')
 
     def test_crash_between_policy_and_link_replays_fresh_readiness_without_false_success(self):
-        def kill(_seconds):
-            raise Killed()
         with itf.Journal(self.state) as journal:
             self.observed(journal)
-            t = self.transition(journal, pause_at='promote:after-policy')
-            t.sleep = kill
+            t = self.transition(journal)
+            self.die_at(t, 'promote:after-policy')
             with self.assertRaises(Killed):
                 t.run()
             self.assertFalse(journal.find('phase') and 'promoted' in [e['name'] for e in journal.find('phase')])
@@ -619,12 +837,10 @@ class ControllerTest(Base):
         self.refused('legacy-restarted-after-signal')
 
     def test_crash_between_policy_update_and_done_replays(self):
-        def kill(_seconds):
-            raise Killed()
         with itf.Journal(self.state) as journal:
             self.observed(journal)
-            t = self.transition(journal, pause_at='contain:cron-worker:after-policy')
-            t.sleep = kill
+            t = self.transition(journal)
+            self.die_at(t, 'contain:cron-worker:after-policy')
             with self.assertRaises(Killed):
                 t.run()
         cron = self.ops.legacy_ids['cron-worker']
@@ -635,8 +851,8 @@ class ControllerTest(Base):
     def test_crash_after_policy_intent_before_update_replays(self):
         with itf.Journal(self.state) as journal:
             self.observed(journal)
-            t = self.transition(journal, pause_at='contain:queue-worker:before-policy')
-            t.sleep = lambda _s: (_ for _ in ()).throw(Killed())
+            t = self.transition(journal)
+            self.die_at(t, 'contain:queue-worker:before-policy')
             with self.assertRaises(Killed):
                 t.run()
             self.assertTrue(journal.find('intent', 'policy:queue-worker'))
@@ -650,8 +866,8 @@ class ControllerTest(Base):
     def test_policy_reverted_externally_after_done_is_refused(self):
         with itf.Journal(self.state) as journal:
             self.observed(journal)
-            t = self.transition(journal, pause_at='contain:cron-worker:after-signal')
-            t.sleep = lambda _s: (_ for _ in ()).throw(Killed())
+            t = self.transition(journal)
+            self.die_at(t, 'contain:cron-worker:after-signal')
             with self.assertRaises(Killed):
                 t.run()
         self.ops.update_restart(self.ops.legacy_ids['backend'], 'always')

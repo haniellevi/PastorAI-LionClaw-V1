@@ -89,7 +89,10 @@ irrevogável e candidato da fonte `6b0b302bd1c1` (imagem derivada local não
 oficial) em projeto Compose separado, com readiness real e layout
 `releases/<SHA>`. Ensaio sintético completo aprovado na rodada 3 (684,1 s,
 quatro cenários + catálogo de referência); a correção final da retomada foi
-reensaiada só no pré-DDL (54,9 s). Forma de PROD = instalação observada em
+reensaiada só no pré-DDL (54,9 s). Revisão da PR: a reconciliação commitada antes de
+uma queda é recuperada no replay só como delta exato autorizado (cenários
+`main`/`pre-ddl` reensaiados em PostgreSQL sintético; CI do novo SHA pendente).
+Forma de PROD = instalação observada em
 24/10, não reverificada. Próxima fatia: adoção persistente da topologia do
 candidato pelo instalador/workflow e tratamento de legado com `RestartCount>0`.
 Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.

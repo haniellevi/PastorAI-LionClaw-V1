@@ -30,6 +30,7 @@ def resume_legacy(t, confirmation, expected_token):
     if not t.reached('contained'):
         t.refuse('resume-not-contained', 'legacy-resume')
     t.resume_preconditions()
+    t.recover_reconciliation()  # a committed apply is proven exactly, then becomes the baseline
     evidence = {r: execution_evidence(t, r) for r in START_ORDER}
     if 'exited-after-start' in evidence.values() or 'inconsistent' in evidence.values():
         t.refuse('legacy-resume-ambiguous', 'legacy-resume')  # ran and stopped, or unexplained: human

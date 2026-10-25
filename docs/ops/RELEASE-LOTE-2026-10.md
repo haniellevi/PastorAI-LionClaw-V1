@@ -1003,6 +1003,30 @@ Codex: 229 testes (53 novos/contrato + 176 de regressão), zero skip. CI do SHA
 publicado: não verificado até rodar. Os demais cenários não foram repetidos após a rodada 4 porque não
 passam pelo código alterado, salvo a recusa pós-DDL, que ocorre antes dele.
 
+**Recuperação da reconciliação (revisão da PR #579).** Antes do apply, na
+mesma invocação que reconfere o snapshot de settle (banco e Redis), o journal
+grava uma linha de base só com digests e contagens. Após queda depois do commit,
+`run` e `resume-legacy` adotam o mesmo job, sem reaplicar (a retomada nunca cria
+nem inicia o apply), e só aceitam o delta exato: `pessoa_id` nulo na conta
+corrigida e exatamente uma linha de auditoria da operação idêntica à do serviço
+(ator, alvo, campos NULL, `detalhe` completo); nada mais em `public`, auditoria
+alheia (inclusive sem `operation_id`) ou Redis persistente. O snapshot gravado é
+o da leitura verificada. Rodada 6, cenários selecionados (`partial-pass`, não
+suíte completa): `pre-ddl` 21 verificações (crash após commit real; alteração de
+auditoria sem `operation_id` e de campo da auditoria da operação recusadas em
+PostgreSQL sintético) e `main` 28; limpeza total
+(`/tmp/igreja12-initial-transition-round6-reconcile.json`). A suíte completa
+continua sendo a da rodada 3. Testes em Python 3.13: 71 + 8 subtestes dos
+módulos novos e 4/4 provas independentes (conferência do Codex: 247 + 8 subtestes);
+regressão ampla de `deploy/tests` com 401 aprovados, 19 pulados, 1 desmarcado
+(PG17 de CI) e 5 falhas ambientais em `test_maintenance_schema*.py` por
+`psycopg2` ausente no venv 3.13 (passam no venv 3.12 com o driver). CI do novo
+SHA: pendente. Limites: digests e contagens não distinguem uma escrita alheia
+que reproduza exatamente o delta autorizado nem cobrem esquemas fora de `public`.
+Controle negativo: o predicado agora é relativo ao contador e `StartedAt`
+observados; a causa da falha intermitente da rodada 5 (possível reinício antes
+do sinal) é hipótese não confirmada.
+
 **Limite conhecido, a tratar antes de qualquer adaptador real:** medição do
 Codex em container próprio e isolado (já removido): `RestartCount` 1 antes do
 stop, 1 parado e 0 depois de `docker start` manual. A retomada do legado exige o

@@ -323,6 +323,9 @@ class Fixture(Rehearsal):
                                   admin_igreja=ids['admin'], operador=ids['operator'], operacao=ids['operacao'])
             self.check(self.duplicates() == 1, 'seed-duplicate', 'fixture-one-duplicate-person-link-group')
         if self.kind == 'pre-ddl':
+            # A pre-existing audit row of the same action WITHOUT operation_id (SQL NULL edge, B4).
+            self.psql("insert into platform_audit_log (acao, alvo_tipo, detalhe) values "
+                      "('team_pessoa_reconciliar_duplicidade', 'app_user', '{\"operacao\": \"synthetic-legacy\"}')")
             # One July backfill candidate: a 'membro' whose phone is the connected number.
             self.psql(f"insert into pessoas (igreja_id, nome, telefone, tipo) values ('{TENANT_A}', "
                       f"'Numero Atendimento', '5500000000001', 'membro')")
