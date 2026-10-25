@@ -888,3 +888,74 @@ zero skip (46 novos e 130 de regressão); ensaio físico aprovado com 13
 verificações, bloqueio em 6,445 s, saída 0 em 0,652 s após a liberação, limpeza
 sem sobras. São evidências locais; os testes/ensaio novos não foram adicionados
 aos workflows, e os quatro checks do SHA publicado são prova separada.
+
+## Backend ASGI com HTTP em curso durante SIGTERM — validado localmente
+
+A fatia seguinte (base `6b0b302b`, sem depender da #577 aberta) usa
+`deploy/rehearse_legacy_backend.py`. Reaproveita a guarda de Docker local, a
+fonte/runtime exatos de `07a3f4d`, o ledger e o Redis próprio. O PID 1 é o console
+script real `uvicorn app.main:app --host 0.0.0.0 --port 8000` (CMD do
+Dockerfile legado), com `--init=false` conferido, sem patch, mock, rota ou
+instrumentação da aplicação. O preflight confere o script contra o RECORD da
+distribuição `uvicorn==0.49.0`, o protocolo httptools e as premissas de shutdown
+do Uvicorn instalado. Diferenças em relação ao Dockerfile: workdir `/opt/legacy`,
+usuário 65534, rootfs read-only, sem `migrations/` e sem healthcheck do Compose.
+
+Configuração: gates fechados, piloto vazio, `EVOLUTION_WEBHOOK_SECRET` fictício
+fixo enviado só por header `X-Webhook-Token` (nunca query) e banco em loopback
+morto. O único aviso de startup aceito é `Database warmup unavailable`, e
+`/health` 200 prova só liveness: não é readiness nem prontidão de produção.
+Allowlist exata de avisos: esse warmup (um por boot) e um `Rejected webhook`
+da prova negativa (token errado, corpo completo, 401 real e fila vazia). O
+relatório leva só marcadores próprios e contagens; o segredo fictício não pode
+aparecer nos logs.
+
+Barreira: um probe separado da mesma imagem envia o `POST /whatsapp/webhook`
+com `Content-Length` do corpo inteiro e só metade do JSON. O handler legado lê o
+corpo antes de autenticar. O probe só publica o READY depois que `TIOCOUTQ` do
+socket chega a 0 (bytes confirmados por ACK do servidor, sem `recv`, prazo de
+5 s; falha ou timeout encerram o probe e recusam). O controlador exige `outq`
+inteiro igual a 0. Antes do SIGTERM, o `/proc` do backend (`docker exec` só
+leitura) precisa mostrar a conexão do IP/porta do probe ESTABLISHED,
+pertencente ao PID 1, com Recv-Q/Send-Q zero, e a fila precisa estar vazia.
+ACK no cliente, Recv-Q 0 no servidor e a conexão retida durante a drenagem
+sustentam um ciclo HTTP aberto, não a linha exata do handler
+(`request.stream()`). Depois do sinal: backend vivo, log
+`Waiting for connections to close`, listener fechado, conexão nova recusada,
+mesma conexão retida e lifespan ainda aberto, numa janela observada. Só então
+o restante do corpo segue na mesma conexão e se exige: 202
+`{"status":"queued"}`, conexão encerrada pelo servidor (sem reuso), um envelope
+no `WebhookQueue` real, ordem exata em stderr (resposta antes do lifespan
+fechar os pools) e saída 0 sem SIGKILL. A duração da telemetria precisa cobrir o
+intervalo sinal→liberação, mas isso é só consistência: inclui o processamento
+após a liberação e a latência do kill, então não prova ordem. Os bytes da
+fila se mantêm após a parada e após reiniciar o mesmo container sem consumidor;
+o segundo SIGTERM também sai com 0.
+
+Orçamentos independentes: barreira 20 s; log de drenagem 10 s após o sinal;
+retenção abaixo de 20 s, medida depois do último check; saída em menos de 30 s
+após a liberação.
+
+Riscos e limites: a saída 0 depende de PID 1 direto, porque o Uvicorn re-levanta
+o SIGTERM após o shutdown e só o PID 1 o ignora; sob init, seria 143. Sem
+`--timeout-graceful-shutdown`, um cliente que nunca completa o corpo segura o
+shutdown indefinidamente até o prazo do supervisor (SIGKILL). Não prova a
+posição interna do handler nem o início do ASGI antes do sinal (inferido), consumo
+pelo worker, turno do agente, banco/RLS, retries da Evolution,
+supervisor/restart policy, topologia viva (proxy, init, timeouts), pós-DDL nem
+produção (`production_ready=false`).
+
+Reprodução local, com as mesmas imagens imutáveis dos ensaios anteriores:
+
+```bash
+python3.13 deploy/rehearse_legacy_backend.py run --repo . --report /tmp/legacy-backend-report.json
+```
+
+Validação final em 25/10/2026: 279 testes aprovados, zero skip (103 novos e
+176 de regressão); ensaio físico (Codex) aprovado com 12 verificações, retenção
+de 6,600 s após o sinal, saída 1,202 s após a liberação, segunda parada em
+1,168 s, limpeza sem sobras. Premissas do Uvicorn 0.49.0 conferidas na imagem;
+revisão independente incorporada. Um request gera um envelope; idempotência de
+reenvio não é provada aqui. É prova sobre o HTTP real já existente, não
+capacidade nova do agente. Os testes/ensaio não entram nos workflows, e os
+quatro checks do SHA publicado são prova separada.
