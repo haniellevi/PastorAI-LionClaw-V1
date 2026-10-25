@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -20,9 +21,112 @@ SHA_OLD = "a" * 40
 SHA_NEW = "b" * 40
 SERVICES = "backend queue-worker cron-worker broadcast-worker"
 SCHEMA = runpy.run_path(str(DEPLOY / "check_backend_schema.py"))
+TOPOLOGY = runpy.run_path(str(DEPLOY / "release_topology.py"))
+PROJECT = "pastorai-permanent"
+NETWORK = "pastorai_default"
+
+# Synthetic Docker state behind the adopted topology: four contained legacy
+# containers, Redis/Evolution of the legacy project on the shared network and
+# the permanent project, whose services follow the fake's create/stop/start.
+WORLD = r"""
+import json, os, sys
+from pathlib import Path
+
+SERVICES = ("backend", "queue-worker", "cron-worker", "broadcast-worker")
+contract = json.loads(Path(os.environ["WORLD_CONTRACT"]).read_text())
+P, N = contract["project"], contract["network"]["name"]
+state_path = Path(os.environ["TRACE"] + ".world.json")
+env = lambda key: os.environ.get("WORLD_" + key, "")
+
+
+def load():
+    if state_path.exists():
+        return json.loads(state_path.read_text())
+    return {s: {"state": "exited" if env("PREDECESSOR_STOPPED") == s else "running", "image": 1,
+                "created": False} for s in SERVICES}
+
+
+def rows(st):
+    found = []
+    def add(cid, name, running, project, service, networks, policy="always", health=None, image=9):
+        found.append([cid, "/" + name, running, policy, project, service, "False" if project else "",
+                      health, "sha256:%064d" % image, networks])
+    for role, cid in contract["reserved_legacy"].items():
+        if env("LEGACY_MISSING") != role:
+            project = P if env("LEGACY_IN_PROJECT") == role else ("pastorai" if role != "broadcast-worker" else "")
+            add(cid, "legacy-" + role, env("LEGACY_RUNNING") == role, project, role if project else "",
+                {N: {"Aliases": ["legacy-" + role, role]}}, policy="always" if env("LEGACY_POLICY") == role else "no")
+    for index, alias in enumerate(("redis", "evolution-api")):
+        if env("DEP_MISSING") == alias or (env("DEP_DOWN_ON_START") == alias and st.get("_started_new")):
+            continue
+        for copy in range(2 if env("DEP_DUPLICATE") == alias else 1):
+            health = "unhealthy" if env("DEP_UNHEALTHY") == alias else ("healthy" if alias == "redis" else None)
+            add("%064x" % (0xd0 + index * 4 + copy), "legacy-%s-%d" % (alias, copy), True, "pastorai", alias,
+                {N: {"Aliases": [alias], "DNSNames": [alias, "legacy-" + alias]}}, health=health)
+    if env("ALIAS_CONFLICT") and (not env("ALIAS_CONFLICT_ON_CREATE") or st.get("_created_new")) and (
+            not env("ALIAS_CONFLICT_ON_BUILD") or st.get("_built_new")):
+        add("%064x" % 0xbad, "rogue", True, "rogue", "rogue", {N: {"DNSNames": [env("ALIAS_CONFLICT")]}})
+    for index, role in enumerate(SERVICES):
+        item = st[role]
+        name = "wrong-" + role if env("WRONG_NAME") == role else contract["containers"][role]
+        networks = {N: {"Aliases": [name, role], "DNSNames": [name, role]}}
+        if item["created"] and env("CREATED_EXTRA_NETWORK"):
+            networks["second_network"] = {"Aliases": [role]}
+        add("%064x" % (0xa0 + index), name, item["state"] == "running", P, role, networks, image=item["image"])
+    if env("STRANGER_ON_START") and st.get("_started_new"):
+        add("%064x" % 0xbb, "unexpected-backend-copy", True, P, "backend", {N: {}})
+    if env("FOREIGN_SERVICE"):
+        add("%064x" % 0xf0, "foreign", False, P, "redis", {N: {}})
+    return found
+
+
+st = load()
+command = sys.argv[1]
+if command == "event":
+    kind, roles = sys.argv[2], sys.argv[3:]
+    if kind == "built":
+        st["_built_new"] = True
+    if kind == "stopped-ids":
+        by_id = {"%064x" % (0xa0 + index): role for index, role in enumerate(SERVICES)}
+        assert roles[0] == "stop" and all(cid in by_id for cid in roles[1:]), "stop of a non-owned ID"
+        kind, roles = "stopped", [by_id[cid] for cid in roles[1:]]
+    for role in roles:
+        if kind == "created":
+            st[role] = {"state": "created", "image": 2 if os.environ["PWD"] == os.environ["NEW_DEPLOY"] else 1,
+                        "created": True}
+            if os.environ["PWD"] == os.environ["NEW_DEPLOY"]:
+                st["_created_new"] = True
+        else:
+            st[role]["state"] = {"stopped": "exited", "started": "running", "checker-ran": "exited"}[kind]
+            if kind == "started" and os.environ["PWD"] == os.environ["NEW_DEPLOY"]:
+                st["_started_new"] = True
+    state_path.write_text(json.dumps(st))
+    sys.exit(0)
+args = sys.argv[2:]
+if args[:2] == ["network", "inspect"]:
+    print(json.dumps([env("NETWORK_ID") or contract["network"]["id"], N]))
+elif args[:2] == ["container", "ls"]:
+    with open(os.environ["TRACE"] + ".topology", "a") as out:
+        out.write("guard|%s|%s\n" % (os.environ["PWD"], ",".join(
+            "%s=%s" % (s, st[s]["state"]) for s in SERVICES)))
+    for row in rows(st):
+        print(row[0])
+elif args[:2] == ["container", "inspect"]:
+    assert args[2] == "--format" and ".Config.Env" not in args[3], "inspect must not read Config.Env"
+    by_id = {row[0]: row for row in rows(st)}
+    for cid in args[4:]:
+        if cid not in by_id:
+            sys.exit(1)
+        print(json.dumps(by_id[cid]))
+else:
+    sys.exit(2)
+"""
 
 
 class BackendReleaseTest(unittest.TestCase):
+    stop_marker = "|compose stop "  # trace fragment of a consumer stop
+    rollback_ps_failure = ({"ROLLBACK_PS_EXIT": "1"},)
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="backend-release-test-")
         self.addCleanup(self.temp.cleanup)
@@ -50,9 +154,27 @@ if [ -n "${LOCK_TEST_FILE:-}" ] && flock -n "$LOCK_TEST_FILE" true; then
 fi
 overlay=0
 state_file="$TRACE.$(basename "$(dirname "$PWD")").state"
+world="$(dirname "$0")/docker-world.py"
+topology_call=0
+kinds=
+if [ "$1" = compose ] && [ "$2" = -p ]; then
+  if [ -z "${TOPOLOGY_PROJECT:-}" ] || [ "$3" != "$TOPOLOGY_PROJECT" ]; then
+    printf 'bad-compose|%s|unexpected project\\n' "$PWD" >> "$TRACE"; exit 97
+  fi
+  topology_call=1
+  shift 3
+  set -- compose "$@"
+elif [ "$1" = compose ] && [ -n "${TOPOLOGY_PROJECT:-}" ]; then
+  printf 'bad-compose|%s|missing project\\n' "$PWD" >> "$TRACE"; exit 97
+fi
 while [ "$1" = compose ] && [ "$2" = -f ]; do
   file="$3"
-  if [ "$file" != docker-compose.yml ]; then
+  if [ "$file" = docker-compose.yml ]; then kinds="${kinds}${kinds:+,}base"
+  elif [ "$(basename "$file")" = topology.yml ]; then
+    grep -q "\\"name\\": \\"$TOPOLOGY_PROJECT\\"" "$file" || exit 96
+    kinds="${kinds}${kinds:+,}topology"
+  else
+  if grep -q entrypoint "$file"; then kinds="${kinds}${kinds:+,}checker"; else kinds="${kinds}${kinds:+,}pin"; fi
   python3 - "$file" <<'OVERRIDE'
 import json, os, sys
 from pathlib import Path
@@ -78,11 +200,25 @@ OVERRIDE
   shift 3
   set -- compose "$@"
 done
+if [ "$topology_call" = 1 ]; then
+  case "$kinds" in
+    base,topology|base,topology,checker|base,topology,pin|base,topology,checker,pin) ;;
+    *) printf 'bad-compose|%s|file order %s\\n' "$PWD" "$kinds" >> "$TRACE"; exit 98 ;;
+  esac
+  printf 'compose|%s|%s|%s\\n' "$PWD" "$kinds" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "$TRACE.topology"
+fi
 case "$*" in
+  'compose config --format json --no-env-resolution')
+    printf '%s\\n' "$TOPOLOGY_CONFIG_JSON"; exit 0 ;;
+  'container '*|'network inspect '*) exec python3 "$world" read "$@" ;;
   'context inspect --format '*) printf '%s\\n' 'unix:///var/run/docker.sock'; exit 0 ;;
   'image inspect --format '* )
     case "$4" in
-      '{{.Id}}') printf 'sha256:%064d\\n' 2 ;;
+      '{{.Id}}')
+        case "$5" in
+          *-release:"${PREVIOUS_IMAGE_SHA:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}") printf 'sha256:%064d\\n' 1 ;;
+          *) printf 'sha256:%064d\\n' 2 ;;
+        esac ;;
       *) if [ "$5" = 'sha256:'"$(printf '%064d' 1)" ]; then
            printf '%s\\n' "${PREVIOUS_IMAGE_SHA:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}";
          else printf '%s\\n' "${CANDIDATE_IMAGE_SHA:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"; fi ;;
@@ -113,6 +249,7 @@ case "$*" in
   'compose start backend')
     [ "$overlay" = 1 ] && [ "$(cat "$state_file")" = checker ] || exit 1
     printf 'checker-start|%s\\n' "$PWD" >> "$TRACE"
+    [ -z "${TOPOLOGY_PROJECT:-}" ] || python3 "$world" event checker-ran backend
     exit "${CHECKER_START_EXIT:-0}" ;;
   'wait '*)
     printf 'checker-wait|%s\\n' "$PWD" >> "$TRACE"
@@ -154,7 +291,11 @@ case "$*" in
     if [ "$PWD" = "$NEW_DEPLOY" ]; then expected_revision="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     else expected_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; fi
     [ "$*" = "compose build --build-arg PASTORAI_RELEASE_SHA=$expected_revision backend" ] || exit 1
-    if [ "$PWD" = "$NEW_DEPLOY" ]; then exit "${BUILD_EXIT:-0}"; fi
+    if [ "$PWD" = "$NEW_DEPLOY" ]; then
+      [ "${BUILD_EXIT:-0}" = 0 ] || exit "$BUILD_EXIT"
+      [ -z "${TOPOLOGY_PROJECT:-}" ] || python3 "$world" event built
+      exit 0
+    fi
     exit "${ROLLBACK_BUILD_EXIT:-0}" ;;
   'compose run '*) exit "${ROLLBACK_PREFLIGHT_EXIT:-0}" ;;
   'compose up --no-start '*)
@@ -165,20 +306,31 @@ case "$*" in
       [ "$*" = 'compose up --no-start --no-build --no-deps --pull never --force-recreate backend' ] || exit 1
       printf 'checker' > "$state_file"
       printf 'created|%s|checker|backend\\n' "$PWD" >> "$TRACE"
+      [ -z "${TOPOLOGY_PROJECT:-}" ] || python3 "$world" event created backend
     else
       [ "$*" = 'compose up --no-start --no-build --no-deps --pull never --force-recreate backend queue-worker cron-worker broadcast-worker' ] || exit 1
       printf 'normal' > "$state_file"
       printf 'created|%s|normal|backend queue-worker cron-worker broadcast-worker\\n' "$PWD" >> "$TRACE"
+      [ -z "${TOPOLOGY_PROJECT:-}" ] || python3 "$world" event created backend queue-worker cron-worker broadcast-worker
     fi ;;
 
+  'stop '*)
+    if [ "$PWD" != "$NEW_DEPLOY" ] && [ "${ROLLBACK_STOP_EXIT:-0}" = 1 ]; then exit 1; fi
+    [ "${STOP_EXIT:-0}" = 0 ] || exit "$STOP_EXIT"
+    printf 'stop|%s|%s\\n' "$PWD" "$*" >> "$TRACE.topology"
+    python3 "$world" event stopped-ids "$@"
+    exit 0 ;;
   'compose stop '*)
     if [ "$PWD" != "$NEW_DEPLOY" ] && [ "${ROLLBACK_STOP_EXIT:-0}" = 1 ]; then exit 1; fi
-    exit "${STOP_EXIT:-0}" ;;
+    [ "${STOP_EXIT:-0}" = 0 ] || exit "$STOP_EXIT"
+    [ -z "${TOPOLOGY_PROJECT:-}" ] || python3 "$world" event stopped backend queue-worker cron-worker broadcast-worker
+    exit 0 ;;
   'compose start '*)
     if [ "$overlay" != 0 ] || [ "$(cat "$state_file")" != normal ]; then
       printf 'rejected-app-start|%s\\n' "$PWD" >> "$TRACE"
       exit 1
     fi
+    [ -z "${TOPOLOGY_PROJECT:-}" ] || python3 "$world" event started backend queue-worker cron-worker broadcast-worker
     if [ "$PWD" = "$NEW_DEPLOY" ]; then
       touch "$TRACE.candidate_up"
       if [ -n "${SIGNAL_ON_START:-}" ]; then kill -"$SIGNAL_ON_START" "$PPID"; fi
@@ -189,6 +341,7 @@ esac
 exit 0
 """
         )
+        (bin_dir / "docker-world.py").write_text(WORLD)
         (bin_dir / "curl").write_text(
             """#!/bin/sh
 if [ -n "${LOCK_TEST_FILE:-}" ] && flock -n "$LOCK_TEST_FILE" true; then
@@ -392,7 +545,7 @@ exec "$@"
         self.assertIn("timeout options unavailable", result.stderr)
         self.assertTrue(any("--signal=TERM --kill-after=5s 1s true" in c for c in self.calls()))
         self.assertFalse(any("compose build " in c or "compose up " in c
-                             or "compose stop " in c or "compose start --wait " in c
+                             or self.stop_marker in c or "compose start --wait " in c
                              for c in self.calls()))
         self.assertFalse((self.new / "configuration.fixture").exists())
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
@@ -424,7 +577,7 @@ exec "$@"
                 self.trace.write_text("")
                 result = self.run_release(**changes)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(any("compose up " in c or "compose stop " in c
+                self.assertFalse(any("compose up " in c or self.stop_marker in c
                                      or "compose build " in c for c in self.calls()))
                 self.assertFalse((self.new / "configuration.fixture").exists())
 
@@ -451,14 +604,14 @@ exec "$@"
             {"CHECKER_WAIT_EXIT": "1"}, {"CHECKER_TIMEOUT_EXIT": "124"},
             {"ROLLBACK_PREFLIGHT_EXIT": "7"},
             {"ROLLBACK_PREFLIGHT_EXIT": ""}, {"ROLLBACK_CREATE_EXIT": "1"},
-            {"ROLLBACK_PS_EXIT": "1"}, {"ROLLBACK_STOPPED_GATES_EXIT": "1"},
+            *self.rollback_ps_failure, {"ROLLBACK_STOPPED_GATES_EXIT": "1"},
         ):
             with self.subTest(changes=changes):
                 self.trace.write_text("")
                 result = self.run_release(HEALTH_EXIT="1", **changes)
                 self.assertEqual(result.returncode, 1)
                 self.assertFalse(any(f"docker|{self.old}|compose start --wait " in c for c in self.calls()))
-                self.assertTrue(any(f"docker|{self.old}|compose stop " in c for c in self.calls()))
+                self.assertTrue(any(f"docker|{self.old}{self.stop_marker}" in c for c in self.calls()))
                 self.assertFalse((self.new / "configuration.fixture").exists())
                 if changes.get("ROLLBACK_STOPPED_GATES_EXIT"):
                     self.assertFalse(any("checker-start|" in c for c in self.calls()))
@@ -511,7 +664,7 @@ exec "$@"
             calls,
         )
         self.assertFalse(any("compose build " in c or "compose up " in c
-                             or "compose stop " in c or "compose start --wait " in c
+                             or self.stop_marker in c or "compose start --wait " in c
                              for c in calls))
         self.assertFalse((self.new / "configuration.fixture").exists())
         self.assertEqual((self.root / "current").resolve(), self.old.parent)
@@ -563,7 +716,7 @@ exec "$@"
                 self.trace.write_text("")
                 result = self.run_release(SIGNAL_ON_START=signal_name)
                 self.assertEqual(result.returncode, status, result.stderr)
-                self.assertTrue(any(f"docker|{self.new}|compose stop " in c for c in self.calls()))
+                self.assertTrue(any(f"docker|{self.new}{self.stop_marker}" in c for c in self.calls()))
                 self.assert_inspected_before_start(self.old)
                 self.assertEqual((self.root / "current").resolve(), self.old.parent)
                 self.assertFalse((self.new / "configuration.fixture").exists())
@@ -591,7 +744,7 @@ exec "$@"
         result = self.run_release(HEALTH_EXIT="1", ROLLBACK_PREFLIGHT_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(any(f"docker|{self.old}|compose start --wait " in c for c in self.calls()))
-        self.assertTrue(any("compose stop " in c for c in self.calls()))
+        self.assertTrue(any(self.stop_marker in c for c in self.calls()))
 
     def test_stopped_container_open_gates_never_start(self):
         result = self.run_release(STOPPED_GATES_EXIT="1")
@@ -694,6 +847,17 @@ exec "$@"
         self.assertEqual(self.calls(), [])
         self.assertFalse((self.new / "configuration.fixture").exists())
 
+    def test_rollback_recreates_all_normal_services_after_checker_zero(self):
+        result = self.run_release(HEALTH_EXIT="17")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        calls = [c for c in self.calls() if not c.startswith("image-overlay|")]  # previous pin parsed per call
+        wait = calls.index(f"checker-wait|{self.old}")
+        normal = calls.index(f"created|{self.old}|normal|{SERVICES}")
+        start = next(i for i, c in enumerate(calls) if c.startswith(f"docker|{self.old}|compose start --wait "))
+        self.assertLess(wait, normal)
+        self.assertEqual(calls[normal + 1:start], [f"inspect|{self.old}|{service}" for service in SERVICES.split()])
+        self.assertFalse(any("rejected-app-start|" in c for c in calls))
+
     def test_health_failure_restarts_previous_code(self) -> None:
         result = self.run_release(HEALTH_EXIT="1")
         self.assertNotEqual(result.returncode, 0)
@@ -745,6 +909,363 @@ exec "$@"
         up_calls = [call for call in self.calls() if "compose start --wait " in call]
         self.assertEqual(len(up_calls), 1)
         self.assertIn(SERVICES, up_calls[0])
+
+
+def topology_contract(**changes):
+    contract = {
+        "schema": "pastorai.release-topology", "version": 1, "project": PROJECT, "legacy_project": "pastorai",
+        "network": {"name": NETWORK, "id": "e" * 64},
+        "containers": {service: f"{PROJECT}-{service}" for service in SERVICES.split()},
+        "reserved_legacy": {service: str(index) * 64 for index, service in enumerate(SERVICES.split(), 1)},
+    }
+    contract.update(changes)
+    return contract
+
+
+class TopologyReleaseTest(BackendReleaseTest):
+    """The whole suite again with an adopted topology, plus its own guards."""
+
+    stop_marker = "|stop "  # containment stops proven-owned IDs, never by service name
+    # The predecessor's identity is read before any effect here (see the dedicated test).
+    rollback_ps_failure = ()
+
+    def test_unreadable_predecessor_identity_refuses_before_restart(self):
+        result = self.run_release(ROLLBACK_PS_EXIT="1")
+        self.assertIn("deploy stopped before restart", result.stderr)
+        self.assert_no_effects(result)
+
+    def setUp(self) -> None:
+        BackendReleaseTest.setUp(self)  # explicit: reused by the layout contract test
+        self.contract = topology_contract()
+        self.contract_path = self.old / "release-topology.json"
+        self.contract_path.write_text(json.dumps(self.contract))
+        services = {name: {"container_name": self.contract["containers"][name], "networks": {"default": None},
+                           "image": "pastorai-backend:latest"} for name in SERVICES.split()}
+        self.topology_model = {"name": PROJECT, "networks": {"default": {"name": NETWORK, "external": True}},
+                               "services": services}
+        self.environment.update(TOPOLOGY_PROJECT=PROJECT, WORLD_CONTRACT=str(self.contract_path),
+                                TOPOLOGY_CONFIG_JSON=json.dumps(self.topology_model))
+
+    def run_release(self, *, revision: str = SHA_NEW, **changes: str) -> subprocess.CompletedProcess[str]:
+        # Each invocation starts from a running predecessor; the world never carries over.
+        for suffix in (".world.json", ".topology"):
+            Path(str(self.trace) + suffix).unlink(missing_ok=True)
+        result = BackendReleaseTest.run_release(self, revision=revision, **changes)
+        self.assertFalse([c for c in self.calls() if c.startswith("bad-compose|")], result.stderr)
+        return result
+
+    def topology_calls(self) -> list[str]:
+        path = Path(str(self.trace) + ".topology")
+        return path.read_text().splitlines() if path.exists() else []
+
+    def assert_no_effects(self, result) -> None:
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(" up " in c or "|stop " in c or "compose stop" in c or "compose build" in c
+                             or "compose start" in c
+                             for c in self.calls()), self.calls())
+        self.assertFalse((self.new / "configuration.fixture").exists())
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assertFalse((self.new / "release-topology.json").exists())
+        self.assertFalse((self.new / "docker-compose.override.yml").exists())
+
+    def test_digest_promotion_never_builds_and_persists_public_pin(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("compose build" in call for call in self.calls()))
+        override = (self.new / "docker-compose.override.yml").read_text()
+        self.assertIn(f'"image": "{image}"', override)
+        self.assertIn(f'"PASTORAI_RELEASE_SHA": "{SHA_NEW}"', override)
+        self.assertIn(f'"name": "{PROJECT}"', override)
+
+    def test_rollback_recreates_all_normal_services_after_checker_zero(self):
+        result = self.run_release(HEALTH_EXIT="17")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        calls = [c for c in self.calls() if not c.startswith("image-overlay|")]  # previous pin parsed per call
+        wait = calls.index(f"checker-wait|{self.old}")
+        normal = calls.index(f"created|{self.old}|normal|{SERVICES}")
+        start = next(i for i, c in enumerate(calls) if c.startswith(f"docker|{self.old}|compose start --wait "))
+        self.assertLess(wait, normal)
+        self.assertEqual(calls[normal + 1:start], [f"inspect|{self.old}|{service}" for service in SERVICES.split()])
+        self.assertFalse(any("rejected-app-start|" in c for c in calls))
+
+    def test_health_failure_restarts_previous_code(self) -> None:
+        result = self.run_release(HEALTH_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.calls()
+        self.assertTrue(any(f"docker|{self.new}|compose start --wait " in call for call in calls))
+        # Never rebuilt: the predecessor returns on its verified immutable image ID.
+        self.assertFalse(any(f"docker|{self.old}|compose build" in call for call in calls))
+        self.assertTrue(any(f"docker|{self.old}|compose start --wait " in call and SERVICES in call for call in calls))
+        self.assertTrue(any(c.startswith("image-overlay|") and c.endswith("sha256:" + "0" * 63 + "1") for c in calls))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assert_inspected_before_start(self.new)
+        self.assert_inspected_before_start(self.old)
+
+    def test_rollback_failure_reports_incomplete_recovery(self) -> None:
+        result = self.run_release(HEALTH_EXIT="1", ROLLBACK_HEALTH_EXIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback of code is unhealthy", result.stderr)
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_built_candidate_with_wrong_revision_label_never_starts(self) -> None:
+        result = self.run_release(CANDIDATE_IMAGE_SHA="c" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("built candidate image revision unverifiable", result.stderr)
+        self.assertFalse(any("compose start --wait" in c or " up " in c for c in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_stranger_member_appearing_during_rollback_is_never_touched(self) -> None:
+        result = self.run_release(HEALTH_EXIT="1", WORLD_STRANGER_ON_START="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stranger project member left untouched", result.stderr)
+        stops = [c for c in self.topology_calls() if c.startswith("stop|")]
+        self.assertTrue(stops and all("%064x" % 0xbb not in c for c in stops))
+        self.assertFalse(any(f"docker|{self.old}|compose start --wait" in c for c in self.calls()))
+        # Human recovery: candidate configuration kept WITH its usable topology and immutable pin.
+        self.assertTrue((self.new / "configuration.fixture").exists())
+        self.assertTrue(self.contract_path.exists())
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assert_candidate_recovery_files("sha256:" + "0" * 63 + "2")
+
+    def test_digest_stranger_during_rollback_keeps_digest_pin_for_recovery(self) -> None:
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image, HEALTH_EXIT="1", WORLD_STRANGER_ON_START="1")
+        self.assertIn("stranger project member left untouched", result.stderr)
+        self.assertTrue((self.new / "configuration.fixture").exists())
+        self.assert_candidate_recovery_files(image)
+
+    def test_refusal_after_image_validation_removes_candidate_topology_files(self) -> None:
+        result = self.run_release(WORLD_ALIAS_CONFLICT="backend", WORLD_ALIAS_CONFLICT_ON_BUILD="1")
+        self.assertIn("alias-conflict", result.stderr)
+        self.assertIn("deploy stopped before restart", result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any("compose build" in c for c in self.calls()))  # image validated, then refused
+        self.assertFalse(any(" up " in c or "|stop " in c or "compose start" in c for c in self.calls()))
+        for name in ("configuration.fixture", "release-topology.json", "docker-compose.override.yml"):
+            self.assertFalse((self.new / name).exists(), name)
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def assert_candidate_recovery_files(self, image: str) -> None:
+        self.assertEqual(json.loads((self.new / "release-topology.json").read_text()), self.contract)
+        override = self.new / "docker-compose.override.yml"
+        for path in (override, self.new / "release-topology.json"):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        docker = shutil.which("docker", path=os.environ["PATH"])
+        if docker is None:
+            self.skipTest("Docker Compose parser unavailable for the manual-maintenance proof")
+        # Manual maintenance exactly as an operator would run it in the candidate tree:
+        # no -p/-f, so Compose auto-loads the persisted override over the real base file.
+        with tempfile.TemporaryDirectory(prefix="topology-recovery-") as directory:
+            work = Path(directory)
+            (work / "docker-compose.yml").write_bytes((DEPLOY / "docker-compose.yml").read_bytes())
+            (work / "docker-compose.override.yml").write_bytes(override.read_bytes())
+            done = subprocess.run([docker, "compose", "config", "--format", "json", "--no-env-resolution"],
+                                  cwd=work, capture_output=True, text=True,
+                                  env={"PATH": os.environ["PATH"], "DOCKER_CONFIG": str(work / "docker-config"),
+                                       "PASTORAI_ENV_FILE": "configuration.fixture"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        model = json.loads(done.stdout)
+        TOPOLOGY["check_config"](self.contract, model)
+        self.assertEqual(model["name"], PROJECT)
+        for service in SERVICES.split():
+            self.assertEqual(model["services"][service]["image"], image)
+            self.assertEqual(model["services"][service]["environment"]["PASTORAI_RELEASE_SHA"], SHA_NEW)
+
+    def test_degraded_dependency_never_blocks_containment(self) -> None:
+        result = self.run_release(HEALTH_EXIT="1", WORLD_DEP_DOWN_ON_START="redis")
+        self.assertNotEqual(result.returncode, 0)
+        stops = [c for c in self.topology_calls() if c.startswith("stop|")]
+        self.assertTrue(stops)  # candidate stopped although Redis is down
+        self.assertIn("dependency-not-running", result.stderr)  # previous code is not started without it
+        self.assertFalse(any(f"docker|{self.old}|compose start --wait" in c for c in self.calls()))
+        self.assertFalse((self.new / "configuration.fixture").exists())
+
+    def test_every_compose_call_has_project_and_ordered_files(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        for mode, failure in (("", ""), (image, ""), ("", "1"), (image, "1")):
+            with self.subTest(image=bool(mode), rollback=bool(failure)):
+                for path in (self.trace, Path(str(self.trace) + ".topology"), Path(str(self.trace) + ".world.json")):
+                    path.unlink(missing_ok=True)
+                for leftover in ("release-topology.json", "docker-compose.override.yml", "configuration.fixture"):
+                    (self.new / leftover).unlink(missing_ok=True)
+                (self.root / "current").unlink()
+                (self.root / "current").symlink_to(self.old.parent)
+                result = self.run_release(RELEASE_IMAGE_REF=mode, HEALTH_EXIT=failure or "0")
+                self.assertEqual(result.returncode, 1 if failure else 0, result.stderr)
+                kinds = {line.split("|")[2] for line in self.topology_calls() if line.startswith("compose|")}
+                # The predecessor is always pinned to its verified ID; a built candidate only after build.
+                expected = {"base,topology", "base,topology,pin"}
+                if failure:
+                    expected |= {"base,topology,checker,pin"}
+                self.assertEqual(kinds, expected)
+                previous = [c for c in self.topology_calls() if c.startswith(f"compose|{self.old}|")
+                            and (" up " in c or " start " in c)]
+                self.assertEqual(bool(previous), bool(failure))
+                self.assertTrue(all(c.split("|")[2].endswith("pin") for c in previous))
+
+    def test_success_persists_contract_and_maintenance_override(self):
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        persisted = self.new / "release-topology.json"
+        self.assertEqual(json.loads(persisted.read_text()), self.contract)
+        override = (self.new / "docker-compose.override.yml").read_text()
+        self.assertIn(f'"name": "{PROJECT}"', override)
+        self.assertIn(f'"default": {{"name": "{NETWORK}", "external": true}}', override)
+        self.assertIn('"image": "sha256:' + "0" * 63 + '2"', override)  # built ID, not the mutable tag
+        self.assertIn(f'"PASTORAI_RELEASE_SHA": "{SHA_NEW}"', override)
+        for path in (persisted, self.new / "docker-compose.override.yml"):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        calls = self.calls()
+        retain_previous = next(i for i, c in enumerate(calls) if c.endswith(
+            "image tag sha256:" + "0" * 63 + f"1 pastorai-backend-release:{SHA_OLD}"))
+        build = next(i for i, c in enumerate(calls) if "compose build" in c)
+        self.assertLess(retain_previous, build)  # kept before any build can move the mutable tag
+        self.assertTrue(any(c.endswith("image tag sha256:" + "0" * 63 + f"2 pastorai-backend-release:{SHA_NEW}")
+                            for c in calls[build:]))
+        self.assertFalse(list(Path("/tmp").glob("backend-topology.*")))
+
+    def test_guards_precede_stop_and_are_repeated_before_start(self):
+        image = "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64
+        result = self.run_release(RELEASE_IMAGE_REF=image)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = self.topology_calls()
+        first_effect = next(i for i, c in enumerate(lines) if c.startswith("stop|") or " up " in c)
+        running = "backend=running,queue-worker=running,cron-worker=running,broadcast-worker=running"
+        self.assertTrue(any(c.endswith(running) for c in lines[:first_effect] if c.startswith("guard|")))
+        create = next(i for i, c in enumerate(lines) if c.startswith(f"compose|{self.new}|") and " up " in c)
+        start = next(i for i, c in enumerate(lines) if c.startswith(f"compose|{self.new}|") and "start --wait " in c)
+        self.assertTrue(any(c.startswith("guard|") and c.endswith("broadcast-worker=exited")
+                            for c in lines[first_effect:create]))
+        self.assertTrue(any(c.startswith("guard|") and "backend=created" in c for c in lines[create:start]))
+
+    def test_rollback_guards_checker_and_previous_start(self):
+        result = self.run_release(HEALTH_EXIT="1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        lines = self.topology_calls()
+        checker_up = next(i for i, c in enumerate(lines) if "checker" in c.split("|")[2] and " up " in c)
+        checker_start = next(i for i, c in enumerate(lines) if "checker" in c.split("|")[2]
+                             and c.endswith("compose start backend"))
+        self.assertTrue(any(c.startswith("guard|") and "backend=created" in c and "queue-worker=exited" in c
+                            for c in lines[checker_up:checker_start]))
+        old_start = max(i for i, c in enumerate(lines) if c.startswith(f"compose|{self.old}|") and "start --wait" in c)
+        self.assertTrue(lines[old_start - 1].startswith(f"guard|{self.old}|backend=created"))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+
+    def test_unsafe_docker_state_refuses_before_effects(self):
+        for changes in (
+            {"WORLD_LEGACY_RUNNING": "queue-worker"}, {"WORLD_LEGACY_POLICY": "cron-worker"},
+            {"WORLD_LEGACY_MISSING": "broadcast-worker"}, {"WORLD_LEGACY_IN_PROJECT": "backend"},
+            {"WORLD_ALIAS_CONFLICT": "backend"}, {"WORLD_ALIAS_CONFLICT": "broadcast-worker"},
+            {"WORLD_DEP_MISSING": "redis"}, {"WORLD_DEP_MISSING": "evolution-api"},
+            {"WORLD_DEP_UNHEALTHY": "redis"}, {"WORLD_DEP_DUPLICATE": "evolution-api"},
+            {"WORLD_NETWORK_ID": "f" * 64}, {"WORLD_WRONG_NAME": "cron-worker"},
+            {"WORLD_PREDECESSOR_STOPPED": "queue-worker"}, {"WORLD_FOREIGN_SERVICE": "1"},
+            {"PREVIOUS_IMAGE_SHA": "c" * 40},
+            {"DOCKER_HOST": "unix:///synthetic/other.sock"},
+        ):
+            for image in ("", "ghcr.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:" + "1" * 64):
+                with self.subTest(changes=changes, image=bool(image)):
+                    for path in (self.trace, Path(str(self.trace) + ".world.json")):
+                        path.unlink(missing_ok=True)
+                    self.assert_no_effects(self.run_release(RELEASE_IMAGE_REF=image, **changes))
+
+    def test_conflict_after_creation_never_starts_candidate_or_previous(self):
+        result = self.run_release(WORLD_ALIAS_CONFLICT="queue-worker", WORLD_ALIAS_CONFLICT_ON_CREATE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("alias-conflict", result.stderr)
+        self.assertFalse(any("compose start --wait" in c for c in self.calls()))
+        self.assertTrue(any(f"docker|{self.new}{self.stop_marker}" in c for c in self.calls()))
+        self.assertEqual((self.root / "current").resolve(), self.old.parent)
+        self.assertFalse((self.new / "configuration.fixture").exists())
+
+    def test_union_of_networks_on_created_candidate_never_starts(self):
+        result = self.run_release(WORLD_CREATED_EXTRA_NETWORK="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("created-network-union", result.stderr)
+        self.assertFalse(any("compose start --wait" in c for c in self.calls()))
+
+    def test_effective_model_outside_topology_refuses_before_effects(self):
+        for mutate in (
+            lambda m: m["services"]["backend"]["networks"].update(second=None),
+            lambda m: m["services"]["queue-worker"].update(container_name="pastorai_queue_worker"),
+            lambda m: m["services"].update(redis={"container_name": "pastorai_redis", "networks": {"default": None}}),
+            lambda m: m.update(name="pastorai"),
+            lambda m: m["networks"]["default"].update(external=False),
+            lambda m: m["services"]["cron-worker"].update(depends_on={"redis": {"condition": "service_healthy"}}),
+        ):
+            with self.subTest(mutate=mutate):
+                self.trace.unlink(missing_ok=True)
+                model = json.loads(json.dumps(self.topology_model))
+                mutate(model)
+                self.assert_no_effects(self.run_release(TOPOLOGY_CONFIG_JSON=json.dumps(model)))
+
+    def test_invalid_or_untrusted_contract_refuses_before_any_docker_call(self):
+        cases = (
+            lambda: self.contract_path.write_text("{"),
+            lambda: self.contract_path.write_text(json.dumps({**self.contract, "env": {"X": "1"}})),
+            lambda: self.contract_path.write_text(json.dumps(topology_contract(project="pastorai"))),
+            lambda: self.contract_path.write_text(json.dumps(topology_contract(version=2))),
+            lambda: self.contract_path.write_text(json.dumps(self.contract)[:-1] + ', "project": "x"}'),
+            lambda: (self.contract_path.unlink(), self.contract_path.symlink_to(self.root / "elsewhere.json"),
+                     (self.root / "elsewhere.json").write_text(json.dumps(self.contract))),
+            lambda: (self.contract_path.unlink(), (self.old / "compose-project.name").write_text(PROJECT + "\n")),
+            lambda: (self.old / "compose-project.name").write_text("pastorai-other\n"),
+        )
+        for index, damage in enumerate(cases):
+            with self.subTest(case=index):
+                self.setUp()
+                damage()
+                result = self.run_release()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("active release topology missing or invalid", result.stderr)
+                self.assertEqual(self.calls(), [])
+                self.assertFalse((self.new / "configuration.fixture").exists())
+
+    def test_marker_matching_contract_is_accepted(self):
+        (self.old / "compose-project.name").write_text(PROJECT + "\n")
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_candidate_with_topology_or_override_from_tarball_refuses(self):
+        for name in ("release-topology.json", "compose-project.name", "docker-compose.override.yml"):
+            with self.subTest(name=name):
+                self.setUp()
+                (self.new / name).write_text("{}")
+                result = self.run_release()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls(), [])
+                self.assertEqual((self.new / name).read_text(), "{}")
+
+
+class CompatibleReleaseTest(unittest.TestCase):
+    def test_marker_without_contract_refuses_and_neither_keeps_single_project_path(self):
+        harness = BackendReleaseTest("test_healthy_candidate_becomes_current")
+        harness.setUp()
+        try:
+            (harness.old / "compose-project.name").write_text(PROJECT + "\n")
+            result = harness.run_release()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("active release topology missing or invalid", result.stderr)
+            self.assertEqual(harness.calls(), [])
+            (harness.old / "compose-project.name").unlink()
+            result = harness.run_release()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((harness.new / "release-topology.json").exists())
+        finally:
+            harness.doCleanups()
+
+    def test_candidate_override_from_tarball_refuses_without_digest(self):
+        harness = BackendReleaseTest("test_healthy_candidate_becomes_current")
+        harness.setUp()
+        try:
+            (harness.new / "docker-compose.override.yml").write_text("services: {}\n")
+            result = harness.run_release()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("existing Compose override", result.stderr)
+            self.assertEqual(harness.calls(), [])
+        finally:
+            harness.doCleanups()
 
 
 class MigrationLedgerContractTest(unittest.TestCase):

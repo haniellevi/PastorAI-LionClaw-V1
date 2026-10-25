@@ -114,6 +114,18 @@ def run_candidate(t):
     t.phase('candidate-ready')
 
 
+def release_contract(t):
+    """Public topology the next ``backend-release.sh`` adopts: permanent project, the existing
+    app network (name + ID), candidate container names and the contained legacy IDs."""
+    spec = t.spec
+    network = t.ops.network_members(spec['network']['app'])[0]
+    return dict(schema='pastorai.release-topology', version=1, project=spec['candidate']['project'],
+                legacy_project=spec['legacy']['project'],
+                network=dict(name=network['Name'], id=spec['network']['app']),
+                containers={role: spec['candidate']['names'][role] for role in ROLES},
+                reserved_legacy={role: t.legacy()[role]['id'] for role in ROLES})
+
+
 def run_promote(t):
     ids = t.candidate_ids()
     if t.reached('promoted'):
@@ -125,8 +137,8 @@ def run_promote(t):
     # 1. Layout first: no process effect, idempotent, verified on every invocation.
     if not t.done('promote:layout'):
         t.j.append('intent', step='promote:layout')
-    files = write_layout(t.spec['release_root'], t.spec['candidate']['sha'], t.files(), t.spec['candidate']['project'],
-                         t.manifest())
+    files = write_layout(t.spec['release_root'], t.spec['candidate']['sha'], t.files(), release_contract(t),
+                         t.manifest(), t.spec['candidate']['image'])
     if not t.done('promote:layout'):
         t.j.append('done', step='promote:layout', files=files)
     # 2. Fresh identity + readiness of this invocation, before any persistent policy.

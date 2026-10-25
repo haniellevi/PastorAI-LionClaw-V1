@@ -8,8 +8,8 @@
 no revision label); this controller performs only that first turn and leaves a
 release layout behind. It runs on owned synthetic Docker resources only
 (``rehearse_initial_transition.py``): ``production_ready`` is false, there is
-no production adapter, and the next real package still has to make
-``backend-release.sh``/workflow adopt the candidate's Compose project.
+no production adapter. The layout carries the public topology contract that
+``backend-release.sh`` adopts for the next release (``release_topology.py``).
 
 Every invocation re-validates the local Docker endpoint, owned networks and
 support containers (before any SQL), legacy identity/policy/state, gates and
@@ -59,7 +59,7 @@ CANDIDATE_TREE = re.compile(r'backend/(?:app/(?:[A-Za-z_][A-Za-z0-9_]*/)*[A-Za-z
 # Exact allowlist of candidate blobs ever read (image tree + reviewed tools).
 TOOLS = ('backend/scripts/reconcile_team_pessoa.py', 'backend/scripts/release_preflight.py',
          *(f'deploy/{name}' for name in ('backend-release.sh', 'check_backend_schema.py', 'emit_schema_check.py',
-                                         'schema_compatibility.py', 'docker-compose.yml')))
+                                         'schema_compatibility.py', 'docker-compose.yml', 'release_topology.py')))
 CANDIDATE_PATHSPECS = ('backend/app', 'backend/migrations', 'backend/requirements.lock',
                        'backend/scripts/migrate.py', *TOOLS)
 CANDIDATE_BLOBS = re.compile(CANDIDATE_TREE.pattern + '|' + '|'.join(re.escape(p) for p in TOOLS))
