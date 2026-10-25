@@ -367,6 +367,9 @@ LOCKS_SQL = (
 
 
 class ActiveRehearsal(QueueRehearsal):
+    # Worker real sob ensaio; subclasses trocam papel, entrypoint e ambiente juntos.
+    role, entry, worker_env = WORKER, ENTRY, ACTIVE_ENV
+
     def __init__(self, *, legacy_image, redis_image, postgres_image, files, baseline, **kwargs):
         super().__init__(legacy_image=legacy_image, redis_image=redis_image, files=files, **kwargs)
         if not IMAGE_ID.fullmatch(str(postgres_image or '')):
@@ -451,7 +454,8 @@ class ActiveRehearsal(QueueRehearsal):
         return address
 
     # -- schema e seed ----------------------------------------------------
-    def migrate_and_seed(self):
+    def apply_baseline(self):
+        """``cmd_apply`` atual nas migrations selecionadas; exige ledger, papéis, ACL e bootstrap oficial."""
         digest, chunks = bundle_args(self.baseline)
         result = json.loads(self.probe('migrate', ['-I', '-B', '-c', MIGRATE_PROBE, DSN, digest, *chunks],
                                        'migrate-probe', MIGRATE_S))
@@ -468,6 +472,9 @@ class ActiveRehearsal(QueueRehearsal):
         self.checks.append(f'current-cmd_apply-{EXPECTED_SELECTED}-active-migrations-before-{CUTOFF}-ledger-roles-acl')
         if self.psql_json(EMPTY_SQL) != BOOTSTRAP_COUNTS:
             raise Refused('unexpected-bootstrap')
+
+    def migrate_and_seed(self):
+        self.apply_baseline()
         before = self.psql_json(STATE_SQL)
         self.psql(SEED_SQL)  # só INSERT; o bootstrap é preservado
         if self.psql_json(EMPTY_SQL) != SEEDED_COUNTS:
@@ -517,36 +524,37 @@ class ActiveRehearsal(QueueRehearsal):
         """Conjunto exato (Redis, Postgres, worker e probes esperados) e worker real com gates."""
         self.guard_local()
         owned = set(self.docker('ps', '-aq', '--no-trunc', '--filter', f'label={OWNER_LABEL}={self.run_id}').split())
-        if owned != {self.ids['redis'], self.ids['postgres'], self.ids[WORKER], *extra}:
+        if owned != {self.ids['redis'], self.ids['postgres'], self.ids[self.role], *extra}:
             raise Refused('unexpected-container')
         self._validate_one('redis', running=True)
         self._check_postgres()
-        data = self.inspect(self.ids[WORKER])
-        config, _ = self._check_common(data, WORKER, self.images['worker'])
-        if (data.get('Path') != 'python' or data.get('Args') != ENTRY or config.get('Entrypoint') != ['python']
-                or config.get('Cmd') != ENTRY or config.get('User') != USER
+        data = self.inspect(self.ids[self.role])
+        config, _ = self._check_common(data, self.role, self.images['worker'])
+        if (data.get('Path') != 'python' or data.get('Args') != self.entry or config.get('Entrypoint') != ['python']
+                or config.get('Cmd') != self.entry or config.get('User') != USER
                 or config.get('WorkingDir') != SOURCE_ROOT):
             raise Refused('entrypoint')
         env = dict(item.split('=', 1) for item in config.get('Env') or [] if '=' in item)
-        if set(env) != self.image_env | set(ACTIVE_ENV) or any(env[k] != v for k, v in ACTIVE_ENV.items()):
+        if (set(env) != self.image_env | set(self.worker_env)
+                or any(env[k] != v for k, v in self.worker_env.items())):
             raise Refused('gate-config-changed')
         if bool((data.get('State') or {}).get('Running')) != running:
             raise Refused('unexpected-state')
         network = json.loads(self.docker('network', 'inspect', self.network))[0]
         if not network.get('Internal') or (network.get('Labels') or {}).get(OWNER_LABEL) != self.run_id:
             raise Refused('network')
-        expected = {self.ids['redis'], self.ids['postgres'], *([self.ids[WORKER]] if running else []), *extra}
+        expected = {self.ids['redis'], self.ids['postgres'], *([self.ids[self.role]] if running else []), *extra}
         if set(network.get('Containers') or {}) != expected:
             raise Refused('unexpected-container')
 
     # -- worker -----------------------------------------------------------
     def start_worker(self):
-        self.ids[WORKER] = self._record('containers', self.docker(
-            *self._legacy_argv(WORKER, self.network, ACTIVE_ENV)[:-1],
-            '--name', f'{self.prefix}-{WORKER}', self.images['worker'], *ENTRY))
+        self.ids[self.role] = self._record('containers', self.docker(
+            *self._legacy_argv(self.role, self.network, self.worker_env)[:-1],
+            '--name', f'{self.prefix}-{self.role}', self.images['worker'], *self.entry))
 
     def running(self):
-        return bool((self.inspect(self.ids[WORKER]).get('State') or {}).get('Running'))
+        return bool((self.inspect(self.ids[self.role]).get('State') or {}).get('Running'))
 
     def assert_stopped(self, residual):
         if self.redis('GET', HEARTBEAT) != 'stopped':

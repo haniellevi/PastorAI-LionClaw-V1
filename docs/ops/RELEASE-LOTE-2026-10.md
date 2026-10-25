@@ -837,3 +837,54 @@ Não se reproduzem papéis de login/timeouts de produção; não se atesta a
 integridade de wheels, sitecustomize ou pth instalados. Os testes/ensaio novos
 são evidências locais e não foram adicionados aos workflows existentes.
 Os quatro checks obrigatórios do futuro SHA publicado são uma prova separada.
+
+## Tick ativo do cron-worker durante SIGTERM — validado localmente
+
+A etapa seguinte à #575 usa `deploy/rehearse_legacy_cron_active.py`, reaproveitando
+a guarda de Docker local, a conferência de fonte/runtime de `07a3f4d`, o ledger
+de posse e a mesma base sintética de 78 migrations (aplicador atual, sem
+`create_all` nem wrappers pausados, bootstrap oficial preservado). O PID 1 é
+`python -m app.workers.cron_worker` original, sem patch nem mock, com gates
+fechados, piloto vazio, provedores em loopback morto e `CRON_TICK_SECONDS=10`.
+
+A barreira usa a primeira etapa real do tick: a purga cross-tenant de
+`calendar_oauth_flows`. O seed cria, numa igreja fictícia própria, um fluxo
+expirado e um válido; antes do worker subir, uma conexão separada mantém
+`FOR UPDATE` só no expirado. O ensaio exige, por IP dos containers em
+`pg_stat_activity`/`pg_locks`, um único backend do worker executando o
+`DELETE` e esperando `transactionid` no xid do holder. Envia SIGTERM e, durante
+uma janela observada, exige processo vivo, heartbeat `running`, mesmo bloqueio
+e banco inalterado (fluxos e digest de todas as tabelas de `public`). Só então
+libera e exige: remoção única do expirado, válido idêntico, linha real
+`sla=0, crons=0, plan_changes=0, oauth_flows_purged=1`, pedido de shutdown
+registrado antes do fim do tick, saída 0 antes do intervalo do próximo tick,
+heartbeat `stopped`, Redis só com o heartbeat e nenhuma outra tabela alterada.
+Qualquer aviso/erro/traceback no log do worker é recusa. O orçamento de 20 s fica
+abaixo dos 30 s de progresso do legado. Ele é medido depois do último check do
+conjunto de containers e da reconfirmação do heartbeat `running`, imediatamente
+antes de liberar; a decisão usa o tempo sem arredondar (só o relatório arredonda).
+
+Limites: o `stop()` legado só faz `_running=False`; SLA, crons e billing do tick
+em curso continuam depois do sinal, então não há contenção antes da saída. O
+seed e o bootstrap não deixam trabalho para essas fases (pré-condição
+conferida), logo SIGTERM com trabalho real nelas não é provado. O psycopg2
+síncrono tende a adiar o handler até o `DELETE` voltar; isso só é observado. Não
+prova supervisor/política de reinício, papéis de login ou timeouts de produção,
+pós-DDL, outros serviços nem produção (`production_ready=false`).
+
+Reprodução local, com as mesmas imagens imutáveis do ensaio anterior:
+
+```bash
+python3.13 deploy/rehearse_legacy_cron_active.py run --repo . --report /tmp/legacy-cron-report.json
+```
+
+Primeira rodada em 25/10/2026 (Codex): 172 testes aprovados (42 novos e 130 de
+regressão) e ensaio físico aprovado com 13 verificações; bloqueio observado em
+5,918 s desde o start do worker, saída 0 em 0,626 s após a liberação, limpeza
+sem sobras. A revisão independente não apontou bloqueios nem regressões e pediu
+a guarda temporal acima, já aplicada, com testes de recusa sem liberação.
+Revalidação final após esse ajuste (Codex, 25/10/2026): 176 testes aprovados,
+zero skip (46 novos e 130 de regressão); ensaio físico aprovado com 13
+verificações, bloqueio em 6,445 s, saída 0 em 0,652 s após a liberação, limpeza
+sem sobras. São evidências locais; os testes/ensaio novos não foram adicionados
+aos workflows, e os quatro checks do SHA publicado são prova separada.
