@@ -61,8 +61,22 @@ e INSERT recusado por RLS (`42501`), com escrita permitida na própria igreja.
 O ensaio permanente passou em 130 testes (42 novos + 88 de regressão) e 20
 verificações físicas, limpeza sem erros/sobras, revisão Claude incorporada
 e verificação final pelo Codex. A barreira fica antes das escritas do domínio;
-não prova turno completo do agente nem produção. Integração depende dos
-checks do SHA publicado e da #574. Sem alterações em PROD.
+não prova turno completo do agente nem produção. Sem alterações em PROD.
+
+Ingestão ativa integrada pela #575 (`a3e83a51`), após a #574. Fatia seguinte
+na branch `test/legacy-cron-active-20261025`: o cron-worker real de `07a3f4d`
+recebe SIGTERM com a purga de fluxos OAuth fictícios bloqueada por row lock,
+e só depois da liberação se exige remoção única do expirado, válido preservado,
+tick concluído, heartbeat `stopped`, saída zero e nenhum novo tick. O `stop()`
+legado não interrompe o tick (SLA/crons/billing seguem após o sinal); contenção
+só após a saída. Primeira rodada em 25/10 (Codex): 172 testes e ensaio físico
+com 13 verificações aprovados, bloqueio 5,918 s, saída 0,626 s após liberação,
+limpeza completa; revisão independente sem bloqueios. Depois disso a guarda
+temporal ficou mais precisa (medida após o último check, heartbeat reconfirmado
+antes de liberar). Revalidação final local concluída: 176 testes (46 novos + 130
+de regressão, zero skip) e 13 verificações físicas aprovadas, bloqueio 6,445 s,
+saída 0,652 s, limpeza sem sobras. Integração depende dos checks do SHA
+publicado. Não prova supervisor/restart, pós-DDL, outros serviços nem produção.
 
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
