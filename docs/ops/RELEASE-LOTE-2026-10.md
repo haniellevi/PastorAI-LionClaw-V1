@@ -888,3 +888,128 @@ zero skip (46 novos e 130 de regressão); ensaio físico aprovado com 13
 verificações, bloqueio em 6,445 s, saída 0 em 0,652 s após a liberação, limpeza
 sem sobras. São evidências locais; os testes/ensaio novos não foram adicionados
 aos workflows, e os quatro checks do SHA publicado são prova separada.
+
+## Transição inicial integrada legado→atual — ensaio local sintético
+
+**Estado: preparação local.** Não é procedimento executável em PROD, não toca
+VPS, Supabase, workflow nem gates reais; `production_ready=false`.
+
+`deploy/backend-release.sh` recusa a instalação atual (sem árvore de release,
+checker anterior nem label de revisão). A primeira virada fica a cargo de
+`deploy/initial_transition.py` (com `initial_transition_ops.py`,
+`initial_transition_files.py` e `initial_transition_candidate.py`), que deixa
+um layout `releases/<SHA>` + `current`. O ensaio
+`deploy/rehearse_initial_transition.py` (cenários em
+`rehearse_initial_transition_scenarios.py`, provedor falso em
+`synthetic_evolution.py`) cria, por fixture e com UUID próprio, uma instalação
+sintética com a mesma FORMA observada (três serviços por Compose gerado e
+prefixado + `broadcast-worker` avulso, todos `restart: always`), não o mesmo
+arquivo nem a topologia exata de PROD.
+
+Controlador, em ordem: endpoint local e posse de redes/supports/DSN antes de
+qualquer SQL; identidade e fonte exata (148 blobs de `07a3f4d`; 385 do
+candidato) e runtime do lock; contenção por papel com `restart=no` persistido e
+conferido por inspect ANTES do SIGTERM (sem SIGKILL); efeitos esperados do
+drain conferidos item a item e só então snapshot estável (linhas de `public` +
+chaves persistentes do Redis db0); reconciliação real por
+`reconcile_team_pessoa.py` (prévia/confirmação; não é rollback e não é
+desfeita por retomada); backfills de julho com 0 candidatos e
+`release_preflight.py`; reconferência fresca (ledger baseline, pendências
+exatas, snapshot, ausência de vestígio de DDL, escopo) imediatamente antes do
+`ddl-marker` irrevogável; 46 migrations por `migrate.py`, um job próprio por
+aplicação; checker do candidato + catálogo comparado a uma reconstrução
+independente das 124; candidato em projeto Compose SEPARADO, `/ready` real
+`ready` com os três workers e `/health` pela rede de borda; promoção na ordem
+layout → readiness nova → `restart=always` → link `current`. Toda invocação
+revalida tudo, qualquer que seja a fase registrada; jobs adotados só se idênticos
+ao pretendido; probes de leitura sempre novos; falha pós-DDL antes da promoção
+contém o candidato (`no` + SIGTERM + saída observada) e exige decisão humana
+`retry-candidate`; o legado nunca é religado depois do marcador.
+`CONCURRENTLY` inválido, ou índice válido sem linha no ledger, é recusa
+persistente: o retry só é aceito com decisão humana e sem nenhum índice da
+tentativa anterior (nunca `IF NOT EXISTS` como prova).
+
+Retomada do legado (`resume-legacy`), só antes do marcador e com token ligado ao
+journal: em toda invocação, inclusive replay após crash, reconfere endpoint,
+posse, identidade/gates, ledger baseline e ausência de vestígio de DDL antes de
+cada partida; snapshot de domínio e filas críticas só são exigidos antes do
+primeiro consumidor voltar. A intenção de retomar é exclusiva e durável: depois
+dela `run` recusa (`legacy-resume-in-progress`) e só a retomada pode continuar.
+
+Filas críticas (nomes e tipos conferidos no código de `07a3f4d` e do candidato):
+`pastorai:webhooks` (lista), `pastorai:webhooks:processing:<worker>` (ausente
+após o drain), `pastorai:webhooks:dead` (lista) e
+`pastorai:webhooks:retry-scheduled` (zset, conferido com score). Quando
+esperadas, precisam existir SEM TTL (ou estar ausentes se esperadas vazias) e
+são comparadas item a item (SHA-1 por item; score no zset). As expectativas são
+reexecutadas no reconcile, imediatamente antes do `ddl-marker` (mesma invocação)
+e antes do primeiro start da retomada. O snapshot de estabilidade cobre só chaves
+persistentes do db0: chaves com TTL (heartbeats, `pastorai:processed:*`,
+`pastorai:webhooks:retry-state:*`, que tem TTL legítimo) ficam fora da igualdade
+e só são contadas; não se afirma igualdade de todo o Redis.
+
+Gates: o ensaio principal usa valores sintéticos no FORMATO observado
+(`ALLOW_REAL_SENDS=true`, `BREVO_SEND_MODE=live`, broadcast `false`, ASAAS
+ausente), com piloto vazio, segredos fictícios e todos os endpoints em
+containers próprios numa rede `--internal`; o controlador nunca altera gates e
+o candidato precisa carregar os mesmos valores. Isso não satisfaz as guardas do
+`backend-release.sh`, que exigem os quatro gates fechados (teste de contrato
+`deploy/tests/test_initial_transition_layout.py`). A fixture `broadcast` liga
+`ALLOW_REAL_SENDS`/`BROADCAST_ASYNC_ENABLED` só nela (`config_mirror=false`).
+
+Achado de Docker registrado: `docker kill --signal SIGTERM` marca o container
+como parado manualmente; `restart: always` não o reinicia na hora, mas o
+reiniciaria no boot do daemon. A política `no` persistida é o que cobre esse
+caso; o reinício real do daemon não foi exercitado. O controle negativo usa uma
+saída não manual (SIGTERM de dentro do container).
+
+**Próximo pacote REAL (não feito):** fazer `backend-release.sh` e o workflow
+adotarem persistentemente o projeto Compose, a rede e os nomes do candidato
+(hoje o workflow não passa projeto: o arquivo `deploy/compose-project.name`
+do layout só registra o valor), validar a topologia pública carregada pelo
+instalador em todos os `-f` (inclusive checker), preservar Redis/Evolution,
+alias único `backend`/callback interno, identidade da resposta da porta 8000 e
+predecessor verdadeiro. Além disso, continuam pendentes: adaptador e janela de
+PROD, backup, autorização nominal, decisão sobre gates abertos, escolha das
+contas da duplicidade e tratamento dos webhooks recusados durante a janela.
+
+Limites: daemon/host não reiniciados; retry real da Evolution e mensagens
+recusadas na janela não verificados; imagem candidata derivada local NÃO
+oficial (camadas de `8fbc14c5`; app/lock/migrations/runner do HEAD; README de
+migrations ausente não afeta o manifesto SQL) e legada sintética (`/opt/legacy`,
+uid 65534); papéis/pooler/timeouts do Supabase não reproduzidos; turno do
+agente não exercitado (piloto vazio); escritores só observados no escopo próprio
+(membros das redes, IPs, `pg_stat_activity`, `CLIENT LIST`); chaves Redis com
+TTL (heartbeats, marcadores de dedup) fora da igualdade, com filas críticas
+exigidas sem TTL; `compose up` manual no projeto legado recriaria com `always`.
+
+**Matriz de evidências (local, sintética, 25/10).** Fonte candidata
+`6b0b302bd1c1f84dfef7516babee2b7767d3219c` (não o HEAD futuro da branch); imagem
+derivada local `sha256:d9fea6b7…c45`; legada sintética `sha256:34083a4f…562`.
+Na rodada 3 (antes da correção da retomada), a suíte completa (`main`,
+`pre-ddl`, `post-ddl`, `broadcast` + catálogo de referência das 124) foi
+aprovada em 684,1 s, com 28/15/22/12 verificações, catálogo idêntico e
+limpeza total.
+Relatório: `/tmp/igreja12-initial-transition-round3-full.json`. Rodada 4:
+somente a retomada mudou (evidência de execução efetiva em vez de intenção;
+crash antes do update, depois do update e depois do start real); `pre-ddl`
+reensaiado sozinho e aprovado com 17 verificações e limpeza total
+(`/tmp/igreja12-initial-transition-round4-preddl.json`; status `partial-pass`
+por ser execução parcial, que nunca vale como suíte completa). Testes: 53
+unitários/contrato dos módulos novos; regressão ampla de `deploy/tests` com 385
+aprovados, 19 pulados e 1 teste PG17 não executado (exige
+`BACKEND_RELEASE_TEST_DATABASE_URL`, só no CI). Conferência independente do
+Codex: 229 testes (53 novos/contrato + 176 de regressão), zero skip. CI do SHA
+publicado: não verificado até rodar. Os demais cenários não foram repetidos após a rodada 4 porque não
+passam pelo código alterado, salvo a recusa pós-DDL, que ocorre antes dele.
+
+**Limite conhecido, a tratar antes de qualquer adaptador real:** medição do
+Codex em container próprio e isolado (já removido): `RestartCount` 1 antes do
+stop, 1 parado e 0 depois de `docker start` manual. A retomada do legado exige o
+mesmo contador observado antes da contenção, portanto recusa de forma
+conservadora (`legacy-resume-ambiguous`) um legado observado com contador maior
+que 0. No ensaio todos os legados começam com 0, e o caso não foi exercitado.
+Classificado como não bloqueante para este ensaio sintético; nesta entrega o
+código não muda. Antes do adaptador real é preciso uma regra própria (por
+exemplo `StartedAt`/eventos do daemon) para distinguir o start emitido pelo
+controlador de um reinício alheio.

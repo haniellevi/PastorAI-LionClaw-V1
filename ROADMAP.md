@@ -78,6 +78,22 @@ de regressão, zero skip) e 13 verificações físicas aprovadas, bloqueio 6,445
 saída 0,652 s, limpeza sem sobras. Integração depende dos checks do SHA
 publicado. Não prova supervisor/restart, pós-DDL, outros serviços nem produção.
 
+Transição inicial integrada legado→atual: entrega local validada (25/10, branch
+`test/initial-legacy-transition-20261025`); integração pendente dos quatro checks
+e do merge. `deploy/initial_transition.py` conduz a primeira virada que
+`backend-release.sh` recusa: contenção durável dos quatro processos de `07a3f4d`
+(3 Compose + broadcast avulso, `restart=no` persistido antes do SIGTERM), drain
+conferido item a item com filas críticas preservadas (principal, DLQ, retry
+agendado), reconciliação real, 46 migrations por `migrate.py` após marcador
+irrevogável e candidato da fonte `6b0b302bd1c1` (imagem derivada local não
+oficial) em projeto Compose separado, com readiness real e layout
+`releases/<SHA>`. Ensaio sintético completo aprovado na rodada 3 (684,1 s,
+quatro cenários + catálogo de referência); a correção final da retomada foi
+reensaiada só no pré-DDL (54,9 s). Forma de PROD = instalação observada em
+24/10, não reverificada. Próxima fatia: adoção persistente da topologia do
+candidato pelo instalador/workflow e tratamento de legado com `RestartCount>0`.
+Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.
+
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;
