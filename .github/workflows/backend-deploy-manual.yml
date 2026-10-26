@@ -55,8 +55,13 @@ jobs:
           # A configured historical SHA cannot accidentally reopen the old path.
           for sha in "$SAFE_BASE_SHA" "$RELEASE_SHA"; do
             git show "$sha:deploy/backend-release.sh" |
-              grep -qx 'BACKEND_RELEASE_SAFETY_VERSION=2'
+              grep -qx 'BACKEND_RELEASE_SAFETY_VERSION=3'
           done
+          # The release topology and Compose overrides come only from the active
+          # release on the host, never from the Git tarball.
+          untrusted=$(git ls-tree --name-only "$RELEASE_SHA" -- deploy/release-topology.json \
+            deploy/compose-project.name deploy/docker-compose.override.yml deploy/docker-compose.override.yaml)
+          [[ -z "$untrusted" ]]
           git archive --format=tar "$RELEASE_SHA" backend deploy .env.example |
             gzip -9 > "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
 
