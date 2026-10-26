@@ -1060,6 +1060,11 @@ class TopologyReleaseTest(BackendReleaseTest):
             work = Path(directory)
             (work / "docker-compose.yml").write_bytes((DEPLOY / "docker-compose.yml").read_bytes())
             (work / "docker-compose.override.yml").write_bytes(override.read_bytes())
+            # Some Compose releases require the env_file to exist even with --no-env-resolution;
+            # strictly synthetic closed gates, never a copy of any real configuration.
+            (work / "configuration.fixture").write_text(
+                "ALLOW_REAL_SENDS=false\nASAAS_BILLING_ENABLED=false\nBREVO_SEND_MODE=off\n"
+                "BROADCAST_ASYNC_ENABLED=false\nSYNTHETIC_ONLY=1\n")
             done = subprocess.run([docker, "compose", "config", "--format", "json", "--no-env-resolution"],
                                   cwd=work, capture_output=True, text=True,
                                   env={"PATH": os.environ["PATH"], "DOCKER_CONFIG": str(work / "docker-config"),
