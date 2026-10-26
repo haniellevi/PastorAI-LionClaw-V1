@@ -107,8 +107,8 @@ worker, agente, RLS, supervisor, topologia viva, pós-DDL nem produção.
 Checks do SHA `b58b64c0` verdes antes do merge.
 
 Transição inicial integrada legado→atual: entrega local validada (25/10, branch
-`test/initial-legacy-transition-20261025`); integração pendente dos quatro checks
-e do merge. `deploy/initial_transition.py` conduz a primeira virada que
+`test/initial-legacy-transition-20261025`); integrada pela #579 (`84fb7f11`),
+checks do SHA `f9d71d74` verdes antes do merge. `deploy/initial_transition.py` conduz a primeira virada que
 `backend-release.sh` recusa: contenção durável dos quatro processos de `07a3f4d`
 (3 Compose + broadcast avulso, `restart=no` persistido antes do SIGTERM), drain
 conferido item a item com filas críticas preservadas (principal, DLQ, retry
@@ -122,16 +122,17 @@ uma queda é recuperada no replay só como delta exato autorizado (cenários
 `main`/`pre-ddl` reensaiados em PostgreSQL sintético; CI do novo SHA pendente).
 Forma de PROD = instalação observada em
 24/10, não reverificada. Adoção persistente da topologia do candidato pelo
-instalador: publicada na PR #580 (empilhada na #579, não integrada). Retomada
+instalador: integrada pela #580 (`74919ee0`). Retomada
 pré-DDL de legado com `RestartCount>0`: corrigida em
 `fix/legacy-resume-restarts-20261025` (só aceita o start do próprio
-controlador; replay terminal revalida), PR empilhada na #579, integração pendente.
+controlador; replay terminal revalida), PR #581 redirecionada à `main`,
+integração pendente dos checks do novo SHA.
 Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.
 
-Adoção persistente da topologia: publicada em PR empilhada sobre a #579
-(`9047c591`, quatro checks aprovados; merge pendente de autorização), branch
-`feat/persistent-release-topology-20261025`; depois do merge da #579 a PR é
-redirecionada à `main` e o CI é revalidado. CI do novo SHA: não verificado até rodar.
+Adoção persistente da topologia: integrada pela #580 (`74919ee0`), branch
+`feat/persistent-release-topology-20261025`, redirecionada à `main` após a #579;
+checks do SHA `3406616b` verdes antes do merge (`backend-tests` na segunda
+tentativa, após timeout do `pg_isready` num teste de monitor alheio à fatia).
 `backend-release.sh` (segurança v3; o workflow passa a exigir v3) adota
 `deploy/release-topology.json` só do release ativo (projeto permanente, rede
 externa existente, nomes e IDs legados reservados), com `-p` e ordem
