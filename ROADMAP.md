@@ -90,8 +90,9 @@ Checks do SHA `f8ded9c6` verdes antes do merge. Ausência de rede é inferida
 (destinos mortos, gates `false`, caminho ocioso do código), não capturada. Não
 prova broadcast ativo, transporte/pendências, supervisor, pós-DDL, RLS nem produção.
 
-Fatia seguinte na branch `test/legacy-backend-stop-20261025` (#578), desenvolvida
-sobre `6b0b302b` sem depender da #577 e atualizada com a `main` após ela: o backend ASGI
+Backend em curso integrado pela #578 (`64d7509d`), branch
+`test/legacy-backend-stop-20261025`, desenvolvida sobre `6b0b302b` sem depender
+da #577 e atualizada com a `main` após ela: o backend ASGI
 real de `07a3f4d` (`uvicorn app.main:app` como PID 1, sem init) recebe SIGTERM
 com um `POST /whatsapp/webhook` autenticado em curso, com o corpo parcial retido
 pelo cliente. Antes da liberação se exigem: ACK no cliente, conexão retida pelo
@@ -103,7 +104,26 @@ a liberação, limpeza sem sobras; revisão independente incorporada. Sustenta u
 ciclo HTTP aberto, não a linha exata do handler; um request gera um envelope,
 sem prova de idempotência. `/health` 200 não é readiness. Não prova consumo pelo
 worker, agente, RLS, supervisor, topologia viva, pós-DDL nem produção.
-Integração depende dos checks do SHA publicado.
+Checks do SHA `b58b64c0` verdes antes do merge.
+
+Transição inicial integrada legado→atual: entrega local validada (25/10, branch
+`test/initial-legacy-transition-20261025`); integração pendente dos quatro checks
+e do merge. `deploy/initial_transition.py` conduz a primeira virada que
+`backend-release.sh` recusa: contenção durável dos quatro processos de `07a3f4d`
+(3 Compose + broadcast avulso, `restart=no` persistido antes do SIGTERM), drain
+conferido item a item com filas críticas preservadas (principal, DLQ, retry
+agendado), reconciliação real, 46 migrations por `migrate.py` após marcador
+irrevogável e candidato da fonte `6b0b302bd1c1` (imagem derivada local não
+oficial) em projeto Compose separado, com readiness real e layout
+`releases/<SHA>`. Ensaio sintético completo aprovado na rodada 3 (684,1 s,
+quatro cenários + catálogo de referência); a correção final da retomada foi
+reensaiada só no pré-DDL (54,9 s). Revisão da PR: a reconciliação commitada antes de
+uma queda é recuperada no replay só como delta exato autorizado (cenários
+`main`/`pre-ddl` reensaiados em PostgreSQL sintético; CI do novo SHA pendente).
+Forma de PROD = instalação observada em
+24/10, não reverificada. Próxima fatia: adoção persistente da topologia do
+candidato pelo instalador/workflow e tratamento de legado com `RestartCount>0`.
+Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.
 
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
