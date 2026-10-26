@@ -118,8 +118,11 @@ principal (BYPASS) continua capaz de tudo isso: limite declarado. O runtime
 comprometido ainda pode gravar resumo/fontes da igreja fixada, como o principal
 já pode. O preflight acrescenta só as três funções cujo corpo lê tabela com
 FORCE RLS (descoberta, fontes e reserva); snapshot, solicitante e credencial
-leem diretamente só tabelas sem FORCE, que o dono das tabelas lê sem BYPASS. A
-dependência transitiva do dono de `origin_valid` não é contrato do preflight.
+leem diretamente só tabelas sem FORCE, que o dono das tabelas lê sem BYPASS
+(com outro dono, falham fechadas), e entram como exclusões explícitas no teste
+de completude do catálogo. A dependência transitiva do dono de `origin_valid`,
+que herda `row_security=off` do chamador e lê tabelas com FORCE, não é contrato
+do preflight: o preflight olha só o `proconfig` da própria função.
 Antes de ativar: provisionar o LOGIN por decisão nominal e entregar a URL só ao
 cron; hoje API, queue, cron e broadcast compartilham o mesmo `env_file`, então
 essa separação **não** está entregue. Aplicação remota, dono real e URL por

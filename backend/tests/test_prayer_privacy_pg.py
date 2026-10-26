@@ -58,6 +58,7 @@ def install_privacy(prayer):
             '20261020_100000_prayer_audio_privacy.sql',
             # Tasks/uploads belong to the dedicated private_storage_runtime login.
             '20261030_100000_private_storage_worker_identity.sql',
+            '20261030_110000_private_upload_attempt_witness.sql',
         ):
             # The SQL contains PostgreSQL format('%I', ...), not DBAPI binds.
             conn.exec_driver_sql(schema_sql(MIGRATION.with_name(migration)),

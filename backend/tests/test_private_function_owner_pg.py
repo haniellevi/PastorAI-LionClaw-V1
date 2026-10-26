@@ -461,11 +461,71 @@ def _contracts():
     return tuple(signature for signature, _ in release_preflight.PRIVATE_DEFINER_CONTRACTS)
 
 
+# Definers with row_security=off deliberately outside the contract, with reason.
+EXCLUDED_DEFINERS = (
+    # Operations metrics over the notification outbox, not private data (see the constant).
+    'public.operations_notification_outbox_pending_metrics(pg_catalog.uuid,pg_catalog.timestamptz)',
+    # Summary helpers whose own body reads only tables without FORCE RLS: an owner that
+    # also owns those tables reads them without BYPASSRLS (otherwise they fail closed).
+    # test_private_summary_runtime_pg proves the split on real PG. Nested definers such
+    # as private_summary_origin_valid inherit row_security=off and are not examined here.
+    'public.private_summary_runtime_snapshot(pg_catalog.uuid,pg_catalog.uuid)',
+    'public.private_summary_runtime_requester(pg_catalog.uuid,pg_catalog.uuid)',
+    'public.private_summary_runtime_credential(pg_catalog.uuid)',
+    # Queue resolver: its body reads only whatsapp_connections (RLS on, FORCE off), so it
+    # needs an owner that owns that table or has BYPASSRLS; the queue_worker_runtime login
+    # stays NOBYPASSRLS. test_queue_worker_runtime_pg proves the owner condition.
+    'public.queue_resolve_instance(pg_catalog.text)',
+)
+# The two #584 definers over FORCE RLS tables, declared here, not derived from the constant.
+UPLOAD_ATTEMPT = 'private_storage_begin_upload_attempt(uuid,uuid,uuid,bigint)'
+WITNESS_DUE = 'private_storage_upload_witness_due(timestamp with time zone,integer)'
+
+
+def test_every_row_security_off_definer_is_a_contract_or_an_explicit_exclusion(database):
+    """A new private definer must be declared in the contract or excluded on purpose."""
+    from scripts import release_preflight
+    declared = [regprocedure for _, regprocedure in release_preflight.PRIVATE_DEFINER_CONTRACTS]
+    with database.connect() as c:
+        resolved = c.execute(text('select r, to_regprocedure(r)::oid from unnest(cast(:r as text[])) r'),
+                             dict(r=declared + list(EXCLUDED_DEFINERS))).all()
+        catalog = set(c.execute(text("""
+            select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.prosecdef
+              and 'row_security=off' = any(coalesce(p.proconfig, '{}'))""")).scalars())
+        expected = {oid for _, oid in resolved if oid is not None}
+
+        def names(oids):
+            if not oids:
+                return []
+            return sorted(c.execute(text('select cast(o as regprocedure)::text from unnest(cast(:o as oid[])) o'),
+                                    dict(o=sorted(oids))).scalars())
+        undeclared, stale = names(catalog - expected), names(expected - catalog)
+    assert [name for name, oid in resolved if oid is None] == []
+    assert (undeclared, stale) == ([], [])
+
+
+@pytest.mark.parametrize('function', (UPLOAD_ATTEMPT, WITNESS_DUE))
+def test_preflight_flags_each_584_definer_whose_owner_cannot_bypass(database, monkeypatch, capsys, function):
+    """Only this function changes owner; its body is never executed."""
+    with synthetic_definer(database, (function,), dict(tables={}, helpers=())) as definer:
+        observed = {}
+        for phase, bypass in (('nobypassrls', False), ('bypassrls', True)):
+            definer.set_bypass(bypass)
+            observed[phase] = _preflight(database, monkeypatch, capsys)
+    report, code, output = observed['nobypassrls']
+    assert [(f.function, f.owner) for f in report.definer_findings] == [(f'public.{function}', definer.role)]
+    assert report.has_findings and code == 1 and 'RESULTADO=ACHADOS' in output
+    assert f'private_definer_dono_sem_bypass funcao=public.{function} dono={definer.role}' in output
+    report, code, output = observed['bypassrls']
+    assert report.definer_findings == () and not report.has_findings and code == 0
+
+
 def test_preflight_examines_all_private_contracts_on_the_migrated_chain(database, monkeypatch, capsys):
     report, code, output = _preflight(database, monkeypatch, capsys)
     assert (report.definer_examined, report.definer_unverified, report.definer_findings) == (_contracts(), (), ())
     assert not report.has_findings and code == 0
-    assert 'private_definer_contracts: examinados=8 nao_verificados=0 dono_sem_bypass=0' in output
+    assert f'private_definer_contracts: examinados={len(_contracts())} nao_verificados=0 dono_sem_bypass=0' in output
     assert 'RESULTADO=SEM_ACHADOS' in output
 
 
@@ -498,7 +558,8 @@ def test_preflight_flags_only_contracts_whose_owner_cannot_bypass(database, monk
     assert report.definer_examined == _contracts() and report.definer_unverified == ()
     assert [(f.function, f.owner) for f in report.definer_findings] == [(s, definer.role) for s in _contracts()]
     assert report.has_findings and code == 1 and 'RESULTADO=ACHADOS' in output
-    assert 'private_definer_contracts: examinados=8 nao_verificados=0 dono_sem_bypass=8' in output
+    count = len(_contracts())
+    assert f'private_definer_contracts: examinados={count} nao_verificados=0 dono_sem_bypass={count}' in output
     assert f'private_definer_dono_sem_bypass funcao=public.private_send_release(uuid,uuid) dono={definer.role}' in output
     for absent in ('operations_notification_outbox', decoy, '(text)', 'postgresql',
                    'private_summary_runtime_snapshot', 'private_summary_runtime_requester',
@@ -506,4 +567,4 @@ def test_preflight_flags_only_contracts_whose_owner_cannot_bypass(database, monk
         assert absent not in output
     report, code, output = observed['bypassrls']
     assert report.definer_findings == () and not report.has_findings and code == 0
-    assert 'private_definer_contracts: examinados=8 nao_verificados=0 dono_sem_bypass=0' in output
+    assert f'private_definer_contracts: examinados={count} nao_verificados=0 dono_sem_bypass=0' in output

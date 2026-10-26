@@ -67,7 +67,13 @@ membro capaz de usá-lo, no máximo a membership segura já criada a partir de o
 (membership é global no cluster) e sem objetos ou privilégios no banco atual.
 
 `whatsapp_connections` não tem FORCE RLS: o dono da tabela lê sem BYPASSRLS, e
-`queue_resolve_instance` não entra nos contratos de dono do preflight.
+`queue_resolve_instance` não entra nos contratos de dono do preflight. No teste
+de completude do catálogo ele é uma exclusão explícita, com a condição de que o
+dono da função seja dono de `whatsapp_connections` ou tenha BYPASSRLS. Com outro
+dono sem BYPASSRLS, mesmo com SELECT e EXECUTE explícitos, a chamada falha fechada
+(42501 de RLS), como prova `test_queue_worker_runtime_pg`. O login
+`queue_worker_runtime` continua sem BYPASSRLS. O dono real em PROD não foi
+verificado.
 
 ## Jev
 

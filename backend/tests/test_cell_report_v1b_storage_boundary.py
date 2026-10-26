@@ -1,4 +1,5 @@
 """Private audio upload contract through a fake HTTP transport, no provider."""
+import base64
 import uuid
 from types import SimpleNamespace
 import httpx
@@ -7,6 +8,7 @@ from app.services import storage
 
 TENANT = uuid.UUID("6b6b6b6b-0000-4000-8000-000000000001")
 DIGEST = "a" * 64
+ATTEMPT = uuid.UUID("6b6b6b6b-0000-4000-8000-0000000000a1")
 
 
 def _client(monkeypatch, handler):
@@ -34,13 +36,16 @@ def test_v1b_upload_is_private_deterministic_and_does_not_read_response(monkeypa
         return httpx.Response(200, stream=_UnreadBody())
     service, clients = _client(monkeypatch, handler)
     first = service.upload_cell_report_audio(igreja_id=TENANT, provider_message_sha256=DIGEST,
-        mime_type="audio/ogg; codecs=opus", raw=b"synthetic audio", deadline_seconds=10)
+        mime_type="audio/ogg; codecs=opus", raw=b"synthetic audio", deadline_seconds=10, attempt_token=ATTEMPT)
     second = service.upload_cell_report_audio(igreja_id=TENANT, provider_message_sha256=DIGEST,
-        mime_type="audio/ogg; codecs=opus", raw=b"synthetic audio", deadline_seconds=10)
+        mime_type="audio/ogg; codecs=opus", raw=b"synthetic audio", deadline_seconds=10, attempt_token=ATTEMPT)
     assert first.path == second.path == f"{TENANT}/cell-report-audio/{DIGEST}.ogg"
     assert all(r.url.path == "/storage/v1/object/whatsapp-media/" + first.path for r in requests)
     assert all(r.headers["x-upsert"] == "true" for r in requests)
     assert all(r.headers["Content-Type"] == "audio/ogg" for r in requests)
+    # Strict compact JSON in base64: the only metadata is this attempt's UUID.
+    assert all(r.headers["x-metadata"] == base64.b64encode(
+        b'{"igreja12_attempt":"6b6b6b6b-0000-4000-8000-0000000000a1"}').decode() for r in requests)
     assert all(c.get("follow_redirects") is False and c.get("trust_env") is False for c in clients)
     assert first.tamanho == 15 and first.nome is None
 
@@ -51,11 +56,12 @@ def test_v1b_upload_is_private_deterministic_and_does_not_read_response(monkeypa
     {"mime_type": "text/html"}, {"raw": b""}, {"raw": b"x"*(5*1024*1024+1)},
     {"deadline_seconds": 0}, {"deadline_seconds": True},
     {"deadline_seconds": float("nan")}, {"deadline_seconds": float("inf")},
+    {"attempt_token": None}, {"attempt_token": str(ATTEMPT)}, {"attempt_token": ATTEMPT.int},
 ))
 def test_v1b_upload_rejects_invalid_input_before_transport(monkeypatch, override):
     service, clients = _client(monkeypatch, lambda _: pytest.fail("No HTTP for invalid input"))
     args = dict(igreja_id=TENANT, provider_message_sha256=DIGEST,
-        mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10)
+        mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10, attempt_token=ATTEMPT)
     args.update(override)
     with pytest.raises(storage.StorageError):
         service.upload_cell_report_audio(**args)
@@ -68,7 +74,7 @@ def test_v1b_upload_failure_is_not_reported_as_success(monkeypatch, status):
         headers={"Location": "https://other.example.test"}))
     with pytest.raises(storage.StorageError):
         service.upload_cell_report_audio(igreja_id=TENANT, provider_message_sha256=DIGEST,
-            mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10)
+            mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10, attempt_token=ATTEMPT)
 
 
 def test_v1b_upload_late_2xx_is_confirmed_failure(monkeypatch):
@@ -80,7 +86,7 @@ def test_v1b_upload_late_2xx_is_confirmed_failure(monkeypatch):
     service, _ = _client(monkeypatch, handler)
     with pytest.raises(storage.StorageLateSuccess) as late:
         service.upload_cell_report_audio(igreja_id=TENANT, provider_message_sha256=DIGEST,
-            mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10)
+            mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10, attempt_token=ATTEMPT)
     # Still a failure for every StorageError caller; only the object is known.
     assert isinstance(late.value, storage.StorageError)
     assert late.value.stored.path == f"{TENANT}/cell-report-audio/{DIGEST}.wav"
@@ -114,7 +120,7 @@ def test_v1b_upload_unknown_outcome_is_never_confirmed(monkeypatch, outcome, lat
     service, _ = _client(monkeypatch, handler)
     with pytest.raises(Exception) as error:
         service.upload_cell_report_audio(igreja_id=TENANT, provider_message_sha256=DIGEST,
-            mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10)
+            mime_type="audio/wav", raw=b"synthetic audio", deadline_seconds=10, attempt_token=ATTEMPT)
     assert not isinstance(error.value, storage.StorageLateSuccess)
     if outcome != "foreign_close":
         assert type(error.value) is storage.StorageError
@@ -141,8 +147,8 @@ class _Ownership(list):
     def __init__(self, fail):
         super().__init__()
         self.fail = fail
-    def finish_upload(self, claim):
-        self.append(claim)
+    def finish_upload(self, claim, attempt_token):
+        self.append((claim, attempt_token))
         if self.fail:
             raise RuntimeError("synthetic database unavailable")
 
@@ -157,8 +163,8 @@ def test_v1b_confirmed_late_upload_resolves_ownership_and_keeps_error(monkeypatc
     def upload():
         raise late
     with pytest.raises(storage.StorageLateSuccess) as error:
-        _upload_owned_audio(calls, claim, upload)
-    assert error.value is late and calls == [claim]
+        _upload_owned_audio(calls, claim, upload, ATTEMPT)
+    assert error.value is late and calls == [(claim, ATTEMPT)]
 
 
 def test_v1b_confirmed_late_upload_keeps_error_when_resolution_fails(monkeypatch):
@@ -167,8 +173,8 @@ def test_v1b_confirmed_late_upload_keeps_error_when_resolution_fails(monkeypatch
     def upload():
         raise late
     with pytest.raises(storage.StorageLateSuccess) as error:
-        _upload_owned_audio(calls, claim, upload)
-    assert error.value is late and calls == [claim]
+        _upload_owned_audio(calls, claim, upload, ATTEMPT)
+    assert error.value is late and calls == [(claim, ATTEMPT)]
 
 
 @pytest.mark.parametrize("storage_path", (OWNED, ""))
@@ -176,8 +182,8 @@ def test_v1b_owned_upload_resolves_only_its_exact_path(monkeypatch, storage_path
     # Empty storage_path uses finish's same deterministic canonical fallback.
     from app.services.cell_report_audio_service import _upload_owned_audio
     calls, claim, stored = _finish_calls(monkeypatch), _claim(storage_path), _stored()
-    assert _upload_owned_audio(calls, claim, lambda: stored) is stored
-    assert calls == [claim]
+    assert _upload_owned_audio(calls, claim, lambda: stored, ATTEMPT) is stored
+    assert calls == [(claim, ATTEMPT)]
 
 
 OTHER = uuid.UUID("6b6b6b6b-0000-4000-8000-000000000002")
@@ -197,7 +203,7 @@ def test_v1b_divergent_upload_path_keeps_ownership_and_stops(monkeypatch, late, 
             raise storage.StorageLateSuccess(returned)
         return returned
     with pytest.raises(storage.StorageError) as error:
-        _upload_owned_audio(calls, _claim(), upload)
+        _upload_owned_audio(calls, _claim(), upload, ATTEMPT)
     # Never a confirmed result for another object; the late error stays chained.
     assert not isinstance(error.value, storage.StorageLateSuccess)
     assert isinstance(error.value.__context__, storage.StorageLateSuccess) is late
@@ -208,7 +214,7 @@ def test_v1b_claim_path_outside_its_church_never_resolves(monkeypatch):
     from app.services.cell_report_audio_service import _upload_owned_audio
     calls, foreign = _finish_calls(monkeypatch), OWNED.replace(str(TENANT), str(OTHER))
     with pytest.raises(storage.StoragePathError):
-        _upload_owned_audio(calls, _claim(foreign), lambda: _stored(foreign))
+        _upload_owned_audio(calls, _claim(foreign), lambda: _stored(foreign), ATTEMPT)
     assert calls == []
 
 
@@ -220,5 +226,5 @@ def test_v1b_unknown_upload_outcome_keeps_ownership(monkeypatch, error):
     def upload():
         raise error
     with pytest.raises(type(error)):
-        _upload_owned_audio(calls, _claim(), upload)
+        _upload_owned_audio(calls, _claim(), upload, ATTEMPT)
     assert calls == []

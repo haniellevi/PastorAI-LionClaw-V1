@@ -1256,3 +1256,79 @@ def test_legacy_mode_keeps_the_main_session_and_orm_lookup(s3_turn, monkeypatch)
     statements = [e[3] for e in rec.of('sql')]
     assert ROLE not in rec.users() and any('FROM whatsapp_connections' in s for s in statements)
     assert not any('queue_resolve_instance' in s or s.startswith(PROBE_PREFIX) for s in statements)
+
+
+RESOLVER = 'public.queue_resolve_instance(text)'
+EFFECTIVE_ACL = '''select (select array_agg(row(a.grantee::regrole::text, a.privilege_type, a.is_grantable)::text order by 1)
+      from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = cast(:f as regprocedure)),
+    (select array_agg(row(a.grantee::regrole::text, a.privilege_type, a.is_grantable)::text order by 1)
+      from pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     where c.oid = 'public.whatsapp_connections'::regclass)'''
+OWNERS = '''select (select proowner::regrole::text from pg_proc where oid = cast(:f as regprocedure)),
+    relowner::regrole::text, relrowsecurity, relforcerowsecurity
+    from pg_class where oid = 'public.whatsapp_connections'::regclass'''
+
+
+def test_resolver_exclusion_holds_only_while_its_owner_owns_whatsapp_connections(s3_turn, queue_login):
+    """Why queue_resolve_instance is a preflight exclusion, not a contract.
+
+    Its body reads only whatsapp_connections (RLS on, FORCE off). A NOLOGIN NOBYPASSRLS
+    owner that also owns the table resolves unchanged; owning only the function, with
+    the same explicit SELECT and helper EXECUTE, it fails closed on RLS (not ACL); the
+    owner's BYPASSRLS alone restores it. The application login stays unprivileged.
+    """
+    admin = queue_login.admin
+    role = f'qrr_owner_{secrets.token_hex(5)}'
+    params = dict(f=RESOLVER)
+    with admin.connect() as c:
+        owners_before = tuple(c.execute(text(OWNERS), params).one())
+        acl_before = tuple(c.execute(text(EFFECTIVE_ACL), params).one())
+    assert owners_before[2:] == (True, False)
+
+    def resolve():
+        qws.dispose_queue_worker_engine()  # Fresh sessions: no plan cached under an older owner.
+        with _factory().kw['bind'].connect() as c:
+            denied = _denied(c, 'select igreja_id, numero from queue_resolve_instance(:i)', dict(i=INSTANCE))
+            if denied:
+                return denied
+            return (tuple(c.execute(text('select igreja_id, numero from queue_resolve_instance(:i)'),
+                                    dict(i=INSTANCE)).one()),
+                    len(c.execute(text('select * from queue_resolve_instance(:i)'), dict(i='nao-existe')).all()))
+
+    def as_owner(*statements):
+        qws.dispose_queue_worker_engine()
+        with admin.begin() as a:
+            for statement in statements:
+                a.exec_driver_sql(statement)
+        admin.dispose()
+
+    baseline = resolve()
+    assert baseline[0][0] == _IGREJA and baseline[1] == 0
+    observed = {}
+    as_owner(f'create role {role} nologin noinherit nosuperuser nobypassrls nocreatedb nocreaterole noreplication')
+    try:
+        as_owner(f'grant usage on schema public to {role}',
+                 f'grant execute on function public.queue_worker_runtime_session() to {role}',
+                 f'alter table public.whatsapp_connections owner to {role}',
+                 f'alter function {RESOLVER} owner to {role}')
+        observed['owns_function_and_table'] = resolve()
+        as_owner(f'alter table public.whatsapp_connections owner to {owners_before[1]}',
+                 f'grant select on public.whatsapp_connections to {role}')
+        observed['owns_function_only'] = resolve()
+        as_owner(f'alter role {role} bypassrls')
+        observed['owns_function_only_with_bypass'] = resolve()
+    finally:
+        as_owner(f'alter function {RESOLVER} owner to {owners_before[0]}',
+                 f'alter table public.whatsapp_connections owner to {owners_before[1]}',
+                 f'drop owned by {role}', f'drop role {role}')
+    with admin.connect() as c:
+        assert tuple(c.execute(text(OWNERS), params).one()) == owners_before
+        assert tuple(c.execute(text(EFFECTIVE_ACL), params).one()) == acl_before
+        assert c.execute(text('select count(*) from pg_roles where rolname = :r'), dict(r=role)).scalar_one() == 0
+        assert tuple(c.execute(text('select rolbypassrls, rolsuper from pg_roles where rolname = :r'),
+                               dict(r=ROLE)).one()) == (False, False)
+    assert observed['owns_function_and_table'] == baseline
+    code, message = observed['owns_function_only']
+    assert code == '42501' and 'row-level security' in message
+    assert observed['owns_function_only_with_bypass'] == baseline
+    assert resolve() == baseline
