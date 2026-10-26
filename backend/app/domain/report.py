@@ -30,12 +30,20 @@ _INT_AFTER = r"(\d+)"
 
 
 def _find_count(text: str, *keywords: str) -> int | None:
-    """Find an integer near any keyword (either order, same line/phrase)."""
+    """Find an integer near any keyword (either order, same line/phrase).
+
+    An explicit ``label: n`` / ``label = n`` wins, so "presentes: 12
+    visitantes: 3" binds 3 to visitantes instead of the 12 before the label.
+    The looser forms only span horizontal whitespace, so a number is never
+    borrowed from a previous line. ``-`` stays loose because it is also a list
+    separator ("12 presentes - 3 visitantes").
+    """
     for kw in keywords:
-        # "<n> presentes" / "presentes: <n>" / "presentes <n>"
+        # "presentes: <n>" / "<n> presentes" / "presentes - <n>" / "presentes <n>"
         patterns = (
-            rf"{_INT_AFTER}\s*{kw}\w*",
-            rf"{kw}\w*\s*[:=-]?\s*{_INT_AFTER}",
+            rf"{kw}\w*[ \t]*[:=]\s*{_INT_AFTER}",
+            rf"{_INT_AFTER}[ \t]*{kw}\w*",
+            rf"{kw}\w*[ \t]*-?[ \t]*{_INT_AFTER}",
         )
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
