@@ -274,6 +274,8 @@ else:
 # -- ensaio ---------------------------------------------------------------
 class QueueRehearsal(Rehearsal):
     """Reusa da contenção: guarda local, ledger, Redis próprio, espera de saída e limpeza."""
+    # Worker real sob ensaio; subclasses trocam papel, entrypoint e ambiente juntos.
+    role, entry, worker_env = WORKER, ENTRY, SYNTHETIC_ENV
 
     def __init__(self, *, legacy_image, redis_image, files, **kwargs):
         super().__init__(worker_image=legacy_image, redis_image=redis_image, **kwargs)
@@ -355,27 +357,27 @@ class QueueRehearsal(Rehearsal):
         return set(self.redis('KEYS', '*').split())
 
     def start_worker(self):
-        self.ids[WORKER] = self._record('containers', self.docker(
-            *self._legacy_argv(WORKER, self.network, SYNTHETIC_ENV)[:-1],
-            '--name', f'{self.prefix}-{WORKER}', self.images['worker'], *ENTRY))
+        self.ids[self.role] = self._record('containers', self.docker(
+            *self._legacy_argv(self.role, self.network, self.worker_env)[:-1],
+            '--name', f'{self.prefix}-{self.role}', self.images['worker'], *self.entry))
 
     def check_worker(self, *, running):
         """Conjunto exato (Redis + worker), identidade, entrypoint real, isolamento e gates."""
         self.guard_local()
         owned = set(self.docker('ps', '-aq', '--no-trunc', '--filter', f'label={OWNER_LABEL}={self.run_id}').split())
-        if owned != {self.ids['redis'], self.ids[WORKER]}:
+        if owned != {self.ids['redis'], self.ids[self.role]}:
             raise Refused('unexpected-container')
         self._validate_one('redis', running=True)
-        data = self.inspect(self.ids[WORKER])
+        data = self.inspect(self.ids[self.role])
         config, host = data.get('Config') or {}, data.get('HostConfig') or {}
         labels = config.get('Labels') or {}
-        if (labels.get(OWNER_LABEL) != self.run_id or labels.get(ROLE_LABEL) != WORKER
+        if (labels.get(OWNER_LABEL) != self.run_id or labels.get(ROLE_LABEL) != self.role
                 or labels.get(SCOPE_LABEL) != SCOPE):
             raise Refused('ownership')
-        if data.get('Id') != self.ids[WORKER] or data.get('Image') != self.images['worker']:
+        if data.get('Id') != self.ids[self.role] or data.get('Image') != self.images['worker']:
             raise Refused('identity')
-        if (data.get('Path') != 'python' or data.get('Args') != ENTRY or config.get('Entrypoint') != ['python']
-                or config.get('Cmd') != ENTRY or config.get('User') != USER
+        if (data.get('Path') != 'python' or data.get('Args') != self.entry or config.get('Entrypoint') != ['python']
+                or config.get('Cmd') != self.entry or config.get('User') != USER
                 or config.get('WorkingDir') != SOURCE_ROOT):
             raise Refused('entrypoint')
         ports = (data.get('NetworkSettings') or {}).get('Ports') or {}
@@ -387,7 +389,8 @@ class QueueRehearsal(Rehearsal):
         if host.get('NetworkMode') != self.network or set(networks) != {self.prefix}:
             raise Refused('network')
         env = dict(item.split('=', 1) for item in config.get('Env') or [] if '=' in item)
-        if set(env) != self.image_env | set(SYNTHETIC_ENV) or any(env[k] != v for k, v in SYNTHETIC_ENV.items()):
+        if (set(env) != self.image_env | set(self.worker_env)
+                or any(env[k] != v for k, v in self.worker_env.items())):
             raise Refused('gate-config-changed')
         state = data.get('State') or {}
         if bool(state.get('Running')) != running or data.get('RestartCount', 0):
@@ -395,7 +398,7 @@ class QueueRehearsal(Rehearsal):
         network = json.loads(self.docker('network', 'inspect', self.network))[0]
         if not network.get('Internal') or (network.get('Labels') or {}).get(OWNER_LABEL) != self.run_id:
             raise Refused('network')
-        expected = {self.ids['redis'], *([self.ids[WORKER]] if running else [])}
+        expected = {self.ids['redis'], *([self.ids[self.role]] if running else [])}
         if set(network.get('Containers') or {}) != expected:
             raise Refused('unexpected-container')
 

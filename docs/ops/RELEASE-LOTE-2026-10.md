@@ -889,9 +889,58 @@ verificações, bloqueio em 6,445 s, saída 0 em 0,652 s após a liberação, li
 sem sobras. São evidências locais; os testes/ensaio novos não foram adicionados
 aos workflows, e os quatro checks do SHA publicado são prova separada.
 
+## Ciclo de vida ocioso do broadcast-worker real — integrado pela #577 (`92821e35`)
+
+A etapa seguinte à #576 usa `deploy/rehearse_legacy_broadcast.py`, reaproveitando
+de `rehearse_legacy_queue.py` a conferência de fonte/runtime de `07a3f4d` (148
+fontes + lock), a guarda de Docker local, o ledger e a limpeza por posse. Só há
+Redis descartável numa rede `--internal` própria, sem portas, montagens ou
+download de imagem; não existe Postgres e `DATABASE_URL`/Evolution apontam para
+loopback morto. O PID 1 é `python -m app.workers.broadcast_worker` original,
+sem patch nem mock. O container usa `--init=false` explícito e o ensaio exige
+`HostConfig.Init` igual a `false`; ausente/`null` (default do daemon, que pode
+ter `init: true` e injetar `docker-init` mesmo com `Path=python`) ou `true` é
+recusa. Gates: `ALLOW_REAL_SENDS=false`, `BROADCAST_ASYNC_ENABLED=false`,
+Brevo `off`, Asaas `false`, piloto vazio e `BROADCAST_WORKER_TICK_SECONDS=10`.
+
+Com esses gates o legado decide `enabled=False` no boot e fica **ocioso**; o
+ensaio não abre gate e não afirma estado ativo. Exige: heartbeat `idle` e sua
+renovação pelo loop (instante de expiração posterior), Redis só com esse
+heartbeat, log com `enabled=False` e o aviso OCIOSO exato como único WARNING
+aceito, sem tick, envio, dispatch pausado ou transporte. SIGTERM real: saída 0
+antes do próximo tick, heartbeat `stopped`, log igual e TTL não renovado
+durante a observação posterior. `docker start` do mesmo container precisa ser
+uma nova execução (`StartedAt` novo, segundo boot no log) com `idle`
+substituindo `stopped`; o segundo SIGTERM repete a saída 0 e `stopped`.
+
+Ausência de rede não é capturada; é inferida de três fatos: destinos de banco
+e Evolution inacessíveis (loopback morto, rede interna sem Postgres), gates
+`false` e o caminho ocioso do código legado (`tick()` nunca chamado, sessão
+nunca resolvida, `EvolutionClient` sem cliente HTTP até o primeiro uso e
+`close()` sem efeito quando nada foi aberto).
+
+Limites: não prova broadcast ativo, trabalho ou transporte Evolution em curso,
+pendências no banco, que fechar gate pause fila, supervisor/restart do host,
+backend, pós-DDL, RLS nem produção (`production_ready=false`).
+
+Reprodução local, com as mesmas imagens imutáveis legada/Redis dos ensaios anteriores:
+
+```bash
+python3.13 deploy/rehearse_legacy_broadcast.py run --repo . --report /tmp/legacy-broadcast-report.json
+```
+
+Validação final em 25/10/2026 (Codex): 216 testes aprovados, zero skip (40
+novos e 176 de regressão); ensaio físico aprovado com 10 verificações e
+`HostConfig.Init=false` conferido; saída 0 em 0,503 s/0,549 s após cada
+SIGTERM, heartbeat renovado em 9,947 s/9,948 s, limpeza sem erros nem sobras.
+A revisão independente exigiu o PID 1 sem `init` do daemon; a correção foi
+confirmada pelo Codex. São evidências locais; os testes/ensaio novos não foram
+adicionados aos workflows, e os quatro checks do SHA publicado são prova separada.
+
 ## Backend ASGI com HTTP em curso durante SIGTERM — validado localmente
 
-A fatia seguinte (base `6b0b302b`, sem depender da #577 aberta) usa
+A fatia seguinte (#578; base `6b0b302b`, sem depender da #577, depois atualizada
+com a `main` que já contém a #577 em `92821e35`) usa
 `deploy/rehearse_legacy_backend.py`. Reaproveita a guarda de Docker local, a
 fonte/runtime exatos de `07a3f4d`, o ledger e o Redis próprio. O PID 1 é o console
 script real `uvicorn app.main:app --host 0.0.0.0 --port 8000` (CMD do
