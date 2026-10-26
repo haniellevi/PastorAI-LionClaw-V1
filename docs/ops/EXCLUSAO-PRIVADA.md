@@ -281,6 +281,7 @@ início, mas **não conclui recibo por tempo**: `pendente_envio` permanece até 
 transporte retornar e liberar ownership. Não há reenvio após expiração.
 Processo perdido exige reconciliação explícita; nunca apagar marcador somente
 para deixar o recibo verde. HTTP iniciado pode ter chegado ao provedor.
+Na candidata abaixo, só o login `private_send_runtime` libera o marcador.
 
 O cron usa `process_storage_tasks` antes do gate de envios, com purga automática por prazo somente para capturas pré-v2. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
@@ -369,8 +370,9 @@ A `20261030_110000` acrescenta duas funções (início com token e descoberta po
 IDs) e UPDATE só das colunas de agendamento da ownership, nunca do token.
 
 Release: conter consumidores antigos, backup, aplicar via `migrate.py`,
-provisionar LOGIN/senha e configurar só no cron sob autorização nominal,
-publicar o código, provar a identidade e retomar. Limites: envios, fences de
+provisionar LOGIN/senha e configurar só no cron sob autorização nominal
+(ver "Distribuição" na seção seguinte), publicar o código, provar a identidade
+e retomar. Limites: envios (exceto a liberação, na seção seguinte), fences de
 evento e tarefas de resumo seguem o padrão anterior de servidor confiável; o
 dono/superuser do banco e operadores com CREATEROLE ou ADMIN sobre o papel
 continuam podendo alterá-lo ou agir como ele. Rollback comentado na migration,
@@ -379,13 +381,71 @@ recusa LOGIN provisionado antes de qualquer mudança, restaura o contrato
 anterior e só remove o papel se nenhum outro banco depender dele, sem tocar em
 grants de outros bancos. Exige consumidores contidos e ownership drenada.
 
+### Identidade da liberação de envios (`private_deletion_sends`)
+
+Candidata local, migration `20261030_120000_private_send_release_identity.sql`
+(só PostgreSQL sintético; não aplicada em PROD). INSERT com o CAS
+`ia_pendente → ia_em_transporte`, renovação antes do HTTP e conferência de
+geração continuam nas mesmas transações e locks do login principal. Só a
+liberação, que já era uma transação isolada no `finally` da entrega, passa ao
+login `private_send_runtime` (`PRIVATE_SEND_DATABASE_URL`, sem fallback),
+chamando `private_send_release(igreja, source)`: SECURITY DEFINER com
+`search_path` fixo, confere `session_user`/atributos/LOGIN ativo e igreja igual
+ao GUC (o GUC delimita, não autoriza), apaga por chave e devolve se havia linha.
+Não confere geração, de propósito: precisa liberar também depois da exclusão.
+O papel não tem grant em tabela nem acesso a mensagens, conversas, caminhos,
+áudio ou funções de Storage; mesma guarda de papel preexistente, prova por
+transação e formato de URL (direta ou pooler) da identidade de Storage.
+`authenticated` sem subject perde só o DELETE (policies por comando com as
+mesmas expressões); o contador do admin continua.
+
+Alcance: sessões `authenticated` (API, cron e fila com escopo de igreja) não
+conseguem mais apagar ownership para deixar recibo verde. Não protege contra
+dono/superuser/BYPASSRLS, inclusive o login principal usado sem `SET ROLE`
+(modo cross-tenant), nem contra quem tem CREATEROLE/ADMIN sobre o papel, nem
+contra um queue-worker comprometido, que tem as duas credenciais.
+
+A liberação nunca lança `Exception`: não mascara mais `AgentReplyRetryable`
+(backoff) nem `ClaimOwnershipLost` (parada do worker); antes, uma falha do banco
+nesse `finally` substituía a exceção original. Logs só com código fechado
+(`private_send_release_unavailable`, `_failed`, `_unknown`) e classe da exceção.
+Falha antes do COMMIT retém a ownership; falha no próprio COMMIT tem resultado
+desconhecido (pode ter liberado). Sem o login, as respostas **continuam** sendo
+enviadas, mas cada envio deixa a ownership retida: recibos de conversas
+excluídas ficam `pendente_envio` e uma resposta `falhou_retentavel` não é
+reenviada (a nova tentativa colide na mesma chave e falha antes do HTTP, sem
+duplicata), até a ownership ser resolvida; não há ferramenta de reconciliação.
+Resultado ambíguo (`desconhecido`, confirmação incerta) continua liberando como
+antes: texto enviado ao provedor segue `fora_do_alcance` do recibo, e mudar
+isso exige revisão própria desse contrato.
+
+Distribuição: API, queue, cron e broadcast compartilham o mesmo `env_file` no
+compose; uma URL colocada nele chega a todos. "Configurar só no queue" (ou só
+no cron, para a identidade de Storage) não é segregação real sem env por
+serviço ou override explícito vazio nos demais, a decidir no release.
+Release: conter queue-worker e toda entrega de respostas pelo procedimento de
+parada segura do [runbook do lote](RELEASE-LOTE-2026-10.md) (código antigo contra
+o schema novo falha a liberação). Confirmar a parada dos consumidores e conferir
+separadamente intents em `ia_em_transporte`, leases e registros de
+`private_deletion_sends`: contar esses registros não prova o fim de um HTTP.
+Resultados incertos e ownership retida exigem reconciliação explícita; não
+apagar marcadores por prazo nem para concluir recibos. Depois, backup, aplicar
+via `migrate.py`, provisionar LOGIN/senha nominalmente, configurar a URL,
+publicar, provar com `private_send_runtime_session()` a partir do queue-worker
+e retomar. Esta preparação não autoriza executar essas operações em produção.
+Rollback comentado e ensaiado (aplicar → rollback → reaplicar por `migrate.py`):
+recusa LOGIN provisionado, preserva as linhas de ownership, restaura `send_worker`
+e o DELETE de `authenticated`, só remove o papel sem dependência em outro banco.
+Ownership retida em janela de falha não é revisitada pelo código antigo.
+
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
 retenção de tombstones. Pendências técnicas: tarefas e uploads têm identidade
-SQL própria na candidata acima; envios e fences ainda seguem o
-padrão servidor confiável sem subject da #509; reconciliação de upload com
-resultado desconhecido é parcial (2xx tardio confirmado e, na candidata
-`20261030_110000`, testemunho exato de tentativa commitada; abortado/em voo e
+SQL própria (#583), e a liberação de envios na candidata seguinte (#585);
+INSERT/renovação de envios e fences ainda seguem o padrão servidor confiável
+sem subject da #509; reconciliação de upload com
+resultado desconhecido é parcial (2xx tardio confirmado e, pela
+`20261030_110000` (#584), testemunho exato de tentativa commitada; abortado/em voo e
 legado seguem retidos sem saída automática); tombstones não expiram
 sem política aprovada e horizonte comprovado de replay/restauração. Logs sem
 âncora não têm proveniência individual retroativa; a limpeza é conservadora.

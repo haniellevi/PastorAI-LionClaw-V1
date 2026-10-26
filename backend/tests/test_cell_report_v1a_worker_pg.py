@@ -16,6 +16,7 @@ from tests.test_agent_privileged_turn_pg import (  # noqa: F401 - fixtures
     _ClassifiedEvolution, _IGREJA, _TERM, _inbound, _rows, msg_engine_fx,
     rls_database_url, s3_turn,
 )
+from tests.test_messages_inbound_idempotency import send_release  # noqa: F401 - fixture
 
 pytestmark = pytest.mark.rls_integration
 _REPORT = 'Relatório da célula: presentes: 10; visitantes: 2; decisões: 1; oferta: 30,00'
@@ -441,7 +442,7 @@ def test_human_submit_preserves_terminal_status_in_the_frozen_read_model(report_
 
 
 @pytest.mark.parametrize('phase', ('stage', 'retry', 'execute'))
-def test_v1a_worker_does_not_hold_draft_ahead_of_budget_meeting_lock(report_turn, phase):
+def test_v1a_worker_does_not_hold_draft_ahead_of_budget_meeting_lock(report_turn, phase, send_release):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event, current_thread
     from sqlalchemy import event, text
@@ -511,7 +512,7 @@ def test_partial_report_does_not_swallow_public_address_question(report_turn):
 
 
 @pytest.mark.parametrize('retry_receipt', (False, True))
-def test_report_receipt_identifies_server_cell_date_and_is_stable_on_retry(report_turn, retry_receipt):
+def test_report_receipt_identifies_server_cell_date_and_is_stable_on_retry(report_turn, retry_receipt, send_release):
     from app.db.models import Celula, Message
     turn = report_turn
     evolution = _CommittedReceiptEvolution(turn, 'aceito',
