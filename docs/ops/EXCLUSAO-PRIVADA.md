@@ -400,7 +400,12 @@ retenção de tombstones. Pendências técnicas: tarefas e uploads têm identida
 SQL própria na candidata acima, e a liberação de envios na candidata seguinte;
 INSERT/renovação de envios e fences ainda seguem o padrão servidor confiável
 sem subject da #509; reconciliação de upload com
-resultado desconhecido é ausente (só 2xx tardio confirmado é resolvido); tombstones não expiram
+resultado desconhecido é ausente (só 2xx tardio confirmado é resolvido); dono das
+funções privadas com `row_security=off`: o preflight de release acusa dono sem
+SUPERUSER/BYPASSRLS nas funções já existentes, mas não examina as de migrations
+pendentes (repetir após aplicação autorizada; dono real em PROD não verificado);
+`private_delete_content` não declara `row_security=off` e hoje falha fechada só
+porque o INSERT do recibo é recusado por RLS (prova sintética); tombstones não expiram
 sem política aprovada e horizonte comprovado de replay/restauração. Logs sem
 âncora não têm proveniência individual retroativa; a limpeza é conservadora.
 O frontend apresenta ID/estado do recibo no feedback da exclusão; não há nova
