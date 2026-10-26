@@ -281,18 +281,19 @@ def test_replay_of_deleted_provider_event_does_not_create_new_conversation(datab
 def test_inflight_upload_prevents_false_completion_even_when_finalize_database_fails(database, private_data, runtime):
     from app.services.private_deletion import begin_audio_upload, finish_audio_upload, process_storage_tasks
     v=private_data
-    assert begin_audio_upload(runtime,claim(v))
+    token=begin_audio_upload(runtime,claim(v))
+    assert token
     with api(database,v) as client:
         assert client.delete(f"/conversations/{v['conv']}").status_code==200
     def unavailable():
         raise RuntimeError('Synthetic DB unavailable')
     with pytest.raises(RuntimeError):
-        finish_audio_upload(unavailable,claim(v))
+        finish_audio_upload(unavailable,claim(v),token)
     storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None)
     assert process_storage_tasks(runtime,storage=storage,now=dt.datetime.now(dt.UTC)+dt.timedelta(days=2))==1
     with api(database,v) as client:
         assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json()['estado']=='pendente'
-    finish_audio_upload(runtime,claim(v))
+    finish_audio_upload(runtime,claim(v),token)
     assert process_storage_tasks(runtime,storage=storage,now=dt.datetime.now(dt.UTC)+dt.timedelta(days=3))==1
 
 
@@ -448,8 +449,8 @@ def _upload_during_deletion(database, v, monkeypatch, respond):
                         lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs))
     real = storage_module.SupabaseStorage(SimpleNamespace(
         supabase_url='https://storage.example.test', supabase_service_role_key='synthetic-key'))
-    upload = lambda: real.upload_cell_report_audio(igreja_id=v['tenant'], provider_message_sha256='a'*64,
-        mime_type='audio/ogg', raw=b'synthetic audio', deadline_seconds=10)
+    upload = lambda token: real.upload_cell_report_audio(igreja_id=v['tenant'], provider_message_sha256='a'*64,
+        mime_type='audio/ogg', raw=b'synthetic audio', deadline_seconds=10, attempt_token=token)
     return path, dataclasses.replace(claim(v), storage_path=path), upload
 
 
@@ -507,9 +508,9 @@ def test_confirmed_late_upload_during_deletion_releases_ownership_and_completes(
     from app.services.storage import StorageLateSuccess
     v = dict(private_data, objects={})
     path, owned, upload = _upload_during_deletion(database, v, monkeypatch, lambda _: httpx.Response(200))
-    assert begin_audio_upload(runtime, owned)
+    token = begin_audio_upload(runtime, owned)
     with pytest.raises(StorageLateSuccess):
-        _upload_owned_audio(PrivateStorageRuntime(runtime), owned, upload)
+        _upload_owned_audio(PrivateStorageRuntime(runtime), owned, lambda: upload(token), token)
     assert _owned(database, v) == 0 and path in v['objects']
     now = dt.datetime.now(dt.UTC); storage = _ObjectStorage(v); storage.failing = True
     assert process_storage_tasks(runtime, storage=storage, now=now) == 0
@@ -544,9 +545,10 @@ def test_unknown_or_unresolved_upload_keeps_ownership_and_pending_receipt(databa
         event.listen(s, 'before_commit', lambda _s: (_ for _ in ()).throw(RuntimeError('synthetic commit failure')))
         return s
     path, owned, upload = _upload_during_deletion(database, v, monkeypatch, respond)
-    assert begin_audio_upload(runtime, owned)
+    token = begin_audio_upload(runtime, owned)
     with pytest.raises(StorageLateSuccess if failure == 'commit' else StorageError) as error:
-        _upload_owned_audio(PrivateStorageRuntime(failing_commit if failure == 'commit' else runtime), owned, upload)
+        _upload_owned_audio(PrivateStorageRuntime(failing_commit if failure == 'commit' else runtime), owned,
+                            lambda: upload(token), token)
     assert failure == 'commit' or not isinstance(error.value, StorageLateSuccess)
     # A rolled-back resolution keeps ownership; the deletion's task is intact.
     assert _owned(database, v) == 1
@@ -906,14 +908,15 @@ def test_bulk_new_operation_erases_new_content_but_retry_is_snapshot(database,pr
 def test_bulk_late_upload_survives_source_and_tenant_loss(database,private_data, runtime):
     from app.services.private_deletion import begin_audio_upload,finish_audio_upload,delete_private,process_storage_tasks
     v=private_data
-    assert begin_audio_upload(runtime,claim(v))
+    token=begin_audio_upload(runtime,claim(v))
+    assert token
     with scoped(database,v['tenant'],admin=True) as s:
         result=delete_private(s,scope='igreja',igreja_id=v['tenant'],target_id=v['tenant'],operation_id=uuid4())
     calls=[]; storage=SimpleNamespace(remove_tenant_media=lambda t,paths:calls.append(paths))
     assert process_storage_tasks(runtime,storage=storage)==2  # image paths only; audio still owned
     with database.begin() as c:
         c.execute(text('delete from igrejas where id=:tenant'),v)
-    finish_audio_upload(runtime,claim(v))
+    finish_audio_upload(runtime,claim(v),token)
     assert process_storage_tasks(runtime,storage=storage)==1
     with database.connect() as c:
         assert c.execute(text("select count(*) from private_deletion_tasks where receipt_id=:r and state='pendente'"),dict(r=result['id'])).scalar_one()==0
@@ -979,7 +982,8 @@ def test_church_receipt_includes_older_conversation_cleanup(database,private_dat
 def test_person_erases_orphan_audio_and_reopens_its_late_upload(database,private_data, runtime):
     from app.services.private_deletion import begin_audio_upload,finish_audio_upload,process_storage_tasks
     v=private_data
-    assert begin_audio_upload(runtime,claim(v))
+    token=begin_audio_upload(runtime,claim(v))
+    assert token
     with database.begin() as c:
         c.execute(text('update cell_report_audio_inputs set conversation_id=:old,inbound_message_id=:msg,live_conversation_id=null,live_message_id=null where id=:audio'),dict(v,old=uuid4(),msg=uuid4()))
     with api(database,v) as client:
@@ -989,7 +993,7 @@ def test_person_erases_orphan_audio_and_reopens_its_late_upload(database,private
         assert r.json()['camadas']['entradas_audio']['apagadas']==1
     storage=SimpleNamespace(remove_tenant_media=lambda *args:None)
     assert process_storage_tasks(runtime,storage=storage)==1
-    finish_audio_upload(runtime,claim(v))
+    finish_audio_upload(runtime,claim(v),token)
     assert process_storage_tasks(runtime,storage=storage)==1
 
 

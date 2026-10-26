@@ -169,26 +169,35 @@ def event_was_deleted(db: Session, igreja_id: UUID, provider_message_id: str) ->
                       dict(t=igreja_id, token=token)).scalar_one_or_none() is not None
 
 
-def begin_audio_upload(session_factory: Callable[[], Session], claim: object) -> bool:
-    """Commit ownership before any upload. Deletion takes the same generation lock.
+def begin_audio_upload(session_factory: Callable[[], Session], claim: object) -> UUID | None:
+    """Commit ownership and its attempt token before any upload, or ``None``.
 
     The SQL function locks the conversation and inserts ownership in one
-    transaction, so the dedicated login needs no access to conversations.
+    transaction, so the dedicated login needs no access to conversations. The
+    token is committed before the POST that carries it as Storage metadata.
     """
     with session_factory() as db:
         scope_private_storage(db, claim.igreja_id)
-        accepted = db.execute(text('select private_storage_begin_upload(:t,:source,:c,:g)'),
+        token = db.execute(text('select private_storage_begin_upload_attempt(:t,:source,:c,:g)'),
             dict(t=claim.igreja_id, source=claim.input_id, c=claim.conversation_id,
                  g=claim.deletion_generation)).scalar_one()
         db.commit()
-        return bool(accepted)
+        return None if token is None else UUID(str(token))
 
 
-def finish_audio_upload(session_factory: Callable[[], Session], claim: object) -> None:
-    """Resolve upload + reopen deletion atomically. DB failure retains ownership.
+def finish_audio_upload(session_factory: Callable[[], Session], claim: object,
+                        attempt_token: UUID | None) -> None:
+    """Resolve upload + reopen deletion in one transaction.
 
-    A crashed/ambiguous uploader stays pending until explicit reconciliation;
-    expiry alone is never evidence that the external write has stopped.
+    An error before COMMIT rolls back and keeps ownership; an error while the
+    COMMIT acknowledgement is in flight leaves the outcome unknown (the row may
+    already be gone). Both are safe here: the caller only finishes after a
+    confirmed write, and the reopen commits together with the release.
+    Only this attempt's ownership is removed (token CAS; ``None`` matches only
+    legacy rows), never a newer attempt's. The reopen stays unconditional: a
+    redundant strict DELETE is harmless. A crashed/ambiguous uploader stays
+    pending until a positive witness (``private_upload_witness``); expiry
+    alone is never evidence that the external write has stopped.
     """
     from app.services.storage import cell_report_audio_storage_path
 
@@ -198,8 +207,9 @@ def finish_audio_upload(session_factory: Callable[[], Session], claim: object) -
             claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
         reopen_late_audio_upload(db, igreja_id=claim.igreja_id, conversation_id=claim.conversation_id,
                                 source_id=claim.input_id, storage_path=path)
-        db.execute(text('delete from private_deletion_uploads where igreja_id=:t and source_id=:source'),
-                   dict(t=claim.igreja_id, source=claim.input_id))
+        db.execute(text('''delete from private_deletion_uploads where igreja_id=:t
+            and source_id=:source and attempt_token is not distinct from :token'''),
+                   dict(t=claim.igreja_id, source=claim.input_id, token=attempt_token))
         db.commit()
 
 
@@ -226,11 +236,11 @@ class PrivateStorageRuntime:
         if not confirmed:
             raise PrivateStorageScopeError('private storage identity not confirmed by SQL')
 
-    def begin_upload(self, claim: object) -> bool:
+    def begin_upload(self, claim: object) -> UUID | None:
         return begin_audio_upload(self._factory(), claim)
 
-    def finish_upload(self, claim: object) -> None:
-        finish_audio_upload(self._factory(), claim)
+    def finish_upload(self, claim: object, attempt_token: UUID | None) -> None:
+        finish_audio_upload(self._factory(), claim, attempt_token)
 
     def reopen_late_upload(self, claim: object, storage_path: str) -> bool:
         with self._factory()() as db:
