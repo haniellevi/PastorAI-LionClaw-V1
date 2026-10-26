@@ -125,6 +125,21 @@ Forma de PROD = instalação observada em
 candidato pelo instalador/workflow e tratamento de legado com `RestartCount>0`.
 Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.
 
+Adoção persistente da topologia: publicada em PR empilhada sobre a #579
+(`9047c591`, quatro checks aprovados; merge pendente de autorização), branch
+`feat/persistent-release-topology-20261025`; depois do merge da #579 a PR é
+redirecionada à `main` e o CI é revalidado. CI do novo SHA: não verificado até rodar.
+`backend-release.sh` (segurança v3; o workflow passa a exigir v3) adota
+`deploy/release-topology.json` só do release ativo (projeto permanente, rede
+externa existente, nomes e IDs legados reservados), com `-p` e ordem
+base→topologia→checker→pin em toda chamada, contenção só de IDs próprios e
+rollback pelo ID de imagem verificado (sem rebuild), nos modos build e digest.
+Ensaio físico sintético desde o `write_layout` real aprovado (rodada 5, após
+integrar `9047c591`: 54 verificações, sem sobras); callback real da Evolution
+não provado; tags de retenção de imagem acumulam sem poda automática.
+Atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA` após o merge: passo operacional não
+executado. Legado com `RestartCount>0` segue pendente; `production_ready=false`.
+
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;

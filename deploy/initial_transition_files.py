@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from initial_transition_ops import MIGRATION, SHA, Refused, require
+import release_topology
 
 PROTECTED = re.compile(r'(?:\.env.*|secrets?|.*\.pem|.*\.key|id_rsa.*|id_ed25519.*|target_users.*|.*\.dump'
                        r'|dumps?|backups?|exports?|media|migrate_clerk_production.*|clerk_.*)', re.IGNORECASE)
@@ -216,11 +217,26 @@ def migration_manifest(migrate_source, sql):
 
 
 # -- release layout -----------------------------------------------------------
-def layout_files(files, project):
+def layout_files(files, topology, image, sha):
+    """Exact blobs plus the public topology contract and maintenance override.
+
+    The helper the runner needs travels with it as an exact blob. The override
+    pins the candidate's verified local image ID (no registry digest invented),
+    so ordinary Compose maintenance never falls back to a mutable tag. The
+    layout holds no build source: recovery to it reuses that image ID.
+    """
     wanted = {f'deploy/{name}': files[f'deploy/{name}'] for name in LAYOUT_DEPLOY}
+    helper = 'deploy/release_topology.py'
+    if helper in files:
+        wanted[helper] = files[helper]
+    require(helper in files or b'release_topology.py' not in files['deploy/backend-release.sh'], 'layout-helper-missing')
     wanted['backend/scripts/migrate.py'] = files['backend/scripts/migrate.py']
     wanted.update({p: b for p, b in files.items() if LAYOUT_SQL.fullmatch(p)})
-    wanted['deploy/compose-project.name'] = (project + '\n').encode()
+    try:
+        wanted['deploy/release-topology.json'] = release_topology.canonical(topology).encode()
+        wanted['deploy/docker-compose.override.yml'] = release_topology.overlay(topology, image, sha).encode()
+    except release_topology.Refused as exc:
+        raise Refused('layout-topology') from exc
     return wanted
 
 
@@ -240,11 +256,13 @@ def inventory(root):
     return sorted(found)
 
 
-def write_layout(root, sha, files, project, manifest):
-    """``releases/<sha>`` from exact blobs (tooling, runner, SQL); no private config. Idempotent."""
+def write_layout(root, sha, files, topology, manifest, image):
+    """``releases/<sha>`` from exact blobs (tooling, runner, SQL), the topology contract and
+    the maintenance override pinned to ``image`` (verified ID); no private config. Idempotent."""
     releases = no_symlink(Path(root) / 'releases')
     releases.mkdir(mode=0o755, parents=True, exist_ok=True)
-    wanted = layout_files(files, project)
+    require(release_topology.IMAGE_ID.fullmatch(image or ''), 'layout-topology')
+    wanted = layout_files(files, topology, image, sha)
     target = releases / sha
     if os.path.lexists(target):
         require(stat.S_ISDIR(os.lstat(target).st_mode), 'layout-mismatch')

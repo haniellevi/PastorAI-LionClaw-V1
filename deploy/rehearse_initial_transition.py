@@ -73,7 +73,7 @@ NOT_PROVEN = [
     'topologia-exata-de-producao (compose gerado e prefixado; mesma forma 3+1, nao o mesmo arquivo)',
     'papeis-pooler-e-timeouts-do-supabase (login sintetico postgres)',
     'turno-completo-do-agente (lista de piloto vazia; capacidade de produto inalterada)',
-    'adocao-pelo-backend-release.sh (workflow nao passa o projeto Compose do candidato)',
+    'adocao-pelo-backend-release.sh (provada a parte em rehearse_release_topology.py, nao neste ensaio)',
     'escritores-fora-do-escopo-observado (so rede propria, IPs, pg_stat_activity e CLIENT LIST)',
     'compose-up-manual-no-projeto-legado (recriaria com restart always; so procedimento impede)',
     'igualdade-de-chaves-redis-com-ttl (heartbeats e marcadores dedup efemeros ficam fora do snapshot; '

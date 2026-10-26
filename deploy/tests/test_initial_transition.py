@@ -51,6 +51,20 @@ MISSING = {'20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql',
            '20260925_183811_preserve_platform_admins_on_tenant_deletion.sql', '20260926_120446_platform_jev_settings.sql'}
 
 
+IMAGE = 'sha256:' + 'c' * 64
+
+
+def layout_topology(**changes):
+    contract = dict(schema='pastorai.release-topology', version=1, project=PREFIX + '-cand',
+                    legacy_project=PREFIX + '-legacy', network=dict(name=PREFIX + '-app', id='e' * 64),
+                    containers={r: f'{PREFIX}-cand-{r}' for r in ('backend', 'queue-worker', 'cron-worker',
+                                                                   'broadcast-worker')},
+                    reserved_legacy={r: str(i) * 64 for i, r in enumerate(
+                        ('backend', 'queue-worker', 'cron-worker', 'broadcast-worker'), 1)})
+    contract.update(changes)
+    return contract
+
+
 def hexid(n):
     return format(n, '064x')
 
@@ -630,8 +644,8 @@ class FilesTest(Base):
     def test_layout_is_idempotent_and_refuses_links_and_extras_unread(self):
         files = candidate_files()
         root = self.root / 'release-root'
-        count = itf.write_layout(root, CANDIDATE_SHA, files, 'proj', manifest())
-        self.assertEqual(itf.write_layout(root, CANDIDATE_SHA, files, 'proj', manifest()), count)
+        count = itf.write_layout(root, CANDIDATE_SHA, files, layout_topology(), manifest(), IMAGE)
+        self.assertEqual(itf.write_layout(root, CANDIDATE_SHA, files, layout_topology(), manifest(), IMAGE), count)
         target = root / 'releases' / CANDIDATE_SHA
         self.assertFalse(list(target.rglob('.env*')))
         secret = self.root / 'outside.env'
@@ -639,13 +653,47 @@ class FilesTest(Base):
         (target / 'deploy' / 'extra').symlink_to(secret)
         with mock.patch.object(itf, 'read_regular', side_effect=AssertionError('read before inventory')):
             with self.assertRaises(Refused) as caught:
-                itf.write_layout(root, CANDIDATE_SHA, files, 'proj', manifest())
+                itf.write_layout(root, CANDIDATE_SHA, files, layout_topology(), manifest(), IMAGE)
         self.assertEqual(str(caught.exception), 'layout-unsafe-entry')
         (target / 'deploy' / 'extra').unlink()
         (target / 'deploy' / 'extra.txt').write_text('x')
         with mock.patch.object(itf, 'read_regular', side_effect=AssertionError('read before inventory')):
             with self.assertRaises(Refused):
-                itf.write_layout(root, CANDIDATE_SHA, files, 'proj', manifest())
+                itf.write_layout(root, CANDIDATE_SHA, files, layout_topology(), manifest(), IMAGE)
+
+    def test_layout_writes_public_topology_contract_and_refuses_invalid_one(self):
+        files = candidate_files()
+        root = self.root / 'release-root'
+        itf.write_layout(root, CANDIDATE_SHA, files, layout_topology(), manifest(), IMAGE)
+        deploy = root / 'releases' / CANDIDATE_SHA / 'deploy'
+        self.assertEqual(json.loads((deploy / 'release-topology.json').read_text()), layout_topology())
+        self.assertFalse((deploy / 'compose-project.name').exists())
+        override = (deploy / 'docker-compose.override.yml').read_text()
+        self.assertIn(f'"image": "{IMAGE}"', override)
+        self.assertIn(f'"PASTORAI_RELEASE_SHA": "{CANDIDATE_SHA}"', override)
+        for image in ('pastorai-backend:latest', None):
+            with self.assertRaises(Refused) as caught:
+                itf.write_layout(self.root / 'image-root', CANDIDATE_SHA, files, layout_topology(), manifest(), image)
+            self.assertEqual(str(caught.exception), 'layout-topology')
+        # A runner that needs the helper is refused without its exact blob.
+        needing = {**files, 'deploy/backend-release.sh': files['deploy/backend-release.sh'] + b'# release_topology.py\n'}
+        with self.assertRaises(Refused) as caught:
+            itf.write_layout(self.root / 'helper-root', CANDIDATE_SHA, needing, layout_topology(), manifest(), IMAGE)
+        self.assertEqual(str(caught.exception), 'layout-helper-missing')
+        helper = (DEPLOY / 'release_topology.py').read_bytes()
+        itf.write_layout(self.root / 'helper-root', CANDIDATE_SHA, {**needing, 'deploy/release_topology.py': helper},
+                         layout_topology(), manifest(), IMAGE)
+        self.assertEqual((self.root / 'helper-root' / 'releases' / CANDIDATE_SHA / 'deploy'
+                          / 'release_topology.py').read_bytes(), helper)
+        for bad in (layout_topology(project=PREFIX + '-legacy'), layout_topology(extra='x'),
+                    layout_topology(project='pastorai')):
+            with self.assertRaises(Refused) as caught:
+                itf.write_layout(self.root / 'other-root', CANDIDATE_SHA, files, bad, manifest(), IMAGE)
+            self.assertEqual(str(caught.exception), 'layout-topology')
+        # A contract different from the one already written is a layout mismatch, never a rewrite.
+        with self.assertRaises(Refused) as caught:
+            itf.write_layout(root, CANDIDATE_SHA, files, layout_topology(project=PREFIX + '-other'), manifest(), IMAGE)
+        self.assertEqual(str(caught.exception), 'layout-mismatch')
 
     def test_protected_components_refused_before_any_open_or_mkdir(self):
         paths = [self.root / '.env', self.root / 'secrets' / 'spec.json', self.root / 'x.pem',
@@ -711,6 +759,16 @@ class ControllerTest(Base):
         for role, identifier in self.ops.legacy_ids.items():
             self.assertEqual(self.ops.inspect(identifier)['HostConfig']['RestartPolicy']['Name'], 'no')
             self.assertFalse(self.ops.inspect(identifier)['State']['Running'])
+        contract = json.loads((self.root / 'release-root' / 'releases' / CANDIDATE_SHA / 'deploy'
+                               / 'release-topology.json').read_text())
+        self.assertEqual(contract['project'], self.spec['candidate']['project'])
+        self.assertEqual(contract['legacy_project'], self.spec['legacy']['project'])
+        self.assertEqual(contract['containers'], self.spec['candidate']['names'])
+        self.assertEqual(contract['reserved_legacy'], self.ops.legacy_ids)
+        self.assertEqual(contract['network']['id'], self.spec['network']['app'])
+        override = (self.root / 'release-root' / 'releases' / CANDIDATE_SHA / 'deploy'
+                    / 'docker-compose.override.yml').read_text()
+        self.assertIn(f'"image": "{self.spec["candidate"]["image"]}"', override)
 
     def test_candidate_readiness_failure_is_contained_and_needs_decision(self):
         self.ops.ready_status = 'degraded'

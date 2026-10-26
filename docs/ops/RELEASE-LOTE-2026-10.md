@@ -1083,15 +1083,52 @@ reiniciaria no boot do daemon. A política `no` persistida é o que cobre esse
 caso; o reinício real do daemon não foi exercitado. O controle negativo usa uma
 saída não manual (SIGTERM de dentro do container).
 
-**Próximo pacote REAL (não feito):** fazer `backend-release.sh` e o workflow
-adotarem persistentemente o projeto Compose, a rede e os nomes do candidato
-(hoje o workflow não passa projeto: o arquivo `deploy/compose-project.name`
-do layout só registra o valor), validar a topologia pública carregada pelo
-instalador em todos os `-f` (inclusive checker), preservar Redis/Evolution,
-alias único `backend`/callback interno, identidade da resposta da porta 8000 e
-predecessor verdadeiro. Além disso, continuam pendentes: adaptador e janela de
-PROD, backup, autorização nominal, decisão sobre gates abertos, escolha das
-contas da duplicidade e tratamento dos webhooks recusados durante a janela.
+**Adoção persistente pelo `backend-release.sh` (local, sintética, 25/10).**
+`write_layout` grava `deploy/release-topology.json` (versão 1: projeto
+permanente ≠ legado, rede externa existente por nome+ID, nomes dos quatro
+serviços, IDs dos quatro legados contidos; nada privado), o helper
+`release_topology.py` e `docker-compose.override.yml` com pin do ID verificado
+da imagem candidata. O script lê o contrato só do ativo, sob lock e antes da
+configuração privada; recusa marcador sem contrato válido e
+contrato/marcador/override vindos no candidato (o workflow também recusa esses
+caminhos no commit e exige `BACKEND_RELEASE_SAFETY_VERSION=3`). Toda chamada
+Compose usa `-p` e base→topologia→checker→pin; o overlay redefine só
+`networks.default` (externa), nomes, `depends_on: !reset {}` (sem isso
+`compose start` recusa `missing dependency redis`) e põe Redis/Evolution em
+profile inativo. Guardas: propriedade (membros do projeto só com nome
+contratado, nenhum estranho, legados parados `no` fora do projeto) antes de
+recriar; prontidão (sem alias dos quatro serviços em contêiner alheio rodando
+na rede, um Redis saudável e uma Evolution rodando) antes de cada start;
+contenção para só IDs próprios, independe de dependências, e deixa estranhos
+intocados (recuperação humana com configuração, contrato e override do
+candidato preservados). O predecessor volta pelo ID de imagem verificado, nunca
+por rebuild; com o image store containerd, mover a tag de build apaga o ID antigo,
+por isso o script mantém a tag local `<repo>-release:<SHA>` do predecessor e da
+candidata construída. Essas tags se acumulam (sem poda automática; limpeza é
+tarefa do operador) e um novo release do mesmo SHA move a tag de retenção para a
+nova build. A imagem da transição inicial precisa continuar referenciada no host
+até o primeiro release posterior (o pin do layout aponta para o seu ID); garantir
+isso é trabalho do adaptador real, ainda inexistente. Instalação sem contrato nem
+marcador mantém o caminho anterior.
+
+Provas: doubles (`test_backend_release.py`, suíte inteira também no modo
+adotado), helper puro, `docker compose config` real do `docker-compose.yml` sem
+`.env` e ensaio físico `deploy/rehearse_release_topology.py` (rodada 4: 54
+verificações, 71,6 s; o detector de imagens dessa rodada não cobria as builds
+B/D feitas pelo Compose. Rodada 5, após integrar `9047c591`: 54 verificações,
+76,7 s, sem contêineres, redes, volumes nem imagens restantes, procuradas pelo
+prefixo e pelo label de revisão dos seis commits sintéticos; hashes das fontes no
+relatório `/tmp/igreja12-release-topology-rehearsal-r5.json`): layout real → release que
+falha em `/ready` volta ao layout pelo ID → release saudável → falha volta ao
+predecessor construído → recusas físicas por alias concorrente e membro
+estranho; legados e dependências com estado idêntico. Transformações no
+compose do ensaio: porta publicada (a 8000 do host é de outro processo, nunca
+tocado) e tag de build prefixada. Aplicação e checker sintéticos; Evolution falsa, sem
+callback real Evolution→backend (não provado); modo digest só
+por doubles/Compose config. Pendentes: atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA`
+após o merge (não executado), adaptador e janela de PROD, backup, autorização
+nominal, decisão sobre gates abertos, escolha das contas da duplicidade,
+webhooks recusados durante a janela e legado com `RestartCount>0`.
 
 Limites: daemon/host não reiniciados; retry real da Evolution e mensagens
 recusadas na janela não verificados; imagem candidata derivada local NÃO
