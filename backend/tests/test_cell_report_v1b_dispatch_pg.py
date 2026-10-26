@@ -16,6 +16,7 @@ from tests.test_cell_report_v1b_worker_pg import (  # noqa: F401
     _IGREJA, _rows, _run, _notice, _audio_inbound, _unexpected_media,
 )
 from tests.test_cell_report_v1a_worker_pg import _CommittedReceiptEvolution, _REPORT, _snapshot
+from tests.test_messages_inbound_idempotency import send_release  # noqa: F401 - fixture
 
 pytestmark = pytest.mark.rls_integration
 
@@ -386,7 +387,7 @@ def test_v1b_terminal_flow_retains_working_transcript(audio_turn, reason):
         assert _rows(audio_turn, AgentActionReceipt) == []
 
 
-def test_v1b_summary_retry_reuses_transcript_without_second_provider_call(audio_turn):
+def test_v1b_summary_retry_reuses_transcript_without_second_provider_call(audio_turn, send_release):
     providers = _providers(audio_turn, statuses=('aceito', 'falhou_retentavel', 'aceito'))
     _consented_audio(audio_turn, providers)
     _dispatch(audio_turn, providers)

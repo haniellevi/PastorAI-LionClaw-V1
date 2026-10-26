@@ -16,6 +16,7 @@ from app.deps import CurrentUser, get_current_user
 from app.routers.conversations import router
 from app.services.storage import get_storage
 from app.services.private_deletion import PrivateStorageRuntime
+from tests.private_send_pg import private_send_login
 from tests.private_storage_pg import private_storage_login
 from tests.test_uv_turmas_pg import rls_database_url, migrated_database, database  # noqa: F401
 
@@ -26,6 +27,13 @@ pytestmark = pytest.mark.rls_integration
 def runtime(database, monkeypatch):
     """Real dedicated login (synthetic LOGIN) for tasks/uploads; never the main one."""
     with private_storage_login(database, monkeypatch) as factory:
+        yield factory
+
+
+@pytest.fixture
+def send_runtime(database, monkeypatch):
+    """Real dedicated login (synthetic LOGIN) that alone releases send ownership."""
+    with private_send_login(database, monkeypatch) as factory:
         yield factory
 
 
@@ -615,7 +623,7 @@ def test_delete_erases_linked_audit_payload_and_preserves_unrelated_logs(databas
 
 
 @pytest.mark.parametrize('status', ['aceito', 'falhou_retentavel', 'desconhecido'])
-def test_deletion_during_agent_transport_waits_for_boundary_without_resend(database, private_data, status, runtime):
+def test_deletion_during_agent_transport_waits_for_boundary_without_resend(database, private_data, status, runtime, send_runtime):
     from app.workers.queue_worker import (
         _prepare_agent_reply_intent, _deliver_agent_reply_intent, IngestionOutcome, IngestionResult,
     )
@@ -652,7 +660,7 @@ def test_deletion_during_agent_transport_waits_for_boundary_without_resend(datab
         assert c.execute(text('select count(*) from agent_conversation_logs where conversation_id=:conv'), v).scalar_one() == 0
 
 
-def test_deletion_after_final_probe_before_http_is_still_pending(database, private_data, monkeypatch):
+def test_deletion_after_final_probe_before_http_is_still_pending(database, private_data, monkeypatch, send_runtime):
     from app.workers import queue_worker as worker
     v = private_data; factory = lambda: Session(database)
     outcome = worker.IngestionOutcome(result=worker.IngestionResult.REGISTERED, conversation_id=v['conv'],
@@ -713,10 +721,20 @@ def test_send_marker_admin_read_only_and_worker_tenant_isolation(database, priva
         s.rollback()
     with scoped(database, v['tenant'], admin=True) as s:
         assert s.execute(text('select count(*) from private_deletion_sends')).scalar_one() == 1
-        assert s.execute(text('delete from private_deletion_sends')).rowcount == 0
         with pytest.raises(DBAPIError):
             s.execute(text('insert into private_deletion_sends(igreja_id,source_id,conversation_id,generation) values(:tenant,:audio,:conv,0)'), v)
         s.rollback()
+    with scoped(database, v['tenant'], admin=True) as s:  # Release is only private_send_runtime's.
+        with pytest.raises(DBAPIError) as error:
+            s.execute(text('delete from private_deletion_sends'))
+        assert error.value.orig.pgcode == '42501'
+        s.rollback()
+    with scoped(database, v['tenant']) as s:  # Subject-less main login: no DELETE either.
+        with pytest.raises(DBAPIError) as error:
+            s.execute(text('delete from private_deletion_sends'))
+        assert error.value.orig.pgcode == '42501'
+        s.rollback()
+        assert s.execute(text('select count(*) from private_deletion_sends')).scalar_one() == 1
 
 
 def test_lost_send_expiry_does_not_claim_completion_or_reopen_transport(database, private_data):
@@ -1111,7 +1129,7 @@ def test_person_erasure_matches_canonical_phone_of_unlinked_conversation(databas
         assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
 
 
-def test_expired_send_stays_pending_until_known_transport_return(database,private_data, runtime):
+def test_expired_send_stays_pending_until_known_transport_return(database,private_data, runtime, send_runtime):
     from app.workers import queue_worker as worker
     from app.services.private_deletion import process_storage_tasks
     v=private_data; factory=lambda:Session(database)

@@ -5,13 +5,16 @@ are erased on success. Backups/provider copies are outside this receipt's scope;
 a restore must reapply these tombstones before starting consumers.
 
 Storage tasks and audio upload ownership run only under the dedicated
-``private_storage_runtime`` login (``app.db.privacy_storage_session``). Sends
-and event fences stay in the callers' domain transactions on the main login.
+``private_storage_runtime`` login (``app.db.privacy_storage_session``). Send
+ownership is inserted, renewed and checked in the queue's domain transactions
+on the main login; only its release runs under ``private_send_runtime``
+(``app.db.private_send_session``). Event fences stay on the main login.
 """
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import logging
 from collections.abc import Callable
 from typing import Literal
 from uuid import UUID
@@ -21,10 +24,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import Conversation
+from app.db.private_send_session import get_private_send_session_factory, scope_private_send
 from app.db.privacy_storage_session import (
     PrivateStorageScopeError, get_private_storage_session_factory, scope_private_storage,
 )
-from app.db.tenant_session import mark_tenant_scoped
+
+logger = logging.getLogger(__name__)
 
 DeletionScope = Literal['conversa', 'pessoa', 'igreja', 'reset']
 LAYERS = ('mensagens', 'midias', 'transcricoes', 'resumos', 'checkpoints', 'vetores',
@@ -254,15 +259,31 @@ def send_generation_is_current(db: Session, igreja_id: UUID, conversation_id: UU
     )).scalar_one_or_none() is not None
 
 
-def finish_agent_send(session_factory: Callable[[], Session], igreja_id: UUID, source_id: UUID) -> None:
-    """Release only after the external boundary returns; failure stays pending."""
-    from sqlalchemy import delete
-    from app.db.models import PrivateDeletionSend
-    with session_factory() as db:
-        mark_tenant_scoped(db, igreja_id, source='private_agent_send_finish')
-        db.execute(delete(PrivateDeletionSend).where(
-            PrivateDeletionSend.igreja_id == igreja_id, PrivateDeletionSend.source_id == source_id))
-        db.commit()
+def finish_agent_send(igreja_id: UUID, source_id: UUID) -> bool:
+    """Release only after the external boundary returns, under the send login.
+
+    Never raises ``Exception``: it runs in the delivery ``finally`` and must not
+    replace ``AgentReplyRetryable``/``ClaimOwnershipLost``. Without the login, or
+    on a failure before COMMIT, the ownership is retained and the receipt stays
+    ``pendente_envio``; a failed COMMIT leaves the outcome unknown (released or
+    retained). Retained ownership also blocks a retry of the same intent.
+    Logs carry only a closed event code and the exception class.
+    """
+    stage = 'unavailable'
+    try:
+        factory = get_private_send_session_factory()
+        with factory() as db:
+            stage = 'failed'
+            scope_private_send(db, igreja_id)
+            released = db.execute(text('select private_send_release(:t,:source)'),
+                                  dict(t=igreja_id, source=source_id)).scalar_one()
+            stage = 'unknown'
+            db.commit()
+        return bool(released)
+    except Exception as exc:  # noqa: BLE001 - BaseException still propagates
+        logger.warning('Private send ownership release did not complete',
+                       extra={'event': f'private_send_release_{stage}', 'error_type': type(exc).__name__})
+        return False
 
 
 def renew_agent_send(db: Session, igreja_id: UUID, conversation_id: UUID,
