@@ -255,8 +255,17 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
   envio humano e expectativa de visitante em reunião passada (backlog técnico
   B3/B4). Preservar opt-out global e regras por canal até decisão; refatoração
   não muda comportamento silenciosamente.
-- **falta:** reconferir os bugs históricos de classificação CSIM, primeiro
-  consentimento e interpretação de relatório (B5/B7/B15 do MVP); não declarar
+- **em andamento:** B5 (CSIM comercial) é candidato em
+  `fix/csim-commercial-false-positives-20261026`: "comercial" passa a exigir
+  oferta explícita do próprio contato (verbo em 1ª pessoa ou após auxiliar em
+  1ª pessoa, + objeto, palavra inteira, sem negação/citação); empresa,
+  profissão, boleto ou marketing como assunto, terceira pessoa ou pergunta
+  genérica deixam de fechar o atendimento. Heurística limitada, sem LLM; ofertas
+  fora da lista passam despercebidas e "preciso de oração, quero vender
+  produtos" ainda marca (1ª pessoa). Sem reprocessar contatos já marcados; "fora da cidade"
+  inalterado. Ativação do agente e efeito em produção: **não verificado**.
+- **falta:** reconferir os bugs históricos de primeiro consentimento e
+  interpretação de relatório (B7/B15 do MVP); não declarar
   resolvidos pela presença em auditoria. B1/B2/B3/B4/B14/B16 têm correções
   registradas, com disponibilidade atual em produção **não verificado**.
 - **falta, quando houver necessidade concreta:** diagnóstico de configuração
