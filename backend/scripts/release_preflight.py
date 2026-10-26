@@ -30,7 +30,8 @@ CORE_TABLES = ("app_users", "celula_solicitacao", "celulas")
 # Private SECURITY DEFINER contracts that declare row_security=off over FORCE
 # RLS tables: with an owner that cannot bypass RLS they raise instead of
 # working (proved on disposable PG). Fixed list, resolved by exact signature
-# with pg_catalog-qualified types. Other definers, including the operations
+# with pg_catalog-qualified types; includes the upload attempt/witness
+# definers of 20261030_110000. Other definers, including the operations
 # outbox metrics function that also declares row_security=off, are out of this
 # contract. Bodies are never executed.
 PRIVATE_DEFINER_CONTRACTS = (
@@ -43,6 +44,11 @@ PRIVATE_DEFINER_CONTRACTS = (
     ("public.private_storage_begin_upload(uuid,uuid,uuid,bigint)",
      "public.private_storage_begin_upload(pg_catalog.uuid,pg_catalog.uuid,"
      "pg_catalog.uuid,pg_catalog.int8)"),
+    ("public.private_storage_begin_upload_attempt(uuid,uuid,uuid,bigint)",
+     "public.private_storage_begin_upload_attempt(pg_catalog.uuid,pg_catalog.uuid,"
+     "pg_catalog.uuid,pg_catalog.int8)"),
+    ("public.private_storage_upload_witness_due(timestamp with time zone,integer)",
+     "public.private_storage_upload_witness_due(pg_catalog.timestamptz,pg_catalog.int4)"),
     ("public.private_send_release(uuid,uuid)",
      "public.private_send_release(pg_catalog.uuid,pg_catalog.uuid)"),
     # Summary runtime helpers whose own body reads FORCE RLS tables (tasks;

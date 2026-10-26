@@ -205,7 +205,8 @@ def test_release_preflight_reports_synthetic_findings_and_refuses_writes(
         )
         assert "backup_public_tables: esperadas=6 ausentes=0" in rendered
         assert (
-            "private_definer_contracts: examinados=0 nao_verificados=8 "
+            "private_definer_contracts: examinados=0 "
+            f"nao_verificados={len(release_preflight.PRIVATE_DEFINER_CONTRACTS)} "
             "dono_sem_bypass=0" in rendered
         )
         assert (

@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Run on the VPS only after a separately authorized database release.
 set -Eeuo pipefail
-BACKEND_RELEASE_SAFETY_VERSION=2
+BACKEND_RELEASE_SAFETY_VERSION=3
 
 configuration=.env
+health_port=8000
 if [[ "${BACKEND_RELEASE_TEST_MODE:-}" == 1 ]]; then
   configuration=${BACKEND_RELEASE_TEST_CONFIG:?}
   [[ "$configuration" == *.fixture && "$configuration" != */* ]] || exit 2
+  # Synthetic rehearsals publish their own loopback port; never in production.
+  health_port=${BACKEND_RELEASE_TEST_PORT:-8000}
+  [[ "$health_port" =~ ^[1-9][0-9]{3,4}$ ]] || exit 2
 fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -86,6 +90,39 @@ if [[ ! -f "$active/deploy/check_backend_schema.py" ]] ||
   exit 1
 fi
 
+# Permanent topology is adopted only from the active release, never from the
+# candidate tarball. A project marker without a valid contract refuses; an
+# install with neither keeps the compatible single-project path.
+topology_tool="$script_dir/release_topology.py"
+topology_contract=
+topology_project=
+topology_dir=
+topology_overlay=
+topology_persisted=0
+for name in release-topology.json compose-project.name; do
+  if [[ -e "$candidate/deploy/$name" || -L "$candidate/deploy/$name" ]]; then
+    echo "candidate contains an untrusted release topology" >&2
+    exit 1
+  fi
+done
+if [[ -e "$candidate/deploy/docker-compose.override.yml" || -L "$candidate/deploy/docker-compose.override.yml" ]]; then
+  echo "candidate contains an existing Compose override" >&2
+  exit 1
+fi
+active_marker="$active/deploy/compose-project.name"
+if [[ -e "$active/deploy/release-topology.json" || -L "$active/deploy/release-topology.json" ||
+      -e "$active_marker" || -L "$active_marker" ]]; then
+  marker=()
+  [[ ! -e "$active_marker" && ! -L "$active_marker" ]] || marker=(--marker "$active_marker")
+  if [[ -L "$active/deploy" ]] ||
+     ! topology_project=$(python3 -I "$topology_tool" validate \
+       --contract "$active/deploy/release-topology.json" "${marker[@]}"); then
+    echo "active release topology missing or invalid; release refused before effects" >&2
+    exit 1
+  fi
+  topology_contract="$active/deploy/release-topology.json"
+fi
+
 export PASTORAI_ENV_FILE="$configuration"
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
@@ -113,44 +150,77 @@ fi
 # Optional artifact promotion. No image tags or on-target rebuild are used.
 compose() {
   local overlay=
-  local -a files=()
-  if [[ -n "$release_image" ]]; then
-    case "$PWD" in
-      "$candidate/deploy") overlay=$image_override_candidate ;;
-      "$active/deploy") overlay=$image_override_previous ;;
-    esac
-  fi
+  local -a files=() extra=()
+  # Pins exist only for digest promotion or an adopted topology.
+  case "$PWD" in
+    "$candidate/deploy") overlay=$image_override_candidate ;;
+    "$active/deploy") overlay=$image_override_previous ;;
+  esac
   # Keep explicit checker files in order, then pin only image/revision fields.
-  while [[ "${1:-}" == -f ]]; do files+=(-f "$2"); shift 2; done
-  if [[ -n "$overlay" ]]; then
-    (( ${#files[@]} )) || files=(-f docker-compose.yml)
-    files+=(-f "$overlay")
+  while [[ "${1:-}" == -f ]]; do extra+=(-f "$2"); shift 2; done
+  [[ -z "$overlay" ]] || extra+=(-f "$overlay")
+  if [[ -n "$topology_overlay" ]]; then
+    # Explicit project and files on every call: base -> topology -> checker -> pin.
+    files=(-p "$topology_project" -f docker-compose.yml -f "$topology_overlay" "${extra[@]}")
+  elif (( ${#extra[@]} )); then
+    files=(-f docker-compose.yml "${extra[@]}")
   fi
   docker compose "${files[@]}" "$@"
+}
+
+# Docker state of the adopted topology (no-op on the compatible path).
+topology_guard() {
+  [[ -n "$topology_contract" ]] || return 0
+  local -a revision=()
+  if [[ "$1" != replace ]]; then
+    revision=(--revision "${2:-$release_sha}")
+    [[ -n "${2:-}" || "$PWD" != "$active/deploy" ]] || revision=(--revision "$active_release_sha")
+  fi
+  python3 -I "$topology_tool" guard --contract "$topology_contract" --phase "$1" "${revision[@]}"
+}
+
+require_local_docker() {
+  [[ -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}" ]] || {
+    echo "Docker endpoint override refused for image promotion or adopted topology" >&2; return 1;
+  }
+  local endpoint
+  endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}') || return 1
+  [[ "$endpoint" == unix:///var/run/docker.sock || "$endpoint" =~ ^unix:///run/user/[0-9]+/docker.sock$ ]] || {
+    echo "local Docker socket required for image promotion or adopted topology" >&2; return 1;
+  }
 }
 
 image_revision() {
   docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$1"
 }
+write_pin() {
+  python3 - "$1" "$2" "$3" <<'PIN'
+import json, sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({'services': {
+    name: {'image': sys.argv[2], 'environment': {'PASTORAI_RELEASE_SHA': sys.argv[3]}}
+    for name in ('backend', 'queue-worker', 'cron-worker', 'broadcast-worker')
+}}))
+PIN
+}
+# Digest promotion and every adopted topology record the predecessor's verified
+# immutable image ID before any pull or build: recovery reuses that ID and
+# never rebuilds the previous tree (an initial layout carries no build source).
 prepare_pinned_images() {
-  [[ -n "$release_image" ]] || return 0
-  [[ ! -e "$pinned_override_path" && ! -L "$pinned_override_path" ]] || {
-    echo "candidate contains an existing Compose override" >&2; return 1;
-  }
-  [[ "$release_image" =~ ^ghcr\.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:[0-9a-f]{64}$ ]] || {
-    echo "nominal backend image digest required" >&2; return 1;
-  }
-  [[ -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}" ]] || {
-    echo "Docker endpoint override refused for image promotion" >&2; return 1;
-  }
+  [[ -n "$release_image" || -n "$topology_contract" ]] || return 0
+  if [[ -n "$release_image" ]]; then
+    [[ ! -e "$pinned_override_path" && ! -L "$pinned_override_path" ]] || {
+      echo "candidate contains an existing Compose override" >&2; return 1;
+    }
+    [[ "$release_image" =~ ^ghcr\.io/haniellevi/pastorai-lionclaw-v1-backend@sha256:[0-9a-f]{64}$ ]] || {
+      echo "nominal backend image digest required" >&2; return 1;
+    }
+  fi
   [[ "$(readlink -f -- "$active_link")" == "$active" ]] || {
     echo "active release changed during preflight" >&2; return 1;
   }
-  local endpoint container image service
-  endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}') || return 1
-  [[ "$endpoint" == unix:///var/run/docker.sock || "$endpoint" =~ ^unix:///run/user/[0-9]+/docker.sock$ ]] || {
-    echo "local Docker socket required for image promotion" >&2; return 1;
-  }
+  require_local_docker || return 1
+  local container image service
   cd -- "$active/deploy"
   for service in "${services[@]}"; do
     container=$(compose ps -aq "$service") || return 1
@@ -165,6 +235,10 @@ prepare_pinned_images() {
   [[ "$(image_revision "$previous_image_id")" == "$active_release_sha" ]] || {
     echo "previous image revision unverifiable" >&2; return 1;
   }
+  retain_image "$previous_image_id" "$active_release_sha" || return 1
+  image_override_previous=$(mktemp /tmp/backend-previous-image.XXXXXXXX.json) || return 1
+  write_pin "$image_override_previous" "$previous_image_id" "$active_release_sha" || return 1
+  [[ -n "$release_image" ]] || return 0
   docker pull "$release_image" >/dev/null || return 1
   [[ "$(image_revision "$release_image")" == "$release_sha" ]] || {
     echo "candidate image revision mismatch" >&2; return 1;
@@ -172,28 +246,46 @@ prepare_pinned_images() {
   candidate_image_id=$(docker image inspect --format '{{.Id}}' "$release_image") || return 1
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
   image_override_candidate=$(mktemp /tmp/backend-candidate-image.XXXXXXXX.json) || return 1
-  image_override_previous=$(mktemp /tmp/backend-previous-image.XXXXXXXX.json) || return 1
-  python3 - "$image_override_candidate" "$release_image" "$release_sha" \
-    "$image_override_previous" "$previous_image_id" "$active_release_sha" <<'IMAGES'
-import json, sys
-from pathlib import Path
-for path, image, sha in (sys.argv[1:4], sys.argv[4:7]):
-    Path(path).write_text(json.dumps({'services': {
-        name: {'image': image, 'environment': {'PASTORAI_RELEASE_SHA': sha}}
-        for name in ('backend', 'queue-worker', 'cron-worker', 'broadcast-worker')
-    }}))
-IMAGES
+  write_pin "$image_override_candidate" "$release_image" "$release_sha"
+}
+# With the containerd image store an image whose last tag moves (the next build
+# retags the mutable build tag) is no longer usable by ID. An adopted topology
+# therefore keeps a per-revision local tag on every image it may recover to.
+retain_image() {
+  [[ -n "$topology_contract" ]] || return 0
+  local tag
+  tag=$(compose config --format json --no-env-resolution |
+        python3 -I "$topology_tool" image-name --contract "$topology_contract") || return 1
+  docker image tag "$1" "${tag%:*}-release:$2" || return 1
+  [[ "$(docker image inspect --format '{{.Id}}' "${tag%:*}-release:$2")" == "$1" ]] || {
+    echo "retained image reference unverifiable" >&2; return 1;
+  }
+}
+# Built candidate of an adopted topology: pin the exact local ID just built,
+# after verifying its revision label, so no mutable tag is used from here on.
+pin_built_candidate() {
+  local tag
+  tag=$(compose config --format json --no-env-resolution |
+        python3 -I "$topology_tool" image-name --contract "$topology_contract") || return 1
+  candidate_image_id=$(docker image inspect --format '{{.Id}}' "$tag") || return 1
+  [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ &&
+     "$(image_revision "$candidate_image_id")" == "$release_sha" ]] || {
+    echo "built candidate image revision unverifiable" >&2; return 1;
+  }
+  retain_image "$candidate_image_id" "$release_sha" || return 1
+  image_override_candidate=$(mktemp /tmp/backend-candidate-image.XXXXXXXX.json) || return 1
+  write_pin "$image_override_candidate" "$candidate_image_id" "$release_sha"
 }
 prepare_release_image() {
-  if [[ -n "$release_image" ]]; then
-    local image sha
-    if [[ "$PWD" == "$candidate/deploy" ]]; then image=$release_image; sha=$release_sha;
-    else image=$previous_image_id; sha=$active_release_sha; fi
-    [[ "$(image_revision "$image")" == "$sha" ]]
+  if [[ "$PWD" == "$active/deploy" && -n "$previous_image_id" ]]; then
+    [[ "$(image_revision "$previous_image_id")" == "$active_release_sha" ]]
+  elif [[ -n "$release_image" ]]; then
+    [[ "$(image_revision "$release_image")" == "$release_sha" ]]
   else
     local sha=$release_sha
     [[ "$PWD" != "$active/deploy" ]] || sha=$active_release_sha
-    compose build --build-arg "PASTORAI_RELEASE_SHA=$sha" backend
+    compose build --build-arg "PASTORAI_RELEASE_SHA=$sha" backend || return 1
+    [[ -z "$topology_contract" ]] || pin_built_candidate
   fi
 }
 
@@ -206,6 +298,11 @@ emit_compatibility_check() {
 }
 
 check_compose_gates() {
+  if [[ -n "$topology_contract" ]]; then
+    # Topology model without resolving env_file: no private value is read here.
+    compose "$@" config --format json --no-env-resolution |
+      python3 -I "$topology_tool" check-config --contract "$topology_contract" || return 1
+  fi
   compose "$@" config --format json | python3 -c '
 import json
 import sys
@@ -265,7 +362,7 @@ try:
 except Exception:
     sys.exit("stopped container gates open or unverifiable")
 ' || return 1
-    if [[ -n "$release_image" ]]; then
+    if [[ -n "$release_image" || -n "$topology_contract" ]]; then
       local expected=$candidate_image_id
       [[ "$PWD" != "$active/deploy" ]] || expected=$previous_image_id
       [[ "$(docker inspect --format '{{.Image}}' "$container")" == "$expected" ]] || {
@@ -275,7 +372,32 @@ except Exception:
   done
 }
 
+# Adopted topology: stop only IDs proven ours (contracted name for its own
+# service, never a reserved legacy ID), whatever the network or dependency
+# health, and verify each exit. A stranger member is never touched: the
+# release then stops in human recovery with configuration and topology kept.
+contain_owned() {
+  local owned status=0 id
+  local -a ids=()
+  owned=$(python3 -I "$topology_tool" owned --contract "$topology_contract") || status=$?
+  (( status == 0 || status == 3 )) || { echo "consumer containment unverifiable" >&2; return 1; }
+  [[ -z "$owned" ]] || mapfile -t ids <<< "$owned"
+  if (( ${#ids[@]} )); then
+    docker stop "${ids[@]}" >/dev/null || return 1
+  fi
+  for id in "${ids[@]}"; do
+    [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == false ]] || {
+      echo "consumer containment unverifiable" >&2; return 1;
+    }
+  done
+  (( status == 0 )) || {
+    echo "stranger project member left untouched; human recovery required" >&2; return 1;
+  }
+}
+
 contain_consumers() {
+  # Explicit status: a bare return inside the ERR trap reports the trapped failure.
+  if [[ -n "$topology_contract" ]]; then contain_owned; return $?; fi
   compose stop "${services[@]}" || return 1
   [[ -n "$release_image" ]] || return 0
   local service container
@@ -290,8 +412,10 @@ contain_consumers() {
 }
 
 create_and_start() {
+  topology_guard replace || return 1
   compose up --no-start --no-build --no-deps --pull never --force-recreate "${services[@]}" || return 1
   inspect_stopped_gates "${services[@]}" || return 1
+  topology_guard created || return 1
   compose start --wait --wait-timeout 180 "${services[@]}"
 }
 
@@ -312,10 +436,12 @@ Path(sys.argv[1]).write_text(json.dumps({"services": {"backend": {
 }}}))
 OVERRIDE
   [[ $? == 0 ]] || return 1
-  local -a checker_compose=(-f docker-compose.yml -f "$checker_override")
+  local -a checker_compose=(-f "$checker_override")
   check_compose_gates "${checker_compose[@]}" || return 1
+  topology_guard replace || return 1
   compose "${checker_compose[@]}" up --no-start --no-build --no-deps --pull never --force-recreate backend || return 1
   inspect_stopped_gates backend || return 1
+  topology_guard checker || return 1
   container=$(compose ps -aq backend) || return 1
   [[ -n "$container" && "$container" != *$'\n'* ]] || return 1
   if [[ -n "$compatibility_bundle" ]]; then
@@ -371,9 +497,17 @@ cleanup() {
   [[ -z "$checker_override" ]] || rm -f -- "$checker_override"
   [[ -z "$image_override_candidate" ]] || rm -f -- "$image_override_candidate"
   [[ -z "$image_override_previous" ]] || rm -f -- "$image_override_previous"
-  if (( pinned_override_created )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
+  # Failed containment of an adopted topology keeps its public topology files
+  # next to the preserved configuration for human recovery.
+  local keep_topology=0
+  if [[ -n "$topology_contract" ]] && (( candidate_configuration_needed )); then keep_topology=1; fi
+  if (( pinned_override_created && ! keep_topology )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
     rm -f -- "$pinned_override_path"
   fi
+  if (( topology_persisted && ! keep_topology )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
+    rm -f -- "$candidate/deploy/release-topology.json"
+  fi
+  [[ -z "$topology_dir" ]] || rm -rf -- "$topology_dir"
   rm -f -- "$active_link.next.$$"
   exit "$status"
 }
@@ -404,8 +538,8 @@ rollback() {
        ! check_previous_schema "$rollback_manifest" ||
        ! create_and_start ||
        ! check_external_gates ||
-       ! curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null ||
-       ! curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null; then
+       ! curl -fsS --max-time 5 http://127.0.0.1:$health_port/health >/dev/null ||
+       ! curl -fsS --max-time 5 http://127.0.0.1:$health_port/ready >/dev/null; then
       contain_consumers || {
         echo "rollback containment failed; preserve previous configuration and require human recovery" >&2
       }
@@ -420,8 +554,19 @@ trap rollback ERR
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
+if [[ -n "$topology_contract" ]]; then
+  topology_dir=$(mktemp -d /tmp/backend-topology.XXXXXXXX)
+  python3 -I "$topology_tool" overlay --contract "$topology_contract" --out "$topology_dir/topology.yml"
+  topology_overlay="$topology_dir/topology.yml"
+fi
+
 # Capability failure must leave the active services and configuration untouched.
 check_compose_capabilities
+if [[ -n "$topology_contract" ]]; then
+  # True predecessor: the four services of the adopted project, nothing else.
+  require_local_docker
+  topology_guard predecessor "$active_release_sha"
+fi
 prepare_pinned_images
 
 # Keep secrets on the VPS; never include them in the Git archive or logs.
@@ -446,16 +591,33 @@ compose exec -T -e "EXPECTED_MIGRATIONS=$expected_migrations" backend python - \
 
 cd -- "$candidate/deploy"
 prepare_release_image
+if [[ -n "$topology_contract" ]]; then
+  # Before the first effect, once the candidate image ID is verified: the
+  # candidate carries its own project/network/names and immutable pin, so a
+  # contained failure leaves usable recovery files next to its configuration
+  # (never the legacy project, never a mutable tag). Both paths were proven
+  # absent before effects and are written exclusively (O_EXCL).
+  [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+  pinned_override_created=1
+  python3 -I "$topology_tool" overlay --contract "$topology_contract" \
+    --image "${release_image:-$candidate_image_id}" --sha "$release_sha" --out "$pinned_override_path"
+  topology_persisted=1
+  python3 -I "$topology_tool" persist --contract "$topology_contract" --out "$candidate/deploy/release-topology.json"
+fi
+# Fresh ownership and readiness while the predecessor still serves.
+topology_guard predecessor "$active_release_sha"
 restart_started=1
 if [[ -n "$release_image" ]]; then contain_consumers; fi
 create_and_start
 check_external_gates
-curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null
-curl -fsS --max-time 5 http://127.0.0.1:8000/ready >/dev/null
+curl -fsS --max-time 5 http://127.0.0.1:$health_port/health >/dev/null
+curl -fsS --max-time 5 http://127.0.0.1:$health_port/ready >/dev/null
 
 # Persist the public pin for subsequent ordinary Compose maintenance, without
 # modifying the private environment file. No mutable tag can reappear on up.
-if [[ -n "$release_image" ]]; then
+# With an adopted topology the override and the carried-forward contract were
+# already written before the first effect.
+if [[ -z "$topology_contract" && -n "$release_image" ]]; then
   [[ ! -e "$pinned_override_path" && ! -L "$pinned_override_path" ]]
   cp -- "$image_override_candidate" "$pinned_override_path"
   chmod 644 "$pinned_override_path"

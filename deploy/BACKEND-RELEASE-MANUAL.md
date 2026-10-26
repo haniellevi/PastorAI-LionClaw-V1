@@ -272,8 +272,9 @@ No Environment protegido, configurar sob gate próprio
 contém esta camada de segurança). Ausência ou má formação recusa empacotamento.
 Ator original e ator de rerun precisam pertencer à allowlist. O candidato deve
 ser descendente desse piso e ancestral da main; o piso e o candidato devem
-conter `BACKEND_RELEASE_SAFETY_VERSION=2`. A variável não pode apontar à base
-antiga. Isso não concede autorização de dispatch ou substitui revisão do SHA.
+conter `BACKEND_RELEASE_SAFETY_VERSION=3` (topologia adotada). Após o merge da
+v3, apontar a variável ao commit que a contém (passo operacional ainda não
+executado). A variável não pode apontar à base antiga. Isso não concede autorização de dispatch ou substitui revisão do SHA.
 
 Tarball do runner é removido mesmo com falha posterior; tarball remoto tem trap
 EXIT no comando de extração/release. Candidato existente é recusado. O script
