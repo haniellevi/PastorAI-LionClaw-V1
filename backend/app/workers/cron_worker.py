@@ -483,7 +483,9 @@ class CronWorker:
         from app.services.private_summaries import process_tasks as process_private_summary_tasks
 
         try:
-            process_private_summary_tasks(self._session_factory)
+            # Dedicated summary login only (resolved inside, after the gates);
+            # without it generation does not run, never on this main factory.
+            process_private_summary_tasks()
         except Exception:
             logger.warning("Private summary processing failed", extra={"event": "private_summary_processing_failed"})
         self._record_progress()

@@ -266,8 +266,16 @@ Este documento e o merge do código não são autorizações operacionais.
    pela migration `20261018_080000`; a checagem de duplicidade usa
    `(igreja_id, pessoa_id)` não nulo, como o índice da #543.
    A linha `private_definer_contracts` lê só `pg_catalog`, sem chamar funções,
-   os cinco contratos privados SECURITY DEFINER com `row_security=off`
-   (`PRIVATE_DEFINER_CONTRACTS`). Achado (`private_definer_dono_sem_bypass`,
+   os contratos privados SECURITY DEFINER com `row_security=off` da lista fixa
+   `PRIVATE_DEFINER_CONTRACTS`: cinco da #587 e, com a candidata de resumos
+   (migration `20261030_140000`), oito. Os três novos são
+   `private_summary_runtime_due_tasks`, `_sources` e `_reserve`, cujo próprio
+   corpo lê tabela com FORCE RLS. `_snapshot`, `_requester` e `_credential`
+   também declaram `row_security=off`, mas leem diretamente só tabelas sem
+   FORCE, que um dono também dono dessas tabelas opera legitimamente sem
+   BYPASSRLS: ficam fora para não gerar falso positivo. A dependência do dono
+   de funções aninhadas, como `private_summary_origin_valid`, também fica fora.
+   Nenhum banco de PROD foi verificado com a lista nova. Achado (`private_definer_dono_sem_bypass`,
    só assinatura e dono) quando o dono de um contrato presente não tem
    SUPERUSER nem BYPASSRLS: nesse estado a função falha (42501) e, por exemplo,
    envios ficam com ownership retida e limpezas pendentes. Contrato ausente,
