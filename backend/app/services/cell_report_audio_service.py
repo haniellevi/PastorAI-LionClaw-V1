@@ -2213,6 +2213,7 @@ def _upload_owned_audio(
     private_storage: Any,
     claim: AudioInputClaim,
     upload: Callable[[], object],
+    attempt_token: uuid.UUID,
 ) -> object:
     """Resolve upload ownership only on a provider-confirmed write.
 
@@ -2225,7 +2226,8 @@ def _upload_owned_audio(
     transport or close errors and process loss keep the durable fence for
     reconciliation. Resolve before the monotonic boundary check: that check may
     reject a completed upload simply because its return exceeded the deadline.
-    ``private_storage`` resolves ownership under the dedicated Storage login.
+    ``private_storage`` resolves ownership under the dedicated Storage login,
+    only for ``attempt_token`` (never a newer attempt's ownership).
     """
 
     from app.services.storage import (
@@ -2244,12 +2246,12 @@ def _upload_owned_audio(
     except StorageLateSuccess as late:
         owned_object(late.stored)
         try:
-            private_storage.finish_upload(claim)
+            private_storage.finish_upload(claim, attempt_token)
         except Exception:  # Commit outcome may be unknown; no retry here.
             logger.warning("Finalização de upload V1b falhou")
         raise
     owned_object(stored)
-    private_storage.finish_upload(claim)
+    private_storage.finish_upload(claim, attempt_token)
     return stored
 
 
@@ -3404,7 +3406,9 @@ def _run_audio_provider_chain(
         if not authorized:
             denied_before_external()
             return None
-        if not private_storage.begin_upload(claim):
+        # Committed before the POST that carries it; anything else uploads nothing.
+        attempt_token = private_storage.begin_upload(claim)
+        if type(attempt_token) is not uuid.UUID:
             denied_before_external()
             return None
         storage_attempted = True
@@ -3419,7 +3423,9 @@ def _run_audio_provider_chain(
                     mime_type=decoded.mime_type,
                     raw=raw,
                     deadline_seconds=_remaining_audio_seconds(deadline_at, cap=30.0),
+                    attempt_token=attempt_token,
                 ),
+                attempt_token,
             )
 
         stored = _run_audio_boundary(

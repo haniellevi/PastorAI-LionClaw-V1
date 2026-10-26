@@ -1,5 +1,6 @@
 """Independent audio-to-official-report proof, synthetic bytes and fake HTTP."""
 import datetime as dt
+import uuid
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text
@@ -62,9 +63,11 @@ def _providers(turn, transcript=_REPORT, *, mime="audio/wav", statuses=()):
             assert max_bytes == 5*1024*1024 and timeout_seconds > 0
             return raw, mime
     class Storage:
-        def upload_cell_report_audio(self, *, igreja_id, provider_message_sha256, mime_type, raw, deadline_seconds):
+        def upload_cell_report_audio(self, *, igreja_id, provider_message_sha256, mime_type, raw, deadline_seconds,
+                                     attempt_token):
             _no_domain_lock(turn)
             counts['upload'] += 1
+            assert type(attempt_token) is uuid.UUID
             path = cell_report_audio_storage_path(igreja_id, provider_message_sha256, mime_type)
             objects[path] = raw
             return StoredMedia(path=path, mime=mime_type, nome=None, tamanho=len(raw))
@@ -684,6 +687,57 @@ def test_v1b_only_confirmed_late_upload_releases_ownership(audio_turn, monkeypat
     service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
         now=dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=25), limit=10)
     assert len(providers.objects) == 1
+
+
+def test_v1b_lost_upload_response_keeps_committed_token_without_transcription(audio_turn, monkeypatch,
+                                                                             private_storage_runtime):
+    import base64
+    import json
+    import httpx
+    from app.db.models import CellReportAudioReservation, PrivateDeletionUpload
+    from app.services.private_upload_witness import reconcile_upload_attempts
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    seen = []
+    def respond(request):
+        # The token was committed by begin before this POST carried it.
+        with audio_turn.factory() as s:
+            committed = s.execute(select(PrivateDeletionUpload.attempt_token)).scalars().all()
+        seen.append((committed, json.loads(base64.b64decode(request.headers['x-metadata']))))
+        raise httpx.ReadTimeout('synthetic response lost after the provider commit', request=request)
+    _real_storage_upload(monkeypatch, providers, respond)
+    before = _snapshot(audio_turn)
+    _dispatch(audio_turn, providers)
+    [(committed, marker)] = seen
+    assert len(committed) == 1 and type(committed[0]) is uuid.UUID
+    assert marker == {'igreja12_attempt': str(committed[0])}
+    # Unknown result: ownership with its token stays; no budget, transcript or reply.
+    assert [row.attempt_token for row in _rows(audio_turn, PrivateDeletionUpload)] == committed
+    assert providers.counts['transcribe'] == 0
+    assert _rows(audio_turn, CellReportAudioReservation) == []
+    assert _rows(audio_turn, AgentActionProposal) == []
+    assert _snapshot(audio_turn) == before
+    # Without a pending deletion task nothing is reconciled or read.
+    witness = SimpleNamespace(cell_report_audio_attempt_committed=lambda *a: pytest.fail('no witness read'))
+    assert reconcile_upload_attempts(private_storage_runtime, storage=witness,
+                                     now=dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=30)) == 0
+    assert [row.attempt_token for row in _rows(audio_turn, PrivateDeletionUpload)] == committed
+
+
+def test_v1b_retained_ownership_refuses_begin_before_any_upload(audio_turn):
+    from app.db.models import PrivateDeletionUpload
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    pending = next(row for row in _rows(audio_turn, CellReportAudioInput) if row.state == 'pendente')
+    retained = uuid.uuid4()  # A previous attempt of this source is still unresolved.
+    with audio_turn.factory.begin() as s:
+        s.add(PrivateDeletionUpload(igreja_id=pending.igreja_id, source_id=pending.id,
+                                    conversation_id=pending.conversation_id, generation=0,
+                                    attempt_token=retained))
+    _dispatch(audio_turn, providers)
+    # No token for this attempt: no Storage call, transcription or new ownership.
+    assert providers.counts['upload'] == providers.counts['transcribe'] == 0
+    assert [row.attempt_token for row in _rows(audio_turn, PrivateDeletionUpload)] == [retained]
 
 
 def test_v1b_spelled_audio_reuses_v1a_paid_extraction_and_confirmation(audio_turn, monkeypatch):
