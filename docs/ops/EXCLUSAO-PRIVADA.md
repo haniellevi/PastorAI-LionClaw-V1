@@ -448,8 +448,14 @@ resultado desconhecido é parcial (2xx tardio confirmado e, pela
 `20261030_110000` (#584), testemunho exato de tentativa commitada; abortado/em voo e
 legado seguem retidos sem saída automática); dono das
 funções privadas com `row_security=off`: o preflight de release acusa dono sem
-SUPERUSER/BYPASSRLS nas funções já existentes, mas não examina as de migrations
-pendentes (repetir após aplicação autorizada; dono real em PROD não verificado);
+SUPERUSER/BYPASSRLS nas funções já existentes da lista fixa (cinco da #587 e duas
+da #584, sete; dez com a candidata de resumos, que acrescenta descoberta, fontes e reserva, cujo
+corpo lê tabela com FORCE RLS; snapshot, solicitante e credencial ficam fora
+porque leem só tabelas sem FORCE, legítimas para um dono que também as possui;
+se o dono não as possuir, falham fechadas),
+mas não examina as de migrations pendentes nem corpo, ACL ou dono de funções
+aninhadas como `private_summary_origin_valid` (repetir após aplicação
+autorizada; dono real em PROD não verificado);
 `private_delete_content` não declara `row_security=off` e hoje falha fechada só
 porque o INSERT do recibo é recusado por RLS (prova sintética); tombstones não expiram
 sem política aprovada e horizonte comprovado de replay/restauração. Logs sem

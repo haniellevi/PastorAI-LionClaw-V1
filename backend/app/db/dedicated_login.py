@@ -1,7 +1,8 @@
 """Role-independent proof shared by the dedicated private database logins.
 
-Two clients use it: ``privacy_storage_session`` (``private_storage_runtime``)
-and ``private_send_session`` (``private_send_runtime``). Each client keeps its
+Three clients use it: ``privacy_storage_session`` (``private_storage_runtime``),
+``private_send_session`` (``private_send_runtime``) and
+``private_summary_session`` (``private_summary_runtime``). Each client keeps its
 own role, URL variable, cached engine, exceptions and public API; only the
 mechanics live here: transaction-local ``search_path`` and tenant GUC, the SQL
 identity probe, the pooled-connection tenant guard, the URL user shape and the

@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 
 import pytest
 from sqlalchemy import text
+from tests.private_summary_pg import private_summary_login
 from tests.test_uv_turmas_pg import migrated_database, database  # noqa: F401
 from tests.test_agent_privileged_turn_pg import s3_turn, _inbound, _rows, _IGREJA  # noqa: F401
 from tests.test_messages_inbound_idempotency import _ClassifiedEvolution
@@ -32,7 +33,7 @@ def msg_engine_fx(database):
     return database
 
 @pytest.fixture
-def memory(s3_turn, monkeypatch):
+def memory(s3_turn, database, monkeypatch):
     from app.services import private_resume as resume
     turn = s3_turn
     monkeypatch.setattr(summaries, 'APPROVED_RELEASE_ID', 'synthetic')
@@ -46,8 +47,10 @@ def memory(s3_turn, monkeypatch):
         mark_tenant_scoped(s, _IGREJA, source='resume_test')
         assert summaries.enqueue(s, _IGREJA, turn.conversation_id)
         s.commit()
-    assert summaries.process_tasks(turn.factory, provider=lambda **kw: {'topic': 'cultos'}) == 1
-    return turn
+    # Generation only on the real dedicated login; resume keeps the main one.
+    with private_summary_login(database, monkeypatch):
+        assert summaries.process_tasks(provider=lambda **kw: {'topic': 'cultos'}) == 1
+        yield turn
 
 @pytest.mark.parametrize('case', ['two_people', 'two_people_leader', 'available', 'missing', 'suspended', 'unlisted', 'disabled', 'generation_disabled', 'prior_resume', 'no_release', 'wrong_person', 'optout', 'revoked', 'protected', 'corrected', 'correction_free_text', 'correction_prayer', 'correction_third_party', 'incorrect', 'ordinary', 'during_edit', 'during_generation_disabled', 'during_resume_disabled', 'during_delete', 'during_correction', 'retry_protected', 'during_role', 'other_conversation'])
 def test_private_resume_full_turn(memory, monkeypatch, case):
@@ -147,7 +150,7 @@ def test_private_resume_full_turn(memory, monkeypatch, case):
             mark_tenant_scoped(s, _IGREJA, source='second_summary')
             assert summaries.enqueue(s, _IGREJA, turn.conversation_id)
             s.commit()
-        assert summaries.process_tasks(turn.factory, provider=lambda **kw: {'topic': 'uv'}) == 1
+        assert summaries.process_tasks(provider=lambda **kw: {'topic': 'uv'}) == 1
         with turn.factory() as s:
             assert s.scalar(text('select count(*) from private_conversation_summaries')) == 2
     if case == 'prior_resume':

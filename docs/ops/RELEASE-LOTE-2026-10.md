@@ -266,10 +266,22 @@ Este documento e o merge do código não são autorizações operacionais.
    pela migration `20261018_080000`; a checagem de duplicidade usa
    `(igreja_id, pessoa_id)` não nulo, como o índice da #543.
    A linha `private_definer_contracts` lê só `pg_catalog`, sem chamar funções,
-   os sete contratos privados SECURITY DEFINER com `row_security=off`
-   (`PRIVATE_DEFINER_CONTRACTS`; inclui `private_storage_begin_upload_attempt` e
-   `private_storage_upload_witness_due` da `20261030_110000`, acrescentados na
-   integração com a #584). Achado (`private_definer_dono_sem_bypass`,
+   os contratos privados SECURITY DEFINER com `row_security=off` da lista fixa
+   `PRIVATE_DEFINER_CONTRACTS`: cinco da #587, dois da `20261030_110000`
+   (`private_storage_begin_upload_attempt` e `private_storage_upload_witness_due`,
+   acrescentados na integração com a #584) e, com a candidata de resumos
+   (migration `20261030_140000`), dez. Os três novos são
+   `private_summary_runtime_due_tasks`, `_sources` e `_reserve`, cujo próprio
+   corpo lê tabela com FORCE RLS. `_snapshot`, `_requester` e `_credential`
+   também declaram `row_security=off`, mas leem diretamente só tabelas sem
+   FORCE, que um dono também dono dessas tabelas opera legitimamente sem
+   BYPASSRLS: ficam fora para não gerar falso positivo, desde que o dono da
+   função também seja dono dessas tabelas (se não for, a função falha fechada,
+   sem vazamento, e o preflight não acusa). A dependência do dono
+   de funções aninhadas, como `private_summary_origin_valid`, também fica fora:
+   ela herda `row_security=off` do chamador, e o preflight olha só o
+   `proconfig` da própria função.
+   Nenhum banco de PROD foi verificado com a lista nova. Achado (`private_definer_dono_sem_bypass`,
    só assinatura e dono) quando o dono de um contrato presente não tem
    SUPERUSER nem BYPASSRLS: nesse estado a função falha (42501) e, por exemplo,
    envios ficam com ownership retida e limpezas pendentes. Contrato ausente,
@@ -286,7 +298,8 @@ Este documento e o merge do código não são autorizações operacionais.
    que também declara `row_security=off`, ficam fora deste contrato.
    Um teste em PG sintético compara o catálogo com a lista: toda função de
    `public` com SECURITY DEFINER e `row_security=off` precisa ser contrato ou
-   exclusão explícita (hoje só a outbox), então um definer novo esquecido falha.
+   exclusão explícita (hoje quatro: a outbox e os helpers de resumo `_snapshot`,
+   `_requester` e `_credential`), então um definer novo esquecido falha.
 3. **Reconciliação manual antes da #543.** Antes de aplicar
    `20261025_100000_team_pessoa.sql`, confirmar zero duplicidades da chave
    `(igreja_id, pessoa_id)`. Qualquer duplicidade de igreja/pessoa exige

@@ -71,7 +71,8 @@ def _validated_url() -> str:
         raise PrivateSendUnavailable("PRIVATE_SEND_DATABASE_URL must authenticate as private_send_runtime")
     for name, other in (("DATABASE_URL", settings.database_url),
                         ("AGENT_RUNTIME_DATABASE_URL", settings.agent_runtime_database_url),
-                        ("PRIVATE_STORAGE_DATABASE_URL", settings.private_storage_database_url)):
+                        ("PRIVATE_STORAGE_DATABASE_URL", settings.private_storage_database_url),
+                        ("PRIVATE_SUMMARY_DATABASE_URL", settings.private_summary_database_url)):
         if other and dedicated_login.parse_url(other, name, PrivateSendUnavailable) == parsed:
             raise PrivateSendUnavailable(f"PRIVATE_SEND_DATABASE_URL must differ from {name}")
     return url
