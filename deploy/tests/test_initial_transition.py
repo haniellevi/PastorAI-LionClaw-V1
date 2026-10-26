@@ -96,6 +96,7 @@ class FakeOps:
         self.migration_behaviour, self.ready_status, self.restart_on_term = {}, 'ready', set()
         self.ignore_term, self.duplicates, self.external = set(), 0, set()
         self.compose_created, self.ttl, self.lists, self.zsets = False, {}, {}, {}
+        self.start_keeps_count = False
         self.recon = dict(tables={'app_users': 'u0', 'platform_audit_log': 'a0', 'pessoas': 'p0',
                                   'schema_migrations': 's0'}, others='o0', target_row='t0',
                           target_pessoa=None, audit_others='x0', audit_op=[])
@@ -167,6 +168,14 @@ class FakeOps:
         self.starts.append(identifier)
         state = self.containers[identifier]['State']
         state.update(Running=True, Status='running', StartedAt=f't-start-{len(self.starts)}')
+        if not self.start_keeps_count:  # measured: a manual ``docker start`` resets RestartCount to 0
+            self.containers[identifier]['RestartCount'] = 0
+
+    def auto_restart(self, identifier, label='auto-restart'):
+        """Daemon restart of a running ``always`` container: counter +1, new StartedAt."""
+        c = self.containers[identifier]
+        c['RestartCount'] += 1
+        c['State'].update(Running=True, Status='running', StartedAt=f'{label}-{c["RestartCount"]}')
 
     # -- SQL / Redis ------------------------------------------------------------
     def pg_sessions(self):
@@ -348,7 +357,8 @@ class Base(unittest.TestCase):
         legacy = {}
         for role, identifier in self.ops.legacy_ids.items():
             data = self.ops.inspect(identifier)
-            legacy[role] = dict(id=identifier, name=data['Name'][1:], policy='always', started='t0', restart_count=0,
+            legacy[role] = dict(id=identifier, name=data['Name'][1:], policy='always', started='t0',
+                                restart_count=data['RestartCount'],
                                 gates=ops_mod.gates_of(data), compose=role != 'broadcast-worker')
         ledger = self.ops.ledger()
         journal.append('done', step='observe', legacy=legacy, ledger_count=len(ledger), ledger_digest=it.canonical(ledger))
@@ -570,6 +580,147 @@ class ReconcileRecoveryTest(Base):
         self.assertEqual(self.run_until('preflighted'), 'preflighted')
         self.assertEqual(len(self.apply_jobs()), 1)
         self.assertEqual(self.kinds('done', 'reconcile')[-1].get('recovered'), True)
+
+
+class LegacyRestartCountResumeTest(Base):
+    """Pre-DDL resume of a legacy whose RestartCount was already k > 0 before containment."""
+
+    def setUp(self):
+        super().setUp()
+        for role in it.ROLES:  # history of daemon restarts before the transition
+            self.ops.containers[self.ops.legacy_ids[role]]['RestartCount'] = 2
+
+    def resume(self, **kwargs):
+        with itf.Journal(self.state) as journal:
+            t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep, **kwargs)
+            token = t.resume_token()
+            t.resume_legacy(token, token)
+            return list(journal.events)
+
+    def legacy_starts(self):
+        return [i for i in self.ops.starts if i in self.ops.legacy_ids.values()]
+
+    def test_contain_compares_observed_k_and_resume_accepts_only_zero(self):
+        self.run_until('preflighted')
+        for identifier in self.ops.legacy_ids.values():
+            self.assertEqual(self.ops.inspect(identifier)['RestartCount'], 2)  # kept by update/stop
+        events = self.resume()
+        done = [e for e in events if e['kind'] == 'done' and str(e.get('step', '')).startswith('legacy-resume:')]
+        self.assertEqual([e['restart_count'] for e in done], [0, 0, 0, 0])
+        self.assertIn('legacy-resumed', [e['name'] for e in events if e['kind'] == 'phase'])
+
+    def test_external_restart_during_containment_refused_against_k(self):
+        backend = self.ops.legacy_ids['backend']
+        self.ops.restart_on_term.add(backend)  # daemon restarts it after SIGTERM: k -> k+1
+        self.refused('restarted-after-signal', 'contained')
+
+    def test_crash_after_start_replay_does_not_duplicate(self):
+        self.run_until('preflighted')
+        with itf.Journal(self.state) as journal:
+            t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep)
+            self.die_at(t, 'legacy-resume:queue-worker:after-start')
+            token = t.resume_token()
+            with self.assertRaises(Killed):
+                t.resume_legacy(token, token)
+        events = self.resume()
+        self.assertEqual(len(self.legacy_starts()), 4)
+        done = [e for e in events if e['kind'] == 'done' and e.get('step') == 'legacy-resume:queue-worker']
+        self.assertEqual(len(done), 1)
+
+    def test_restart_between_start_and_done_refused_without_done(self):
+        self.run_until('preflighted')
+        real = self.ops.start
+
+        def start_then_daemon_restart(identifier):
+            real(identifier)
+            if identifier == self.ops.legacy_ids['queue-worker']:
+                self.ops.auto_restart(identifier)
+        self.ops.start = start_then_daemon_restart
+        with self.assertRaises(Refused) as caught:
+            self.resume()
+        self.assertEqual(str(caught.exception), 'legacy-restarted-during-resume')
+        self.assertFalse([e for e in self.events_now() if e['kind'] == 'done'
+                          and e.get('step') == 'legacy-resume:queue-worker'])
+        self.assertEqual(len(self.legacy_starts()), 2)  # backend + queue only; nothing after the refusal
+
+    def test_earlier_role_restart_blocks_next_start(self):
+        self.run_until('preflighted')
+        real, backend = self.ops.start, self.ops.legacy_ids['backend']
+
+        def start(identifier):
+            real(identifier)
+            if identifier == self.ops.legacy_ids['queue-worker']:
+                self.ops.auto_restart(backend)
+        self.ops.start = start
+        with self.assertRaises(Refused) as caught:
+            self.resume()
+        self.assertIn(str(caught.exception), ('legacy-resumed-state-changed',))
+        self.assertEqual(len(self.legacy_starts()), 2)
+        self.assertNotIn('legacy-resumed', [e['name'] for e in self.events_now() if e['kind'] == 'phase'])
+
+    def test_unexpected_automatic_restart_after_start_never_terminal(self):
+        self.run_until('preflighted')
+        real = self.ops.start
+
+        def start(identifier):
+            real(identifier)
+            self.ops.containers[identifier]['RestartCount'] = 1
+            self.ops.containers[identifier]['State']['StartedAt'] = 'unexpected-restart'
+        self.ops.start = start
+        with self.assertRaises(Refused):
+            self.resume()
+        self.assertNotIn('legacy-resumed', [e['name'] for e in self.events_now() if e['kind'] == 'phase'])
+
+    def test_daemon_that_does_not_reset_counter_is_refused(self):
+        self.ops.start_keeps_count = True
+        self.run_until('preflighted')
+        with self.assertRaises(Refused) as caught:
+            self.resume()
+        self.assertEqual(str(caught.exception), 'legacy-restarted-during-resume')
+
+    def test_crash_before_phase_replays_without_new_start(self):
+        self.run_until('preflighted')
+        with itf.Journal(self.state) as journal:
+            t = it.Transition(self.spec, journal, self.ops, clock=self.clock, sleep=self.clock.sleep)
+            self.die_at(t, 'legacy-resume:before-phase')
+            token = t.resume_token()
+            with self.assertRaises(Killed):
+                t.resume_legacy(token, token)
+        events = self.resume()
+        self.assertEqual(len(self.legacy_starts()), 4)
+        self.assertIn('legacy-resumed', [e['name'] for e in events if e['kind'] == 'phase'])
+
+    def terminal(self):
+        self.run_until('preflighted')
+        self.resume()
+
+    def test_terminal_replay_refuses_changed_image_restart_or_ledger(self):
+        for label, change, code in (
+                ('image', lambda: self.ops.containers[self.ops.legacy_ids['backend']].update(Image='sha256:' + '0' * 64),
+                 'legacy-identity-changed'),
+                ('restart', lambda: self.ops.auto_restart(self.ops.legacy_ids['cron-worker']),
+                 'legacy-resumed-state-changed'),
+                ('ledger', lambda: self.ops.ledger_rows.append('29990101_000000_external.sql'),
+                 'ledger-not-baseline')):
+            with self.subTest(change=label):
+                self.setUp()
+                self.terminal()
+                change()
+                with self.assertRaises(Refused) as caught:
+                    self.resume()
+                self.assertEqual(str(caught.exception), code)
+
+    def test_terminal_replay_accepts_legitimate_data_and_queue_changes(self):
+        self.spec['expect_settled'] = {'redis_lists': {'pastorai:webhooks': []}}
+        self.terminal()
+        self.ops.snap['db'] = 42  # consumers back: domain rows and queues legitimately change
+        self.ops.ttl['pastorai:webhooks'], self.ops.lists['pastorai:webhooks'] = -1, ['new-item']
+        self.resume()
+        self.assertEqual(len(self.legacy_starts()), 4)
+
+    def events_now(self):
+        with itf.Journal(self.state) as journal:
+            return list(journal.events)
 
 
 class JournalTest(Base):

@@ -21,6 +21,12 @@ def resume_legacy(t, confirmation, expected_token):
     if t.j.find('ddl-marker'):
         t.refuse('post-ddl', 'legacy-resume')
     if t.reached(TERMINAL):
+        # Terminal replay re-proves target, identity/gates/policy of every resumed role (same
+        # execution, no restart since) and the absence of DDL. Domain data, queues and scope are
+        # NOT compared: the legitimately resumed consumers change them.
+        t.base_checks()
+        t.revalidate()
+        t.resume_preconditions()
         return
     started = t.j.find('intent', 'legacy-resume')
     if not started and confirmation != expected_token:
@@ -47,6 +53,7 @@ def resume_legacy(t, confirmation, expected_token):
         step = f'legacy-resume:{role}'
         if t.done(step):
             continue
+        t.revalidate()  # roles already back must still be the same execution, before another starts
         t.resume_preconditions()  # again right before each start
         item = t.legacy()[role]
         t.j.append('intent', step=step)
@@ -63,9 +70,30 @@ def resume_legacy(t, confirmation, expected_token):
                 t.refuse('legacy-start-failed', step)
             t.sleep(0.2)
         t.checkpoint(f'legacy-resume:{role}:after-start')  # real start observed, ``done`` not yet written
+        data = t.ops.inspect(item['id']) or {}  # re-read right before ``done``
+        if not our_start(item, data):
+            t.refuse('legacy-restarted-during-resume', step)  # no ``done``: never accepted as ours
         t.j.append('done', step=step, started=data['State']['StartedAt'],
                    restart_count=data.get('RestartCount', 0), policy=item['policy'])
+    t.checkpoint('legacy-resume:before-phase')
+    t.revalidate()  # every resumed role, after the last start
+    t.resume_preconditions()
     t.phase(TERMINAL)
+
+
+def our_start(item, data):
+    """The execution started by this resume: running, new ``StartedAt``, original policy, counter 0.
+
+    Measured locally: an automatic daemon restart increments ``RestartCount``,
+    ``update``/``stop`` keep it, a manual ``docker start`` resets it to 0. So
+    after our start only 0 is accepted (never a set like {0, k}); a restart
+    since our start shows as > 0. A manual start by someone else between the
+    intent and our start is indistinguishable (limit).
+    """
+    state = data.get('State') or {}
+    policy = ((data.get('HostConfig') or {}).get('RestartPolicy') or {}).get('Name')
+    return (bool(state.get('Running')) and state.get('StartedAt') != item['started']
+            and data.get('RestartCount', 0) == 0 and policy == item['policy'])
 
 def resume_preconditions(t):
     ledger = t.ops.ledger()
@@ -91,9 +119,8 @@ def execution_evidence(t, role):
     if t.done(f'legacy-resume:{role}'):
         return 'running'
     if state.get('Running'):
-        # Exactly the one start we issued: a daemon restart since then is unexplained.
-        restarted = data.get('RestartCount', 0) != item['restart_count']
-        return 'running' if new_execution and not restarted else 'inconsistent'
+        # Intent without ``done``: only an execution that is exactly ours counts as resumed.
+        return 'running' if our_start(item, data) else 'inconsistent'
     if new_execution:
         return 'exited-after-start'
     return 'none'

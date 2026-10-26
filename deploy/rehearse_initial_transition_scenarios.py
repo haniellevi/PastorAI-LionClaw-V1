@@ -13,7 +13,7 @@ import time
 from initial_transition import concurrent_indexes, git_tree, verify_contained_exit
 from initial_transition_ops import LIST_DIGEST, OWNER_LABEL, ZSET_DIGEST
 from rehearse_initial_transition import (
-    CANDIDATE_SHA, DSN, NEGATIVE, PROCESSING, QUEUE, ROLES, TABLE_LOCK, TENANT_A, Refused,
+    CANDIDATE_SHA, DSN, HEARTBEATS, NEGATIVE, PROCESSING, QUEUE, ROLES, TABLE_LOCK, TENANT_A, Refused,
 )
 from rehearse_legacy_queue import SYNTHETIC_ENV
 from rehearse_legacy_queue_active import HOLDER_PROBE, lock_key, lock_parts
@@ -236,7 +236,26 @@ def contained_candidate(f, label):
     f.check(exit_code == 3 and out.get('code') == 'post-ddl', 'resume-post-ddl')
 
 
+def daemon_restart(f, role):
+    """Real automatic restart: SIGTERM from inside (not ``docker kill``), the daemon restarts ``always``."""
+    before = f.inspect(f.legacy[role])
+    f.docker('exec', f.legacy[role], 'python3', '-I', '-c', SELF_TERM)
+
+    def back():
+        data = f.inspect(f.legacy[role])
+        return (data['RestartCount'] == before['RestartCount'] + 1 and data['State']['Running']
+                and data['State']['StartedAt'] != before['State']['StartedAt'])
+    f.until(back, 'daemon-restart', 90)
+    f.until(lambda: f.rcli(0, 'GET', HEARTBEATS[role]) in ('ready', 'running', 'idle'), 'restart-heartbeat', 90)
+    return f.inspect(f.legacy[role])
+
+
 def fixture_pre_ddl(f):
+    # Legacy that already carries a restart history (k > 0) before the transition starts.
+    f.observed['docker_server_version'] = f.docker('version', '--format', '{{.Server.Version}}').strip()
+    queue_id = f.legacy['queue-worker']
+    k = daemon_restart(f, 'queue-worker')['RestartCount']
+    f.check(k == 1, 'k-not-raised', 'legacy-queue-worker-auto-restarted-before-observe-k-1')
     dead, retry = seed_dead_and_retry(f)
     holder = queue_in_flight(f)
     f.write_spec(dict(messages={'m0': 1, 'm1': 1}, redis_lists={QUEUE: f.m2_digest, **dead}, redis_zsets=retry,
@@ -277,7 +296,13 @@ def fixture_pre_ddl(f):
     f.check(exit_code == 3 and status.get('last_refusal') == 'backfill-candidates' and not ddl_marker(f)
             and status.get('resume_token'), 'pre-ddl-refusal',
             'pre-ddl-refusal-backfill-candidate-after-reconciliation-no-ddl-marker')
-    f.assert_legacy_contained('pre-ddl-legacy-contained-restart-no')
+    f.assert_legacy_contained('pre-ddl-legacy-contained-restart-no', restart_counts={'queue-worker': k})
+    observe = [e for e in f.journal() if e['kind'] == 'done' and e.get('step') == 'observe'][-1]
+    contained = f.inspect(queue_id)
+    f.check(observe['legacy']['queue-worker']['restart_count'] == k and contained['RestartCount'] == k
+            and contained['HostConfig']['RestartPolicy']['Name'] == 'no', 'k-not-kept',
+            'k-observed-and-kept-by-update-and-stop')
+    k_started = contained['State']['StartedAt']
     # External DDL trace without marker: the legacy is not restarted.
     f.psql(f"insert into schema_migrations (name) values ('{EXTERNAL_LEDGER}')")
     _, status = f.controller('status')
@@ -308,15 +333,46 @@ def fixture_pre_ddl(f):
     (f.state / 'paused').unlink()
     f.check(f.inspect(f.legacy['backend'])['State']['Running'], 'backend-not-started',
             'resume-crash-after-real-start-backend-running-new-execution')
+    # Second crash, on the k > 0 role: after the REAL start of queue-worker, before its ``done``.
+    process = f.controller('resume-legacy', '--confirm', 'replay', '--pause-at',
+                           'legacy-resume:queue-worker:after-start', background=True)
+    until_alive(f, process, lambda: (f.state / 'paused').exists(), 'pause-resume-queue-start', 180)
+    f.kill_controller(process)
+    (f.state / 'paused').unlink()
+    started = f.inspect(queue_id)
+    queue_done = lambda: [e for e in f.journal() if e['kind'] == 'done' and e.get('step') == 'legacy-resume:queue-worker']
+    f.observed['queue_after_start_crash'] = dict(observed_k=k, restart_count=started['RestartCount'],
+                                                 running=started['State']['Running'], done_entries=len(queue_done()))
+    f.check(started['Id'] == queue_id and started['State']['Running'] and started['RestartCount'] == 0
+            and started['State']['StartedAt'] != k_started and not queue_done(), 'queue-start-crash',
+            'resume-crash-after-real-start-queue-worker-k1-runtime-0-no-done')
     expect_run(f, 'confirmed-resume-pre-ddl-replayed-after-start-crash', 'resume-legacy', '--confirm', 'replay')
+    adopted = f.inspect(queue_id)
+    f.observed['queue_after_replay'] = dict(same_id=adopted['Id'] == queue_id,
+                                            same_started=adopted['State']['StartedAt'] == started['State']['StartedAt'],
+                                            restart_count=adopted['RestartCount'], done_entries=len(queue_done()))
+    f.check(adopted['Id'] == queue_id and adopted['State']['StartedAt'] == started['State']['StartedAt']
+            and adopted['RestartCount'] == 0 and len(queue_done()) == 1, 'queue-not-adopted',
+            'replay-adopted-same-queue-execution-id-and-startedat-intact-one-done')
     for role in ROLES:
         data = f.inspect(f.legacy[role])
         f.check(data['State']['Running'] and data['HostConfig']['RestartPolicy']['Name'] == 'always'
                 and data['Id'] == f.legacy[role], 'legacy-resumed')
+    resumed = f.inspect(queue_id)
+    queue_done = [e for e in f.journal() if e['kind'] == 'done' and e.get('step') == 'legacy-resume:queue-worker'][-1]
+    f.observed['restart_count_k'] = dict(observed=k, contained=contained['RestartCount'],
+                                         resumed=resumed['RestartCount'], journal_done=queue_done['restart_count'])
+    f.check(resumed['Id'] == queue_id and resumed['RestartCount'] == 0 and queue_done['restart_count'] == 0
+            and resumed['State']['StartedAt'] != k_started and resumed['HostConfig']['RestartPolicy']['Name'] == 'always',
+            'k-resume', 'same-id-resumed-counter-reset-to-0-new-startedat-policy-always-done-0')
     f.until(lambda: f.messages('m2')['m2'] == 1, 'legacy-backlog', 90)
     f.check(f.edge_get('/health') == 200 and f.duplicates() == 0
             and f.psql(OP_AUDIT.format(op=f.reconcile['operacao'])) == '1', 'resume-state',
             'legacy-resumed-same-ids-policy-always-backlog-m2-once-reconciliation-kept-not-undone')
+    expect_run(f, 'terminal-replay-after-backlog-consumed-revalidated-ok', 'resume-legacy', '--confirm', 'replay')
+    daemon_restart(f, 'queue-worker')  # real automatic restart of an already resumed role
+    expect_run(f, 'terminal-replay-after-real-restart-refused', 'resume-legacy', '--confirm', 'replay', code=3,
+               refusal='legacy-resumed-state-changed')
     expect_run(f, 'run-after-legacy-resume-refused', 'run', code=3, refusal='legacy-resumed-terminal')
 
 
