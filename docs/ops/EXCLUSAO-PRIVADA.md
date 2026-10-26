@@ -85,6 +85,39 @@ release ou ativação. Nenhuma expiração/recusa automática libera memória. E
 fatia **não conclui Memória 6**.
 Deploy, banco remoto, funcionamento em produção e ativação: **não verificados**.
 
+## Trilha de vínculo Pessoa (#543) após exclusão
+
+Contrato atual conferido no código; produção **não verificada**. Esta seção não
+cria retenção, purga nem anonimização.
+
+- **O que fica:** cada vínculo/desvínculo entre acesso e Pessoa grava em
+  `team_pessoa_eventos` ([migration](../../backend/migrations/20261025_100000_team_pessoa.sql))
+  `id` técnico, `igreja_id`, `actor_id` (admin), `usuario_id`, `pessoa_id`,
+  `operacao` e `criado_em`, sem nome, e-mail ou telefone. A tabela não tem FKs
+  de propósito, e os caminhos atuais conferidos (exclusão privada, exclusão da
+  igreja, reset global e arquivamento) a preservam. Não há prazo de retenção
+  definido.
+- **Reset privado** (conversa, pessoa ou igreja) e arquivamento de Pessoa não
+  tocam a trilha; como os cadastros ficam, os UUIDs continuam resolvíveis.
+- **Exclusão cadastral da igreja ou reset global**
+  ([runbook nominal](TENANT-DELETION-RESET-RUNBOOK.md)) removem igreja e
+  Pessoas, mas as linhas da trilha ficam com os UUIDs originais. Contas de
+  platform admin são preservadas, então seus UUIDs continuam resolvíveis.
+- **Reconciliação excepcional** de duplicidade
+  ([release](RELEASE-LOTE-2026-10.md)) grava em `platform_audit_log` UUIDs e
+  hashes técnicos (operação, igreja, Pessoa, contas mantida e corrigida, admin
+  da igreja, operador, hash do payload e SHA do release); também sem FK e
+  preservado nesses caminhos.
+- **Quem lê:** não há endpoint de leitura de `team_pessoa_eventos`. O acesso
+  continua sujeito às RLS e ACL atuais; não presumir que excluir a igreja torne
+  essa trilha inacessível. Leitura operacional somente por procedimento
+  autorizado. `GET /admin/audit` expõe o `detalhe` de `platform_audit_log` a
+  platform admins, nas últimas 1 a 200 entradas.
+- **Limite:** UUID sem texto continua sendo identificador e pode ser
+  correlacionado com qualquer registro ou cópia que guarde o mesmo ID (outros
+  cadastros preservados, auditorias, recibos, logs, exports, backups). Esta trilha **não** é
+  anonimizada pela exclusão; não declarar exclusão completa ao solicitante.
+
 ## Retenção V1b — decisão pastoral 15
 
 Em 18/10/2026, Raniel decidiu retirar a exclusão automática em 24 horas
