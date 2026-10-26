@@ -166,6 +166,12 @@ class Settings(BaseSettings):
     # generation cycle only. Optional until nominally provisioned; without it
     # generation does not run, never falling back to DATABASE_URL.
     private_summary_database_url: str = Field(default="")
+    # Database identity of the normal queue worker. Exactly "legacy" (default:
+    # main session, current pilot behavior) or "dedicated" (only the login
+    # `queue_worker_runtime` from QUEUE_WORKER_DATABASE_URL, never DATABASE_URL).
+    # The URL alone never switches the mode; any other value refuses to start.
+    queue_worker_database_mode: str = Field(default="legacy")
+    queue_worker_database_url: str = Field(default="")
 
     # ---- Secrets encryption (RNF-03) ----------------------------------------
     secrets_encryption_key: str = Field(default="")
@@ -483,7 +489,8 @@ class Settings(BaseSettings):
         return self.session_jwt_secret or self.clerk_secret_key
 
     @field_validator("database_url", "agent_runtime_database_url", "private_storage_database_url",
-                     "private_send_database_url", "private_summary_database_url")
+                     "private_send_database_url", "private_summary_database_url",
+                     "queue_worker_database_url")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
         # SQLAlchemy expects the psycopg2 driver scheme explicitly.
