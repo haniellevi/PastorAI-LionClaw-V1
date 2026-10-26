@@ -60,7 +60,7 @@ KNOWN_MISSING = frozenset({
     '20260925_183811_preserve_platform_admins_on_tenant_deletion.sql',
     '20260926_120446_platform_jev_settings.sql',
 })
-EXPECTED_ACTIVE = 124   # total de migration_files() atual
+# Só o conjunto antes do corte é fixo; migrations posteriores não entram no baseline.
 EXPECTED_SELECTED = 78
 # Prefixo de 4 dígitos (legado 0001_...) ou de data com 8 dígitos; nada mais.
 MIGRATION_NAME = re.compile(r'(?:[0-9]{4}|[0-9]{8})_[A-Za-z0-9_.-]+\.sql')
@@ -153,7 +153,7 @@ def select_baseline(repo, loader=load_migrate):
     if not KNOWN_MISSING <= set(eligible):
         raise Refused('baseline-known-missing-absent')
     selected = [name for name in eligible if name not in KNOWN_MISSING]
-    if len(active) != EXPECTED_ACTIVE or len(selected) != EXPECTED_SELECTED:
+    if len(selected) != EXPECTED_SELECTED:
         raise Refused('baseline-count')
     sql = {}
     for name in selected:

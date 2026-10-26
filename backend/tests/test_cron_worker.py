@@ -651,3 +651,22 @@ def test_reminder_cycle_keeps_shared_dispatch_after_a_v3_producer_failure(monkey
 
     assert worker._run_cell_report_reminder_cycle(now=_T0) == (0, 0, 1)  # noqa: SLF001
     assert calls == ["v3_schedule", "dispatch"]
+
+
+def test_audio_cycle_never_hands_the_main_factory_to_summary_generation(monkeypatch) -> None:
+    """Summary generation resolves its own dedicated login; the main factory is never offered."""
+
+    import app.services.cell_report_audio_service as audio_service
+    import app.services.outbound_guard as outbound_guard
+    import app.services.private_summaries as summaries
+    import app.services.storage as storage_module
+
+    seen: list[tuple] = []
+    monkeypatch.setattr(summaries, "process_tasks", lambda *args, **kwargs: seen.append((args, kwargs)) or 0)
+    monkeypatch.setattr(audio_service, "purge_cell_report_audio_inputs", lambda factory, *, storage, now: 0)
+    monkeypatch.setattr(outbound_guard, "external_sends_allowed", lambda: False)
+    monkeypatch.setattr(storage_module, "SupabaseStorage", lambda: object())
+    worker = CronWorker(session_factory=lambda: object(), engine=FakeEngine(), tick_seconds=300)
+
+    worker._run_cell_report_audio_cycle(now=_T0)  # noqa: SLF001
+    assert seen == [((), {})]
