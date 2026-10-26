@@ -8,7 +8,7 @@ from app.prayer.models import PrayerProposal, PrayerRequest
 from app.workers.queue_worker import ingest_message_event_ex, run_agent_for_message
 from tests.test_messages_inbound_idempotency import _parsed, _ClassifiedEvolution
 from tests.test_prayer_privacy_pg import (  # noqa: F401
-    private_prayer, prayer, msg_engine_fx, rls_database_url, TENANT,
+    private_prayer, private_runtime, prayer, msg_engine_fx, rls_database_url, TENANT,
     send, client_for, Storage, MARKER,
 )
 
@@ -31,7 +31,7 @@ def audio(p):
     return dataclasses.replace(outcome, claim_id='prayer-audio-claim'), path
 
 
-def test_audio_collection_full_turn_retention_and_deletion(private_prayer):
+def test_audio_collection_full_turn_retention_and_deletion(private_prayer, private_runtime):
     p = private_prayer
     send(p, 'Quero iniciar pedido de oração')
     outcome, path = audio(p)
@@ -65,7 +65,7 @@ def test_audio_collection_full_turn_retention_and_deletion(private_prayer):
         def remove_tenant_media(self, tenant, paths):
             assert tenant == TENANT
             removed.extend(paths)
-    assert process_storage_tasks(p.factory, storage=Cleanup()) == 1
+    assert process_storage_tasks(private_runtime, storage=Cleanup()) == 1
     assert removed == [path]
 
 
@@ -237,7 +237,7 @@ def test_v1b_enabled_consent_routes_prayer_and_regular_audio(report_audio_prayer
 
 
 @pytest.mark.parametrize('deletion_scope', ['pessoa', 'igreja'])
-def test_audio_deleted_by_person_and_church(private_prayer, deletion_scope):
+def test_audio_deleted_by_person_and_church(private_prayer, deletion_scope, private_runtime):
     from app.services.private_deletion import delete_private, process_storage_tasks
     from tests.test_prayer_privacy_pg import scope
     p = private_prayer
@@ -254,7 +254,7 @@ def test_audio_deleted_by_person_and_church(private_prayer, deletion_scope):
         def remove_tenant_media(self, tenant, paths):
             assert tenant == TENANT
             removed.extend(paths)
-    assert process_storage_tasks(p.factory, storage=Cleanup()) == 1
+    assert process_storage_tasks(private_runtime, storage=Cleanup()) == 1
     assert removed == [path]
     with p.factory() as db:
         assert db.get(Message, outcome.inbound_message_id) is None

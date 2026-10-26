@@ -30,8 +30,7 @@ def local_docker(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def _names(selected=active.EXPECTED_SELECTED, later=None):
-    later = active.EXPECTED_ACTIVE - selected - len(active.KNOWN_MISSING) if later is None else later
+def _names(selected=active.EXPECTED_SELECTED, later=42):
     legacy = [f'{i:04d}_legacy.sql' for i in range(1, 8)]  # como 0001_..., 0005 seed, 0007
     early = legacy[:selected] + [f'20260101_{i:06d}_synthetic.sql' for i in range(max(selected - 7, 0))]
     tail = [f'20261015_{i:06d}_later.sql' for i in range(later)]
@@ -70,7 +69,7 @@ def test_baseline_uses_current_selection_excludes_known_missing(tmp_path):
     loader, seen = _repo(tmp_path, names)
     baseline = active.select_baseline(tmp_path, loader=loader)
     assert seen == [tmp_path / 'backend' / 'migrations']
-    assert baseline['active'] == active.EXPECTED_ACTIVE
+    assert baseline['active'] == len(names)
     assert len(baseline['selected']) == active.EXPECTED_SELECTED == len(baseline['sql'])
     assert not active.KNOWN_MISSING & set(baseline['selected'])
     assert all(name < active.CUTOFF for name in baseline['selected'])
@@ -91,12 +90,33 @@ def test_baseline_name_prefix_is_four_or_eight_digits_only(tmp_path, bad):
 @pytest.mark.parametrize('mutate, code', [
     (lambda names: [n for n in names if n not in active.KNOWN_MISSING], 'baseline-known-missing-absent'),
     (lambda names: names[1:], 'baseline-count'),
-    (lambda names: [*names, '20261020_000000_extra.sql'], 'baseline-count'),
+    (lambda names: sorted([*names, '20261014_000000_extra.sql']), 'baseline-count'),
 ])
 def test_baseline_refuses_drift(tmp_path, mutate, code):
     loader, _ = _repo(tmp_path, mutate(_names()))
     with pytest.raises(containment.Refused, match=code):
         active.select_baseline(tmp_path, loader=loader)
+
+
+@pytest.mark.parametrize('later', [0, 1, 42, 45, 50])
+def test_baseline_ignores_migrations_after_cutoff(tmp_path, later):
+    # Migrations novas depois do corte não mudam a seleção nem o bundle, e nunca são lidas.
+    reference_root = tmp_path / 'reference'
+    reference_loader, _ = _repo(reference_root, _names(later=0))
+    reference = active.select_baseline(reference_root, loader=reference_loader)
+    names = _names(later=later)
+    loader, _ = _repo(tmp_path / 'repo', names)
+    for name in names:
+        if name >= active.CUTOFF:
+            path = tmp_path / 'repo' / 'backend' / 'migrations' / name
+            path.unlink()
+            path.symlink_to(tmp_path / 'absent')
+    baseline = active.select_baseline(tmp_path / 'repo', loader=loader)
+    assert baseline['active'] == len(names)
+    assert baseline['selected'] == reference['selected']
+    assert baseline['sql'] == reference['sql']
+    assert not any(name >= active.CUTOFF for name in baseline['sql'])
+    assert active.bundle_args(baseline) == active.bundle_args(reference)
 
 
 def test_baseline_refuses_symlinked_sql(tmp_path):

@@ -48,8 +48,8 @@ expiração de 30 dias ou retenção de versões antigas.
 ## Worker, orçamento e gates
 
 `private_summary_tasks` persiste IDs, revisão, geração, solicitante e estado;
-nenhum prompt ou conteúdo. O cron consome tarefas, com descoberta nominal e
-processamento tenant-scoped no papel `authenticated` NOBYPASSRLS. Duplicatas não
+nenhum prompt ou conteúdo. O cron consome tarefas só pelo login dedicado
+`private_summary_runtime` (seção abaixo). Duplicatas não
 repetem a chamada. Novo pedido explícito recoloca a mesma tarefa `refused/budget_or_credential` em `queued`, sem duplicar; o worker revalida gates, credencial e orçamento antes de qualquer chamada. Outras recusas, inclusive resultado ambíguo do provedor, não são reenviadas. Reserva mensal atômica por igreja antes de cruzar o provedor;
 falha, timeout ou crash conservam a reserva. Tarefa `running` abandonada por mais
 de dois minutos vira `refused/provider_outcome_unknown`; não se presume sucesso,
@@ -77,6 +77,57 @@ origem/revisão/geração/pessoa/credencial/gates/solicitante → publicar/commi
 Correção vigente é relida sob o lock de publicação. Exclusão durante a chamada
 remove tarefa e impede ressurgimento local; não desfaz o que já foi enviado.
 
+## Identidade dedicada do ciclo (candidata local, migration `20261030_140000`)
+
+Descoberta, claim, reserva, leitura das projeções e publicação rodam só no login
+`private_summary_runtime` (`PRIVATE_SUMMARY_DATABASE_URL`, distinta das demais
+URLs; LOGIN NOBYPASSRLS, sem memberships). Cada transação prova a identidade,
+o `search_path` fixo e a igreja, sem `SET ROLE` e sem fallback. Os gates de
+código vêm antes de resolver a factory. Sem URL, com URL inválida ou com factory
+principal injetada, a geração não roda e registra só
+`private_summary_runtime_unavailable`. Se a identidade mudar entre o claim e a
+publicação, a tarefa fica `running` e depois vira abandonada, sem nova chamada.
+
+Grants só nas tabelas privadas: settings SELECT; tasks SELECT e
+UPDATE(state, started_at, error_code), só de queued/running para
+running/done/refused (nunca de volta a queued); resumos SELECT, INSERT/UPDATE
+nas colunas do upsert (sem `human_correction` no UPDATE); fontes
+SELECT/INSERT/DELETE. Policies `to private_summary_runtime` exigem igreja da
+transação **e** sessão viva. As restritivas `request_suspends_*` valem só
+`to authenticated` e não alcançam o runtime: um SELECT direto desse login lê
+resumo e fontes da igreja fixada mesmo com pedido de exclusão pendente. O
+caminho real valida a origem (`origin_valid`, que inclui pedido pendente e
+opt-out) antes de cada leitura e publicação, mas não há suspensão equivalente
+em toda consulta SQL; worker comprometido segue fora do escopo. Orçamento sem grant: reserva só por função de custo fixo 100.000.
+Tabelas centrais só por seis funções tipadas: descoberta (só IDs; mesmo
+predicado e ordem, mas agora com limite técnico de 1 a 100 igrejas aprovadas e
+`limit` de 1 a 100, padrão 20; fora disso recusa com 22023), snapshot com
+barreira e lock de conversa, fontes (ID e código, nunca texto), solicitante
+(NULL segue confiável), credencial (mesmo filtro; allowlist no Python) e
+reserva. Locks e verificações de FK provados em PG sintético com o LOGIN real.
+O snapshot segura a barreira compartilhada `private-content:<igreja>` até o
+COMMIT; `private_erasure_request` (migration `20261022_100000`) toma a mesma
+barreira em modo exclusivo, então o caminho oficial não confirma pedido entre
+o snapshot e a leitura das fontes. A recusa 55000 da projeção de fontes cobre
+contorno da barreira (por exemplo INSERT manual): falha fechada, rollback e aviso
+genérico, sem prova de corrida no caminho autorizado nem prova em produção.
+
+Não muda: `enqueue`, `reserve_budget`, leitura, correção, enfileiramento web,
+retomada, pedidos de exclusão e permissões antigas de `authenticated`. O login
+principal (BYPASS) continua capaz de tudo isso: limite declarado. O runtime
+comprometido ainda pode gravar resumo/fontes da igreja fixada, como o principal
+já pode. O preflight acrescenta só as três funções cujo corpo lê tabela com
+FORCE RLS (descoberta, fontes e reserva); snapshot, solicitante e credencial
+leem diretamente só tabelas sem FORCE, que o dono das tabelas lê sem BYPASS
+(com outro dono, falham fechadas), e entram como exclusões explícitas no teste
+de completude do catálogo. A dependência transitiva do dono de `origin_valid`,
+que herda `row_security=off` do chamador e lê tabelas com FORCE, não é contrato
+do preflight: o preflight olha só o `proconfig` da própria função.
+Antes de ativar: provisionar o LOGIN por decisão nominal e entregar a URL só ao
+cron; hoje API, queue, cron e broadcast compartilham o mesmo `env_file`, então
+essa separação **não** está entregue. Aplicação remota, dono real e URL por
+processo: **não verificados**.
+
 ## Exclusão, invalidação e release
 
 A migration `20261019_120001_private_conversation_summaries.sql` acrescenta FKs
@@ -93,7 +144,9 @@ O vínculo pessoa/conversa é sempre revalidado; identidade errada nunca é repa
 pelo modelo. Fonte movida para outra conversa é recusada pela FK composta.
 
 Aplicar a cadeia ativa via `backend/scripts/migrate.py`, primeiro em PostgreSQL
-sintético. Conter consumidores na atualização/rollback; publicar somente com
+sintético. `20261030_140000` nada revoga: o código anterior segue igual com
+ela; o código novo sem ela só falharia com gates abertos. Conter o cron na
+aplicação/rollback; o rollback comentado preserva dados e recusa LOGIN provisionado. Conter consumidores na atualização/rollback; publicar somente com
 schema compatível. Rollback comentado restaura a função anterior antes de remover
 tabelas/triggers; conteúdo apagado não é recuperável pelo rollback. Sem execução
 remota autorizada nesta entrega. Revisão de Sarah: **RLS, migration e privacidade**.

@@ -12,6 +12,7 @@ from app.db.models import AgentConfig, LlmCredential, ConsentRecord, Message
 from app.services.crypto import encrypt_secret
 from app.workers import queue_worker as worker
 from tests.test_uv_turmas_pg import migrated_database, database, seeded
+from tests.private_send_pg import send_release_login  # noqa: F401
 from tests.test_messages_inbound_idempotency import (
     _seed_tier_a_handoff_anchor, _seed_inbound_anchor, _agent_outcome, _ClassifiedEvolution)
 
@@ -184,7 +185,7 @@ def test_disabled_never_executes_domain(agenda_turn, monkeypatch, fence):
     assert count(p) == 0 and (reply.agent_privilege_context or {}).get('kind') != 'agenda_local'
 
 
-def test_receipt_retry_does_not_duplicate(agenda_turn):
+def test_receipt_retry_does_not_duplicate(agenda_turn, send_release_login):
     p = agenda_turn
     send(p, CREATE)
     outcome = inbound(p, 'SIM')

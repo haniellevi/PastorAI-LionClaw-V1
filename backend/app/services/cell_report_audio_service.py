@@ -2209,6 +2209,52 @@ def _remaining_audio_seconds(deadline_at: float, *, cap: float) -> float:
     return min(cap, remaining)
 
 
+def _upload_owned_audio(
+    private_storage: Any,
+    claim: AudioInputClaim,
+    upload: Callable[[], object],
+    attempt_token: uuid.UUID,
+) -> object:
+    """Resolve upload ownership only on a provider-confirmed write.
+
+    A known return, even a 2xx after the deadline, proves this request can no
+    longer land: release ownership and reopen any deletion atomically. Only the
+    owned object qualifies: the returned path must equal the claim's tenant
+    path (or finish's same deterministic fallback); anything else keeps
+    ownership and stops the chain without touching the returned object.
+    A late 2xx still fails the chain with its original error. Timeouts,
+    transport or close errors and process loss keep the durable fence for
+    reconciliation. Resolve before the monotonic boundary check: that check may
+    reject a completed upload simply because its return exceeded the deadline.
+    ``private_storage`` resolves ownership under the dedicated Storage login,
+    only for ``attempt_token`` (never a newer attempt's ownership).
+    """
+
+    from app.services.storage import (
+        StorageError, StorageLateSuccess, cell_report_audio_storage_path, tenant_owned_paths,
+    )
+
+    def owned_object(stored: object) -> None:
+        expected = claim.storage_path or cell_report_audio_storage_path(
+            claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
+        tenant_owned_paths(claim.igreja_id, [expected])
+        if getattr(stored, "path", None) != expected:
+            raise StorageError("Caminho do upload divergente")
+
+    try:
+        stored = upload()
+    except StorageLateSuccess as late:
+        owned_object(late.stored)
+        try:
+            private_storage.finish_upload(claim, attempt_token)
+        except Exception:  # Commit outcome may be unknown; no retry here.
+            logger.warning("Finalização de upload V1b falhou")
+        raise
+    owned_object(stored)
+    private_storage.finish_upload(claim, attempt_token)
+    return stored
+
+
 def _run_audio_boundary(
     operation: Callable[[], object],
     *,
@@ -2508,15 +2554,19 @@ def _reopen_audio_purge_after_late_upload(
     claim: AudioInputClaim,
     *,
     now: dt.datetime | None = None,
+    private_storage: Any = None,
 ) -> None:
     """Reopen physical cleanup if storage returned after an expired purge lease.
 
     The old purge may have observed no object yet and marked the durable row as
     purged.  A late successful upload must make the same canonical path
-    selectable again, never leave a private blob stranded.
+    selectable again, never leave a private blob stranded.  When deletion
+    already removed the row, its task is reopened under the dedicated Storage
+    login, after this transaction: no row lock is held there to preserve.
     """
 
     current = _utc_now(now)
+    deleted = False
     session = session_factory()
     try:
         _scoped(session, claim.igreja_id, "cell_report_audio_late_upload")
@@ -2529,15 +2579,7 @@ def _reopen_audio_purge_after_late_upload(
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
-        if row is None:
-            from app.services.private_deletion import reopen_late_audio_upload
-            from app.services.storage import cell_report_audio_storage_path
-
-            path = claim.storage_path or cell_report_audio_storage_path(
-                claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
-            reopen_late_audio_upload(session, igreja_id=claim.igreja_id,
-                                    conversation_id=claim.conversation_id,
-                                    source_id=claim.input_id, storage_path=path)
+        deleted = row is None
         if row is not None and row.purge_state in {"pendente", "purgada"}:
             row.purge_state = "ativa"
             row.content_purged_at = None
@@ -2550,8 +2592,20 @@ def _reopen_audio_purge_after_late_upload(
         session.commit()
     except Exception:
         session.rollback()
+        deleted = False
     finally:
         session.close()
+    if not deleted:
+        return
+    from app.services.private_deletion import PrivateStorageRuntime
+    from app.services.storage import cell_report_audio_storage_path
+
+    try:
+        path = claim.storage_path or cell_report_audio_storage_path(
+            claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
+        (private_storage or PrivateStorageRuntime()).reopen_late_upload(claim, path)
+    except Exception:  # Not retried here; a completed task may stay closed.
+        logger.warning("Reabertura de limpeza V1b falhou")
 
 
 def _stage_audio_transcript(
@@ -2971,6 +3025,7 @@ def _handoff_audio_claim_after_boundary(
     ambiguous: bool,
     storage_attempted: bool,
     progress_callback: Callable[[], None] | None = None,
+    private_storage: Any = None,
 ) -> None:
     """Fence a failed audio chain without repeating any external boundary."""
 
@@ -2978,7 +3033,8 @@ def _handoff_audio_claim_after_boundary(
     # Reopen retention before the handoff, whose terminalization otherwise
     # overwrites the generation that an older delete completion must not close.
     if storage_attempted:
-        _reopen_audio_purge_after_late_upload(session_factory, claim)
+        _reopen_audio_purge_after_late_upload(session_factory, claim,
+                                              private_storage=private_storage)
     while True:
         result = _handoff_audio_claim_failure(
             session_factory,
@@ -3141,6 +3197,7 @@ def _run_audio_extraction_provider_chain(
     *,
     deadline_at: float,
     progress_callback: Callable[[], None] | None = None,
+    private_storage: Any = None,
 ) -> object | None:
     """Run the V1a aggregate extractor after the audio transcript is durable."""
 
@@ -3163,6 +3220,7 @@ def _run_audio_extraction_provider_chain(
             ambiguous=False,
             storage_attempted=True,
             progress_callback=progress_callback,
+            private_storage=private_storage,
         )
         return None
     try:
@@ -3191,6 +3249,7 @@ def _run_audio_extraction_provider_chain(
             ambiguous=False,
             storage_attempted=True,
             progress_callback=progress_callback,
+            private_storage=private_storage,
         )
         return None
     while True:
@@ -3217,6 +3276,7 @@ def _run_audio_extraction_provider_chain(
                 ambiguous=False,
                 storage_attempted=True,
                 progress_callback=progress_callback,
+                private_storage=private_storage,
             )
             return None
 
@@ -3230,8 +3290,13 @@ def _run_audio_provider_chain(
     decoder: Callable[..., object],
     transcriber: Callable[..., object],
     progress_callback: Callable[[], None] | None = None,
+    private_storage: Any = None,
 ) -> object | None:
-    """Run bounded V1b I/O outside every database session and stage its reply."""
+    """Run bounded V1b I/O outside every database session and stage its reply.
+
+    The dispatcher proves ``private_storage`` before claiming; upload ownership
+    then uses only that dedicated login.
+    """
 
     from app.services.crypto import decrypt_secret
     from app.services.cell_report_audio import (
@@ -3241,7 +3306,9 @@ def _run_audio_provider_chain(
         DecodedAudio,
         canonical_audio_mime,
     )
+    from app.services.private_deletion import PrivateStorageRuntime
 
+    private_storage = private_storage or PrivateStorageRuntime()
     current = _utc_now(None)
     lease_until = claim.lease_until
     if type(lease_until) is not dt.datetime or lease_until.tzinfo is None:
@@ -3273,7 +3340,8 @@ def _run_audio_provider_chain(
 
     def denied_before_external() -> None:
         if storage_attempted:
-            _reopen_audio_purge_after_late_upload(session_factory, claim)
+            _reopen_audio_purge_after_late_upload(session_factory, claim,
+                                                  private_storage=private_storage)
         _terminalize_audio_claim(
             session_factory,
             claim,
@@ -3338,27 +3406,27 @@ def _run_audio_provider_chain(
         if not authorized:
             denied_before_external()
             return None
-        from app.services.private_deletion import begin_audio_upload, finish_audio_upload
-
-        if not begin_audio_upload(session_factory, claim):
+        # Committed before the POST that carries it; anything else uploads nothing.
+        attempt_token = private_storage.begin_upload(claim)
+        if type(attempt_token) is not uuid.UUID:
             denied_before_external()
             return None
         storage_attempted = True
 
         def upload_owned_audio():
-            stored = storage.upload_cell_report_audio(
-                igreja_id=claim.igreja_id,
-                provider_message_sha256=claim.provider_message_sha256,
-                mime_type=decoded.mime_type,
-                raw=raw,
-                deadline_seconds=_remaining_audio_seconds(deadline_at, cap=30.0),
+            return _upload_owned_audio(
+                private_storage,
+                claim,
+                lambda: storage.upload_cell_report_audio(
+                    igreja_id=claim.igreja_id,
+                    provider_message_sha256=claim.provider_message_sha256,
+                    mime_type=decoded.mime_type,
+                    raw=raw,
+                    deadline_seconds=_remaining_audio_seconds(deadline_at, cap=30.0),
+                    attempt_token=attempt_token,
+                ),
+                attempt_token,
             )
-            # Only a known return resolves ownership. A transport timeout or
-            # process loss leaves the durable fence for explicit reconciliation.
-            # Resolve before the monotonic boundary check: that check may reject
-            # a completed upload simply because its return exceeded the deadline.
-            finish_audio_upload(session_factory, claim)
-            return stored
 
         stored = _run_audio_boundary(
             upload_owned_audio,
@@ -3412,6 +3480,7 @@ def _run_audio_provider_chain(
                 ambiguous=False,
                 storage_attempted=True,
                 progress_callback=progress_callback,
+                private_storage=private_storage,
             )
             return None
         authorized = _audio_claim_still_authorized(session_factory, claim)
@@ -3473,6 +3542,7 @@ def _run_audio_provider_chain(
                         staged,
                         deadline_at=deadline_at,
                         progress_callback=progress_callback,
+                        private_storage=private_storage,
                     )
                 return staged
             if not _wait_for_audio_authorization(
@@ -3492,6 +3562,7 @@ def _run_audio_provider_chain(
             ambiguous=False,
             storage_attempted=storage_attempted,
             progress_callback=progress_callback,
+            private_storage=private_storage,
         )
         return None
     except Exception:  # Provider and storage outcomes are non-repeatable.
@@ -3504,6 +3575,7 @@ def _run_audio_provider_chain(
             ambiguous=True,
             storage_attempted=storage_attempted,
             progress_callback=progress_callback,
+            private_storage=private_storage,
         )
         return None
 
@@ -3750,18 +3822,26 @@ def dispatch_cell_report_audio_inputs(
     transcriber: Callable[..., object],
     limit: int = 10,
     progress_callback: Callable[[], None] | None = None,
+    private_storage: Any = None,
 ) -> AudioDispatchResult:
     """Claim and process a finite batch of already committed V1b inputs.
 
     Every provider boundary starts only after the claim and budget reservation
     commit.  The result re-enters the existing outbound agent ledger rather
     than fabricating a WhatsApp inbound or directly sending a response.
+    No new input of a tenant is claimed until the dedicated private Storage
+    login is proven for it: without it, nothing is downloaded, uploaded or
+    transcribed and the input stays pending.  Recovery and reply retries,
+    which need no upload ownership, are unchanged.
     """
 
     if type(limit) is not int or isinstance(limit, bool) or limit <= 0:
         return AudioDispatchResult(0, 0)
     from app.services.outbound_guard import external_sends_allowed
+    from app.services.private_deletion import PrivateStorageRuntime
     from app.workers import queue_worker as qw
+
+    private_storage = private_storage or PrivateStorageRuntime()
 
     claimed = 0
     completed = 0
@@ -3780,6 +3860,7 @@ def dispatch_cell_report_audio_inputs(
         if not cell_report_audio_enabled_from_environment(tenant):
             continue
         visited: list[uuid.UUID] = []
+        storage_ready: bool | None = None
         while remaining > 0:
             if progress_callback is not None:
                 progress_callback()
@@ -3809,6 +3890,18 @@ def dispatch_cell_report_audio_inputs(
                 # No already-transcribed reply needs a transport retry.  New
                 # inputs below still get their own finite claim attempt.
                 pass
+            if storage_ready is None:
+                try:
+                    private_storage.ready(tenant)
+                    storage_ready = True
+                except Exception:  # Fail closed before any claim or provider I/O.
+                    storage_ready = False
+                    logger.warning(
+                        "Runtime de Storage privado indisponível; áudio V1b aguarda",
+                        extra={"event": "private_storage_runtime_unavailable"},
+                    )
+            if not storage_ready:
+                break
             attempt = _claim_next_audio_input(
                 session_factory,
                 tenant,
@@ -3831,6 +3924,7 @@ def dispatch_cell_report_audio_inputs(
                 decoder=decoder,
                 transcriber=transcriber,
                 progress_callback=progress_callback,
+                private_storage=private_storage,
             )
             if intent is None:
                 completed += 1
