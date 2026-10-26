@@ -408,6 +408,147 @@ def test_deleted_event_caught_when_deletion_commits_before_ingestion_barrier(dat
         assert ingest_message_event_ex(s,parsed).result==IngestionResult.IGNORED
 
 
+def _upload_during_deletion(database, v, monkeypatch, respond):
+    """Real Storage upload over fake HTTP; deletion commits while it is in flight.
+
+    Only Storage's clock jumps past its 30 s deadline. Returns the canonical
+    path, the claim on that path and the upload callable.
+    """
+    import dataclasses
+    import time
+    import httpx
+    from app.services import storage as storage_module
+    path = storage_module.cell_report_audio_storage_path(v['tenant'], 'a'*64, 'audio/ogg')
+    with database.begin() as c:
+        c.execute(text('update cell_report_audio_inputs set storage_path=:p where id=:audio'), dict(v, p=path))
+    offset = [0.0]
+    monkeypatch.setattr(storage_module, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+offset[0]))
+    def handler(request):
+        v['objects'][request.url.path.removeprefix('/storage/v1/object/whatsapp-media/')] = request.content
+        with api(database, v) as client:
+            deleted = client.delete(f"/conversations/{v['conv']}")
+            assert deleted.status_code == 200, deleted.text
+            v['receipt'] = deleted.json()['id']
+        offset[0] = 31.0
+        return respond(request)
+    real_client = httpx.Client
+    monkeypatch.setattr(storage_module.httpx, 'Client',
+                        lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs))
+    real = storage_module.SupabaseStorage(SimpleNamespace(
+        supabase_url='https://storage.example.test', supabase_service_role_key='synthetic-key'))
+    upload = lambda: real.upload_cell_report_audio(igreja_id=v['tenant'], provider_message_sha256='a'*64,
+        mime_type='audio/ogg', raw=b'synthetic audio', deadline_seconds=10)
+    return path, dataclasses.replace(claim(v), storage_path=path), upload
+
+
+class _ObjectStorage:
+    """Strict tenant DELETE over the synthetic objects; can fail on demand.
+
+    Seeds an object of the second church that no cleanup may reach.
+    """
+    def __init__(self, v):
+        from app.services.storage import cell_report_audio_storage_path
+        self.v, self.failing, self.calls = v, False, []
+        self.foreign = cell_report_audio_storage_path(v['other'], 'a'*64, 'audio/ogg')
+        v['objects'][self.foreign] = b'synthetic other church audio'
+    def remove_tenant_media(self, tenant, paths):
+        from app.services.storage import tenant_owned_paths
+        assert tenant == self.v['tenant']
+        assert tenant_owned_paths(tenant, paths) == list(paths)
+        self.calls.extend(paths)
+        if self.failing:
+            raise RuntimeError('Synthetic storage unavailable')
+        for path in paths:
+            self.v['objects'].pop(path, None)
+    def assert_foreign_preserved(self):
+        assert self.foreign not in self.calls
+        assert self.v['objects'][self.foreign] == b'synthetic other church audio'
+
+
+def _receipt(database, v):
+    with api(database, v) as client:
+        return client.get(f"/igreja/private-deletions/{v['receipt']}").json()
+
+
+def _other_church_untouched(database, v):
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
+        for table in ('private_deletion_receipts', 'private_deletion_tasks', 'private_deletion_uploads'):
+            assert c.execute(text(f'select count(*) from {table} where igreja_id=:other'), v).scalar_one() == 0
+    with scoped(database, v['other']) as s:
+        for table in ('private_deletion_tasks', 'private_deletion_uploads'):
+            assert s.execute(text(f'select count(*) from {table}')).scalar_one() == 0
+
+
+def _owned(database, v):
+    with database.connect() as c:
+        return c.execute(text('select count(*) from private_deletion_uploads where source_id=:audio'), v).scalar_one()
+
+
+def test_confirmed_late_upload_during_deletion_releases_ownership_and_completes(database, private_data, monkeypatch):
+    import httpx
+    from app.services.cell_report_audio_service import _upload_owned_audio
+    from app.services.private_deletion import begin_audio_upload, process_storage_tasks
+    from app.services.storage import StorageLateSuccess
+    v = dict(private_data, objects={}); factory = lambda: Session(database)
+    path, owned, upload = _upload_during_deletion(database, v, monkeypatch, lambda _: httpx.Response(200))
+    assert begin_audio_upload(factory, owned)
+    with pytest.raises(StorageLateSuccess):
+        _upload_owned_audio(factory, owned, upload)
+    assert _owned(database, v) == 0 and path in v['objects']
+    now = dt.datetime.now(dt.UTC); storage = _ObjectStorage(v); storage.failing = True
+    assert process_storage_tasks(factory, storage=storage, now=now) == 0
+    failed = _receipt(database, v)
+    # The late object is queued and stays pending until a strict DELETE succeeds.
+    assert failed['estado'] == 'pendente' and path in storage.calls and path in v['objects']
+    assert failed['camadas']['midias'] == dict(encontradas=2, apagadas=0, pendentes=2, falhas=2)
+    storage.failing = False
+    assert process_storage_tasks(factory, storage=storage, now=now+dt.timedelta(hours=1)) == 2
+    assert path not in v['objects']
+    done = _receipt(database, v)
+    assert done['estado'] == 'concluido'
+    assert done['camadas']['midias'] == dict(encontradas=2, apagadas=2, pendentes=0, falhas=0)
+    storage.assert_foreign_preserved()
+    _other_church_untouched(database, v)
+
+
+@pytest.mark.parametrize('failure', ('timeout', 'commit'))
+def test_unknown_or_unresolved_upload_keeps_ownership_and_pending_receipt(database, private_data, monkeypatch, failure):
+    import httpx
+    from sqlalchemy import event
+    from app.services.cell_report_audio_service import _upload_owned_audio
+    from app.services.private_deletion import begin_audio_upload, process_storage_tasks
+    from app.services.storage import StorageError, StorageLateSuccess
+    v = dict(private_data, objects={}); factory = lambda: Session(database)
+    def respond(request):
+        if failure == 'timeout':  # The write happened; the result is unknown.
+            raise httpx.ReadTimeout('synthetic timeout after the write', request=request)
+        return httpx.Response(200)
+    def failing_commit():
+        s = Session(database)
+        event.listen(s, 'before_commit', lambda _s: (_ for _ in ()).throw(RuntimeError('synthetic commit failure')))
+        return s
+    path, owned, upload = _upload_during_deletion(database, v, monkeypatch, respond)
+    assert begin_audio_upload(factory, owned)
+    with pytest.raises(StorageLateSuccess if failure == 'commit' else StorageError) as error:
+        _upload_owned_audio(failing_commit if failure == 'commit' else factory, owned, upload)
+    assert failure == 'commit' or not isinstance(error.value, StorageLateSuccess)
+    # A rolled-back resolution keeps ownership; the deletion's task is intact.
+    assert _owned(database, v) == 1
+    with database.connect() as c:
+        assert c.execute(text('select state,storage_path,attempts from private_deletion_tasks where source_id=:audio'), v).one() == ('pendente', path, 0)
+    storage = _ObjectStorage(v)
+    for days in (2, 30):
+        process_storage_tasks(factory, storage=storage, now=dt.datetime.now(dt.UTC)+dt.timedelta(days=days))
+    # Elapsed time never releases the fence: audio survives, receipt stays pending.
+    assert path not in storage.calls and path in v['objects']
+    pending = _receipt(database, v)
+    assert pending['estado'] == 'pendente'
+    assert pending['camadas']['midias'] == dict(encontradas=2, apagadas=1, pendentes=1, falhas=0)
+    storage.assert_foreign_preserved()
+    _other_church_untouched(database, v)
+
+
 def test_lost_upload_cannot_starve_later_cleanup(database, private_data):
     from app.services.private_deletion import begin_audio_upload, process_storage_tasks
     v=private_data; factory=lambda: Session(database)

@@ -221,6 +221,16 @@ Upload iniciado tem ownership durável; tarefa não conclui enquanto ele existir
 Retorno tardio encontra a tarefa por `source_id`, inclusive sem conversa viva,
 reabre limpeza e remove ownership atomicamente. Falha/timeout com resultado
 externo desconhecido conserva pendência; lease vencida não prova fim do efeito.
+Resposta 2xx do Storage após o prazo (`StorageLateSuccess`, com resposta e
+cliente fechados sem erro) prova a gravação: resolve a ownership pelo mesmo
+caminho atômico, mas a cadeia de áudio falha como antes (handoff conservador
+`ambigua`/`externo_ambiguo`), sem orçamento, transcrição ou resposta. Só resolve
+se o caminho devolvido for exatamente o do claim, na igreja do claim; caminho
+divergente mantém ownership e interrompe a cadeia sem apagar o objeto devolvido.
+Timeout, erro de transporte/fechamento, 3xx/4xx/5xx e processo perdido
+continuam ambíguos. Falha ao finalizar não é repetida: a transação atômica
+decide (o commit pode ter ocorrido com retorno incerto). Esta fatia não resolve
+uploads realmente ambíguos, identidade do worker nem política de tombstones.
 
 Envio tem marcador durável criado com `ia_em_transporte`; geração/prazo são
 revalidados antes do HTTP e ao persistir resultado. A janela de 60s autoriza
@@ -264,8 +274,8 @@ que revalida admin. Processing mantém o escopo tenant NOBYPASSRLS da #509.
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
 retenção de tombstones. Pendências técnicas: identidade de worker ainda segue o
-padrão servidor confiável sem subject da #509; reconciliação automática de
-upload que falhou é ausente (falha pode ser ambígua); tombstones não expiram
+padrão servidor confiável sem subject da #509; reconciliação de upload com
+resultado desconhecido é ausente (só 2xx tardio confirmado é resolvido); tombstones não expiram
 sem política aprovada e horizonte comprovado de replay/restauração. Logs sem
 âncora não têm proveniência individual retroativa; a limpeza é conservadora.
 O frontend apresenta ID/estado do recibo no feedback da exclusão; não há nova

@@ -2209,6 +2209,50 @@ def _remaining_audio_seconds(deadline_at: float, *, cap: float) -> float:
     return min(cap, remaining)
 
 
+def _upload_owned_audio(
+    session_factory: Callable[[], Session],
+    claim: AudioInputClaim,
+    upload: Callable[[], object],
+) -> object:
+    """Resolve upload ownership only on a provider-confirmed write.
+
+    A known return, even a 2xx after the deadline, proves this request can no
+    longer land: release ownership and reopen any deletion atomically. Only the
+    owned object qualifies: the returned path must equal the claim's tenant
+    path (or finish's same deterministic fallback); anything else keeps
+    ownership and stops the chain without touching the returned object.
+    A late 2xx still fails the chain with its original error. Timeouts,
+    transport or close errors and process loss keep the durable fence for
+    reconciliation. Resolve before the monotonic boundary check: that check may
+    reject a completed upload simply because its return exceeded the deadline.
+    """
+
+    from app.services.private_deletion import finish_audio_upload
+    from app.services.storage import (
+        StorageError, StorageLateSuccess, cell_report_audio_storage_path, tenant_owned_paths,
+    )
+
+    def owned_object(stored: object) -> None:
+        expected = claim.storage_path or cell_report_audio_storage_path(
+            claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
+        tenant_owned_paths(claim.igreja_id, [expected])
+        if getattr(stored, "path", None) != expected:
+            raise StorageError("Caminho do upload divergente")
+
+    try:
+        stored = upload()
+    except StorageLateSuccess as late:
+        owned_object(late.stored)
+        try:
+            finish_audio_upload(session_factory, claim)
+        except Exception:  # Commit outcome may be unknown; no retry here.
+            logger.warning("Finalização de upload V1b falhou")
+        raise
+    owned_object(stored)
+    finish_audio_upload(session_factory, claim)
+    return stored
+
+
 def _run_audio_boundary(
     operation: Callable[[], object],
     *,
@@ -3338,7 +3382,7 @@ def _run_audio_provider_chain(
         if not authorized:
             denied_before_external()
             return None
-        from app.services.private_deletion import begin_audio_upload, finish_audio_upload
+        from app.services.private_deletion import begin_audio_upload
 
         if not begin_audio_upload(session_factory, claim):
             denied_before_external()
@@ -3346,19 +3390,17 @@ def _run_audio_provider_chain(
         storage_attempted = True
 
         def upload_owned_audio():
-            stored = storage.upload_cell_report_audio(
-                igreja_id=claim.igreja_id,
-                provider_message_sha256=claim.provider_message_sha256,
-                mime_type=decoded.mime_type,
-                raw=raw,
-                deadline_seconds=_remaining_audio_seconds(deadline_at, cap=30.0),
+            return _upload_owned_audio(
+                session_factory,
+                claim,
+                lambda: storage.upload_cell_report_audio(
+                    igreja_id=claim.igreja_id,
+                    provider_message_sha256=claim.provider_message_sha256,
+                    mime_type=decoded.mime_type,
+                    raw=raw,
+                    deadline_seconds=_remaining_audio_seconds(deadline_at, cap=30.0),
+                ),
             )
-            # Only a known return resolves ownership. A transport timeout or
-            # process loss leaves the durable fence for explicit reconciliation.
-            # Resolve before the monotonic boundary check: that check may reject
-            # a completed upload simply because its return exceeded the deadline.
-            finish_audio_upload(session_factory, claim)
-            return stored
 
         stored = _run_audio_boundary(
             upload_owned_audio,
