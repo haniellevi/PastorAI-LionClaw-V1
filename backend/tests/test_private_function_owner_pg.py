@@ -472,6 +472,10 @@ EXCLUDED_DEFINERS = (
     'public.private_summary_runtime_snapshot(pg_catalog.uuid,pg_catalog.uuid)',
     'public.private_summary_runtime_requester(pg_catalog.uuid,pg_catalog.uuid)',
     'public.private_summary_runtime_credential(pg_catalog.uuid)',
+    # Queue resolver: its body reads only whatsapp_connections (RLS on, FORCE off), so it
+    # needs an owner that owns that table or has BYPASSRLS; the queue_worker_runtime login
+    # stays NOBYPASSRLS. test_queue_worker_runtime_pg proves the owner condition.
+    'public.queue_resolve_instance(pg_catalog.text)',
 )
 # The two #584 definers over FORCE RLS tables, declared here, not derived from the constant.
 UPLOAD_ATTEMPT = 'private_storage_begin_upload_attempt(uuid,uuid,uuid,bigint)'
