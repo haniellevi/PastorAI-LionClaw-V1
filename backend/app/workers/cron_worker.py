@@ -493,6 +493,16 @@ class CronWorker:
             PrivateStorageUnavailable, get_private_storage_session_factory,
         )
 
+        from app.services.private_upload_witness import reconcile_upload_attempts
+
+        try:
+            # Exact Storage witness only; a failure never blocks the cleanup below.
+            reconcile_upload_attempts(get_private_storage_session_factory(), storage=storage, now=now,
+                                      progress=self._record_progress)
+        except PrivateStorageUnavailable:
+            pass  # Reported once by the cleanup below.
+        except Exception:
+            logger.warning("Private upload witness failed", extra={"event": "private_upload_witness_failed"})
         try:
             # Dedicated login only; without it tasks and receipts stay pending.
             process_storage_tasks(get_private_storage_session_factory(), storage=storage, now=now)
