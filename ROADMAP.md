@@ -162,6 +162,10 @@ cada, total de 4,2/4,1 s, limpeza sem sobras. Revisão Claude e Codex aprovada.
 Retida sempre na igreja A; igreja de entrega única só em teste unitário. Prova
 só nenhum **segundo** envio após o sinal; não prova `docker stop`/SIGKILL,
 agendados, 429, vários workers, supervisor, pós-DDL nem produção.
+Compatibilidade na integração: as migrations `20261030_*` (#583–#585) faziam o
+preflight dos ensaios com baseline (`select_baseline`) recusar por contagem
+total; agora só o conjunto de 78 antes do corte é fixo (seleção, SQL e bundle
+iguais aos de `cf291a15`). As rodadas físicas acima não foram repetidas.
 
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`

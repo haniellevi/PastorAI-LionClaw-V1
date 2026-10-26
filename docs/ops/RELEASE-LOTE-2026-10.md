@@ -1283,3 +1283,13 @@ uma 200 e uma 500, com 19 verificações cada. Comando SIGTERM → saída
 confirmada em 4,153 s/4,057 s, ocioso em 0,478 s/0,423 s. Ledger 2/2/3 com
 chaves e IDs do seed em todas as fases. Limpeza sem erros nem sobras. São evidências locais: os testes e o ensaio novos não
 entram nos workflows, e os quatro checks do SHA publicado são prova separada.
+
+Compatibilidade encontrada na integração com a `main` (26/10/2026): as
+migrations `20261030_100000`/`110000`/`120000` (#583–#585) elevaram o total
+ativo para 127, e `select_baseline` (`deploy/rehearse_legacy_queue_active.py`,
+usado por este ensaio e pelos de fila, cron e transição inicial) recusava com
+`baseline-count`, porque exigia 124 no total. Agora a guarda fixa só as 78
+migrations antes do corte `20261015`; as posteriores não são lidas nem entram
+no bundle. Conferido sem Docker no head integrado: 127 ativas, 78 selecionadas,
+com nomes, SQL, runner e digest do bundle idênticos aos de `cf291a15`. As
+rodadas físicas acima são anteriores e não foram repetidas.
