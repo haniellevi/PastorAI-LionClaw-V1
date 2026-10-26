@@ -89,8 +89,9 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip check
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" scripts/verify_manifest_requirements.py requirements.txt
 
+      # Todo shard: o divisor balanceia por contagem, entao qualquer shard pode
+      # receber os testes de audio V1b que usam o decodificador real.
       - name: Instalar FFmpeg estatico para audio V1b
-        if: matrix.shard == 3
         run: |
           runtime_python="$RUNNER_TEMP/backend-runtime-venv/bin/python"
           "$runtime_python" -m pip install --require-hashes --no-deps --only-binary=:all: \
