@@ -489,8 +489,16 @@ class CronWorker:
         self._record_progress()
 
 
+        from app.db.privacy_storage_session import (
+            PrivateStorageUnavailable, get_private_storage_session_factory,
+        )
+
         try:
-            process_storage_tasks(self._session_factory, storage=storage, now=now)
+            # Dedicated login only; without it tasks and receipts stay pending.
+            process_storage_tasks(get_private_storage_session_factory(), storage=storage, now=now)
+        except PrivateStorageUnavailable:
+            logger.warning("Private storage runtime unavailable",
+                           extra={"event": "private_storage_runtime_unavailable"})
         except Exception:
             logger.warning("Private deletion cleanup failed", extra={"event": "private_deletion_cleanup_failed"})
         self._record_progress()

@@ -25,6 +25,14 @@ def private_prayer(prayer):
     return install_privacy(prayer)
 
 
+@pytest.fixture
+def private_runtime(private_prayer, monkeypatch):
+    """Real dedicated Storage login (synthetic LOGIN) in this isolated schema."""
+    from tests.private_storage_pg import private_storage_login
+    with private_storage_login(private_prayer.engine, monkeypatch, schema=_SCHEMA) as factory:
+        yield factory
+
+
 def install_privacy(prayer):
     # create_all supplies tables, not SQL functions. Install every deletion
     # migration used by the current service in this fixture's isolated schema;
@@ -32,7 +40,8 @@ def install_privacy(prayer):
     def schema_sql(path):
         return path.read_text().replace('public.', _SCHEMA + '.').replace(
             'pg_catalog, public', 'pg_catalog, ' + _SCHEMA
-        ).replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA)
+        ).replace('pg_catalog,public', 'pg_catalog,' + _SCHEMA).replace(
+            'on schema public', 'on schema ' + _SCHEMA)
 
     with prayer.engine.begin() as conn:
         conn.exec_driver_sql("do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role; end if; end $$")
@@ -47,6 +56,8 @@ def install_privacy(prayer):
             MIGRATION.name,
             '20261019_090001_exclusao_privada_pessoa_igreja.sql',
             '20261020_100000_prayer_audio_privacy.sql',
+            # Tasks/uploads belong to the dedicated private_storage_runtime login.
+            '20261030_100000_private_storage_worker_identity.sql',
         ):
             # The SQL contains PostgreSQL format('%I', ...), not DBAPI binds.
             conn.exec_driver_sql(schema_sql(MIGRATION.with_name(migration)),
@@ -196,7 +207,7 @@ def test_approved_person_erasure_does_not_reopen_history(private_prayer):
         assert msg is None or msg.texto == MARKER
 
 
-def test_admin_delete_cleans_protected_media_without_reading(private_prayer):
+def test_admin_delete_cleans_protected_media_without_reading(private_prayer, private_runtime):
     p = private_prayer
     send(p, 'Quero iniciar pedido de oração')
     incoming = inbound(p, 'mídia pastoral sintética protegida')
@@ -231,7 +242,7 @@ def test_admin_delete_cleans_protected_media_without_reading(private_prayer):
         def remove_tenant_media(self, tenant, paths):
             assert tenant == TENANT
             storage.paths.extend(paths)
-    assert process_storage_tasks(p.factory, storage=CleanupStorage()) == 1
+    assert process_storage_tasks(private_runtime, storage=CleanupStorage()) == 1
     assert storage.paths == [f'{TENANT}/synthetic/to-delete']
     with p.factory() as db:
         assert db.scalar(text("select count(*) from private_deletion_tasks where state='pendente' or storage_path is not null")) == 0

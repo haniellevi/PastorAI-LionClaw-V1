@@ -20,6 +20,21 @@ from tests.test_cell_report_v1a_worker_pg import _CommittedReceiptEvolution, _RE
 pytestmark = pytest.mark.rls_integration
 
 
+@pytest.fixture(autouse=True)
+def private_storage_runtime(audio_turn, monkeypatch):
+    """Real deletion SQL + dedicated Storage login in the isolated schema.
+
+    Upload ownership in these turns goes through the production default
+    (``PrivateStorageRuntime()`` resolving PRIVATE_STORAGE_DATABASE_URL).
+    """
+    from tests.private_storage_pg import private_storage_login
+    from tests.test_messages_inbound_idempotency import _SCHEMA
+    from tests.test_prayer_privacy_pg import install_inbox_schema
+    install_inbox_schema(audio_turn.engine)
+    with private_storage_login(audio_turn.engine, monkeypatch, schema=_SCHEMA) as factory:
+        yield factory
+
+
 def _no_domain_lock(turn):
     # Independent transaction must acquire all relevant rows during each I/O.
     with turn.factory.begin() as session:
@@ -577,6 +592,97 @@ def test_v1b_late_upload_is_retained_after_elapsed_ttl(audio_turn, ambiguous):
         now=future + dt.timedelta(hours=1))
     assert len(providers.objects) == 1, tuple(providers.objects)
     assert _rows(audio_turn, AgentActionProposal) == []
+
+
+def _real_storage_upload(monkeypatch, providers, respond):
+    """Real Supabase upload contract over fake HTTP, with a Storage-only clock."""
+    import time
+    import httpx
+    from app.services import storage as storage_module
+    offset = [0.0]
+    monkeypatch.setattr(storage_module, 'time',
+                        SimpleNamespace(monotonic=lambda: time.monotonic() + offset[0]))
+    real_client = httpx.Client
+    def handler(request):
+        path = request.url.path.removeprefix('/storage/v1/object/whatsapp-media/')
+        providers.objects[path] = request.content  # The provider write happened.
+        offset[0] = 31.0  # Past the 30 s upload deadline, not the claim deadline.
+        return respond(request)
+    monkeypatch.setattr(storage_module.httpx, 'Client',
+                        lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs))
+    real = storage_module.SupabaseStorage(SimpleNamespace(
+        supabase_url='https://storage.example.test', supabase_service_role_key='synthetic-key'))
+    providers.storage.upload_cell_report_audio = real.upload_cell_report_audio
+
+
+@pytest.mark.parametrize('failure', ('missing', 'main_login', 'nologin'))
+def test_v1b_without_proven_storage_login_does_no_provider_io(audio_turn, monkeypatch, failure):
+    import os
+    from app.config import get_settings
+    from app.db.privacy_storage_session import dispose_private_storage_engine
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    pending = [(row.id, row.transcription_attempts) for row in _rows(audio_turn, CellReportAudioInput)
+               if row.state == 'pendente']
+    assert len(pending) == 1
+    configured = os.environ['PRIVATE_STORAGE_DATABASE_URL']
+    def reconfigure(value):
+        monkeypatch.setenv('PRIVATE_STORAGE_DATABASE_URL', value)
+        get_settings.cache_clear()
+        dispose_private_storage_engine()
+    if failure == 'missing':
+        monkeypatch.delenv('PRIVATE_STORAGE_DATABASE_URL')
+        get_settings.cache_clear()
+        dispose_private_storage_engine()
+    elif failure == 'main_login':  # Never a fallback to the privileged login.
+        reconfigure(audio_turn.engine.url.render_as_string(hide_password=False))
+    else:  # Credential revoked: the dedicated login cannot connect.
+        with audio_turn.engine.begin() as c:
+            c.exec_driver_sql('alter role private_storage_runtime nologin')
+        dispose_private_storage_engine()
+    _dispatch(audio_turn, providers)
+    # Refused before any claim: no download, upload, transcription or cleanup.
+    assert providers.counts == dict(download=0, upload=0, transcribe=0, remove=0)
+    assert providers.objects == {}
+    assert [(row.id, row.transcription_attempts) for row in _rows(audio_turn, CellReportAudioInput)
+            if row.state == 'pendente'] == pending
+    if failure == 'nologin':
+        with audio_turn.engine.begin() as c:
+            c.exec_driver_sql('alter role private_storage_runtime login')
+    reconfigure(configured)
+    _dispatch(audio_turn, providers)  # The pending input then runs normally.
+    assert providers.counts['download'] == providers.counts['upload'] == providers.counts['transcribe'] == 1
+
+
+@pytest.mark.parametrize('confirmed', (True, False))
+def test_v1b_only_confirmed_late_upload_releases_ownership(audio_turn, monkeypatch, confirmed):
+    import httpx
+    from app.db.models import CellReportAudioReservation, PrivateDeletionUpload
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    def respond(request):
+        if confirmed:
+            return httpx.Response(200)
+        raise httpx.ReadTimeout('synthetic timeout after the provider write', request=request)
+    _real_storage_upload(monkeypatch, providers, respond)
+    before = _snapshot(audio_turn)
+    _dispatch(audio_turn, providers)
+    assert len(providers.objects) == 1
+    # A 2xx proves this request can no longer write; a timeout proves nothing.
+    assert len(_rows(audio_turn, PrivateDeletionUpload)) == (0 if confirmed else 1)
+    # Either way the chain stops at the deadline: no budget, transcript or reply.
+    assert providers.counts['transcribe'] == 0
+    assert _rows(audio_turn, CellReportAudioReservation) == []
+    assert _rows(audio_turn, AgentActionProposal) == []
+    assert _snapshot(audio_turn) == before
+    uploaded = [row for row in _rows(audio_turn, CellReportAudioInput)
+                if row.storage_path in providers.objects]
+    assert [(row.state, row.terminal_reason) for row in uploaded] == [('ambigua', 'externo_ambiguo')]
+    assert uploaded[0].transcript_text is None
+    # Captured v2 retention is unchanged: elapsed TTL does not purge the object.
+    service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
+        now=dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=25), limit=10)
+    assert len(providers.objects) == 1
 
 
 def test_v1b_spelled_audio_reuses_v1a_paid_extraction_and_confirmation(audio_turn, monkeypatch):
