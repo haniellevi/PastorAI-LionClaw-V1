@@ -78,17 +78,32 @@ de regressão, zero skip) e 13 verificações físicas aprovadas, bloqueio 6,445
 saída 0,652 s, limpeza sem sobras. Integração depende dos checks do SHA
 publicado. Não prova supervisor/restart, pós-DDL, outros serviços nem produção.
 
-Tick ativo do cron integrado pela #576 (`6b0b302b`). Fatia seguinte na branch
-`test/legacy-broadcast-stop-20261025`: ciclo de vida do broadcast-worker real
+Tick ativo do cron integrado pela #576 (`6b0b302b`). Broadcast ocioso integrado
+pela #577 (`92821e35`), branch `test/legacy-broadcast-stop-20261025`: ciclo de vida do broadcast-worker real
 de `07a3f4d` **ocioso** (gates fechados, sem Postgres), PID 1 sem `init`
 (`HostConfig.Init=false`): heartbeat `idle` renovado, log `enabled=False` sem
 tick/envio, SIGTERM com saída zero e `stopped`, reinício do mesmo container como
 nova execução e segundo SIGTERM limpo. Validação final local (Codex): 216 testes
 (40 novos + 176 de regressão, zero skip) e 10 verificações físicas aprovadas,
 saídas 0,503/0,549 s, limpeza sem sobras; revisão independente incorporada.
-Integração depende dos checks do SHA publicado. Ausência de rede é inferida
+Checks do SHA `f8ded9c6` verdes antes do merge. Ausência de rede é inferida
 (destinos mortos, gates `false`, caminho ocioso do código), não capturada. Não
 prova broadcast ativo, transporte/pendências, supervisor, pós-DDL, RLS nem produção.
+
+Fatia seguinte na branch `test/legacy-backend-stop-20261025` (#578), desenvolvida
+sobre `6b0b302b` sem depender da #577 e atualizada com a `main` após ela: o backend ASGI
+real de `07a3f4d` (`uvicorn app.main:app` como PID 1, sem init) recebe SIGTERM
+com um `POST /whatsapp/webhook` autenticado em curso, com o corpo parcial retido
+pelo cliente. Antes da liberação se exigem: ACK no cliente, conexão retida pelo
+PID 1 sem bytes pendentes, listener fechado e fila vazia. Depois: 202, um evento
+na fila, saída 0 e bytes preservados após reinício sem consumidor. Validação
+local final em 25/10: 279 testes (103 novos + 176 de regressão, zero skip) e
+ensaio físico do Codex com 12 verificações, retenção 6,600 s, saída 1,202 s após
+a liberação, limpeza sem sobras; revisão independente incorporada. Sustenta um
+ciclo HTTP aberto, não a linha exata do handler; um request gera um envelope,
+sem prova de idempotência. `/health` 200 não é readiness. Não prova consumo pelo
+worker, agente, RLS, supervisor, topologia viva, pós-DDL nem produção.
+Integração depende dos checks do SHA publicado.
 
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
