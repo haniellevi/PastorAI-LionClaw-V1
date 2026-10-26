@@ -265,6 +265,28 @@ Este documento e o merge do código não são autorizações operacionais.
    A checagem da FK reproduz o par `(igreja_id, celula_id)` que será validado
    pela migration `20261018_080000`; a checagem de duplicidade usa
    `(igreja_id, pessoa_id)` não nulo, como o índice da #543.
+   A linha `private_definer_contracts` lê só `pg_catalog`, sem chamar funções,
+   os sete contratos privados SECURITY DEFINER com `row_security=off`
+   (`PRIVATE_DEFINER_CONTRACTS`; inclui `private_storage_begin_upload_attempt` e
+   `private_storage_upload_witness_due` da `20261030_110000`, acrescentados na
+   integração com a #584). Achado (`private_definer_dono_sem_bypass`,
+   só assinatura e dono) quando o dono de um contrato presente não tem
+   SUPERUSER nem BYPASSRLS: nesse estado a função falha (42501) e, por exemplo,
+   envios ficam com ownership retida e limpezas pendentes. Contrato ausente,
+   como antes de aplicar a migration dele, sai em `nao_verificados` e não é
+   achado nem atestado. `examinados` conta só assinaturas presentes no
+   catálogo; não atesta a definição (um contrato que perdeu SECURITY DEFINER
+   ou `row_security=off` é contado sem achado). Por isso o preflight anterior
+   às migrations não cobre funções pendentes: depois de aplicação nominalmente autorizada, repetir o
+   preflight somente leitura para examinar as que passaram a existir. O achado
+   não se corrige elevando dono para deixar verde nem com mudança automática
+   de privilégios; exige decisão nominal. A checagem não prova ACL, corpo,
+   segurança das funções nem sessões abertas antes de uma troca de atributo.
+   Outras funções SECURITY DEFINER, inclusive a métrica da outbox de operações
+   que também declara `row_security=off`, ficam fora deste contrato.
+   Um teste em PG sintético compara o catálogo com a lista: toda função de
+   `public` com SECURITY DEFINER e `row_security=off` precisa ser contrato ou
+   exclusão explícita (hoje só a outbox), então um definer novo esquecido falha.
 3. **Reconciliação manual antes da #543.** Antes de aplicar
    `20261025_100000_team_pessoa.sql`, confirmar zero duplicidades da chave
    `(igreja_id, pessoa_id)`. Qualquer duplicidade de igreja/pessoa exige
