@@ -57,7 +57,7 @@ def create_curriculo(db,user,payload):
     try:
         with db.begin_nested():
             inserted=db.execute(text('''insert into cd_curriculos(id,igreja_id,versao,nome,criada_por,familia_id)
-                values(:id,:t,:v,:n,:u,:f) on conflict(id) do nothing returning id'''),
+                values(:id,:t,:v,:n,:u,:f) on conflict do nothing returning id'''),
                 dict(id=payload.id,t=t,v=payload.versao,n=payload.nome,u=uid,f=family)).scalar_one_or_none()
             if inserted is not None:
                 levels={}
@@ -72,7 +72,7 @@ def create_curriculo(db,user,payload):
                         db.execute(text('''insert into cd_aulas(igreja_id,modulo_id,numero,nome)
                             values(:t,:m,:a,:n)'''),dict(t=t,m=mid,a=a,n=f'Aula {a}'))
             if not rows(db, 'select id from cd_curriculos where igreja_id=:t and id=:id',t=t,id=payload.id):
-                raise HTTPException(409,'Identificador de currículo indisponível')
+                raise HTTPException(409,'Versão ou identificador indisponível')
             result=catalog(db,t,payload.id,lock=True)
             actual=[(n['nome'],[m['numero'] for m in result['modulos'] if m['nivel_id']==n['id']]) for n in result['niveis']]
             expected=[(n.nome,sorted(n.modulos)) for n in payload.niveis]
