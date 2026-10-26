@@ -3831,8 +3831,10 @@ def _deliver_agent_reply_intent(
         except Exception:  # noqa: BLE001 - no further send after an unknown final write
             _quarantine_agent_reply(session_factory, outcome, intent)
     finally:
+        # Dedicated send login only; it never raises, so the original outcome
+        # (including AgentReplyRetryable/ClaimOwnershipLost) is preserved.
         from app.services.private_deletion import finish_agent_send
-        finish_agent_send(session_factory, outcome.igreja_id, intent.id)
+        finish_agent_send(outcome.igreja_id, intent.id)
 
 
 def _run_agent_legacy(

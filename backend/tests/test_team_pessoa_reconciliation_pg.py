@@ -2,8 +2,10 @@
 
 O schema é o baseline real de PROD lido em 24/10: as migrations ativas até
 20261014, menos as quatro antigas pendentes, aplicadas uma a uma pelo
-aplicador oficial (78 nomes no ledger). O último teste aplica as 46 pendentes,
-inclusive ``20261025_100000_team_pessoa.sql``, sobre os dados reconciliados.
+aplicador oficial (78 nomes no ledger). O último teste aplica, sobre os dados
+reconciliados, todas as migrations ativas fora desse baseline: em 24/10 eram 46,
+inclusive ``20261025_100000_team_pessoa.sql``; fatias posteriores acrescentam
+outras. O ledger final deve ser exatamente o conjunto ativo do SHA testado.
 """
 import io
 import os
@@ -497,14 +499,21 @@ def test_zz_reconciled_baseline_accepts_pending_batch_with_team_migration(world,
     code, out, err = cli(_request(v), apply=True)
     assert code == 0 and out.startswith('RESULTADO=APLICADA'), err
     baseline = set(_baseline_files())
-    pending = [name for name in migrate.migration_files() if name not in baseline]
-    assert len(pending) == 46 and OLD_PENDING <= set(pending) and TEAM_MIGRATION in pending
+    active = migrate.migration_files()
+    # Derived from the active set at this SHA, never a frozen future total:
+    # the historical 78-name baseline plus every later active migration.
+    pending = [name for name in active if name not in baseline]
+    assert len(baseline) == 78 and baseline <= set(active)
+    assert OLD_PENDING <= set(pending) and TEAM_MIGRATION in pending
+    with v['db'].connect() as c:
+        assert set(c.execute(text('select name from schema_migrations')).scalars()) == baseline
     env = _migration_env(rls_database_url)
     for filename in pending:
         _apply_migration(env, filename)
     with v['db'].connect() as c:
         assert c.scalar(text("select to_regclass('public.app_users_pessoa_unica_por_igreja')")) is not None
         assert c.scalar(text("select to_regclass('public.team_pessoa_eventos')")) is not None
-        assert c.scalar(text('select count(*) from schema_migrations')) == len(migrate.migration_files())
+        ledger = c.execute(text('select name from schema_migrations order by name')).scalars().all()
+        assert ledger == sorted(active)  # Exactly the active set, names included.
         assert c.execute(text('select id from app_users where pessoa_id=:p'), dict(p=v['p'])).scalars().all() == [v['keep']]
         assert c.scalar(text('select count(*) from team_pessoa_eventos')) == 0

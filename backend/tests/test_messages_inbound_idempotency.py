@@ -148,6 +148,19 @@ def msg_engine_fx(rls_database_url: str) -> Iterator[Engine]:
         engine.dispose()
 
 
+@pytest.fixture
+def send_release(msg_engine_fx: Engine, monkeypatch) -> Iterator[sessionmaker]:
+    """Real release migration + synthetic dedicated login in this schema.
+
+    Retry tests need the send ownership released; without the login it is
+    retained and the same intent is never resent (fail-closed).
+    """
+    from tests.private_send_pg import install_private_send_release, private_send_login
+    install_private_send_release(msg_engine_fx, _SCHEMA)
+    with private_send_login(msg_engine_fx, monkeypatch, schema=_SCHEMA) as factory:
+        yield factory
+
+
 def _factory(engine: Engine) -> sessionmaker:
     # expire_on_commit=False espelha o get_session_factory() de produção.
     return sessionmaker(bind=engine, future=True, expire_on_commit=False)
@@ -652,7 +665,7 @@ def test_agent_reply_timeout_is_quarantined_and_never_auto_resent(
 
 
 def test_agent_reply_retryable_failure_releases_intent_without_rerunning_agent(
-    msg_engine_fx: Engine, monkeypatch
+    msg_engine_fx: Engine, monkeypatch, send_release
 ) -> None:
     factory = _factory(msg_engine_fx)
     conversation_id = _seed_agent_delivery(factory)
@@ -670,7 +683,7 @@ def test_agent_reply_retryable_failure_releases_intent_without_rerunning_agent(
 
 
 def test_duplicate_provider_delivery_does_not_advance_scheduled_agent_retry(
-    msg_engine_fx: Engine, monkeypatch
+    msg_engine_fx: Engine, monkeypatch, send_release
 ) -> None:
     """A new raw delivery cannot replace or wake the persisted retry owner."""
     from tests.test_whatsapp_worker import FakeRedis
@@ -3182,7 +3195,7 @@ def test_agent_reply_recovers_legacy_response_hash_intent_without_rerunning_agen
 
 
 @pytest.mark.parametrize("scenario", ["timeout", "5xx", "recover", "offline", "wrong_instance", "401", "lost_lease"])
-def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, scenario):
+def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, scenario, send_release):
     import json
     import httpx
     from app.config import Settings
@@ -3280,7 +3293,7 @@ def test_b3_transport_with_durable_intent_and_queue(msg_engine_fx, monkeypatch, 
 
 
 @pytest.mark.parametrize("first_status", ["open", "close", "503"])
-def test_b3_recovered_worker_cannot_ack_before_preflight_owner_releases(msg_engine_fx, monkeypatch, first_status):
+def test_b3_recovered_worker_cannot_ack_before_preflight_owner_releases(msg_engine_fx, monkeypatch, first_status, send_release):
     import httpx
     from app.config import Settings
     from app.services.evolution import EvolutionClient
@@ -3343,7 +3356,7 @@ def test_b3_recovered_worker_cannot_ack_before_preflight_owner_releases(msg_engi
 
 
 def test_b3_canonical_owner_survives_execution_lease_release_before_retry_transition(
-    msg_engine_fx: Engine, monkeypatch
+    msg_engine_fx: Engine, monkeypatch, send_release
 ) -> None:
     """A duplicate canonical raw cannot resend between PG release and Redis EVAL."""
 
