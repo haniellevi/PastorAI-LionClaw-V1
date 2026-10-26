@@ -144,6 +144,29 @@ não provado; tags de retenção de imagem acumulam sem poda automática.
 Atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA` após o merge: passo operacional não
 executado. Legado com `RestartCount>0` segue pendente; `production_ready=false`.
 
+Fatia seguinte, sobre a #577 (integrada em `92821e35`), na branch
+`test/legacy-broadcast-active-20261026` (PR #586, redirecionada à `main`): broadcast-worker real de `07a3f4d`
+com envio **ativo** durante SIGTERM. Gates abertos só no container sintético,
+Evolution falsa na rede interna, Postgres/Redis descartáveis e três entregas
+fictícias em duas igrejas, materializadas pela função legada. A falsa retém a
+1ª requisição, observada antes do sinal; com o sinal, log de transporte em
+andamento, processo vivo, uma requisição e banco inalterado. Após liberar:
+resultado commitado (`aceito`; variante 500 → `desconhecido`), demais entregas
+intactas, saída 0 e `stopped`; o reinício do mesmo container drena só as duas
+pendentes, sem repetir a retida. Em todas as fases o ledger tem exatamente
+2 broadcasts, 2 execuções e 3 entregas com os IDs do seed; o total do comando
+SIGTERM até a saída é medido e recusado a partir de 10 s. Validação local
+(Claude), após correção da revisão Codex: 329 testes (113 novos + 216 de
+regressão, zero skip) e rodadas físicas 200 e 500 aprovadas, 19 verificações
+cada, total de 4,2/4,1 s, limpeza sem sobras. Revisão Claude e Codex aprovada.
+Retida sempre na igreja A; igreja de entrega única só em teste unitário. Prova
+só nenhum **segundo** envio após o sinal; não prova `docker stop`/SIGKILL,
+agendados, 429, vários workers, supervisor, pós-DDL nem produção.
+Compatibilidade na integração: as migrations `20261030_*` (#583–#585) faziam o
+preflight dos ensaios com baseline (`select_baseline`) recusar por contagem
+total; agora só o conjunto de 78 antes do corte é fixo (seleção, SQL e bundle
+iguais aos de `cf291a15`). As rodadas físicas acima não foram repetidas.
+
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;

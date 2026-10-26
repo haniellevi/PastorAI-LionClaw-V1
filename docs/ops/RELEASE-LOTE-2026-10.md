@@ -1209,3 +1209,87 @@ alheio entre a intenção e o start do controlador é indistinguível; reboot do
 daemon não provado; durante uma corrida, no máximo um papel a mais pode
 iniciar; uma recusa no meio não desfaz os papéis já retomados; o sucesso é
 pontual, não supervisão contínua.
+
+## Envio ativo do broadcast-worker real durante SIGTERM — validado localmente
+
+`deploy/rehearse_legacy_broadcast_active.py` reaproveita a montagem de
+`rehearse_legacy_queue_active.py`: fonte e runtime de `07a3f4d` conferidos,
+Postgres/Redis efêmeros, rede `--internal` sem portas nem montagens, as 78
+migrations pelo `cmd_apply` atual e limpeza por posse. O PID 1 é o
+`python -m app.workers.broadcast_worker` original, sem patch nem mock e com
+`HostConfig.Init=false`. `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED` ficam
+`true` **só nesse container sintético**. A Evolution aponta para uma falsa na
+mesma rede, com chave pública fictícia. Lease (120 s), intervalo de envio, tentativas
+e timeout HTTP (15 s) continuam nos defaults legados. A falsa é um container da imagem legada só com
+stdlib + `redis`. Registra cada requisição antes de responder, recusa
+rota/chave/corpo inesperados e retém a primeira até a liberação.
+
+Seed fictício: duas igrejas com conexão `online`, três pessoas elegíveis
+(números `009…`, DDD inexistente). A audiência vem de
+`resolve_recipient_snapshot` numa sessão `mark_tenant_scoped` e o envio
+imediato de `materialize_immediate_broadcast`, sem router. Resultado: três
+entregas `pendente`, duas na igreja A e uma na B.
+
+O ensaio exige, nesta ordem:
+
+1. Antes do sinal: a falsa retém a 1ª requisição. A entrega retida é
+   identificada pelo número recebido e está `em_envio`, com `tentativas=1`,
+   lease de 120 s vivo e `claim_por` do PID 1; as outras duas seguem idênticas
+   ao seed.
+2. `docker kill --signal SIGTERM`: log legado `transport already in progress`,
+   processo vivo, uma única requisição, ledger e restante do banco inalterados.
+3. Liberação antes de 8 s após observar a retenção (abaixo do timeout HTTP e do
+   TTL do heartbeat). O total do comando SIGTERM até a saída confirmada é
+   medido a partir de antes do `docker kill` e recusado se chegar a 10 s, o
+   grace padrão do Docker. É um limite superior do trecho observado, não prova
+   de `docker stop` automático, supervisor ou SLA. Saída 0 e resultado gravado
+   pelo próprio worker, com lease e claim limpos: `aceito`, ou
+   `desconhecido`/`http_500` com `--held-status 500`. As demais entregas ficam byte-idênticas ao seed, o
+   heartbeat vai a `stopped` e nada muda por intervalo de envio + tick.
+4. `docker start` do mesmo container (`StartedAt` novo): exatamente +2
+   requisições, para os números pendentes, sem repetir a retida. Ocorrências
+   finalizadas, broadcasts `enviado`, reaper 0, um tick ocioso sem requisição e
+   SIGTERM ocioso com saída 0, também com total abaixo de 10 s.
+
+Em todas as fases (seed, retenção, parada, drenagem e final), antes de
+comparar por igreja ou telefone, o ledger precisa ter exatamente 2 broadcasts,
+2 execuções e 3 entregas, com chaves únicas e os mesmos IDs do seed. Linha
+extra ou substituída é recusa. O relatório registra só essas contagens e
+unicidades por fase, sem dados das linhas.
+
+Limites: o `stop()` legado não espera o HTTP (`RLock` reentrante na mesma
+thread) e há janela entre a checagem de parada e o POST. O ensaio prova que
+não há **segundo** envio após o sinal, não que nenhuma requisição comece depois
+dele. Não prova `docker stop` com grace vencido/SIGKILL durante o HTTP, envio
+agendado, 429/retry, vários workers, supervisor, queda de PG/Redis,
+router/autorização, papéis/timeouts de produção, pós-DDL nem produção
+(`production_ready=false`). A ausência de tráfego externo é inferida (rede
+interna, falsa como única receptora e contagens), não capturada. Nas rodadas
+locais a 1ª entrega veio sempre da igreja A. O caso da retida na igreja de
+entrega única (ocorrência finalizada no 1º ciclo) foi coberto só por teste
+unitário.
+
+Reprodução local, com as mesmas imagens imutáveis legada/Redis/Postgres:
+
+```bash
+python3.13 deploy/rehearse_legacy_broadcast_active.py run --repo . --report /tmp/legacy-broadcast-active-200.json
+python3.13 deploy/rehearse_legacy_broadcast_active.py run --repo . --held-status 500 --report /tmp/legacy-broadcast-active-500.json
+```
+
+Validação local em 26/10/2026 (Claude; revisão Claude e Codex aprovada), depois de
+corrigir a cardinalidade e medir o total: 329 testes aprovados, zero falhas e
+zero skip (113 novos e 216 de regressão). Rodadas físicas finais aprovadas,
+uma 200 e uma 500, com 19 verificações cada. Comando SIGTERM → saída
+confirmada em 4,153 s/4,057 s, ocioso em 0,478 s/0,423 s. Ledger 2/2/3 com
+chaves e IDs do seed em todas as fases. Limpeza sem erros nem sobras. São evidências locais: os testes e o ensaio novos não
+entram nos workflows, e os quatro checks do SHA publicado são prova separada.
+
+Compatibilidade encontrada na integração com a `main` (26/10/2026): as
+migrations `20261030_100000`/`110000`/`120000` (#583–#585) elevaram o total
+ativo para 127, e `select_baseline` (`deploy/rehearse_legacy_queue_active.py`,
+usado por este ensaio e pelos de fila, cron e transição inicial) recusava com
+`baseline-count`, porque exigia 124 no total. Agora a guarda fixa só as 78
+migrations antes do corte `20261015`; as posteriores não são lidas nem entram
+no bundle. Conferido sem Docker no head integrado: 127 ativas, 78 selecionadas,
+com nomes, SQL, runner e digest do bundle idênticos aos de `cf291a15`. As
+rodadas físicas acima são anteriores e não foram repetidas.
