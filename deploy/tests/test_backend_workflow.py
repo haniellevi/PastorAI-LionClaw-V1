@@ -25,7 +25,8 @@ case "$*" in
     exit "${ANCESTRY_EXIT:-0}" ;;
   'show '* )
     if [ "${LEGACY_SCRIPT:-0}" = 1 ]; then exit 0; fi
-    printf '%s\\n' BACKEND_RELEASE_SAFETY_VERSION=2 ;;
+    printf '%s\\n' "BACKEND_RELEASE_SAFETY_VERSION=${SAFETY_VERSION:-3}" ;;
+  'ls-tree '* ) printf '%s' "${TRACKED_TOPOLOGY:-}" ;;
   'archive '* ) touch "$RUNNER_TEMP/packaged" ;;
 esac
 exit 0
@@ -62,6 +63,18 @@ exit 0
         result, packaged = self.package(LEGACY_SCRIPT='1')
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(packaged)
+
+    def test_previous_safety_version_refuses_packaging(self):
+        result, packaged = self.package(SAFETY_VERSION='2')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(packaged)
+
+    def test_tracked_topology_or_override_refuses_packaging(self):
+        for path in ('deploy/release-topology.json', 'deploy/docker-compose.override.yml'):
+            with self.subTest(path=path):
+                result, packaged = self.package(TRACKED_TOPOLOGY=path + '\n')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(packaged)
 
     def test_candidate_outside_main_refuses_packaging(self):
         result, packaged = self.package(ANCESTRY_EXIT='1')

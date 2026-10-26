@@ -232,6 +232,49 @@ continuam ambíguos. Falha ao finalizar não é repetida: a transação atômica
 decide (o commit pode ter ocorrido com retorno incerto). Esta fatia não resolve
 uploads realmente ambíguos, identidade do worker nem política de tombstones.
 
+**Reconhecimento positivo de upload commitado sem resposta** (candidata local,
+migration `20261030_110000_private_upload_attempt_witness.sql`, só em PostgreSQL
+sintético; não aplicada em PROD). Cada tentativa recebe um token UUID aleatório,
+gravado e commitado com a ownership antes do POST e enviado como `x-metadata`
+(JSON estrito em base64, só esse token; nada pastoral). O POST continua único,
+sem retry, e o finish normal/tardio remove só a ownership do próprio token
+(CAS; uma tentativa nova nunca é liberada por um finish antigo). No ciclo de
+limpeza, antes de `process_storage_tasks`, `reconcile_upload_attempts` consulta
+em lote limitado (10 por tick) apenas ownership com token que bloqueia tarefa
+pendente: descoberta cross-tenant devolve só IDs; leitura do token/caminho e
+mutação usam o login dedicado com escopo da igreja, sem transação ou lock aberto
+durante o `GET /object/info/authenticated` (um por consulta, sem retry). A
+reserva da consulta trava só a linha da ownership (agenda) e lê tarefa/caminho
+sem lock, sem esperar segurando outro lock. O GET roda em `httpx.AsyncClient`
+sob um único prazo cancelável de 5 s (`asyncio.timeout`) que cobre conexão,
+cabeçalhos e corpo e fecha a conexão ao estourar, sem thread residual; servidor
+que goteja ou não responde é cortado no prazo e conta como não provado. Fica
+fora do prazo apenas a resolução DNS do sistema (`asyncio.run` espera a thread
+do resolvedor ao encerrar, com teto interno de 300 s do asyncio); não há prova
+de limite absoluto do sistema operacional. Corpo bruto sem compressão
+(`Accept-Encoding: identity`) de até 16 KiB. Por item do lote, o progresso do
+heartbeat avança após no máximo ~5 s de GET mais 5 s de `lock_timeout`.
+Só libera com HTTP 200 e caminho, bucket e token exatos, `version` UUID,
+`is_versioned` e `is_delete_marker` falsos e `archived_at` nulo presentes; em
+nova transação de liberação, toma o lock do recibo antes de tarefa/ownership
+(ordem da limpeza e do finish), revalida tarefa pendente e mesmo caminho e
+remove a ownership pelo token. Erro antes do COMMIT conserva a ownership; ACK
+de COMMIT incerto deixa o resultado desconhecido, seguro porque só se libera
+tentativa já provada commitada. A limpeza estrita então
+apaga o caminho. Ausência (`NoSuchKey`, HTTP 400 neste Storage), outro token,
+metadata vazia, versionamento, 3xx/4xx/5xx, timeout, JSON inválido ou tempo
+decorrido **nunca** liberam: o intervalo (60 s dobrando até 1 h) só agenda a
+próxima leitura. Ownership legada (token nulo), upload abortado ou ainda em voo e
+ownership sem tarefa pendente continuam retidos, sem liberação automática.
+O testemunho prova o commit da linha da tentativa, não os bytes; duplicata
+idêntica do mesmo POST não é distinguível pelo token (mesmo limite do 2xx). Prova
+física só contra storage-api público `6dd28b4` compilado localmente; versão,
+gateway (`x-metadata`, rota/forma do info), `versioning_status` DISABLED desde
+sempre do bucket e ausência de outro writer no prefixo, no Supabase hospedado,
+**não verificados** e pré-requisitos do release. Rollback comentado na migration:
+reverter antes da `20261030_100000`; ownership retida vira legada e continua
+bloqueando o recibo.
+
 Envio tem marcador durável criado com `ia_em_transporte`; geração/prazo são
 revalidados antes do HTTP e ao persistir resultado. A janela de 60s autoriza
 início, mas **não conclui recibo por tempo**: `pendente_envio` permanece até o
@@ -321,9 +364,10 @@ banco. Endpoint, modo (sessão/transação) e rede do ambiente hospedado não fo
 testados e precisam ser validados no release; esta fatia não presume IPv6 nem
 add-on.
 
-A reconciliação futura de upload com resultado desconhecido precisa também
-reabrir ou conferir a tarefa da fonte: se o runtime falhar ao reabrir uma tarefa
-já concluída, ela pode continuar fechada enquanto a ownership é retida.
+O reconhecimento positivo acima só age sobre tarefa pendente da fonte; ownership
+cuja tarefa já esteja concluída não é descoberta e continua retida (conservador).
+A `20261030_110000` acrescenta duas funções (início com token e descoberta por
+IDs) e UPDATE só das colunas de agendamento da ownership, nunca do token.
 
 Release: conter consumidores antigos, backup, aplicar via `migrate.py`,
 provisionar LOGIN/senha e configurar só no cron sob autorização nominal
@@ -397,10 +441,12 @@ Ownership retida em janela de falha não é revisitada pelo código antigo.
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
 retenção de tombstones. Pendências técnicas: tarefas e uploads têm identidade
-SQL própria na candidata acima, e a liberação de envios na candidata seguinte;
+SQL própria (#583), e a liberação de envios na candidata seguinte (#585);
 INSERT/renovação de envios e fences ainda seguem o padrão servidor confiável
 sem subject da #509; reconciliação de upload com
-resultado desconhecido é ausente (só 2xx tardio confirmado é resolvido); dono das
+resultado desconhecido é parcial (2xx tardio confirmado e, pela
+`20261030_110000` (#584), testemunho exato de tentativa commitada; abortado/em voo e
+legado seguem retidos sem saída automática); dono das
 funções privadas com `row_security=off`: o preflight de release acusa dono sem
 SUPERUSER/BYPASSRLS nas funções já existentes, mas não examina as de migrations
 pendentes (repetir após aplicação autorizada; dono real em PROD não verificado);

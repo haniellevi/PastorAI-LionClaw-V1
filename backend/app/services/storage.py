@@ -13,6 +13,9 @@ Transport to/from the Evolution API is base64; this module deals in raw bytes.
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import json
 import logging
 import re
 import time
@@ -74,6 +77,12 @@ _EXT_BY_MIME = {
     "audio/wav": "wav",
 }
 _STORAGE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
+# Storage user metadata of one audio upload attempt: only a random UUID per
+# attempt, never content, phone or other pastoral data.
+CELL_REPORT_AUDIO_ATTEMPT_KEY = "igreja12_attempt"
+_CELL_REPORT_AUDIO_KEY_RE = re.compile(r"cell-report-audio/[0-9a-f]{64}\.(ogg|mp3|mp4|m4a|wav|webm)")
+_ATTEMPT_INFO_TIMEOUT_SECONDS = 5.0
+_ATTEMPT_INFO_MAX_BYTES = 16 * 1024
 _TENANT_LIST_PAGE_SIZE = 100
 _TENANT_REMOVE_BATCH_SIZE = 100
 
@@ -201,6 +210,70 @@ def cell_report_audio_storage_path(
     return f"{prefix}cell-report-audio/{provider_message_sha256}.{extension}"
 
 
+def _attempt_metadata(attempt_token: object) -> str:
+    """Strict JSON (Storage silently drops a malformed one) in base64."""
+    if type(attempt_token) is not uuid.UUID:
+        raise StorageError("Tentativa de upload inválida")
+    marker = json.dumps({CELL_REPORT_AUDIO_ATTEMPT_KEY: str(attempt_token)}, separators=(",", ":"))
+    return base64.b64encode(marker.encode("ascii")).decode("ascii")
+
+
+def _unique_object(pairs: list[tuple[str, object]]) -> dict:
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
+def _reject_constant(_value: str) -> object:
+    raise ValueError("non-finite number")
+
+
+async def _fetch_attempt_info(endpoint: str, key: str, deadline_seconds: float) -> bytes | None:
+    """Raw info body, or ``None`` if refused; raises TimeoutError past the deadline.
+
+    ``asyncio.timeout`` cancels connect, headers and body alike; leaving the
+    client context closes the connection. No thread outlives the call.
+    """
+    async with asyncio.timeout(deadline_seconds):
+        async with httpx.AsyncClient(timeout=deadline_seconds, follow_redirects=False,
+                                     trust_env=False) as client:
+            async with client.stream("GET", endpoint, headers={
+                    "Authorization": f"Bearer {key}", "Accept-Encoding": "identity"}) as response:
+                declared = response.headers.get("content-length", "0")
+                if (response.status_code != 200
+                        or not response.headers.get("content-type", "").lower().startswith("application/json")
+                        or response.headers.get("content-encoding", "identity").lower() != "identity"
+                        or not declared.isdigit() or int(declared) > _ATTEMPT_INFO_MAX_BYTES):
+                    return None
+                body = bytearray()
+                async for chunk in response.aiter_raw():
+                    body += chunk
+                    if len(body) > _ATTEMPT_INFO_MAX_BYTES:
+                        return None
+                return bytes(body)
+
+
+def _proves_attempt(body: object, path: str, attempt_token: uuid.UUID) -> bool:
+    """Exact, unversioned, live row of this attempt; any other shape is unproven."""
+    if type(body) is not dict:
+        return False
+    version = body.get("version")
+    try:
+        version_ok = type(version) is str and str(uuid.UUID(version)) == version
+    except ValueError:
+        version_ok = False
+    return (
+        version_ok
+        and body.get("name") == path
+        and body.get("bucket_id") == MEDIA_BUCKET
+        and body.get("is_versioned") is False
+        and body.get("is_delete_marker") is False
+        and "archived_at" in body and body["archived_at"] is None
+        and body.get("metadata") == {CELL_REPORT_AUDIO_ATTEMPT_KEY: str(attempt_token)}
+    )
+
+
 class SupabaseStorage:
     """Thin HTTP client around the Supabase Storage REST API."""
 
@@ -284,7 +357,7 @@ class SupabaseStorage:
 
     def upload_cell_report_audio(
         self, *, igreja_id: object, provider_message_sha256: str,
-        mime_type: str, raw: bytes, deadline_seconds: float,
+        mime_type: str, raw: bytes, deadline_seconds: float, attempt_token: uuid.UUID,
     ) -> StoredMedia:
         """Upload only a pre-authorized durable audio intent into the private bucket.
 
@@ -292,6 +365,8 @@ class SupabaseStorage:
         Only a 2xx observed after the deadline, with the response and client
         closed cleanly, raises ``StorageLateSuccess``; everything else is a plain
         ``StorageError`` of unknown outcome. Never retries or reads the body.
+        ``attempt_token`` (committed before this call) travels as user metadata
+        so ``cell_report_audio_attempt_committed`` can later witness the commit.
         """
         from app.services.cell_report_audio import (
             CELL_REPORT_AUDIO_MAX_BYTES, canonical_audio_mime,
@@ -305,6 +380,7 @@ class SupabaseStorage:
             raise StorageError("Prazo de upload inválido")
         deadline = started + min(deadline_seconds, 30.0)
         content_type = canonical_audio_mime(mime_type)
+        metadata = _attempt_metadata(attempt_token)
         url, key = self._require()
         try:
             with httpx.Client(timeout=max(deadline - time.monotonic(), 0.001),
@@ -314,7 +390,8 @@ class SupabaseStorage:
                     raise StorageError("Prazo de upload excedido")
                 with client.stream("POST", f"{url}/storage/v1/object/{MEDIA_BUCKET}/{path}",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": content_type,
-                             "x-upsert": "true"}, content=raw, timeout=remaining) as response:
+                             "x-upsert": "true", "x-metadata": metadata},
+                    content=raw, timeout=remaining) as response:
                     response.raise_for_status()
                     late = time.monotonic() >= deadline
         except httpx.HTTPError as exc:
@@ -324,6 +401,47 @@ class SupabaseStorage:
         if late:
             raise StorageLateSuccess(stored)
         return stored
+
+    def cell_report_audio_attempt_committed(
+        self, igreja_id: object, path: object, attempt_token: object,
+    ) -> bool:
+        """True only if Storage info shows this exact attempt committed at ``path``.
+
+        One GET, no retry. Invalid input raises before any request.
+        Everything else (absence, another or no token, versioned/archived or
+        unknown shape, 3xx/4xx/5xx, timeout, compressed, oversized or invalid
+        JSON) is ``False`` = not proven, never "absent": no negative rule exists.
+        Total duration (connect, headers, body) is bounded by one cancellable
+        5 s deadline that closes the connection; only system DNS resolution is
+        outside it (``asyncio.run`` waits for the resolver thread on exit). The
+        body cap applies to the raw bytes (no decompression; one transport read
+        may overshoot it before refusal). Proves the object row committed, not
+        the bytes; logs never carry the path, payload or credential.
+        """
+        tenant_owned_paths(igreja_id, [path])
+        if not _CELL_REPORT_AUDIO_KEY_RE.fullmatch(str(path).removeprefix(_tenant_prefix(igreja_id))):
+            raise StoragePathError("Caminho de áudio inválido")
+        if type(attempt_token) is not uuid.UUID:
+            raise StorageError("Tentativa de upload inválida")
+        url, key = self._require()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:  # Never nested in a running loop nor pushed to a thread: not proven.
+            return False
+        try:
+            body = asyncio.run(_fetch_attempt_info(
+                f"{url}/storage/v1/object/info/authenticated/{MEDIA_BUCKET}/{path}", key,
+                _ATTEMPT_INFO_TIMEOUT_SECONDS))
+            if body is None:
+                return False
+            parsed = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_object,
+                                parse_constant=_reject_constant)
+        except (TimeoutError, httpx.HTTPError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+            logger.warning("Cell report audio attempt info unavailable: %s", type(exc).__name__)
+            return False
+        return _proves_attempt(parsed, str(path), attempt_token)
 
     def sign(self, paths: list[str]) -> dict[str, str]:
         """Batch-sign read URLs. Returns ``{path: absolute_url}``.

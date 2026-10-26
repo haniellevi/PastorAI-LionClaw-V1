@@ -27,6 +27,7 @@ from tests.test_uv_turmas_pg import rls_database_url, migrated_database, databas
 pytestmark = pytest.mark.rls_integration
 ROLE = 'private_storage_runtime'
 MIGRATION = '20261030_100000_private_storage_worker_identity.sql'
+WITNESS_MIGRATION = '20261030_110000_private_upload_attempt_witness.sql'
 REFUSED = 'Runtime de Storage privado obrigatório'
 
 
@@ -54,7 +55,7 @@ def test_migration_creates_minimal_nologin_identity(database):
         assert c.execute(text('''select count(*) from pg_auth_members m join pg_roles r on r.oid=m.member
             where r.rolname=:r'''), dict(r=ROLE)).scalar_one() == 0
         check = lambda sql, **kw: c.execute(text(sql), kw).scalar_one()
-        # No domain or pastoral data: only tasks/uploads and four functions.
+        # No domain or pastoral data: only tasks/uploads and six functions.
         for table in ('conversations', 'messages', 'pessoas', 'cell_report_audio_inputs',
                       'private_deletion_receipts', 'private_deletion_sends', 'private_deletion_event_fences'):
             for privilege in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'):
@@ -66,7 +67,9 @@ def test_migration_creates_minimal_nologin_identity(database):
         assert check("select has_table_privilege(:r,'private_deletion_uploads','DELETE')", r=ROLE)
         assert not check("select has_table_privilege(:r,'private_deletion_uploads','INSERT')", r=ROLE)
         functions = ('private_storage_runtime_session()', 'private_storage_due_tasks(timestamptz,integer)',
-                     'private_storage_begin_upload(uuid,uuid,uuid,bigint)', 'private_deletion_task_path(uuid)')
+                     'private_storage_begin_upload(uuid,uuid,uuid,bigint)', 'private_deletion_task_path(uuid)',
+                     'private_storage_begin_upload_attempt(uuid,uuid,uuid,bigint)',
+                     'private_storage_upload_witness_due(timestamptz,integer)')
         for function in functions:
             assert check("select has_function_privilege(:r,:f,'EXECUTE')", r=ROLE, f=function)
             for other in ('authenticated', 'anon', 'service_role'):
@@ -141,7 +144,9 @@ def test_main_login_set_role_http_and_other_worker_are_refused(database, private
     tasks = _delete_both_churches(database, v)
     calls = (('select * from private_storage_due_tasks(now(),10)', {}),
              ('select private_deletion_task_path(:id)', dict(id=tasks[v['tenant']])),
-             ('select private_storage_begin_upload(:t,:s,:c,0)', dict(t=v['tenant'], s=uuid4(), c=v['conv'])))
+             ('select private_storage_begin_upload(:t,:s,:c,0)', dict(t=v['tenant'], s=uuid4(), c=v['conv'])),
+             ('select private_storage_begin_upload_attempt(:t,:s,:c,0)', dict(t=v['tenant'], s=uuid4(), c=v['conv'])),
+             ('select * from private_storage_upload_witness_due(now(),10)', {}))
     # Main/owner login (superuser here) and the same login after SET ROLE.
     for set_role in (False, True):
         for sql, params in calls:
@@ -160,7 +165,9 @@ def test_main_login_set_role_http_and_other_worker_are_refused(database, private
     # HTTP-like sessions (tenant scope, with or without an admin subject).
     for admin in (False, True):
         for sql in ('update private_deletion_tasks set attempts=attempts', 'select count(*) from private_deletion_uploads',
-                    'select * from private_storage_due_tasks(now(),10)'):
+                    'select * from private_storage_due_tasks(now(),10)',
+                    'select * from private_storage_upload_witness_due(now(),10)',
+                    'update private_deletion_uploads set witness_attempts=0'):
             with scoped(database, v['tenant'], admin=admin) as s:
                 with pytest.raises(DBAPIError) as error:
                     s.execute(text(sql))
@@ -285,7 +292,7 @@ def test_begin_upload_waits_for_the_deletion_generation_lock(database, private_d
     holder.commit()
     holder.close()
     worker.join(10)
-    assert result == {'accepted': False}  # The generation moved: no ownership.
+    assert result == {'accepted': None}  # The generation moved: no ownership or token.
     with database.connect() as c:
         assert c.execute(text('select count(*) from private_deletion_uploads')).scalar_one() == 0
 
@@ -326,11 +333,16 @@ def _migration_sql():
     return migrate.strip_outer_transaction((migrate.MIGRATIONS_DIR / MIGRATION).read_text())
 
 
-def _rollback_sql():
-    """The migration's own commented rollback, uncommented, without BEGIN/COMMIT."""
+def _rollback_sql(name=MIGRATION):
+    """The migration's own commented rollback, uncommented, without BEGIN/COMMIT.
+
+    Rollbacks run newest first: the attempt-witness migration depends on this
+    identity and is rolled back before it.
+    """
     from scripts import migrate
-    block = (migrate.MIGRATIONS_DIR / MIGRATION).read_text().split('-- BEGIN;\n', 1)[1].split('-- COMMIT;', 1)[0]
-    return '\n'.join(line[3:] if line.startswith('-- ') else line[2:] for line in block.splitlines())
+    block = (migrate.MIGRATIONS_DIR / name).read_text().split('-- BEGIN;\n', 1)[1].split('-- COMMIT;', 1)[0]
+    sql = '\n'.join(line[3:] if line.startswith('-- ') else line[2:] for line in block.splitlines())
+    return _rollback_sql(WITNESS_MIGRATION) + '\n' + sql if name == MIGRATION else sql
 
 
 def _current_db_dependencies(c):
@@ -441,9 +453,10 @@ def test_rollback_guard_rehearsal_and_reapply(database, other_database, private_
         assert c.execute(text("select has_table_privilege(:r,'synthetic_other','SELECT')"), dict(r=ROLE)).scalar_one()
     # Reapply through migrate.py: the identity contract returns and works.
     env = dict(os.environ, MIGRATION_DATABASE_URL=database.url.render_as_string(hide_password=False).replace('postgresql+psycopg2:', 'postgresql:'))
-    result = subprocess.run([sys.executable, str(ROOT/'scripts/migrate.py'), 'apply', MIGRATION, '--yes'],
-                            env=env, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    for name in (MIGRATION, WITNESS_MIGRATION):
+        result = subprocess.run([sys.executable, str(ROOT/'scripts/migrate.py'), 'apply', name, '--yes'],
+                                env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
     with database.connect() as c:
         assert not c.execute(text("select has_column_privilege('authenticated','private_deletion_tasks','state','UPDATE')")).scalar_one()
     with private_storage_login(database, monkeypatch) as runtime_factory:
