@@ -100,6 +100,18 @@ class StoredMedia:
         self.tamanho = tamanho
 
 
+class StorageLateSuccess(StorageError):
+    """A 2xx arrived after the deadline: the object exists, the result is late.
+
+    Still a failure for the caller's chain. Unlike timeouts or transport errors,
+    the provider confirmed the write, so this request can no longer land later.
+    """
+
+    def __init__(self, stored: StoredMedia) -> None:
+        super().__init__("Resultado do upload fora do prazo")
+        self.stored = stored
+
+
 def kind_for_mime(mime: str | None) -> str:
     """Map a MIME type to a message `tipo` (imagem|audio|arquivo)."""
     m = (mime or "").lower()
@@ -277,7 +289,9 @@ class SupabaseStorage:
         """Upload only a pre-authorized durable audio intent into the private bucket.
 
         A late/uncertain result raises: the caller must retain its purge intent.
-        This method never retries or consumes the provider response body.
+        Only a 2xx observed after the deadline, with the response and client
+        closed cleanly, raises ``StorageLateSuccess``; everything else is a plain
+        ``StorageError`` of unknown outcome. Never retries or reads the body.
         """
         from app.services.cell_report_audio import (
             CELL_REPORT_AUDIO_MAX_BYTES, canonical_audio_mime,
@@ -302,12 +316,14 @@ class SupabaseStorage:
                     headers={"Authorization": f"Bearer {key}", "Content-Type": content_type,
                              "x-upsert": "true"}, content=raw, timeout=remaining) as response:
                     response.raise_for_status()
-                    if time.monotonic() >= deadline:
-                        raise StorageError("Resultado do upload fora do prazo")
+                    late = time.monotonic() >= deadline
         except httpx.HTTPError as exc:
             logger.warning("Cell report audio upload failed: %s", type(exc).__name__)
             raise StorageError("Falha ao guardar o áudio do relatório") from None
-        return StoredMedia(path=path, mime=content_type, nome=None, tamanho=len(raw))
+        stored = StoredMedia(path=path, mime=content_type, nome=None, tamanho=len(raw))
+        if late:
+            raise StorageLateSuccess(stored)
+        return stored
 
     def sign(self, paths: list[str]) -> dict[str, str]:
         """Batch-sign read URLs. Returns ``{path: absolute_url}``.

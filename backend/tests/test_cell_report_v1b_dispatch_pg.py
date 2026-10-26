@@ -579,6 +579,58 @@ def test_v1b_late_upload_is_retained_after_elapsed_ttl(audio_turn, ambiguous):
     assert _rows(audio_turn, AgentActionProposal) == []
 
 
+def _real_storage_upload(monkeypatch, providers, respond):
+    """Real Supabase upload contract over fake HTTP, with a Storage-only clock."""
+    import time
+    import httpx
+    from app.services import storage as storage_module
+    offset = [0.0]
+    monkeypatch.setattr(storage_module, 'time',
+                        SimpleNamespace(monotonic=lambda: time.monotonic() + offset[0]))
+    real_client = httpx.Client
+    def handler(request):
+        path = request.url.path.removeprefix('/storage/v1/object/whatsapp-media/')
+        providers.objects[path] = request.content  # The provider write happened.
+        offset[0] = 31.0  # Past the 30 s upload deadline, not the claim deadline.
+        return respond(request)
+    monkeypatch.setattr(storage_module.httpx, 'Client',
+                        lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs))
+    real = storage_module.SupabaseStorage(SimpleNamespace(
+        supabase_url='https://storage.example.test', supabase_service_role_key='synthetic-key'))
+    providers.storage.upload_cell_report_audio = real.upload_cell_report_audio
+
+
+@pytest.mark.parametrize('confirmed', (True, False))
+def test_v1b_only_confirmed_late_upload_releases_ownership(audio_turn, monkeypatch, confirmed):
+    import httpx
+    from app.db.models import CellReportAudioReservation, PrivateDeletionUpload
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    def respond(request):
+        if confirmed:
+            return httpx.Response(200)
+        raise httpx.ReadTimeout('synthetic timeout after the provider write', request=request)
+    _real_storage_upload(monkeypatch, providers, respond)
+    before = _snapshot(audio_turn)
+    _dispatch(audio_turn, providers)
+    assert len(providers.objects) == 1
+    # A 2xx proves this request can no longer write; a timeout proves nothing.
+    assert len(_rows(audio_turn, PrivateDeletionUpload)) == (0 if confirmed else 1)
+    # Either way the chain stops at the deadline: no budget, transcript or reply.
+    assert providers.counts['transcribe'] == 0
+    assert _rows(audio_turn, CellReportAudioReservation) == []
+    assert _rows(audio_turn, AgentActionProposal) == []
+    assert _snapshot(audio_turn) == before
+    uploaded = [row for row in _rows(audio_turn, CellReportAudioInput)
+                if row.storage_path in providers.objects]
+    assert [(row.state, row.terminal_reason) for row in uploaded] == [('ambigua', 'externo_ambiguo')]
+    assert uploaded[0].transcript_text is None
+    # Captured v2 retention is unchanged: elapsed TTL does not purge the object.
+    service.purge_cell_report_audio_inputs(audio_turn.factory, storage=providers.storage,
+        now=dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=25), limit=10)
+    assert len(providers.objects) == 1
+
+
 def test_v1b_spelled_audio_reuses_v1a_paid_extraction_and_confirmation(audio_turn, monkeypatch):
     from tests.test_cell_report_v1a_extraction_pg import _fake_extractor, _WORDS
     calls = _fake_extractor(audio_turn, monkeypatch)
