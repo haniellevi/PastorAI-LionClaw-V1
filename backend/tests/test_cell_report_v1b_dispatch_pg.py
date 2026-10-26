@@ -20,6 +20,21 @@ from tests.test_cell_report_v1a_worker_pg import _CommittedReceiptEvolution, _RE
 pytestmark = pytest.mark.rls_integration
 
 
+@pytest.fixture(autouse=True)
+def private_storage_runtime(audio_turn, monkeypatch):
+    """Real deletion SQL + dedicated Storage login in the isolated schema.
+
+    Upload ownership in these turns goes through the production default
+    (``PrivateStorageRuntime()`` resolving PRIVATE_STORAGE_DATABASE_URL).
+    """
+    from tests.private_storage_pg import private_storage_login
+    from tests.test_messages_inbound_idempotency import _SCHEMA
+    from tests.test_prayer_privacy_pg import install_inbox_schema
+    install_inbox_schema(audio_turn.engine)
+    with private_storage_login(audio_turn.engine, monkeypatch, schema=_SCHEMA) as factory:
+        yield factory
+
+
 def _no_domain_lock(turn):
     # Independent transaction must acquire all relevant rows during each I/O.
     with turn.factory.begin() as session:
@@ -598,6 +613,45 @@ def _real_storage_upload(monkeypatch, providers, respond):
     real = storage_module.SupabaseStorage(SimpleNamespace(
         supabase_url='https://storage.example.test', supabase_service_role_key='synthetic-key'))
     providers.storage.upload_cell_report_audio = real.upload_cell_report_audio
+
+
+@pytest.mark.parametrize('failure', ('missing', 'main_login', 'nologin'))
+def test_v1b_without_proven_storage_login_does_no_provider_io(audio_turn, monkeypatch, failure):
+    import os
+    from app.config import get_settings
+    from app.db.privacy_storage_session import dispose_private_storage_engine
+    providers = _providers(audio_turn)
+    _consented_audio(audio_turn, providers)
+    pending = [(row.id, row.transcription_attempts) for row in _rows(audio_turn, CellReportAudioInput)
+               if row.state == 'pendente']
+    assert len(pending) == 1
+    configured = os.environ['PRIVATE_STORAGE_DATABASE_URL']
+    def reconfigure(value):
+        monkeypatch.setenv('PRIVATE_STORAGE_DATABASE_URL', value)
+        get_settings.cache_clear()
+        dispose_private_storage_engine()
+    if failure == 'missing':
+        monkeypatch.delenv('PRIVATE_STORAGE_DATABASE_URL')
+        get_settings.cache_clear()
+        dispose_private_storage_engine()
+    elif failure == 'main_login':  # Never a fallback to the privileged login.
+        reconfigure(audio_turn.engine.url.render_as_string(hide_password=False))
+    else:  # Credential revoked: the dedicated login cannot connect.
+        with audio_turn.engine.begin() as c:
+            c.exec_driver_sql('alter role private_storage_runtime nologin')
+        dispose_private_storage_engine()
+    _dispatch(audio_turn, providers)
+    # Refused before any claim: no download, upload, transcription or cleanup.
+    assert providers.counts == dict(download=0, upload=0, transcribe=0, remove=0)
+    assert providers.objects == {}
+    assert [(row.id, row.transcription_attempts) for row in _rows(audio_turn, CellReportAudioInput)
+            if row.state == 'pendente'] == pending
+    if failure == 'nologin':
+        with audio_turn.engine.begin() as c:
+            c.exec_driver_sql('alter role private_storage_runtime login')
+    reconfigure(configured)
+    _dispatch(audio_turn, providers)  # The pending input then runs normally.
+    assert providers.counts['download'] == providers.counts['upload'] == providers.counts['transcribe'] == 1
 
 
 @pytest.mark.parametrize('confirmed', (True, False))

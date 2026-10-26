@@ -271,9 +271,74 @@ Tabelas novas têm `igreja_id`, ENABLE/FORCE RLS, FKs compostas e revokes.
 O helper interno só é executável pelo proprietário SQL; HTTP chama wrapper
 que revalida admin. Processing mantém o escopo tenant NOBYPASSRLS da #509.
 
+### Identidade do runtime de Storage privado (tarefas e uploads)
+
+Candidata local, migration `20261030_100000_private_storage_worker_identity.sql`
+(aplicada só em PostgreSQL sintético; não aplicada em PROD). Tarefas de limpeza e ownership de upload de áudio passam a usar
+somente o login `private_storage_runtime`, configurado em
+`PRIVATE_STORAGE_DATABASE_URL`, sem fallback para `DATABASE_URL`. O papel nasce
+NOLOGIN, sem senha, NOINHERIT, NOBYPASSRLS, sem superuser/createdb/createrole/
+replication nem memberships. Papel preexistente é recusado se tiver atributo que
+amplie a identidade, membership, objetos próprios, grants, policies ou default
+ACLs neste banco, grant sobre o próprio banco (ex.: CREATE), ACL de parâmetro
+(`GRANT SET ON PARAMETER`) ou de tablespace, ou se for dono de objeto
+compartilhado. Objetos e grants de outros bancos do cluster pertencem a eles:
+são aceitos e nunca alterados daqui; a migration recusa, não corrige o papel. A migration não é
+idempotente por si: reaplicar só depois do rollback, via `migrate.py`.
+
+A identidade é o próprio login (`session_user`), comprovada em cada transação,
+inclusive após commit: o cliente fixa `search_path = pg_catalog, public, pg_temp`
+(`pg_temp` explícito por último, para tabela TEMP homônima não sombrear) e o GUC de igreja com `pg_catalog.set_config` local antes de qualquer consulta e
+prova login, `current_user`, atributos, `row_security` e esse `search_path`.
+Opções da URL, defaults do papel, schema ou TEMP homônimos não mudam a
+resolução de nomes; as funções da migration usam o mesmo caminho. Não há `SET ROLE` nem GUC como identidade; o checkout do pool só
+descarta conexão com GUC de igreja persistido. Dentro das funções SECURITY
+DEFINER `current_user` é o dono: elas conferem `session_user`, LOGIN ativo e
+os atributos do login; NOLOGIN passa a recusar também conexões já abertas,
+mas não as encerra (contenção continua operacional).
+
+Grants: SELECT/UPDATE nas colunas já usadas de `private_deletion_tasks`,
+SELECT/DELETE em `private_deletion_uploads`, RLS por igreja (GUC da transação)
+e execução de quatro funções: descoberta só de IDs e recibo, caminho da tarefa,
+início de upload (recusa campos nulos, trava a geração da conversa e insere a
+ownership na mesma transação, sem acesso do papel a conversas) e verificação do
+login. Nenhum acesso a conversas, mensagens, pessoas ou transcrições.
+`authenticated` perde o ramo de worker sem subject nessas duas tabelas e na
+função de caminho; o admin web mantém o progresso do recibo.
+
+Sem o login comprovado, o dispatch V1b não reivindica **novas** entradas de
+áudio: elas ficam pendentes, sem download, upload nem transcrição. Recuperação
+de handoffs, reenvio de respostas já preparadas e os demais envios do cron e do
+queue continuam. Sem credencial, a limpeza de Storage não roda e os recibos
+permanecem pendentes.
+
+Conexão: o usuário da URL pode ser `private_storage_runtime` (direta) ou a forma
+do pooler compartilhado Supabase `private_storage_runtime.<project-ref>` (ref de
+20 minúsculas/dígitos; [documentação](https://supabase.com/docs/guides/database/connecting-to-postgres)).
+Isso é só formato: a prova continua sendo `session_user`/`current_user` exatos no
+banco. Endpoint, modo (sessão/transação) e rede do ambiente hospedado não foram
+testados e precisam ser validados no release; esta fatia não presume IPv6 nem
+add-on.
+
+A reconciliação futura de upload com resultado desconhecido precisa também
+reabrir ou conferir a tarefa da fonte: se o runtime falhar ao reabrir uma tarefa
+já concluída, ela pode continuar fechada enquanto a ownership é retida.
+
+Release: conter consumidores antigos, backup, aplicar via `migrate.py`,
+provisionar LOGIN/senha e configurar só no cron sob autorização nominal,
+publicar o código, provar a identidade e retomar. Limites: envios, fences de
+evento e tarefas de resumo seguem o padrão anterior de servidor confiável; o
+dono/superuser do banco e operadores com CREATEROLE ou ADMIN sobre o papel
+continuam podendo alterá-lo ou agir como ele. Rollback comentado na migration,
+executável e ensaiado em PostgreSQL sintético (aplicar → rollback → reaplicar):
+recusa LOGIN provisionado antes de qualquer mudança, restaura o contrato
+anterior e só remove o papel se nenhum outro banco depender dele, sem tocar em
+grants de outros bancos. Exige consumidores contidos e ownership drenada.
+
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
-retenção de tombstones. Pendências técnicas: identidade de worker ainda segue o
+retenção de tombstones. Pendências técnicas: tarefas e uploads têm identidade
+SQL própria na candidata acima; envios e fences ainda seguem o
 padrão servidor confiável sem subject da #509; reconciliação de upload com
 resultado desconhecido é ausente (só 2xx tardio confirmado é resolvido); tombstones não expiram
 sem política aprovada e horizonte comprovado de replay/restauração. Logs sem

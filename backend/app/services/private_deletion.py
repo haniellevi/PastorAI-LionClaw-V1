@@ -3,6 +3,10 @@
 Receipts contain IDs/counts only. Object paths exist solely in pending tasks and
 are erased on success. Backups/provider copies are outside this receipt's scope;
 a restore must reapply these tombstones before starting consumers.
+
+Storage tasks and audio upload ownership run only under the dedicated
+``private_storage_runtime`` login (``app.db.privacy_storage_session``). Sends
+and event fences stay in the callers' domain transactions on the main login.
 """
 from __future__ import annotations
 
@@ -17,7 +21,10 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import Conversation
-from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
+from app.db.privacy_storage_session import (
+    PrivateStorageScopeError, get_private_storage_session_factory, scope_private_storage,
+)
+from app.db.tenant_session import mark_tenant_scoped
 
 DeletionScope = Literal['conversa', 'pessoa', 'igreja', 'reset']
 LAYERS = ('mensagens', 'midias', 'transcricoes', 'resumos', 'checkpoints', 'vetores',
@@ -110,23 +117,20 @@ def process_storage_tasks(session_factory: Callable[[], Session], *, storage: ob
                           now: dt.datetime | None = None, limit: int = 100) -> int:
     """Bounded maintenance, independent of send gates; strict Storage DELETE.
 
-    Named discovery reads IDs only. Tenant-scoped processing uses NOBYPASSRLS.
-    Row locks serialize duplicate workers and late-upload reopening; failures
-    retain their path and exponential backoff, including after a process crash.
+    ``session_factory`` is the dedicated private storage factory. Discovery is a
+    function returning IDs only; each job runs tenant-scoped under that login,
+    NOBYPASSRLS. Row locks serialize duplicate workers and late-upload
+    reopening; failures retain their path and exponential backoff, including
+    after a process crash.
     """
     current = now or dt.datetime.now(dt.timezone.utc)
     with session_factory() as db:
-        mark_cross_tenant(db, source='private_deletion_cleanup_discovery')
-        jobs = db.execute(text("""select id,igreja_id,receipt_id from private_deletion_tasks
-            where state='pendente' and next_attempt_at<=:now and not exists(
-             select 1 from private_deletion_uploads u where u.igreja_id=private_deletion_tasks.igreja_id
-              and u.source_id=private_deletion_tasks.source_id)
-            order by next_attempt_at,id limit :limit"""),
-            dict(now=current, limit=limit)).mappings().all()
+        jobs = db.execute(text('select id,igreja_id,receipt_id from private_storage_due_tasks(:now,:limit)'),
+                          dict(now=current, limit=limit)).mappings().all()
     done = 0
     for job in jobs:
         with session_factory() as db:
-            mark_tenant_scoped(db, job['igreja_id'], source='private_deletion_cleanup')
+            scope_private_storage(db, job['igreja_id'])
             acquired = db.execute(text('select pg_try_advisory_xact_lock(hashtextextended(:id, 0))'),
                                   dict(id=str(job['receipt_id']))).scalar_one()
             if not acquired:
@@ -166,19 +170,18 @@ def event_was_deleted(db: Session, igreja_id: UUID, provider_message_id: str) ->
 
 
 def begin_audio_upload(session_factory: Callable[[], Session], claim: object) -> bool:
-    """Commit ownership before any upload. Deletion takes the same generation lock."""
+    """Commit ownership before any upload. Deletion takes the same generation lock.
+
+    The SQL function locks the conversation and inserts ownership in one
+    transaction, so the dedicated login needs no access to conversations.
+    """
     with session_factory() as db:
-        mark_tenant_scoped(db, claim.igreja_id, source='private_audio_upload_begin')
-        if not lock_generation(db, claim.igreja_id, claim.conversation_id, claim.deletion_generation):
-            db.rollback()
-            return False
-        result = db.execute(text("""insert into private_deletion_uploads
-            (igreja_id,source_id,conversation_id,generation) values(:t,:source,:c,:g)
-            on conflict(igreja_id,source_id) do nothing returning source_id"""),
-            dict(t=claim.igreja_id, source=claim.input_id, c=claim.conversation_id, g=claim.deletion_generation))
-        accepted = result.scalar_one_or_none() is not None
+        scope_private_storage(db, claim.igreja_id)
+        accepted = db.execute(text('select private_storage_begin_upload(:t,:source,:c,:g)'),
+            dict(t=claim.igreja_id, source=claim.input_id, c=claim.conversation_id,
+                 g=claim.deletion_generation)).scalar_one()
         db.commit()
-        return accepted
+        return bool(accepted)
 
 
 def finish_audio_upload(session_factory: Callable[[], Session], claim: object) -> None:
@@ -190,7 +193,7 @@ def finish_audio_upload(session_factory: Callable[[], Session], claim: object) -
     from app.services.storage import cell_report_audio_storage_path
 
     with session_factory() as db:
-        mark_tenant_scoped(db, claim.igreja_id, source='private_audio_upload_finish')
+        scope_private_storage(db, claim.igreja_id)
         path = claim.storage_path or cell_report_audio_storage_path(
             claim.igreja_id, claim.provider_message_sha256, claim.declared_mime)
         reopen_late_audio_upload(db, igreja_id=claim.igreja_id, conversation_id=claim.conversation_id,
@@ -198,6 +201,45 @@ def finish_audio_upload(session_factory: Callable[[], Session], claim: object) -
         db.execute(text('delete from private_deletion_uploads where igreja_id=:t and source_id=:source'),
                    dict(t=claim.igreja_id, source=claim.input_id))
         db.commit()
+
+
+class PrivateStorageRuntime:
+    """Audio upload ownership under the dedicated login, resolved lazily.
+
+    Constructing it loads no credential and does no I/O; ``ready`` proves the
+    login and its tenant scope (client probe plus the SQL identity function)
+    before any claim. It does not check every other function of the migration;
+    a credential revoked after ``ready`` surfaces at ``begin_upload``.
+    """
+
+    def __init__(self, session_factory: Callable[[], Session] | None = None) -> None:
+        self._session_factory = session_factory
+
+    def _factory(self) -> Callable[[], Session]:
+        return self._session_factory or get_private_storage_session_factory()
+
+    def ready(self, igreja_id: UUID) -> None:
+        with self._factory()() as db:
+            scope_private_storage(db, igreja_id)
+            confirmed = db.execute(text('select private_storage_runtime_session()')).scalar_one()
+            db.rollback()
+        if not confirmed:
+            raise PrivateStorageScopeError('private storage identity not confirmed by SQL')
+
+    def begin_upload(self, claim: object) -> bool:
+        return begin_audio_upload(self._factory(), claim)
+
+    def finish_upload(self, claim: object) -> None:
+        finish_audio_upload(self._factory(), claim)
+
+    def reopen_late_upload(self, claim: object, storage_path: str) -> bool:
+        with self._factory()() as db:
+            scope_private_storage(db, claim.igreja_id)
+            reopened = reopen_late_audio_upload(db, igreja_id=claim.igreja_id,
+                conversation_id=claim.conversation_id, source_id=claim.input_id,
+                storage_path=storage_path)
+            db.commit()
+            return reopened
 
 
 def send_generation_is_current(db: Session, igreja_id: UUID, conversation_id: UUID,

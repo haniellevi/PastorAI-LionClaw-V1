@@ -15,9 +15,18 @@ from app.db.tenant_session import mark_tenant_scoped
 from app.deps import CurrentUser, get_current_user
 from app.routers.conversations import router
 from app.services.storage import get_storage
+from app.services.private_deletion import PrivateStorageRuntime
+from tests.private_storage_pg import private_storage_login
 from tests.test_uv_turmas_pg import rls_database_url, migrated_database, database  # noqa: F401
 
 pytestmark = pytest.mark.rls_integration
+
+
+@pytest.fixture
+def runtime(database, monkeypatch):
+    """Real dedicated login (synthetic LOGIN) for tasks/uploads; never the main one."""
+    with private_storage_login(database, monkeypatch) as factory:
+        yield factory
 
 
 @pytest.fixture
@@ -184,7 +193,7 @@ def claim(v):
         storage_path=f"{v['tenant']}/cell-report-audio/synthetic.ogg")
 
 
-def test_storage_failure_retry_and_late_upload_reopen(database, private_data):
+def test_storage_failure_retry_and_late_upload_reopen(database, private_data, runtime):
     from app.services.private_deletion import process_storage_tasks
     from app.services.cell_report_audio_service import _reopen_audio_purge_after_late_upload
     v=private_data
@@ -200,27 +209,27 @@ def test_storage_failure_retry_and_late_upload_reopen(database, private_data):
             if self.failing:
                 raise RuntimeError('Synthetic storage unavailable')
     storage=Storage(); now=dt.datetime.now(dt.UTC)
-    assert process_storage_tasks(factory,storage=storage,now=now)==0
+    assert process_storage_tasks(runtime,storage=storage,now=now)==0
     with api(database,v) as client:
         failed=client.get(f"/conversations/{v['conv']}/deletion-receipt").json()
     assert failed['camadas']['midias']['pendentes']==2
     assert failed['camadas']['midias']['falhas']==2
     assert failed['estado']=='pendente'
     storage.failing=False
-    assert process_storage_tasks(factory,storage=storage,now=now)==0  # backoff
-    assert process_storage_tasks(factory,storage=storage,now=now+dt.timedelta(hours=1))==2
+    assert process_storage_tasks(runtime,storage=storage,now=now)==0  # backoff
+    assert process_storage_tasks(runtime,storage=storage,now=now+dt.timedelta(hours=1))==2
     with api(database,v) as client:
         complete=client.get(f"/conversations/{v['conv']}/deletion-receipt").json()
     assert complete['estado']=='concluido'
     assert complete['id']==initial['id']
     assert complete['camadas']['midias']==dict(encontradas=2,apagadas=2,pendentes=0,falhas=0)
-    _reopen_audio_purge_after_late_upload(factory, claim(v))
+    _reopen_audio_purge_after_late_upload(factory, claim(v), private_storage=PrivateStorageRuntime(runtime))
     with api(database,v) as client:
         reopened=client.get(f"/conversations/{v['conv']}/deletion-receipt").json()
     assert reopened['estado']=='pendente'
     assert reopened['camadas']['midias']['pendentes']==1
-    assert process_storage_tasks(factory,storage=storage,now=now+dt.timedelta(hours=2))==1
-    assert process_storage_tasks(factory,storage=storage,now=now+dt.timedelta(hours=3))==0
+    assert process_storage_tasks(runtime,storage=storage,now=now+dt.timedelta(hours=2))==1
+    assert process_storage_tasks(runtime,storage=storage,now=now+dt.timedelta(hours=3))==0
     with database.connect() as c:
         assert c.execute(text('select count(*) from private_deletion_tasks where receipt_id=:r and storage_path is not null'),dict(r=initial['id'])).scalar_one()==0
 
@@ -269,10 +278,10 @@ def test_replay_of_deleted_provider_event_does_not_create_new_conversation(datab
         assert c.execute(text('select count(*) from conversations where pessoa_id=:person'),v).scalar_one()==0
 
 
-def test_inflight_upload_prevents_false_completion_even_when_finalize_database_fails(database, private_data):
+def test_inflight_upload_prevents_false_completion_even_when_finalize_database_fails(database, private_data, runtime):
     from app.services.private_deletion import begin_audio_upload, finish_audio_upload, process_storage_tasks
-    v=private_data; factory=lambda: Session(database)
-    assert begin_audio_upload(factory,claim(v))
+    v=private_data
+    assert begin_audio_upload(runtime,claim(v))
     with api(database,v) as client:
         assert client.delete(f"/conversations/{v['conv']}").status_code==200
     def unavailable():
@@ -280,11 +289,11 @@ def test_inflight_upload_prevents_false_completion_even_when_finalize_database_f
     with pytest.raises(RuntimeError):
         finish_audio_upload(unavailable,claim(v))
     storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None)
-    assert process_storage_tasks(factory,storage=storage,now=dt.datetime.now(dt.UTC)+dt.timedelta(days=2))==1
+    assert process_storage_tasks(runtime,storage=storage,now=dt.datetime.now(dt.UTC)+dt.timedelta(days=2))==1
     with api(database,v) as client:
         assert client.get(f"/conversations/{v['conv']}/deletion-receipt").json()['estado']=='pendente'
-    finish_audio_upload(factory,claim(v))
-    assert process_storage_tasks(factory,storage=storage,now=dt.datetime.now(dt.UTC)+dt.timedelta(days=3))==1
+    finish_audio_upload(runtime,claim(v))
+    assert process_storage_tasks(runtime,storage=storage,now=dt.datetime.now(dt.UTC)+dt.timedelta(days=3))==1
 
 
 def test_generation_change_rejects_live_audio_claim(database, private_data, monkeypatch):
@@ -354,7 +363,7 @@ def test_real_ingestion_upload_serializes_with_deletion(database, private_data, 
         assert c.execute(text('select count(*) from messages where conversation_id=:conv'),v).scalar_one()==0
 
 
-def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private_data):
+def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private_data, runtime):
     from sqlalchemy.exc import DBAPIError
     from app.services.private_deletion import process_storage_tasks
     v=private_data
@@ -366,10 +375,13 @@ def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private
             assert c.execute(text("select relrowsecurity and relforcerowsecurity from pg_class where oid=cast(:t as regclass)"),dict(t=table)).scalar_one()
             for role in ('anon','service_role'):
                 assert not c.execute(text("select has_table_privilege(:r,:t,'SELECT')"),dict(r=role,t=table)).scalar_one()
+        # Upload ownership and task paths belong only to the dedicated login.
+        assert not c.execute(text("select has_table_privilege('authenticated','private_deletion_uploads','SELECT')")).scalar_one()
+        assert not c.execute(text("select has_function_privilege('authenticated','private_deletion_task_path(uuid)','EXECUTE')")).scalar_one()
     with scoped(database,v['other']) as s:
         for table in tables:
-            assert s.execute(text(f'select count(*) from {table}')).scalar_one()==0
-        assert s.execute(text('select private_deletion_task_path(:id)'),dict(id=uuid4())).scalar_one() is None
+            if table != 'private_deletion_uploads':
+                assert s.execute(text(f'select count(*) from {table}')).scalar_one()==0
         with pytest.raises(DBAPIError):
             s.execute(text('select private_delete_conversation(:t,:c)'),dict(t=v['tenant'],c=v['conv2']))
         s.rollback()
@@ -379,7 +391,7 @@ def test_receipt_tasks_survive_source_tenant_and_obey_real_rls(database, private
         s.rollback()
     with database.begin() as c:
         c.execute(text('delete from igrejas where id=:tenant'),v)
-    assert process_storage_tasks(lambda: Session(database),storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None))==2
+    assert process_storage_tasks(runtime,storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None))==2
     with database.connect() as c:
         assert c.execute(text('select count(*) from private_deletion_receipts where id=:id'),dict(id=deleted['id'])).scalar_one()==1
 
@@ -470,12 +482,15 @@ def _receipt(database, v):
         return client.get(f"/igreja/private-deletions/{v['receipt']}").json()
 
 
-def _other_church_untouched(database, v):
+def _other_church_untouched(database, v, runtime):
+    from app.db.privacy_storage_session import scope_private_storage
     with database.connect() as c:
         assert c.execute(text('select count(*) from messages where igreja_id=:other'), v).scalar_one() == 1
         for table in ('private_deletion_receipts', 'private_deletion_tasks', 'private_deletion_uploads'):
             assert c.execute(text(f'select count(*) from {table} where igreja_id=:other'), v).scalar_one() == 0
-    with scoped(database, v['other']) as s:
+    # The dedicated login scoped to the second church sees none of the first's rows.
+    with runtime() as s:
+        scope_private_storage(s, v['other'])
         for table in ('private_deletion_tasks', 'private_deletion_uploads'):
             assert s.execute(text(f'select count(*) from {table}')).scalar_one() == 0
 
@@ -485,53 +500,53 @@ def _owned(database, v):
         return c.execute(text('select count(*) from private_deletion_uploads where source_id=:audio'), v).scalar_one()
 
 
-def test_confirmed_late_upload_during_deletion_releases_ownership_and_completes(database, private_data, monkeypatch):
+def test_confirmed_late_upload_during_deletion_releases_ownership_and_completes(database, private_data, monkeypatch, runtime):
     import httpx
     from app.services.cell_report_audio_service import _upload_owned_audio
     from app.services.private_deletion import begin_audio_upload, process_storage_tasks
     from app.services.storage import StorageLateSuccess
-    v = dict(private_data, objects={}); factory = lambda: Session(database)
+    v = dict(private_data, objects={})
     path, owned, upload = _upload_during_deletion(database, v, monkeypatch, lambda _: httpx.Response(200))
-    assert begin_audio_upload(factory, owned)
+    assert begin_audio_upload(runtime, owned)
     with pytest.raises(StorageLateSuccess):
-        _upload_owned_audio(factory, owned, upload)
+        _upload_owned_audio(PrivateStorageRuntime(runtime), owned, upload)
     assert _owned(database, v) == 0 and path in v['objects']
     now = dt.datetime.now(dt.UTC); storage = _ObjectStorage(v); storage.failing = True
-    assert process_storage_tasks(factory, storage=storage, now=now) == 0
+    assert process_storage_tasks(runtime, storage=storage, now=now) == 0
     failed = _receipt(database, v)
     # The late object is queued and stays pending until a strict DELETE succeeds.
     assert failed['estado'] == 'pendente' and path in storage.calls and path in v['objects']
     assert failed['camadas']['midias'] == dict(encontradas=2, apagadas=0, pendentes=2, falhas=2)
     storage.failing = False
-    assert process_storage_tasks(factory, storage=storage, now=now+dt.timedelta(hours=1)) == 2
+    assert process_storage_tasks(runtime, storage=storage, now=now+dt.timedelta(hours=1)) == 2
     assert path not in v['objects']
     done = _receipt(database, v)
     assert done['estado'] == 'concluido'
     assert done['camadas']['midias'] == dict(encontradas=2, apagadas=2, pendentes=0, falhas=0)
     storage.assert_foreign_preserved()
-    _other_church_untouched(database, v)
+    _other_church_untouched(database, v, runtime)
 
 
 @pytest.mark.parametrize('failure', ('timeout', 'commit'))
-def test_unknown_or_unresolved_upload_keeps_ownership_and_pending_receipt(database, private_data, monkeypatch, failure):
+def test_unknown_or_unresolved_upload_keeps_ownership_and_pending_receipt(database, private_data, monkeypatch, failure, runtime):
     import httpx
     from sqlalchemy import event
     from app.services.cell_report_audio_service import _upload_owned_audio
     from app.services.private_deletion import begin_audio_upload, process_storage_tasks
     from app.services.storage import StorageError, StorageLateSuccess
-    v = dict(private_data, objects={}); factory = lambda: Session(database)
+    v = dict(private_data, objects={})
     def respond(request):
         if failure == 'timeout':  # The write happened; the result is unknown.
             raise httpx.ReadTimeout('synthetic timeout after the write', request=request)
         return httpx.Response(200)
     def failing_commit():
-        s = Session(database)
+        s = runtime()
         event.listen(s, 'before_commit', lambda _s: (_ for _ in ()).throw(RuntimeError('synthetic commit failure')))
         return s
     path, owned, upload = _upload_during_deletion(database, v, monkeypatch, respond)
-    assert begin_audio_upload(factory, owned)
+    assert begin_audio_upload(runtime, owned)
     with pytest.raises(StorageLateSuccess if failure == 'commit' else StorageError) as error:
-        _upload_owned_audio(failing_commit if failure == 'commit' else factory, owned, upload)
+        _upload_owned_audio(PrivateStorageRuntime(failing_commit if failure == 'commit' else runtime), owned, upload)
     assert failure == 'commit' or not isinstance(error.value, StorageLateSuccess)
     # A rolled-back resolution keeps ownership; the deletion's task is intact.
     assert _owned(database, v) == 1
@@ -539,25 +554,25 @@ def test_unknown_or_unresolved_upload_keeps_ownership_and_pending_receipt(databa
         assert c.execute(text('select state,storage_path,attempts from private_deletion_tasks where source_id=:audio'), v).one() == ('pendente', path, 0)
     storage = _ObjectStorage(v)
     for days in (2, 30):
-        process_storage_tasks(factory, storage=storage, now=dt.datetime.now(dt.UTC)+dt.timedelta(days=days))
+        process_storage_tasks(runtime, storage=storage, now=dt.datetime.now(dt.UTC)+dt.timedelta(days=days))
     # Elapsed time never releases the fence: audio survives, receipt stays pending.
     assert path not in storage.calls and path in v['objects']
     pending = _receipt(database, v)
     assert pending['estado'] == 'pendente'
     assert pending['camadas']['midias'] == dict(encontradas=2, apagadas=1, pendentes=1, falhas=0)
     storage.assert_foreign_preserved()
-    _other_church_untouched(database, v)
+    _other_church_untouched(database, v, runtime)
 
 
-def test_lost_upload_cannot_starve_later_cleanup(database, private_data):
+def test_lost_upload_cannot_starve_later_cleanup(database, private_data, runtime):
     from app.services.private_deletion import begin_audio_upload, process_storage_tasks
-    v=private_data; factory=lambda: Session(database)
-    assert begin_audio_upload(factory,claim(v))
+    v=private_data
+    assert begin_audio_upload(runtime,claim(v))
     with api(database,v) as client:
         assert client.delete(f"/conversations/{v['conv']}").status_code==200
     with database.begin() as c:
         c.execute(text("update private_deletion_tasks set next_attempt_at=now()-interval '2 days' where source_id=:audio"),v)
-    assert process_storage_tasks(factory,storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None),limit=1)==1
+    assert process_storage_tasks(runtime,storage=SimpleNamespace(remove_tenant_media=lambda tenant,paths: None),limit=1)==1
 
 
 def test_audio_derivatives_of_other_people_and_church_are_untouched(database, private_data):
@@ -600,7 +615,7 @@ def test_delete_erases_linked_audit_payload_and_preserves_unrelated_logs(databas
 
 
 @pytest.mark.parametrize('status', ['aceito', 'falhou_retentavel', 'desconhecido'])
-def test_deletion_during_agent_transport_waits_for_boundary_without_resend(database, private_data, status):
+def test_deletion_during_agent_transport_waits_for_boundary_without_resend(database, private_data, status, runtime):
     from app.workers.queue_worker import (
         _prepare_agent_reply_intent, _deliver_agent_reply_intent, IngestionOutcome, IngestionResult,
     )
@@ -619,7 +634,7 @@ def test_deletion_during_agent_transport_waits_for_boundary_without_resend(datab
             with api(database, v) as client:
                 deleted = client.delete(f"/conversations/{v['conv']}").json()
                 observed.append(deleted)
-            process_storage_tasks(factory, storage=SimpleNamespace(remove_tenant_media=lambda *args: None))
+            process_storage_tasks(runtime, storage=SimpleNamespace(remove_tenant_media=lambda *args: None))
             with api(database, v) as client:
                 observed.append(client.get(f"/conversations/{v['conv']}/deletion-receipt").json())
             return SimpleNamespace(status=status)
@@ -769,7 +784,7 @@ def test_preflight_renews_full_window_and_rejects_expired_owner(database, privat
 
 
 @pytest.mark.parametrize('scope', ['pessoa', 'igreja'])
-def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, scope):
+def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, scope, runtime):
     from app.services.private_deletion import process_storage_tasks, event_was_deleted
     v = private_data
     with database.begin() as c:
@@ -803,7 +818,7 @@ def test_web_bulk_erasure_receipt_retry_and_two_tenants(database, private_data, 
     with scoped(database, v['tenant']) as s:
         assert event_was_deleted(s, v['tenant'], 'bulk-synthetic')
     calls = []
-    assert process_storage_tasks(lambda: Session(database), storage=SimpleNamespace(
+    assert process_storage_tasks(runtime, storage=SimpleNamespace(
         remove_tenant_media=lambda t,paths: calls.append((t,paths)))) == (2 if scope == 'pessoa' else 3)
     assert all(t == v['tenant'] for t,_ in calls)
     with database.connect() as c:
@@ -888,18 +903,18 @@ def test_bulk_new_operation_erases_new_content_but_retry_is_snapshot(database,pr
         assert c.execute(text('select count(*) from conversations where id=:c'),dict(c=new_conv)).scalar_one()==0
 
 
-def test_bulk_late_upload_survives_source_and_tenant_loss(database,private_data):
+def test_bulk_late_upload_survives_source_and_tenant_loss(database,private_data, runtime):
     from app.services.private_deletion import begin_audio_upload,finish_audio_upload,delete_private,process_storage_tasks
-    v=private_data; factory=lambda:Session(database)
-    assert begin_audio_upload(factory,claim(v))
+    v=private_data
+    assert begin_audio_upload(runtime,claim(v))
     with scoped(database,v['tenant'],admin=True) as s:
         result=delete_private(s,scope='igreja',igreja_id=v['tenant'],target_id=v['tenant'],operation_id=uuid4())
     calls=[]; storage=SimpleNamespace(remove_tenant_media=lambda t,paths:calls.append(paths))
-    assert process_storage_tasks(factory,storage=storage)==2  # image paths only; audio still owned
+    assert process_storage_tasks(runtime,storage=storage)==2  # image paths only; audio still owned
     with database.begin() as c:
         c.execute(text('delete from igrejas where id=:tenant'),v)
-    finish_audio_upload(factory,claim(v))
-    assert process_storage_tasks(factory,storage=storage)==1
+    finish_audio_upload(runtime,claim(v))
+    assert process_storage_tasks(runtime,storage=storage)==1
     with database.connect() as c:
         assert c.execute(text("select count(*) from private_deletion_tasks where receipt_id=:r and state='pendente'"),dict(r=result['id'])).scalar_one()==0
 
@@ -914,7 +929,7 @@ def test_transcriptions_count_text_not_untranscribed_inputs(database,private_dat
         assert r['camadas']['entradas_audio']['apagadas']==1
 
 
-def test_platform_erasure_uses_private_queue_and_preserves_other_tenant(database,private_data):
+def test_platform_erasure_uses_private_queue_and_preserves_other_tenant(database,private_data, runtime):
     from app.services.tenant_deletion import delete_tenant_locally,TenantDeletionActor
     from app.services.private_deletion import process_storage_tasks
     v=private_data
@@ -929,7 +944,7 @@ def test_platform_erasure_uses_private_queue_and_preserves_other_tenant(database
         assert c.execute(text("select count(*) from private_deletion_tasks where igreja_id=:tenant and state='pendente'"),v).scalar_one()==3
         assert c.execute(text('select count(*) from cell_report_audio_inputs where igreja_id=:tenant'),v).scalar_one()==0
     calls=[]
-    assert process_storage_tasks(lambda:Session(database),storage=SimpleNamespace(remove_tenant_media=lambda t,paths:calls.append(t)))==3
+    assert process_storage_tasks(runtime,storage=SimpleNamespace(remove_tenant_media=lambda t,paths:calls.append(t)))==3
     assert calls==[v['tenant']]*3
 
 
@@ -961,10 +976,10 @@ def test_church_receipt_includes_older_conversation_cleanup(database,private_dat
         assert bulk['estado']=='pendente'
 
 
-def test_person_erases_orphan_audio_and_reopens_its_late_upload(database,private_data):
+def test_person_erases_orphan_audio_and_reopens_its_late_upload(database,private_data, runtime):
     from app.services.private_deletion import begin_audio_upload,finish_audio_upload,process_storage_tasks
-    v=private_data; factory=lambda:Session(database)
-    assert begin_audio_upload(factory,claim(v))
+    v=private_data
+    assert begin_audio_upload(runtime,claim(v))
     with database.begin() as c:
         c.execute(text('update cell_report_audio_inputs set conversation_id=:old,inbound_message_id=:msg,live_conversation_id=null,live_message_id=null where id=:audio'),dict(v,old=uuid4(),msg=uuid4()))
     with api(database,v) as client:
@@ -973,9 +988,9 @@ def test_person_erases_orphan_audio_and_reopens_its_late_upload(database,private
         assert r.status_code==200,r.text
         assert r.json()['camadas']['entradas_audio']['apagadas']==1
     storage=SimpleNamespace(remove_tenant_media=lambda *args:None)
-    assert process_storage_tasks(factory,storage=storage)==1
-    finish_audio_upload(factory,claim(v))
-    assert process_storage_tasks(factory,storage=storage)==1
+    assert process_storage_tasks(runtime,storage=storage)==1
+    finish_audio_upload(runtime,claim(v))
+    assert process_storage_tasks(runtime,storage=storage)==1
 
 
 def test_person_receipt_includes_prior_church_cleanup(database,private_data):
@@ -992,7 +1007,7 @@ def test_person_receipt_includes_prior_church_cleanup(database,private_data):
 
 @pytest.mark.parametrize('scope',['conversa','pessoa','igreja'])
 @pytest.mark.parametrize('version', ['v1', 'v2'])
-def test_admin_bulk_erases_protected_messages_without_read_permission(database,private_data,scope,version):
+def test_admin_bulk_erases_protected_messages_without_read_permission(database,private_data,scope,version, runtime):
     from app.services.private_deletion import process_storage_tasks
     v=private_data
     with database.begin() as c:
@@ -1024,7 +1039,7 @@ def test_admin_bulk_erases_protected_messages_without_read_permission(database,p
 
 
     calls = []
-    assert process_storage_tasks(lambda: Session(database), storage=SimpleNamespace(
+    assert process_storage_tasks(runtime, storage=SimpleNamespace(
         remove_tenant_media=lambda tenant, paths: calls.extend((tenant, path) for path in paths)),
         now=dt.datetime.now(dt.UTC)+dt.timedelta(days=1)) == (3 if scope=='igreja' else 2)
     assert (v['tenant'], f"{v['tenant']}/cell-report-audio/synthetic.ogg") in calls
@@ -1096,7 +1111,7 @@ def test_person_erasure_matches_canonical_phone_of_unlinked_conversation(databas
         assert c.execute(text('select count(*) from messages where igreja_id=:other'),v).scalar_one()==1
 
 
-def test_expired_send_stays_pending_until_known_transport_return(database,private_data):
+def test_expired_send_stays_pending_until_known_transport_return(database,private_data, runtime):
     from app.workers import queue_worker as worker
     from app.services.private_deletion import process_storage_tasks
     v=private_data; factory=lambda:Session(database)
@@ -1111,7 +1126,7 @@ def test_expired_send_stays_pending_until_known_transport_return(database,privat
                 c.execute(text("update private_deletion_sends set expires_at=clock_timestamp()-interval '1 second' where igreja_id=:tenant"),v)
             with api(database,v) as client:
                 observed.append(client.delete(f"/conversations/{v['conv']}").json())
-            process_storage_tasks(factory,storage=SimpleNamespace(remove_tenant_media=lambda *args:None))
+            process_storage_tasks(runtime,storage=SimpleNamespace(remove_tenant_media=lambda *args:None))
             with api(database,v) as client:
                 observed.append(client.get(f"/conversations/{v['conv']}/deletion-receipt").json())
             return SimpleNamespace(status='aceito')
@@ -1131,7 +1146,7 @@ def test_deletion_phone_key_matches_domain_canonical_rules(database,phone):
     assert actual==normalize_phone(phone)
 
 
-def test_prayer_collection_media_erased_without_admin_read(database, private_data):
+def test_prayer_collection_media_erased_without_admin_read(database, private_data, runtime):
     from app.services.private_deletion import process_storage_tasks
     v = private_data
     with database.begin() as c:
@@ -1158,7 +1173,7 @@ def test_prayer_collection_media_erased_without_admin_read(database, private_dat
         def remove_tenant_media(self, tenant, paths):
             assert tenant == v['tenant']
             calls.extend(paths)
-    assert process_storage_tasks(lambda: Session(database), storage=Storage(), now=dt.datetime.now(dt.UTC)+dt.timedelta(days=1)) == 2
+    assert process_storage_tasks(runtime, storage=Storage(), now=dt.datetime.now(dt.UTC)+dt.timedelta(days=1)) == 2
     assert f"{v['tenant']}/{v['conv']}/synthetic.png" in calls
     with database.connect() as c:
         assert c.execute(text("select count(*) from private_deletion_tasks where igreja_id=:tenant and (state!='concluida' or storage_path is not null)"), v).scalar_one() == 0

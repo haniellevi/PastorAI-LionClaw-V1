@@ -136,15 +136,19 @@ def _late(path=OWNED):
     return storage.StorageLateSuccess(_stored(path))
 
 
-def _finish_calls(monkeypatch, *, fail=False):
-    from app.services import private_deletion
-    calls = []
-    def finish(session_factory, claim):
-        calls.append(claim)
-        if fail:
+class _Ownership(list):
+    """Records resolutions; the real login is proven by the PG suites."""
+    def __init__(self, fail):
+        super().__init__()
+        self.fail = fail
+    def finish_upload(self, claim):
+        self.append(claim)
+        if self.fail:
             raise RuntimeError("synthetic database unavailable")
-    monkeypatch.setattr(private_deletion, "finish_audio_upload", finish)
-    return calls
+
+
+def _finish_calls(monkeypatch, *, fail=False):
+    return _Ownership(fail)
 
 
 def test_v1b_confirmed_late_upload_resolves_ownership_and_keeps_error(monkeypatch):
@@ -153,7 +157,7 @@ def test_v1b_confirmed_late_upload_resolves_ownership_and_keeps_error(monkeypatc
     def upload():
         raise late
     with pytest.raises(storage.StorageLateSuccess) as error:
-        _upload_owned_audio(object(), claim, upload)
+        _upload_owned_audio(calls, claim, upload)
     assert error.value is late and calls == [claim]
 
 
@@ -163,7 +167,7 @@ def test_v1b_confirmed_late_upload_keeps_error_when_resolution_fails(monkeypatch
     def upload():
         raise late
     with pytest.raises(storage.StorageLateSuccess) as error:
-        _upload_owned_audio(object(), claim, upload)
+        _upload_owned_audio(calls, claim, upload)
     assert error.value is late and calls == [claim]
 
 
@@ -172,7 +176,7 @@ def test_v1b_owned_upload_resolves_only_its_exact_path(monkeypatch, storage_path
     # Empty storage_path uses finish's same deterministic canonical fallback.
     from app.services.cell_report_audio_service import _upload_owned_audio
     calls, claim, stored = _finish_calls(monkeypatch), _claim(storage_path), _stored()
-    assert _upload_owned_audio(object(), claim, lambda: stored) is stored
+    assert _upload_owned_audio(calls, claim, lambda: stored) is stored
     assert calls == [claim]
 
 
@@ -193,7 +197,7 @@ def test_v1b_divergent_upload_path_keeps_ownership_and_stops(monkeypatch, late, 
             raise storage.StorageLateSuccess(returned)
         return returned
     with pytest.raises(storage.StorageError) as error:
-        _upload_owned_audio(object(), _claim(), upload)
+        _upload_owned_audio(calls, _claim(), upload)
     # Never a confirmed result for another object; the late error stays chained.
     assert not isinstance(error.value, storage.StorageLateSuccess)
     assert isinstance(error.value.__context__, storage.StorageLateSuccess) is late
@@ -204,7 +208,7 @@ def test_v1b_claim_path_outside_its_church_never_resolves(monkeypatch):
     from app.services.cell_report_audio_service import _upload_owned_audio
     calls, foreign = _finish_calls(monkeypatch), OWNED.replace(str(TENANT), str(OTHER))
     with pytest.raises(storage.StoragePathError):
-        _upload_owned_audio(object(), _claim(foreign), lambda: _stored(foreign))
+        _upload_owned_audio(calls, _claim(foreign), lambda: _stored(foreign))
     assert calls == []
 
 
@@ -216,5 +220,5 @@ def test_v1b_unknown_upload_outcome_keeps_ownership(monkeypatch, error):
     def upload():
         raise error
     with pytest.raises(type(error)):
-        _upload_owned_audio(object(), _claim(), upload)
+        _upload_owned_audio(calls, _claim(), upload)
     assert calls == []
