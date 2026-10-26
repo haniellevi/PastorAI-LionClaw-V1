@@ -93,8 +93,11 @@ reensaiada só no pré-DDL (54,9 s). Revisão da PR: a reconciliação commitada
 uma queda é recuperada no replay só como delta exato autorizado (cenários
 `main`/`pre-ddl` reensaiados em PostgreSQL sintético; CI do novo SHA pendente).
 Forma de PROD = instalação observada em
-24/10, não reverificada. Próxima fatia: adoção persistente da topologia do
-candidato pelo instalador/workflow e tratamento de legado com `RestartCount>0`.
+24/10, não reverificada. Adoção persistente da topologia do candidato pelo
+instalador: publicada na PR #580 (empilhada na #579, não integrada). Retomada
+pré-DDL de legado com `RestartCount>0`: corrigida em
+`fix/legacy-resume-restarts-20261025` (só aceita o start do próprio
+controlador; replay terminal revalida), PR empilhada na #579, integração pendente.
 Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.
 
 

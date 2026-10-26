@@ -493,12 +493,15 @@ class Fixture(Rehearsal):
         return migration_manifest(files['backend/scripts/migrate.py'], sql)
 
     # -- post-conditions --------------------------------------------------------
-    def assert_legacy_contained(self, label):
+    def assert_legacy_contained(self, label, restart_counts=None):
+        if restart_counts:
+            self.expected_restart = {**getattr(self, 'expected_restart', {}), **restart_counts}
+        expected = getattr(self, 'expected_restart', {})
         for role in ROLES:
             data = self.inspect(self.legacy[role])
             labels = data['Config']['Labels']
             self.check(not data['State']['Running'] and data['HostConfig']['RestartPolicy']['Name'] == 'no'
-                       and data['RestartCount'] == 0 and data['Id'] == self.legacy[role]
+                       and data['RestartCount'] == expected.get(role, 0) and data['Id'] == self.legacy[role]
                        and (COMPOSE_PROJECT in labels) == (role != 'broadcast-worker'), 'legacy-not-contained')
         self.checks.append(label)
 

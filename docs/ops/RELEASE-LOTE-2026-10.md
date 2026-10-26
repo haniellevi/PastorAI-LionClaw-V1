@@ -1027,13 +1027,28 @@ Controle negativo: o predicado agora é relativo ao contador e `StartedAt`
 observados; a causa da falha intermitente da rodada 5 (possível reinício antes
 do sinal) é hipótese não confirmada.
 
-**Limite conhecido, a tratar antes de qualquer adaptador real:** medição do
-Codex em container próprio e isolado (já removido): `RestartCount` 1 antes do
-stop, 1 parado e 0 depois de `docker start` manual. A retomada do legado exige o
-mesmo contador observado antes da contenção, portanto recusa de forma
-conservadora (`legacy-resume-ambiguous`) um legado observado com contador maior
-que 0. No ensaio todos os legados começam com 0, e o caso não foi exercitado.
-Classificado como não bloqueante para este ensaio sintético; nesta entrega o
-código não muda. Antes do adaptador real é preciso uma regra própria (por
-exemplo `StartedAt`/eventos do daemon) para distinguir o start emitido pelo
-controlador de um reinício alheio.
+**Retomada de legado com `RestartCount>0` (local, sintético).** Semântica medida
+no Docker 29.9.2: reinício automático incrementa o contador, `update`/`stop` o
+mantêm e `docker start` manual o zera. A contenção continua comparando o k
+observado. Na retomada, um papel só conta como retomado se estiver rodando com
+`StartedAt` novo, política original e contador 0 (nunca o conjunto {0, k}); o
+estado é relido antes do `done`, e um reinício nesse intervalo recusa
+(`legacy-restarted-during-resume`) sem gravar `done`. Antes de cada novo start e
+antes da fase final, os papéis já retomados são revalidados
+(`legacy-resumed-state-changed`). O replay terminal só retorna depois de
+endpoint, posse, identidade/gates/política, mesma execução e ausência de DDL;
+dados, filas e escopo não são comparados, porque os consumidores legítimos os
+alteram. Ensaio `pre-ddl` (`partial-pass`, cenário selecionado; Docker 29.9.2):
+queue-worker com k = 1 antes do observe, k mantido na contenção, 0 no mesmo ID ao
+retomar, `done` com 0. Duas quedas do controlador depois do start real e antes do
+`done`: backend (k = 0) e queue-worker (k = 1, contador em execução 0); o replay
+adotou a mesma execução (mesmo ID e `StartedAt`, um único `done`) e o backlog m2
+foi consumido uma vez. Replay terminal aceito após o backlog consumido e recusado
+após um reinício real; 28 verificações, limpeza total
+(`/tmp/igreja12-legacy-resume-preddl-r2.json`). A recusa terminal é diagnóstica:
+não desfaz uma retomada concluída, e uma manutenção legítima posterior (por
+exemplo, reinício) também a faz recusar. Limites: um `docker start` manual
+alheio entre a intenção e o start do controlador é indistinguível; reboot do
+daemon não provado; durante uma corrida, no máximo um papel a mais pode
+iniciar; uma recusa no meio não desfaz os papéis já retomados; o sucesso é
+pontual, não supervisão contínua.
