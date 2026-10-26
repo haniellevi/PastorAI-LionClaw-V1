@@ -90,6 +90,25 @@ Integração depende dos checks do SHA publicado. Ausência de rede é inferida
 (destinos mortos, gates `false`, caminho ocioso do código), não capturada. Não
 prova broadcast ativo, transporte/pendências, supervisor, pós-DDL, RLS nem produção.
 
+Fatia seguinte, sobre a #577 (`f8ded9c6`, merge pendente), na branch
+`test/legacy-broadcast-active-20261026`: broadcast-worker real de `07a3f4d`
+com envio **ativo** durante SIGTERM. Gates abertos só no container sintético,
+Evolution falsa na rede interna, Postgres/Redis descartáveis e três entregas
+fictícias em duas igrejas, materializadas pela função legada. A falsa retém a
+1ª requisição, observada antes do sinal; com o sinal, log de transporte em
+andamento, processo vivo, uma requisição e banco inalterado. Após liberar:
+resultado commitado (`aceito`; variante 500 → `desconhecido`), demais entregas
+intactas, saída 0 e `stopped`; o reinício do mesmo container drena só as duas
+pendentes, sem repetir a retida. Em todas as fases o ledger tem exatamente
+2 broadcasts, 2 execuções e 3 entregas com os IDs do seed; o total do comando
+SIGTERM até a saída é medido e recusado a partir de 10 s. Validação local
+(Claude), após correção da revisão Codex: 329 testes (113 novos + 216 de
+regressão, zero skip) e rodadas físicas 200 e 500 aprovadas, 19 verificações
+cada, total de 4,2/4,1 s, limpeza sem sobras. Revisão Claude e Codex aprovada.
+Retida sempre na igreja A; igreja de entrega única só em teste unitário. Prova
+só nenhum **segundo** envio após o sinal; não prova `docker stop`/SIGKILL,
+agendados, 429, vários workers, supervisor, pós-DDL nem produção.
+
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;
