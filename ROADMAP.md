@@ -78,6 +78,18 @@ de regressão, zero skip) e 13 verificações físicas aprovadas, bloqueio 6,445
 saída 0,652 s, limpeza sem sobras. Integração depende dos checks do SHA
 publicado. Não prova supervisor/restart, pós-DDL, outros serviços nem produção.
 
+Tick ativo do cron integrado pela #576 (`6b0b302b`). Fatia seguinte na branch
+`test/legacy-broadcast-stop-20261025`: ciclo de vida do broadcast-worker real
+de `07a3f4d` **ocioso** (gates fechados, sem Postgres), PID 1 sem `init`
+(`HostConfig.Init=false`): heartbeat `idle` renovado, log `enabled=False` sem
+tick/envio, SIGTERM com saída zero e `stopped`, reinício do mesmo container como
+nova execução e segundo SIGTERM limpo. Validação final local (Codex): 216 testes
+(40 novos + 176 de regressão, zero skip) e 10 verificações físicas aprovadas,
+saídas 0,503/0,549 s, limpeza sem sobras; revisão independente incorporada.
+Integração depende dos checks do SHA publicado. Ausência de rede é inferida
+(destinos mortos, gates `false`, caminho ocioso do código), não capturada. Não
+prova broadcast ativo, transporte/pendências, supervisor, pós-DDL, RLS nem produção.
+
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
 com os quatro checks e E2E do turno completo quando envolve o agente;
