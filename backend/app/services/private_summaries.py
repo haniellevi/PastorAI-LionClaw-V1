@@ -4,20 +4,31 @@ No free-form conversation text is sent externally. SQL validates the WHOLE
 conversation before projection into a closed operational vocabulary. Durable
 jobs reserve worst-case cost before one bounded call, without locks over HTTP.
 Ambiguous provider outcomes keep their reservation and are not retried.
+The cron cycle runs only on the dedicated ``private_summary_runtime`` login,
+through typed projections for central tables and the budget; web enqueue,
+correction and reading keep the main login.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
+from app.db.private_summary_session import (
+    PrivateSummaryUnavailable,
+    get_private_summary_session_factory,
+    require_private_summary_session,
+    scope_private_summary,
+)
 from app.services.private_deletion import acquire_ingestion_barrier
+
+logger = logging.getLogger(__name__)
 
 APPROVED_RELEASE_ID: str | None = None
 APPROVED_IGREJA_IDS: frozenset[str] = frozenset()
@@ -117,13 +128,48 @@ class Credential:
     ciphertext: str
 
 
+def _runtime_snapshot(db, tenant, conversation):
+    # Shared barrier, conversation lock and full origin validation in one typed
+    # projection; both locks stay held until this transaction commits.
+    row = (
+        db.execute(
+            text("""select id,pessoa_id,private_summary_revision,deletion_generation
+        from private_summary_runtime_snapshot(:t,:c)"""),
+            dict(t=tenant, c=conversation),
+        )
+        .mappings()
+        .one_or_none()
+    )
+    return None if row is None else dict(row)
+
+
+def _runtime_sources(db, tenant, conversation):
+    # Message ids and closed operational codes only; never message text.
+    return (
+        db.execute(
+            text("select message_id,topic from private_summary_runtime_sources(:t,:c)"),
+            dict(t=tenant, c=conversation),
+        )
+        .mappings()
+        .all()
+    )
+
+
+def _runtime_reserve(db, tenant) -> bool:
+    # Same atomic upsert as reserve_budget, fixed cost in SQL, no direct grant.
+    return bool(
+        db.execute(
+            text("select private_summary_runtime_reserve(:t)"), dict(t=tenant)
+        ).scalar_one()
+    )
+
+
 def _credential(db, tenant):
     row = (
         db.execute(
-            text("""select id,igreja_id,modelo,api_key_encrypted from llm_credentials
-        where igreja_id=:t and ativo and validado and provedor='openai' """).bindparams(
-                t=tenant
-            )
+            text("""select id,igreja_id,modelo,api_key_encrypted
+        from private_summary_runtime_credential(:t)"""),
+            dict(t=tenant),
         )
         .mappings()
         .one_or_none()
@@ -239,6 +285,8 @@ def _publish(db, tenant, conversation, snapshot, summary):
             correction=correction,
         ),
     )
+    # Every message of the conversation, read under the same lock.
+    sources = [str(r["message_id"]) for r in _runtime_sources(db, tenant, conversation)]
     db.execute(
         text(
             "delete from private_summary_sources where igreja_id=:t and conversation_id=:c"
@@ -248,25 +296,18 @@ def _publish(db, tenant, conversation, snapshot, summary):
     db.execute(
         text(
             """insert into private_summary_sources(igreja_id,conversation_id,message_id)
-        select igreja_id,conversation_id,id from messages where igreja_id=:t and conversation_id=:c"""
+        select :t,:c,unnest(cast(:ids as uuid[]))"""
         ),
-        dict(t=tenant, c=conversation),
+        dict(t=tenant, c=conversation, ids=sources),
     )
 
 
 def _requester_authorized(db, tenant, requester):
-    if requester is None:
-        return True  # trusted scheduled backend, never a caller-supplied ID
+    # NULL is the trusted scheduled backend, never a caller-supplied ID; the
+    # SQL projection transcribes the same admin/pastor inbox rule.
     return bool(
         db.execute(
-            text(
-                """select exists(select 1 from app_users a join user_roles r
-        on r.igreja_id=a.igreja_id and r.user_id=a.id where a.igreja_id=:t and a.id=:u
-        and a.status='ativo' and r.papel in ('admin','pastor')
-        and (a.pessoa_id is null or exists(select 1 from pessoas p where p.igreja_id=:t and p.id=a.pessoa_id and p.arquivada_em is null))
-        and (r.papel='admin' or not exists(select 1 from role_permissions rp where rp.igreja_id=:t and rp.papel::text=r.papel::text)
-        or exists(select 1 from role_permissions rp where rp.igreja_id=:t and rp.papel::text=r.papel::text and rp.tela='inbox')))"""
-            ),
+            text("select private_summary_runtime_requester(:t,:u)"),
             dict(t=tenant, u=requester),
         ).scalar_one()
     )
@@ -277,8 +318,8 @@ def _run_task(factory, job, provider):
     conversation = job["conversation_id"]
     params = dict(t=tenant, id=job["id"])
     with factory() as db:
-        mark_tenant_scoped(db, tenant, source="private_summary_claim")
-        snapshot = _snapshot(db, tenant, conversation)
+        scope_private_summary(db, tenant)
+        snapshot = _runtime_snapshot(db, tenant, conversation)
         task = (
             db.execute(
                 text(
@@ -341,7 +382,7 @@ def _run_task(factory, job, provider):
             return True
         requester = task["requester_id"]
         credential = _credential(db, tenant)
-        if credential is None or not reserve_budget(db, tenant):
+        if credential is None or not _runtime_reserve(db, tenant):
             db.execute(
                 text(
                     "update private_summary_tasks set state='refused',error_code='budget_or_credential' where igreja_id=:t and id=:id"
@@ -350,13 +391,7 @@ def _run_task(factory, job, provider):
             )
             db.commit()
             return False
-        topics = tuple(
-            db.execute(
-                text("""select private_summary_topic(texto) from messages
-            where igreja_id=:t and conversation_id=:c order by criado_em,id"""),
-                dict(t=tenant, c=conversation),
-            ).scalars()
-        )
+        topics = tuple(r["topic"] for r in _runtime_sources(db, tenant, conversation))
         db.execute(
             text(
                 "update private_summary_tasks set state='running',started_at=now() where igreja_id=:t and id=:id"
@@ -382,8 +417,8 @@ def _run_task(factory, job, provider):
     except Exception:
         failure = "provider_or_output_refused"
     with factory() as db:
-        mark_tenant_scoped(db, tenant, source="private_summary_publish")
-        latest = _snapshot(db, tenant, conversation)
+        scope_private_summary(db, tenant)
+        latest = _runtime_snapshot(db, tenant, conversation)
         task = db.execute(
             text(
                 "select state from private_summary_tasks where igreja_id=:t and id=:id for update"
@@ -411,7 +446,7 @@ def _run_task(factory, job, provider):
         return failure is None
 
 
-def process_tasks(factory, *, provider=None, limit=20):
+def process_tasks(factory=None, *, provider=None, limit=20):
     # Release default returns before discovery, no new migration dependency/cost.
     if not APPROVED_RELEASE_ID or not APPROVED_IGREJA_IDS:
         return 0
@@ -420,21 +455,33 @@ def process_tasks(factory, *, provider=None, limit=20):
 
         if not external_sends_allowed():
             return 0
-    with factory() as db:
-        mark_cross_tenant(db, source="private_summary_discovery")
-        jobs = (
-            db.execute(
-                text(
-                    "select igreja_id,id,conversation_id from private_summary_tasks where igreja_id::text=any(:tenants) and (state='queued' or (state='running' and started_at<now()-interval '2 minutes')) order by created_at,id limit :n"
-                ),
-                dict(n=limit, tenants=sorted(APPROVED_IGREJA_IDS)),
-            )
-            .mappings()
-            .all()
-        )
     done = 0
-    for job in jobs:
-        done += _run_task(factory, job, provider or openai_provider)
+    try:
+        # Only the dedicated login; an injected main-login factory is refused
+        # before any query and there is never a fallback.
+        if factory is None:
+            factory = get_private_summary_session_factory()
+        with factory() as db:
+            require_private_summary_session(db)
+            jobs = (
+                db.execute(
+                    text(
+                        "select igreja_id,id,conversation_id from private_summary_runtime_due_tasks(:tenants,:n)"
+                    ),
+                    dict(n=limit, tenants=sorted(APPROVED_IGREJA_IDS)),
+                )
+                .mappings()
+                .all()
+            )
+        for job in jobs:
+            done += _run_task(factory, job, provider or openai_provider)
+    except PrivateSummaryUnavailable as exc:
+        # Missing/unsafe login or identity changed between transactions: a
+        # running task stays running and is later refused as abandoned.
+        logger.warning(
+            "Private summary runtime unavailable",
+            extra={"event": "private_summary_runtime_unavailable", "error_type": type(exc).__name__},
+        )
     return done
 
 

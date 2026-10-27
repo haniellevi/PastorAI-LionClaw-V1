@@ -221,6 +221,59 @@ Upload iniciado tem ownership durável; tarefa não conclui enquanto ele existir
 Retorno tardio encontra a tarefa por `source_id`, inclusive sem conversa viva,
 reabre limpeza e remove ownership atomicamente. Falha/timeout com resultado
 externo desconhecido conserva pendência; lease vencida não prova fim do efeito.
+Resposta 2xx do Storage após o prazo (`StorageLateSuccess`, com resposta e
+cliente fechados sem erro) prova a gravação: resolve a ownership pelo mesmo
+caminho atômico, mas a cadeia de áudio falha como antes (handoff conservador
+`ambigua`/`externo_ambiguo`), sem orçamento, transcrição ou resposta. Só resolve
+se o caminho devolvido for exatamente o do claim, na igreja do claim; caminho
+divergente mantém ownership e interrompe a cadeia sem apagar o objeto devolvido.
+Timeout, erro de transporte/fechamento, 3xx/4xx/5xx e processo perdido
+continuam ambíguos. Falha ao finalizar não é repetida: a transação atômica
+decide (o commit pode ter ocorrido com retorno incerto). Esta fatia não resolve
+uploads realmente ambíguos, identidade do worker nem política de tombstones.
+
+**Reconhecimento positivo de upload commitado sem resposta** (candidata local,
+migration `20261030_110000_private_upload_attempt_witness.sql`, só em PostgreSQL
+sintético; não aplicada em PROD). Cada tentativa recebe um token UUID aleatório,
+gravado e commitado com a ownership antes do POST e enviado como `x-metadata`
+(JSON estrito em base64, só esse token; nada pastoral). O POST continua único,
+sem retry, e o finish normal/tardio remove só a ownership do próprio token
+(CAS; uma tentativa nova nunca é liberada por um finish antigo). No ciclo de
+limpeza, antes de `process_storage_tasks`, `reconcile_upload_attempts` consulta
+em lote limitado (10 por tick) apenas ownership com token que bloqueia tarefa
+pendente: descoberta cross-tenant devolve só IDs; leitura do token/caminho e
+mutação usam o login dedicado com escopo da igreja, sem transação ou lock aberto
+durante o `GET /object/info/authenticated` (um por consulta, sem retry). A
+reserva da consulta trava só a linha da ownership (agenda) e lê tarefa/caminho
+sem lock, sem esperar segurando outro lock. O GET roda em `httpx.AsyncClient`
+sob um único prazo cancelável de 5 s (`asyncio.timeout`) que cobre conexão,
+cabeçalhos e corpo e fecha a conexão ao estourar, sem thread residual; servidor
+que goteja ou não responde é cortado no prazo e conta como não provado. Fica
+fora do prazo apenas a resolução DNS do sistema (`asyncio.run` espera a thread
+do resolvedor ao encerrar, com teto interno de 300 s do asyncio); não há prova
+de limite absoluto do sistema operacional. Corpo bruto sem compressão
+(`Accept-Encoding: identity`) de até 16 KiB. Por item do lote, o progresso do
+heartbeat avança após no máximo ~5 s de GET mais 5 s de `lock_timeout`.
+Só libera com HTTP 200 e caminho, bucket e token exatos, `version` UUID,
+`is_versioned` e `is_delete_marker` falsos e `archived_at` nulo presentes; em
+nova transação de liberação, toma o lock do recibo antes de tarefa/ownership
+(ordem da limpeza e do finish), revalida tarefa pendente e mesmo caminho e
+remove a ownership pelo token. Erro antes do COMMIT conserva a ownership; ACK
+de COMMIT incerto deixa o resultado desconhecido, seguro porque só se libera
+tentativa já provada commitada. A limpeza estrita então
+apaga o caminho. Ausência (`NoSuchKey`, HTTP 400 neste Storage), outro token,
+metadata vazia, versionamento, 3xx/4xx/5xx, timeout, JSON inválido ou tempo
+decorrido **nunca** liberam: o intervalo (60 s dobrando até 1 h) só agenda a
+próxima leitura. Ownership legada (token nulo), upload abortado ou ainda em voo e
+ownership sem tarefa pendente continuam retidos, sem liberação automática.
+O testemunho prova o commit da linha da tentativa, não os bytes; duplicata
+idêntica do mesmo POST não é distinguível pelo token (mesmo limite do 2xx). Prova
+física só contra storage-api público `6dd28b4` compilado localmente; versão,
+gateway (`x-metadata`, rota/forma do info), `versioning_status` DISABLED desde
+sempre do bucket e ausência de outro writer no prefixo, no Supabase hospedado,
+**não verificados** e pré-requisitos do release. Rollback comentado na migration:
+reverter antes da `20261030_100000`; ownership retida vira legada e continua
+bloqueando o recibo.
 
 Envio tem marcador durável criado com `ia_em_transporte`; geração/prazo são
 revalidados antes do HTTP e ao persistir resultado. A janela de 60s autoriza
@@ -228,6 +281,7 @@ início, mas **não conclui recibo por tempo**: `pendente_envio` permanece até 
 transporte retornar e liberar ownership. Não há reenvio após expiração.
 Processo perdido exige reconciliação explícita; nunca apagar marcador somente
 para deixar o recibo verde. HTTP iniciado pode ter chegado ao provedor.
+Na candidata abaixo, só o login `private_send_runtime` libera o marcador.
 
 O cron usa `process_storage_tasks` antes do gate de envios, com purga automática por prazo somente para capturas pré-v2. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
@@ -261,11 +315,149 @@ Tabelas novas têm `igreja_id`, ENABLE/FORCE RLS, FKs compostas e revokes.
 O helper interno só é executável pelo proprietário SQL; HTTP chama wrapper
 que revalida admin. Processing mantém o escopo tenant NOBYPASSRLS da #509.
 
+### Identidade do runtime de Storage privado (tarefas e uploads)
+
+Candidata local, migration `20261030_100000_private_storage_worker_identity.sql`
+(aplicada só em PostgreSQL sintético; não aplicada em PROD). Tarefas de limpeza e ownership de upload de áudio passam a usar
+somente o login `private_storage_runtime`, configurado em
+`PRIVATE_STORAGE_DATABASE_URL`, sem fallback para `DATABASE_URL`. O papel nasce
+NOLOGIN, sem senha, NOINHERIT, NOBYPASSRLS, sem superuser/createdb/createrole/
+replication nem memberships. Papel preexistente é recusado se tiver atributo que
+amplie a identidade, membership, objetos próprios, grants, policies ou default
+ACLs neste banco, grant sobre o próprio banco (ex.: CREATE), ACL de parâmetro
+(`GRANT SET ON PARAMETER`) ou de tablespace, ou se for dono de objeto
+compartilhado. Objetos e grants de outros bancos do cluster pertencem a eles:
+são aceitos e nunca alterados daqui; a migration recusa, não corrige o papel. A migration não é
+idempotente por si: reaplicar só depois do rollback, via `migrate.py`.
+
+A identidade é o próprio login (`session_user`), comprovada em cada transação,
+inclusive após commit: o cliente fixa `search_path = pg_catalog, public, pg_temp`
+(`pg_temp` explícito por último, para tabela TEMP homônima não sombrear) e o GUC de igreja com `pg_catalog.set_config` local antes de qualquer consulta e
+prova login, `current_user`, atributos, `row_security` e esse `search_path`.
+Opções da URL, defaults do papel, schema ou TEMP homônimos não mudam a
+resolução de nomes; as funções da migration usam o mesmo caminho. Não há `SET ROLE` nem GUC como identidade; o checkout do pool só
+descarta conexão com GUC de igreja persistido. Dentro das funções SECURITY
+DEFINER `current_user` é o dono: elas conferem `session_user`, LOGIN ativo e
+os atributos do login; NOLOGIN passa a recusar também conexões já abertas,
+mas não as encerra (contenção continua operacional).
+
+Grants: SELECT/UPDATE nas colunas já usadas de `private_deletion_tasks`,
+SELECT/DELETE em `private_deletion_uploads`, RLS por igreja (GUC da transação)
+e execução de quatro funções: descoberta só de IDs e recibo, caminho da tarefa,
+início de upload (recusa campos nulos, trava a geração da conversa e insere a
+ownership na mesma transação, sem acesso do papel a conversas) e verificação do
+login. Nenhum acesso a conversas, mensagens, pessoas ou transcrições.
+`authenticated` perde o ramo de worker sem subject nessas duas tabelas e na
+função de caminho; o admin web mantém o progresso do recibo.
+
+Sem o login comprovado, o dispatch V1b não reivindica **novas** entradas de
+áudio: elas ficam pendentes, sem download, upload nem transcrição. Recuperação
+de handoffs, reenvio de respostas já preparadas e os demais envios do cron e do
+queue continuam. Sem credencial, a limpeza de Storage não roda e os recibos
+permanecem pendentes.
+
+Conexão: o usuário da URL pode ser `private_storage_runtime` (direta) ou a forma
+do pooler compartilhado Supabase `private_storage_runtime.<project-ref>` (ref de
+20 minúsculas/dígitos; [documentação](https://supabase.com/docs/guides/database/connecting-to-postgres)).
+Isso é só formato: a prova continua sendo `session_user`/`current_user` exatos no
+banco. Endpoint, modo (sessão/transação) e rede do ambiente hospedado não foram
+testados e precisam ser validados no release; esta fatia não presume IPv6 nem
+add-on.
+
+O reconhecimento positivo acima só age sobre tarefa pendente da fonte; ownership
+cuja tarefa já esteja concluída não é descoberta e continua retida (conservador).
+A `20261030_110000` acrescenta duas funções (início com token e descoberta por
+IDs) e UPDATE só das colunas de agendamento da ownership, nunca do token.
+
+Release: conter consumidores antigos, backup, aplicar via `migrate.py`,
+provisionar LOGIN/senha e configurar só no cron sob autorização nominal
+(ver "Distribuição" na seção seguinte), publicar o código, provar a identidade
+e retomar. Limites: envios (exceto a liberação, na seção seguinte), fences de
+evento e tarefas de resumo seguem o padrão anterior de servidor confiável; o
+dono/superuser do banco e operadores com CREATEROLE ou ADMIN sobre o papel
+continuam podendo alterá-lo ou agir como ele. Rollback comentado na migration,
+executável e ensaiado em PostgreSQL sintético (aplicar → rollback → reaplicar):
+recusa LOGIN provisionado antes de qualquer mudança, restaura o contrato
+anterior e só remove o papel se nenhum outro banco depender dele, sem tocar em
+grants de outros bancos. Exige consumidores contidos e ownership drenada.
+
+### Identidade da liberação de envios (`private_deletion_sends`)
+
+Candidata local, migration `20261030_120000_private_send_release_identity.sql`
+(só PostgreSQL sintético; não aplicada em PROD). INSERT com o CAS
+`ia_pendente → ia_em_transporte`, renovação antes do HTTP e conferência de
+geração continuam nas mesmas transações e locks do login principal. Só a
+liberação, que já era uma transação isolada no `finally` da entrega, passa ao
+login `private_send_runtime` (`PRIVATE_SEND_DATABASE_URL`, sem fallback),
+chamando `private_send_release(igreja, source)`: SECURITY DEFINER com
+`search_path` fixo, confere `session_user`/atributos/LOGIN ativo e igreja igual
+ao GUC (o GUC delimita, não autoriza), apaga por chave e devolve se havia linha.
+Não confere geração, de propósito: precisa liberar também depois da exclusão.
+O papel não tem grant em tabela nem acesso a mensagens, conversas, caminhos,
+áudio ou funções de Storage; mesma guarda de papel preexistente, prova por
+transação e formato de URL (direta ou pooler) da identidade de Storage.
+`authenticated` sem subject perde só o DELETE (policies por comando com as
+mesmas expressões); o contador do admin continua.
+
+Alcance: sessões `authenticated` (API, cron e fila com escopo de igreja) não
+conseguem mais apagar ownership para deixar recibo verde. Não protege contra
+dono/superuser/BYPASSRLS, inclusive o login principal usado sem `SET ROLE`
+(modo cross-tenant), nem contra quem tem CREATEROLE/ADMIN sobre o papel, nem
+contra um queue-worker comprometido, que tem as duas credenciais.
+
+A liberação nunca lança `Exception`: não mascara mais `AgentReplyRetryable`
+(backoff) nem `ClaimOwnershipLost` (parada do worker); antes, uma falha do banco
+nesse `finally` substituía a exceção original. Logs só com código fechado
+(`private_send_release_unavailable`, `_failed`, `_unknown`) e classe da exceção.
+Falha antes do COMMIT retém a ownership; falha no próprio COMMIT tem resultado
+desconhecido (pode ter liberado). Sem o login, as respostas **continuam** sendo
+enviadas, mas cada envio deixa a ownership retida: recibos de conversas
+excluídas ficam `pendente_envio` e uma resposta `falhou_retentavel` não é
+reenviada (a nova tentativa colide na mesma chave e falha antes do HTTP, sem
+duplicata), até a ownership ser resolvida; não há ferramenta de reconciliação.
+Resultado ambíguo (`desconhecido`, confirmação incerta) continua liberando como
+antes: texto enviado ao provedor segue `fora_do_alcance` do recibo, e mudar
+isso exige revisão própria desse contrato.
+
+Distribuição: API, queue, cron e broadcast compartilham o mesmo `env_file` no
+compose; uma URL colocada nele chega a todos. "Configurar só no queue" (ou só
+no cron, para a identidade de Storage) não é segregação real sem env por
+serviço ou override explícito vazio nos demais, a decidir no release.
+Release: conter queue-worker e toda entrega de respostas pelo procedimento de
+parada segura do [runbook do lote](RELEASE-LOTE-2026-10.md) (código antigo contra
+o schema novo falha a liberação). Confirmar a parada dos consumidores e conferir
+separadamente intents em `ia_em_transporte`, leases e registros de
+`private_deletion_sends`: contar esses registros não prova o fim de um HTTP.
+Resultados incertos e ownership retida exigem reconciliação explícita; não
+apagar marcadores por prazo nem para concluir recibos. Depois, backup, aplicar
+via `migrate.py`, provisionar LOGIN/senha nominalmente, configurar a URL,
+publicar, provar com `private_send_runtime_session()` a partir do queue-worker
+e retomar. Esta preparação não autoriza executar essas operações em produção.
+Rollback comentado e ensaiado (aplicar → rollback → reaplicar por `migrate.py`):
+recusa LOGIN provisionado, preserva as linhas de ownership, restaura `send_worker`
+e o DELETE de `authenticated`, só remove o papel sem dependência em outro banco.
+Ownership retida em janela de falha não é revisitada pelo código antigo.
+
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
-retenção de tombstones. Pendências técnicas: identidade de worker ainda segue o
-padrão servidor confiável sem subject da #509; reconciliação automática de
-upload que falhou é ausente (falha pode ser ambígua); tombstones não expiram
+retenção de tombstones. Pendências técnicas: tarefas e uploads têm identidade
+SQL própria (#583), e a liberação de envios na candidata seguinte (#585);
+INSERT/renovação de envios e fences ainda seguem o padrão servidor confiável
+sem subject da #509; reconciliação de upload com
+resultado desconhecido é parcial (2xx tardio confirmado e, pela
+`20261030_110000` (#584), testemunho exato de tentativa commitada; abortado/em voo e
+legado seguem retidos sem saída automática); dono das
+funções privadas com `row_security=off`: o preflight de release acusa dono sem
+SUPERUSER/BYPASSRLS nas funções já existentes da lista fixa (cinco da #587 e duas
+da #584, sete; dez com a candidata de resumos, que acrescenta descoberta, fontes e reserva, cujo
+corpo lê tabela com FORCE RLS; snapshot, solicitante e credencial ficam fora
+porque leem só tabelas sem FORCE, legítimas para um dono que também as possui;
+se o dono não as possuir, falham fechadas),
+mas não examina as de migrations pendentes nem corpo, ACL ou dono de funções
+aninhadas como `private_summary_origin_valid` (repetir após aplicação
+autorizada; dono real em PROD não verificado);
+`private_delete_content` não declara `row_security=off` e hoje falha fechada só
+porque o INSERT do recibo é recusado por RLS (prova sintética); tombstones não expiram
 sem política aprovada e horizonte comprovado de replay/restauração. Logs sem
 âncora não têm proveniência individual retroativa; a limpeza é conservadora.
 O frontend apresenta ID/estado do recibo no feedback da exclusão; não há nova

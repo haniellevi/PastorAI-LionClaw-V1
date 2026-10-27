@@ -89,6 +89,7 @@ from app.db.models import (
     Pessoa,
     WhatsappConnection,
 )
+from app.db import queue_worker_session
 from app.db.rls_observability import require_tenant_scope
 from app.db.session import get_session_factory
 from app.db.tenant_session import (
@@ -1239,11 +1240,16 @@ def ingest_message_event_ex(
     # executável: promote_to_tenant abaixo FALHA (TenantPromotionError) se esta
     # fase não a preceder — a ordem virou estrutura, não comentário.
     mark_cross_tenant(db, source="worker_ingest")
-    connection = db.execute(
-        select(WhatsappConnection).where(
-            WhatsappConnection.instance == parsed.instance
-        )
-    ).scalar_one_or_none()
+    if queue_worker_session.is_queue_worker_session(db):
+        # The dedicated login has no table privilege before the seam: only the
+        # typed exact-match lookup, in this same transaction.
+        connection = queue_worker_session.resolve_queue_instance(db, parsed.instance)
+    else:
+        connection = db.execute(
+            select(WhatsappConnection).where(
+                WhatsappConnection.instance == parsed.instance
+            )
+        ).scalar_one_or_none()
 
     # US-07: only the official number (a registered instance) is captured.
     if connection is None:
@@ -2308,6 +2314,18 @@ class WebhookQueue:
             )
 
 
+def select_queue_session_factory() -> Any:
+    """Session factory of the explicit QUEUE_WORKER_DATABASE_MODE; never a fallback."""
+    mode = get_settings().queue_worker_database_mode
+    if mode == "legacy":
+        return get_session_factory()
+    if mode == "dedicated":
+        return queue_worker_session.get_queue_worker_session_factory()
+    raise queue_worker_session.QueueWorkerUnavailable(
+        "QUEUE_WORKER_DATABASE_MODE must be exactly legacy or dedicated"
+    )
+
+
 class QueueWorker:
     """Long-running consumer that drains WEBHOOK_QUEUE into Postgres."""
 
@@ -2326,7 +2344,7 @@ class QueueWorker:
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self._queue = queue or WebhookQueue()
-        self._session_factory = session_factory or get_session_factory()
+        self._session_factory = session_factory or select_queue_session_factory()
         # Optional orchestrator hook (delta-034). When set, a freshly persisted
         # inbound message is handed to the agent, which emits the single reply.
         # Defaulting to None keeps ingestion-only tests free of agent/DB needs.
@@ -3831,8 +3849,10 @@ def _deliver_agent_reply_intent(
         except Exception:  # noqa: BLE001 - no further send after an unknown final write
             _quarantine_agent_reply(session_factory, outcome, intent)
     finally:
+        # Dedicated send login only; it never raises, so the original outcome
+        # (including AgentReplyRetryable/ClaimOwnershipLost) is preserved.
         from app.services.private_deletion import finish_agent_send
-        finish_agent_send(session_factory, outcome.igreja_id, intent.id)
+        finish_agent_send(outcome.igreja_id, intent.id)
 
 
 def _run_agent_legacy(
@@ -5099,6 +5119,9 @@ def main() -> None:  # pragma: no cover - process entrypoint
                 resolve_media_via_evolution,
                 evolution_client=evolution_client,
             ),
+        )
+        logger.info(
+            "Fila: modo de banco %s", get_settings().queue_worker_database_mode
         )
         signal.signal(signal.SIGTERM, worker.stop)
         signal.signal(signal.SIGINT, worker.stop)

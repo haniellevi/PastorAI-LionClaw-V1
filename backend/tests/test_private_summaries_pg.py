@@ -2,6 +2,7 @@
 
 import pytest
 from sqlalchemy.orm import Session
+from tests.private_summary_pg import private_summary_login
 from tests.test_private_deletion_pg import private_data, scoped, api  # noqa: F401
 from tests.test_uv_turmas_pg import (
     rls_database_url,
@@ -65,7 +66,9 @@ def ready(database, private_data, monkeypatch):
             ),
             dict(v, id=uuid4()),
         )
-    return v
+    # Generation runs only on the real dedicated login (synthetic LOGIN here).
+    with private_summary_login(database, monkeypatch):
+        yield v
 
 
 def generate(database, v, provider=None):
@@ -81,7 +84,7 @@ def generate(database, v, provider=None):
         calls.append(kw)
         return provider(**kw) if provider else {"topic": "uv"}
 
-    mem.process_tasks(lambda: Session(database), provider=fake)
+    mem.process_tasks(provider=fake)
     return calls
 
 
@@ -109,7 +112,7 @@ def test_generation_read_delete_e2e(database, ready):
         route = f"/conversations/{v['conv']}/private-summary"
         queued = client.post(route + "/generate")
         assert queued.status_code == 202, queued.text
-        assert mem.process_tasks(lambda: Session(database), provider=fake) == 1
+        assert mem.process_tasks(provider=fake) == 1
         assert len(calls) == 1
         assert calls[0]["credential"].igreja_id == v["tenant"]
         assert calls[0]["topics"] == ("uv",)
@@ -153,9 +156,7 @@ def test_ambiguous_or_third_party_before_provider(database, ready, bad):
         assert mem.enqueue(s, ready["tenant"], ready["conv"]) is None
     calls = []
     assert (
-        mem.process_tasks(
-            lambda: Session(database), provider=lambda **kw: calls.append(kw)
-        )
+        mem.process_tasks(provider=lambda **kw: calls.append(kw))
         == 0
     )
     assert calls == []
@@ -499,7 +500,7 @@ def test_requester_revoked_during_external_call(database, ready):
             c.execute(text("delete from user_roles where user_id=:admin"), ready)
         return {"topic": "uv"}
 
-    mem.process_tasks(lambda: Session(database), provider=external)
+    mem.process_tasks(provider=external)
     with database.connect() as c:
         assert (
             c.scalar(text("select count(*) from private_conversation_summaries")) == 0
@@ -519,7 +520,7 @@ def test_abandoned_claim_never_retries_provider(database, ready):
             )
         )
     calls = []
-    mem.process_tasks(lambda: Session(database), provider=lambda **kw: calls.append(kw))
+    mem.process_tasks(provider=lambda **kw: calls.append(kw))
     assert calls == []
     with database.connect() as c:
         assert c.scalar(text("select state from private_summary_tasks")) == "refused"
@@ -628,7 +629,7 @@ def test_each_gate_denies_before_provider(database, ready, monkeypatch, gate):
     with scoped(database, ready["tenant"]) as s:
         assert mem.enqueue(s, ready["tenant"], ready["conv"]) is None
     calls = []
-    mem.process_tasks(lambda: Session(database), provider=lambda **kw: calls.append(kw))
+    mem.process_tasks(provider=lambda **kw: calls.append(kw))
     assert calls == []
     with database.connect() as c:
         assert c.scalar(text("select count(*) from private_summary_budget")) == 0
@@ -791,6 +792,6 @@ def test_explicit_request_requeues_refused(database, ready, entry, reason):
         assert c.scalar(text('select state from private_summary_tasks')) == 'queued'
         assert c.scalar(text('select error_code from private_summary_tasks')) is None
     calls = []
-    mem.process_tasks(lambda: Session(database), provider=lambda **kw: calls.append(kw) or {'topic': 'uv'})
+    mem.process_tasks(provider=lambda **kw: calls.append(kw) or {'topic': 'uv'})
     assert len(calls) == 1
     assert get_summary(database, ready)['state'] == 'available'
