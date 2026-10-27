@@ -12,6 +12,7 @@ from app.db.models import AgentConfig, LlmCredential, ConsentRecord, Message
 from app.services.crypto import encrypt_secret
 from app.workers import queue_worker as worker
 from tests.test_uv_turmas_pg import rls_database_url, migrated_database, database, seeded, scoped, principal
+from tests.private_send_pg import send_release_login  # noqa: F401
 from tests.test_messages_inbound_idempotency import (
     _seed_tier_a_handoff_anchor, _seed_inbound_anchor, _agent_outcome, _ClassifiedEvolution)
 
@@ -249,7 +250,7 @@ def test_expired_or_undelivered_never_writes(enviar_turn,state):
 
 @pytest.mark.parametrize('answer', ['Sim!', 'confirmo'])
 @pytest.mark.parametrize('retry_seconds', [599, 600, 601])
-def test_clarification_retry_respects_original_deadline(enviar_turn, monkeypatch, answer, retry_seconds):
+def test_clarification_retry_respects_original_deadline(enviar_turn, monkeypatch, answer, retry_seconds, send_release_login):
     from app.enviar_whatsapp import turn
     p = enviar_turn
     _, proposal, _ = send(p, COMMAND)
@@ -272,7 +273,7 @@ def test_clarification_retry_respects_original_deadline(enviar_turn, monkeypatch
     unchanged(p)
 
 
-def test_retry_receipt_after_commit(enviar_turn):
+def test_retry_receipt_after_commit(enviar_turn, send_release_login):
     p=enviar_turn
     send(p,COMMAND)
     outcome=inbound(p,'SIM')

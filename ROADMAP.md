@@ -1,6 +1,6 @@
 # Igreja 12 — roteiro único
 
-Atualizado em 23/10/2026 sobre a `main` `4fd83232` (registra #517–#562). Esta é a única fonte ativa
+Atualizado em 27/10/2026 (UTC) sobre a `main` `77a8fd3f` (registra até #593). Esta é a única fonte ativa
 de planejamento; substitui os planos de MVP e refatoração e seu acompanhamento.
 O [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md) conserva os
 requisitos. As decisões de 15/10 prevalecem sobre os cortes antigos de escopo,
@@ -32,6 +32,12 @@ limpar worktrees antigas de forma recuperável. Nada de limpeza global, apagar
 migrations ou branches remotas sem ordem própria.
 
 ## 2. Critério de pronto e saúde técnica
+
+Estado em 27/10/2026: #574–#576 e #577–#593 integradas na `main` (SHAs abaixo e no
+runbook do lote). Código integrado não é release. Nesta integração não houve
+execução em PROD nem aplicação remota de migrations, e não alteramos gates nem
+ampliamos o piloto. Provisionamento dos LOGINs dedicados e estado atual de
+produção: não verificados.
 
 Atualização operacional de 24/10: a reconciliação excepcional de vínculos
 Pessoa foi integrada pela #572 (`830decc1`), com checks aprovados; não foi
@@ -75,8 +81,7 @@ limpeza completa; revisão independente sem bloqueios. Depois disso a guarda
 temporal ficou mais precisa (medida após o último check, heartbeat reconfirmado
 antes de liberar). Revalidação final local concluída: 176 testes (46 novos + 130
 de regressão, zero skip) e 13 verificações físicas aprovadas, bloqueio 6,445 s,
-saída 0,652 s, limpeza sem sobras. Integração depende dos checks do SHA
-publicado. Não prova supervisor/restart, pós-DDL, outros serviços nem produção.
+saída 0,652 s, limpeza sem sobras. Integrada pela #576 (`6b0b302b`). Não prova supervisor/restart, pós-DDL, outros serviços nem produção.
 
 Tick ativo do cron integrado pela #576 (`6b0b302b`). Broadcast ocioso integrado
 pela #577 (`92821e35`), branch `test/legacy-broadcast-stop-20261025`: ciclo de vida do broadcast-worker real
@@ -119,14 +124,14 @@ oficial) em projeto Compose separado, com readiness real e layout
 quatro cenários + catálogo de referência); a correção final da retomada foi
 reensaiada só no pré-DDL (54,9 s). Revisão da PR: a reconciliação commitada antes de
 uma queda é recuperada no replay só como delta exato autorizado (cenários
-`main`/`pre-ddl` reensaiados em PostgreSQL sintético; CI do novo SHA pendente).
+`main`/`pre-ddl` reensaiados em PostgreSQL sintético).
 Forma de PROD = instalação observada em
 24/10, não reverificada. Adoção persistente da topologia do candidato pelo
 instalador: integrada pela #580 (`74919ee0`). Retomada
 pré-DDL de legado com `RestartCount>0`: corrigida em
 `fix/legacy-resume-restarts-20261025` (só aceita o start do próprio
-controlador; replay terminal revalida), PR #581 redirecionada à `main`,
-integração pendente dos checks do novo SHA.
+controlador; replay terminal revalida), integrada pela #581 (`87ba1e42`; checks
+do SHA `3f0a9d98` verdes antes do merge).
 Não prova reinício do daemon, retry real da Evolution, turno do agente nem produção.
 
 Adoção persistente da topologia: integrada pela #580 (`74919ee0`), branch
@@ -142,7 +147,33 @@ Ensaio físico sintético desde o `write_layout` real aprovado (rodada 5, após
 integrar `9047c591`: 54 verificações, sem sobras); callback real da Evolution
 não provado; tags de retenção de imagem acumulam sem poda automática.
 Atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA` após o merge: passo operacional não
-executado. Legado com `RestartCount>0` segue pendente; `production_ready=false`.
+executado. Legado com `RestartCount>0`: retomada pré-DDL tratada pela #581;
+`production_ready=false`.
+
+Fatia seguinte, sobre a #577 (integrada em `92821e35`), na branch
+`test/legacy-broadcast-active-20261026`, integrada pela #586 (`80b1373f`; checks
+do SHA `5459824d` verdes antes do merge): broadcast-worker real de `07a3f4d`
+com envio **ativo** durante SIGTERM. Gates abertos só no container sintético,
+Evolution falsa na rede interna, Postgres/Redis descartáveis e três entregas
+fictícias em duas igrejas, materializadas pela função legada. A falsa retém a
+1ª requisição, observada antes do sinal; com o sinal, log de transporte em
+andamento, processo vivo, uma requisição e banco inalterado. Após liberar:
+resultado commitado (`aceito`; variante 500 → `desconhecido`), demais entregas
+intactas, saída 0 e `stopped`; o reinício do mesmo container drena só as duas
+pendentes, sem repetir a retida. Em todas as fases o ledger tem exatamente
+2 broadcasts, 2 execuções e 3 entregas com os IDs do seed; o total do comando
+SIGTERM até a saída é medido e recusado a partir de 10 s. Validação local
+(Claude), após correção da revisão Codex: 329 testes (113 novos + 216 de
+regressão, zero skip) e rodadas físicas 200 e 500 aprovadas, 19 verificações
+cada, total de 4,2/4,1 s, limpeza sem sobras. Revisão Claude e Codex aprovada.
+Retida sempre na igreja A; igreja de entrega única só em teste unitário. Prova
+só nenhum **segundo** envio após o sinal; não prova `docker stop`/SIGKILL,
+agendados, 429, vários workers, supervisor, pós-DDL nem produção.
+Compatibilidade na integração: as migrations `20261030_*` (#583–#585) faziam o
+preflight dos ensaios com baseline (`select_baseline`) recusar por contagem
+total; agora só o conjunto de 78 antes do corte é fixo (seleção, SQL e bundle
+iguais aos de `cf291a15`; na data, 127 ativas; com as #588/#590 são 129, sem
+efeito na seleção de 78). As rodadas físicas acima não foram repetidas.
 
 
 **Um módulo só está concluído** quando tem, nesta ordem: (1) código na `main`
@@ -205,14 +236,14 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Universidade da Vida | feito (código) | Integrada na main em 18/10 (#491–#494, #496): turmas, calendário de oito aulas + Encontro, responsáveis, matrícula explícita, chamada com reposição e correção com histórico, marcos Encontro/batismo, conclusão humana com aptidão à CD e WhatsApp do responsável **desligado** (`UV_WHATSAPP_APPROVED_RELEASE_ID=None`). Migrations `20261017_210500`, `_220000`, `_230000` validadas só em PostgreSQL local sintético. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
 | Capacitação Destino | feito (código) | Base integrada em 18/10 (#495, #497–#501): currículo versionado, turmas, matrícula, frequência/reposição, conclusão, progressão, equivalência e certificado revogável. Integrada em 19/10 (#511): equivalência entre versões da mesma família sem matrícula nova, origem rastreada, pré-requisitos/certificado e matrícula concluída fora do índice de andamento. CD não promove liderança; WhatsApp **desligado** (`CD_WHATSAPP_APPROVED_RELEASE_ID=None`). Migrations CD `20261018_010000`–`_040000` e `_090000` só em PostgreSQL local sintético. Corrida em 26/10 (falha RLS da main `87ba1e42`): criação idêntica concorrente de currículo podia dar 409, porque `on conflict(id)` só arbitrava a PK e `unique(igreja_id,id)` levantava violação. Corrigida localmente em `fix/cd-curriculum-race-20261026` (`on conflict do nothing`, releitura e 409 preservados), com teste PG real que sincroniza o INSERT (16 pares, vermelho no código antigo e verde com a correção); ainda não integrada. Pendência separada: o mesmo padrão aparece em `cd_turmas`, `uv_turmas` (sem handler, possível 500) e `uv_matriculas` (o índice parcial de matrícula ativa exige desenho próprio). | Aplicação das migrations: **não verificado**; ativação não autorizada. |
 | Enviar e multiplicação | feito (código) | Integrado em 19/10 (#502–#507, #510, #520): contrato de aptidão, avaliação humana com eventos imutáveis, nomeação de líder e abertura de célula por solicitação com aprovação web de pastor/admin distinto do autor/candidato, tela Enviar, evidências oficiais UV/CD/Reencontro (Reencontro validado/revogado/revalidado com histórico; revogação bloqueia novas operações, sem promoção/destituição automática) e WhatsApp **desligado** (`ENVIAR_WHATSAPP_APPROVED_RELEASE_ID=None`, lista por igreja vazia): consulta mínima de pendências/evidências e solicitações após SIM literal, com idempotência e recibo após commit; avaliação, validação e aprovação ficam no painel autenticado. Pré-requisito de release: usuários da coordenação vinculados a uma Pessoa ativa (`app_users.pessoa_id`). Ajustes P2 do WhatsApp integrados pela #521 (`c7166cd1`): roteamento restrito ao catálogo, confirmação objetiva e aviso de paginação. Migrations `20261018_050000`–`_080000` e `_100000` só em PostgreSQL sintético; aplicar UV/CD/Enviar antes do deploy do backend; `_080000` valida FK em `celula_solicitacao` e pode falhar com linha legada inconsistente. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
-| Memória privada durável | em andamento | Exclusão antes de memória nova. Integradas: fila durável de exclusão (#509), exclusão por pessoa e igreja/reset (#518), resumo privado por conversa (#526), retomada privada pelo comando exato "retomar conversa" (#531), pedido de exclusão com decisão web do admin (#535) e reset privado por pessoa no painel (#541). Contagens privadas agregadas no Hoje do admin (#546) e reset privado por igreja com confirmação pelo nome, SLA dos pedidos e quitação atômica dos pedidos pendentes cobertos pelo recibo (#561, migration nova, não aplicada). Tudo DESLIGADO (release None, lista vazia, flag false, teto 0). Integrada pela #582 (`1a5cb9c9`; checks do SHA `c37972d9` verdes antes do merge): 2xx do Storage após o prazo resolve a ownership do upload de áudio, sem transcrição; resultado desconhecido segue retido. Integrada pela #583 (`ae15449d`; checks do SHA `02335e89` verdes antes do merge; migration `20261030_100000` só em PG sintético, não aplicada em PROD): tarefas de limpeza e uploads de áudio usam só o login dedicado `private_storage_runtime` (NOBYPASSRLS, RLS por igreja, `search_path` fixo com `pg_temp` por último, sem fallback); sem ele novas entradas de áudio ficam pendentes sem download/upload/transcrição e a limpeza não roda (recibos pendentes); recuperação e reenvio de respostas seguem. Candidata local (`fix/private-upload-positive-reconciliation-20261026`, PR #584 redirecionada à `main`, migration `20261030_110000` só em PG sintético, não aplicada em PROD): reconhecimento positivo PARCIAL de upload de áudio commitado cuja resposta se perdeu (token por tentativa commitado antes do POST em `x-metadata`, info do Storage estrito, CAS do token também no finish, liberação só com tarefa pendente); ausência/erro/tempo nunca liberam; abortado/em voo e legado seguem retidos; ensaio só contra storage-api `6dd28b4` local, hospedado não verificado. Pré-requisitos de ativação abertos: reconciliação de upload com resultado desconhecido (abortado/em voo/legado; versão, gateway e versionamento do Storage hospedado), identidade dos envios/fences/resumos (tarefas e uploads na candidata), provisionar o login nominalmente, expiração de tombstones, dono/BYPASSRLS das funções no release. Ver [operação/limites](docs/ops/RESUMOS-PRIVADOS.md). | não verificado |
+| Memória privada durável | em andamento | Exclusão antes de memória nova. Integradas: fila durável de exclusão (#509), exclusão por pessoa e igreja/reset (#518), resumo privado por conversa (#526), retomada privada pelo comando exato "retomar conversa" (#531), pedido de exclusão com decisão web do admin (#535) e reset privado por pessoa no painel (#541). Contagens privadas agregadas no Hoje do admin (#546) e reset privado por igreja com confirmação pelo nome, SLA dos pedidos e quitação atômica dos pedidos pendentes cobertos pelo recibo (#561, migration nova, não aplicada). Tudo DESLIGADO (release None, lista vazia, flag false, teto 0). Integrada pela #582 (`1a5cb9c9`; checks do SHA `c37972d9` verdes antes do merge): 2xx do Storage após o prazo resolve a ownership do upload de áudio, sem transcrição; resultado desconhecido segue retido. Integrada pela #583 (`ae15449d`; checks do SHA `02335e89` verdes antes do merge; migration `20261030_100000` só em PG sintético, não aplicada em PROD): tarefas de limpeza e uploads de áudio usam só o login dedicado `private_storage_runtime` (NOBYPASSRLS, RLS por igreja, `search_path` fixo com `pg_temp` por último, sem fallback); sem ele novas entradas de áudio ficam pendentes sem download/upload/transcrição e a limpeza não roda (recibos pendentes); recuperação e reenvio de respostas seguem. Integrada pela #584 (`a5c1b06b`; checks do SHA `9ae8032a` verdes antes do merge; migration `20261030_110000` só em PG sintético, não aplicada em PROD): reconhecimento positivo PARCIAL de upload de áudio commitado cuja resposta se perdeu (token por tentativa commitado antes do POST em `x-metadata`, info do Storage estrito, CAS do token também no finish, liberação só com tarefa pendente); ausência/erro/tempo nunca liberam; abortado/em voo e legado seguem retidos; ensaio só contra storage-api `6dd28b4` local, hospedado não verificado. Integrada pela #585 (`5d4e735e`; checks do SHA `0190cd00` verdes antes do merge; migration `20261030_120000` só em PG sintético, não aplicada em PROD): a liberação da ownership de envio usa só o login dedicado `private_send_runtime` por função com chave e igreja; `authenticated` perde só o DELETE; INSERT/renovação seguem nas transações do domínio; a liberação não mascara mais retry/perda de claim. Sem o login, respostas seguem, mas a ownership fica retida (recibo `pendente_envio`, retentável não reenviado). Não protege contra dono/BYPASSRLS. Integrada pela #588 (`bd673afa`; checks do SHA `b2978c5b` verdes antes do merge; migration `20261030_140000` só em PG sintético, não aplicada em PROD): todo o ciclo de geração de resumos do cron (descoberta, claim, reserva, projeções e publicação) usa só o login dedicado `private_summary_runtime`, sem fallback; grants mínimos em quatro tabelas privadas, orçamento só por função de custo fixo, tabelas centrais só por seis projeções tipadas; orquestração, ordem de locks, HTTP sem sessão e revalidações inalteradas; `enqueue`, solicitante NULL e permissões antigas de `authenticated` intactos (login principal com BYPASS segue capaz: limite declarado). Sem o login, a geração não roda. Integrada pela #590 (`383115d1`; checks do SHA `8a59a796` verdes antes do merge; migration `20261030_160000` só em PG 17.6 sintético, não aplicada em PROD): modo explícito `QUEUE_WORKER_DATABASE_MODE` (`legacy` padrão, piloto inalterado; `dedicated` só com `QUEUE_WORKER_DATABASE_URL`, sem fallback) em que toda a fila normal (ingestão, turno, fences, retomada, CAS/ownership/renovação de envio e lease) roda no login `queue_worker_runtime` (NOBYPASSRLS, NOINHERIT, uma membership em `authenticated` sem ADMIN, papéis e estado da conexão provados a cada checkout/BEGIN; igreja descoberta só por função tipada); configuração Jev ilegível no turno privilegiado vira handoff de gate fechado. Não operacional: LOGIN não provisionado, modo do pooler/versão/memberships de PROD não verificados ([runbook](docs/ops/FILA-LOGIN-DEDICADO.md)). Pré-requisitos de ativação abertos: reconciliação de upload com resultado desconhecido (abortado/em voo/legado; versão, gateway e versionamento do Storage hospedado), identidade dos fences, do INSERT/renovação de envios e da retomada privada (só a geração de resumos foi isolada; tarefas, uploads, liberação de envios e geração de resumos integrados; fila normal integrada pela #590 em modo `dedicated` opcional, não operacional), provisionar os logins nominalmente e separar a URL por processo (API/queue/cron/broadcast compartilham o mesmo `env_file`), expiração de tombstones, dono/BYPASSRLS das funções no release (integrada pela #587 (`2c47c160`; checks do SHA `e9117752` verdes antes do merge): prova em PG sintético de que, com dono sem BYPASSRLS, liberação de envio, limpeza do Storage e exclusão falham fechadas, sem recibo verde nos cenários provados; o preflight somente leitura acusa dono sem SUPERUSER/BYPASSRLS nos contratos privados presentes (dez: cinco da #587, dois da #584 e três da #588, cujo corpo lê tabela com FORCE RLS; o resolvedor `queue_resolve_instance` da #590 lê só tabela sem FORCE e é exclusão explícita, válida se o dono da função for dono da tabela ou tiver BYPASSRLS, com os logins da aplicação sem BYPASSRLS; dez contratos + cinco exclusões = 15 definers `row_security=off` classificados) e lista como não verificados os ausentes; dono real em PROD e preflight pós-migration: não verificados). Ver [operação/limites](docs/ops/RESUMOS-PRIVADOS.md). | não verificado |
 | Conhecimento oficial | em andamento | Base versionada e API editorial (#513/#514), busca autorizada (#516), painel editorial (#517), exclusão definitiva admin com confirmação (#524) e consulta pelo WhatsApp com fontes autorizadas (#525), DESLIGADA (`CONHECIMENTO_WHATSAPP_APPROVED_RELEASE_ID=None`, lista vazia), sem ingestão de conversas. Falta aceite pastoral e decisão 21 definitiva. | não verificado |
 | Ferramentas e especialistas por área | em andamento | Ampliar rotinas pelo WhatsApp usando os mesmos serviços do painel; comportamento global versionado, dados e execução por igreja, credencial OpenAI própria da igreja. | não verificado |
-| Pessoas, responsabilidades, Minha Célula, Central e Hoje | em andamento | Integradas: pendências da Central em Hoje (#528), responsabilidade por setor com vigência (#530), pendências por responsabilidade vigente (#534) e gestão web de responsabilidades (#539). Faltam planejamento, alertas e sinalizar contas da coordenação sem Pessoa ativa. | Cobertura completa: não verificado. |
+| Pessoas, responsabilidades, Minha Célula, Central e Hoje | em andamento | Integradas: pendências da Central em Hoje (#528), responsabilidade por setor com vigência (#530), pendências por responsabilidade vigente (#534) e gestão web de responsabilidades (#539). O aviso de contas da coordenação sem Pessoa ativa já foi entregue pela #557. Integrada pela #589 (`8a5dcada`; checks do SHA `868fecd1` verdes antes do merge): a baixa de alerta de célula passa a seguir a regra da leitura (pastor/admin ou líder direto, escopo do detalhe, `igreja_id` explícito); superior na cadeia deixa de baixar alerta que não vê. Faltam planejamento e o gerador de alertas (RF-26), que depende de decisão sobre gatilhos. | Cobertura completa: não verificado. |
 | Triagem semântica Jev | em andamento | S1 implementada/testada com simulações; falta avaliar qualidade real, crise/humano e falsos opt-outs, contrato de tratamento de dados e autorização específica. Jev B/C/D continuam condicionados. | não verificado; não autoriza ativação. |
 | Comunicados, assinatura/Asaas e e-mail/Brevo | em andamento | Bases implementadas; faltam aceite por finalidade, domínio/remetente e canários separados. Não envolver a igreja em cortesia em cobrança real. | não verificado |
 | Onboarding da igreja, equipe, permissões e console | em andamento | Integradas: autorização de telas isolada por igreja (#536), reenvio de convite isolado (#538) e vínculo Pessoa ↔ usuário pelo admin, com auditoria e índice único (#543); ativação trava a igreja antes de Pessoa/usuário, eliminando a espera mútua com a gestão de equipe, com teste da corrida com convite que já traz Pessoa (#556). A tela de equipe sinaliza contas sem Pessoa vinculada (#557). Antes do release da #543: reconciliar manualmente duplicidades legadas de (igreja, pessoa). | Cobertura completa: não verificado. |
-| Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatias integradas: #509, #518, pedido da pessoa com decisão admin (#535) e reset privado por pessoa (#541). Reset privado preserva cadastros/opt-out/consentimento e não autoriza reset cadastral. A trilha de vínculo Pessoa (#543) guarda UUIDs após exclusão aprovada; documentar no runbook de exclusão. Novos derivados acompanham sua implementação. | não verificado |
+| Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatias integradas: #509, #518, pedido da pessoa com decisão admin (#535) e reset privado por pessoa (#541). Reset privado preserva cadastros/opt-out/consentimento e não autoriza reset cadastral. A trilha de vínculo Pessoa (#543) guarda UUIDs após exclusão aprovada; contrato atual documentado (#594) no [runbook de exclusão](docs/ops/EXCLUSAO-PRIVADA.md#trilha-de-vínculo-pessoa-543-após-exclusão), sem anonimização nem purga; produção não verificada. Novos derivados acompanham sua implementação. | não verificado |
 | UX, acessibilidade e desempenho do painel | em andamento | Integradas: teclado nas abas da Central (#527) e foco/anúncios/reflow no atendimento (#532). Faltam leitor de tela e celular reais, zoom e métricas autenticadas de campo. | Frontend publicado conforme registros; backend/telemetria e operação completa: não verificado. |
 | Agenda completa e importação Google | em andamento | Operações locais pelo WhatsApp com SIM e recibo integradas (#540), desligadas. Lembretes pela outbox com gate próprio fechado (#547) e janela configurável por evento (2h/24h/72h/168h, públicos existentes, invalidação de pendentes; #560). Faltam G2b e credencial Google isolada por igreja antes de usar Google. | não verificado |
 | Observabilidade de IA e operação | em andamento | Há logs/custos/filas, consumo de IA por igreja (#537) e idade/contagem agregada de mensagens e tarefas pendentes por igreja (#544, só admin, sem conteúdo); outbox e webhooks entram na medição, com DLQ separada e função de métricas restrita a admin ativo da igreja (#562, migration nova, não aplicada); alerta `stuck_flow` preparado e DESLIGADO até existir credencial dedicada de leitura. Faltam métricas por rota, retenção e metas de serviço. | não verificado |
@@ -221,8 +252,9 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 
 - **em andamento:** auditoria de 03/10: redação de segredo em logs e escopo
   de igreja nas rotinas automáticas integrados (#558). Faltam MFA no console
-  (depende de ligar no Clerk). Logout no servidor é candidato em
-  `feat/logout-servidor`, ainda pendente de integração. Acessibilidade
+  (depende de ligar no Clerk). Logout no servidor integrado pela #568
+  (`354a83d8`); migration `20261023_120000` não aplicada em PROD; produção não
+  verificada. Acessibilidade
   automática (axe WCAG 2.1 A/AA) nas telas principais integrada (#559); leitor
   de tela e celular reais: **não verificado**.
 - **em andamento:** dependências corrigidas e triadas (#463/#469/#470; Next 15.5.28 em #552);
@@ -232,10 +264,30 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
   envio humano e expectativa de visitante em reunião passada (backlog técnico
   B3/B4). Preservar opt-out global e regras por canal até decisão; refatoração
   não muda comportamento silenciosamente.
-- **falta:** reconferir os bugs históricos de classificação CSIM, primeiro
-  consentimento e interpretação de relatório (B5/B7/B15 do MVP); não declarar
-  resolvidos pela presença em auditoria. B1/B2/B3/B4/B14/B16 têm correções
-  registradas, com disponibilidade atual em produção **não verificado**.
+- **em andamento:** B5 (CSIM comercial) integrado pela #591 (`de437cf2`; checks
+  do SHA `a9ca7c0a` verdes antes do merge): "comercial" passa a exigir
+  oferta explícita do próprio contato (verbo em 1ª pessoa ou após auxiliar em
+  1ª pessoa, + objeto, palavra inteira, sem negação/citação); empresa,
+  profissão, boleto ou marketing como assunto, terceira pessoa ou pergunta
+  genérica deixam de fechar o atendimento. Heurística limitada, sem LLM; ofertas
+  fora da lista passam despercebidas e "preciso de oração, quero vender
+  produtos" ainda marca (1ª pessoa). Sem reprocessar contatos já marcados; "fora da cidade"
+  inalterado. Ativação do agente e efeito em produção: **não verificado**.
+- **em andamento:** B15 (interpretação de relatório): a extração de contagens do
+  resumo legado foi integrada pela #592 (`09bb14d7`; checks do SHA `59d8f129`
+  verdes antes do merge): `presentes: 12` em linhas ou numa linha não empresta
+  número de outro rótulo, com teste do turno no banco descartável. Gatilho por
+  palavra + dígito e o restante de B15 seguem abertos.
+- **em andamento:** B7 (primeiro consentimento) reconferido em teste com
+  migrations reais e contato fictício: termo → "Aceito" → aceite da versão
+  atual gravado → turno seguinte vai ao onboarding sem repetir o termo; recusa
+  não grava aceite e opt-out bloqueia aceite posterior
+  (`test_consent_multiturn_e2e_pg.py`), integrado pela #593 (`77a8fd3f`; checks do
+  SHA `8ea84977` verdes antes do merge). Não prova Redis, Evolution
+  nem LLM reais; produção **não verificado**.
+- **falta:** não declarar B5/B7/B15 resolvidos pela presença em auditoria.
+  B1/B2/B3/B4/B14/B16 têm correções registradas, com disponibilidade atual em
+  produção **não verificado**.
 - **falta, quando houver necessidade concreta:** diagnóstico de configuração
   sem segredos, registro de ações sem relaxar autorizações e retirada individual
   de código/testes com proteção equivalente (B1/B2/B5 do backlog técnico).
@@ -263,7 +315,7 @@ dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta 
 | Reconciliação da virada da agenda V2b | falta | Visibilidade/inventário de usuários, gates e entrega dos 11 eventos EVT-7: **não verificado**. Conciliar com provedor/logs antes de decidir qualquer reenvio, que pode duplicar. |
 | Resposta rápida (B17), capacidade e estabilidade | falta | Meta abaixo de 10 s adiada para esta etapa; medir região de servidor/banco e decidir infraestrutura. Investigar incidentes e falhas de prontidão da API: monitor verde registrado não prova causa resolvida. |
 | DEV online isolado | em andamento | Preparação integrada e ensaio sintético registrados (#468/#471); ambiente disponível **não verificado**, registrado como ainda inexistente. Faltam executor exclusivo, região, teto de custo, recursos e aceite de login/Storage/navegador com duas igrejas. Local continua opcional para depuração/testes. |
-| Publicação coordenada de backend/frontend e recuperação | em andamento | Preparação e ensaio integrados (#472/#473; merge de #473 confirmado no Git). Checagens só leitura do lote (#563, candidata) e runbook do lote com ensaio de restauração sintético em preparação. Falta pacote validado, versão viva anterior, compatibilidade de banco, contenção dos consumidores, janela e autorização nominal. Não prometer rollback universal. |
+| Publicação coordenada de backend/frontend e recuperação | em andamento | Preparação e ensaio integrados (#472/#473; merge de #473 confirmado no Git). Checagens só leitura (#563, `61e84383`) e runbook com ensaio de restauração sintético (#565, `100463ba`) integrados; ensaios de parada, transição, topologia e retomada integrados (#574–#581, #586). Falta pacote validado, versão viva anterior, compatibilidade de banco, contenção dos consumidores, janela e autorização nominal. Não prometer rollback universal. |
 | Publicação automática no DEV e explícita em PROD | falta | Operar o caminho preparado e acertar a publicação do frontend com a API (B9/B13). Não alterar agora a automação atual ou gates. |
 | Backup diário e restauração | em andamento | PROD agora é a VPS `srv2031318.hstgr.cloud` (a `srv1728329` será desativada); runbooks atualizados (#545). Em 21/10, leitura somente: backup diário com manifesto recente e monitor de produção instalado e saudável na VPS nova. Faltam restaurar em alvo isolado, aceitar a chave do host novo no backup externo (Windows) e incluir novas tabelas privadas. |
 | Revisão antes de ampliar o piloto ou lançar | falta | Conferir autenticação/Clerk Production, configurações, gates e privacidade; canários Asaas/Brevo/broadcast/agente independentes. Governança pausada não é reativada automaticamente. |

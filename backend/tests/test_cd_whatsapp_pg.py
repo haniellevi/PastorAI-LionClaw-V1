@@ -13,6 +13,7 @@ from app.services.crypto import encrypt_secret
 from app.services import cd
 from app.workers import queue_worker as worker
 from tests.test_uv_turmas_pg import rls_database_url, migrated_database, database, seeded, scoped, principal
+from tests.private_send_pg import send_release_login  # noqa: F401
 from tests.test_cd_presencas_pg import setup
 from tests.test_messages_inbound_idempotency import (
     _seed_tier_a_handoff_anchor, _seed_inbound_anchor, _agent_outcome, _ClassifiedEvolution)
@@ -218,7 +219,7 @@ def test_expired_or_undelivered_proposal_never_writes(cd_turn):
     assert count(p)==0
 
 
-def test_retry_receipt_after_commit_never_writes_again(cd_turn):
+def test_retry_receipt_after_commit_never_writes_again(cd_turn,send_release_login):
     p=cd_turn
     send(p,COMMAND)
     # A classified provider failure leaves the committed domain write and pending reply.

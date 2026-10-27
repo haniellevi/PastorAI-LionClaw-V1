@@ -222,15 +222,20 @@ def test_pending_read_is_suppressed_when_access_boundary_changes(knowledge_turn,
 
 
 @pytest.mark.parametrize('delivery',['falhou_retentavel','desconhecido'])
-def test_gap_handoff_waits_for_confirmed_delivery(knowledge_turn,delivery):
+def test_gap_handoff_waits_for_confirmed_delivery(knowledge_turn,delivery,database,monkeypatch):
+    from tests.private_send_pg import private_send_login
     p=knowledge_turn
-    outcome,r,t=send(p,'CONHECIMENTO buscar termo inexistente',transport=_ClassifiedEvolution(delivery))
-    assert len(t.calls)==1 and 'Não encontrei informação oficial' in r.texto
-    with p.factory() as s: assert s.get(Conversation,p.conv).estado=='ia'
-    _,r,t=send(p,'ignored',outcome=outcome)
-    with p.factory() as s:
-        assert s.get(Conversation,p.conv).estado==('humano' if delivery=='falhou_retentavel' else 'ia')
-    assert len(t.calls)==(1 if delivery=='falhou_retentavel' else 0)
+    # The retry needs send ownership released by the dedicated login.
+    with private_send_login(database,monkeypatch):
+        outcome,r,t=send(p,'CONHECIMENTO buscar termo inexistente',transport=_ClassifiedEvolution(delivery))
+        assert len(t.calls)==1 and 'Não encontrei informação oficial' in r.texto
+        with p.factory() as s: assert s.get(Conversation,p.conv).estado=='ia'
+        _,r,t=send(p,'ignored',outcome=outcome)
+        with p.factory() as s:
+            assert s.get(Conversation,p.conv).estado==('humano' if delivery=='falhou_retentavel' else 'ia')
+        assert len(t.calls)==(1 if delivery=='falhou_retentavel' else 0)
+    with database.connect() as c:
+        assert c.execute(text('select count(*) from private_deletion_sends where igreja_id=:t'),dict(t=p.v['t'])).scalar_one()==0
 
 
 @pytest.mark.parametrize('body',['Conhecimento da palavra me ajudou muito','Conhecimento sobre oração'])
