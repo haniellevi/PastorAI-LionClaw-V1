@@ -1,13 +1,14 @@
 """Real migration chain + authenticated API/service, synthetic local PG only."""
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Lock
 from uuid import uuid4
 import datetime as dt
+import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -150,9 +151,18 @@ def test_reused_ids(database,seeded):
     with scoped(database,v['t']) as s:
         p=CurriculoInput(id=uuid4(),nome='X',versao='1'); c=cd.create_curriculo(s,principal(v),p)
         denied(lambda:cd.create_curriculo(s,principal(v),p.model_copy(update={'nome':'Y'})),409)
+        source=curriculum(s,v)
+        denied(lambda:cd.create_curriculo(s,principal(v),p.model_copy(update={'curriculo_anterior_id':source['id']})),409)
         tp=TurmaInput(id=uuid4(),nome='X',curriculo_id=c['id'],modulo_id=c['modulos'][0]['id'])
         cd.create_turma(s,principal(v),tp)
         denied(lambda:cd.create_turma(s,principal(v),tp.model_copy(update={'nome':'Y'})),409)
+        s.commit()
+    with database.begin() as conn:
+        conn.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Sintético','other@example.test')"),dict(u=v['other'],t=v['other']))
+        conn.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:t,:u,'admin')"),dict(t=v['other'],u=v['other']))
+    with scoped(database,v['other']) as s:
+        # The id is taken by another church: refuse without revealing its catalog.
+        denied(lambda:cd.create_curriculo(s,principal(v,'other','other'),p),409)
 
 
 @pytest.mark.parametrize('conflicting',[False,True])
@@ -249,15 +259,35 @@ def test_same_church_structure_integrity(database,seeded,edge):
 
 
 def test_concurrent_curriculum_same_key(database,seeded):
-    v=seeded; payload=CurriculoInput(id=uuid4(),nome='X',versao='v1'); barrier=Barrier(2)
-    def attempt():
-        with scoped(database,v['t']) as s:
-            barrier.wait(timeout=10); r=cd.create_curriculo(s,principal(v),payload); s.commit(); return r
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        a=pool.submit(attempt); b=pool.submit(attempt); assert a.result(timeout=20)==b.result(timeout=20)
+    # Identical idempotent requests must converge even when both reach the
+    # curriculum INSERT together, after their real actor/authorization queries.
+    v=seeded; pairs=16; hits=[]; lock=Lock(); state={'barrier':Barrier(2,timeout=10)}
+    insert=re.compile(r'insert\s+into\s+(public\.)?cd_curriculos\b',re.I)
+    def meet(conn,cursor,statement,parameters,context,executemany):
+        if insert.search(statement):
+            with lock: hits.append(1)
+            state['barrier'].wait()
+    def attempt(payload):
+        try:
+            with scoped(database,v['t']) as s:
+                r=cd.create_curriculo(s,principal(v),payload); s.commit(); return r
+        except HTTPException as exc: return exc.status_code
+        except Exception: state['barrier'].abort(); raise
+    payloads=[CurriculoInput(id=uuid4(),nome='X',versao=str(uuid4())) for _ in range(pairs)]
+    pool=ThreadPoolExecutor(max_workers=2); event.listen(database,'before_cursor_execute',meet)
+    try:
+        for p in payloads:
+            state['barrier']=Barrier(2,timeout=10)
+            a=pool.submit(attempt,p); b=pool.submit(attempt,p); a,b=a.result(timeout=30),b.result(timeout=30)
+            assert isinstance(a,dict) and a==b,(a,b)
+    finally:
+        state['barrier'].abort(); event.remove(database,'before_cursor_execute',meet); pool.shutdown(wait=True)
+    assert len(hits)==2*pairs # coordination really ran at the INSERT
     with scoped(database,v['t']) as s:
-        assert s.execute(text('select count(*) from cd_modulos')).scalar()==6
-        assert s.execute(text('select count(*) from cd_aulas')).scalar()==60
+        counts=s.execute(text('''select c.id,count(distinct m.id),count(a.id) from cd_curriculos c
+            join cd_modulos m on m.curriculo_id=c.id join cd_aulas a on a.modulo_id=m.id group by c.id''')).all()
+        assert sorted(r[0] for r in counts)==sorted(p.id for p in payloads)
+        assert {(r[1],r[2]) for r in counts}=={(6,60)}
 
 
 def test_concurrent_close_calendar_serialized(database,seeded):
