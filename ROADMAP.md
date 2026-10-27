@@ -34,9 +34,10 @@ migrations ou branches remotas sem ordem própria.
 ## 2. Critério de pronto e saúde técnica
 
 Estado em 27/10/2026: #574–#576 e #577–#593 integradas na `main` (SHAs abaixo e no
-runbook do lote). Código integrado não é release: nenhuma execução em PROD,
-nenhuma migration aplicada remotamente, LOGINs dedicados não provisionados,
-gates e piloto inalterados.
+runbook do lote). Código integrado não é release. Nesta integração não houve
+execução em PROD nem aplicação remota de migrations, e não alteramos gates nem
+ampliamos o piloto. Provisionamento dos LOGINs dedicados e estado atual de
+produção: não verificados.
 
 Atualização operacional de 24/10: a reconciliação excepcional de vínculos
 Pessoa foi integrada pela #572 (`830decc1`), com checks aprovados; não foi
