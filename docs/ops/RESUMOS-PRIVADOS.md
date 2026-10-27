@@ -1,6 +1,7 @@
 # Resumo privado por conversa — fatia 3
 
-Geração candidata, desligada. Não cria ficha por pessoa nem implementa pedido
+Geração integrada na `main` (#526; identidade dedicada da #588, `bd673afa`),
+desligada; a migration da #588 não foi aplicada em PROD. Não cria ficha por pessoa nem implementa pedido
 de exclusão. A [retomada privada da fatia 4](RETOMADA-PRIVADA.md) acrescenta um
 consumidor separado, também desligado por padrão. Deploy, migration remota,
 credencial e ativação: **não verificados**.
@@ -78,6 +79,9 @@ Correção vigente é relida sob o lock de publicação. Exclusão durante a cha
 remove tarefa e impede ressurgimento local; não desfaz o que já foi enviado.
 
 ## Identidade dedicada do ciclo (candidata local, migration `20261030_140000`)
+
+Integrada pela #588 (`bd673afa`; checks do SHA `b2978c5b` verdes antes do merge);
+migration só em PG sintético, não aplicada em PROD; LOGIN não provisionado.
 
 Descoberta, claim, reserva, leitura das projeções e publicação rodam só no login
 `private_summary_runtime` (`PRIVATE_SUMMARY_DATABASE_URL`, distinta das demais

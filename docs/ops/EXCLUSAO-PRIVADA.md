@@ -1,6 +1,7 @@
 # Exclusão privada — conversa, pessoa e igreja
 
-Código candidato; aplicação/deploy/operação remotos **não verificados**.
+Código integrado na `main` (fatias abaixo, cada uma com sua PR); aplicação, deploy e
+operação remotos **não verificados**.
 Não autoriza release, acesso remoto ou alteração de gates. Testes usam dados
 fictícios e provedores simulados.
 
@@ -84,6 +85,39 @@ Central de pendências. O reset por igreja e o SLA são candidatos locais sem
 release ou ativação. Nenhuma expiração/recusa automática libera memória. Esta
 fatia **não conclui Memória 6**.
 Deploy, banco remoto, funcionamento em produção e ativação: **não verificados**.
+
+## Trilha de vínculo Pessoa (#543) após exclusão
+
+Contrato atual conferido no código; produção **não verificada**. Esta seção não
+cria retenção, purga nem anonimização.
+
+- **O que fica:** cada vínculo/desvínculo entre acesso e Pessoa grava em
+  `team_pessoa_eventos` ([migration](../../backend/migrations/20261025_100000_team_pessoa.sql))
+  `id` técnico, `igreja_id`, `actor_id` (admin), `usuario_id`, `pessoa_id`,
+  `operacao` e `criado_em`, sem nome, e-mail ou telefone. A tabela não tem FKs
+  de propósito, e os caminhos atuais conferidos (exclusão privada, exclusão da
+  igreja, reset global e arquivamento) a preservam. Não há prazo de retenção
+  definido.
+- **Reset privado** (conversa, pessoa ou igreja) e arquivamento de Pessoa não
+  tocam a trilha; como os cadastros ficam, os UUIDs continuam resolvíveis.
+- **Exclusão cadastral da igreja ou reset global**
+  ([runbook nominal](TENANT-DELETION-RESET-RUNBOOK.md)) removem igreja e
+  Pessoas, mas as linhas da trilha ficam com os UUIDs originais. Contas de
+  platform admin são preservadas, então seus UUIDs continuam resolvíveis.
+- **Reconciliação excepcional** de duplicidade
+  ([release](RELEASE-LOTE-2026-10.md)) grava em `platform_audit_log` UUIDs e
+  hashes técnicos (operação, igreja, Pessoa, contas mantida e corrigida, admin
+  da igreja, operador, hash do payload e SHA do release); também sem FK e
+  preservado nesses caminhos.
+- **Quem lê:** não há endpoint de leitura de `team_pessoa_eventos`. O acesso
+  continua sujeito às RLS e ACL atuais; não presumir que excluir a igreja torne
+  essa trilha inacessível. Leitura operacional somente por procedimento
+  autorizado. `GET /admin/audit` expõe o `detalhe` de `platform_audit_log` a
+  platform admins, nas últimas 1 a 200 entradas.
+- **Limite:** UUID sem texto continua sendo identificador e pode ser
+  correlacionado com qualquer registro ou cópia que guarde o mesmo ID (outros
+  cadastros preservados, auditorias, recibos, logs, exports, backups). Esta trilha **não** é
+  anonimizada pela exclusão; não declarar exclusão completa ao solicitante.
 
 ## Retenção V1b — decisão pastoral 15
 
@@ -232,8 +266,8 @@ continuam ambíguos. Falha ao finalizar não é repetida: a transação atômica
 decide (o commit pode ter ocorrido com retorno incerto). Esta fatia não resolve
 uploads realmente ambíguos, identidade do worker nem política de tombstones.
 
-**Reconhecimento positivo de upload commitado sem resposta** (candidata local,
-migration `20261030_110000_private_upload_attempt_witness.sql`, só em PostgreSQL
+**Reconhecimento positivo de upload commitado sem resposta** (integrado pela
+#584, `a5c1b06b`; migration `20261030_110000_private_upload_attempt_witness.sql`, só em PostgreSQL
 sintético; não aplicada em PROD). Cada tentativa recebe um token UUID aleatório,
 gravado e commitado com a ownership antes do POST e enviado como `x-metadata`
 (JSON estrito em base64, só esse token; nada pastoral). O POST continua único,
@@ -281,7 +315,8 @@ início, mas **não conclui recibo por tempo**: `pendente_envio` permanece até 
 transporte retornar e liberar ownership. Não há reenvio após expiração.
 Processo perdido exige reconciliação explícita; nunca apagar marcador somente
 para deixar o recibo verde. HTTP iniciado pode ter chegado ao provedor.
-Na candidata abaixo, só o login `private_send_runtime` libera o marcador.
+Com a #585 (`5d4e735e`), só o login `private_send_runtime` libera o marcador (sem o
+login, a ownership fica retida).
 
 O cron usa `process_storage_tasks` antes do gate de envios, com purga automática por prazo somente para capturas pré-v2. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
@@ -317,7 +352,7 @@ que revalida admin. Processing mantém o escopo tenant NOBYPASSRLS da #509.
 
 ### Identidade do runtime de Storage privado (tarefas e uploads)
 
-Candidata local, migration `20261030_100000_private_storage_worker_identity.sql`
+Integrada pela #583 (`ae15449d`); migration `20261030_100000_private_storage_worker_identity.sql`
 (aplicada só em PostgreSQL sintético; não aplicada em PROD). Tarefas de limpeza e ownership de upload de áudio passam a usar
 somente o login `private_storage_runtime`, configurado em
 `PRIVATE_STORAGE_DATABASE_URL`, sem fallback para `DATABASE_URL`. O papel nasce
@@ -383,7 +418,7 @@ grants de outros bancos. Exige consumidores contidos e ownership drenada.
 
 ### Identidade da liberação de envios (`private_deletion_sends`)
 
-Candidata local, migration `20261030_120000_private_send_release_identity.sql`
+Integrada pela #585 (`5d4e735e`); migration `20261030_120000_private_send_release_identity.sql`
 (só PostgreSQL sintético; não aplicada em PROD). INSERT com o CAS
 `ia_pendente → ia_em_transporte`, renovação antes do HTTP e conferência de
 geração continuam nas mesmas transações e locks do login principal. Só a
@@ -441,18 +476,21 @@ Ownership retida em janela de falha não é revisitada pelo código antigo.
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
 retenção de tombstones. Pendências técnicas: tarefas e uploads têm identidade
-SQL própria (#583), e a liberação de envios na candidata seguinte (#585);
+SQL própria (#583), e a liberação de envios (#585);
 INSERT/renovação de envios e fences ainda seguem o padrão servidor confiável
-sem subject da #509; reconciliação de upload com
+sem subject da #509 no modo `legacy` (padrão); o modo `dedicated` da #590,
+integrado e não operacional, os move para `queue_worker_runtime`; reconciliação de upload com
 resultado desconhecido é parcial (2xx tardio confirmado e, pela
 `20261030_110000` (#584), testemunho exato de tentativa commitada; abortado/em voo e
 legado seguem retidos sem saída automática); dono das
 funções privadas com `row_security=off`: o preflight de release acusa dono sem
-SUPERUSER/BYPASSRLS nas funções já existentes da lista fixa (cinco da #587 e duas
-da #584, sete; dez com a candidata de resumos, que acrescenta descoberta, fontes e reserva, cujo
-corpo lê tabela com FORCE RLS; snapshot, solicitante e credencial ficam fora
-porque leem só tabelas sem FORCE, legítimas para um dono que também as possui;
-se o dono não as possuir, falham fechadas),
+SUPERUSER/BYPASSRLS nas funções já existentes da lista fixa (dez: cinco da #587,
+duas da #584 e três da #588 — descoberta, fontes e reserva, cujo corpo lê tabela
+com FORCE RLS; snapshot, solicitante e credencial da #588 e o resolvedor da fila
+`queue_resolve_instance` da #590 ficam fora como exclusões explícitas, porque leem
+só tabelas sem FORCE: valem se o dono da função for dono das tabelas lidas ou
+tiver BYPASSRLS, senão falham fechadas; os logins da aplicação seguem sem
+BYPASSRLS; 15 definers `row_security=off` classificados),
 mas não examina as de migrations pendentes nem corpo, ACL ou dono de funções
 aninhadas como `private_summary_origin_valid` (repetir após aplicação
 autorizada; dono real em PROD não verificado);
