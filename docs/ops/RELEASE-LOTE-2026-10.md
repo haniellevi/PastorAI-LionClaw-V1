@@ -265,6 +265,41 @@ Este documento e o merge do código não são autorizações operacionais.
    A checagem da FK reproduz o par `(igreja_id, celula_id)` que será validado
    pela migration `20261018_080000`; a checagem de duplicidade usa
    `(igreja_id, pessoa_id)` não nulo, como o índice da #543.
+   A linha `private_definer_contracts` lê só `pg_catalog`, sem chamar funções,
+   os contratos privados SECURITY DEFINER com `row_security=off` da lista fixa
+   `PRIVATE_DEFINER_CONTRACTS`: cinco da #587, dois da `20261030_110000`
+   (`private_storage_begin_upload_attempt` e `private_storage_upload_witness_due`,
+   acrescentados na integração com a #584) e, com a candidata de resumos
+   (migration `20261030_140000`), dez. Os três novos são
+   `private_summary_runtime_due_tasks`, `_sources` e `_reserve`, cujo próprio
+   corpo lê tabela com FORCE RLS. `_snapshot`, `_requester` e `_credential`
+   também declaram `row_security=off`, mas leem diretamente só tabelas sem
+   FORCE, que um dono também dono dessas tabelas opera legitimamente sem
+   BYPASSRLS: ficam fora para não gerar falso positivo, desde que o dono da
+   função também seja dono dessas tabelas (se não for, a função falha fechada,
+   sem vazamento, e o preflight não acusa). A dependência do dono
+   de funções aninhadas, como `private_summary_origin_valid`, também fica fora:
+   ela herda `row_security=off` do chamador, e o preflight olha só o
+   `proconfig` da própria função.
+   Nenhum banco de PROD foi verificado com a lista nova. Achado (`private_definer_dono_sem_bypass`,
+   só assinatura e dono) quando o dono de um contrato presente não tem
+   SUPERUSER nem BYPASSRLS: nesse estado a função falha (42501) e, por exemplo,
+   envios ficam com ownership retida e limpezas pendentes. Contrato ausente,
+   como antes de aplicar a migration dele, sai em `nao_verificados` e não é
+   achado nem atestado. `examinados` conta só assinaturas presentes no
+   catálogo; não atesta a definição (um contrato que perdeu SECURITY DEFINER
+   ou `row_security=off` é contado sem achado). Por isso o preflight anterior
+   às migrations não cobre funções pendentes: depois de aplicação nominalmente autorizada, repetir o
+   preflight somente leitura para examinar as que passaram a existir. O achado
+   não se corrige elevando dono para deixar verde nem com mudança automática
+   de privilégios; exige decisão nominal. A checagem não prova ACL, corpo,
+   segurança das funções nem sessões abertas antes de uma troca de atributo.
+   Outras funções SECURITY DEFINER, inclusive a métrica da outbox de operações
+   que também declara `row_security=off`, ficam fora deste contrato.
+   Um teste em PG sintético compara o catálogo com a lista: toda função de
+   `public` com SECURITY DEFINER e `row_security=off` precisa ser contrato ou
+   exclusão explícita (hoje quatro: a outbox e os helpers de resumo `_snapshot`,
+   `_requester` e `_credential`), então um definer novo esquecido falha.
 3. **Reconciliação manual antes da #543.** Antes de aplicar
    `20261025_100000_team_pessoa.sql`, confirmar zero duplicidades da chave
    `(igreja_id, pessoa_id)`. Qualquer duplicidade de igreja/pessoa exige
@@ -888,3 +923,408 @@ zero skip (46 novos e 130 de regressão); ensaio físico aprovado com 13
 verificações, bloqueio em 6,445 s, saída 0 em 0,652 s após a liberação, limpeza
 sem sobras. São evidências locais; os testes/ensaio novos não foram adicionados
 aos workflows, e os quatro checks do SHA publicado são prova separada.
+
+## Ciclo de vida ocioso do broadcast-worker real — integrado pela #577 (`92821e35`)
+
+A etapa seguinte à #576 usa `deploy/rehearse_legacy_broadcast.py`, reaproveitando
+de `rehearse_legacy_queue.py` a conferência de fonte/runtime de `07a3f4d` (148
+fontes + lock), a guarda de Docker local, o ledger e a limpeza por posse. Só há
+Redis descartável numa rede `--internal` própria, sem portas, montagens ou
+download de imagem; não existe Postgres e `DATABASE_URL`/Evolution apontam para
+loopback morto. O PID 1 é `python -m app.workers.broadcast_worker` original,
+sem patch nem mock. O container usa `--init=false` explícito e o ensaio exige
+`HostConfig.Init` igual a `false`; ausente/`null` (default do daemon, que pode
+ter `init: true` e injetar `docker-init` mesmo com `Path=python`) ou `true` é
+recusa. Gates: `ALLOW_REAL_SENDS=false`, `BROADCAST_ASYNC_ENABLED=false`,
+Brevo `off`, Asaas `false`, piloto vazio e `BROADCAST_WORKER_TICK_SECONDS=10`.
+
+Com esses gates o legado decide `enabled=False` no boot e fica **ocioso**; o
+ensaio não abre gate e não afirma estado ativo. Exige: heartbeat `idle` e sua
+renovação pelo loop (instante de expiração posterior), Redis só com esse
+heartbeat, log com `enabled=False` e o aviso OCIOSO exato como único WARNING
+aceito, sem tick, envio, dispatch pausado ou transporte. SIGTERM real: saída 0
+antes do próximo tick, heartbeat `stopped`, log igual e TTL não renovado
+durante a observação posterior. `docker start` do mesmo container precisa ser
+uma nova execução (`StartedAt` novo, segundo boot no log) com `idle`
+substituindo `stopped`; o segundo SIGTERM repete a saída 0 e `stopped`.
+
+Ausência de rede não é capturada; é inferida de três fatos: destinos de banco
+e Evolution inacessíveis (loopback morto, rede interna sem Postgres), gates
+`false` e o caminho ocioso do código legado (`tick()` nunca chamado, sessão
+nunca resolvida, `EvolutionClient` sem cliente HTTP até o primeiro uso e
+`close()` sem efeito quando nada foi aberto).
+
+Limites: não prova broadcast ativo, trabalho ou transporte Evolution em curso,
+pendências no banco, que fechar gate pause fila, supervisor/restart do host,
+backend, pós-DDL, RLS nem produção (`production_ready=false`).
+
+Reprodução local, com as mesmas imagens imutáveis legada/Redis dos ensaios anteriores:
+
+```bash
+python3.13 deploy/rehearse_legacy_broadcast.py run --repo . --report /tmp/legacy-broadcast-report.json
+```
+
+Validação final em 25/10/2026 (Codex): 216 testes aprovados, zero skip (40
+novos e 176 de regressão); ensaio físico aprovado com 10 verificações e
+`HostConfig.Init=false` conferido; saída 0 em 0,503 s/0,549 s após cada
+SIGTERM, heartbeat renovado em 9,947 s/9,948 s, limpeza sem erros nem sobras.
+A revisão independente exigiu o PID 1 sem `init` do daemon; a correção foi
+confirmada pelo Codex. São evidências locais; os testes/ensaio novos não foram
+adicionados aos workflows, e os quatro checks do SHA publicado são prova separada.
+
+## Backend ASGI com HTTP em curso durante SIGTERM — integrado pela #578 (`64d7509d`)
+
+A fatia seguinte (#578; base `6b0b302b`, sem depender da #577, depois atualizada
+com a `main` que já contém a #577 em `92821e35`) usa
+`deploy/rehearse_legacy_backend.py`. Reaproveita a guarda de Docker local, a
+fonte/runtime exatos de `07a3f4d`, o ledger e o Redis próprio. O PID 1 é o console
+script real `uvicorn app.main:app --host 0.0.0.0 --port 8000` (CMD do
+Dockerfile legado), com `--init=false` conferido, sem patch, mock, rota ou
+instrumentação da aplicação. O preflight confere o script contra o RECORD da
+distribuição `uvicorn==0.49.0`, o protocolo httptools e as premissas de shutdown
+do Uvicorn instalado. Diferenças em relação ao Dockerfile: workdir `/opt/legacy`,
+usuário 65534, rootfs read-only, sem `migrations/` e sem healthcheck do Compose.
+
+Configuração: gates fechados, piloto vazio, `EVOLUTION_WEBHOOK_SECRET` fictício
+fixo enviado só por header `X-Webhook-Token` (nunca query) e banco em loopback
+morto. O único aviso de startup aceito é `Database warmup unavailable`, e
+`/health` 200 prova só liveness: não é readiness nem prontidão de produção.
+Allowlist exata de avisos: esse warmup (um por boot) e um `Rejected webhook`
+da prova negativa (token errado, corpo completo, 401 real e fila vazia). O
+relatório leva só marcadores próprios e contagens; o segredo fictício não pode
+aparecer nos logs.
+
+Barreira: um probe separado da mesma imagem envia o `POST /whatsapp/webhook`
+com `Content-Length` do corpo inteiro e só metade do JSON. O handler legado lê o
+corpo antes de autenticar. O probe só publica o READY depois que `TIOCOUTQ` do
+socket chega a 0 (bytes confirmados por ACK do servidor, sem `recv`, prazo de
+5 s; falha ou timeout encerram o probe e recusam). O controlador exige `outq`
+inteiro igual a 0. Antes do SIGTERM, o `/proc` do backend (`docker exec` só
+leitura) precisa mostrar a conexão do IP/porta do probe ESTABLISHED,
+pertencente ao PID 1, com Recv-Q/Send-Q zero, e a fila precisa estar vazia.
+ACK no cliente, Recv-Q 0 no servidor e a conexão retida durante a drenagem
+sustentam um ciclo HTTP aberto, não a linha exata do handler
+(`request.stream()`). Depois do sinal: backend vivo, log
+`Waiting for connections to close`, listener fechado, conexão nova recusada,
+mesma conexão retida e lifespan ainda aberto, numa janela observada. Só então
+o restante do corpo segue na mesma conexão e se exige: 202
+`{"status":"queued"}`, conexão encerrada pelo servidor (sem reuso), um envelope
+no `WebhookQueue` real, ordem exata em stderr (resposta antes do lifespan
+fechar os pools) e saída 0 sem SIGKILL. A duração da telemetria precisa cobrir o
+intervalo sinal→liberação, mas isso é só consistência: inclui o processamento
+após a liberação e a latência do kill, então não prova ordem. Os bytes da
+fila se mantêm após a parada e após reiniciar o mesmo container sem consumidor;
+o segundo SIGTERM também sai com 0.
+
+Orçamentos independentes: barreira 20 s; log de drenagem 10 s após o sinal;
+retenção abaixo de 20 s, medida depois do último check; saída em menos de 30 s
+após a liberação.
+
+Riscos e limites: a saída 0 depende de PID 1 direto, porque o Uvicorn re-levanta
+o SIGTERM após o shutdown e só o PID 1 o ignora; sob init, seria 143. Sem
+`--timeout-graceful-shutdown`, um cliente que nunca completa o corpo segura o
+shutdown indefinidamente até o prazo do supervisor (SIGKILL). Não prova a
+posição interna do handler nem o início do ASGI antes do sinal (inferido), consumo
+pelo worker, turno do agente, banco/RLS, retries da Evolution,
+supervisor/restart policy, topologia viva (proxy, init, timeouts), pós-DDL nem
+produção (`production_ready=false`).
+
+Reprodução local, com as mesmas imagens imutáveis dos ensaios anteriores:
+
+```bash
+python3.13 deploy/rehearse_legacy_backend.py run --repo . --report /tmp/legacy-backend-report.json
+```
+
+Validação final em 25/10/2026: 279 testes aprovados, zero skip (103 novos e
+176 de regressão); ensaio físico (Codex) aprovado com 12 verificações, retenção
+de 6,600 s após o sinal, saída 1,202 s após a liberação, segunda parada em
+1,168 s, limpeza sem sobras. Premissas do Uvicorn 0.49.0 conferidas na imagem;
+revisão independente incorporada. Um request gera um envelope; idempotência de
+reenvio não é provada aqui. É prova sobre o HTTP real já existente, não
+capacidade nova do agente. Os testes/ensaio não entram nos workflows, e os
+quatro checks do SHA publicado são prova separada.
+
+## Transição inicial integrada legado→atual — ensaio local sintético
+
+**Estado: preparação local.** Não é procedimento executável em PROD, não toca
+VPS, Supabase, workflow nem gates reais; `production_ready=false`.
+
+`deploy/backend-release.sh` recusa a instalação atual (sem árvore de release,
+checker anterior nem label de revisão). A primeira virada fica a cargo de
+`deploy/initial_transition.py` (com `initial_transition_ops.py`,
+`initial_transition_files.py` e `initial_transition_candidate.py`), que deixa
+um layout `releases/<SHA>` + `current`. O ensaio
+`deploy/rehearse_initial_transition.py` (cenários em
+`rehearse_initial_transition_scenarios.py`, provedor falso em
+`synthetic_evolution.py`) cria, por fixture e com UUID próprio, uma instalação
+sintética com a mesma FORMA observada (três serviços por Compose gerado e
+prefixado + `broadcast-worker` avulso, todos `restart: always`), não o mesmo
+arquivo nem a topologia exata de PROD.
+
+Controlador, em ordem: endpoint local e posse de redes/supports/DSN antes de
+qualquer SQL; identidade e fonte exata (148 blobs de `07a3f4d`; 385 do
+candidato) e runtime do lock; contenção por papel com `restart=no` persistido e
+conferido por inspect ANTES do SIGTERM (sem SIGKILL); efeitos esperados do
+drain conferidos item a item e só então snapshot estável (linhas de `public` +
+chaves persistentes do Redis db0); reconciliação real por
+`reconcile_team_pessoa.py` (prévia/confirmação; não é rollback e não é
+desfeita por retomada); backfills de julho com 0 candidatos e
+`release_preflight.py`; reconferência fresca (ledger baseline, pendências
+exatas, snapshot, ausência de vestígio de DDL, escopo) imediatamente antes do
+`ddl-marker` irrevogável; 46 migrations por `migrate.py`, um job próprio por
+aplicação; checker do candidato + catálogo comparado a uma reconstrução
+independente das 124; candidato em projeto Compose SEPARADO, `/ready` real
+`ready` com os três workers e `/health` pela rede de borda; promoção na ordem
+layout → readiness nova → `restart=always` → link `current`. Toda invocação
+revalida tudo, qualquer que seja a fase registrada; jobs adotados só se idênticos
+ao pretendido; probes de leitura sempre novos; falha pós-DDL antes da promoção
+contém o candidato (`no` + SIGTERM + saída observada) e exige decisão humana
+`retry-candidate`; o legado nunca é religado depois do marcador.
+`CONCURRENTLY` inválido, ou índice válido sem linha no ledger, é recusa
+persistente: o retry só é aceito com decisão humana e sem nenhum índice da
+tentativa anterior (nunca `IF NOT EXISTS` como prova).
+
+Retomada do legado (`resume-legacy`), só antes do marcador e com token ligado ao
+journal: em toda invocação, inclusive replay após crash, reconfere endpoint,
+posse, identidade/gates, ledger baseline e ausência de vestígio de DDL antes de
+cada partida; snapshot de domínio e filas críticas só são exigidos antes do
+primeiro consumidor voltar. A intenção de retomar é exclusiva e durável: depois
+dela `run` recusa (`legacy-resume-in-progress`) e só a retomada pode continuar.
+
+Filas críticas (nomes e tipos conferidos no código de `07a3f4d` e do candidato):
+`pastorai:webhooks` (lista), `pastorai:webhooks:processing:<worker>` (ausente
+após o drain), `pastorai:webhooks:dead` (lista) e
+`pastorai:webhooks:retry-scheduled` (zset, conferido com score). Quando
+esperadas, precisam existir SEM TTL (ou estar ausentes se esperadas vazias) e
+são comparadas item a item (SHA-1 por item; score no zset). As expectativas são
+reexecutadas no reconcile, imediatamente antes do `ddl-marker` (mesma invocação)
+e antes do primeiro start da retomada. O snapshot de estabilidade cobre só chaves
+persistentes do db0: chaves com TTL (heartbeats, `pastorai:processed:*`,
+`pastorai:webhooks:retry-state:*`, que tem TTL legítimo) ficam fora da igualdade
+e só são contadas; não se afirma igualdade de todo o Redis.
+
+Gates: o ensaio principal usa valores sintéticos no FORMATO observado
+(`ALLOW_REAL_SENDS=true`, `BREVO_SEND_MODE=live`, broadcast `false`, ASAAS
+ausente), com piloto vazio, segredos fictícios e todos os endpoints em
+containers próprios numa rede `--internal`; o controlador nunca altera gates e
+o candidato precisa carregar os mesmos valores. Isso não satisfaz as guardas do
+`backend-release.sh`, que exigem os quatro gates fechados (teste de contrato
+`deploy/tests/test_initial_transition_layout.py`). A fixture `broadcast` liga
+`ALLOW_REAL_SENDS`/`BROADCAST_ASYNC_ENABLED` só nela (`config_mirror=false`).
+
+Achado de Docker registrado: `docker kill --signal SIGTERM` marca o container
+como parado manualmente; `restart: always` não o reinicia na hora, mas o
+reiniciaria no boot do daemon. A política `no` persistida é o que cobre esse
+caso; o reinício real do daemon não foi exercitado. O controle negativo usa uma
+saída não manual (SIGTERM de dentro do container).
+
+**Adoção persistente pelo `backend-release.sh` (local, sintética, 25/10).**
+`write_layout` grava `deploy/release-topology.json` (versão 1: projeto
+permanente ≠ legado, rede externa existente por nome+ID, nomes dos quatro
+serviços, IDs dos quatro legados contidos; nada privado), o helper
+`release_topology.py` e `docker-compose.override.yml` com pin do ID verificado
+da imagem candidata. O script lê o contrato só do ativo, sob lock e antes da
+configuração privada; recusa marcador sem contrato válido e
+contrato/marcador/override vindos no candidato (o workflow também recusa esses
+caminhos no commit e exige `BACKEND_RELEASE_SAFETY_VERSION=3`). Toda chamada
+Compose usa `-p` e base→topologia→checker→pin; o overlay redefine só
+`networks.default` (externa), nomes, `depends_on: !reset {}` (sem isso
+`compose start` recusa `missing dependency redis`) e põe Redis/Evolution em
+profile inativo. Guardas: propriedade (membros do projeto só com nome
+contratado, nenhum estranho, legados parados `no` fora do projeto) antes de
+recriar; prontidão (sem alias dos quatro serviços em contêiner alheio rodando
+na rede, um Redis saudável e uma Evolution rodando) antes de cada start;
+contenção para só IDs próprios, independe de dependências, e deixa estranhos
+intocados (recuperação humana com configuração, contrato e override do
+candidato preservados). O predecessor volta pelo ID de imagem verificado, nunca
+por rebuild; com o image store containerd, mover a tag de build apaga o ID antigo,
+por isso o script mantém a tag local `<repo>-release:<SHA>` do predecessor e da
+candidata construída. Essas tags se acumulam (sem poda automática; limpeza é
+tarefa do operador) e um novo release do mesmo SHA move a tag de retenção para a
+nova build. A imagem da transição inicial precisa continuar referenciada no host
+até o primeiro release posterior (o pin do layout aponta para o seu ID); garantir
+isso é trabalho do adaptador real, ainda inexistente. Instalação sem contrato nem
+marcador mantém o caminho anterior.
+
+Provas: doubles (`test_backend_release.py`, suíte inteira também no modo
+adotado), helper puro, `docker compose config` real do `docker-compose.yml` sem
+`.env` e ensaio físico `deploy/rehearse_release_topology.py` (rodada 4: 54
+verificações, 71,6 s; o detector de imagens dessa rodada não cobria as builds
+B/D feitas pelo Compose. Rodada 5, após integrar `9047c591`: 54 verificações,
+76,7 s, sem contêineres, redes, volumes nem imagens restantes, procuradas pelo
+prefixo e pelo label de revisão dos seis commits sintéticos; hashes das fontes no
+relatório `/tmp/igreja12-release-topology-rehearsal-r5.json`): layout real → release que
+falha em `/ready` volta ao layout pelo ID → release saudável → falha volta ao
+predecessor construído → recusas físicas por alias concorrente e membro
+estranho; legados e dependências com estado idêntico. Transformações no
+compose do ensaio: porta publicada (a 8000 do host é de outro processo, nunca
+tocado) e tag de build prefixada. Aplicação e checker sintéticos; Evolution falsa, sem
+callback real Evolution→backend (não provado); modo digest só
+por doubles/Compose config. Pendentes: atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA`
+após o merge (não executado), adaptador e janela de PROD, backup, autorização
+nominal, decisão sobre gates abertos, escolha das contas da duplicidade,
+webhooks recusados durante a janela e legado com `RestartCount>0`.
+
+Limites: daemon/host não reiniciados; retry real da Evolution e mensagens
+recusadas na janela não verificados; imagem candidata derivada local NÃO
+oficial (camadas de `8fbc14c5`; app/lock/migrations/runner do HEAD; README de
+migrations ausente não afeta o manifesto SQL) e legada sintética (`/opt/legacy`,
+uid 65534); papéis/pooler/timeouts do Supabase não reproduzidos; turno do
+agente não exercitado (piloto vazio); escritores só observados no escopo próprio
+(membros das redes, IPs, `pg_stat_activity`, `CLIENT LIST`); chaves Redis com
+TTL (heartbeats, marcadores de dedup) fora da igualdade, com filas críticas
+exigidas sem TTL; `compose up` manual no projeto legado recriaria com `always`.
+
+**Matriz de evidências (local, sintética, 25/10).** Fonte candidata
+`6b0b302bd1c1f84dfef7516babee2b7767d3219c` (não o HEAD futuro da branch); imagem
+derivada local `sha256:d9fea6b7…c45`; legada sintética `sha256:34083a4f…562`.
+Na rodada 3 (antes da correção da retomada), a suíte completa (`main`,
+`pre-ddl`, `post-ddl`, `broadcast` + catálogo de referência das 124) foi
+aprovada em 684,1 s, com 28/15/22/12 verificações, catálogo idêntico e
+limpeza total.
+Relatório: `/tmp/igreja12-initial-transition-round3-full.json`. Rodada 4:
+somente a retomada mudou (evidência de execução efetiva em vez de intenção;
+crash antes do update, depois do update e depois do start real); `pre-ddl`
+reensaiado sozinho e aprovado com 17 verificações e limpeza total
+(`/tmp/igreja12-initial-transition-round4-preddl.json`; status `partial-pass`
+por ser execução parcial, que nunca vale como suíte completa). Testes: 53
+unitários/contrato dos módulos novos; regressão ampla de `deploy/tests` com 385
+aprovados, 19 pulados e 1 teste PG17 não executado (exige
+`BACKEND_RELEASE_TEST_DATABASE_URL`, só no CI). Conferência independente do
+Codex: 229 testes (53 novos/contrato + 176 de regressão), zero skip. CI do SHA
+publicado: não verificado até rodar. Os demais cenários não foram repetidos após a rodada 4 porque não
+passam pelo código alterado, salvo a recusa pós-DDL, que ocorre antes dele.
+
+**Recuperação da reconciliação (revisão da PR #579).** Antes do apply, na
+mesma invocação que reconfere o snapshot de settle (banco e Redis), o journal
+grava uma linha de base só com digests e contagens. Após queda depois do commit,
+`run` e `resume-legacy` adotam o mesmo job, sem reaplicar (a retomada nunca cria
+nem inicia o apply), e só aceitam o delta exato: `pessoa_id` nulo na conta
+corrigida e exatamente uma linha de auditoria da operação idêntica à do serviço
+(ator, alvo, campos NULL, `detalhe` completo); nada mais em `public`, auditoria
+alheia (inclusive sem `operation_id`) ou Redis persistente. O snapshot gravado é
+o da leitura verificada. Rodada 6, cenários selecionados (`partial-pass`, não
+suíte completa): `pre-ddl` 21 verificações (crash após commit real; alteração de
+auditoria sem `operation_id` e de campo da auditoria da operação recusadas em
+PostgreSQL sintético) e `main` 28; limpeza total
+(`/tmp/igreja12-initial-transition-round6-reconcile.json`). A suíte completa
+continua sendo a da rodada 3. Testes em Python 3.13: 71 + 8 subtestes dos
+módulos novos e 4/4 provas independentes (conferência do Codex: 247 + 8 subtestes);
+regressão ampla de `deploy/tests` com 401 aprovados, 19 pulados, 1 desmarcado
+(PG17 de CI) e 5 falhas ambientais em `test_maintenance_schema*.py` por
+`psycopg2` ausente no venv 3.13 (passam no venv 3.12 com o driver). CI do novo
+SHA: pendente. Limites: digests e contagens não distinguem uma escrita alheia
+que reproduza exatamente o delta autorizado nem cobrem esquemas fora de `public`.
+Controle negativo: o predicado agora é relativo ao contador e `StartedAt`
+observados; a causa da falha intermitente da rodada 5 (possível reinício antes
+do sinal) é hipótese não confirmada.
+
+**Retomada de legado com `RestartCount>0` (local, sintético).** Semântica medida
+no Docker 29.9.2: reinício automático incrementa o contador, `update`/`stop` o
+mantêm e `docker start` manual o zera. A contenção continua comparando o k
+observado. Na retomada, um papel só conta como retomado se estiver rodando com
+`StartedAt` novo, política original e contador 0 (nunca o conjunto {0, k}); o
+estado é relido antes do `done`, e um reinício nesse intervalo recusa
+(`legacy-restarted-during-resume`) sem gravar `done`. Antes de cada novo start e
+antes da fase final, os papéis já retomados são revalidados
+(`legacy-resumed-state-changed`). O replay terminal só retorna depois de
+endpoint, posse, identidade/gates/política, mesma execução e ausência de DDL;
+dados, filas e escopo não são comparados, porque os consumidores legítimos os
+alteram. Ensaio `pre-ddl` (`partial-pass`, cenário selecionado; Docker 29.9.2):
+queue-worker com k = 1 antes do observe, k mantido na contenção, 0 no mesmo ID ao
+retomar, `done` com 0. Duas quedas do controlador depois do start real e antes do
+`done`: backend (k = 0) e queue-worker (k = 1, contador em execução 0); o replay
+adotou a mesma execução (mesmo ID e `StartedAt`, um único `done`) e o backlog m2
+foi consumido uma vez. Replay terminal aceito após o backlog consumido e recusado
+após um reinício real; 28 verificações, limpeza total
+(`/tmp/igreja12-legacy-resume-preddl-r2.json`). A recusa terminal é diagnóstica:
+não desfaz uma retomada concluída, e uma manutenção legítima posterior (por
+exemplo, reinício) também a faz recusar. Limites: um `docker start` manual
+alheio entre a intenção e o start do controlador é indistinguível; reboot do
+daemon não provado; durante uma corrida, no máximo um papel a mais pode
+iniciar; uma recusa no meio não desfaz os papéis já retomados; o sucesso é
+pontual, não supervisão contínua.
+
+## Envio ativo do broadcast-worker real durante SIGTERM — validado localmente
+
+`deploy/rehearse_legacy_broadcast_active.py` reaproveita a montagem de
+`rehearse_legacy_queue_active.py`: fonte e runtime de `07a3f4d` conferidos,
+Postgres/Redis efêmeros, rede `--internal` sem portas nem montagens, as 78
+migrations pelo `cmd_apply` atual e limpeza por posse. O PID 1 é o
+`python -m app.workers.broadcast_worker` original, sem patch nem mock e com
+`HostConfig.Init=false`. `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED` ficam
+`true` **só nesse container sintético**. A Evolution aponta para uma falsa na
+mesma rede, com chave pública fictícia. Lease (120 s), intervalo de envio, tentativas
+e timeout HTTP (15 s) continuam nos defaults legados. A falsa é um container da imagem legada só com
+stdlib + `redis`. Registra cada requisição antes de responder, recusa
+rota/chave/corpo inesperados e retém a primeira até a liberação.
+
+Seed fictício: duas igrejas com conexão `online`, três pessoas elegíveis
+(números `009…`, DDD inexistente). A audiência vem de
+`resolve_recipient_snapshot` numa sessão `mark_tenant_scoped` e o envio
+imediato de `materialize_immediate_broadcast`, sem router. Resultado: três
+entregas `pendente`, duas na igreja A e uma na B.
+
+O ensaio exige, nesta ordem:
+
+1. Antes do sinal: a falsa retém a 1ª requisição. A entrega retida é
+   identificada pelo número recebido e está `em_envio`, com `tentativas=1`,
+   lease de 120 s vivo e `claim_por` do PID 1; as outras duas seguem idênticas
+   ao seed.
+2. `docker kill --signal SIGTERM`: log legado `transport already in progress`,
+   processo vivo, uma única requisição, ledger e restante do banco inalterados.
+3. Liberação antes de 8 s após observar a retenção (abaixo do timeout HTTP e do
+   TTL do heartbeat). O total do comando SIGTERM até a saída confirmada é
+   medido a partir de antes do `docker kill` e recusado se chegar a 10 s, o
+   grace padrão do Docker. É um limite superior do trecho observado, não prova
+   de `docker stop` automático, supervisor ou SLA. Saída 0 e resultado gravado
+   pelo próprio worker, com lease e claim limpos: `aceito`, ou
+   `desconhecido`/`http_500` com `--held-status 500`. As demais entregas ficam byte-idênticas ao seed, o
+   heartbeat vai a `stopped` e nada muda por intervalo de envio + tick.
+4. `docker start` do mesmo container (`StartedAt` novo): exatamente +2
+   requisições, para os números pendentes, sem repetir a retida. Ocorrências
+   finalizadas, broadcasts `enviado`, reaper 0, um tick ocioso sem requisição e
+   SIGTERM ocioso com saída 0, também com total abaixo de 10 s.
+
+Em todas as fases (seed, retenção, parada, drenagem e final), antes de
+comparar por igreja ou telefone, o ledger precisa ter exatamente 2 broadcasts,
+2 execuções e 3 entregas, com chaves únicas e os mesmos IDs do seed. Linha
+extra ou substituída é recusa. O relatório registra só essas contagens e
+unicidades por fase, sem dados das linhas.
+
+Limites: o `stop()` legado não espera o HTTP (`RLock` reentrante na mesma
+thread) e há janela entre a checagem de parada e o POST. O ensaio prova que
+não há **segundo** envio após o sinal, não que nenhuma requisição comece depois
+dele. Não prova `docker stop` com grace vencido/SIGKILL durante o HTTP, envio
+agendado, 429/retry, vários workers, supervisor, queda de PG/Redis,
+router/autorização, papéis/timeouts de produção, pós-DDL nem produção
+(`production_ready=false`). A ausência de tráfego externo é inferida (rede
+interna, falsa como única receptora e contagens), não capturada. Nas rodadas
+locais a 1ª entrega veio sempre da igreja A. O caso da retida na igreja de
+entrega única (ocorrência finalizada no 1º ciclo) foi coberto só por teste
+unitário.
+
+Reprodução local, com as mesmas imagens imutáveis legada/Redis/Postgres:
+
+```bash
+python3.13 deploy/rehearse_legacy_broadcast_active.py run --repo . --report /tmp/legacy-broadcast-active-200.json
+python3.13 deploy/rehearse_legacy_broadcast_active.py run --repo . --held-status 500 --report /tmp/legacy-broadcast-active-500.json
+```
+
+Validação local em 26/10/2026 (Claude; revisão Claude e Codex aprovada), depois de
+corrigir a cardinalidade e medir o total: 329 testes aprovados, zero falhas e
+zero skip (113 novos e 216 de regressão). Rodadas físicas finais aprovadas,
+uma 200 e uma 500, com 19 verificações cada. Comando SIGTERM → saída
+confirmada em 4,153 s/4,057 s, ocioso em 0,478 s/0,423 s. Ledger 2/2/3 com
+chaves e IDs do seed em todas as fases. Limpeza sem erros nem sobras. São evidências locais: os testes e o ensaio novos não
+entram nos workflows, e os quatro checks do SHA publicado são prova separada.
+
+Compatibilidade encontrada na integração com a `main` (26/10/2026): as
+migrations `20261030_100000`/`110000`/`120000` (#583–#585) elevaram o total
+ativo para 127, e `select_baseline` (`deploy/rehearse_legacy_queue_active.py`,
+usado por este ensaio e pelos de fila, cron e transição inicial) recusava com
+`baseline-count`, porque exigia 124 no total. Agora a guarda fixa só as 78
+migrations antes do corte `20261015`; as posteriores não são lidas nem entram
+no bundle. Conferido sem Docker no head integrado: 127 ativas, 78 selecionadas,
+com nomes, SQL, runner e digest do bundle idênticos aos de `cf291a15`. As
+rodadas físicas acima são anteriores e não foram repetidas.

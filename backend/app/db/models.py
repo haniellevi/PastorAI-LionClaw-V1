@@ -5078,6 +5078,10 @@ class PrivateDeletionUpload(Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
     started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # NULL = legacy ownership, never reconciled automatically.
+    attempt_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    witness_check_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    witness_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default='0')
 
 
 class PrivateDeletionEventFence(Base):
