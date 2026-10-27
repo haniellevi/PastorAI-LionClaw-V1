@@ -86,7 +86,8 @@ def _validated_url() -> str:
         raise PrivateStorageUnavailable(
             "PRIVATE_STORAGE_DATABASE_URL must authenticate as private_storage_runtime")
     for name, other in (("DATABASE_URL", settings.database_url),
-                        ("AGENT_RUNTIME_DATABASE_URL", settings.agent_runtime_database_url)):
+                        ("AGENT_RUNTIME_DATABASE_URL", settings.agent_runtime_database_url),
+                        ("PRIVATE_SUMMARY_DATABASE_URL", settings.private_summary_database_url)):
         if other and dedicated_login.parse_url(other, name, PrivateStorageUnavailable) == parsed:
             raise PrivateStorageUnavailable(f"PRIVATE_STORAGE_DATABASE_URL must differ from {name}")
     return url

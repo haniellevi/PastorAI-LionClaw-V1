@@ -767,7 +767,11 @@ def get_cell(
 
     alerts = db.execute(
         select(CellAlert)
-        .where(CellAlert.celula_id == cell.id, CellAlert.tratado.is_(False))
+        .where(
+            CellAlert.igreja_id == uuid.UUID(current_user.igreja_id),
+            CellAlert.celula_id == cell.id,
+            CellAlert.tratado.is_(False),
+        )
         .order_by(CellAlert.created_at.desc())
     ).scalars().all()
 
@@ -959,9 +963,17 @@ def baixar_alert(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> AlertOut:
-    """Mark a cell alert as handled (tratado=true)."""
-    cell = _get_cell_or_404(db, cell_id)
-    if not _can_edit_cell(db, current_user, cell):
+    """Mark a cell alert as handled (tratado=true).
+
+    Same access as reading the alerts in the detail: editing the cell record
+    (superiors in the chain) does not grant pastoral access to its alerts.
+    """
+    cell = _get_cell_or_404(
+        db,
+        cell_id,
+        scope_filters=_cell_read_scope_filters(db, current_user),
+    )
+    if not _can_view_cell_alerts(db, current_user, cell):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sem permissão para tratar alertas desta célula",
@@ -976,7 +988,9 @@ def baixar_alert(
 
     alert = db.execute(
         select(CellAlert).where(
-            CellAlert.id == alert_uuid, CellAlert.celula_id == cell.id
+            CellAlert.id == alert_uuid,
+            CellAlert.igreja_id == uuid.UUID(current_user.igreja_id),
+            CellAlert.celula_id == cell.id,
         )
     ).scalar_one_or_none()
     if alert is None:

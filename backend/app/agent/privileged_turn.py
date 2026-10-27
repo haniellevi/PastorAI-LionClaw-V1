@@ -1094,7 +1094,13 @@ def _run_enabled_turn(session_factory, runtime_session_factory, outcome, *, igre
     )
     effective = None
     if v3_projection is None and tier_a_enabled_from_environment(igreja_id):
-        effective = qw._tier_a_effective_settings(session_factory, get_triage_settings())
+        try:
+            effective = qw._tier_a_effective_settings(session_factory, get_triage_settings())
+        except Exception:  # noqa: BLE001 - unreadable platform settings are a closed gate
+            effective = None
+        if effective is None:
+            # Same closed-gate handoff as the public Tier A path; no egress.
+            return handoff('privilege_tier_a_gate')
         decision = qw._run_tier_a_batch(effective, igreja_id, preflight.current_text,
             min(1.2, max(0.01, started + 9 - time.monotonic())), TIER_A_APPROVED_RELEASE_ID)
         if decision.handoff:

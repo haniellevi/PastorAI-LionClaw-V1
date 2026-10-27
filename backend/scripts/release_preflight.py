@@ -51,6 +51,16 @@ PRIVATE_DEFINER_CONTRACTS = (
      "public.private_storage_upload_witness_due(pg_catalog.timestamptz,pg_catalog.int4)"),
     ("public.private_send_release(uuid,uuid)",
      "public.private_send_release(pg_catalog.uuid,pg_catalog.uuid)"),
+    # Summary runtime helpers whose own body reads FORCE RLS tables (tasks;
+    # messages; settings and budget). The snapshot, requester and credential
+    # helpers read only tables without FORCE directly, which a table-owning
+    # owner reads legitimately without BYPASSRLS: not contracts.
+    ("public.private_summary_runtime_due_tasks(text[],integer)",
+     "public.private_summary_runtime_due_tasks(pg_catalog.text[],pg_catalog.int4)"),
+    ("public.private_summary_runtime_sources(uuid,uuid)",
+     "public.private_summary_runtime_sources(pg_catalog.uuid,pg_catalog.uuid)"),
+    ("public.private_summary_runtime_reserve(uuid)",
+     "public.private_summary_runtime_reserve(pg_catalog.uuid)"),
 )
 
 _CREATE_TABLE = re.compile(

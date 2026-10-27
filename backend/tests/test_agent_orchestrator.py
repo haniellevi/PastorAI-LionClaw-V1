@@ -272,7 +272,7 @@ def test_onboarding_preserves_intake_basics_when_flagging_csim() -> None:
     # SEM perder esses campos.
     final = _turn(
         _state(
-            texto="represento uma empresa de marketing",
+            texto="represento uma empresa e quero oferecer marketing",
             pessoa={
                 "subetapa": "novo_contato",
                 "has_endereco": False,

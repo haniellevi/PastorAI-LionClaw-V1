@@ -44,6 +44,11 @@ DUE = 'private_storage_due_tasks(timestamp with time zone,integer)'
 CONTENT = 'private_delete_content(uuid,text,uuid,uuid)'
 SCOPE = 'private_delete_scope(uuid,text,uuid,uuid)'
 OUTBOX = 'operations_notification_outbox_pending_metrics(uuid,timestamp with time zone)'
+# Summary helpers that also declare row_security=off but read only tables
+# without FORCE RLS directly (proved in test_private_summary_runtime_pg.py):
+# not contracts, so a NOBYPASS owner on them is never a finding.
+SUMMARY_NON_CONTRACTS = ('private_summary_runtime_snapshot(uuid,uuid)', 'private_summary_runtime_requester(uuid,uuid)',
+                         'private_summary_runtime_credential(uuid)')
 COUNTED = ('messages', 'conversations', 'cell_report_audio_inputs', 'private_deletion_receipts',
            'private_deletion_members', 'private_deletion_tasks', 'private_deletion_event_fences',
            'private_deletion_sends')
@@ -460,6 +465,17 @@ def _contracts():
 EXCLUDED_DEFINERS = (
     # Operations metrics over the notification outbox, not private data (see the constant).
     'public.operations_notification_outbox_pending_metrics(pg_catalog.uuid,pg_catalog.timestamptz)',
+    # Summary helpers whose own body reads only tables without FORCE RLS: an owner that
+    # also owns those tables reads them without BYPASSRLS (otherwise they fail closed).
+    # test_private_summary_runtime_pg proves the split on real PG. Nested definers such
+    # as private_summary_origin_valid inherit row_security=off and are not examined here.
+    'public.private_summary_runtime_snapshot(pg_catalog.uuid,pg_catalog.uuid)',
+    'public.private_summary_runtime_requester(pg_catalog.uuid,pg_catalog.uuid)',
+    'public.private_summary_runtime_credential(pg_catalog.uuid)',
+    # Queue resolver: its body reads only whatsapp_connections (RLS on, FORCE off), so it
+    # needs an owner that owns that table or has BYPASSRLS; the queue_worker_runtime login
+    # stays NOBYPASSRLS. test_queue_worker_runtime_pg proves the owner condition.
+    'public.queue_resolve_instance(pg_catalog.text)',
 )
 # The two #584 definers over FORCE RLS tables, declared here, not derived from the constant.
 UPLOAD_ATTEMPT = 'private_storage_begin_upload_attempt(uuid,uuid,uuid,bigint)'
@@ -517,13 +533,15 @@ def test_preflight_flags_only_contracts_whose_owner_cannot_bypass(database, monk
     """Contracts, the out-of-scope outbox definer and decoys share one NOBYPASS owner."""
     decoy = f'pfo_decoy_{secrets.token_hex(4)}'
     contracts = tuple(signature.removeprefix('public.') for signature in _contracts())
-    with synthetic_definer(database, contracts + (OUTBOX,), dict(tables={}, helpers=())) as definer:
+    with synthetic_definer(database, contracts + (OUTBOX,) + SUMMARY_NON_CONTRACTS, dict(tables={}, helpers=())) as definer:
         try:
             with database.begin() as c:
                 c.exec_driver_sql(f'create schema {decoy}')
                 # Same name in another schema, and an overload in public: same flags, not contracts.
                 for function in (f'{decoy}.private_send_release(p_tenant uuid,p_source uuid)',
-                                 'public.private_send_release(p_source text)'):
+                                 'public.private_send_release(p_source text)',
+                                 f'{decoy}.private_summary_runtime_reserve(p_tenant uuid)',
+                                 'public.private_summary_runtime_reserve(p_tenant text)'):
                     c.exec_driver_sql(f"create function {function} returns boolean language sql security definer "
                                       "set row_security=off as 'select false'")
                     c.exec_driver_sql(f"alter function {function} owner to {definer.role}")
@@ -534,6 +552,7 @@ def test_preflight_flags_only_contracts_whose_owner_cannot_bypass(database, monk
         finally:
             with database.begin() as c:
                 c.exec_driver_sql('drop function if exists public.private_send_release(text)')
+                c.exec_driver_sql('drop function if exists public.private_summary_runtime_reserve(text)')
                 c.exec_driver_sql(f'drop schema if exists {decoy} cascade')
     report, code, output = observed['nobypassrls']
     assert report.definer_examined == _contracts() and report.definer_unverified == ()
@@ -542,7 +561,9 @@ def test_preflight_flags_only_contracts_whose_owner_cannot_bypass(database, monk
     count = len(_contracts())
     assert f'private_definer_contracts: examinados={count} nao_verificados=0 dono_sem_bypass={count}' in output
     assert f'private_definer_dono_sem_bypass funcao=public.private_send_release(uuid,uuid) dono={definer.role}' in output
-    for absent in ('operations_notification_outbox', decoy, '(text)', 'postgresql'):
+    for absent in ('operations_notification_outbox', decoy, '(text)', 'postgresql',
+                   'private_summary_runtime_snapshot', 'private_summary_runtime_requester',
+                   'private_summary_runtime_credential'):
         assert absent not in output
     report, code, output = observed['bypassrls']
     assert report.definer_findings == () and not report.has_findings and code == 0
