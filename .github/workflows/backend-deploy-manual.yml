@@ -62,8 +62,8 @@ jobs:
           untrusted=$(git ls-tree --name-only "$RELEASE_SHA" -- deploy/release-topology.json \
             deploy/compose-project.name deploy/docker-compose.override.yml deploy/docker-compose.override.yaml)
           [[ -z "$untrusted" ]]
-          git archive --format=tar "$RELEASE_SHA" backend deploy .env.example |
-            gzip -9 > "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
+          python3 deploy/package_backend_release.py --repo . --sha "$RELEASE_SHA" \
+            --output "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
 
       - name: Deploy backend with schema gate and code rollback
         env:

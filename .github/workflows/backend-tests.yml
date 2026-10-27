@@ -102,6 +102,8 @@ jobs:
 
       - name: Validar cortes e rollback do deploy manual
         run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release_package.py \
+            ../deploy/tests/test_backend_workflow.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_release_topology.py \
             ../deploy/tests/test_release_topology_compose.py

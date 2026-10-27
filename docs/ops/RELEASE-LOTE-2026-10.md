@@ -209,11 +209,24 @@ reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
   revisado do executor, registrado junto ao SHA da aplicação.
 - **Controlador sintético:** proibido executá-lo em PROD, assim como remover
   ou contornar as guardas dele.
-- **Pacote do release:** o workflow empacota estaticamente `backend/` e
-  `deploy/`, o que por desenho inclui caminhos protegidos. Antes da janela é
-  preciso revisar o pacote por allowlist, com código sanitizado e metadados do
-  SHA, sem abrir, listar nem expor conteúdo protegido. O workflow não muda
-  agora; isso fica como item técnico pendente.
+- **Pacote do release — preparado para PR própria, CI/revisão pendentes:**
+  `deploy/package_backend_release.py` substitui o arquivo de diretórios inteiros
+  por seleção explícita de blobs do commit exato. Inclui Python da aplicação,
+  SQL das migrations e os arquivos necessários ao build/check/deploy; exclui
+  configuração privada, scripts administrativos, testes e ferramentas de DEV.
+  Recusa caminhos protegidos selecionados e links simbólicos antes de ler blobs;
+  não usa conteúdo do checkout nem atributos `export-ignore`/`export-subst`.
+  O manifesto registra SHA do commit e SHA-256 de cada arquivo. A alteração
+  do workflow preserva os gates de ator, ancestralidade, SHA e disparo manual.
+  O workflow da main permanece inalterado até integração autorizada.
+  Ensaio local do candidato `afdfb78d`: 404 arquivos no pacote, SHA-256
+  `7e363d73f4fd255d6ffacf9550f6118c56aad9aa6fc604b4ee182a43de65be03`;
+  build Docker do target `production` aprovado e 396 arquivos da imagem
+  conferidos por hash, zero divergências, em contêiner sem rede e somente leitura.
+  Nove testes do empacotador e 17 do workflow aprovados. Regressão de release,
+  topologia e Compose: 157 testes e 216 subtestes aprovados, sem skips.
+  Isso prova composição
+  e build locais; não prova prontidão da transição legada nem autoriza release.
 - **Proibido como atalho:** fabricar SHA anterior, label, symlink ou diretório
   `releases/` como "prova" de estado anterior.
 

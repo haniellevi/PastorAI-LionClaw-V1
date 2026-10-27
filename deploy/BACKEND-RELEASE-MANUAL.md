@@ -136,6 +136,17 @@ diretórios de release existentes e a Python 3 no host para inspecionar o JSON
 resolvido do Compose sem imprimi-lo. A configuração privada do release ativo é
 copiada para o candidato sem ser impressa.
 
+O empacotamento usa `deploy/package_backend_release.py` do checkout do workflow
+para ler blobs do `release_sha` exato. A seleção inclui Python da aplicação,
+SQL das migrations, Dockerfile, `.dockerignore`, lock de dependências, executor
+de migrations e os seis arquivos de deploy/check/Compose necessários. Não inclui
+`.env.example`, configuração privada, scripts administrativos ou ferramentas de
+DEV. O arquivo `release-manifest.json` registra o commit e o SHA-256 de cada
+arquivo; alterações locais e atributos de `git archive` não afetam o resultado.
+Arquivos obrigatórios ausentes, links simbólicos e caminhos protegidos
+selecionados recusam o pacote. O destino deve ser novo; não há sobrescrita.
+Essa seleção não substitui revisão do código candidato nem as autorizações do release.
+
 Com o gate de PROD separado e concedido, dispare **Backend release (manual)**
 na `main` e informe o `release_sha` completo, de 40 caracteres. A Action
 recusa SHA fora da `main`, empacota o commit exato, transfere por SSH com

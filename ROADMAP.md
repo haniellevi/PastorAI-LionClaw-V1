@@ -68,6 +68,14 @@ do pacote continuam pendentes; nenhuma operação em produção.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
+**Empacotador do release — preparação de PR em 27/10:** seleção explícita de
+blobs Git do SHA exato, sem configuração privada ou scripts administrativos;
+manifesto por arquivo. Passaram 9 testes próprios, 17 do workflow e regressão
+com 157 testes/216 subtestes. Pacote `afdfb78d`: 404 arquivos, build production
+aprovado, 396 arquivos na imagem conferidos sem divergências. Commit/push
+autorizados; CI/revisão do commit publicado pendentes. Transição legada ainda
+depende de adaptador; nenhum deploy. Evidências no runbook do lote.
+
 | Frente | O que falta / para quê | Quem resolve |
 |---|---|---|
 | 1. Parada segura | Provas sintéticas integradas (#577–#581 e #586). Falta adaptar, ensaiar e revisar a primeira transição real do legado; controlador existente é só sintético. | Equipe prepara; operação real depende de autorização. |
