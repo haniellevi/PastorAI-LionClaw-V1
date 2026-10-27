@@ -184,6 +184,13 @@ def test_release_preflight_reports_synthetic_findings_and_refuses_writes(
             "80000000-0000-0000-0000-000000000002"
         )
         assert null_church_duplicate.rows == 2
+        # Private definer migrations are pending here: nothing is examined or
+        # attested, and absence alone is not a finding.
+        assert report.definer_examined == ()
+        assert report.definer_unverified == tuple(
+            signature for signature, _ in release_preflight.PRIVATE_DEFINER_CONTRACTS
+        )
+        assert report.definer_findings == ()
 
         output = io.StringIO()
         release_preflight.render_report(report, stream=output)
@@ -197,6 +204,15 @@ def test_release_preflight_reports_synthetic_findings_and_refuses_writes(
             in rendered
         )
         assert "backup_public_tables: esperadas=6 ausentes=0" in rendered
+        assert (
+            "private_definer_contracts: examinados=0 "
+            f"nao_verificados={len(release_preflight.PRIVATE_DEFINER_CONTRACTS)} "
+            "dono_sem_bypass=0" in rendered
+        )
+        assert (
+            "private_definer_nao_verificado=public.private_send_release(uuid,uuid)"
+            in rendered
+        )
         assert "responsabilidades_setor" not in report.missing_backup_tables
         assert "unknown_synthetic_migration.sql" not in rendered
         assert "synthetic-only" not in rendered

@@ -3,7 +3,8 @@
 
 The database connection is forced into a read-only repeatable-read transaction.
 This script executes SELECT statements only and never changes a gate, ledger,
-schema, or row.
+schema, or row. Private definer contracts are checked from pg_catalog only;
+their function bodies are never called.
 """
 
 from __future__ import annotations
@@ -26,6 +27,41 @@ LEDGER = "public.schema_migrations"
 BASELINE_DATE = "20261014"
 BACKUP_SCHEMA = "public"
 CORE_TABLES = ("app_users", "celula_solicitacao", "celulas")
+# Private SECURITY DEFINER contracts that declare row_security=off over FORCE
+# RLS tables: with an owner that cannot bypass RLS they raise instead of
+# working (proved on disposable PG). Fixed list, resolved by exact signature
+# with pg_catalog-qualified types; includes the upload attempt/witness
+# definers of 20261030_110000. Other definers, including the operations
+# outbox metrics function that also declares row_security=off, are out of this
+# contract. Bodies are never executed.
+PRIVATE_DEFINER_CONTRACTS = (
+    ("public.private_memory_overview(uuid)",
+     "public.private_memory_overview(pg_catalog.uuid)"),
+    ("public.private_deletion_task_path(uuid)",
+     "public.private_deletion_task_path(pg_catalog.uuid)"),
+    ("public.private_storage_due_tasks(timestamp with time zone,integer)",
+     "public.private_storage_due_tasks(pg_catalog.timestamptz,pg_catalog.int4)"),
+    ("public.private_storage_begin_upload(uuid,uuid,uuid,bigint)",
+     "public.private_storage_begin_upload(pg_catalog.uuid,pg_catalog.uuid,"
+     "pg_catalog.uuid,pg_catalog.int8)"),
+    ("public.private_storage_begin_upload_attempt(uuid,uuid,uuid,bigint)",
+     "public.private_storage_begin_upload_attempt(pg_catalog.uuid,pg_catalog.uuid,"
+     "pg_catalog.uuid,pg_catalog.int8)"),
+    ("public.private_storage_upload_witness_due(timestamp with time zone,integer)",
+     "public.private_storage_upload_witness_due(pg_catalog.timestamptz,pg_catalog.int4)"),
+    ("public.private_send_release(uuid,uuid)",
+     "public.private_send_release(pg_catalog.uuid,pg_catalog.uuid)"),
+    # Summary runtime helpers whose own body reads FORCE RLS tables (tasks;
+    # messages; settings and budget). The snapshot, requester and credential
+    # helpers read only tables without FORCE directly, which a table-owning
+    # owner reads legitimately without BYPASSRLS: not contracts.
+    ("public.private_summary_runtime_due_tasks(text[],integer)",
+     "public.private_summary_runtime_due_tasks(pg_catalog.text[],pg_catalog.int4)"),
+    ("public.private_summary_runtime_sources(uuid,uuid)",
+     "public.private_summary_runtime_sources(pg_catalog.uuid,pg_catalog.uuid)"),
+    ("public.private_summary_runtime_reserve(uuid)",
+     "public.private_summary_runtime_reserve(pg_catalog.uuid)"),
+)
 
 _CREATE_TABLE = re.compile(
     r"""^[ \t]*create\s+(?:unlogged\s+)?table\s+
@@ -62,6 +98,12 @@ class DuplicateFinding:
 
 
 @dataclass(frozen=True)
+class DefinerOwnerFinding:
+    function: str
+    owner: str
+
+
+@dataclass(frozen=True)
 class PreflightReport:
     migrations: tuple[MigrationState, ...]
     unknown_applied_count: int
@@ -69,6 +111,9 @@ class PreflightReport:
     duplicate_findings: tuple[DuplicateFinding, ...]
     expected_backup_tables: tuple[str, ...]
     missing_backup_tables: tuple[str, ...]
+    definer_examined: tuple[str, ...] = ()
+    definer_unverified: tuple[str, ...] = ()
+    definer_findings: tuple[DefinerOwnerFinding, ...] = ()
 
     @property
     def has_findings(self) -> bool:
@@ -77,6 +122,7 @@ class PreflightReport:
             or self.fk_findings
             or self.duplicate_findings
             or self.missing_backup_tables
+            or self.definer_findings
         )
 
 
@@ -130,6 +176,49 @@ def _require_public_tables(cursor, tables: tuple[str, ...]) -> tuple[str, ...]:
         (list(tables), BACKUP_SCHEMA),
     )
     return tuple(row[0] for row in cursor.fetchall())
+
+
+def _private_definer_owners(
+    cursor,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[DefinerOwnerFinding, ...]]:
+    """Catalog only: which private contracts exist and whose owner cannot bypass RLS.
+
+    An absent signature (e.g. its migration is pending) is not verified and is
+    not a finding. A present contract is a finding only while it is SECURITY
+    DEFINER with row_security=off and its owner has neither SUPERUSER nor
+    BYPASSRLS. The attribute says nothing about ACL, body correctness or plans
+    cached by sessions opened before an attribute change.
+    """
+    cursor.execute(
+        """
+        SELECT contract.signature,
+               procedure.oid IS NOT NULL,
+               COALESCE(
+                 procedure.prosecdef
+                 AND 'row_security=off' = ANY(COALESCE(procedure.proconfig, '{}'))
+                 AND NOT (owner.rolsuper OR owner.rolbypassrls),
+                 false
+               ),
+               owner.rolname
+        FROM unnest(%s::text[], %s::text[])
+               WITH ORDINALITY AS contract(signature, regprocedure, position)
+        LEFT JOIN pg_catalog.pg_proc AS procedure
+          ON procedure.oid = pg_catalog.to_regprocedure(contract.regprocedure)
+        LEFT JOIN pg_catalog.pg_roles AS owner
+          ON owner.oid = procedure.proowner
+        ORDER BY contract.position
+        """,
+        (
+            [signature for signature, _ in PRIVATE_DEFINER_CONTRACTS],
+            [regprocedure for _, regprocedure in PRIVATE_DEFINER_CONTRACTS],
+        ),
+    )
+    rows = cursor.fetchall()
+    return (
+        tuple(row[0] for row in rows if row[1]),
+        tuple(row[0] for row in rows if not row[1]),
+        tuple(DefinerOwnerFinding(row[0], row[3]) for row in rows if row[2]),
+    )
 
 
 def inspect_connection(connection) -> PreflightReport:
@@ -220,6 +309,10 @@ def inspect_connection(connection) -> PreflightReport:
                 cursor, expected_backup_tables
             )
 
+            definer_examined, definer_unverified, definer_findings = (
+                _private_definer_owners(cursor)
+            )
+
             return PreflightReport(
                 migrations=migration_states,
                 unknown_applied_count=unknown_applied_count,
@@ -227,6 +320,9 @@ def inspect_connection(connection) -> PreflightReport:
                 duplicate_findings=duplicate_findings,
                 expected_backup_tables=expected_backup_tables,
                 missing_backup_tables=missing_backup_tables,
+                definer_examined=definer_examined,
+                definer_unverified=definer_unverified,
+                definer_findings=definer_findings,
             )
     except PreflightError:
         connection.rollback()
@@ -276,6 +372,22 @@ def render_report(report: PreflightReport, stream=None) -> None:
     )
     for table in report.missing_backup_tables:
         print(f"backup_public_table_missing=public.{table}", file=stream)
+
+    print(
+        "private_definer_contracts: "
+        f"examinados={len(report.definer_examined)} "
+        f"nao_verificados={len(report.definer_unverified)} "
+        f"dono_sem_bypass={len(report.definer_findings)}",
+        file=stream,
+    )
+    for signature in report.definer_unverified:
+        print(f"private_definer_nao_verificado={signature}", file=stream)
+    for finding in report.definer_findings:
+        print(
+            f"private_definer_dono_sem_bypass funcao={finding.function} "
+            f"dono={finding.owner}",
+            file=stream,
+        )
 
     result = "ACHADOS" if report.has_findings else "SEM_ACHADOS"
     print(f"RESULTADO={result}", file=stream)

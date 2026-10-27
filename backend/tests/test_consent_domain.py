@@ -126,6 +126,30 @@ def test_parse_cell_report_extracts_counts() -> None:
     assert report.has_decisions is True
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # B15: an explicitly labelled value belongs to its own label; a number
+        # from a previous line/field must not be borrowed.
+        ("presentes: 12\nvisitantes: 3\ndecisões: 1", (12, 3, 1)),
+        ("presentes: 12 visitantes: 3 decisões: 1", (12, 3, 1)),
+        ("Presentes = 12\r\nVisitantes = 3\r\nDecisões = 0", (12, 3, 0)),
+        ("presentes:\t12\tvisitantes:\t3", (12, 3, None)),
+        ("PRESENTES: 12, DECISOES: 1", (12, None, 1)),
+        ("presentes - 12\nvisitantes - 3", (12, 3, None)),
+        # Number-before-label stays supported, on lines or in one phrase.
+        ("12 presentes\n3 visitantes\n1 decisão", (12, 3, 1)),
+        ("12 presentes - 3 visitantes - 1 decisão", (12, 3, 1)),
+        ("tivemos 12 presentes, 3 visitantes e nenhuma decisão", (12, 3, None)),
+    ],
+)
+def test_parse_cell_report_binds_each_count_to_its_own_label(
+    text: str, expected: tuple[int | None, int | None, int | None]
+) -> None:
+    report = parse_cell_report(text)
+    assert (report.presentes, report.visitantes, report.decisoes) == expected
+
+
 def test_parse_cell_report_without_decisions() -> None:
     report = parse_cell_report("tivemos 8 presentes e 1 visitante")
     assert report.presentes == 8
