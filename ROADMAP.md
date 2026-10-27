@@ -56,6 +56,15 @@ A lista antiga de 22 tarefas está arquivada e não determina o progresso atual.
 
 **Consolidação local — 27/10/2026:** a pasta principal `PastorAi-1.0` foi atualizada por fast-forward para `afdfb78d`; plano e painel agora são gerados nela. Foram removidas 95 worktrees já integradas, sem apagar branches ou commits, e 1 foi arquivada reversivelmente por cache pertencente a outro usuário. Todos os 1.241 registros de arquivos/diretórios ignorados das pastas removidas foram preservados opacamente em área privada do Git, sem abrir conteúdo nem versioná-lo. O saldo registrado ainda inclui 9 áreas sob Codex e rascunhos pendentes de revisão. DEV local recuperado e saudável; produção não alterada. As alterações de documentação e ferramenta do painel seguem em PR própria e continuam aguardando integração; não alteram fases de produção nem gates.
 
+**Retomada local — 27/10/2026:** falha da #597 identificada na auditoria do lock
+de ferramentas (`msgpack 1.2.1`); correção local para `1.2.3` validada pelas duas
+auditorias, sem vulnerabilidades conhecidas retornadas. Publicação e CI do novo
+head ainda pendentes. Ensaio SQL do candidato exato `afdfb78d` em PG 17.6
+descartável, sem rede externa: base de 78 seguida das 51 pendentes, ledger 129,
+zero pendentes/índices inválidos, quatro roles NOLOGIN e limpeza confirmada.
+Detalhes e limites no runbook do lote. Adaptador da primeira transição e revisão
+do pacote continuam pendentes; nenhuma operação em produção.
+
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
@@ -328,9 +337,9 @@ identidades no plano ou no chat.
 3. Preparar as credenciais temporárias do release em GitHub > Settings >
    Secrets and variables > Actions (ou no environment `backend-production`),
    pelos canais seguros; nunca colar no chat. Não executar o release agora.
-4. Reconciliar o grupo duplicado de vínculo Pessoa com o admin/pastor da
-   igreja afetada, pelo fluxo administrativo autorizado; a equipe entrega só
-   contagem e UUIDs pelo canal privado, sem SQL de escrita automático.
+4. Revalidar antes da janela que a contagem de grupos duplicados de vínculo
+   Pessoa continua em zero. A reconciliação foi cancelada após o reset;
+   não solicitar identificadores nem executar correção cadastral.
 5. A equipe prepara o pacote, a transição inicial testada e o plano de
    contenção dos gates, e pede autorizações separadas (backup, migrations e
    deploy) quando estiver pronto; nada a autorizar nem fechar agora.

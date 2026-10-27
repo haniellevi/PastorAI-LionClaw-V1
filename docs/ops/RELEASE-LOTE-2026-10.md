@@ -170,6 +170,25 @@ execução integral de `release_preflight.py`.**
 
 ### Bloqueador principal: adaptador real da transição inicial
 
+**Ensaio SQL local — retomada de 27/10/2026:** os blobs de SQL e de
+`backend/scripts/migrate.py` do candidato exato `afdfb78d71a53f2861632806e13cdda4662d7d63`
+foram executados em PostgreSQL **17.6**, num container novo com `--network none`
+e dados sintéticos. O cliente usou a rede desse container, sem porta publicada
+nem montagem do repositório. A seleção histórica foi reproduzida com 78
+migrations (antes de `20261015`, exceto as quatro ausentes conhecidas), seguida
+das 51 pendentes em ordem lexical, uma chamada de `cmd_apply` por arquivo.
+Resultado: **78 + 51 aplicadas, ledger exato de 129, zero pendentes, zero
+índices inválidos e quatro roles de runtime NOLOGIN**. As oito migrations
+concorrentes usaram `transactional=False`; as demais usaram transação.
+O container PostgreSQL e o cliente foram removidos ao final, sem sobras sob
+o identificador do ensaio.
+
+Esse ensaio usa o executor do candidato, **sem** os rascunhos locais de
+`--lock-timeout`. Prova a sequência SQL nesse banco sintético, não o adaptador
+operacional, a imagem nova do backend, restauração, compatibilidade de retorno
+ao legado, dados/ACLs/pooler do Supabase, preservação integral dos cadastros
+reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
+
 - **O script de release não serve para a primeira virada.**
   `deploy/backend-release.sh` recusa o estado legado: sem `releases/<SHA>` e
   `current`, sem checker anterior e sem label de revisão.
