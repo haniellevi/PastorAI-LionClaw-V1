@@ -264,15 +264,20 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
   fora da lista passam despercebidas e "preciso de oração, quero vender
   produtos" ainda marca (1ª pessoa). Sem reprocessar contatos já marcados; "fora da cidade"
   inalterado. Ativação do agente e efeito em produção: **não verificado**.
-- **falta:** reconferir os bugs históricos de primeiro consentimento e
-  interpretação de relatório (B7/B15 do MVP); não declarar
-  resolvidos pela presença em auditoria. B1/B2/B3/B4/B14/B16 têm correções
-  registradas, com disponibilidade atual em produção **não verificado**.
-  B15: candidata em `fix/report-field-count-binding-20261026` (PR #592) corrige só a
-  extração de contagens do resumo legado (`presentes: 12` em linhas ou numa
-  linha não empresta número de outro rótulo), com teste do turno no banco
-  descartável; não integrada. Gatilho por palavra + dígito e o restante de B15
-  seguem abertos.
+- **em andamento:** B15 (interpretação de relatório): a extração de contagens do
+  resumo legado foi integrada pela #592 (`09bb14d7`; checks do SHA `59d8f129`
+  verdes antes do merge): `presentes: 12` em linhas ou numa linha não empresta
+  número de outro rótulo, com teste do turno no banco descartável. Gatilho por
+  palavra + dígito e o restante de B15 seguem abertos.
+- **em andamento:** B7 (primeiro consentimento) reconferido em teste com
+  migrations reais e contato fictício: termo → "Aceito" → aceite da versão
+  atual gravado → turno seguinte vai ao onboarding sem repetir o termo; recusa
+  não grava aceite e opt-out bloqueia aceite posterior
+  (`test_consent_multiturn_e2e_pg.py`, candidato na PR #593). Não prova Redis, Evolution
+  nem LLM reais; produção **não verificado**.
+- **falta:** não declarar B5/B7/B15 resolvidos pela presença em auditoria.
+  B1/B2/B3/B4/B14/B16 têm correções registradas, com disponibilidade atual em
+  produção **não verificado**.
 - **falta, quando houver necessidade concreta:** diagnóstico de configuração
   sem segredos, registro de ações sem relaxar autorizações e retirada individual
   de código/testes com proteção equivalente (B1/B2/B5 do backlog técnico).
