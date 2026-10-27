@@ -1,16 +1,19 @@
 """Real PG proof: the runner, tenant RLS, domain service and authenticated API."""
+from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from uuid import uuid4
 from urllib.parse import urlsplit
+from threading import Barrier, Lock
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -185,6 +188,14 @@ def test_duplicates_and_reused_keys(database, seeded):
         assert exc.value.status_code==409
         with pytest.raises(HTTPException) as exc: uv.create_turma(s,principal(v),TurmaInput(id=tid,nome='Outro nome'))
         assert exc.value.status_code==409
+        s.commit()
+    with database.begin() as c:
+        c.execute(text("insert into app_users(id,igreja_id,status,nome,email) values(:u,:t,'ativo','Equipe sintética','other@example.test')"),dict(u=v['other'],t=v['other']))
+        c.execute(text("insert into user_roles(igreja_id,user_id,papel) values(:t,:u,'admin')"),dict(u=v['other'],t=v['other']))
+    with scoped(database,v['other']) as s:
+        # Id taken by another church: authorized admin, but nothing is revealed.
+        with pytest.raises(HTTPException) as exc: uv.create_turma(s,principal(v,'other','other'),TurmaInput(id=tid,nome='Turma sintética'))
+        assert exc.value.status_code==404
 
 
 @pytest.mark.parametrize('operation', ['list','create','detail','calendar','enroll','responsible','close'])
@@ -385,6 +396,43 @@ def test_concurrent_enrollment_same_key_commits_once(database,seeded):
         assert a.result(timeout=15)==b.result(timeout=15)=={'id':payload.id}
     with scoped(database,v['t']) as s:
         assert s.execute(text('select count(*) from uv_matriculas')).scalar_one()==1
+
+
+@pytest.mark.parametrize('key',['uid','leader'])
+def test_concurrent_turma_same_key(database,seeded,key):
+    # Identical idempotent requests through the real router must converge even
+    # when both reach the turma INSERT together, after live actor/screen checks.
+    v=seeded; pairs=24; hits=[]; lock=Lock(); state={'barrier':Barrier(2,timeout=10)}
+    insert=re.compile(r'insert\s+into\s+(public\.)?uv_turmas\b',re.I)
+    def meet(conn,cursor,statement,parameters,context,executemany):
+        if insert.search(statement):
+            with lock: hits.append(1)
+            state['barrier'].wait()
+    app=FastAPI(); app.include_router(router)
+    def db():
+        with scoped(database,v['t']) as s: yield s
+    app.dependency_overrides[get_db]=db
+    app.dependency_overrides[get_current_user]=lambda:principal(v,key)
+    def attempt(payload):
+        try: return TestClient(app,raise_server_exceptions=True).post('/uv/turmas',json=payload)
+        except Exception: state['barrier'].abort(); raise
+    payloads=[dict(id=str(uuid4()),nome=f'Turma sintética {i}') for i in range(pairs)]
+    pool=ThreadPoolExecutor(max_workers=2); event.listen(database,'before_cursor_execute',meet)
+    try:
+        for p in payloads:
+            state['barrier']=Barrier(2,timeout=10)
+            a=pool.submit(attempt,p); b=pool.submit(attempt,p); a,b=a.result(timeout=30),b.result(timeout=30)
+            assert (a.status_code,b.status_code)==(200,200),(a.status_code,b.status_code)
+            assert a.json()==b.json()
+    finally:
+        state['barrier'].abort(); event.remove(database,'before_cursor_execute',meet); pool.shutdown(wait=True)
+    assert len(hits)==2*pairs # coordination really ran at the INSERT
+    with scoped(database,v['t']) as s:
+        turmas=s.execute(text('select id::text,nome from uv_turmas')).all()
+        links=s.execute(text('select turma_id::text,usuario_id,igreja_id,ativo from uv_responsaveis')).all()
+    assert sorted(turmas)==sorted((p['id'],p['nome']) for p in payloads)
+    assert sorted(r[0] for r in links)==sorted(p['id'] for p in payloads)
+    assert {r[1:] for r in links}=={(v[key],v['t'],True)}
 
 
 @pytest.mark.parametrize('table', ['uv_turmas','uv_atividades','uv_responsaveis','uv_matriculas'])
