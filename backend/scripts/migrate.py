@@ -8,7 +8,12 @@ Regras:
 - a URL vem só da variável de ambiente (nunca por argumento, nunca impressa);
 - `apply` aplica UM arquivo por vez, dentro de uma transação, e registra o nome em
   `public.schema_migrations` na mesma transação; exige `--yes`;
-- `--no-transaction` só para arquivos com `CREATE INDEX CONCURRENTLY`;
+- `--lock-timeout` (padrão 2s na transação; 0 desliga; máximo 60s) fixa o limite com
+  SET LOCAL na transação da própria migration e o confere antes e depois: a
+  migration pode apertá-lo, nunca afrouxar nem desligar (senão, rollback). Não é
+  limite rígido durante o SQL, que pode mudar o GUC no meio e restaurá-lo;
+- `--no-transaction` só para arquivos com `CREATE INDEX CONCURRENTLY` (sem
+  `--lock-timeout`; vale o `SET lock_timeout` inicial do próprio arquivo);
 - em PROD: faça backup antes (runbook) e anote a aplicação no registro da fatia.
 """
 
@@ -30,6 +35,22 @@ _TX_LINE = re.compile(r"^\s*(begin|commit|rollback|start\s+transaction)\s*;\s*$"
 _SESSION_LOCK_TIMEOUT = re.compile(
     r"\A(?:\s|--[^\n]*\n)*SET\s+lock_timeout\s*=\s*'[^'\n]+'\s*;", re.I
 )
+DEFAULT_LOCK_TIMEOUT = "2s"
+_LOCK_TIMEOUT = re.compile(r"\A(?:0|([1-9][0-9]*)(ms|s))\Z")
+_LOCK_TIMEOUT_MAX_MS = 60_000
+
+
+def lock_timeout_ms(raw: str) -> int:
+    """`--lock-timeout` em milissegundos: 0 (sem limite) ou N ms/s, até 60s."""
+    match = _LOCK_TIMEOUT.match(raw.strip())
+    if not match:
+        raise argparse.ArgumentTypeError("use 0 (sem limite) ou um valor como 500ms, 2s ou 5s")
+    if match.group(1) is None:
+        return 0
+    ms = int(match.group(1)) * (1000 if match.group(2) == "s" else 1)
+    if ms > _LOCK_TIMEOUT_MAX_MS:
+        raise argparse.ArgumentTypeError("o máximo é 60s")
+    return ms
 
 
 def is_paused(path: pathlib.Path) -> bool:
@@ -105,10 +126,26 @@ def cmd_status(conn) -> int:
     return 0
 
 
-def cmd_apply(conn, name: str, *, transactional: bool) -> int:
+def _lock_timeout_ativo(cur) -> int:
+    # SHOW não adquire snapshot: a migration ainda pode definir seu isolamento.
+    cur.execute("SHOW lock_timeout")
+    raw = str(cur.fetchone()[0])
+    match = re.fullmatch(r"(\d+)(ms|s|min|h|d)?", raw)
+    if not match:
+        raise RuntimeError("lock_timeout retornado pelo servidor não reconhecido")
+    units = {None: 1, "ms": 1, "s": 1000, "min": 60_000, "h": 3_600_000, "d": 86_400_000}
+    return int(match.group(1)) * units[match.group(2)]
+
+
+def cmd_apply(conn, name: str, *, transactional: bool, lock_timeout: int = 0) -> int:
     path = MIGRATIONS_DIR / name
     if path.name != name or not path.is_file() or path.suffix != ".sql":
         sys.exit(f"arquivo inválido: {name}")
+    if (isinstance(lock_timeout, bool) or not isinstance(lock_timeout, int)
+            or not 0 <= lock_timeout <= _LOCK_TIMEOUT_MAX_MS):
+        sys.exit("lock_timeout inválido: use 0 a 60000 ms")
+    if lock_timeout and not transactional:
+        sys.exit("--lock-timeout vale só dentro da transação; com --no-transaction use 0")
     if is_paused(path):
         sys.exit(f"{name} pertence a uma frente pausada ({PAUSED_MARKER})")
     try:
@@ -130,7 +167,23 @@ def cmd_apply(conn, name: str, *, transactional: bool) -> int:
                 if setting:
                     cur.execute(setting.group())
                     sql = sql[setting.end():]
+            if lock_timeout:
+                # SET LOCAL na transação da própria migration: o pooler ignora PGOPTIONS
+                # e um SET de sessão pode ficar em outra conexão do pool.
+                # SELECT set_config/pg_settings impediria SET TRANSACTION ISOLATION
+                # LEVEL nos arquivos históricos. Use só comandos utilitários aqui.
+                cur.execute("SET LOCAL lock_timeout = %s", (f"{lock_timeout}ms",))
+                if _lock_timeout_ativo(cur) != lock_timeout:
+                    raise RuntimeError("lock_timeout não ficou ativo na transação: nada foi aplicado")
             cur.execute(sql)
+            if lock_timeout:
+                ativo = _lock_timeout_ativo(cur)
+                if not 0 < ativo <= lock_timeout:
+                    raise RuntimeError(
+                        f"a migration deixou lock_timeout em {ativo}ms (pedido: {lock_timeout}ms): "
+                        "nada foi aplicado; se esta migration revisada exige limite maior, "
+                        "reaplique com --lock-timeout explícito"
+                    )
             cur.execute(f"INSERT INTO {LEDGER} (name) VALUES (%s)", (name,))
         if transactional:
             conn.commit()
@@ -139,6 +192,8 @@ def cmd_apply(conn, name: str, *, transactional: bool) -> int:
             conn.rollback()
         raise
     print(f"aplicada: {name}")
+    if lock_timeout:
+        print(f"lock_timeout: {lock_timeout}ms")
     return 0
 
 
@@ -154,14 +209,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="só para CREATE INDEX CONCURRENTLY",
     )
+    ap.add_argument(
+        "--lock-timeout",
+        type=lock_timeout_ms,
+        help=f"espera máxima por lock na transação (padrão {DEFAULT_LOCK_TIMEOUT}; 0 desliga)",
+    )
     args = parser.parse_args(argv)
     if args.cmd == "apply" and not args.yes:
         parser.error("apply exige --yes")
+    if args.cmd == "apply" and args.no_transaction and args.lock_timeout:
+        parser.error("--lock-timeout vale só dentro da transação; com --no-transaction use 0")
     conn = _connect()
     try:
         if args.cmd == "status":
             return cmd_status(conn)
-        return cmd_apply(conn, args.name, transactional=not args.no_transaction)
+        if args.lock_timeout is not None:
+            lock = args.lock_timeout
+        else:
+            lock = 0 if args.no_transaction else lock_timeout_ms(DEFAULT_LOCK_TIMEOUT)
+        return cmd_apply(conn, args.name, transactional=not args.no_transaction, lock_timeout=lock)
     finally:
         conn.close()
 

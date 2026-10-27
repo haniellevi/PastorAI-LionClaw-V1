@@ -66,6 +66,14 @@ Detalhes e limites no runbook do lote. Adaptador da primeira transição e revis
 do pacote continuam pendentes; nenhuma operação em produção.
 
 
+**Executor de migrations — preparação de PR em 27/10:** padrão CLI de 2s,
+com `SET LOCAL`/`SHOW` para preservar o isolamento histórico. Validação local:
+60 testes (46 unitários e 14 PG 17.6), replays 78→129 e 0→129 pela CLI,
+ledger 129 e zero índices inválidos. A histórica `20260827_175634` recebeu
+5s explícitos, conforme seu SQL; as oito pendentes concorrentes usam o caminho
+próprio. Commit/push autorizados; CI e revisão do SHA publicado pendentes.
+Nenhuma migration ou operação em produção; adaptador real segue pendente.
+
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
 | Frente | O que falta / para quê | Quem resolve |

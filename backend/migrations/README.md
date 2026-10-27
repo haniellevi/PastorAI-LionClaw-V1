@@ -26,7 +26,40 @@ MIGRATION_DATABASE_URL="<url do banco>" python scripts/migrate.py apply <arquivo
 
 - Aplica um arquivo por vez e registra o nome em `public.schema_migrations`
   na mesma transação.
-- `--no-transaction` existe só para `CREATE INDEX CONCURRENTLY`.
+- `--lock-timeout` limita a espera por lock. O padrão da CLI é `2s` em
+  transação, igual à convenção `lock_timeout = '2s'` que 45 das 51 pendentes
+  de 27/10 declaram. As outras 6 não declaram limite e ficam cobertas por esse
+  padrão. Aceita `0` ou `N` em `ms`/`s`, até `60s`.
+  - **Como funciona:** o aplicador faz `SET LOCAL lock_timeout` na transação
+    da migration. Confere o valor ativo com `SHOW lock_timeout` antes e
+    depois do SQL. A migration pode apertar o limite. Se o deixar maior que o
+    pedido ou desligado (`0`), há rollback: nada é aplicado, nem o registro no
+    ledger. Depois do commit, a sessão volta ao valor anterior. Esses comandos
+    utilitários não adquirem snapshot, preservando o `SET TRANSACTION ISOLATION
+    LEVEL` declarado pelas migrations históricas.
+  - **Limite:** o valor é aplicado no início e conferido no fim. Não é teto
+    rígido durante o SQL, que pode mudar o GUC no meio e restaurá-lo. Não há
+    análise nem divisão de comandos. Exemplo: pedir `1s` para uma migration que
+    faz `SET lock_timeout = '2s'` é recusado no fim, com rollback.
+  - **Migration revisada que declara limite maior:** a migration ativa
+    `20260827_175634_d1a_tenant_runtime_integrity.sql` faz
+    `set local lock_timeout = '5s'`. Num banco novo, o padrão de 2s a recusa
+    com rollback. Para essa migration revisada em uma instalação do zero,
+    use `--lock-timeout 5s` explícito. A incompatibilidade inicial com
+    `SET TRANSACTION ISOLATION LEVEL` é evitada usando
+    `SET LOCAL`/`SHOW`, com testes reais de SERIALIZABLE e REPEATABLE READ.
+    Os replays sintéticos 78→129 e 0→129 passaram pela CLI (2s por padrão;
+    5s explícitos somente nesse arquivo histórico). A validação
+    em produção depende do release autorizado e da revisão do executor.
+  - **Pausadas:** as outras migrations com `'5s'` estão pausadas (`OPERATIONAL_AUTHORIZATION=BLOCKED`) e continuam fora do
+    aplicador.
+  - **`--lock-timeout 0`:** é opção explícita do operador, não padrão de
+    produção. Não use `0` nem um valor maior só para "fazer passar".
+  - **Chamadas diretas de `cmd_apply`:** `dev.sh` e os ensaios mantêm
+    `lock_timeout=0` por padrão, com o comportamento anterior.
+- `--no-transaction` existe só para `CREATE INDEX CONCURRENTLY` e não aceita
+  `--lock-timeout` diferente de 0. Vale o `SET lock_timeout` inicial do próprio
+  arquivo, executado sozinho antes do índice.
 - **Local primeiro.** `./dev.sh reset` recria o banco local do zero com todas
   as migrations e os dados de teste; `./dev.sh up` aplica as pendentes
   (`docs/ops/AMBIENTE-LOCAL.md`). PROD só no release, com **backup antes**
