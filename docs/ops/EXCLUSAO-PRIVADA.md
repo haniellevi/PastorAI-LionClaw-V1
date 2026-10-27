@@ -1,6 +1,7 @@
 # Exclusão privada — conversa, pessoa e igreja
 
-Código candidato; aplicação/deploy/operação remotos **não verificados**.
+Código integrado na `main` (fatias abaixo, cada uma com sua PR); aplicação, deploy e
+operação remotos **não verificados**.
 Não autoriza release, acesso remoto ou alteração de gates. Testes usam dados
 fictícios e provedores simulados.
 
@@ -265,8 +266,8 @@ continuam ambíguos. Falha ao finalizar não é repetida: a transação atômica
 decide (o commit pode ter ocorrido com retorno incerto). Esta fatia não resolve
 uploads realmente ambíguos, identidade do worker nem política de tombstones.
 
-**Reconhecimento positivo de upload commitado sem resposta** (candidata local,
-migration `20261030_110000_private_upload_attempt_witness.sql`, só em PostgreSQL
+**Reconhecimento positivo de upload commitado sem resposta** (integrado pela
+#584, `a5c1b06b`; migration `20261030_110000_private_upload_attempt_witness.sql`, só em PostgreSQL
 sintético; não aplicada em PROD). Cada tentativa recebe um token UUID aleatório,
 gravado e commitado com a ownership antes do POST e enviado como `x-metadata`
 (JSON estrito em base64, só esse token; nada pastoral). O POST continua único,
@@ -314,7 +315,8 @@ início, mas **não conclui recibo por tempo**: `pendente_envio` permanece até 
 transporte retornar e liberar ownership. Não há reenvio após expiração.
 Processo perdido exige reconciliação explícita; nunca apagar marcador somente
 para deixar o recibo verde. HTTP iniciado pode ter chegado ao provedor.
-Na candidata abaixo, só o login `private_send_runtime` libera o marcador.
+Com a #585 (`5d4e735e`), só o login `private_send_runtime` libera o marcador (sem o
+login, a ownership fica retida).
 
 O cron usa `process_storage_tasks` antes do gate de envios, com purga automática por prazo somente para capturas pré-v2. Cada passagem é limitada; usa escopo de igreja, exclusão estrita
 `remove_tenant_media`, locks e retry com backoff exponencial de 30 s a 1 h.
@@ -350,7 +352,7 @@ que revalida admin. Processing mantém o escopo tenant NOBYPASSRLS da #509.
 
 ### Identidade do runtime de Storage privado (tarefas e uploads)
 
-Candidata local, migration `20261030_100000_private_storage_worker_identity.sql`
+Integrada pela #583 (`ae15449d`); migration `20261030_100000_private_storage_worker_identity.sql`
 (aplicada só em PostgreSQL sintético; não aplicada em PROD). Tarefas de limpeza e ownership de upload de áudio passam a usar
 somente o login `private_storage_runtime`, configurado em
 `PRIVATE_STORAGE_DATABASE_URL`, sem fallback para `DATABASE_URL`. O papel nasce
@@ -416,7 +418,7 @@ grants de outros bancos. Exige consumidores contidos e ownership drenada.
 
 ### Identidade da liberação de envios (`private_deletion_sends`)
 
-Candidata local, migration `20261030_120000_private_send_release_identity.sql`
+Integrada pela #585 (`5d4e735e`); migration `20261030_120000_private_send_release_identity.sql`
 (só PostgreSQL sintético; não aplicada em PROD). INSERT com o CAS
 `ia_pendente → ia_em_transporte`, renovação antes do HTTP e conferência de
 geração continuam nas mesmas transações e locks do login principal. Só a
@@ -474,18 +476,21 @@ Ownership retida em janela de falha não é revisitada pelo código antigo.
 **Pré-requisitos antes de qualquer ativação:** procedimento de reconciliação
 de upload ambíguo necessário; resolver explicitamente identidade do worker e
 retenção de tombstones. Pendências técnicas: tarefas e uploads têm identidade
-SQL própria (#583), e a liberação de envios na candidata seguinte (#585);
+SQL própria (#583), e a liberação de envios (#585);
 INSERT/renovação de envios e fences ainda seguem o padrão servidor confiável
-sem subject da #509; reconciliação de upload com
+sem subject da #509 no modo `legacy` (padrão); o modo `dedicated` da #590,
+integrado e não operacional, os move para `queue_worker_runtime`; reconciliação de upload com
 resultado desconhecido é parcial (2xx tardio confirmado e, pela
 `20261030_110000` (#584), testemunho exato de tentativa commitada; abortado/em voo e
 legado seguem retidos sem saída automática); dono das
 funções privadas com `row_security=off`: o preflight de release acusa dono sem
-SUPERUSER/BYPASSRLS nas funções já existentes da lista fixa (cinco da #587 e duas
-da #584, sete; dez com a candidata de resumos, que acrescenta descoberta, fontes e reserva, cujo
-corpo lê tabela com FORCE RLS; snapshot, solicitante e credencial ficam fora
-porque leem só tabelas sem FORCE, legítimas para um dono que também as possui;
-se o dono não as possuir, falham fechadas),
+SUPERUSER/BYPASSRLS nas funções já existentes da lista fixa (dez: cinco da #587,
+duas da #584 e três da #588 — descoberta, fontes e reserva, cujo corpo lê tabela
+com FORCE RLS; snapshot, solicitante e credencial da #588 e o resolvedor da fila
+`queue_resolve_instance` da #590 ficam fora como exclusões explícitas, porque leem
+só tabelas sem FORCE: valem se o dono da função for dono das tabelas lidas ou
+tiver BYPASSRLS, senão falham fechadas; os logins da aplicação seguem sem
+BYPASSRLS; 15 definers `row_security=off` classificados),
 mas não examina as de migrations pendentes nem corpo, ACL ou dono de funções
 aninhadas como `private_summary_origin_valid` (repetir após aplicação
 autorizada; dono real em PROD não verificado);

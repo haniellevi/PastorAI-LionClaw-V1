@@ -269,15 +269,17 @@ Este documento e o merge do código não são autorizações operacionais.
    os contratos privados SECURITY DEFINER com `row_security=off` da lista fixa
    `PRIVATE_DEFINER_CONTRACTS`: cinco da #587, dois da `20261030_110000`
    (`private_storage_begin_upload_attempt` e `private_storage_upload_witness_due`,
-   acrescentados na integração com a #584) e, com a candidata de resumos
-   (migration `20261030_140000`), dez. Os três novos são
+   acrescentados na integração com a #584) e três da #588 (migration
+   `20261030_140000`, integrada): dez. Os três da #588 são
    `private_summary_runtime_due_tasks`, `_sources` e `_reserve`, cujo próprio
    corpo lê tabela com FORCE RLS. `_snapshot`, `_requester` e `_credential`
    também declaram `row_security=off`, mas leem diretamente só tabelas sem
    FORCE, que um dono também dono dessas tabelas opera legitimamente sem
    BYPASSRLS: ficam fora para não gerar falso positivo, desde que o dono da
-   função também seja dono dessas tabelas (se não for, a função falha fechada,
-   sem vazamento, e o preflight não acusa). A dependência do dono
+   função também seja dono dessas tabelas ou tenha BYPASSRLS (se não for, a
+   função falha fechada, sem vazamento, e o preflight não acusa); os logins da
+   aplicação seguem sem BYPASSRLS. O resolvedor `queue_resolve_instance` da #590
+   segue a mesma regra. A dependência do dono
    de funções aninhadas, como `private_summary_origin_valid`, também fica fora:
    ela herda `row_security=off` do chamador, e o preflight olha só o
    `proconfig` da própria função.
@@ -298,8 +300,9 @@ Este documento e o merge do código não são autorizações operacionais.
    que também declara `row_security=off`, ficam fora deste contrato.
    Um teste em PG sintético compara o catálogo com a lista: toda função de
    `public` com SECURITY DEFINER e `row_security=off` precisa ser contrato ou
-   exclusão explícita (hoje quatro: a outbox e os helpers de resumo `_snapshot`,
-   `_requester` e `_credential`), então um definer novo esquecido falha.
+   exclusão explícita (cinco: a outbox, os helpers de resumo `_snapshot`,
+   `_requester` e `_credential` e `queue_resolve_instance` da #590; 15 definers
+   `row_security=off` classificados), então um definer novo esquecido falha.
 3. **Reconciliação manual antes da #543.** Antes de aplicar
    `20261025_100000_team_pessoa.sql`, confirmar zero duplicidades da chave
    `(igreja_id, pessoa_id)`. Qualquer duplicidade de igreja/pessoa exige
@@ -1046,7 +1049,8 @@ quatro checks do SHA publicado são prova separada.
 
 ## Transição inicial integrada legado→atual — ensaio local sintético
 
-**Estado: preparação local.** Não é procedimento executável em PROD, não toca
+**Estado: código integrado (#579–#581, `84fb7f11`/`74919ee0`/`87ba1e42`); procedimento
+ainda sintético.** Não é procedimento executável em PROD, não toca
 VPS, Supabase, workflow nem gates reais; `production_ready=false`.
 
 `deploy/backend-release.sh` recusa a instalação atual (sem árvore de release,
@@ -1321,10 +1325,11 @@ entram nos workflows, e os quatro checks do SHA publicado são prova separada.
 
 Compatibilidade encontrada na integração com a `main` (26/10/2026): as
 migrations `20261030_100000`/`110000`/`120000` (#583–#585) elevaram o total
-ativo para 127, e `select_baseline` (`deploy/rehearse_legacy_queue_active.py`,
+ativo para 127 (129 após as #588/#590; a seleção de 78 não muda), e `select_baseline` (`deploy/rehearse_legacy_queue_active.py`,
 usado por este ensaio e pelos de fila, cron e transição inicial) recusava com
 `baseline-count`, porque exigia 124 no total. Agora a guarda fixa só as 78
-migrations antes do corte `20261015`; as posteriores não são lidas nem entram
-no bundle. Conferido sem Docker no head integrado: 127 ativas, 78 selecionadas,
+migrations antes do corte `20261015`; as posteriores não são selecionadas nem
+lidas pelo `select_baseline` e não entram no bundle (o `migration_files()` real
+ainda abre cada arquivo para ler o marcador de pausa). Conferido sem Docker no head integrado: 127 ativas, 78 selecionadas,
 com nomes, SQL, runner e digest do bundle idênticos aos de `cf291a15`. As
 rodadas físicas acima são anteriores e não foram repetidas.

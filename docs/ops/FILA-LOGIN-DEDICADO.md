@@ -1,7 +1,8 @@
 # Login dedicado da fila normal (`queue_worker_runtime`)
 
-Candidata local (branch `feat/queue-worker-runtime-final-20261026`, migration
-`20261030_160000_queue_worker_runtime_identity.sql`). Testada só em PostgreSQL
+Integrada pela #590 (`383115d1`; checks do SHA `8a59a796` verdes antes do merge;
+migration `20261030_160000_queue_worker_runtime_identity.sql`); modo `legacy`
+padrão. Testada só em PostgreSQL
 17.6 sintético com conexão direta. Nada aplicado em produção; URL, versão do
 PostgreSQL, memberships reais de `authenticated`, dono das funções e modo do
 pooler de produção: **não verificados**. O padrão continua `legacy`.
