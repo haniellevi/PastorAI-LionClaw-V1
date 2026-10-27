@@ -1,6 +1,8 @@
 # Release em lote, outubro de 2026
 
-Atualizado em 24/10/2026 sobre a `main` no commit `354a83d`.
+Atualizado em 27/10/2026: a seção "Plano e prévia atual" vale para o candidato
+`afdfb78d71a53f2861632806e13cdda4662d7d63`. As seções datadas de 24/10/2026
+(`main` em `354a83d`) e anteriores são históricas.
 
 Este runbook prepara a janela de release das migrations acumuladas e do
 backend. Ele não autoriza nem executa acesso a PROD. Use também o
@@ -8,6 +10,476 @@ backend. Ele não autoriza nem executa acesso a PROD. Use também o
 [runbook de backup](BACKUP-FIREWALL-RUNBOOK.md), o
 [manual do release de backend](../../deploy/BACKEND-RELEASE-MANUAL.md) e o
 [aplicador de migrations](../../backend/migrations/README.md).
+
+## Plano e prévia atual (27/10/2026) — pronto para revisão, não para execução
+
+**Estado: PLANO REVISADO (Codex + segunda opinião independente), NÃO
+para execução**, porque o adaptador real da transição inicial ainda não existe
+(ver "Bloqueador principal"). O planejamento continua no `ROADMAP.md`; esta é
+a seção operacional do runbook existente, não um plano paralelo.
+
+**Autorização:**
+- **Já autorizado pelo dono em 27/10:** preparar este plano e fazer as
+  leituras somente leitura usadas abaixo.
+- **Aguardando aprovação:** toda ação de escrita em PROD, ou seja, backup de
+  janela, contenção, migrations, deploy e smoke com efeitos.
+- **Forma da aprovação:** uma única autorização nominal futura pode cobrir a
+  lista exata das 51, as ações da janela descritas aqui e os SHAs explícitos
+  (aplicação e adaptador). Não é preciso confirmar migration por migration.
+  Nada é aplicado agora.
+
+- **Candidato proposto da aplicação:** `afdfb78d71a53f2861632806e13cdda4662d7d63`,
+  a `main` com #577–#596. Os quatro checks da `main`, o head da #596 e a
+  Vercel estão aprovados.
+  - **Manifesto das 51:** conferido em 27/10, com nome, flag CONCURRENTLY e
+    SHA-256 por arquivo. Os 51 hashes conferem com os blobs do candidato.
+  - **Se a `main` ou o candidato mudarem:** renovar o SHA, as evidências e o
+    manifesto antes de aprovar.
+- **Alvo:** o Supabase PROD e a VPS `srv2031318`.
+- **Datas:** as seções datadas de 24/10 e anteriores são históricas.
+
+### Prévia de impacto para aprovação futura
+
+| Item | Antes, conferido em leitura | Esperado após o release aprovado |
+|---|---|---|
+| Igreja, acesso mestre e Pessoa | 1 de cada, vínculo utilizável | Preservar os mesmos registros e vínculo |
+| Planos e papéis administrativos | 4 planos, 2 papéis, 1 admin de plataforma | Preservar cadastro de planos e papéis do acesso |
+| Migrations ativas | 78 aplicadas, 51 pendentes | 129 registradas, nenhuma ativa pendente |
+| Login | `auth_sessions` ausente | Tabela criada; sessões antigas sem `jti` exigem novo login |
+| Identidades privadas | 4 roles ausentes | 4 roles NOLOGIN; provisionamento e ativação separados |
+| VPS | Instalação legada, 4 serviços | Aplicação no SHA aprovado, layout rastreável e 4 serviços saudáveis, condicionado ao adaptador revisado |
+| Redis, fila de falhas | 2 itens | Preservados; nenhuma limpeza ou tentativa de reenvio neste release |
+| Correção de acesso duplicado | Cancelada, zero duplicidades | Não executar; apenas reconferir ausência antes do índice único |
+
+Esta é uma **prévia de impacto**, não aplicação nem ensaio completo do lote
+atual. As migrations acrescentam tabelas, funções, RLS e grants e restringem
+privilégios de banco conforme a lista abaixo; preservar papéis do usuário não
+significa manter todos os grants antigos. Não há novo reset autorizado.
+
+### Fatos lidos em 27/10 (somente leitura, sanitizados)
+
+Leitura de 27/10, por volta de 15:20 UTC, sem PII nem UUIDs. **Não é a
+execução integral de `release_preflight.py`.**
+
+**Banco (PostgreSQL 17.6)**
+- **Sessão de leitura:** transação `REPEATABLE READ READ ONLY`, com role capaz
+  de contornar RLS e tabelas centrais presentes.
+- **Migrations:** 129 ativas no candidato, 78 registradas no ledger, 51
+  pendentes e 0 desconhecidas. As 5 pausadas (`OPERATIONAL_AUTHORIZATION=BLOCKED`)
+  ficam fora da seleção e nenhuma delas está aplicada.
+- **Dados:** `invalid_cell_links=0` e duplicidade `(igreja_id, pessoa_id)`
+  com 0 grupos, **depois do reset feito externamente pelo dono**.
+- **Objetos ainda inexistentes, como esperado antes das migrations:**
+  - `public.auth_sessions`;
+  - as quatro roles de runtime (`private_storage_runtime`,
+    `private_send_runtime`, `private_summary_runtime` e
+    `queue_worker_runtime`);
+  - os 10 contratos privados SECURITY DEFINER.
+
+  Ausência aqui não é achado de dono: esses contratos serão examinados pelo
+  preflight depois da aplicação.
+- **Contagens agregadas:** 1 igreja, 1 usuário, 1 Pessoa, 4 planos, 2 papéis e
+  1 platform admin. O usuário mestre é utilizável e está ligado a uma Pessoa
+  da mesma igreja; há 1 admin de igreja utilizável e 1 platform admin
+  utilizável.
+- **Preservação de configurações, planos e permissões:** é uma alegação humana.
+  As contagens não provam igualdade de conteúdo.
+- **Backfills e filas no banco:**
+  - backfills das migrations 1 e 2: **0 candidatos** cada (consulta agregada
+    dos predicados, somente leitura);
+  - `messages`, `notification_outbox` e `work_queue`: 0 linhas;
+  - índices inválidos em `public`: 0; FKs `NOT VALID`: 0.
+- **Configuração do agente:** 1 registro, com 1 `ativo`. A configuração viva
+  da Jev **não foi lida**.
+- **`statement_timeout=10s`:** foi `SET LOCAL` da própria consulta de leitura.
+  **Não é** limite verificado da sessão que vai aplicar, nem configuração
+  global. O valor efetivo para a DSN do aplicador não foi verificado.
+- **Checagem de tabelas esperadas no backup:** 0 esperadas e 0 ausentes,
+  porque cobre só o recorte posterior à base de 14/10.
+
+**VPS `srv2031318`**
+- **Containers:** `backend`, `queue_worker`, `cron_worker` e
+  `broadcast_worker` estão `running`, todos na mesma imagem
+  `sha256:4a65f30e…b241`, sem label de revisão e com `restart_count=0`.
+  - Os três primeiros iniciaram em 24/10 às 01:13 UTC; o broadcast, avulso,
+    em 23/10 às 20:54 UTC.
+- **Topologia:** 3 serviços no projeto Compose `pastorai` (`backend`,
+  `queue-worker`, `cron-worker`) e o `broadcast_worker` avulso, sem labels
+  Compose.
+  - Os quatro têm `restart=always`, 0 montagens e 1 rede.
+  - Espaço livre em `/opt`: 32,59 GiB.
+- **Redis (só agregados, sem ler conteúdo):**
+  - `pastorai:webhooks` 0 e `pastorai:webhooks:retry-scheduled` 0;
+  - SCAN de processing completo, com 0 chaves e 0 itens. É uma foto pontual;
+  - `pastorai:webhooks:dead`: **2 itens, preservados**. Ficam intocados e fora
+    do escopo de replay, limpeza ou leitura deste release.
+- **Layout legado:** existe `/opt/pastorai-lionclaw`. Não existem
+  `/opt/pastorai-current` nem `/opt/pastorai-releases`.
+- **Saúde da API:** `/health` respondeu 200.
+- **Gates por serviço, lidos e não alterados:**
+  - `ALLOW_REAL_SENDS=true` nos quatro serviços;
+  - `BREVO_SEND_MODE=live` em backend, queue e cron; ausente no broadcast;
+  - `BROADCAST_ASYNC_ENABLED=false` nos quatro;
+  - `ASAAS_BILLING_ENABLED` ausente, e ausência não prova `false`;
+  - `QUEUE_WORKER_DATABASE_MODE` ausente. No **candidato**, o default é
+    `legacy`. O modo efetivo do código **instalado** não foi verificado, e
+    não se infere que seja igual.
+- **URLs dedicadas:** nenhum dos quatro serviços tem
+  `PRIVATE_STORAGE_DATABASE_URL`, `PRIVATE_SEND_DATABASE_URL`,
+  `PRIVATE_SUMMARY_DATABASE_URL` ou `QUEUE_WORKER_DATABASE_URL`.
+- **Backup:** o manifesto sanitizado está `verified`, com `completed_at`
+  27/10 06:16:06 UTC (o cron diário).
+  - A ordem relativa entre esse backup e o reset **não foi verificada**.
+  - Nesta etapa não houve conferência nova de checksum.
+  - O checksum do backup de 26/10 é anterior ao reset e não prova o estado
+    atual.
+
+### Configuração do publicador manual (metadados de 27/10)
+
+- O Environment `backend-production` existe; duas regras de proteção foram
+  retornadas. Não foram alteradas nem contornadas.
+- As variáveis `BACKEND_DEPLOY_ALLOWED_ACTORS` e
+  `BACKEND_DEPLOY_SAFE_BASE_SHA` estão presentes no Environment. Valores e
+  validade efetiva não foram conferidos; ausência no nível de repositório não
+  significa ausência no workflow.
+- Os quatro secrets esperados (`BACKEND_DEPLOY_HOST`, `BACKEND_DEPLOY_USER`,
+  `BACKEND_DEPLOY_SSH_KEY`, `BACKEND_DEPLOY_KNOWN_HOSTS`) **não foram encontrados
+  nos metadados dos escopos Environment e repositório consultados**. Eventual
+  herança fora desses escopos não foi comprovada. Nenhum valor secreto foi lido.
+- Antes de usar o workflow manual normal, o operador precisa configurar e
+  validar essas entradas pelo canal seguro em GitHub → Settings →
+  Environments → `backend-production`, sem enviar chaves ao chat. Isso não
+  substitui o adaptador da primeira transição; uma execução manual pelo acesso
+  SSH existente precisa de procedimento e escopo próprios revisados.
+- Nenhum workflow foi disparado, secret criado ou configuração alterada.
+
+### O que deixou de valer (histórico preservado abaixo)
+
+- **Duplicidade e reconciliação:** a duplicidade de vínculo Pessoa lida em
+  24/10 e a reconciliação excepcional por `reconcile_team_pessoa.py` foram
+  **canceladas pelo dono em 27/10** e **não se aplicam a este release**. Depois
+  do reset, a leitura mostra 0 grupos. As seções "Bloqueios concretos",
+  "Reconciliação excepcional" e o ensaio de transição continuam como
+  histórico.
+- **Números antigos:** "46 pendentes", "124 ativas" e o ensaio de
+  incompatibilidade 78→124 descrevem o candidato `354a83d`. **Não provam
+  nada sobre 129.**
+- **Decisão de 23/10:** a decisão do dono de aplicar as quatro migrations
+  antigas continua valendo e não é reaberta aqui. As conferências de dados
+  delas, abaixo, continuam obrigatórias.
+
+### Bloqueador principal: adaptador real da transição inicial
+
+- **O script de release não serve para a primeira virada.**
+  `deploy/backend-release.sh` recusa o estado legado: sem `releases/<SHA>` e
+  `current`, sem checker anterior e sem label de revisão.
+- **O código de transição é só sintético.** `deploy/initial_transition.py` e o
+  ensaio `deploy/rehearse_initial_transition.py` (seção "Transição inicial
+  integrada legado→atual") rodam apenas em instalação sintética, com
+  `production_ready=false`. **Não são deploy de PROD liberado.** O ensaio
+  integrado usa 46 migrations, catálogo de 124 e uma etapa de reconciliação.
+- **Antes de qualquer janela, ainda falta:**
+  - adaptar o procedimento ao candidato (51 pendentes, 129 ativas, sem etapa
+    de reconciliação e com duplicidade revalidada em zero);
+  - adaptar à topologia real: três serviços Compose e o broadcast avulso;
+    Nginx, montagens, Redis e Evolution compartilhados; outros sites do host;
+  - ensaiar em instalação sintética e passar por revisão independente.
+- **Não feito agora:** isso não foi implementado nem ensaiado nesta etapa.
+  Esta prévia não autoriza código que ainda não existe.
+- **SHA do adaptador:** quando for implementado, fixar um SHA próprio e
+  revisado do executor, registrado junto ao SHA da aplicação.
+- **Controlador sintético:** proibido executá-lo em PROD, assim como remover
+  ou contornar as guardas dele.
+- **Pacote do release:** o workflow empacota estaticamente `backend/` e
+  `deploy/`, o que por desenho inclui caminhos protegidos. Antes da janela é
+  preciso revisar o pacote por allowlist, com código sanitizado e metadados do
+  SHA, sem abrir, listar nem expor conteúdo protegido. O workflow não muda
+  agora; isso fica como item técnico pendente.
+- **Proibido como atalho:** fabricar SHA anterior, label, symlink ou diretório
+  `releases/` como "prova" de estado anterior.
+
+### Fases e condições
+
+As fases 0 e 1 (preparação e leituras) estão cobertas pela autorização de
+27/10. As fases 2 a 7 envolvem escrita em PROD e precisam da aprovação nominal
+descrita acima, com ambiente, SHAs, escopo, janela e operador registrados fora
+do repositório. A fase 8 é uma decisão separada.
+
+0. **Preparação local (agora).**
+   - Revisar esta prévia (Codex e segunda opinião).
+   - Atualizar o ROADMAP, a cargo do Codex.
+   - Implementar o adaptador real e ensaiá-lo em instalação sintética, com
+     revisão.
+1. **Leituras pré-janela, somente leitura.**
+   - Rodar `release_preflight.py` completo no SHA aprovado, pelo operador
+     no ambiente seguro e fora de qualquer sessão de modelo, ou por um
+     encapsulamento revisado que retenha a saída bruta no próprio processo
+     remoto. Ele pode imprimir UUIDs quando há achados: nunca encaminhar
+     stdout/stderr bruto ao modelo, docs, CI ou arquivos locais. Compartilhar
+     apenas código de saída, contagens e metadados explicitamente aprovados.
+     Com qualquer achado, parar sem copiar as linhas. Ainda não foi executado.
+   - **Revalidar** imediatamente antes da janela o que já foi lido em 27/10:
+     backfills 1 e 2, filas no banco e no Redis, configuração do agente e
+     topologia. Revalidar não equivale a dizer que nunca foi lido; as fotos de
+     27/10 são pontuais.
+   - Revalidar a contagem segura da migration 10 (Pessoas com `apto_proxima_cd`
+     verdadeiro): a leitura de 27/10 às 15:29 UTC retornou 0 candidatos.
+2. **Contenção e quiescência antes do backup.** Parar explicitamente os quatro serviços, pelos IDs
+   (backend, queue, cron e broadcast avulso), com política de reinício
+   persistida antes do SIGTERM.
+   - Bloquear o ingresso da API, inclusive o caminho direto Evolution →
+     backend. Segundo a leitura estática de 24/10, o webhook chega em
+     `backend:8000`.
+   - **Quiescência:** nenhuma escrita de aplicação, humana ou em background,
+     fora do escopo das migrations aprovadas. As DDL e DML das próprias
+     migrations são a exceção prevista.
+   - Não presumir que todos os writers estão parados nem que as filas estão
+     limpas. Revalidar.
+   - Os 2 itens da `dead` do Redis ficam intocados.
+   - Preservar a imagem retida, os volumes, o Nginx, as montagens, o Redis, a
+     Evolution e os outros sites.
+   - Gates não mudam por esta prévia. `backend-release.sh` exige os quatro
+     gates fechados, mas o piloto está com envios abertos: fechar gates (o que
+     é terminal para pendências) ou pausar com preservação de fila é decisão
+     nominal própria.
+3. **Backup da janela, com os writers já contidos.** Exige um backup novo, autorizado e feito
+   imediatamente antes das migrations, após a contenção e a comprovação de
+   quiescência. Manter a contenção até o fim: nenhum writer da aplicação pode
+   alterar o estado entre o backup e a primeira DDL. Se houver escrita ou
+   retomada não prevista, parar e renovar a conferência/backup sob o escopo
+   autorizado; nunca assumir equivalência do estado.
+   - **Impacto conhecido:** o script do repositório
+     (`deploy/backup-production.sh`) roda `CHECKPOINT` e
+     `docker pause pastorai_evolution pastorai_evo_postgres pastorai_redis`
+     durante a cópia dos volumes. Ingestão do WhatsApp e tudo o que depende do
+     Redis ficam parados nesse intervalo.
+   - **Não medido:** a duração da pausa. O script instalado na VPS não foi
+     comparado com o do repositório nesta etapa.
+   - **Conferências:** `status=verified`, SHA-256 do pacote e itens previstos.
+   - **Limite:** checksum não prova restore. A prova de restore é um passo
+     separado, num ambiente isolado.
+4. **Reconferência imediatamente antes da primeira DDL.**
+   - Ledger com exatamente as 78.
+   - Pendentes iguais à lista abaixo.
+   - Duplicidade 0 e `invalid_cell_links=0`.
+   - Contagens agregadas dos backfills conferidas.
+   - Nenhum vestígio de DDL.
+
+   Se algo falhar **antes da primeira DDL**, só se retoma o legado com a
+   baseline comprovadamente inalterada: mesma imagem, ledger 78 e nenhum
+   objeto novo.
+5. **As 51 migrations**, por `migrate.py`, uma por invocação, na ordem abaixo,
+   parando no primeiro erro.
+6. **Pós-migrations.**
+   - `migrate.py status` e preflight de novo, sob a mesma proteção de saída
+     da Fase 1 (sem stdout/stderr bruto ao modelo, docs, CI ou arquivos locais;
+     só códigos, contagens e metadados aprovados). Agora os contratos privados
+     existem e são examinados: um achado `private_definer_dono_sem_bypass`
+     exige decisão nominal, nunca elevar dono para ficar verde.
+   - Deploy do candidato **pelo adaptador revisado**.
+   - Smoke sem efeitos.
+7. **Falha depois da DDL.**
+   - Manter tudo contido e corrigir adiante.
+   - **Sem rollback automático de banco e sem restore por cima de PROD**, salvo
+     nova prova e nova aprovação.
+   - Voltar ao legado depois da DDL não está demonstrado para 129.
+8. **Retorno do piloto.** É uma etapa nominal separada, sem ampliação.
+   - **`AgentConfig`:** o único registro ativo é **preservado** como está, a
+     menos que uma decisão nominal de manutenção exija mudança inevitável.
+   - **Jev:** **não faz parte** do retorno do piloto. A ativação fica fora do
+     escopo deste release, e o DPA vem antes de qualquer lista de igrejas.
+   - **Roles de runtime:** podem continuar NOLOGIN e inativas no piloto, com o
+     comportamento fail-closed descrito abaixo. Provisioná-las é decisão
+     futura própria.
+
+### Lista exata das 51 pendentes (ordem lexical de `migrate.py`)
+
+Modo `tx` = transação padrão do aplicador; `NT` = `--no-transaction`, exigido
+pelas **8** com `CREATE INDEX CONCURRENTLY` fora de comentário. Todas as 51
+foram conferidas no código do candidato, e 45 declaram `lock_timeout='2s'`
+(as quatro de julho/setembro e `20261023_110000`/`_120000` não declaram).
+
+| # | Migration | Finalidade | Modo |
+|---|---|---|---|
+| 1 | `20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql` | backfill: Pessoa com vínculo ativo em célula passa a ser no mínimo "membro" (**muda dados**) | tx |
+| 2 | `20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql` | reclassifica a Pessoa do número conectado ao WhatsApp para fora de "membro" (**muda dados**) | tx |
+| 3 | `20260925_183811_preserve_platform_admins_on_tenant_deletion.sql` | preserva platform admins na exclusão de igreja | tx |
+| 4 | `20260926_120446_platform_jev_settings.sql` | tabela de configuração da Jev, vazia e fechada (não liga Jev, não exige DPA) | tx |
+| 5 | `20261016_180000_prayer_requests.sql` | pedidos de oração próprios (V4) | tx |
+| 6 | `20261017_180000_visit_events.sql` | evidências de visita a célula | tx |
+| 7 | `20261017_180100_consolidacao_atribuicoes_aceite.sql` | convites e aceite explícito de consolidação | tx |
+| 8 | `20261017_210500_uv_turmas.sql` | turmas UV | tx |
+| 9 | `20261017_220000_uv_presencas.sql` | presença UV | tx |
+| 10 | `20261017_230000_uv_marcos_conclusao.sql` | marcos e conclusão UV; marca `origem_aptidao_cd='legado'` onde `apto_proxima_cd` (**muda dados de Pessoa**) | tx |
+| 11 | `20261018_010000_cd_catalogo_turmas.sql` | catálogo e turmas CD | tx |
+| 12 | `20261018_020000_cd_matriculas.sql` | matrículas CD | tx |
+| 13 | `20261018_030000_cd_presencas.sql` | frequência CD | tx |
+| 14 | `20261018_040000_cd_conclusoes_certificados.sql` | conclusões e certificados CD | tx |
+| 15 | `20261018_050000_enviar_avaliacoes.sql` | avaliações Enviar | tx |
+| 16 | `20261018_060000_enviar_nomeacao.sql` | nomeação Enviar | tx |
+| 17 | `20261018_070000_enviar_abertura.sql` | abertura de célula sem origem | tx |
+| 18 | `20261018_080000_enviar_reforcos.sql` | valida FK de célula (`invalid_cell_links` precisa ser 0) | tx |
+| 19 | `20261018_090000_exclusao_privada.sql` | exclusão privada de conversa | tx |
+| 20 | `20261018_100000_enviar_reencontro.sql` | marco de Reencontro | tx |
+| 21 | `20261018_110000_cd_equivalencias_versoes.sql` | equivalências entre versões CD (atualiza tabelas CD criadas no lote) | tx |
+| 22 | `20261018_120000_prayer_message_privacy.sql` | privacidade do histórico de oração; protege `conversations.ultima_mensagem` de conversas de oração (**muda dados**) | tx |
+| 23 | `20261018_130000_conhecimento_oficial.sql` | conhecimento oficial | tx |
+| 24 | `20261018_140000_conhecimento_trechos.sql` | trechos e busca lexical | tx |
+| 25 | `20261019_090001_exclusao_privada_pessoa_igreja.sql` | exclusão privada por Pessoa ou igreja | tx |
+| 26 | `20261019_110001_conhecimento_exclusao.sql` | exclusão de documento oficial | tx |
+| 27 | `20261019_120001_private_conversation_summaries.sql` | resumos privados (sem consumidor ativo) | tx |
+| 28 | `20261020_100000_prayer_audio_privacy.sql` | áudio de oração só para pastor | tx |
+| 29 | `20261020_200000_private_resume.sql` | retomada de resumo (desligada) | tx |
+| 30 | `20261021_100000_responsabilidades_setor.sql` | responsabilidades por setor | tx |
+| 31 | `20261022_100000_private_erasure_requests.sql` | pedidos de exclusão de memória | tx |
+| 32 | `20261023_100000_ai_usage_force_rls.sql` | FORCE RLS em uso de IA | tx |
+| 33 | `20261023_100001_ai_usage_tenant_created_idx.sql` | índice de uso de IA | **NT** |
+| 34 | `20261023_110000_operations_outbox_pending_metrics_fn.sql` | função de métrica da outbox | tx |
+| 35 | `20261023_110001_notification_outbox_pending_created_idx.sql` | índice da outbox pendente | **NT** |
+| 36 | `20261023_110002_notification_outbox_retry_created_idx.sql` | índice da outbox em retry | **NT** |
+| 37 | `20261023_110003_notification_outbox_expired_lease_idx.sql` | índice de lease expirado | **NT** |
+| 38 | `20261023_110004_messages_pending_agent_created_idx.sql` | índice de intenções de IA pendentes | **NT** |
+| 39 | `20261023_110005_work_queue_pending_created_idx.sql` | índice da `work_queue` | **NT** |
+| 40 | `20261023_120000_auth_session_revocation.sql` | `auth_sessions` e logout no servidor | tx |
+| 41 | `20261025_100000_team_pessoa.sql` | índice único de vínculo Pessoa + auditoria (falha se houver duplicidade) | tx |
+| 42 | `20261027_100000_reset_settles_erasure_requests.sql` | reset de Pessoa liquida pedidos pendentes (**não autoriza reset**) | tx |
+| 43 | `20261028_100000_private_memory_overview.sql` | inventário de memória privada (admin) | tx |
+| 44 | `20261028_100001_private_erasure_requests_overview_idx.sql` | índice do inventário | **NT** |
+| 45 | `20261028_100002_private_resume_delivered_overview_idx.sql` | índice de retomadas entregues | **NT** |
+| 46 | `20261029_100000_reset_settles_church_erasure_requests.sql` | reset da igreja liquida pedidos (**não autoriza reset**) | tx |
+| 47 | `20261030_100000_private_storage_worker_identity.sql` | role `private_storage_runtime` (NOLOGIN) + contratos | tx |
+| 48 | `20261030_110000_private_upload_attempt_witness.sql` | testemunha de upload de áudio (depende da 47) | tx |
+| 49 | `20261030_120000_private_send_release_identity.sql` | role `private_send_runtime` + liberação de envio | tx |
+| 50 | `20261030_140000_private_summary_runtime_identity.sql` | role `private_summary_runtime` + ciclo de resumo | tx |
+| 51 | `20261030_160000_queue_worker_runtime_identity.sql` | role `queue_worker_runtime` (modo dedicado opcional) | tx |
+
+**Exemplos de aplicação — NÃO EXECUTADOS, nem autorizados:**
+
+```bash
+# No host/sessão autorizados, na cópia exata do SHA aprovado, a partir de backend/.
+# A URL só entra pelo ambiente seguro, nunca por argumento, arquivo do repo ou log:
+set +o history; read -rs MIGRATION_DATABASE_URL; export MIGRATION_DATABASE_URL
+python3 scripts/migrate.py status
+python3 scripts/migrate.py apply 20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql --yes
+# ... um arquivo por invocação, na ordem da tabela ...
+python3 scripts/migrate.py apply 20261023_100001_ai_usage_tenant_created_idx.sql --yes --no-transaction
+# ... até 20261030_160000_queue_worker_runtime_identity.sql ...
+python3 scripts/migrate.py status
+unset MIGRATION_DATABASE_URL
+```
+
+Regras de aplicação:
+- **Uma migration por invocação.** Parar no primeiro erro e preservar o
+  estado para decisão do dono.
+- **Proibido:**
+  - script concatenado ou laço cego;
+  - `apply_migrations` nativo do Supabase, ledger nativo, MCP ou SQL manual;
+  - `--no-transaction` fora das 8 marcadas.
+- **`lock_timeout`:** o `'2s'` das migrations e o `lock_timeout` de sessão que
+  o aplicador extrai nas `NT` não se contornam. Se der timeout de lock, parar.
+  Nova tentativa só depois da decisão, nunca aumentando o timeout por conta
+  própria.
+- **Falha numa `NT`:** pode deixar índice `INVALID`. Seguir o comentário do
+  próprio arquivo ("check validity before retrying") antes de qualquer nova
+  tentativa.
+- **`statement_timeout`:** o valor efetivo da sessão do aplicador (pela DSN
+  dele) não foi verificado. Os 10s de 27/10 eram `SET LOCAL` de uma consulta
+  de leitura. Conferir antes da janela, sobretudo para os backfills e os
+  índices. Não alterar sem decisão.
+
+### Migrations de 30/10 (47–51): efeitos e provisionamento
+
+- **O que criam:**
+  - quatro roles `NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS`, sem senha;
+  - funções SECURITY DEFINER com `GRANT EXECUTE` só para a própria role;
+  - `REVOKE ALL` dessas funções de `public`, `anon`, `authenticated` e
+    `service_role`.
+- **Revogações de `authenticated`:** a 47 tira `UPDATE` em
+  `private_deletion_tasks`; a 49 tira `DELETE` em `private_deletion_sends`.
+- **Idempotência:** nenhuma é idempotente. Reaplicar é recusado, e role
+  preexistente com atributos ou privilégios mais amplos também é recusada,
+  nunca "reparada".
+- **Dono dos contratos privados:** é a role que aplica. Se ela não tiver
+  SUPERUSER ou BYPASSRLS, as funções falham fechadas. O preflight
+  pós-aplicação acusa `private_definer_dono_sem_bypass`.
+- **Contenção:** segundo o próprio arquivo, a 49 torna obrigatória a contenção
+  do queue worker e de quem entrega respostas, porque código anterior que
+  apague envio falha (`DELETE` negado).
+- **LOGIN, senha e URLs (`PRIVATE_*_DATABASE_URL`, `QUEUE_WORKER_DATABASE_URL`)
+  são provisionamento nominal separado**, não parte das migrations.
+- **Sem URLs, o candidato não exige nada no boot.** Em `app/config.py`, todas
+  têm default vazio e falham fechadas por funcionalidade:
+  - limpeza privada de Storage e posse de upload de áudio não rodam;
+  - a posse de envio fica retida, com recibos pendentes;
+  - a geração de resumo privado não roda (já está desligada);
+  - o queue worker continua em `legacy`, o default.
+- **Valor inválido de modo:** qualquer valor de `QUEUE_WORKER_DATABASE_MODE`
+  diferente de `legacy`/`dedicated` faz o worker recusar iniciar.
+- **Modo `dedicated`:** é opcional e exige decisão própria. Nenhuma dessas
+  URLs é obrigatória no boot do candidato.
+
+### Escopo de risco de dados e preservação
+
+- **`pessoas`:**
+  - **o que muda:** o tipo (migrations 1 e 2) e `origem_aptidao_cd` (10);
+  - **migrations 1 e 2:** 0 candidatos cada na leitura de 27/10, pela
+    consulta agregada dos predicados completos. Revalidar na janela;
+  - **migration 10:** acrescenta `origem_aptidao_cd` e marca `'legado'` nas
+    linhas antigas com `apto_proxima_cd` verdadeiro. A consulta agregada de
+    27/10 às 15:29 UTC retornou **0 candidatos**; revalidar na janela;
+  - **qualquer contagem maior que 0:** um humano avalia fora do LLM antes da
+    autorização. Não inferir 0 a partir do reset;
+  - **atenção:** hoje existe **uma única Pessoa, ligada ao usuário mestre**.
+    A reclassificação (2) não pode atingi-la por coincidência com o número
+    conectado. Conferir explicitamente antes.
+- **`conversations.ultima_mensagem`** (22): conversas de oração passam a
+  mostrar texto protegido, e as mensagens são vinculadas em
+  `pedido_oracao_mensagem`.
+  - O alcance depende de `pedido_oracao_proposta`, criada pela migration 5
+    dentro do próprio lote e hoje ausente, e de `messages`, com 0 linhas em
+    27/10. A consulta de 15:29 UTC também confirmou 0 conversas e ausência das
+    tabelas de proposta e vínculo de oração.
+  - Não dá para contar antes por SQL nominal. Com a quiescência garantida,
+    nenhuma proposta nova surge entre a 5 e a 22. Revalidar `messages` na
+    reconferência.
+- **FK de célula** (18) e **índice único de vínculo** (41): exigem
+  `invalid_cell_links=0` e duplicidade 0 na reconferência.
+- **Preservação:**
+  - repetir as contagens agregadas antes e depois: igreja, usuário mestre
+    utilizável ligado à Pessoa, papéis, platform admin, 4 planos e permissões;
+  - essas contagens não provam conteúdo idêntico.
+- **Logout:** depois do deploy, tokens sem `jti` recebem 401 (migration 40 +
+  código), e todas as sessões caem. **Avisar a equipe antes da janela.**
+- **Migrations de reset** (42, 46): só ajustam o que um reset faz quando
+  executado. **Não autorizam nenhum reset.**
+- **Smoke:** sem envio, cobrança, broadcast nem mutação fora do escopo. Login
+  cria sessão e POSTs têm efeito, então precisam constar na descrição da
+  janela. **Nada disso é feito agora.**
+
+### Pendências reais antes de pedir autorização de janela
+
+1. Adaptador real da transição inicial, com ensaio sintético e revisão
+   independente.
+2. Backup de janela autorizado, com checksum conferido. Prova de restore à
+   parte.
+3. `release_preflight.py` completo no SHA aprovado, executado fora do modelo
+   ou sob encapsulamento remoto revisado de agregados, sem stdout/stderr bruto
+   contendo UUIDs. Com achado, parar sem copiar linhas. Revalidar na janela os
+   fatos de 27/10: backfills 1, 2 e 10 em 0,
+   filas, Redis, configuração do agente e topologia.
+4. Decisão nominal de contenção e gates. Os quatro consumidores já estão
+   identificados.
+5. `statement_timeout` efetivo e atributos da role do aplicador, que precisa
+   ter SUPERUSER ou BYPASSRLS como dono dos contratos.
+6. Revisão do pacote do release por allowlist, sem abrir conteúdo protegido.
+7. Aviso de logout à equipe.
+8. Aprovação nominal única da janela, cobrindo as 51, as ações e os SHAs
+   (aplicação e adaptador). Registrar antes da execução o início UTC, o
+   operador e a duração máxima numérica em minutos, fundamentada no ensaio;
+   ao excedê-la, manter a contenção segura e pedir decisão, sem retomada ou
+   reabertura automática. Não há janela nem duração operacional aprovadas agora.
+
+Fora deste release: provisionar logins de runtime (opcional) e ativar a Jev.
 
 ## Estado e gates
 
@@ -72,6 +544,10 @@ exige contenção e autorizações próprias. Isso não é ordem para fechar gat
 agora.
 
 ## Bloqueios concretos em PROD (leitura de 24/10/2026)
+
+**Histórico (27/10).** Os números abaixo (124/46) e a duplicidade são de 24/10.
+A reconciliação foi cancelada pelo dono e, depois do reset, a leitura mostra
+0 grupos. Ver "Plano e prévia atual".
 
 Leitura somente leitura autorizada pelo pedido da sessão; nenhum deploy,
 migration ou restart foi executado. Sem PII, UUIDs, `.env` ou valores secretos.
@@ -303,7 +779,8 @@ Este documento e o merge do código não são autorizações operacionais.
    exclusão explícita (cinco: a outbox, os helpers de resumo `_snapshot`,
    `_requester` e `_credential` e `queue_resolve_instance` da #590; 15 definers
    `row_security=off` classificados), então um definer novo esquecido falha.
-3. **Reconciliação manual antes da #543.** Antes de aplicar
+3. **Reconciliação manual antes da #543** (histórico; em 27/10, 0 duplicidades
+   depois do reset e reconciliação cancelada; resta só a reconferência). Antes de aplicar
    `20261025_100000_team_pessoa.sql`, confirmar zero duplicidades da chave
    `(igreja_id, pessoa_id)`. Qualquer duplicidade de igreja/pessoa exige
    reconciliação manual pelo fluxo administrativo autorizado. O operador entrega
@@ -406,6 +883,10 @@ Esse é um requisito de preparação local, não uma autorização ou procedimen
 executável em produção. Nenhum gate deve ser fechado para realizar o ensaio.
 
 ## Reconciliação excepcional de vínculo duplicado
+
+**Histórico (27/10): cancelada pelo dono e não aplicável ao release atual.**
+Depois do reset, há 0 duplicidades. Não pedir UUIDs nem DSN, e não executar
+`reconcile_team_pessoa.py` para este release.
 
 **Estado: preparação.** Código e testes sintéticos; não executado em nenhum
 ambiente real. Não autoriza a operação.
@@ -1048,6 +1529,10 @@ capacidade nova do agente. Os testes/ensaio não entram nos workflows, e os
 quatro checks do SHA publicado são prova separada.
 
 ## Transição inicial integrada legado→atual — ensaio local sintético
+
+**Histórico (27/10).** Este ensaio usa 46 migrations, catálogo de 124 e etapa de
+reconciliação. Não reflete o candidato atual (51/129, sem reconciliação), e o
+adaptador real continua pendente (ver "Plano e prévia atual").
 
 **Estado: código integrado (#579–#581, `84fb7f11`/`74919ee0`/`87ba1e42`); procedimento
 ainda sintético.** Não é procedimento executável em PROD, não toca
