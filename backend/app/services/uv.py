@@ -78,7 +78,7 @@ def create_turma(db, user, payload):
     t, uid, roles = actor(db, user)
     # Request UUID is an opaque idempotency key; conflicts never overwrite intent.
     inserted = db.execute(text('''insert into uv_turmas(id,igreja_id,nome,criada_por) values(:id,:t,:nome,:autor)
-        on conflict (id) do nothing returning id'''), dict(id=payload.id, t=t, nome=payload.nome, autor=uid)).scalar_one_or_none()
+        on conflict do nothing returning id'''), dict(id=payload.id, t=t, nome=payload.nome, autor=uid)).scalar_one_or_none()
     row = turma(db, t, payload.id, lock=True)
     if row['nome'] != payload.nome:
         raise HTTPException(409, 'Identificador reutilizado com outros dados')
