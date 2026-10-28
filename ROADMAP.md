@@ -76,6 +76,8 @@ Nenhuma migration ou operação em produção; adaptador real segue pendente.
 **Adaptador — preparação e revisão local concluídas (28/10/2026):** branch
 `feat/first-transition-adapter-20261027`, base `37c7d68d` (#598).
 Publicação autorizada em 28/10: commit, push e PR para revisão, sem merge/deploy.
+Preview Vercel desabilitado somente nesta branch, conforme autorização específica;
+`frontend/vercel.json` não muda outras branches nem configurações remotas.
 Preflight completo pré/pós, dump/restore fictício com extensões, matriz de cinco
 pontos de SIGKILL e contrato de host 3 Compose + 1 avulso por simulador.
 Arquivo de dump temporário, `archive_persisted=false`; não é backup operacional.
