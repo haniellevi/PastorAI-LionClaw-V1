@@ -71,7 +71,27 @@ def database(plan, tmp_path):
                 INSERT INTO public.first_transition_fixture VALUES
                     ('dddddddd-0000-4000-8000-000000000001','fictitious restore payload')""")
         seeded.commit()
-    return url, nonce
+    yield url, nonce
+    # SIGKILL bypasses a child's finally. This fixture owns the private test
+    # cluster: sweep only UUID clones with valid ownership UUID comments.
+    from uuid import UUID
+    from psycopg2 import sql
+    import re
+    with LocalDatabase(url, nonce) as owner:
+        with owner.conn.cursor() as cur:
+            cur.execute("SELECT datname,shobj_description(oid,'pg_database') FROM pg_database WHERE datname LIKE 'first_transition_restore_%'")
+            for name, marker in cur.fetchall():
+                if not re.fullmatch('first_transition_restore_[0-9a-f]{32}', name):
+                    continue
+                if not isinstance(marker, str) or not marker.startswith('igreja12-local-disposable:'):
+                    continue
+                owned_nonce = marker.removeprefix('igreja12-local-disposable:')
+                try:
+                    if str(UUID(owned_nonce)) != owned_nonce:
+                        continue
+                except ValueError:
+                    continue
+                cur.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(name)))
 
 
 def evidence(plan, db):
@@ -94,6 +114,12 @@ def execute_sql(database, sql, params=None, *, autocommit=False):
 
 
 def test_exact_51_migrations_and_idempotent_replay(plan, database, tmp_path, monkeypatch):
+    calls = []
+    original_apply = LocalDatabase.apply
+    def recorded(self, candidate, migration, **kwargs):
+        calls.append(('clone' if '/first_transition_restore_' in self._url else 'source', migration.name))
+        return original_apply(self, candidate, migration, **kwargs)
+    monkeypatch.setattr(LocalDatabase, 'apply', recorded)
     with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
         receipt = evidence(plan, db)
         result = LocalTransition(plan, db, journal).run(receipt)
@@ -103,6 +129,11 @@ def test_exact_51_migrations_and_idempotent_replay(plan, database, tmp_path, mon
         monkeypatch.setattr(db, 'apply', lambda *_: pytest.fail('completed replay must not reapply SQL'))
         assert LocalTransition(plan, db, journal).run(receipt) == result
         assert len(journal.find('done')) == 51
+        assert calls == [(target, m.name) for target in ('clone', 'source') for m in plan.pending]
+        restore = journal.last('adapter-local-restore')
+        assert restore['seq'] < journal.last('adapter-ddl-marker')['seq'] < journal.find('intent')[0]['seq']
+        from first_transition_local_backup import snapshot
+        assert snapshot(db.conn)['catalog'] == restore['clone_rehearsal']['final_schema_digest']
         execute_sql(database, 'DELETE FROM schema_migrations WHERE name=%s', (plan.pending[-1].name,))
         with pytest.raises(Refused, match='ledger-regressed'):
             LocalTransition(plan, db, journal).run(receipt)
@@ -273,7 +304,7 @@ with LocalDatabase(os.environ['FIRST_TRANSITION_LOCAL_URL'],os.environ['FIRST_TR
                FIRST_TRANSITION_LOCAL_URL=database[0], FIRST_TRANSITION_LOCAL_NONCE=database[1],
                LOCAL_BASELINE_DIGEST=receipt.baseline_digest)
     result = subprocess.run([sys.executable, '-c', script, str(ROOT), str(journal_dir), point],
-                            cwd=tmp_path, env=env, capture_output=True, timeout=30)
+                            cwd=tmp_path, env=env, capture_output=True, timeout=120)
     assert result.returncode == -signal.SIGKILL
     committed = point in ('after-commit', 'before-receipt')
     with LocalDatabase(*database) as db, Journal(journal_dir) as journal:
@@ -383,6 +414,10 @@ def test_real_synthetic_dump_restore_checks_schema_and_counts(plan, database):
         before = db.observe()
         receipt = db.rehearse_backup(plan)
         assert receipt['scope'] == 'synthetic-database-only'
+        assert receipt['clone_rehearsal']['migrations_verified'] is True
+        assert receipt['clone_rehearsal']['applied'] == 51
+        assert receipt['clone_rehearsal']['final_ledger'] == 129
+        assert receipt['clone_rehearsal']['concurrent'] == 8
         assert receipt['restore_verified'] is True
         assert receipt['content_verified'] is False
         assert receipt['archive_persisted'] is False
@@ -427,8 +462,10 @@ def test_failed_synthetic_dump_blocks_first_ddl(plan, database, tmp_path, monkey
 
 def test_host_contract_and_real_database_are_bound_end_to_end(plan, database, tmp_path):
     from first_transition_host_contract import LocalHostContract
-    from test_first_transition_host_contract import FakeHost
-    port = FakeHost()
+    from test_first_transition_host_contract import SimulatedCommandDriver
+    from first_transition_host_transport import SimulatedHostTransport
+    driver = SimulatedCommandDriver()
+    port = SimulatedHostTransport(driver)
     with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
         host = LocalHostContract(port, journal)
         contained = host.contain()
@@ -438,8 +475,9 @@ def test_host_contract_and_real_database_are_bound_end_to_end(plan, database, tm
         assert result['ledger'] == 129 and result['host_verified'] is False
         assert journal.last('adapter-local-restore')['restore_verified'] is True
         assert journal.last('adapter-preflight')['pending'] == 0
-        assert all(not state['running'] for state in port.data['services'].values())
-        assert not any(operation in ('start', 'restart') for operation, _ in port.calls)
+        assert all(not state['running'] for state in port.snapshot()['services'].values())
+        assert not any(command[:2] in (('docker', 'start'), ('docker', 'restart'))
+                       for command, _ in driver.commands)
 
 
 def test_host_drift_after_first_commit_blocks_the_next_migration(plan, database, tmp_path, monkeypatch):
@@ -472,6 +510,7 @@ def test_changed_adapter_artifact_manifest_cannot_resume_a_journal(plan, databas
             LocalTransition(plan, db, journal).run(receipt)
         assert set(journal.last('adapter-init')['adapter_sources']) == {
             'first_transition_adapter.py', 'first_transition_local_backup.py', 'first_transition_host_contract.py',
+            'first_transition_host_transport.py',
             'initial_transition_files.py', 'initial_transition_ops.py', 'release_topology.py'}
         changed = replace(plan, adapter_sources=((plan.adapter_sources[0][0], '0' * 64), *plan.adapter_sources[1:]))
         with pytest.raises(Refused, match='plan-changed'):
@@ -568,3 +607,106 @@ def test_libpq_hostaddr_environment_cannot_redirect_local_connections(plan, data
     monkeypatch.setenv('PGHOSTADDR', '127.0.0.2')
     with LocalDatabase(*database) as db:
         assert db.rehearse_backup(plan)['restore_verified'] is True
+
+
+def test_transactional_collision_in_clone_blocks_source_marker(plan, database, tmp_path, monkeypatch):
+    # A transactional object collision passes the old baseline checks but cannot
+    # satisfy the new migration. It must fail in the clone, before source DDL.
+    calls = []
+    apply = LocalDatabase.apply
+    def recorded(self, candidate, migration, **kwargs):
+        assert '/first_transition_restore_' in self._url
+        calls.append(migration.name)
+        return apply(self, candidate, migration, **kwargs)
+    monkeypatch.setattr(LocalDatabase, 'apply', recorded)
+    execute_sql(database, 'CREATE TABLE public.pedido_oracao_proposta(id integer)')
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        before = db.observe()
+        with pytest.raises(Refused, match='migration-failed'):
+            LocalTransition(plan, db, journal).run(evidence(plan, db))
+        assert db.observe() == before
+        assert len(before['ledger']) == 78
+        assert journal.last('adapter-ddl-marker') is None
+        assert journal.last('adapter-local-restore') is None
+        assert calls == [m.name for m in plan.pending[:5]]
+    assert execute_sql(database, "SELECT count(*) FROM pg_database WHERE datname LIKE 'first_transition_restore_%'") == [(0,)]
+
+
+def test_clone_replay_failure_preserves_source_and_cleans_clone(plan, database, tmp_path, monkeypatch):
+    apply = LocalDatabase.apply
+    calls = []
+    def fail_clone(self, candidate, migration, **kwargs):
+        assert '/first_transition_restore_' in self._url
+        calls.append(migration.name)
+        if len(calls) == 3:
+            raise Refused('synthetic-clone-failure')
+        return apply(self, candidate, migration, **kwargs)
+    monkeypatch.setattr(LocalDatabase, 'apply', fail_clone)
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        before = db.observe()
+        with pytest.raises(Refused, match='synthetic-clone-failure'):
+            LocalTransition(plan, db, journal).run(evidence(plan, db))
+        assert db.observe() == before
+        assert journal.last('adapter-ddl-marker') is None
+    assert calls == [m.name for m in plan.pending[:3]]
+    assert execute_sql(database, "SELECT count(*) FROM pg_database WHERE datname LIKE 'first_transition_restore_%'") == [(0,)]
+
+
+@pytest.mark.parametrize('fault', ['not-verified', 'wrong-sql', 'wrong-baseline'])
+def test_invalid_clone_receipt_blocks_marker(plan, database, tmp_path, monkeypatch, fault):
+    from first_transition_adapter import digest
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        before = db.observe()
+        backup = dict(plan_digest=plan.digest, source_identity=db.identity,
+                      baseline_digest=baseline_digest(before), restore_verified=True,
+                      clone_rehearsal=dict(migrations_verified=True, applied=51, final_ledger=129,
+                          concurrent=8, sql_digest=digest([(m.name, m.sha256) for m in plan.pending]),
+                          final_schema_digest='a'*64, clone_identity='b'*64))
+        if fault == 'not-verified':
+            backup['clone_rehearsal']['migrations_verified'] = False
+        elif fault == 'wrong-sql':
+            backup['clone_rehearsal']['sql_digest'] = '0'*64
+        else:
+            backup['baseline_digest'] = '0'*64
+        monkeypatch.setattr(db, 'rehearse_backup', lambda _plan: backup)
+        with pytest.raises(Refused, match='clone-receipt-invalid'):
+            LocalTransition(plan, db, journal).run(evidence(plan, db))
+        assert journal.last('adapter-ddl-marker') is None
+        assert journal.last('adapter-local-restore') is None
+        assert db.observe() == before
+
+
+def test_source_catalog_divergence_from_clone_is_refused(plan, database, tmp_path, monkeypatch):
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        apply = db.apply
+        def divergent(candidate, migration):
+            apply(candidate, migration)
+            if migration == plan.pending[0]:
+                execute_sql(database, 'CREATE TABLE public.synthetic_catalog_drift(id integer)')
+        monkeypatch.setattr(db, 'apply', divergent)
+        with pytest.raises(Refused, match='clone-source-schema-divergence'):
+            LocalTransition(plan, db, journal).run(evidence(plan, db))
+        assert len(db.observe()['ledger']) == 129
+        assert journal.last('adapter-database-verified') is None
+        assert journal.last('adapter-failed')['legacy_resume_allowed'] is False
+
+
+def test_clone_cleanup_terminates_leftover_client_and_preserves_failure(plan, database, tmp_path, monkeypatch):
+    import psycopg2
+    connections = []
+    def timeout(self, candidate, migration, **kwargs):
+        assert '/first_transition_restore_' in self._url
+        connections.append(psycopg2.connect(self._url))
+        raise Refused('migration-timeout')
+    monkeypatch.setattr(LocalDatabase, 'apply', timeout)
+    try:
+        with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+            before = db.observe()
+            with pytest.raises(Refused, match='^migration-timeout$'):
+                LocalTransition(plan, db, journal).run(evidence(plan, db))
+            assert db.observe() == before
+            assert journal.last('adapter-ddl-marker') is None
+        assert execute_sql(database, "SELECT count(*) FROM pg_database WHERE datname LIKE 'first_transition_restore_%'") == [(0,)]
+    finally:
+        for connection in connections:
+            connection.close()

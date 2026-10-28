@@ -107,6 +107,24 @@ novo SHA; seu resultado exato fica na descrição da PR #600. A próxima
 etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real
 contra o contrato, testando só com doubles até nova autorização. Sem merge, deploy, leituras remotas ou alterações em produção.
 
+**Continuação local autorizada — clone e transporte simulado (28/10):**
+branch `feat/first-transition-clone-transport-20261028`, base `4eea5393` da #600.
+Aplicação das 51 também no clone UUID restaurado, antes do marcador da fonte;
+ledger final 129 e preflight completo, com fonte reconferida. Transporte de
+comandos preparado com driver obrigatório de simulação, IDs explícitos e espera
+limitada, sem executor de processos/SSH. **Suíte completa após revisão: 91 passed em 260,03s, zero skips**,
+Ruff, YAML/Bash e diff check aprovados; PostgreSQL descartável removido.
+Opus 5.5 high revisou esta fatia em duas rodadas: **sem bloqueador local**,
+condicionado à suíte completa verde, condição cumprida. Correções incorporadas:
+recibo validado antes do marcador/replay, catálogo final clone/fonte comparado,
+limpeza FORCE só em clone marcado e timeouts de ensaio ampliados. Publicação
+em PR separada e CI autorizadas; resultados do head exato ficam na descrição
+da PR dependente da #600, sem necessidade de presumir prova de produção. Preview da nova branch
+explicitamente desabilitado, sem alterar outras branches ou configuração remota.
+Merge, deploy, VPS e produção continuam fora do escopo.
+Próximo passo após validação: apresentar a diff e definir ensaio físico isolado
+antes de implementar/conectar qualquer driver real. Sem merge/deploy/VPS/produção.
+
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
 | Frente | O que falta / para quê | Quem resolve |

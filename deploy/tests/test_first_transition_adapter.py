@@ -130,3 +130,24 @@ def test_reviewed_concurrent_index_names_are_exact():
         'notification_outbox_retry_igreja_created_idx', 'notification_outbox_lease_igreja_claimed_idx',
         'messages_pending_agent_igreja_created_idx', 'work_queue_pending_igreja_created_idx',
         'private_erasure_requests_overview_idx', 'private_resume_delivered_overview_idx'}
+
+
+@pytest.mark.parametrize(('path', 'restore', 'accepted'), [
+    ('first_transition_restore_' + 'a'*32, True, True),
+    ('first_transition_restore_' + 'a'*32, False, False),
+    ('first_transition_test', True, False),
+    ('first_transition_restore_' + 'A'*32, True, False),
+    ('first_transition_restore_' + 'a'*31, True, False),
+    ('first_transition_restore_' + 'a'*33, True, False),
+    ('first_transition_restore_' + 'a'*32 + '_extra', True, False),
+    ('first_transition_restore_' + 'a'*32 + '?host=remote.invalid', True, False),
+])
+def test_restore_endpoint_is_explicit_and_uuid_scoped(path, restore, accepted):
+    from first_transition_adapter import LocalDatabase
+    url = 'postgresql://postgres:synthetic-only@127.0.0.1:54321/' + path
+    nonce = 'aaaaaaaa-0000-4000-8000-000000000001'
+    if accepted:
+        LocalDatabase(url, nonce, restore=restore)  # No connection until enter.
+    else:
+        with pytest.raises(Refused, match='local-disposable-endpoint-required'):
+            LocalDatabase(url, nonce, restore=restore)

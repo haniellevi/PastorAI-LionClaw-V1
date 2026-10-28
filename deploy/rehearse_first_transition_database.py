@@ -63,7 +63,7 @@ def main(argv=None):
                     str(root / 'deploy/tests/test_first_transition_adapter.py'),
                     str(root / 'deploy/tests/test_first_transition_adapter_pg.py'),
                     str(root / 'deploy/tests/test_first_transition_host_contract.py'),
-                ], cwd=client, env=env, timeout=300)
+                ], cwd=client, env=env, timeout=600)
                 return result.returncode
         finally:
             if created:

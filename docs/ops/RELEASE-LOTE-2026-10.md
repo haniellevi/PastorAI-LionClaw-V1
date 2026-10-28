@@ -284,10 +284,63 @@ O launcher usa tmpfs, porta loopback, credencial fictícia, ambiente limpo e
 marcador de propriedade. Não instala dependências, não inicia aplicação/Redis
 nem executa transporte real de host. Só metadados saem do ensaio de restore.
 
-**Próxima fatia concreta (proposta, ainda não executada):** aplicar as 51 também
-no clone restaurado antes do marcador, mantendo o banco fonte fictício inalterado.
-Depois, implementar transporte de host contra a porta existente, inicialmente só
-com doubles. Reproduzir a validação local pelo comando acima; o launcher cria
+**Continuação local autorizada em 28/10 — validada localmente:** as 51 são aplicadas
+também no clone restaurado antes do marcador. O helper exige endpoint local
+UUID e marcador de propriedade; confere ledger 78→129, oito concorrentes,
+invariantes a cada arquivo e preflight final. O recibo vincula o digest dos SQLs
+e o resultado do clone ao diário. A fonte é reconferida por catálogo/contagens;
+falha de replay elimina o clone e impede o marcador da fonte. Os testes cobrem
+colisão transacional e interrupção de replay, sem reparar índices ou adotar ledger.
+Clone e fonte pertencem ao mesmo cluster descartável: DDL de roles é global ao
+cluster. A reconferência não prova isolamento de roles globais, payloads ou ACLs;
+um restore operacional precisará de ambiente isolado adequado e autorização.
+
+`SimulatedHostTransport` traduz o contrato para chamadas estruturadas a um driver
+obrigatório com modo `local-simulation`: observação sanitizada, bloqueio semântico
+de ingresso, `docker update --restart=no <id>`, `docker kill --signal=TERM <id>`
+e `docker wait <id>` com timeout até 30s. São dados enviados ao simulador, não
+comandos executados no host. Não existe executor de processos, SSH, start,
+deploy nem implementação presumida de Nginx/Evolution. A identidade é reconferida
+antes dos efeitos simulados; o contrato existente valida topologia/gates e diário.
+
+**Revisão e validação para publicação:** Opus 5.5 high revisou os oito arquivos
+em duas rodadas. O parecer final não encontrou bloqueadores locais e condicionou
+o aceite à suíte integral verde. Condição cumprida: **91 passed em 260,03s,
+zero skips**, Ruff, YAML/Bash e diff check aprovados. Os oito arquivos são
+idênticos ao snapshot do último parecer. Banco descartável removido.
+
+Achados incorporados: validação explícita do recibo antes do marcador e na
+retomada, comparação do catálogo final normalizado entre clone e fonte,
+limpeza `DROP DATABASE ... WITH (FORCE)` somente após nonce exato conferido,
+limite de 600s no launcher e 120s nos filhos SIGKILL, limpeza de clones UUID
+marcados no fixture do cluster próprio, docstring sobre roles globais corrigida
+e timeout do transporte sanitizado. Testes adicionais cobrem recibos inválidos,
+catálogo divergente, cliente remanescente, endpoints de clone e ordem completa
+clone51→recibo→marcador→fonte51. Um journal da versão anterior é recusado por
+`plan-changed`; não editar o diário para contornar essa guarda.
+
+O parecer não aprova produção. Sugestões não bloqueantes remanescentes:
+sanear erros do snapshot final no adaptador e reforçar validação redundante da
+identidade/flag global do recibo. A consulta de clientes continua estrita; não
+relaxá-la para resolver eventual corrida de encerramento de conexão. Contadores
+assíncronos do PostgreSQL não são tratados como prova de quiescência; ausência
+de escritas concorrentes e integridade de payload/ACL permanecem não demonstradas.
+
+A colisão comprovadamente falha na quinta migration do clone, com ledger 78
+na fonte e nenhum marcador. Falha injetada na terceira também mantém a fonte
+e remove o clone. O caminho de sucesso comprova 51 aplicadas, oito concorrentes
+e ledger 129 no clone antes de prosseguir na fonte fictícia.
+
+Branch local `feat/first-transition-clone-transport-20261028`, base `4eea5393`.
+O dono autorizou revisão Opus desta nova fatia e, se aprovada, commit/push em
+PR separada para CI. A revisão específica foi concluída; publicação autorizada
+após os 91 testes verdes. A PR depende da #600; o resultado do head exato fica
+na descrição da nova PR.
+Preview da nova branch desabilitado; nenhum merge, deploy ou acesso à VPS/produção.
+Resultados de revisão e CI do head publicado ficam na descrição da PR.
+Próximo passo: revisão da diff e proposta de ensaio físico isolado do transporte,
+com comandos, recursos e limpeza, antes de conectar qualquer driver real.
+Reproduzir a validação local pelo comando acima; o launcher cria
 somente PostgreSQL em tmpfs, porta aleatória loopback e remove seu contêiner/clones.
 Riscos locais: lock, índice concorrente incompleto ou processo interrompido;
 recuperação: conservar diagnóstico sanitizado e descartar somente os recursos
@@ -321,10 +374,9 @@ operação arriscada. A autorização de publicação desta PR não cobre essas 
    `backend-tests` inclui os 68 testes pelo launcher, imagem PG17 por digest e
    ferramentas PG17; checkout completo fornece os dois commits revisados. O parecer genérico anterior foi complementado
    pela revisão privada explicitamente autorizada; não confundir os dois.
-2. Antes da passagem ao transporte real, considerar uma fatia local de aplicação
-   dos 51 pendentes no clone restaurado, para antecipar colisões transacionais.
-   Isso não foi incorporado silenciosamente nesta revisão. Implementar o
-   transporte real contra o contrato estreito, sem remover as
+2. Ensaio dos 51 no clone e transporte de comandos simulados implementados
+   localmente nesta continuação autorizada e validados. Revisar esta nova diff;
+   depois preparar um driver real contra o contrato estreito, sem remover as
    guardas do controlador sintético. Preparar a comparação entre observação
    real e contrato; não inventar revisão Git da imagem legada, nomes ou layout.
    Sob o escopo atual, testar o código desse transporte só com doubles.

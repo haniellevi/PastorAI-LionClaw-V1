@@ -145,3 +145,113 @@ def test_crash_before_signal_is_not_blindly_resignalled(tmp_path, monkeypatch):
             LocalHostContract(port, journal).contain()
         assert ('term', 'backend') not in port.calls
         assert not journal.last('local-host-contained')
+
+
+class SimulatedCommandDriver:
+    mode = 'local-simulation'
+
+    def __init__(self):
+        self.host = FakeHost()
+        self.commands = []
+
+    def request(self, argv, *, timeout):
+        self.commands.append((argv, timeout))
+        if argv == ('snapshot-metadata',):
+            return self.host.snapshot()
+        if argv == ('block-ingress',):
+            self.host.block_ingress()
+            return True
+        if argv[:3] == ('docker', 'update', '--restart=no'):
+            self.host.disable_restart(argv[3])
+            return True
+        if argv[:3] == ('docker', 'kill', '--signal=TERM'):
+            self.host.signal_term(argv[3])
+            return True
+        if argv[:2] == ('docker', 'wait'):
+            self.host.wait_stopped(argv[2], timeout)
+            return self.host.data['services'][self.host._role(argv[2])]['exit_code']
+        raise AssertionError('unapproved simulated command')
+
+
+def test_command_transport_drives_real_contract_without_processes(tmp_path, monkeypatch):
+    import subprocess
+    from first_transition_host_transport import SimulatedHostTransport
+    monkeypatch.setattr(subprocess, 'Popen', lambda *_a, **_k: pytest.fail('no process transport'))
+    driver = SimulatedCommandDriver()
+    with Journal(tmp_path / 'journal') as journal:
+        contract = LocalHostContract(SimulatedHostTransport(driver), journal)
+        assert contract.contain()['host_verified'] is False
+        effects = [item for item in driver.commands if item[0] != ('snapshot-metadata',)]
+        expected = [(('block-ingress',), 5)]
+        for role in ROLES:
+            identifier = driver.host.data['services'][role]['id']
+            expected.extend([(('docker', 'update', '--restart=no', identifier), 5),
+                             (('docker', 'kill', '--signal=TERM', identifier), 5),
+                             (('docker', 'wait', identifier), 30)])
+        assert effects == expected
+        contract.contain()
+        assert [item for item in driver.commands if item[0] != ('snapshot-metadata',)] == effects
+
+
+@pytest.mark.parametrize('method', ['disable_restart', 'signal_term', 'wait_stopped'])
+def test_transport_refuses_arbitrary_targets_and_replaced_identity(method):
+    from first_transition_host_transport import SimulatedHostTransport
+    driver = SimulatedCommandDriver()
+    transport = SimulatedHostTransport(driver)
+    transport.snapshot()
+    args = (30,) if method == 'wait_stopped' else ()
+    with pytest.raises(Refused, match='transport-target'):
+        getattr(transport, method)('other; shell-command', *args)
+    identifier = driver.host.data['services']['backend']['id']
+    driver.host.data['services']['backend']['id'] = 'f' * 64
+    with pytest.raises(Refused, match='transport-identity-changed'):
+        getattr(transport, method)(identifier, *args)
+    assert all(command == ('snapshot-metadata',) for command, _ in driver.commands)
+
+
+def test_transport_refuses_real_driver_before_any_call():
+    from first_transition_host_transport import SimulatedHostTransport
+    driver = SimulatedCommandDriver()
+    driver.mode = 'remote'
+    with pytest.raises(Refused, match='transport-simulation-required'):
+        SimulatedHostTransport(driver)
+    assert driver.commands == []
+
+
+def test_transport_timeout_holds_without_resignal(tmp_path):
+    from first_transition_host_transport import SimulatedHostTransport
+    driver = SimulatedCommandDriver()
+    driver.host.timeout = True
+    with Journal(tmp_path / 'journal') as journal:
+        with pytest.raises(Refused, match='local-host-timeout'):
+            LocalHostContract(SimulatedHostTransport(driver), journal).contain()
+        assert not journal.last('local-host-contained')
+        assert driver.host.calls.count(('term', 'backend')) == 1
+        assert all(command[:2] not in (('docker', 'start'), ('docker', 'restart'))
+                   for command, _ in driver.commands)
+
+
+def test_transport_sanitizes_errors_and_bounds_wait():
+    from first_transition_host_transport import SimulatedHostTransport
+    driver = SimulatedCommandDriver()
+    transport = SimulatedHostTransport(driver)
+    transport.snapshot()
+    with pytest.raises(Refused, match='transport-wait-bound'):
+        transport.wait_stopped('1' * 64, 31)
+    def fail(*_args, **_kwargs):
+        raise ValueError('synthetic-private-payload')
+    driver.request = fail
+    with pytest.raises(Refused, match='simulated-transport-failed') as failure:
+        transport.snapshot()
+    assert 'synthetic-private-payload' not in str(failure.value)
+
+
+
+def test_transport_timeout_is_sanitized_even_without_contract():
+    from first_transition_host_transport import SimulatedHostTransport
+    driver = SimulatedCommandDriver()
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError('synthetic-private-timeout-details')
+    driver.request = timeout
+    with pytest.raises(TimeoutError, match='^simulated-transport-timeout$'):
+        SimulatedHostTransport(driver).snapshot()
