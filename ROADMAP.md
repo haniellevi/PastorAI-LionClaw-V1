@@ -98,9 +98,12 @@ da PR, removido somente um espaço final no helper de backup; sem alteração se
 CI própria preparada no check `backend-tests`: histórico Git completo, imagem
 PG17 por digest, ferramentas PG17 pelo repositório oficial PGDG e launcher dos
 68 testes. A primeira tentativa de CI falhou na instalação do client ausente
-no Ubuntu; corrigida a origem do pacote, sem mudar o código revisado. Os seis workflows
-foram disparados; resultado remoto do candidato ainda não verificado e registrado
-na descrição da PR assim que concluído (evidência vinculada ao SHA exato). A próxima
+no Ubuntu; corrigida a origem do pacote, sem mudar o código revisado. CI de `8ef92e3a7cfdb75e9c366a168ddff415962a8b5b` aprovada em 28/10:
+`backend-tests`, `frontend-ci`, `e2e-critical`, `rls-integration` (quatro shards
+e agregador), `tooling-static` e `synthetic-release`. No CI, os 68 testes do
+adaptador passaram em 154,49s, com limpeza confirmada. Nenhum deployment Vercel
+para esta branch na consulta de metadados. Esta atualização documental gera
+novo SHA; seu resultado exato fica na descrição da PR #600. A próxima
 etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real
 contra o contrato, testando só com doubles até nova autorização. Sem merge, deploy, leituras remotas ou alterações em produção.
 

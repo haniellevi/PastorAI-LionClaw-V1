@@ -226,7 +226,9 @@ Não cobre merge, deploy, leitura remota ou qualquer operação em produção.
 Worktree `first-transition-20261027/PastorAi-1.0`, branch
 `feat/first-transition-adapter-20261027`, base `37c7d68d` (PR #598), publicada
 na [PR #600](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/600).
-CI do SHA publicado em acompanhamento; resultado final na descrição da PR.
+CI de `8ef92e3a7cfdb75e9c366a168ddff415962a8b5b` aprovada: quatro checks
+obrigatórios, estático e ensaio sintético. Head após esta atualização documental
+é validado novamente e registrado na descrição da PR.
 Preview Vercel desabilitado somente nesta branch, por autorização específica.
 O controlador sintético anterior e suas guardas continuam intactos.
 
@@ -271,7 +273,9 @@ Inclui fluxo integrado host simulado → preflight → dump/restore fictício �
 51 migrations → preflight final; quatro roles NOLOGIN; repetição idempotente;
 drift do host após o primeiro commit bloqueando a próxima migration. Só
 PostgreSQL descartável e subprocessos do ensaio foram executados; os recursos
-do ensaio foram removidos. Revisão independente local: concluída nos sete arquivos enviados; CI do novo adaptador: **não verificado**.
+do ensaio foram removidos. Revisão independente local: concluída nos sete arquivos enviados; CI do adaptador em `8ef92e3a`: **aprovada**, 68 testes em 154,49s e limpeza
+confirmada. O primeiro CI falhou por ausência do client PG17; o workflow passou
+a instalar pelo repositório oficial PGDG, sem mudança no adaptador.
 
 **Reproduzir:** usar Python 3.13 já preparado com pytest/psycopg2, ferramentas
 PG17 em `/usr/lib/postgresql/17/bin` e imagem local `postgres:17.6`. Executar
