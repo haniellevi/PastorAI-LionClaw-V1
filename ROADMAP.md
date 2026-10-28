@@ -96,7 +96,9 @@ relação. Candidatos são revalidados até a migration correspondente ser aplic
 removidos. Parecer e manifesto do snapshot revisado em `output/release/`. Na preparação
 da PR, removido somente um espaço final no helper de backup; sem alteração semântica.
 CI própria preparada no check `backend-tests`: histórico Git completo, imagem
-PG17 por digest, ferramentas PG17 e launcher dos 68 testes. Os seis workflows
+PG17 por digest, ferramentas PG17 pelo repositório oficial PGDG e launcher dos
+68 testes. A primeira tentativa de CI falhou na instalação do client ausente
+no Ubuntu; corrigida a origem do pacote, sem mudar o código revisado. Os seis workflows
 foram disparados; resultado remoto do candidato ainda não verificado e registrado
 na descrição da PR assim que concluído (evidência vinculada ao SHA exato). A próxima
 etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real

@@ -101,8 +101,20 @@ jobs:
           umask 022
           # Ferramentas somente no runner efêmero; sem credenciais de ambiente.
           if [[ ! -x /usr/lib/postgresql/17/bin/pg_dump || ! -x /usr/lib/postgresql/17/bin/pg_restore ]]; then
+            # Ubuntu 24.04 fornece PG16; PG17 vem do repositório oficial PGDG.
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl --fail --show-error --silent --location \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+            printf '%s\n' \
+              'Types: deb' \
+              'URIs: https://apt.postgresql.org/pub/repos/apt' \
+              'Suites: noble-pgdg' \
+              'Components: main' \
+              'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+              | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
             sudo apt-get update
-            sudo apt-get install --yes postgresql-client-17
+            sudo apt-get install --yes --no-install-recommends postgresql-client-17
           fi
           pg_image=postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
           docker pull "$pg_image"
