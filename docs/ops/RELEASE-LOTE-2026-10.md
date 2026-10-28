@@ -54,8 +54,9 @@ via CLI/API/deploy hooks; esses caminhos continuam fora da autorização.
 4. Conferir por metadados workflow desabilitado, variável false, vínculo Git
    desconectado e ausência de publicações pendentes. Registrar evidências;
    não presumir suspensão apenas por sucesso do comando.
-5. Após confirmação, publicação da PR autorizada: criar PR independente da
-   suspensão e rodar CI. Seu merge exige autorização própria. Integrá-la antes
+5. Após confirmação, publicação da PR autorizada: [PR #603](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/603)
+   independente sobre main, com CI. Reutiliza o lock de auditoria já corrigido
+   na #597 (msgpack 1.2.3, arquivo idêntico); runtime da aplicação inalterado. Seu merge exige autorização própria. Integrá-la antes
    de #597–#602, preservando `deploymentEnabled=false` ao resolver o conflito
    esperado com os arquivos adicionados nas #600–#602. A #597 também atualiza
    ROADMAP: preservar a decisão vigente e os demais registros novos.
