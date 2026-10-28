@@ -52,27 +52,52 @@ A lista antiga de 22 tarefas está arquivada e não determina o progresso atual.
 
 **Outra correção adicional:** [PR #596](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/596) — evita falha quando dois pedidos iguais criam a mesma turma da Universidade da Vida ao mesmo tempo. 89 testes locais aprovados; revisão Codex e Opus aprovada. Estado atual: integrada na main em `afdfb78d`; quatro checks e Vercel aprovados no head `83dfcc4b`; CI da main com os quatro checks aprovados.
 
-**Agora:** plano e prévia revisados por Codex e Opus, disponíveis no [runbook operacional de release](docs/ops/RELEASE-LOTE-2026-10.md) para o SHA `afdfb78d71a53f2861632806e13cdda4662d7d63`, com 51 migrations pendentes e a primeira transição da instalação legada na VPS srv2031318. O dono recebe plano e prévia antes de qualquer aplicação. Próxima tarefa técnica local: implementar e ensaiar o adaptador da primeira transição, revisar o pacote e fixar o SHA do executor; não há deploy pronto para disparar. A correção de acesso duplicado foi CANCELADA após reset externo; não pedir identificadores nem executar reconciliação. Leitura atual confirmou 0 duplicidades. Escritas no banco, deploy, restart, gates, backup novo e canários não autorizados.
+**Agora:** plano e prévia revisados por Codex e Opus, disponíveis no [runbook operacional de release](docs/ops/RELEASE-LOTE-2026-10.md) para o SHA `afdfb78d71a53f2861632806e13cdda4662d7d63`, com 51 migrations pendentes e a primeira transição da instalação legada na VPS srv2031318. O dono recebe plano e prévia antes de qualquer aplicação. Preparação local do adaptador ensaiada; próximos passos são publicação/CI autorizadas e implementação do transporte real contra o contrato, antes de qualquer ensaio físico adicional; não há deploy pronto para disparar. A correção de acesso duplicado foi CANCELADA após reset externo; não pedir identificadores nem executar reconciliação. Leitura atual confirmou 0 duplicidades. Escritas no banco, deploy, restart, gates, backup novo e canários não autorizados.
 
 **Consolidação local — 27/10/2026:** a pasta principal `PastorAi-1.0` foi atualizada por fast-forward para `afdfb78d`; plano e painel agora são gerados nela. Foram removidas 95 worktrees já integradas, sem apagar branches ou commits, e 1 foi arquivada reversivelmente por cache pertencente a outro usuário. Todos os 1.241 registros de arquivos/diretórios ignorados das pastas removidas foram preservados opacamente em área privada do Git, sem abrir conteúdo nem versioná-lo. O saldo registrado ainda inclui 9 áreas sob Codex e rascunhos pendentes de revisão. DEV local recuperado e saudável; produção não alterada. As alterações de documentação e ferramenta do painel seguem em PR própria e continuam aguardando integração; não alteram fases de produção nem gates.
 
 **Retomada local — 27/10/2026:** falha da #597 identificada na auditoria do lock
 de ferramentas (`msgpack 1.2.1`); correção local para `1.2.3` validada pelas duas
-auditorias, sem vulnerabilidades conhecidas retornadas. Publicação e CI do novo
-head ainda pendentes. Ensaio SQL do candidato exato `afdfb78d` em PG 17.6
+auditorias, sem vulnerabilidades conhecidas retornadas. Correção publicada na #597 (`d0382051`), com CI aprovada; PR aberta, sem merge. Ensaio SQL do candidato exato `afdfb78d` em PG 17.6
 descartável, sem rede externa: base de 78 seguida das 51 pendentes, ledger 129,
 zero pendentes/índices inválidos, quatro roles NOLOGIN e limpeza confirmada.
-Detalhes e limites no runbook do lote. Adaptador da primeira transição e revisão
-do pacote continuam pendentes; nenhuma operação em produção.
+Detalhes e limites no runbook do lote. Pacote publicado na #599 (`b3d9347`),
+com CI aprovada e sem merge; adaptador descrito abaixo. Nenhuma operação em produção.
 
 
-**Executor de migrations — preparação de PR em 27/10:** padrão CLI de 2s,
+**Executor de migrations — PR #598 publicada em 27/10:** padrão CLI de 2s,
 com `SET LOCAL`/`SHOW` para preservar o isolamento histórico. Validação local:
 60 testes (46 unitários e 14 PG 17.6), replays 78→129 e 0→129 pela CLI,
 ledger 129 e zero índices inválidos. A histórica `20260827_175634` recebeu
 5s explícitos, conforme seu SQL; as oito pendentes concorrentes usam o caminho
-próprio. Commit/push autorizados; CI e revisão do SHA publicado pendentes.
+próprio. Head `37c7d68d`, CI aprovada; PR aberta e dependente da #597, sem merge.
 Nenhuma migration ou operação em produção; adaptador real segue pendente.
+
+**Adaptador — preparação e revisão local concluídas (28/10/2026):** branch
+`feat/first-transition-adapter-20261027`, base `37c7d68d` (#598).
+Publicação autorizada em 28/10: commit, push e PR para revisão, sem merge/deploy.
+Preflight completo pré/pós, dump/restore fictício com extensões, matriz de cinco
+pontos de SIGKILL e contrato de host 3 Compose + 1 avulso por simulador.
+Arquivo de dump temporário, `archive_persisted=false`; não é backup operacional.
+Redis permanece simulado, sem conteúdo da dead, `content_verified=false`.
+O dono autorizou
+explicitamente enviar os sete arquivos novos e resumo sanitizado ao Claude.
+Opus 5.5 high revisou o código em três rodadas; a final concluiu **sem
+bloqueador para a fatia local**, sem aprovar produção. Foram corrigidos os seis
+achados: colisão de concorrentes antes do marcador, retry de execução incompleta
+(inclusive SIGKILL) sem bloquear replay concluído, gates de backfill por fase,
+manifesto das seis dependências locais, restore com dados fictícios não vazios
+sob FORCE RLS e ordenação C do ledger. Também foram fixados hostaddr, identidade
+com OID, recibo de restore vinculado ao marcador e colisões de nomes com qualquer
+relação. Candidatos são revalidados até a migration correspondente ser aplicada.
+**Validação local repetida para publicação: 68 passed em 138,20s**, Ruff aprovado, PostgreSQL e clones
+removidos. Parecer e manifesto do snapshot revisado em `output/release/`. Na preparação
+da PR, removido somente um espaço final no helper de backup; sem alteração semântica.
+CI própria preparada no check `backend-tests`: histórico Git completo, imagem
+PG17 por digest, ferramentas PG17 e launcher dos 68 testes. Resultado remoto
+do candidato ainda não verificado; será registrado na descrição da PR. A próxima
+etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real
+contra o contrato, testando só com doubles até nova autorização. Sem merge, deploy, leituras remotas ou alterações em produção.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
