@@ -399,6 +399,8 @@ def validate_clone_receipt(backup, plan, identity, baseline):
             and backup.get('restore_verified') is True, 'clone-receipt-invalid')
     clone = backup.get('clone_rehearsal')
     require(isinstance(clone, dict) and clone.get('migrations_verified') is True
+            and clone.get('clone_identity') != identity
+            and clone.get('cluster_global_ddl_possible') is True
             and type(clone.get('applied')) is int and clone['applied'] == len(plan.pending)
             and type(clone.get('final_ledger')) is int and clone['final_ledger'] == len(plan.migrations)
             and type(clone.get('concurrent')) is int and clone['concurrent'] == sum(m.concurrent for m in plan.pending)
@@ -513,7 +515,11 @@ class LocalTransition:
             preflight = self.db.full_preflight(self.plan, len(ledger))
             require_clean_preflight(preflight, complete=True)
             from first_transition_local_backup import snapshot
-            require(snapshot(self.db.conn)['catalog'] == backup['clone_rehearsal']['final_schema_digest'],
+            try:
+                source_schema = snapshot(self.db.conn)['catalog']
+            except Exception:
+                raise Refused('clone-source-schema-check-failed') from None
+            require(source_schema == backup['clone_rehearsal']['final_schema_digest'],
                     'clone-source-schema-divergence')
             self._check_host(evidence)
             self.j.append('adapter-preflight', phase='after-ddl', **preflight)

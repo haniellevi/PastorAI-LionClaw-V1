@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "feat/first-transition-adapter-20261027": false,
-      "feat/first-transition-clone-transport-20261028": false
+      "feat/first-transition-clone-transport-20261028": false,
+      "feat/local-transport-rehearsal-20261028": false
     }
   }
 }

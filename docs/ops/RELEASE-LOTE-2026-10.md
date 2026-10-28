@@ -319,12 +319,15 @@ catálogo divergente, cliente remanescente, endpoints de clone e ordem completa
 clone51→recibo→marcador→fonte51. Um journal da versão anterior é recusado por
 `plan-changed`; não editar o diário para contornar essa guarda.
 
-O parecer não aprova produção. Sugestões não bloqueantes remanescentes:
-sanear erros do snapshot final no adaptador e reforçar validação redundante da
-identidade/flag global do recibo. A consulta de clientes continua estrita; não
-relaxá-la para resolver eventual corrida de encerramento de conexão. Contadores
-assíncronos do PostgreSQL não são tratados como prova de quiescência; ausência
-de escritas concorrentes e integridade de payload/ACL permanecem não demonstradas.
+O parecer não aprova produção. Na preparação local posterior (base `84366305`),
+as sugestões restantes foram implementadas: erros do snapshot final viram
+`clone-source-schema-check-failed`, sem detalhes do driver, e o recibo exige
+identidade de clone diferente da fonte e declaração explícita de DDL global.
+Testes negativos adicionais cobrem identidade, plano e flags divergentes.
+Essa nova diff ainda não tem revisão externa ou CI; nenhuma chamada remota foi
+feita nesta preparação. A consulta de clientes continua estrita; não relaxá-la
+para resolver eventual corrida de encerramento de conexão. Estatísticas
+assíncronas não são prova de quiescência, payloads ou ACLs.
 
 A colisão comprovadamente falha na quinta migration do clone, com ledger 78
 na fonte e nenhum marcador. Falha injetada na terceira também mantém a fonte
@@ -408,11 +411,142 @@ SIGTERM sem recibo, com processo ainda vivo, resulta em espera limitada/recusa;
 não há re-sinalização ou escalada automática. Exit code 0 continua exigido até
 um ensaio real autorizado demonstrar o comportamento do alvo.
 
+### Ensaio local de comandos — executado com aprovação
+
+Escopo executado após aprovação explícita: testar **somente o codificador de comandos compartilhado com
+`SimulatedHostTransport`** contra quatro processos Python fictícios no Docker
+local. Não conectar um executor real ao contrato que exige simulação. Não é
+ensaio dos workers reais, Compose, ingresso, filas, banco ou entrega a provedor;
+nenhum provedor é chamado. Essas provas continuam pendentes em fatias próprias.
+
+Preparado em `deploy/rehearse_first_transition_commands.py`, branch local
+`feat/local-transport-rehearsal-20261028`, base `84366305`. O modo padrão imprime
+JSON sem iniciar processos, consultar Docker ou criar relatório. Só `--execute`
+inicia recursos; `--cleanup-only` apenas remove fixtures próprias. O dono
+autorizou especificamente este ensaio e sua limpeza; não autorizou ações remotas.
+
+Imagem local consultada apenas por metadados, sem execução:
+`sha256:602bd2aff0fd122ec9161a5c1cbb5b10b8551be472633ec36e560914849fc96f`,
+tag local `igreja12-release-package:afdfb78d`, sem volumes declarados. A imagem
+não será baixada, construída, publicada ou retagueada; falta local provoca recusa.
+A entrada da aplicação é substituída por Python isolado com `signal/sys/time`,
+que só imprime `fixture-ready`, espera SIGTERM e sai com 0.
+
+**Recursos e impactos aprovados:**
+
+- Quatro contêineres com prefixo
+  `igreja12-transport-probe-bcf190b5d3864e3ca760c0b2b0d2b801-`, um por papel.
+- `--network=none`; nenhuma porta, rede criada, volume, montagem, segredo ou
+  socket dentro dos contêineres. Healthcheck da imagem desabilitado; somente a
+  fixture Python é executada. Rootfs somente leitura, usuário 65534,
+  capabilities removidas e `no-new-privileges`.
+- Cada fixture limitada a 128 MiB sem swap adicional, 0,25 CPU e 32 PIDs;
+  total máximo de 512 MiB, 1 CPU e 128 PIDs. Logs locais de até 1 MiB por fixture.
+  Há pequeno uso de disco para metadados e logs do Docker.
+- Configuração Docker temporária vazia, ambiente construído e socket explícito
+  `unix:///var/run/docker.sock`; sem contexto remoto ou configuração `.env`.
+- Setup cria/inicia apenas fixtures. Depois: `update --restart=no`, conferência,
+  `kill --signal=TERM`, `wait` limitado e conferência de saída 0/sem reinício.
+  `restart=always` inicial existe só para provar sua remoção; não altera serviços reais.
+- Limite global da execução de 180s; limpeza com até 5s por comando (até 80s
+  de timeouts para quatro recursos, mais overhead). Relatório JSON sanitizado
+  em `/tmp`, criado exclusivamente, sem sobrescrever arquivo existente.
+
+**Comando da execução aprovada (registro; relatório não é sobrescrito):**
+
+```bash
+umask 022
+/tmp/pastor-retomada-597-venv/bin/python \
+  /home/raniel-linux/.codex/worktrees/first-transition-20261027/PastorAi-1.0/deploy/rehearse_first_transition_commands.py \
+  --image sha256:602bd2aff0fd122ec9161a5c1cbb5b10b8551be472633ec36e560914849fc96f \
+  --run-id bcf190b5d3864e3ca760c0b2b0d2b801 \
+  --report /tmp/igreja12-transport-bcf190b5d3864e3ca760c0b2b0d2b801-retry.json \
+  --execute
+```
+
+**Limpeza e recuperação:** `finally` procura somente os quatro nomes planejados,
+confere o label de propriedade UUID e remove pelo ID com `docker rm -f`.
+Troca de propriedade ou indisponibilidade do Docker deixa relatório `incomplete`;
+nunca remover recurso não reconhecido, executar prune ou limpar por prefixo amplo.
+O uso de força limita-se às fixtures fictícias aprovadas, inclusive uma que
+não tenha respondido ao sinal. Nenhuma imagem, rede, volume ou recurso alheio
+é removido. Configuração Docker temporária é apagada; relatório é preservado.
+Em SIGKILL do próprio controlador ou falha de energia, `finally` não é garantido:
+reconciliar os mesmos nomes/labels pelo comando específico abaixo, também parte
+da aprovação específica recebida; ele não inicia processos de fixture nem toca recursos alheios.
+
+```bash
+/tmp/pastor-retomada-597-venv/bin/python \
+  /home/raniel-linux/.codex/worktrees/first-transition-20261027/PastorAi-1.0/deploy/rehearse_first_transition_commands.py \
+  --image sha256:602bd2aff0fd122ec9161a5c1cbb5b10b8551be472633ec36e560914849fc96f \
+  --run-id bcf190b5d3864e3ca760c0b2b0d2b801 \
+  --report /tmp/igreja12-transport-bcf190b5d3864e3ca760c0b2b0d2b801-cleanup.json \
+  --cleanup-only
+```
+
+**Resultado físico: PASS, quatro fixtures e limpeza `clean`, zero falhas.**
+Todos os processos saíram com 0; restart policy `no` conferida antes do sinal,
+nenhum reinício e nenhum recurso planejado remanescente. Consulta independente
+`docker ps` restrita ao label UUID confirmou zero contêineres.
+`host_verified=false` e `production_ready=false` permanecem: este é um ensaio
+do codificador e das operações Docker sobre processos fictícios, não prova de
+contenção completa, filas, providers, Compose ou workers reais.
+
+As duas primeiras tentativas recusaram o start porque o driver de logging local
+não aceita compressão com `max-file=1`; ambas terminaram com limpeza `clean`.
+A correção adiciona `--log-opt=compress=false`, sem aumentar o limite de um
+arquivo local de 1 MiB por fixture. Os nove testes de comandos foram repetidos
+após a correção: **9 passed em 0,05s**, Ruff e diff check aprovados. A preparação
+anterior teve **106 passed em 277,79s** no launcher PG, com remoção do banco;
+nenhum teste PG foi repetido por essa alteração exclusiva do logging do ensaio.
+
+Relatório final: `/tmp/igreja12-transport-bcf190b5d3864e3ca760c0b2b0d2b801-retry.json`;
+cópia sanitizada e manifesto dos arquivos em `output/release/transport-command-execution.json`.
+A autorização seguinte cobre revisão Opus 5.5 high, correções, commit/push, PR
+separada sobre #601 e CI. Não cobre novos ensaios físicos, merge, deploy, VPS ou
+produção. Opus identificou e foram corrigidos: argumento posicional inválido no
+launcher do CI e `--run-id` ausente em execução/limpeza. A identificação explícita
+agora é obrigatória antes de abrir relatório ou executar comandos. Novos testes
+com doubles validam recusa sem escopo, socket/ambiente fixos e não sobrescrita do
+relatório; **78 passed, 2 subtests passed**; revisão final Opus 5.5 high sem bloqueadores locais, Ruff e diff check aprovados offline.
+O ensaio físico não foi repetido. Consultar a PR da branch
+`feat/local-transport-rehearsal-20261028` para o SHA e resultados finais de CI.
+
+### Ordem proposta de integração #597–#601 e nova fatia — sem execução autorizada
+
+Consulta GitHub de 28/10 confirmou #597–#601 abertas e sem merge, com seis
+workflows verdes em cada head abaixo. A PR nova deve permanecer sobre #601.
+Ordem linear sugerida: **#597 → #598 → #599 → #600 → #601 → PR desta fatia**.
+
+| PR | Base/dependência registrada | Conteúdo e observação |
+|---|---|---|
+| #597 | main | Plano/runbook/painel e correção da auditoria. Primeiro da sequência. |
+| #598 | #597 | Executor de migrations com lock timeout e fixtures corrigidas. |
+| #599 | #597 | Empacotador por allowlist; independente da #598. Pode inverter posição com ela. |
+| #600 | #598 | Adaptador local e CI; depende do executor revisado. |
+| #601 | #600 | Replay no clone e transporte simulado; head `84366305`, CI verde. |
+| PR desta fatia | #601 | Correções de recibo/erros, encoder compartilhado e ensaio de comandos com quatro fixtures sintéticos. |
+
+Heads consultados: #597 `d0382051`, #598 `37c7d68d`, #599 `b3d93473`,
+#600 `4eea5393`, #601 `84366305`. Não representam um candidato integrado.
+
+Quando houver autorização de integração, reconfirmar heads/checks e bases no
+GitHub. Após cada pai integrado, retarget da dependente para main, resolver
+sobreposição de documentos/workflows e rodar os quatro checks no novo candidato.
+Não transportar aprovação de CI entre SHAs. A autorização precisa tratar também
+possível publicação automática do frontend na main: o bloqueio atual de preview
+vale somente para as branches #600/#601 e desta fatia, não desabilita deploy da
+main. `dev-synthetic.yml` também pode promover DEV após CI da main se
+`DEV_PIPELINE_ENABLED` estiver habilitado; estado não verificado e nenhum acesso
+DEV autorizado. Backend permanece manual (`workflow_dispatch`). A decisão de
+merge deve tratar esses efeitos antes de qualquer integração. Não repinar silenciosamente o SQL `afdfb78d`
+ou executor `37c7d68d` após merges; mudança de artefatos exige revisão/ensaio.
+
 ### Fases e condições
 
-Nesta continuação de 28/10, a autorização está limitada a código, simuladores
-e banco local descartável. As leituras autorizadas e registradas em 27/10 são
-históricas; não autorizam uma nova rodada remota agora. A fase 1 e qualquer
+Nesta continuação de 28/10, a autorização vigente cobre revisão externa, código,
+testes offline, publicação no GitHub e CI. Não cobre novos ensaios físicos ou
+acesso à VPS/produção. Leituras de ambientes registradas em 27/10 são históricas. A fase 1 e qualquer
 operação real das fases 2 a 7 exigem autorização nominal para ambiente, SHAs,
 escopo, janela e operador. A fase 8 é uma decisão separada.
 
@@ -713,7 +847,9 @@ Regras de aplicação:
    identificados.
 5. `statement_timeout` efetivo e atributos da role do aplicador, que precisa
    ter SUPERUSER ou BYPASSRLS como dono dos contratos.
-6. Revisão do pacote do release por allowlist, sem abrir conteúdo protegido.
+6. Pacote por allowlist preparado e validado na #599; falta integração autorizada
+   e reconferência do pacote/imagem para os SHAs exatos escolhidos na janela, sem
+   abrir conteúdo protegido. Não tratar CI da PR como prova de deploy.
 7. Aviso de logout à equipe.
 8. Aprovação nominal única da janela, cobrindo as 51, as ações e os SHAs
    (aplicação e adaptador). Registrar antes da execução o início UTC, o

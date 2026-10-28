@@ -125,6 +125,41 @@ Merge, deploy, VPS e produção continuam fora do escopo.
 Próximo passo após validação: apresentar a diff e definir ensaio físico isolado
 antes de implementar/conectar qualquer driver real. Sem merge/deploy/VPS/produção.
 
+**Preparação local seguinte — 28/10, base `84366305`:** branch
+`feat/local-transport-rehearsal-20261028`, candidata a PR separada sobre #601.
+Pendências do Opus tratadas localmente: sanitização do erro de catálogo final,
+identidade distinta do clone e flag explícita de DDL global. Ensaio de comandos
+preparado com modo padrão sem efeitos e nove testes com doubles; execução física
+autorizada especificamente pelo dono e concluída com sucesso em 28/10. Proposta: quatro processos fictícios, sem rede/portas,
+512 MiB/1 CPU no total, imagem local imutável e limpeza por nomes/UUID próprios.
+Comandos de execução/recuperação, recursos e limites no [runbook](docs/ops/RELEASE-LOTE-2026-10.md#ensaio-local-de-comandos--executado-com-aprovação).
+**Validação local: 106 passed em 277,79s**, PostgreSQL descartável removido.
+Após acrescentar `--no-healthcheck`, os nove testes do ensaio preparado foram
+revalidados (9 passed); Ruff, YAML/Bash e diff check aprovados. Ensaio físico dos comandos: **PASS em quatro fixtures**, saídas 0, sem reinício,
+limpeza `clean` e zero contêineres do UUID na consulta local independente. As
+duas primeiras tentativas falharam no logging e foram limpas; corrigido
+`compress=false` mantendo um arquivo local de 1 MiB, com nove testes revalidados.
+Não prova workers reais, Compose, ingresso ou filas. Não confundir com o CI da #601.
+Nova autorização cobre revisão externa pelo Opus 5.5 high, correções, commit/push,
+PR separada e acompanhamento de CI; não cobre novos ensaios físicos. A revisão
+identificou argumento inválido no launcher do CI e ausência de `--run-id`
+obrigatório nos modos com efeito; ambos corrigidos. Validação posterior apenas
+offline: **78 passed, 2 subtests passed**; revisão final Opus 5.5 high sem bloqueadores locais, Ruff e diff check aprovados. Preview
+desabilitado também para esta branch. Resultados finais e SHA do CI devem ser
+consultados na PR desta branch; provas físicas acima são históricas.
+Ordem de integração proposta: **#597 → #598 → #599 → #600 → #601 → PR desta fatia** (#598/#599
+independentes entre si após #597). Nenhum merge autorizado; integração pode
+publicar frontend na main e requer decisão específica. Antes do release ainda
+faltam transporte real/ingresso/filas/topologia ensaiados e revisados, integração
+aprovada, backup/restore operacional, preflight atual sanitizado, decisões de
+contenção/gates, janela com SHAs e contingência, e retorno nominal do piloto.
+Consultas GitHub confirmaram #597–#601 abertas, sem merge e com os seis workflows
+verdes nos respectivos heads. Publicação/revisão externa estão autorizadas;
+VPS, produção, merge/deploy e novos ensaios físicos permanecem fora do escopo.
+Na integração, além do frontend automático na main, `dev-synthetic.yml` pode
+promover para DEV após CI se `DEV_PIPELINE_ENABLED` estiver habilitado (estado
+não verificado); isso precisa ser tratado antes de autorizar merge.
+
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
 | Frente | O que falta / para quê | Quem resolve |
