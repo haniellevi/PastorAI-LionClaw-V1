@@ -42,6 +42,9 @@ def operational_database(request, rls_database_url):
         cmd = [sys.executable, str(Path(migrate.__file__)), 'apply', filename, '--yes']
         if any('index concurrently' in line.lower() for line in body.splitlines() if not line.lstrip().startswith('--')):
             cmd.append('--no-transaction')
+        elif filename == '20260827_175634_d1a_tenant_runtime_integrity.sql':
+            # Match the reviewed historical SQL; retain 2s for other migrations.
+            cmd.extend(['--lock-timeout', '5s'])
         result = subprocess.run(cmd, env=dict(os.environ, MIGRATION_DATABASE_URL=url.replace('postgresql+psycopg2:', 'postgresql:')), capture_output=True, text=True)
         assert result.returncode == 0, f'{filename}: {result.stderr}'
     if request.param == 'upgrade':

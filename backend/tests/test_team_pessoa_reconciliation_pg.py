@@ -58,6 +58,9 @@ def _apply_migration(env, filename):
     command = [sys.executable, str(RUNNER), 'apply', filename, '--yes']
     if concurrent:
         command.append('--no-transaction')
+    elif filename == '20260827_175634_d1a_tenant_runtime_integrity.sql':
+        # Match the reviewed historical SQL; retain 2s for other migrations.
+        command.extend(['--lock-timeout', '5s'])
     result = subprocess.run(command, env=env, capture_output=True, text=True)
     assert result.returncode == 0, f'{filename}: {result.stderr}'
 
