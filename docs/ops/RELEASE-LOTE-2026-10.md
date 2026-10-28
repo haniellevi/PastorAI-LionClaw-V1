@@ -1,5 +1,96 @@
 # Release em lote, outubro de 2026
 
+**Atualização vigente de integração — 28/10/2026:** #603 integrada pelo merge
+`e2eb2d04f08caf46f676a4f560acc77a61c5e351`. Proteção da main agora exige somente
+backend-tests, frontend-ci, e2e-critical e rls-integration (app_id 15368), com
+strict=true e enforce_admins=true; demais regras preservadas. Vercel Git segue
+desconectado e DEV desabilitado com variável false. Publicações não reativadas.
+A #597 foi composta sobre a main resultante, preservando suspensão, painel e
+documentos; sua atualização recebeu autorização de commit/push sem force push
+e CI próprio. Resultados do novo head na PR #597; não transferir checks antigos.
+Nenhum merge da #597 nem publicação/merge das demais PRs autorizado. As seções
+de preparação anteriores são histórico. Não repinar SQL/aplicador por causa
+desta atualização.
+
+
+## Suspensão das publicações automáticas — aplicada, integração pendente
+
+Decisão do dono em 28/10: suspender publicação automática do painel e promoção
+DEV antes da integração #597–#602. Autorização posterior cobriu suspensão remota,
+verificação e, depois dela, commit/push/PR e CI. Não cobre merge, deploy, novos
+ensaios físicos locais, VPS ou dados de produção.
+
+Resultado verificado em 28/10/2026: workflow `380485201` desabilitado manualmente;
+variável booleana antes ausente agora false; vínculo Git do projeto
+`prj_e0hSMDbhUty2OK372oPcSQBXBKGE` desconectado. Metadados confirmam mesmo projeto,
+seis domínios e último deployment `dpl_AeABTdSidFDtNVSXumMeTfm857Wb`, READY.
+Nenhuma publicação pendente foi encontrada; não houve cancelamento. Não foi
+feito teste funcional do site ou acesso a dados de domínio.
+O conector não expõe a desconexão; usada CLI oficial Vercel 65.5.0 em cache
+temporário, com autenticação existente sem exibir credenciais. Comando aplicado:
+
+```bash
+vercel git disconnect --project prj_e0hSMDbhUty2OK372oPcSQBXBKGE --scope raniel-levis-projects --yes
+```
+
+Mudança versionada: `frontend/vercel.json` com `git.deploymentEnabled=false`
+(todas as branches, incluindo previews); `dev-synthetic.yml` sem `workflow_run`,
+apenas `workflow_dispatch`, mantendo main, variável habilitadora e verificação
+dos checks do candidato. Workflows de CI não são modificados. Isso não interrompe
+o painel já servido nem os serviços existentes. Não bloqueia publicação manual
+via CLI/API/deploy hooks; esses caminhos continuam fora da autorização.
+
+### Procedimento autorizado e executado — registro e reconferência
+
+1. Confirmar por metadados o projeto Vercel do painel
+   `prj_e0hSMDbhUty2OK372oPcSQBXBKGE`, equipe `raniel-levis-projects`, vínculo Git,
+   configuração do workflow DEV e execuções de publicação em fila/andamento.
+   Não ler variáveis secretas, logs pastorais, VPS ou dados de domínio. Registrar
+   o estado anterior da variável booleana e se ela estava ausente.
+2. Suspender somente o workflow de publicação DEV e definir a variável como false:
+
+   ```bash
+   gh workflow disable dev-synthetic.yml --repo haniellevi/PastorAI-LionClaw-V1
+   gh variable set DEV_PIPELINE_ENABLED --body false --repo haniellevi/PastorAI-LionClaw-V1
+   ```
+
+   Não desabilitar GitHub Actions globalmente. Isso não cancela execução já
+   iniciada: se houver uma, parar a sequência e apresentar ID, estado e impacto
+   para decidir cancelamento/recuperação, sem acessar o host.
+3. No projeto Vercel confirmado, Settings → Git → Disconnect (ou CLI acima): desconectar
+   temporariamente somente o vínculo Git do painel. Efeito: parar publicações
+   automáticas por Git, incluindo previews das outras branches; preservar
+   projeto, domínios e deployment atualmente servido. Não remover integração
+   GitHub da organização nem excluir/pausar o projeto. Se a interface/capacidade
+   disponível divergir, reapresentar a ação concreta antes de substituí-la.
+   Publicações já iniciadas e deploy hooks exigem avaliação separada.
+4. Conferir por metadados workflow desabilitado, variável false, vínculo Git
+   desconectado e ausência de publicações pendentes. Registrar evidências;
+   não presumir suspensão apenas por sucesso do comando.
+5. Após confirmação, publicação da PR autorizada: [PR #603](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/603)
+   independente sobre main, com CI. Reutiliza o lock de auditoria já corrigido
+   na #597 (msgpack 1.2.3, arquivo idêntico); runtime da aplicação inalterado. Seu merge exige autorização própria. Integrá-la antes
+   de #597–#602, preservando `deploymentEnabled=false` ao resolver o conflito
+   esperado com os arquivos adicionados nas #600–#602. A #597 também atualiza
+   ROADMAP: preservar a decisão vigente e os demais registros novos.
+
+### Recuperação e retomada
+
+Falha parcial mantém as suspensões já efetuadas; não reativar automaticamente
+para desfazer uma etapa. Registrar exatamente o que foi aplicado e o que falta.
+Não apagar deployment, domínio, imagem, volume ou dado. Suspender automação não
+é desligar o sistema em uso, nem prova de contenção de filas.
+
+Para retomar futuramente, obter autorização específica: restaurar o vínculo Git
+registrado somente com as regras Vercel revistas na main; reabilitar o workflow
+DEV apenas quando desejado, preservando o modo manual e a variável false até
+aprovação de publicação. Reativação automática exigiria outra mudança de código.
+Uma reconexão pode gerar eventos: antes dela, conferir regras, commits e filas.
+Não reverter cegamente toda a PR, pois isso reintroduziria os gatilhos automáticos.
+
+Referências: https://vercel.com/docs/project-configuration/git-configuration e
+https://vercel.com/docs/cli/git. Consultadas somente como documentação pública.
+
 Atualizado em 27/10/2026: a seção "Plano e prévia atual" vale para o candidato
 `afdfb78d71a53f2861632806e13cdda4662d7d63`. As seções datadas de 24/10/2026
 (`main` em `354a83d`) e anteriores são históricas.
