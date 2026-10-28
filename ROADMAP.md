@@ -22,6 +22,28 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Decisão vigente — 28/10/2026: suspender publicações automáticas antes da integração.**
+O dono decidiu suspender painel/Vercel e promoção DEV antes das PRs #597–#602.
+Preparação local independente sobre a main conhecida `afdfb78d`: Vercel Git
+`deploymentEnabled=false` para todas as branches; DEV somente por disparo manual,
+ainda condicionado a `DEV_PIPELINE_ENABLED=true`, main e validação do candidato.
+O CI permanece ativo. A #603 reutiliza exatamente o lock da ferramenta de auditoria
+da #597 (`msgpack` 1.2.1 → 1.2.3), permitindo validar esta PR antes dela;
+nenhuma dependência de runtime da aplicação é alterada. Suspensão remota **aplicada e verificada em 28/10/2026** com autorização nominal:
+workflow DEV `380485201` em `disabled_manually`, variável antes ausente agora
+`DEV_PIPELINE_ENABLED=false`, vínculo Git Vercel desconectado. Projeto e seis
+domínios preservados; último deployment inalterado; nenhuma publicação pendente
+na consulta. Autorizados commit/push/PR e CI após essa confirmação. Sem merge,
+deploy, ensaio físico local, acesso à VPS ou dados de produção.
+Antes de integrar qualquer PR, reconfirmar a suspensão externa descrita
+no [runbook](docs/ops/RELEASE-LOTE-2026-10.md#suspensão-das-publicações-automáticas--aplicada-integração-pendente).
+A [PR #603](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/603) deve preceder
+#597 → #598 → #599 → #600 → #601 → #602;
+reconciliar os arquivos Vercel/ROADMAP nas dependentes preservando esta decisão.
+Publicação manual, retomada automática e eventual cancelamento de execução já
+iniciada exigem autorização própria. Histórico de autorizações anteriores não
+prevalece sobre esta decisão.
+
 ## 1. Organização (histórico)
 
 Roteiro único (#480) e arquivamento documental (lotes 1 e 2, #481/#482) feitos.
