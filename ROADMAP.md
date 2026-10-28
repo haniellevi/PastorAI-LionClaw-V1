@@ -126,7 +126,7 @@ Próximo passo após validação: apresentar a diff e definir ensaio físico iso
 antes de implementar/conectar qualquer driver real. Sem merge/deploy/VPS/produção.
 
 **Preparação local seguinte — 28/10, base `84366305`:** branch
-`feat/local-transport-rehearsal-20261028`, candidata a PR separada sobre #601.
+`feat/local-transport-rehearsal-20261028`, publicada na [PR #602](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/602), sobre #601.
 Pendências do Opus tratadas localmente: sanitização do erro de catálogo final,
 identidade distinta do clone e flag explícita de DDL global. Ensaio de comandos
 preparado com modo padrão sem efeitos e nove testes com doubles; execução física
@@ -146,8 +146,8 @@ identificou argumento inválido no launcher do CI e ausência de `--run-id`
 obrigatório nos modos com efeito; ambos corrigidos. Validação posterior apenas
 offline: **78 passed, 2 subtests passed**; revisão final Opus 5.5 high sem bloqueadores locais, Ruff e diff check aprovados. Preview
 desabilitado também para esta branch. Resultados finais e SHA do CI devem ser
-consultados na PR desta branch; provas físicas acima são históricas.
-Ordem de integração proposta: **#597 → #598 → #599 → #600 → #601 → PR desta fatia** (#598/#599
+consultados na [PR #602](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/602); provas físicas acima são históricas.
+Ordem de integração proposta: **#597 → #598 → #599 → #600 → #601 → #602** (#598/#599
 independentes entre si após #597). Nenhum merge autorizado; integração pode
 publicar frontend na main e requer decisão específica. Antes do release ainda
 faltam transporte real/ingresso/filas/topologia ensaiados e revisados, integração

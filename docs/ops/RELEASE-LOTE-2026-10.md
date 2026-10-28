@@ -509,14 +509,14 @@ launcher do CI e `--run-id` ausente em execução/limpeza. A identificação exp
 agora é obrigatória antes de abrir relatório ou executar comandos. Novos testes
 com doubles validam recusa sem escopo, socket/ambiente fixos e não sobrescrita do
 relatório; **78 passed, 2 subtests passed**; revisão final Opus 5.5 high sem bloqueadores locais, Ruff e diff check aprovados offline.
-O ensaio físico não foi repetido. Consultar a PR da branch
-`feat/local-transport-rehearsal-20261028` para o SHA e resultados finais de CI.
+O ensaio físico não foi repetido. Consultar a [PR #602](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/602),
+branch `feat/local-transport-rehearsal-20261028` para o SHA e resultados finais de CI.
 
 ### Ordem proposta de integração #597–#601 e nova fatia — sem execução autorizada
 
 Consulta GitHub de 28/10 confirmou #597–#601 abertas e sem merge, com seis
 workflows verdes em cada head abaixo. A PR nova deve permanecer sobre #601.
-Ordem linear sugerida: **#597 → #598 → #599 → #600 → #601 → PR desta fatia**.
+Ordem linear sugerida: **#597 → #598 → #599 → #600 → #601 → #602**.
 
 | PR | Base/dependência registrada | Conteúdo e observação |
 |---|---|---|
@@ -525,7 +525,7 @@ Ordem linear sugerida: **#597 → #598 → #599 → #600 → #601 → PR desta f
 | #599 | #597 | Empacotador por allowlist; independente da #598. Pode inverter posição com ela. |
 | #600 | #598 | Adaptador local e CI; depende do executor revisado. |
 | #601 | #600 | Replay no clone e transporte simulado; head `84366305`, CI verde. |
-| PR desta fatia | #601 | Correções de recibo/erros, encoder compartilhado e ensaio de comandos com quatro fixtures sintéticos. |
+| #602 | #601 | Correções de recibo/erros, encoder compartilhado e ensaio de comandos com quatro fixtures sintéticos. |
 
 Heads consultados: #597 `d0382051`, #598 `37c7d68d`, #599 `b3d93473`,
 #600 `4eea5393`, #601 `84366305`. Não representam um candidato integrado.
