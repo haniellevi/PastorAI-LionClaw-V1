@@ -89,9 +89,11 @@ def agenda_reminder_turn(agenda_turn, monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
 
     current = dt.datetime.now(dt.UTC)
-    dispatch_at = notification_outbox.next_transport_window(
-        current + dt.timedelta(days=1)
-    )
+    # Keep quota retries inside the transport window even when CI runs at
+    # 20:58 São Paulo: adding minutes to a wall-clock-derived slot crossed 21h.
+    next_morning = (current.astimezone(notification_outbox.SAO_PAULO_TZ)
+                    + dt.timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+    dispatch_at = notification_outbox.next_transport_window(next_morning)
     assert dispatch_at is not None
     event_date = dispatch_at.astimezone(notification_outbox.SAO_PAULO_TZ).date()
     with turn.factory.begin() as session:
