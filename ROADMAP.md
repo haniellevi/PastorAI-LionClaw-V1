@@ -73,7 +73,7 @@ ledger 129 e zero índices inválidos. A histórica `20260827_175634` recebeu
 próprio. Head `37c7d68d`, CI aprovada; PR aberta e dependente da #597, sem merge.
 Nenhuma migration ou operação em produção; adaptador real segue pendente.
 
-**Adaptador — preparação e revisão local concluídas (28/10/2026):** branch
+**Adaptador — [PR #600](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/600) publicada (28/10/2026):** branch
 `feat/first-transition-adapter-20261027`, base `37c7d68d` (#598).
 Publicação autorizada em 28/10: commit, push e PR para revisão, sem merge/deploy.
 Preview Vercel desabilitado somente nesta branch, conforme autorização específica;
@@ -96,8 +96,9 @@ relação. Candidatos são revalidados até a migration correspondente ser aplic
 removidos. Parecer e manifesto do snapshot revisado em `output/release/`. Na preparação
 da PR, removido somente um espaço final no helper de backup; sem alteração semântica.
 CI própria preparada no check `backend-tests`: histórico Git completo, imagem
-PG17 por digest, ferramentas PG17 e launcher dos 68 testes. Resultado remoto
-do candidato ainda não verificado; será registrado na descrição da PR. A próxima
+PG17 por digest, ferramentas PG17 e launcher dos 68 testes. Os seis workflows
+foram disparados; resultado remoto do candidato ainda não verificado e registrado
+na descrição da PR assim que concluído (evidência vinculada ao SHA exato). A próxima
 etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real
 contra o contrato, testando só com doubles até nova autorização. Sem merge, deploy, leituras remotas ou alterações em produção.
 

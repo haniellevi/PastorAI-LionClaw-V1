@@ -224,7 +224,10 @@ A continuação atual cobre código, simuladores, PostgreSQL local descartável 
 desde a autorização de 28/10, commit/push e PR com CI para revisão.
 Não cobre merge, deploy, leitura remota ou qualquer operação em produção.
 Worktree `first-transition-20261027/PastorAi-1.0`, branch
-`feat/first-transition-adapter-20261027`, base `37c7d68d` (PR #598).
+`feat/first-transition-adapter-20261027`, base `37c7d68d` (PR #598), publicada
+na [PR #600](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/600).
+CI do SHA publicado em acompanhamento; resultado final na descrição da PR.
+Preview Vercel desabilitado somente nesta branch, por autorização específica.
 O controlador sintético anterior e suas guardas continuam intactos.
 
 **Aconselhamento arquitetural inicial (28/10):** Claude Opus 5.5, configurado com esforço
