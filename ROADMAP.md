@@ -22,6 +22,18 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Recuperação manual do CI, commit/push autorizado na #600 — 29/10/2026:** sobre o head
+publicado da #600 `3e3375ed`, proposta de cinco linhas: adicionar
+`workflow_dispatch` a backend-tests, frontend-ci, rls-integration, tooling-static
+e synthetic-release. E2E já possui esse gatilho. Nenhum job/permissão/gate muda.
+O dono autorizou commit/push sem force na própria #600 e acompanhamento do CI
+automático, com Sarah Opus 5.5 high. CI do novo head pendente nesta gravação;
+evidências finais serão registradas na PR. Merge e dispatch manual seguem proibidos.
+A integração futura habilita recuperação na nova main; não cria prova retroativa
+para `ed7f4c10`. Protocolo e comandos no início do runbook de release. 65 testes/30 subtestes
+offline e três cenários do gate DEV aprovados: dispatch não substitui event=push.
+Sarah Opus 5.5 high: GO do plano local, sem P0/P1; gate DEV permanece inalterado.
+
 **Correções da revisão automática da #600 — 29/10:** retomada compara presença
 e definição (hash de pg_get_indexdef) dos índices concorrentes com recibos do
 diário; divergência recusa sem reparar. Índice concorrente sem recibo após crash recusa retomada; não adota definições

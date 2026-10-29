@@ -1,5 +1,133 @@
 # Release em lote, outubro de 2026
 
+## Recuperação manual dos cinco workflows de teste
+
+Estado: preparada sobre #600 `3e3375ed`; commit/push sem force na própria PR
+e acompanhamento do CI automático autorizados pelo dono em 29/10. Evidências
+do novo head serão registradas na PR após execução. Merge e dispatch manual
+não estão autorizados; revisão externa permanece com Sarah Opus 5.5 high.
+São cinco linhas `workflow_dispatch:`, uma em cada arquivo:
+`backend-tests.yml`, `frontend-ci.yml`, `rls-integration.yml`,
+`tooling-static.yml`, `synthetic-release.yml`. E2E já permite disparo manual.
+O conjunto completo de CI continua sendo seis workflows: os cinco acima mais
+E2E já existente. Estes cinco gatilhos novos não mudam a elegibilidade de DEV:
+`check_integrated_candidate.py` consulta `event=push`; dispatch verde não
+substitui push ausente/falho para promoção. Esse gate foi mantido byte-exato. Tooling-static integra os seis workflows
+acompanhados, mas não integra a lista de cinco exigida pelo gate DEV existente.
+Dispatch aprovado fornece evidência para revisão humana, sem tornar DEV elegível.
+Jobs, scripts, versões, permissions `contents: read`, timeouts, triggers de
+push/PR e concorrência ficam iguais. Nenhum workflow de publicação/monitor
+é habilitado, editado ou disparado; não há encadeamento `workflow_run`.
+Vercel/DEV e gates continuam suspensos conforme decisão vigente.
+
+### Dependências e limite do SHA
+
+1. Commit/push na própria #600 está autorizado nesta etapa. O push acionará
+   os testes de PR já existentes, inclusive PG/containers efêmeros no runner,
+   e produzirá um novo head cujo CI terá de ser conferido.
+2. Merge depende de autorização nominal separada, sem bypass, e de decisão
+   explícita sobre a lacuna histórica da main `ed7f4c10`.
+3. Depois de integrado, os gatilhos ficam na branch padrão. O push da nova
+   main normalmente aciona os testes; só repetir manualmente se necessário,
+   autorizado e sem execução concorrente do mesmo workflow na main.
+4. Isso não dá workflow_dispatch ao commit antigo `ed7f4c10` nem reconstitui
+   o evento perdido. Um run sobre uma nova main prova apenas o SHA novo.
+   Não usar checkout de um input SHA sob workflow de outro commit como prova
+   de que o run/check pertence ao SHA antigo.
+
+Referências oficiais: [execução manual](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
+e [REST workflow dispatch](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).
+A API documenta `ref` como branch ou tag. A proposta usa `--ref main`, sem
+prometer dispatch por SHA avulso ou criar tags/branches auxiliares.
+
+### Comandos futuros — NÃO executados nesta preparação
+
+Após autorização de dispatch na main já integrada, preencher o SHA completo
+revisado. Primeiro conferir os metadados e runs ativos (queued, pending,
+waiting ou in_progress); se houver qualquer execução do workflow na main,
+não disparar outra. A concorrência existente cancela execução anterior.
+
+```bash
+repo='haniellevi/PastorAI-LionClaw-V1'
+expected_main='<SHA_COMPLETO_DA_MAIN_INTEGRADA_E_AUTORIZADA>'
+test "$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha)" = "$expected_main"
+for workflow in backend-tests.yml frontend-ci.yml rls-integration.yml tooling-static.yml synthetic-release.yml; do
+  gh api --paginate "repos/$repo/actions/workflows/$workflow/runs?branch=main&per_page=100" \
+    --jq '[.workflow_runs[] | select(.status != "completed") | {id,event,head_sha,status}]'
+done
+```
+
+Somente após confirmar listas vazias e o término dos runs de push, executar
+um workflow por vez. Repetir o procedimento para cada um dos cinco nomes acima.
+Registrar workflow, ator esperado, instante anterior ao comando e URL/ID se
+retornada. Não presumir que a CLI sempre retorna o ID; nunca escolher apenas
+"o último run". Havendo mais de um candidato compatível, parar e identificar
+a execução inequivocamente antes de contar qualquer resultado.
+
+```bash
+workflow='backend-tests.yml' # repetir para os outros quatro arquivos
+expected_actor="$(gh api user --jq .login)"
+test "$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha)" = "$expected_main" || exit 1
+dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+gh workflow run "$workflow" --repo "$repo" --ref main || exit 1
+gh run list --repo "$repo" --workflow "$workflow" --branch main \
+  --event workflow_dispatch --commit "$expected_main" --created ">=$dispatch_started" \
+  --json databaseId,workflowName,headBranch,headSha,event,createdAt,status,conclusion,url
+```
+
+Para cada ID efetivamente criado, acompanhar e conferir:
+
+```bash
+run_id='<ID_DA_EXECUCAO_CRIADA>'
+gh run watch "$run_id" --repo "$repo" --exit-status
+gh run view "$run_id" --repo "$repo" \
+  --json databaseId,workflowName,headBranch,headSha,event,createdAt,status,conclusion,url
+gh api "repos/$repo/actions/runs/$run_id" \
+  --jq '{id,workflow_id,path,head_sha,head_branch,event,created_at,actor:.actor.login,repository:.head_repository.full_name,status,conclusion,html_url}'
+```
+
+Aceitação: cada um dos cinco workflows deve ter `headSha == expected_main`,
+`headBranch == main`, workflow/caminho esperado, repositório correto,
+`createdAt >= dispatch_started` (relógio local deve estar sincronizado;
+se houver desvio, investigar o ID e horário do servidor, sem escolher por recência), ator igual ao registrado e evento
+`workflow_dispatch`, `status == completed`, `conclusion == success`;
+registrar IDs e URLs, jobs obrigatórios e app_ids esperados. Revalidar a main
+no fim. E2E também precisa de sucesso no mesmo SHA (push ou dispatch), sem
+transferir o resultado de `ed7f4c10`. Se a main mudar entre consultas ou um run
+resolver outro SHA, parar e não contá-lo para o alvo autorizado. Não há trava
+atômica entre consulta e dispatch: a checagem do run é obrigatória. Runs de PR
+podem usar merge de teste; conferir pais/árvore e não chamar isso de CI da main.
+
+Revisão final Sarah / Claude Code `claude-opus-5-5`, esforço high: GO para
+este plano local sobre `3e3375ed`, P0=0/P1=0. Sarah leu pacote sanitizado e não
+executou testes. Duas sugestões futuras no gate DEV (filtro local de evento e
+paginação) não alteram este diff; o gate permanece byte-exato. Sem commit,
+push, merge, dispatch ou novas autorizações operacionais.
+
+### Recursos, efeitos, recuperação e limpeza
+
+Usa GitHub-hosted ubuntu-24.04, minutos de Actions, downloads de dependências,
+Docker/PG17 descartáveis e artefatos de teste. RLS usa quatro shards e um
+agregador; synthetic-release faz troca/recuperação de processos apenas em
+containers sintéticos do runner. Não acessa VPS ou dados reais. Não é um ensaio
+físico local. Limpeza existente dos recursos efêmeros e descarte do runner
+permanecem; conferir os logs de cleanup. Não promete retenção zero de artefatos.
+
+Falha, cancelamento ou timeout não contam como verde. Investigar logs do SHA,
+sem afrouxar critérios/gates. Não repetir enquanto houver run ativo. Cancelar
+ou repetir uma execução exige escopo autorizado; não cancelar automaticamente
+trabalho alheio. Retirar só os cinco gatilhos seria uma futura mudança de código
+revisada/autorizada; não desabilitar workflows inteiros e não reativar DEV/Vercel.
+
+Validação desta preparação: parsing YAML e comparação estrutural com o head;
+retirar a única linha adicionada reproduz os bytes anteriores de cada workflow.
+65 testes e 30 subtestes de contratos offline passaram; três cenários com
+fetch simulado confirmaram que dispatch não substitui evidência push no gate DEV
+(push ausente, push falho e push aprovado). Nenhum teste de runtime, banco,
+container ou comando de dispatch foi executado. Corrida entre consultas ainda
+existe; run cancelado/ambíguo não conta. Preferir push e usar dispatch só como
+recuperação evita custo e cancelamentos desnecessários.
+
 **Correções da revisão automática da #600 — 29/10:** retomada compara presença
 e definição (hash de pg_get_indexdef) dos índices concorrentes com recibos do
 diário; divergência recusa sem reparar. Índice concorrente sem recibo após crash recusa retomada; não adota definições
