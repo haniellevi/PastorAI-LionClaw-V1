@@ -22,6 +22,37 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Revisão Sarah — Opus 5.5 high:** orientação vigente do dono: trabalhar
+com Sarah como revisora crítica e cética, confrontando seus achados com evidências,
+sem concordância automática. Sua revisão não concede autorização operacional.
+Na #599, revisão inicial pediu recusa de arquivos inesperados, permissões
+explícitas e prova do empacotador real no CI. Correções: exclusão documental
+explícita, diretórios 0755 e extração com permissões do pacote, Python 3.13.14
+fixado no workflow manual e execução da CLI real sobre o SHA do CI.
+35 testes e 10 subtestes locais passaram, Ruff aprovado; sem ensaio físico.
+A hipótese de diretórios root impedirem appuser foi limitada pela evidência
+de chown no Dockerfile; ainda assim as permissões agora são determinísticas.
+Inventário atual: backend/app somente Python; fora de Python/SQL nas árvores
+selecionadas existe apenas backend/migrations/README.md. .env.example aparece
+só como comentário do Compose, não é dependência executada do pacote.
+O build físico histórico de afdfb78d não valida este head; nenhum novo build
+físico foi executado. CI/revisão finais constam na PR #599 e não autorizam merge.
+
+**Atualização vigente — #598 integrada em 28/10/2026.** Merge commit
+`beb194f930eecd5bf7df744bd6e23eaa88d04b4b`, head autorizado
+`083c3f9ec720af1dfe3917980f4b68499c4a920b`. Seis workflows verdes no
+head e na main anterior antes do merge, sem bypass e com branch preservada.
+A #599 foi composta localmente sobre essa main, sem conflitos, preservando
+seu código original `b3d93473` e as suspensões Vercel/DEV da main.
+Validação local em Python 3.13: 26 testes e 8 subtestes passaram; Ruff aprovado.
+Atualização autorizada para commit/push sem force push, base main e CI da #599.
+Nenhum merge ou publicação das demais PRs autorizado. Resultados do novo head
+na [PR #599](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/599);
+checks antigos não validam o novo candidato. Os registros
+anteriores são históricos quando divergirem deste estado. Nenhum deploy,
+reativação, novo ensaio físico local, acesso à VPS ou dados de produção.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados.
+
 **Atualização vigente — #597 integrada em 28/10/2026.** Merge commit
 `940ac49ef82eedf7a67da666fab8435c12f7d760`, head autorizado
 `8542e9911083924100a10f180241808c44fe91ee`, com seis workflows verdes antes do
@@ -130,6 +161,14 @@ próprio. Commit/push autorizados; CI e revisão do SHA publicado pendentes.
 Nenhuma migration ou operação em produção; adaptador real segue pendente.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
+
+**Empacotador do release — preparação de PR em 27/10:** seleção explícita de
+blobs Git do SHA exato, sem configuração privada ou scripts administrativos;
+manifesto por arquivo. Passaram 9 testes próprios, 17 do workflow e regressão
+com 157 testes/216 subtestes. Pacote `afdfb78d`: 404 arquivos, build production
+aprovado, 396 arquivos na imagem conferidos sem divergências. Commit/push
+autorizados; CI/revisão do commit publicado pendentes. Transição legada ainda
+depende de adaptador; nenhum deploy. Evidências no runbook do lote.
 
 | Frente | O que falta / para quê | Quem resolve |
 |---|---|---|

@@ -1,5 +1,36 @@
 # Release em lote, outubro de 2026
 
+**Revisão Sarah — Opus 5.5 high:** orientação vigente do dono: trabalhar
+com Sarah como revisora crítica e cética, confrontando seus achados com evidências,
+sem concordância automática. Sua revisão não concede autorização operacional.
+Na #599, revisão inicial pediu recusa de arquivos inesperados, permissões
+explícitas e prova do empacotador real no CI. Correções: exclusão documental
+explícita, diretórios 0755 e extração com permissões do pacote, Python 3.13.14
+fixado no workflow manual e execução da CLI real sobre o SHA do CI.
+35 testes e 10 subtestes locais passaram, Ruff aprovado; sem ensaio físico.
+A hipótese de diretórios root impedirem appuser foi limitada pela evidência
+de chown no Dockerfile; ainda assim as permissões agora são determinísticas.
+Inventário atual: backend/app somente Python; fora de Python/SQL nas árvores
+selecionadas existe apenas backend/migrations/README.md. .env.example aparece
+só como comentário do Compose, não é dependência executada do pacote.
+O build físico histórico de afdfb78d não valida este head; nenhum novo build
+físico foi executado. CI/revisão finais constam na PR #599 e não autorizam merge.
+
+**Atualização vigente — #598 integrada em 28/10/2026.** Merge commit
+`beb194f930eecd5bf7df744bd6e23eaa88d04b4b`, head autorizado
+`083c3f9ec720af1dfe3917980f4b68499c4a920b`. Seis workflows verdes no
+head e na main anterior antes do merge, sem bypass e com branch preservada.
+A #599 foi composta localmente sobre essa main, sem conflitos, preservando
+seu código original `b3d93473` e as suspensões Vercel/DEV da main.
+Validação local em Python 3.13: 26 testes e 8 subtestes passaram; Ruff aprovado.
+Atualização autorizada para commit/push sem force push, base main e CI da #599.
+Nenhum merge ou publicação das demais PRs autorizado. Resultados do novo head
+na [PR #599](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/599);
+checks antigos não validam o novo candidato. Os registros
+anteriores são históricos quando divergirem deste estado. Nenhum deploy,
+reativação, novo ensaio físico local, acesso à VPS ou dados de produção.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados.
+
 **Atualização vigente — #597 integrada:** main
 `940ac49ef82eedf7a67da666fab8435c12f7d760`, merge commit do head `8542e991`,
 seis workflows verdes antes da integração. Proteções e suspensões preservadas.
@@ -312,11 +343,25 @@ reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
   revisado do executor, registrado junto ao SHA da aplicação.
 - **Controlador sintético:** proibido executá-lo em PROD, assim como remover
   ou contornar as guardas dele.
-- **Pacote do release:** o workflow empacota estaticamente `backend/` e
-  `deploy/`, o que por desenho inclui caminhos protegidos. Antes da janela é
-  preciso revisar o pacote por allowlist, com código sanitizado e metadados do
-  SHA, sem abrir, listar nem expor conteúdo protegido. O workflow não muda
-  agora; isso fica como item técnico pendente.
+- **Pacote do release — preparado para PR própria, CI/revisão pendentes:**
+  `deploy/package_backend_release.py` substitui o arquivo de diretórios inteiros
+  por seleção explícita de blobs do commit exato. Inclui Python da aplicação,
+  SQL das migrations e os arquivos necessários ao build/check/deploy; exclui
+  configuração privada, scripts administrativos, testes e ferramentas de DEV.
+  Recusa caminhos protegidos nas árvores selecionadas antes de ler blobs;
+  links simbólicos selecionados são recusados antes da leitura do próprio link;
+  não usa conteúdo do checkout nem atributos `export-ignore`/`export-subst`.
+  O manifesto registra SHA do commit e SHA-256 de cada arquivo. A alteração
+  do workflow preserva os gates de ator, ancestralidade, SHA e disparo manual.
+  O workflow da main permanece inalterado até integração autorizada.
+  Ensaio local do candidato `afdfb78d`: 404 arquivos no pacote, SHA-256
+  `7e363d73f4fd255d6ffacf9550f6118c56aad9aa6fc604b4ee182a43de65be03`;
+  build Docker do target `production` aprovado e 396 arquivos da imagem
+  conferidos por hash, zero divergências, em contêiner sem rede e somente leitura.
+  Nove testes do empacotador e 17 do workflow aprovados. Regressão de release,
+  topologia e Compose: 157 testes e 216 subtestes aprovados, sem skips.
+  Isso prova composição
+  e build locais; não prova prontidão da transição legada nem autoriza release.
 - **Proibido como atalho:** fabricar SHA anterior, label, symlink ou diretório
   `releases/` como "prova" de estado anterior.
 

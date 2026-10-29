@@ -100,8 +100,18 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/monitoring/tests
           node --test ../deploy/monitoring/tests/maintain_incident.test.js
 
+      - name: Validar pacote real do SHA do CI (sem executar backend empacotado)
+        env:
+          PACKAGE_SHA: ${{ github.sha }}
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" ../deploy/package_backend_release.py \
+            --repo .. --sha "$PACKAGE_SHA" --output "$RUNNER_TEMP/reviewed-backend-package.tar.gz"
+          rm -- "$RUNNER_TEMP/reviewed-backend-package.tar.gz"
+
       - name: Validar cortes e rollback do deploy manual
         run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release_package.py \
+            ../deploy/tests/test_backend_workflow.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_release_topology.py \
             ../deploy/tests/test_release_topology_compose.py
