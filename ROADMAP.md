@@ -1,6 +1,32 @@
 # Igreja 12 — roteiro único
 
-Atualizado em 27/10/2026 às 15:38 UTC sobre a `main` `afdfb78d`. Esta é a única fonte ativa
+## Estado vigente — integração #600 e publicação autorizada da #601 (29/10/2026)
+
+#600 integrada por merge commit `60e29d142040ebc5b21c35af18884b2449321308`,
+head autorizado `da1cc2e0`, sem bypass, git push manual ou exclusão da branch. Dono aceitou
+explicitamente a lacuna histórica da main `ed7f4c10`; isso não cria CI retroativo.
+Seis workflows automáticos event=push aprovados no SHA novo: backend
+40822044870, frontend 40822045020, E2E 40822044871, RLS 40822044970, tooling
+40822044886 e sintético 40822045064. Nenhum dispatch manual autorizado ou executado.
+
+#601: dono autorizou commit/push sem force e base main, a partir do head
+original `84366305` e da composição local com a main acima. Conflitos resolvidos preservando ensaio das 51 migrations no
+clone, identidade cluster/OID/owner antes da limpeza FORCE, todos os testes das
+duas séries e Vercel deploymentEnabled=false global herdado da main, sem alteração. Recibos de índices e recusa
+de adoção sem recibo da #600 preservados. DEV continua disabled_manually e
+DEV_PIPELINE_ENABLED=false; nenhum gate operacional alterado.
+
+Validação do candidato: 85 testes/2 subtestes offline e Ruff aprovados;
+nenhum banco/contêiner local executado. Testes PostgreSQL da composição ainda
+não verificados: dependem de publicação autorizada e CI do futuro head.
+Sarah Opus 5.5 high: GO de preparação local, sem P0/P1 após correção documental.
+CI do novo head pendente nesta gravação; evidências finais na PR #601.
+Sem autorização de merge, dispatch manual, deploy, reativação, ensaio físico
+local, VPS ou produção.
+Registros de autorização e resultados anteriores abaixo são históricos.
+
+
+Registro histórico de 27/10/2026 às 15:38 UTC sobre `afdfb78d`; estado vigente no topo. Esta é a única fonte ativa
 de planejamento; substitui os planos de MVP e refatoração e seu acompanhamento.
 O [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md) conserva os
 requisitos. As decisões de 15/10 prevalecem sobre os cortes antigos de escopo,
@@ -236,6 +262,26 @@ para esta branch na consulta de metadados. Esta atualização documental gera
 novo SHA; seu resultado exato fica na descrição da PR #600. A próxima
 etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real
 contra o contrato, testando só com doubles até nova autorização. Sem merge, deploy, leituras remotas ou alterações em produção.
+
+**HISTÓRICO — clone e transporte simulado de 28/10, publicado em `84366305`:**
+Resultados e autorização abaixo não se transferem ao candidato composto sobre
+`60e29d14`; publicação atual da #601 não autorizada.
+branch `feat/first-transition-clone-transport-20261028`, base `4eea5393` da #600.
+Aplicação das 51 também no clone UUID restaurado, antes do marcador da fonte;
+ledger final 129 e preflight completo, com fonte reconferida. Transporte de
+comandos preparado com driver obrigatório de simulação, IDs explícitos e espera
+limitada, sem executor de processos/SSH. **Suíte completa após revisão: 91 passed em 260,03s, zero skips**,
+Ruff, YAML/Bash e diff check aprovados; PostgreSQL descartável removido.
+Opus 5.5 high revisou esta fatia em duas rodadas: **sem bloqueador local**,
+condicionado à suíte completa verde, condição cumprida. Correções incorporadas:
+recibo validado antes do marcador/replay, catálogo final clone/fonte comparado,
+limpeza FORCE só em clone marcado e timeouts de ensaio ampliados. Publicação
+em PR separada e CI autorizadas; resultados do head exato ficam na descrição
+da PR dependente da #600, sem necessidade de presumir prova de produção. Preview da nova branch
+explicitamente desabilitado, sem alterar outras branches ou configuração remota.
+Merge, deploy, VPS e produção continuam fora do escopo.
+Próximo passo após validação: apresentar a diff e definir ensaio físico isolado
+antes de implementar/conectar qualquer driver real. Sem merge/deploy/VPS/produção.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 

@@ -46,7 +46,7 @@ def adapter_sources():
     root = Path(__file__).resolve().parent
     return tuple((name, hashlib.sha256(read_regular(root / name)).hexdigest()) for name in (
         'first_transition_adapter.py', 'first_transition_local_backup.py',
-        'first_transition_host_contract.py', 'initial_transition_files.py',
+        'first_transition_host_contract.py', 'first_transition_host_transport.py', 'initial_transition_files.py',
         'initial_transition_ops.py', 'release_topology.py'))
 
 
@@ -261,8 +261,8 @@ class LocalDatabase:
     is refused, even idle. This plus a DB advisory lock is a local test boundary,
     not a proof of production quiescence or full data preservation.
     """
-    def __init__(self, url, nonce):
-        local_endpoint(url)
+    def __init__(self, url, nonce, *, restore=False):
+        local_endpoint(url, restore=restore)
         try:
             require(str(UUID(nonce)) == nonce, 'disposable-marker')
         except (ValueError, TypeError, AttributeError):
@@ -401,6 +401,21 @@ def remaining_pre_ddl_gates(observation):
             'pre-ddl-backfill-candidate')
 
 
+def validate_clone_receipt(backup, plan, identity, baseline):
+    require(isinstance(backup, dict) and backup.get('plan_digest') == plan.digest
+            and backup.get('source_identity') == identity and backup.get('baseline_digest') == baseline
+            and backup.get('restore_verified') is True, 'clone-receipt-invalid')
+    clone = backup.get('clone_rehearsal')
+    require(isinstance(clone, dict) and clone.get('migrations_verified') is True
+            and type(clone.get('applied')) is int and clone['applied'] == len(plan.pending)
+            and type(clone.get('final_ledger')) is int and clone['final_ledger'] == len(plan.migrations)
+            and type(clone.get('concurrent')) is int and clone['concurrent'] == sum(m.concurrent for m in plan.pending)
+            and clone.get('sql_digest') == digest([(m.name, m.sha256) for m in plan.pending])
+            and all(isinstance(clone.get(key), str) and re.fullmatch('[0-9a-f]{64}', clone[key])
+                    for key in ('final_schema_digest', 'clone_identity')),
+            'clone-receipt-invalid')
+
+
 class LocalTransition:
     """Durable local DB sequence; incomplete post-marker runs need explicit retry.
 
@@ -452,6 +467,7 @@ class LocalTransition:
             require_clean_preflight(preflight, complete=False)
             self.j.append('adapter-preflight', phase='before-ddl', **preflight)
             backup = self.db.rehearse_backup(self.plan)
+            validate_clone_receipt(backup, self.plan, self.db.identity, baseline_digest(observed))
             backup_event = self.j.append('adapter-local-restore', **backup)
             self._check_host(evidence)
             # Re-observe immediately before the irrevocable marker; no row hashes.
@@ -468,6 +484,8 @@ class LocalTransition:
                              if event['seq'] == marker.get('restore_seq')), None)
             require(restored is not None and digest({k: v for k, v in restored.items()
                     if k not in ('seq', 'at', 'kind')}) == marker.get('restore_digest'), 'restore-receipt-changed')
+            backup = {k: v for k, v in restored.items() if k not in ('seq', 'at', 'kind')}
+            validate_clone_receipt(backup, self.plan, self.db.identity, marker['baseline_digest'])
             preflight = self.db.full_preflight(self.plan, len(observed['ledger']))
             require_clean_preflight(preflight, complete=len(observed['ledger']) == len(self.plan.migrations))
         ledger = list(observed['ledger'])
@@ -509,6 +527,9 @@ class LocalTransition:
             require(set(ledger) == {m.name for m in self.plan.migrations}, 'final-ledger')
             preflight = self.db.full_preflight(self.plan, len(ledger))
             require_clean_preflight(preflight, complete=True)
+            from first_transition_local_backup import snapshot
+            require(snapshot(self.db.conn)['catalog'] == backup['clone_rehearsal']['final_schema_digest'],
+                    'clone-source-schema-divergence')
             self._check_host(evidence)
             final = self.db.observe()
             step_invariants(final)

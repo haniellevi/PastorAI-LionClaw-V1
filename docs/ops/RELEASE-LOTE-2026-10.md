@@ -1,5 +1,38 @@
 # Release em lote, outubro de 2026
 
+## Estado vigente — integração #600 e publicação autorizada da #601 (29/10/2026)
+
+#600 integrada por merge commit `60e29d142040ebc5b21c35af18884b2449321308`,
+head autorizado `da1cc2e0`, sem bypass, git push manual ou exclusão da branch. Dono aceitou
+explicitamente a lacuna histórica da main `ed7f4c10`; isso não cria CI retroativo.
+Seis workflows automáticos event=push aprovados no SHA novo: backend
+40822044870, frontend 40822045020, E2E 40822044871, RLS 40822044970, tooling
+40822044886 e sintético 40822045064. Nenhum dispatch manual autorizado ou executado.
+
+#601: dono autorizou commit/push sem force e base main, a partir do head
+original `84366305` e da composição local com a main acima. Conflitos resolvidos preservando ensaio das 51 migrations no
+clone, identidade cluster/OID/owner antes da limpeza FORCE, todos os testes das
+duas séries e Vercel deploymentEnabled=false global herdado da main, sem alteração. Recibos de índices e recusa
+de adoção sem recibo da #600 preservados. DEV continua disabled_manually e
+DEV_PIPELINE_ENABLED=false; nenhum gate operacional alterado.
+
+Validação do candidato: 85 testes/2 subtestes offline e Ruff aprovados;
+nenhum banco/contêiner local executado. Testes PostgreSQL da composição ainda
+não verificados: dependem de publicação autorizada e CI do futuro head.
+Sarah Opus 5.5 high: GO de preparação local, sem P0/P1 após correção documental.
+A limpeza FORCE também cobre clone reivindicado ainda sem marcador após falha
+de COMMENT, somente no cluster privado descartável e com identidade preservada.
+DDL de roles no clone afeta o cluster: não comprova criação independente na fonte.
+Comando offline executado (Python 3.13, sem arquivo PG):
+`PYTHONDONTWRITEBYTECODE=1 PYTHON_DOTENV_DISABLED=1 uv run --offline --no-project --python 3.13 --with pytest python -m pytest --noconftest -p no:cacheprovider -o addopts= -q deploy/tests/test_first_transition_adapter.py deploy/tests/test_first_transition_host_contract.py deploy/tests/test_backend_workflow.py deploy/tests/test_dev_pipeline.py`.
+Ruff verificou adaptador, backup, contrato, transporte, launcher e os três
+arquivos de testes do adaptador/PG/contrato, sem execução dos testes PG.
+CI do novo head pendente nesta gravação; evidências finais na PR #601.
+Sem autorização de merge, dispatch manual, deploy, reativação, ensaio físico
+local, VPS ou produção.
+Registros de autorização e resultados anteriores abaixo são históricos.
+
+
 ## Recuperação manual dos cinco workflows de teste
 
 Estado: preparada sobre #600 `3e3375ed`; commit/push sem force na própria PR
@@ -592,10 +625,65 @@ O launcher usa tmpfs, porta loopback, credencial fictícia, ambiente limpo e
 marcador de propriedade. Não instala dependências, não inicia aplicação/Redis
 nem executa transporte real de host. Só metadados saem do ensaio de restore.
 
-**Próxima fatia concreta (proposta, ainda não executada):** aplicar as 51 também
-no clone restaurado antes do marcador, mantendo o banco fonte fictício inalterado.
-Depois, implementar transporte de host contra a porta existente, inicialmente só
-com doubles. Reproduzir a validação local pelo comando acima; o launcher cria
+**Continuação local autorizada em 28/10 — validada localmente:** as 51 são aplicadas
+também no clone restaurado antes do marcador. O helper exige endpoint local
+UUID e marcador de propriedade; confere ledger 78→129, oito concorrentes,
+invariantes a cada arquivo e preflight final. O recibo vincula o digest dos SQLs
+e o resultado do clone ao diário. A fonte é reconferida por catálogo/contagens;
+falha de replay elimina o clone e impede o marcador da fonte. Os testes cobrem
+colisão transacional e interrupção de replay, sem reparar índices ou adotar ledger.
+Clone e fonte pertencem ao mesmo cluster descartável: DDL de roles é global ao
+cluster. A reconferência não prova isolamento de roles globais, payloads ou ACLs;
+um restore operacional precisará de ambiente isolado adequado e autorização.
+
+`SimulatedHostTransport` traduz o contrato para chamadas estruturadas a um driver
+obrigatório com modo `local-simulation`: observação sanitizada, bloqueio semântico
+de ingresso, `docker update --restart=no <id>`, `docker kill --signal=TERM <id>`
+e `docker wait <id>` com timeout até 30s. São dados enviados ao simulador, não
+comandos executados no host. Não existe executor de processos, SSH, start,
+deploy nem implementação presumida de Nginx/Evolution. A identidade é reconferida
+antes dos efeitos simulados; o contrato existente valida topologia/gates e diário.
+
+**HISTÓRICO — revisão da fatia publicada em `84366305` em 28/10:**
+Os resultados abaixo não validam a composição atual sobre `60e29d14` e não
+concedem autorização atual de commit/push. Opus 5.5 high revisou os oito arquivos
+em duas rodadas. O parecer final não encontrou bloqueadores locais e condicionou
+o aceite à suíte integral verde. Condição cumprida: **91 passed em 260,03s,
+zero skips**, Ruff, YAML/Bash e diff check aprovados. Naquela revisão, os oito arquivos eram
+idênticos ao snapshot do parecer; essa identidade não vale para o candidato atual. Banco descartável removido.
+
+Achados incorporados: validação explícita do recibo antes do marcador e na
+retomada, comparação do catálogo final normalizado entre clone e fonte,
+limpeza `DROP DATABASE ... WITH (FORCE)` no helper somente após nonce exato conferido,
+limite de 600s no launcher e 120s nos filhos SIGKILL, limpeza de clones UUID
+marcados por formato UUID válido no fixture do cluster privado do launcher, docstring sobre roles globais corrigida
+e timeout do transporte sanitizado. Testes adicionais cobrem recibos inválidos,
+catálogo divergente, cliente remanescente, endpoints de clone e ordem completa
+clone51→recibo→marcador→fonte51. Um journal da versão anterior é recusado por
+`plan-changed`; não editar o diário para contornar essa guarda.
+
+O parecer não aprova produção. Sugestões não bloqueantes remanescentes:
+sanear erros do snapshot final no adaptador e reforçar validação redundante da
+identidade/flag global do recibo. A consulta de clientes continua estrita; não
+relaxá-la para resolver eventual corrida de encerramento de conexão. Contadores
+assíncronos do PostgreSQL não são tratados como prova de quiescência; ausência
+de escritas concorrentes e integridade de payload/ACL permanecem não demonstradas.
+
+A colisão comprovadamente falha na quinta migration do clone, com ledger 78
+na fonte e nenhum marcador. Falha injetada na terceira também mantém a fonte
+e remove o clone. O caminho de sucesso comprova 51 aplicadas, oito concorrentes
+e ledger 129 no clone antes de prosseguir na fonte fictícia.
+
+Registro histórico de 28/10: branch `feat/first-transition-clone-transport-20261028`, base `4eea5393`.
+O dono autorizou revisão Opus desta nova fatia e, se aprovada, commit/push em
+PR separada para CI. A revisão específica foi concluída; publicação autorizada
+após os 91 testes verdes. A PR depende da #600; o resultado do head exato fica
+na descrição da nova PR.
+Preview da nova branch desabilitado; nenhum merge, deploy ou acesso à VPS/produção.
+Resultados de revisão e CI do head publicado ficam na descrição da PR.
+Próximo passo: revisão da diff e proposta de ensaio físico isolado do transporte,
+com comandos, recursos e limpeza, antes de conectar qualquer driver real.
+Reproduzir a validação local pelo comando acima; o launcher cria
 somente PostgreSQL em tmpfs, porta aleatória loopback e remove seu contêiner/clones.
 Riscos locais: lock, índice concorrente incompleto ou processo interrompido;
 recuperação: conservar diagnóstico sanitizado e descartar somente os recursos
@@ -624,15 +712,16 @@ operação arriscada. A autorização de publicação desta PR não cobre essas 
 
 **Plano restante, em ordem:**
 
-1. Revisão dos sete arquivos concluída com Opus 5.5 high, sem bloqueador
+1. (Histórico de 28/10, anterior à composição atual.) Revisão dos sete arquivos concluída com Opus 5.5 high, sem bloqueador
    local. Publicação e CI autorizadas em 28/10, em PR dependente da #598.
-   `backend-tests` inclui os 68 testes pelo launcher, imagem PG17 por digest e
+   `backend-tests` inclui a suíte do adaptador pelo launcher; quantidade e resultado
+   dependem do CI do head exato. Usa imagem PG17 por digest e
    ferramentas PG17; checkout completo fornece os dois commits revisados. O parecer genérico anterior foi complementado
    pela revisão privada explicitamente autorizada; não confundir os dois.
-2. Antes da passagem ao transporte real, considerar uma fatia local de aplicação
-   dos 51 pendentes no clone restaurado, para antecipar colisões transacionais.
-   Isso não foi incorporado silenciosamente nesta revisão. Implementar o
-   transporte real contra o contrato estreito, sem remover as
+2. (Histórico publicado em `84366305`.) Ensaio dos 51 no clone e transporte de comandos simulados implementados
+   localmente naquela etapa e validados naquele snapshot. A validação PG da
+   composição atual está pendente no CI do futuro head. Revisar esta nova diff;
+   depois preparar um driver real contra o contrato estreito, sem remover as
    guardas do controlador sintético. Preparar a comparação entre observação
    real e contrato; não inventar revisão Git da imagem legada, nomes ou layout.
    Sob o escopo atual, testar o código desse transporte só com doubles.
