@@ -22,6 +22,61 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Atualização vigente — #597 integrada em 28/10/2026.** Merge commit
+`940ac49ef82eedf7a67da666fab8435c12f7d760`, head autorizado
+`8542e9911083924100a10f180241808c44fe91ee`, com seis workflows verdes antes do
+merge, sem bypass e com branch preservada. Main resultante `940ac49e`.
+As proteções de quatro checks e as suspensões Vercel/DEV foram reconfirmadas;
+nenhum deploy, reativação, VPS, dado de produção ou ensaio físico local.
+A #598 foi composta sobre essa main, sem conflitos, preservando integralmente
+o código e as fixtures do head anterior `37c7d68d`. Sua atualização recebeu
+autorização de commit/push sem force push, base main e acompanhamento do CI.
+Validação local em Python 3.13: **46 testes unitários passaram**; Ruff,
+JSON/YAML/Bash e diff check aprovados. Nenhum banco ou migration executado.
+Resultados do novo head na [PR #598](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/598);
+checks antigos não se transferem para ele. Nenhum merge da #598, nem publicação
+ou integração das #599–#602, autorizado nesta etapa. Merge exige decisão
+posterior às evidências do CI.
+Registros anteriores abaixo são históricos quando divergirem deste estado.
+
+**Atualização vigente — #603 integrada em 28/10/2026.** Main resultante
+`e2eb2d04f08caf46f676a4f560acc77a61c5e351`, merge commit do head autorizado
+`3283633ac6e912de7548f4e974575145083312df`, sem bypass e com branch preservada.
+Removido somente o requisito Vercel da proteção da main; backend-tests,
+frontend-ci, e2e-critical e rls-integration mantidos com app_id 15368,
+strict=true e enforce_admins=true. Demais proteções conferidas sem alteração.
+DEV continua disabled_manually com variável false; Vercel permanece sem Git e
+sem publicação pendente. Nenhum deploy, reativação, VPS ou dados de produção.
+A atualização da #597 sobre essa main teve commit/push e acompanhamento do CI
+autorizados. Preserva o histórico do head anterior `d0382051`, o painel/runbook
+e a suspensão #603, sem force push. Os resultados do novo head devem ser
+consultados na [PR #597](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/597);
+checks antigos não validam o candidato atualizado. Nenhum merge da #597 ou
+publicação/merge das #598–#602 autorizado nesta etapa. Merge depende de nova
+decisão após as evidências. Referências históricas abaixo não alteram esse limite.
+
+**Decisão vigente — 28/10/2026: suspender publicações automáticas antes da integração.**
+O dono decidiu suspender painel/Vercel e promoção DEV antes das PRs #597–#602.
+Preparação local independente sobre a main conhecida `afdfb78d`: Vercel Git
+`deploymentEnabled=false` para todas as branches; DEV somente por disparo manual,
+ainda condicionado a `DEV_PIPELINE_ENABLED=true`, main e validação do candidato.
+O CI permanece ativo. A #603 reutiliza exatamente o lock da ferramenta de auditoria
+da #597 (`msgpack` 1.2.1 → 1.2.3), permitindo validar esta PR antes dela;
+nenhuma dependência de runtime da aplicação é alterada. Suspensão remota **aplicada e verificada em 28/10/2026** com autorização nominal:
+workflow DEV `380485201` em `disabled_manually`, variável antes ausente agora
+`DEV_PIPELINE_ENABLED=false`, vínculo Git Vercel desconectado. Projeto e seis
+domínios preservados; último deployment inalterado; nenhuma publicação pendente
+na consulta. Autorizados commit/push/PR e CI após essa confirmação. Sem merge,
+deploy, ensaio físico local, acesso à VPS ou dados de produção.
+Antes de integrar qualquer PR, reconfirmar a suspensão externa descrita
+no [runbook](docs/ops/RELEASE-LOTE-2026-10.md#suspensão-das-publicações-automáticas--aplicada-integração-pendente).
+A [PR #603](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/603) deve preceder
+#597 → #598 → #599 → #600 → #601 → #602;
+reconciliar os arquivos Vercel/ROADMAP nas dependentes preservando esta decisão.
+Publicação manual, retomada automática e eventual cancelamento de execução já
+iniciada exigem autorização própria. Histórico de autorizações anteriores não
+prevalece sobre esta decisão.
+
 ## Execução autônoma solicitada em 25/10
 
 Objetivo contínuo registrado em 25/10/2026 19:56 UTC, com janela solicitada
