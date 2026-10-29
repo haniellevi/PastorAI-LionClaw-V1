@@ -86,7 +86,8 @@ class ReleasePackageTest(unittest.TestCase):
         self.assertEqual(result['files'], len(self.files))
 
     def test_unexpected_runtime_file_refuses(self):
-        for name in ('backend/app/prompts/example.md', 'backend/app/foo-bar/x.py'):
+        for name in ('backend/app/prompts/example.md', 'backend/app/foo-bar/x.py',
+                     'backend/app/README.md', 'backend/migrations/sub/README.md'):
             with self.subTest(name=name):
                 self.write(name, b'SYNTHETIC_RUNTIME_RESOURCE')
                 sha = self.commit()
@@ -97,16 +98,31 @@ class ReleasePackageTest(unittest.TestCase):
 
     def test_reviewed_documentation_exclusion(self):
         self.write('backend/migrations/README.md', b'SYNTHETIC_DOCUMENTATION')
-        package.build(self.repo, self.commit(), self.output)
+        sha = self.commit()
+        excluded_oid = self.git('rev-parse', sha + ':backend/migrations/README.md').decode().strip()
+        real_run = subprocess.run
+        reads = []
+
+        def recorded(args, **kwargs):
+            if 'cat-file' in args:
+                reads.append(args[-1])
+            return real_run(args, **kwargs)
+
+        with patch('initial_transition_files.subprocess.run', side_effect=recorded):
+            package.build(self.repo, sha, self.output)
+        self.assertNotIn(excluded_oid, reads)
         with tarfile.open(self.output) as tar:
             self.assertNotIn('backend/migrations/README.md', tar.getnames())
 
     def test_extraction_directories_under_private_umask(self):
         package.build(self.repo, self.sha, self.output)
         extracted = self.root / 'extracted'
-        extracted.mkdir()
+        extracted.mkdir(mode=0o700)
         subprocess.run(['bash', '-c', 'umask 077; tar --no-same-owner --same-permissions -xzf "$1" -C "$2"',
                         'fixture', str(self.output), str(extracted)], check=True)
+        self.assertEqual(extracted.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((extracted / 'backend/app/main.py').stat().st_mode & 0o777, 0o644)
+        self.assertEqual((extracted / 'deploy/backend-release.sh').stat().st_mode & 0o777, 0o755)
         for directory in ('backend', 'backend/app', 'backend/app/services', 'deploy'):
             self.assertEqual((extracted / directory).stat().st_mode & 0o777, 0o755)
 

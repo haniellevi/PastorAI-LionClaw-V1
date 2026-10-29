@@ -169,7 +169,8 @@ def git_tree(repo, sha, pathspecs, pattern, git=None, excluded=None):
     """``{path: bytes}`` of tracked blobs matching ``pattern``; blob hashes re-verified.
 
     Any listed path with a protected component refuses the whole read before
-    the first ``cat-file``.
+    the first ``cat-file``. With ``excluded`` set, unexpected paths refuse;
+    only exact excluded names may be skipped without reading their blobs.
     """
     def call(*args):
         if git is not None:

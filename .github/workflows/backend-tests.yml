@@ -100,7 +100,7 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/monitoring/tests
           node --test ../deploy/monitoring/tests/maintain_incident.test.js
 
-      - name: Validar pacote real do SHA do CI (sem executar candidato)
+      - name: Validar pacote real do SHA do CI (sem executar backend empacotado)
         env:
           PACKAGE_SHA: ${{ github.sha }}
         run: |
