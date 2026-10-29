@@ -1,5 +1,157 @@
 # Release em lote, outubro de 2026
 
+**Atualização vigente — #599 integrada em 29/10/2026.** Merge commit
+`ed7f4c10104f4537b8918000c0868992245b9429`, head autorizado `9e0dbda9`.
+Checks obrigatórios verdes, sem bypass e branch preservada. Vercel/DEV seguem
+suspensos. A atualização da #600 sobre esta main foi autorizada para commit/push normal,
+base main e CI, sem merge ou publicação das demais PRs.
+Conflito Vercel resolvido preservando deploymentEnabled=false global da main;
+o bloqueio antigo por branch da #600 não substitui a suspensão global.
+Código do adaptador e SHAs pinados afdfb78d/37c7d68d preservados. Leitor Git
+com modo estrito opt-in e empacotador da #599 preservados. Resultados do novo head na PR #600; checks anteriores não validam este candidato.
+Sarah Opus 5.5 high: GO para futura publicação/CI, sem P0/P1;
+50 testes e 10 subtestes offline aprovados, Ruff aprovado. CI da nova main
+ainda sem runs observáveis; resultado não verificado. SHAs pinados comprovados
+ancestrais da nova main; recibos antigos não validam o novo digest dos módulos.
+Chave PGDG segue obtida da fonte oficial por HTTPS sem fingerprint pinado;
+client 17 sem patch fixado: risco residual de suprimento restrito ao runner efêmero.
+Consulta oficial: https://wiki.postgresql.org/wiki/Apt. Não é gate operacional. Sem deploy, reativação, novo ensaio
+físico local, VPS ou dados de produção. Registros divergentes abaixo são históricos.
+
+**Revisão Sarah — Opus 5.5 high:** orientação vigente do dono: trabalhar
+com Sarah como revisora crítica e cética, confrontando seus achados com evidências,
+sem concordância automática. Sua revisão não concede autorização operacional.
+Na #599, revisão inicial pediu recusa de arquivos inesperados, permissões
+explícitas e prova do empacotador real no CI. Correções: exclusão documental
+explícita, diretórios 0755 e extração com permissões do pacote, Python 3.13.14
+fixado no workflow manual e execução da CLI real sobre o SHA do CI.
+35 testes e 10 subtestes locais passaram, Ruff aprovado; sem ensaio físico.
+A hipótese de diretórios root impedirem appuser foi limitada pela evidência
+de chown no Dockerfile; ainda assim as permissões agora são determinísticas.
+Inventário atual: backend/app somente Python; fora de Python/SQL nas árvores
+selecionadas existe apenas backend/migrations/README.md. .env.example aparece
+só como comentário do Compose, não é dependência executada do pacote.
+O build físico histórico de afdfb78d não valida este head; nenhum novo build
+físico foi executado. CI/revisão finais constam na PR #599 e não autorizam merge.
+
+**Atualização vigente — #598 integrada em 28/10/2026.** Merge commit
+`beb194f930eecd5bf7df744bd6e23eaa88d04b4b`, head autorizado
+`083c3f9ec720af1dfe3917980f4b68499c4a920b`. Seis workflows verdes no
+head e na main anterior antes do merge, sem bypass e com branch preservada.
+A #599 foi composta localmente sobre essa main, sem conflitos, preservando
+seu código original `b3d93473` e as suspensões Vercel/DEV da main.
+Validação local em Python 3.13: 26 testes e 8 subtestes passaram; Ruff aprovado.
+Atualização autorizada para commit/push sem force push, base main e CI da #599.
+Nenhum merge ou publicação das demais PRs autorizado. Resultados do novo head
+na [PR #599](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/599);
+checks antigos não validam o novo candidato. Os registros
+anteriores são históricos quando divergirem deste estado. Nenhum deploy,
+reativação, novo ensaio físico local, acesso à VPS ou dados de produção.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados.
+
+**Atualização vigente — #597 integrada:** main
+`940ac49ef82eedf7a67da666fab8435c12f7d760`, merge commit do head `8542e991`,
+seis workflows verdes antes da integração. Proteções e suspensões preservadas.
+#598 preparada sobre essa main, sem conflitos; atualização autorizada para
+commit/push sem force push, base main e acompanhamento do CI;
+código/fixtures idênticos ao head original `37c7d68d`. Validação
+offline em Python 3.13: 46 testes unitários, Ruff e sintaxe aprovados. Apenas documentação de
+estado reconciliada. Resultados do novo head na PR #598; nenhum merge adicional ou publicação das
+demais PRs autorizado. Sem deploy, reativação ou ensaio físico local.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados por este merge.
+
+
+**Atualização vigente de integração — 28/10/2026:** #603 integrada pelo merge
+`e2eb2d04f08caf46f676a4f560acc77a61c5e351`. Proteção da main agora exige somente
+backend-tests, frontend-ci, e2e-critical e rls-integration (app_id 15368), com
+strict=true e enforce_admins=true; demais regras preservadas. Vercel Git segue
+desconectado e DEV desabilitado com variável false. Publicações não reativadas.
+A #597 foi composta sobre a main resultante, preservando suspensão, painel e
+documentos; sua atualização recebeu autorização de commit/push sem force push
+e CI próprio. Resultados do novo head na PR #597; não transferir checks antigos.
+Nenhum merge da #597 nem publicação/merge das demais PRs autorizado. As seções
+de preparação anteriores são histórico. Não repinar SQL/aplicador por causa
+desta atualização.
+
+
+## Suspensão das publicações automáticas — aplicada, integração pendente
+
+Decisão do dono em 28/10: suspender publicação automática do painel e promoção
+DEV antes da integração #597–#602. Autorização posterior cobriu suspensão remota,
+verificação e, depois dela, commit/push/PR e CI. Não cobre merge, deploy, novos
+ensaios físicos locais, VPS ou dados de produção.
+
+Resultado verificado em 28/10/2026: workflow `380485201` desabilitado manualmente;
+variável booleana antes ausente agora false; vínculo Git do projeto
+`prj_e0hSMDbhUty2OK372oPcSQBXBKGE` desconectado. Metadados confirmam mesmo projeto,
+seis domínios e último deployment `dpl_AeABTdSidFDtNVSXumMeTfm857Wb`, READY.
+Nenhuma publicação pendente foi encontrada; não houve cancelamento. Não foi
+feito teste funcional do site ou acesso a dados de domínio.
+O conector não expõe a desconexão; usada CLI oficial Vercel 65.5.0 em cache
+temporário, com autenticação existente sem exibir credenciais. Comando aplicado:
+
+```bash
+vercel git disconnect --project prj_e0hSMDbhUty2OK372oPcSQBXBKGE --scope raniel-levis-projects --yes
+```
+
+Mudança versionada: `frontend/vercel.json` com `git.deploymentEnabled=false`
+(todas as branches, incluindo previews); `dev-synthetic.yml` sem `workflow_run`,
+apenas `workflow_dispatch`, mantendo main, variável habilitadora e verificação
+dos checks do candidato. Workflows de CI não são modificados. Isso não interrompe
+o painel já servido nem os serviços existentes. Não bloqueia publicação manual
+via CLI/API/deploy hooks; esses caminhos continuam fora da autorização.
+
+### Procedimento autorizado e executado — registro e reconferência
+
+1. Confirmar por metadados o projeto Vercel do painel
+   `prj_e0hSMDbhUty2OK372oPcSQBXBKGE`, equipe `raniel-levis-projects`, vínculo Git,
+   configuração do workflow DEV e execuções de publicação em fila/andamento.
+   Não ler variáveis secretas, logs pastorais, VPS ou dados de domínio. Registrar
+   o estado anterior da variável booleana e se ela estava ausente.
+2. Suspender somente o workflow de publicação DEV e definir a variável como false:
+
+   ```bash
+   gh workflow disable dev-synthetic.yml --repo haniellevi/PastorAI-LionClaw-V1
+   gh variable set DEV_PIPELINE_ENABLED --body false --repo haniellevi/PastorAI-LionClaw-V1
+   ```
+
+   Não desabilitar GitHub Actions globalmente. Isso não cancela execução já
+   iniciada: se houver uma, parar a sequência e apresentar ID, estado e impacto
+   para decidir cancelamento/recuperação, sem acessar o host.
+3. No projeto Vercel confirmado, Settings → Git → Disconnect (ou CLI acima): desconectar
+   temporariamente somente o vínculo Git do painel. Efeito: parar publicações
+   automáticas por Git, incluindo previews das outras branches; preservar
+   projeto, domínios e deployment atualmente servido. Não remover integração
+   GitHub da organização nem excluir/pausar o projeto. Se a interface/capacidade
+   disponível divergir, reapresentar a ação concreta antes de substituí-la.
+   Publicações já iniciadas e deploy hooks exigem avaliação separada.
+4. Conferir por metadados workflow desabilitado, variável false, vínculo Git
+   desconectado e ausência de publicações pendentes. Registrar evidências;
+   não presumir suspensão apenas por sucesso do comando.
+5. Após confirmação, publicação da PR autorizada: [PR #603](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/603)
+   independente sobre main, com CI. Reutiliza o lock de auditoria já corrigido
+   na #597 (msgpack 1.2.3, arquivo idêntico); runtime da aplicação inalterado. Seu merge exige autorização própria. Integrá-la antes
+   de #597–#602, preservando `deploymentEnabled=false` ao resolver o conflito
+   esperado com os arquivos adicionados nas #600–#602. A #597 também atualiza
+   ROADMAP: preservar a decisão vigente e os demais registros novos.
+
+### Recuperação e retomada
+
+Falha parcial mantém as suspensões já efetuadas; não reativar automaticamente
+para desfazer uma etapa. Registrar exatamente o que foi aplicado e o que falta.
+Não apagar deployment, domínio, imagem, volume ou dado. Suspender automação não
+é desligar o sistema em uso, nem prova de contenção de filas.
+
+Para retomar futuramente, obter autorização específica: restaurar o vínculo Git
+registrado somente com as regras Vercel revistas na main; reabilitar o workflow
+DEV apenas quando desejado, preservando o modo manual e a variável false até
+aprovação de publicação. Reativação automática exigiria outra mudança de código.
+Uma reconexão pode gerar eventos: antes dela, conferir regras, commits e filas.
+Não reverter cegamente toda a PR, pois isso reintroduziria os gatilhos automáticos.
+
+Referências: https://vercel.com/docs/project-configuration/git-configuration e
+https://vercel.com/docs/cli/git. Consultadas somente como documentação pública.
+
 Atualizado em 27/10/2026: a seção "Plano e prévia atual" vale para o candidato
 `afdfb78d71a53f2861632806e13cdda4662d7d63`. As seções datadas de 24/10/2026
 (`main` em `354a83d`) e anteriores são históricas.
@@ -210,18 +362,32 @@ reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
   revisado do executor, registrado junto ao SHA da aplicação.
 - **Controlador sintético:** proibido executá-lo em PROD, assim como remover
   ou contornar as guardas dele.
-- **Pacote do release:** o workflow empacota estaticamente `backend/` e
-  `deploy/`, o que por desenho inclui caminhos protegidos. Antes da janela é
-  preciso revisar o pacote por allowlist, com código sanitizado e metadados do
-  SHA, sem abrir, listar nem expor conteúdo protegido. O workflow não muda
-  agora; isso fica como item técnico pendente.
+- **Pacote do release — preparado para PR própria, CI/revisão pendentes:**
+  `deploy/package_backend_release.py` substitui o arquivo de diretórios inteiros
+  por seleção explícita de blobs do commit exato. Inclui Python da aplicação,
+  SQL das migrations e os arquivos necessários ao build/check/deploy; exclui
+  configuração privada, scripts administrativos, testes e ferramentas de DEV.
+  Recusa caminhos protegidos nas árvores selecionadas antes de ler blobs;
+  links simbólicos selecionados são recusados antes da leitura do próprio link;
+  não usa conteúdo do checkout nem atributos `export-ignore`/`export-subst`.
+  O manifesto registra SHA do commit e SHA-256 de cada arquivo. A alteração
+  do workflow preserva os gates de ator, ancestralidade, SHA e disparo manual.
+  O workflow da main permanece inalterado até integração autorizada.
+  Ensaio local do candidato `afdfb78d`: 404 arquivos no pacote, SHA-256
+  `7e363d73f4fd255d6ffacf9550f6118c56aad9aa6fc604b4ee182a43de65be03`;
+  build Docker do target `production` aprovado e 396 arquivos da imagem
+  conferidos por hash, zero divergências, em contêiner sem rede e somente leitura.
+  Nove testes do empacotador e 17 do workflow aprovados. Regressão de release,
+  topologia e Compose: 157 testes e 216 subtestes aprovados, sem skips.
+  Isso prova composição
+  e build locais; não prova prontidão da transição legada nem autoriza release.
 - **Proibido como atalho:** fabricar SHA anterior, label, symlink ou diretório
   `releases/` como "prova" de estado anterior.
 
 ### Adaptador: preparação local e próximos passos
 
 A continuação atual cobre código, simuladores, PostgreSQL local descartável e,
-desde a autorização de 28/10, commit/push e PR com CI para revisão.
+na etapa histórica de 28/10, commit/push e PR com CI para revisão; a composição atual exige nova autorização.
 Não cobre merge, deploy, leitura remota ou qualquer operação em produção.
 Worktree `first-transition-20261027/PastorAi-1.0`, branch
 `feat/first-transition-adapter-20261027`, base `37c7d68d` (PR #598), publicada
@@ -229,7 +395,7 @@ na [PR #600](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/600).
 CI de `8ef92e3a7cfdb75e9c366a168ddff415962a8b5b` aprovada: quatro checks
 obrigatórios, estático e ensaio sintético. Head após esta atualização documental
 é validado novamente e registrado na descrição da PR.
-Preview Vercel desabilitado somente nesta branch, por autorização específica.
+Bloqueio histórico por branch superado pela suspensão global da main.
 O controlador sintético anterior e suas guardas continuam intactos.
 
 **Aconselhamento arquitetural inicial (28/10):** Claude Opus 5.5, configurado com esforço
@@ -261,7 +427,7 @@ Contagens e metadados são sinais, não prova de conteúdo preservado.
 | Contrato de host | Apenas simulador: três serviços Compose e broadcast avulso, ingresso bloqueado antes da drenagem, restart=no antes do SIGTERM, espera e saída limpa, identidade/gates/mounts/redes/suporte estáveis e recusa de writer desconhecido. Recibo vinculado ao fluxo de banco e reconferido a cada migration. Nenhum transporte real, start, SSH ou cliente Docker existe nessa porta. |
 | Filas | TYPE/PTTL/LLEN/ZCARD em chaves explícitas e processing informado. Sem KEYS/SCAN ou leitura de conteúdo da dead. Testado apenas com simulador; `content_verified=false`. Não certifica preservação integral nem quiescência do Redis compartilhado. |
 
-**Resultado local repetido para publicação:** **68 testes aprovados em 138,20s**,
+**Resultado histórico da preparação anterior à composição (CI em `8ef92e3a`; SHA do ensaio local não revalidado):** **68 testes aprovados em 138,20s**,
 Ruff aprovado. Gates de aptidão/backfill permanecem zero até sua migration,
 inclusive na retomada após SIGKILL. Colisão com índice, tabela ou sequência
 homônima é recusada antes do marcador. Dados fictícios não vazios e uma tabela

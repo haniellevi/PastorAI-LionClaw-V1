@@ -136,6 +136,33 @@ diretórios de release existentes e a Python 3 no host para inspecionar o JSON
 resolvido do Compose sem imprimi-lo. A configuração privada do release ativo é
 copiada para o candidato sem ser impressa.
 
+O empacotamento usa `deploy/package_backend_release.py` do checkout do workflow
+para ler blobs do `release_sha` exato. A seleção inclui Python da aplicação,
+SQL das migrations, Dockerfile, `.dockerignore`, lock de dependências, executor
+de migrations e os seis arquivos de deploy/check/Compose necessários. Não inclui
+`.env.example`, configuração privada, scripts administrativos ou ferramentas de
+DEV. O arquivo `release-manifest.json` registra o commit e o SHA-256 de cada
+arquivo; alterações locais e atributos de `git archive` não afetam o resultado.
+O manifesto é informativo para auditoria; não é validado pelo host e não
+substitui a integridade do transporte SSH. Arquivos inesperados nas árvores
+selecionadas recusam o pacote; a única exclusão documental explícita é
+`backend/migrations/README.md`. Arquivos obrigatórios ausentes e links
+simbólicos selecionados recusam o pacote. Caminhos protegidos em qualquer
+ponto das árvores selecionadas recusam antes da leitura de blobs.
+Diretórios internos do pacote têm modo 0755; arquivos 0644, exceto o shell de release (0755),
+com timestamps zerados. Isso é intencional. Python 3.13.14 está fixado no
+workflow; reprodutibilidade binária pressupõe a mesma versão Python/zlib.
+A raiz do release, criada fora do tar sob umask 077, permanece 0700;
+configuração privada permanece 0600. Não normalizar esses modos para 0755.
+No CI de pull_request, github.sha identifica o merge de teste; no push da
+main, identifica o commit integrado. O pacote real no CI usa o venv runtime,
+enquanto o workflow manual usa Python limpo da mesma série fixada; essa
+diferença não valida um deploy. Os imports do empacotador são stdlib e
+módulos locais. Não usar -I: ele elimina os imports irmãos do script.
+O leitor compartilhado com o controlador sintético é reutilizado apenas
+para leitura verificada de blobs: importar esse módulo não executa o controlador. O destino deve ser novo; não há sobrescrita.
+Essa seleção não substitui revisão do código candidato nem as autorizações do release.
+
 Com o gate de PROD separado e concedido, dispare **Backend release (manual)**
 na `main` e informe o `release_sha` completo, de 40 caracteres. A Action
 recusa SHA fora da `main`, empacota o commit exato, transfere por SSH com
