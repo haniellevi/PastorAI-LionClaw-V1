@@ -608,3 +608,43 @@ def test_restore_comment_failure_cleans_only_claimed_identity(plan, database, mo
             # Fixture-only cleanup of the exact UUID generated in this test.
             with db.conn.cursor() as cursor:
                 cursor.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(targets[0])))
+
+
+@pytest.mark.parametrize('remove', [False, True])
+def test_concurrent_commit_without_receipt_refuses_adoption(plan, database, tmp_path, monkeypatch, remove):
+    migration = next(m for m in plan.pending if m.concurrent)
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        receipt = evidence(plan, db)
+        apply = db.apply
+        def crash_after_commit(plan, current):
+            apply(plan, current)
+            if current.name == migration.name:
+                raise KeyboardInterrupt()
+        monkeypatch.setattr(db, 'apply', crash_after_commit)
+        with pytest.raises(KeyboardInterrupt):
+            LocalTransition(plan, db, journal).run(receipt)
+        if remove:
+            execute_sql(database, f'DROP INDEX public.{migration.indexes[0]}')
+        monkeypatch.setattr(db, 'apply', lambda *_: pytest.fail('must not repair or continue'))
+        code = 'reviewed-index-missing' if remove else 'reviewed-index-receipt-missing'
+        with pytest.raises(Refused, match=code):
+            LocalTransition(plan, db, journal).run(receipt, retry=True)
+        assert journal.last('done', 'adapter-migration:' + migration.name) is None
+        assert journal.last('adapter-database-verified') is None
+
+
+def test_failed_clone_identity_claim_preserves_residue_with_explicit_code(plan, database, monkeypatch):
+    import psycopg2
+    from psycopg2 import sql
+    import first_transition_local_backup as backup
+    targets = []
+    def failed_claim(connection, target):
+        targets.append(target)
+        raise psycopg2.OperationalError('synthetic claim failure')
+    monkeypatch.setattr(backup, 'restore_identity', failed_claim)
+    with LocalDatabase(*database) as db:
+        with pytest.raises(Refused, match='local-restore-unclaimed-left'):
+            db.rehearse_backup(plan)
+        assert execute_sql(database, 'SELECT datname FROM pg_database WHERE datname=%s', (targets[0],))
+        with db.conn.cursor() as cursor:
+            cursor.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(targets[0])))

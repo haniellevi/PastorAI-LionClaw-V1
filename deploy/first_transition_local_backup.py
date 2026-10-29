@@ -72,7 +72,8 @@ def snapshot(connection):
 def restore_identity(connection, target):
     with connection.cursor() as cursor:
         cursor.execute("SELECT (SELECT system_identifier::text FROM pg_control_system()), "
-                       "oid,datdba,shobj_description(oid,'pg_database') FROM pg_database WHERE datname=%s",
+                       "oid,datdba,shobj_description(oid,'pg_database'), "
+                       "(SELECT oid FROM pg_roles WHERE rolname=current_user) FROM pg_database WHERE datname=%s",
                        (target,))
         return cursor.fetchone()
 
@@ -124,7 +125,8 @@ def rehearse_backup(database, plan):
                     cursor.execute(sql.SQL('CREATE DATABASE {} TEMPLATE template0').format(sql.Identifier(target)))
                     created = True
                 claimed = restore_identity(database.conn, target)
-                require(claimed is not None and claimed[3] is None, 'local-restore-claim-failed')
+                require(claimed is not None and claimed[3] is None and claimed[2] == claimed[4],
+                        'local-restore-claim-failed')
                 mark_restore(database.conn, target, nonce)
                 marked = True
                 # Full pg_dump expects the template's public schema to exist.
@@ -154,6 +156,9 @@ def rehearse_backup(database, plan):
     finally:
         if created:
             try:
+                # No verifiable identity: preserve residue, never guess ownership.
+                require(claimed is not None and claimed[2] == claimed[4],
+                        'local-restore-unclaimed-left')
                 ownership = restore_identity(database.conn, target)
                 expected_marker = 'igreja12-local-disposable:' + nonce
                 require(claimed is not None and ownership is not None

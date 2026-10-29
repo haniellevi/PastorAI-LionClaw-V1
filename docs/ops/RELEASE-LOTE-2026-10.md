@@ -2,12 +2,12 @@
 
 **Correções da revisão automática da #600 — 29/10:** retomada compara presença
 e definição (hash de pg_get_indexdef) dos índices concorrentes com recibos do
-diário; divergência recusa sem reparar. Sem recibo após crash, não há hash
-anterior de definição para comparar: esse limite permanece explícito.
+diário; divergência recusa sem reparar. Índice concorrente sem recibo após crash recusa retomada; não adota definições
+sem prova. Reobservação final confere os recibos antes de declarar conclusão.
 Backup sintético captura cluster/OID/proprietário antes de marcar o clone;
 limpa falha de comentário somente com identidade preservada. Falha antes de
 capturar identidade mantém recusa de limpeza, exigindo recuperação nominal.
-Quatro regressões PG adicionadas para o CI; nenhum banco local executado.
+Sete regressões PG adicionadas para o CI; nenhum banco local executado.
 Subprocesso do teste SIGKILL agora desabilita bytecode. Testes offline do Codex:
 50 aprovados e 10 subtestes; Sarah revisa o diff sanitizado, sem executar testes.
 Main ed7f4c10 tem E2E manual aprovado (40814255271); cinco workflows sem runs

@@ -308,6 +308,7 @@ class LocalDatabase:
             cur.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
             try:
                 cur.execute("SET LOCAL statement_timeout='3s'")
+                cur.execute('SET LOCAL search_path=pg_catalog,public')
                 cur.execute("SELECT count(*) FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid() AND backend_type='client backend'")
                 require(cur.fetchone()[0] == 0, 'other-database-client')
                 cur.execute('SELECT name FROM public.schema_migrations ORDER BY name COLLATE "C"')
@@ -404,7 +405,9 @@ class LocalTransition:
     """Durable local DB sequence; incomplete post-marker runs need explicit retry.
 
     adapter-failed is diagnostic; run-start/complete determine recovery consent.
-    Completed replay is read-only. No service promotion or legacy resume.
+    Completed replay is read-only. Concurrent migrations committed without an
+    index receipt refuse recovery; no automatic adoption of their definitions.
+    No service promotion or legacy resume.
     """
     def __init__(self, plan, database, journal: Journal, *, host=None):
         self.plan, self.db, self.j, self.host = plan, database, journal, host
@@ -487,6 +490,7 @@ class LocalTransition:
                     if done:
                         require(done.get('indexes') == index_receipt, 'reviewed-index-changed')
                     else:
+                        require(not migration.indexes, 'reviewed-index-receipt-missing')
                         self.j.append('done', step=step, recovered=True, indexes=index_receipt)
                     continue
                 current = self.db.observe()
@@ -506,6 +510,13 @@ class LocalTransition:
             preflight = self.db.full_preflight(self.plan, len(ledger))
             require_clean_preflight(preflight, complete=True)
             self._check_host(evidence)
+            final = self.db.observe()
+            step_invariants(final)
+            require(set(final['ledger']) == set(ledger), 'ledger-changed')
+            for migration in self.plan.pending:
+                done = self.j.last('done', 'adapter-migration:' + migration.name)
+                require(done is not None and done.get('indexes') == reviewed_indexes(migration, final),
+                        'reviewed-index-changed')
             self.j.append('adapter-preflight', phase='after-ddl', **preflight)
             if self.j.last('adapter-database-verified') is None:
                 self.j.append('adapter-database-verified', ledger=len(ledger), production_ready=False)
