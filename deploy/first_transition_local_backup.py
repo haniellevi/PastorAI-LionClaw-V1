@@ -126,7 +126,10 @@ def rehearse_backup(database, plan):
     local_endpoint(database._url)
     before = database.observe()
     require(before['ledger'] == plan.baseline, 'backup-requires-baseline')
-    expected = snapshot(database.conn)
+    try:
+        expected = snapshot(database.conn)
+    except Exception:
+        raise Refused('local-backup-initial-snapshot-failed') from None
     parts = urlsplit(database._url)
     target = 'first_transition_restore_' + uuid4().hex
     nonce = str(uuid4())

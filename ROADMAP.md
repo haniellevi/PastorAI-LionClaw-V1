@@ -1,5 +1,64 @@
 # Igreja 12 — roteiro único
 
+## Fatia local — segurança do controlador (29/10/2026)
+
+Base integrada `609952de`. Commit/push sem force e PR separada autorizados
+em 29/10/2026, após reconferir suspensões; merge não autorizado.
+Sem dispatch manual, deploy, reativação, novos ensaios físicos locais, VPS
+ou produção. OPERATIONAL_AUTHORIZATION=BLOCKED para essas operações.
+Pré-publicação: DEV disabled_manually e DEV_PIPELINE_ENABLED=false; painel
+Vercel sem vínculo Git, nenhum projeto vinculado a este repositório na equipe,
+nenhuma publicação em andamento; deploymentEnabled=false preservado.
+Quatro checks obrigatórios app15368, strict=true e enforce_admins=true.
+Abertura da PR aciona seis workflows de testes, incluindo recursos sintéticos
+descartáveis no GitHub; não aciona publicação/deploy. Evidências de CI ficam
+na PR por head exato; a validação local não as substitui.
+Sinais SIGINT/SIGTERM/SIGHUP geram relatório e limpeza limitada; segunda
+interrupção encerra a tentativa de limpeza. Subprocesso CLI próprio é encerrado
+com espera limitada, nunca grupo alheio. Falha primária permanece fail.
+CID ausente/vazio nunca é adotado por nome: preserva resíduo para recuperação
+nominal. Mutação sem resposta confirmada deixa registro pending persistente;
+mesmo ps vazio não comprova limpeza e retorna incomplete. Não apagar o registro
+para forçar sucesso. Limpeza-only não resolve incerteza por conta própria.
+Após decisão nominal sobre o resíduo, registrar o desfecho em relatório novo
+e usar novo run/estado; preservar o estado incerto como evidência.
+Remoção exige ID do cidfile do run, nome e label; varredura residual por label
+apenas acusa recursos, nunca remove desconhecidos. Estado exclusivo persistente
+0700 fora de árvores com marcador .git, sem symlink ou componentes ..; lock exclusivo e intent atômico antes de create; scope
+vinculado a imagem/run/daemon. Primeiro sinal durante cleanup permite concluí-la;
+segundo a interrompe. CLI em nova sessão, sinal durante spawn é diferido até
+registrar o filho. Janela de reaping tem até dois segundos além do timeout.
+Modos com efeito agora exigem --state-dir e --daemon-id além de --run-id/--report;
+cleanup-only lê o estado original e exige relatório novo. Comandos históricos
+sem esses argumentos não devem ser reutilizados. Nenhum desses modos executado.
+Overrides remotos/contextos recusados antes de processos; config Docker vazia,
+socket fixo e daemon nominal/Linux não-rootless conferidos antes de mutação.
+Isso reduz uso acidental, não comprova isolamento: socket pode ser túnel e o ID
+aprovado precisa pertencer a ambiente descartável. VPS/produção proibidos.
+Snapshot inicial recusa com código fixo sem DDL ou detalhes de driver.
+Pins SQL/executor, migrations e gates intactos; backup muda adapter_sources/
+plan_digest, recibos anteriores recusados por plan-changed. Não contornar.
+Testes só com doubles e sentinelas anti-processo/rede; PG, Docker, sinais reais,
+SSH e provedores não executados. Validação local: 162 testes e 2 subtestes
+aprovados; Ruff e git diff --check aprovados. CI automático acompanha a PR.
+Revisão final Sarah e limites registrados na entrega.
+Nenhuma nova autorização operacional é concedida pelo código/documento.
+
+Quatro P2 corrigidos localmente: interrupção abortável somente durante
+communicate, no máximo uma exceção por espera e sem substituir exceção em
+propagação; poll/reaping protegidos; relatório exclusivo 0600 fora de checkout,
+sem symlink ou ..; testes de symlinks, dono do lock e falhas concorrentes.
+Pending correlaciona operação, índice, nome e ID conhecido. Cleanup informa
+códigos sanitizados por recurso; registro antigo/inválido vira pending-unverified.
+Nenhum texto arbitrário de erro/estado é copiado para o relatório.
+Revisão Sarah Opus 5.5 high concluída: GO local, P0=0/P1=0/P2=0;
+quatro P2 fechados por leitura dos bytes enviados. Revisora não executou testes.
+Limites: sinal pode ser adiado até timeout; reaping pode falhar; sinal antes
+de instalar handlers pode deixar relatório vazio, sem efeito Docker. Parecer
+e manifesto no pacote local controller-safety-p2-20261029. Sem autorização operacional.
+
+
+
 ## Estado vigente — #601 integrada e publicação da #602 autorizada (29/10/2026)
 
 #601 integrada por merge commit `19eae0b0c140ea36d7ea93a5874867bf53c34f70`,
