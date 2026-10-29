@@ -26,6 +26,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
       - name: Package exact main commit
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
@@ -62,8 +66,8 @@ jobs:
           untrusted=$(git ls-tree --name-only "$RELEASE_SHA" -- deploy/release-topology.json \
             deploy/compose-project.name deploy/docker-compose.override.yml deploy/docker-compose.override.yaml)
           [[ -z "$untrusted" ]]
-          git archive --format=tar "$RELEASE_SHA" backend deploy .env.example |
-            gzip -9 > "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
+          python3 deploy/package_backend_release.py --repo . --sha "$RELEASE_SHA" \
+            --output "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz"
 
       - name: Deploy backend with schema gate and code rollback
         env:
@@ -87,7 +91,7 @@ jobs:
           scp "${ssh_opts[@]}" "$RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz" \
             "$DEPLOY_USER@$DEPLOY_HOST:/tmp/pastorai-$RELEASE_SHA.tar.gz"
           ssh "${ssh_opts[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "set -eu; umask 077; trap \"rm -f -- '/tmp/pastorai-$RELEASE_SHA.tar.gz'\" EXIT; test ! -e '/opt/pastorai-releases/$RELEASE_SHA'; mkdir '/opt/pastorai-releases/$RELEASE_SHA'; tar -xzf '/tmp/pastorai-$RELEASE_SHA.tar.gz' -C '/opt/pastorai-releases/$RELEASE_SHA'; bash '/opt/pastorai-releases/$RELEASE_SHA/deploy/backend-release.sh' '$RELEASE_SHA'"
+            "set -eu; umask 077; trap \"rm -f -- '/tmp/pastorai-$RELEASE_SHA.tar.gz'\" EXIT; test ! -e '/opt/pastorai-releases/$RELEASE_SHA'; mkdir '/opt/pastorai-releases/$RELEASE_SHA'; tar --no-same-owner --same-permissions -xzf '/tmp/pastorai-$RELEASE_SHA.tar.gz' -C '/opt/pastorai-releases/$RELEASE_SHA'; bash '/opt/pastorai-releases/$RELEASE_SHA/deploy/backend-release.sh' '$RELEASE_SHA'"
 
       - name: Remove runner tarball
         if: always()

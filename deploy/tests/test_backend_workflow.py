@@ -27,11 +27,18 @@ case "$*" in
     if [ "${LEGACY_SCRIPT:-0}" = 1 ]; then exit 0; fi
     printf '%s\\n' "BACKEND_RELEASE_SAFETY_VERSION=${SAFETY_VERSION:-3}" ;;
   'ls-tree '* ) printf '%s' "${TRACKED_TOPOLOGY:-}" ;;
-  'archive '* ) touch "$RUNNER_TEMP/packaged" ;;
+  'archive '* ) exit 92 ;; # broad Git archives are no longer an allowed handoff
 esac
 exit 0
 ''')
             git.chmod(0o755)
+            packager = root / 'python3'
+            packager.write_text('''#!/bin/sh
+test "$*" = "deploy/package_backend_release.py --repo . --sha $RELEASE_SHA --output $RUNNER_TEMP/backend-release-$RELEASE_SHA.tar.gz" || exit 93
+test "${PACKAGE_EXIT:-0}" = 0 || exit 94
+touch "$RUNNER_TEMP/packaged"
+''')
+            packager.chmod(0o755)
             env = {**os.environ, 'PATH': f'{root}:'+os.environ['PATH'],
                    'RUNNER_TEMP': directory, 'RELEASE_SHA': 'b'*40,
                    'SAFE_BASE_SHA': 'a'*40, 'ALLOWED_ACTORS': 'raniel',
@@ -85,6 +92,11 @@ exit 0
         result, packaged = self.package()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(packaged)
+
+    def test_packager_refusal_aborts_the_workflow_step(self):
+        result, packaged = self.package(PACKAGE_EXIT='1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(packaged)
 
     def test_rerun_actor_outside_allowlist_refuses(self):
         result, packaged = self.package(TRIGGERING_ACTOR='outsider')

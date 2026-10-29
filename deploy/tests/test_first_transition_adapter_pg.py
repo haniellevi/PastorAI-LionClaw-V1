@@ -301,6 +301,7 @@ with LocalDatabase(os.environ['FIRST_TRANSITION_LOCAL_URL'],os.environ['FIRST_TR
     LocalTransition(plan,db,journal).run(LocalEvidence.synthetic(plan.digest,os.environ['LOCAL_BASELINE_DIGEST']))
 '''
     env = dict(PATH='/usr/bin:/bin', PYTHONPATH=str(ROOT / 'deploy'), PYTHON_DOTENV_DISABLED='1',
+               PYTHONDONTWRITEBYTECODE='1',
                FIRST_TRANSITION_LOCAL_URL=database[0], FIRST_TRANSITION_LOCAL_NONCE=database[1],
                LOCAL_BASELINE_DIGEST=receipt.baseline_digest)
     result = subprocess.run([sys.executable, '-c', script, str(ROOT), str(journal_dir), point],
@@ -739,3 +740,82 @@ def test_final_catalog_error_is_sanitized_and_holds(plan, database, tmp_path, mo
         assert journal.last('adapter-failed')['code'] == 'clone-source-schema-check-failed'
         assert journal.last('adapter-database-verified') is None
         assert len(db.observe()['ledger']) == 129
+
+
+@pytest.mark.parametrize('change', ['missing', 'definition'])
+def test_completed_index_drift_refuses_replay(plan, database, tmp_path, change):
+    index = 'messages_pending_agent_igreja_created_idx'
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        receipt = evidence(plan, db)
+        LocalTransition(plan, db, journal).run(receipt)
+        execute_sql(database, f'DROP INDEX public.{index}')
+        if change == 'definition':
+            execute_sql(database, f'CREATE INDEX {index} ON public.pessoas(id)')
+        with pytest.raises(Refused, match='reviewed-index-(missing|changed)'):
+            LocalTransition(plan, db, journal).run(receipt)
+        assert len(db.observe()['ledger']) == 129
+
+
+@pytest.mark.parametrize('changed_owner', [False, True])
+def test_restore_comment_failure_cleans_only_claimed_identity(plan, database, monkeypatch, changed_owner):
+    import psycopg2
+    from psycopg2 import sql
+    import first_transition_local_backup as backup
+    targets = []
+    def fail_comment(connection, target, nonce):
+        targets.append(target)
+        if changed_owner:
+            with connection.cursor() as cursor:
+                cursor.execute(sql.SQL('ALTER DATABASE {} OWNER TO authenticated').format(sql.Identifier(target)))
+        raise psycopg2.OperationalError('synthetic comment failure')
+    monkeypatch.setattr(backup, 'mark_restore', fail_comment)
+    with LocalDatabase(*database) as db:
+        code = 'local-restore-ownership-changed' if changed_owner else 'local-backup-database-failed'
+        with pytest.raises(Refused, match=code):
+            db.rehearse_backup(plan)
+        remaining = execute_sql(database, 'SELECT datname FROM pg_database WHERE datname=%s', (targets[0],))
+        assert bool(remaining) is changed_owner
+        if changed_owner:
+            # Fixture-only cleanup of the exact UUID generated in this test.
+            with db.conn.cursor() as cursor:
+                cursor.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(targets[0])))
+
+
+@pytest.mark.parametrize('remove', [False, True])
+def test_concurrent_commit_without_receipt_refuses_adoption(plan, database, tmp_path, monkeypatch, remove):
+    migration = next(m for m in plan.pending if m.concurrent)
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        receipt = evidence(plan, db)
+        apply = db.apply
+        def crash_after_commit(plan, current):
+            apply(plan, current)
+            if current.name == migration.name:
+                raise KeyboardInterrupt()
+        monkeypatch.setattr(db, 'apply', crash_after_commit)
+        with pytest.raises(KeyboardInterrupt):
+            LocalTransition(plan, db, journal).run(receipt)
+        if remove:
+            execute_sql(database, f'DROP INDEX public.{migration.indexes[0]}')
+        monkeypatch.setattr(db, 'apply', lambda *_: pytest.fail('must not repair or continue'))
+        code = 'reviewed-index-missing' if remove else 'reviewed-index-receipt-missing'
+        with pytest.raises(Refused, match=code):
+            LocalTransition(plan, db, journal).run(receipt, retry=True)
+        assert journal.last('done', 'adapter-migration:' + migration.name) is None
+        assert journal.last('adapter-database-verified') is None
+
+
+def test_failed_clone_identity_claim_preserves_residue_with_explicit_code(plan, database, monkeypatch):
+    import psycopg2
+    from psycopg2 import sql
+    import first_transition_local_backup as backup
+    targets = []
+    def failed_claim(connection, target):
+        targets.append(target)
+        raise psycopg2.OperationalError('synthetic claim failure')
+    monkeypatch.setattr(backup, 'restore_identity', failed_claim)
+    with LocalDatabase(*database) as db:
+        with pytest.raises(Refused, match='local-restore-unclaimed-left'):
+            db.rehearse_backup(plan)
+        assert execute_sql(database, 'SELECT datname FROM pg_database WHERE datname=%s', (targets[0],))
+        with db.conn.cursor() as cursor:
+            cursor.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(targets[0])))

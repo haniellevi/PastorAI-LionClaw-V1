@@ -1,9 +1,6 @@
-name: Publish integrated synthetic DEV
+name: Publish integrated synthetic DEV (manual only)
 on:
-  workflow_run:
-    workflows: [Backend Tests, Frontend CI, E2E Critical, RLS Integration, Synthetic release rehearsal]
-    types: [completed]
-    branches: [main]
+  # Automatic promotion is suspended by the release decision recorded in ROADMAP.
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,11 +11,8 @@ concurrency:
 jobs:
   eligible:
     if: >-
-      vars.DEV_PIPELINE_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_repository.full_name == github.repository &&
-        github.event.workflow_run.conclusion == 'success'))
+      github.event_name == 'workflow_dispatch' &&
+      vars.DEV_PIPELINE_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.gate.outputs.sha }}
@@ -30,7 +24,7 @@ jobs:
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          CANDIDATE_SHA: ${{ github.sha }}
         run: |
           candidate=$(python3 deploy/check_integrated_candidate.py "$CANDIDATE_SHA")
           echo "sha=$candidate" >> "$GITHUB_OUTPUT"
