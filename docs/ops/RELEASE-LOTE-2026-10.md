@@ -1,5 +1,165 @@
 # Release em lote, outubro de 2026
 
+## Recuperação manual dos cinco workflows de teste
+
+Estado: preparada sobre #600 `3e3375ed`; commit/push sem force na própria PR
+e acompanhamento do CI automático autorizados pelo dono em 29/10. Evidências
+do novo head serão registradas na PR após execução. Merge e dispatch manual
+não estão autorizados; revisão externa permanece com Sarah Opus 5.5 high.
+São cinco linhas `workflow_dispatch:`, uma em cada arquivo:
+`backend-tests.yml`, `frontend-ci.yml`, `rls-integration.yml`,
+`tooling-static.yml`, `synthetic-release.yml`. E2E já permite disparo manual.
+O conjunto completo de CI continua sendo seis workflows: os cinco acima mais
+E2E já existente. Estes cinco gatilhos novos não mudam a elegibilidade de DEV:
+`check_integrated_candidate.py` consulta `event=push`; dispatch verde não
+substitui push ausente/falho para promoção. Esse gate foi mantido byte-exato. Tooling-static integra os seis workflows
+acompanhados, mas não integra a lista de cinco exigida pelo gate DEV existente.
+Dispatch aprovado fornece evidência para revisão humana, sem tornar DEV elegível.
+Jobs, scripts, versões, permissions `contents: read`, timeouts, triggers de
+push/PR e concorrência ficam iguais. Nenhum workflow de publicação/monitor
+é habilitado, editado ou disparado; não há encadeamento `workflow_run`.
+Vercel/DEV e gates continuam suspensos conforme decisão vigente.
+
+### Dependências e limite do SHA
+
+1. Commit/push na própria #600 está autorizado nesta etapa. O push acionará
+   os testes de PR já existentes, inclusive PG/containers efêmeros no runner,
+   e produzirá um novo head cujo CI terá de ser conferido.
+2. Merge depende de autorização nominal separada, sem bypass, e de decisão
+   explícita sobre a lacuna histórica da main `ed7f4c10`.
+3. Depois de integrado, os gatilhos ficam na branch padrão. O push da nova
+   main normalmente aciona os testes; só repetir manualmente se necessário,
+   autorizado e sem execução concorrente do mesmo workflow na main.
+4. Isso não dá workflow_dispatch ao commit antigo `ed7f4c10` nem reconstitui
+   o evento perdido. Um run sobre uma nova main prova apenas o SHA novo.
+   Não usar checkout de um input SHA sob workflow de outro commit como prova
+   de que o run/check pertence ao SHA antigo.
+
+Referências oficiais: [execução manual](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
+e [REST workflow dispatch](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).
+A API documenta `ref` como branch ou tag. A proposta usa `--ref main`, sem
+prometer dispatch por SHA avulso ou criar tags/branches auxiliares.
+
+### Comandos futuros — NÃO executados nesta preparação
+
+Após autorização de dispatch na main já integrada, preencher o SHA completo
+revisado. Primeiro conferir os metadados e runs ativos (queued, pending,
+waiting ou in_progress); se houver qualquer execução do workflow na main,
+não disparar outra. A concorrência existente cancela execução anterior.
+
+```bash
+repo='haniellevi/PastorAI-LionClaw-V1'
+expected_main='<SHA_COMPLETO_DA_MAIN_INTEGRADA_E_AUTORIZADA>'
+test "$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha)" = "$expected_main"
+for workflow in backend-tests.yml frontend-ci.yml rls-integration.yml tooling-static.yml synthetic-release.yml; do
+  gh api --paginate "repos/$repo/actions/workflows/$workflow/runs?branch=main&per_page=100" \
+    --jq '[.workflow_runs[] | select(.status != "completed") | {id,event,head_sha,status}]'
+done
+```
+
+Somente após confirmar listas vazias e o término dos runs de push, executar
+um workflow por vez. Repetir o procedimento para cada um dos cinco nomes acima.
+Registrar workflow, ator esperado, instante anterior ao comando e URL/ID se
+retornada. Não presumir que a CLI sempre retorna o ID; nunca escolher apenas
+"o último run". Havendo mais de um candidato compatível, parar e identificar
+a execução inequivocamente antes de contar qualquer resultado.
+
+```bash
+workflow='backend-tests.yml' # repetir para os outros quatro arquivos
+expected_actor="$(gh api user --jq .login)"
+test "$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha)" = "$expected_main" || exit 1
+dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+gh workflow run "$workflow" --repo "$repo" --ref main || exit 1
+gh run list --repo "$repo" --workflow "$workflow" --branch main \
+  --event workflow_dispatch --commit "$expected_main" --created ">=$dispatch_started" \
+  --json databaseId,workflowName,headBranch,headSha,event,createdAt,status,conclusion,url
+```
+
+Para cada ID efetivamente criado, acompanhar e conferir:
+
+```bash
+run_id='<ID_DA_EXECUCAO_CRIADA>'
+gh run watch "$run_id" --repo "$repo" --exit-status
+gh run view "$run_id" --repo "$repo" \
+  --json databaseId,workflowName,headBranch,headSha,event,createdAt,status,conclusion,url
+gh api "repos/$repo/actions/runs/$run_id" \
+  --jq '{id,workflow_id,path,head_sha,head_branch,event,created_at,actor:.actor.login,repository:.head_repository.full_name,status,conclusion,html_url}'
+```
+
+Aceitação: cada um dos cinco workflows deve ter `headSha == expected_main`,
+`headBranch == main`, workflow/caminho esperado, repositório correto,
+`createdAt >= dispatch_started` (relógio local deve estar sincronizado;
+se houver desvio, investigar o ID e horário do servidor, sem escolher por recência), ator igual ao registrado e evento
+`workflow_dispatch`, `status == completed`, `conclusion == success`;
+registrar IDs e URLs, jobs obrigatórios e app_ids esperados. Revalidar a main
+no fim. E2E também precisa de sucesso no mesmo SHA (push ou dispatch), sem
+transferir o resultado de `ed7f4c10`. Se a main mudar entre consultas ou um run
+resolver outro SHA, parar e não contá-lo para o alvo autorizado. Não há trava
+atômica entre consulta e dispatch: a checagem do run é obrigatória. Runs de PR
+podem usar merge de teste; conferir pais/árvore e não chamar isso de CI da main.
+
+Revisão final Sarah / Claude Code `claude-opus-5-5`, esforço high: GO para
+este plano local sobre `3e3375ed`, P0=0/P1=0. Sarah leu pacote sanitizado e não
+executou testes. Duas sugestões futuras no gate DEV (filtro local de evento e
+paginação) não alteram este diff; o gate permanece byte-exato. Sem commit,
+push, merge, dispatch ou novas autorizações operacionais.
+
+### Recursos, efeitos, recuperação e limpeza
+
+Usa GitHub-hosted ubuntu-24.04, minutos de Actions, downloads de dependências,
+Docker/PG17 descartáveis e artefatos de teste. RLS usa quatro shards e um
+agregador; synthetic-release faz troca/recuperação de processos apenas em
+containers sintéticos do runner. Não acessa VPS ou dados reais. Não é um ensaio
+físico local. Limpeza existente dos recursos efêmeros e descarte do runner
+permanecem; conferir os logs de cleanup. Não promete retenção zero de artefatos.
+
+Falha, cancelamento ou timeout não contam como verde. Investigar logs do SHA,
+sem afrouxar critérios/gates. Não repetir enquanto houver run ativo. Cancelar
+ou repetir uma execução exige escopo autorizado; não cancelar automaticamente
+trabalho alheio. Retirar só os cinco gatilhos seria uma futura mudança de código
+revisada/autorizada; não desabilitar workflows inteiros e não reativar DEV/Vercel.
+
+Validação desta preparação: parsing YAML e comparação estrutural com o head;
+retirar a única linha adicionada reproduz os bytes anteriores de cada workflow.
+65 testes e 30 subtestes de contratos offline passaram; três cenários com
+fetch simulado confirmaram que dispatch não substitui evidência push no gate DEV
+(push ausente, push falho e push aprovado). Nenhum teste de runtime, banco,
+container ou comando de dispatch foi executado. Corrida entre consultas ainda
+existe; run cancelado/ambíguo não conta. Preferir push e usar dispatch só como
+recuperação evita custo e cancelamentos desnecessários.
+
+**Correções da revisão automática da #600 — 29/10:** retomada compara presença
+e definição (hash de pg_get_indexdef) dos índices concorrentes com recibos do
+diário; divergência recusa sem reparar. Índice concorrente sem recibo após crash recusa retomada; não adota definições
+sem prova. Reobservação final confere os recibos antes de declarar conclusão.
+Backup sintético captura cluster/OID/proprietário antes de marcar o clone;
+limpa falha de comentário somente com identidade preservada. Falha antes de
+capturar identidade mantém recusa de limpeza, exigindo recuperação nominal.
+Sete regressões PG adicionadas para o CI; nenhum banco local executado.
+Subprocesso do teste SIGKILL agora desabilita bytecode. Testes offline do Codex:
+50 aprovados e 10 subtestes; Sarah revisa o diff sanitizado, sem executar testes.
+Main ed7f4c10 tem E2E manual aprovado (40814255271); cinco workflows sem runs
+no SHA exato, sem dispatch. Não declarar main verde nem transferir checks de
+árvore equivalente. Publicação e correções da #600 autorizadas, merge não.
+
+**Atualização vigente — #599 integrada em 29/10/2026.** Merge commit
+`ed7f4c10104f4537b8918000c0868992245b9429`, head autorizado `9e0dbda9`.
+Checks obrigatórios verdes, sem bypass e branch preservada. Vercel/DEV seguem
+suspensos. A atualização da #600 sobre esta main foi autorizada para commit/push normal,
+base main e CI, sem merge ou publicação das demais PRs.
+Conflito Vercel resolvido preservando deploymentEnabled=false global da main;
+o bloqueio antigo por branch da #600 não substitui a suspensão global.
+Código do adaptador e SHAs pinados afdfb78d/37c7d68d preservados. Leitor Git
+com modo estrito opt-in e empacotador da #599 preservados. Resultados do novo head na PR #600; checks anteriores não validam este candidato.
+Sarah Opus 5.5 high: GO para futura publicação/CI, sem P0/P1;
+50 testes e 10 subtestes offline aprovados, Ruff aprovado. CI de push da main ausente; E2E manual aprovado, cinco workflows
+ainda não executados no SHA exato. Main não declarada verde. SHAs pinados comprovados
+ancestrais da nova main; recibos antigos não validam o novo digest dos módulos.
+Chave PGDG segue obtida da fonte oficial por HTTPS sem fingerprint pinado;
+client 17 sem patch fixado: risco residual de suprimento restrito ao runner efêmero.
+Consulta oficial: https://wiki.postgresql.org/wiki/Apt. Não é gate operacional. Sem deploy, reativação, novo ensaio
+físico local, VPS ou dados de produção. Registros divergentes abaixo são históricos.
+
 **Revisão Sarah — Opus 5.5 high:** orientação vigente do dono: trabalhar
 com Sarah como revisora crítica e cética, confrontando seus achados com evidências,
 sem concordância automática. Sua revisão não concede autorização operacional.
@@ -337,8 +497,9 @@ reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
   - adaptar à topologia real: três serviços Compose e o broadcast avulso;
     Nginx, montagens, Redis e Evolution compartilhados; outros sites do host;
   - ensaiar em instalação sintética e passar por revisão independente.
-- **Não feito agora:** isso não foi implementado nem ensaiado nesta etapa.
-  Esta prévia não autoriza código que ainda não existe.
+- **Ainda não feito:** transporte real e ensaio físico da instalação completa.
+  A preparação local de banco e host simulado está comprovada na seção abaixo;
+  ela não autoriza operação de código ainda não validado no ambiente real.
 - **SHA do adaptador:** quando for implementado, fixar um SHA próprio e
   revisado do executor, registrado junto ao SHA da aplicação.
 - **Controlador sintético:** proibido executá-lo em PROD, assim como remover
@@ -365,12 +526,151 @@ reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
 - **Proibido como atalho:** fabricar SHA anterior, label, symlink ou diretório
   `releases/` como "prova" de estado anterior.
 
+### Adaptador: preparação local e próximos passos
+
+A continuação atual cobre código, simuladores, PostgreSQL local descartável e,
+na etapa histórica de 28/10, commit/push e PR com CI para revisão; a composição atual exige nova autorização.
+Não cobre merge, deploy, leitura remota ou qualquer operação em produção.
+Worktree `first-transition-20261027/PastorAi-1.0`, branch
+`feat/first-transition-adapter-20261027`, base `37c7d68d` (PR #598), publicada
+na [PR #600](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/600).
+CI de `8ef92e3a7cfdb75e9c366a168ddff415962a8b5b` aprovada: quatro checks
+obrigatórios, estático e ensaio sintético. Head após esta atualização documental
+é validado novamente e registrado na descrição da PR.
+Bloqueio histórico por branch superado pela suspensão global da main.
+O controlador sintético anterior e suas guardas continuam intactos.
+
+**Aconselhamento arquitetural inicial (28/10):** Claude Opus 5.5, configurado com esforço
+high, confirmou nos metadados `claude-opus-5-5` em duas rodadas. A consulta foi
+sobre padrões públicos, sem código ou fatos operacionais privados. Na tentativa inicial, o envio de
+código foi recusado pela revisão automática por falta de autorização explícita
+para esse payload/destino; não foi realizado naquele momento. O parecer é arquitetural e genérico,
+não revisão independente destes arquivos. Codex avaliou a aplicabilidade ao código.
+
+**Atualização da revisão de código:** após a autorização explícita do dono,
+os sete arquivos novos e resumo sanitizado foram enviados ao Opus 5.5 high,
+sem ferramentas ou acesso ao restante do repositório. Houve três rodadas de
+revisão privada; a final concluiu **sem bloqueador local**. Os hashes dos sete
+arquivos revisados estão no relatório derivado em `output/release/`. O parecer
+não aprova produção nem o transporte real, que continua fora do ensaio.
+
+A decisão é preservar aplicador, ledger e diário existentes, com portas estreitas
+para os efeitos. Não criar uma nova estrutura de governança. Índice inválido ou
+existente sem ledger provoca parada; não há DROP, adoção ou REVOKE automático.
+Contagens e metadados são sinais, não prova de conteúdo preservado.
+
+| Entrega local | Evidência e limite |
+|---|---|
+| Plano por artefato exato | Aplicação `afdfb78d71a53f2861632806e13cdda4662d7d63`, aplicador `37c7d68d60b6f86cfb1fe75d4c720530537845d6`; 78 de base + 51 pendentes, oito concorrentes. SHA-256 do preflight e dos seis módulos locais (novos e reutilizados) vinculados ao plano/diário. Mudança do plano bloqueia retomada. |
+| Preflight completo pré/pós | Script existente pelo SHA da aplicação, transação READ ONLY, `row_security=off`, search_path e timeouts fixos. Saída restrita a contagens; sem renderizar UUIDs ou mensagens brutas. Testes negativos de owner inseguro e role sem visibilidade de RLS. Não valida permissões/pooler reais. |
+| Dump/restore sintético real | Ferramentas PG17, banco inteiro fictício para incluir extensões, clone UUID marcado, catálogo normalizado/contagens e preflight conferidos. Testes de arquivo corrompido e disco cheio simulado. Clone e arquivo temporário removidos. `archive_persisted=false`, `content_verified=false`: não é backup operacional, prova integral dos payloads, dos volumes, mídia, Storage ou Redis. |
+| Matriz de interrupções | SIGKILL real só no subprocesso do ensaio: antes/depois da intenção, antes do commit, depois do commit e antes do recibo. Ledger esperado 78/79; retomada converge a 129. Não prova perda de energia, falha de storage ou todos os interleavings. |
+| Índices e ledger | Índice inválido é preservado e bloqueia retry. Ledger fora de ordem/regredido, intenção/hash ou identidade divergentes bloqueiam execução. Sem reparo, restore por cima ou retomada automática do legado. |
+| Contrato de host | Apenas simulador: três serviços Compose e broadcast avulso, ingresso bloqueado antes da drenagem, restart=no antes do SIGTERM, espera e saída limpa, identidade/gates/mounts/redes/suporte estáveis e recusa de writer desconhecido. Recibo vinculado ao fluxo de banco e reconferido a cada migration. Nenhum transporte real, start, SSH ou cliente Docker existe nessa porta. |
+| Filas | TYPE/PTTL/LLEN/ZCARD em chaves explícitas e processing informado. Sem KEYS/SCAN ou leitura de conteúdo da dead. Testado apenas com simulador; `content_verified=false`. Não certifica preservação integral nem quiescência do Redis compartilhado. |
+
+**Resultado histórico da preparação anterior à composição (CI em `8ef92e3a`; SHA do ensaio local não revalidado):** **68 testes aprovados em 138,20s**,
+Ruff aprovado. Gates de aptidão/backfill permanecem zero até sua migration,
+inclusive na retomada após SIGKILL. Colisão com índice, tabela ou sequência
+homônima é recusada antes do marcador. Dados fictícios não vazios e uma tabela
+FORCE RLS tornam observável a exclusão de dados no dump. Retry é obrigatório
+para execução incompleta pós-marcador; falhas antigas resolvidas não bloqueiam
+replay concluído. `adapter-failed` é diagnóstico; `run-start/complete` determinam
+a exigência de retry. O marcador referencia seq/digest do recibo de restore.
+Inclui fluxo integrado host simulado → preflight → dump/restore fictício →
+51 migrations → preflight final; quatro roles NOLOGIN; repetição idempotente;
+drift do host após o primeiro commit bloqueando a próxima migration. Só
+PostgreSQL descartável e subprocessos do ensaio foram executados; os recursos
+do ensaio foram removidos. Revisão independente local: concluída nos sete arquivos enviados; CI do adaptador em `8ef92e3a`: **aprovada**, 68 testes em 154,49s e limpeza
+confirmada. O primeiro CI falhou por ausência do client PG17; o workflow passou
+a instalar pelo repositório oficial PGDG, sem mudança no adaptador.
+
+**Reproduzir:** usar Python 3.13 já preparado com pytest/psycopg2, ferramentas
+PG17 em `/usr/lib/postgresql/17/bin` e imagem local `postgres:17.6`. Executar
+`python deploy/rehearse_first_transition_database.py --python <python-do-ambiente-de-testes>`.
+O launcher usa tmpfs, porta loopback, credencial fictícia, ambiente limpo e
+marcador de propriedade. Não instala dependências, não inicia aplicação/Redis
+nem executa transporte real de host. Só metadados saem do ensaio de restore.
+
+**Próxima fatia concreta (proposta, ainda não executada):** aplicar as 51 também
+no clone restaurado antes do marcador, mantendo o banco fonte fictício inalterado.
+Depois, implementar transporte de host contra a porta existente, inicialmente só
+com doubles. Reproduzir a validação local pelo comando acima; o launcher cria
+somente PostgreSQL em tmpfs, porta aleatória loopback e remove seu contêiner/clones.
+Riscos locais: lock, índice concorrente incompleto ou processo interrompido;
+recuperação: conservar diagnóstico sanitizado e descartar somente os recursos
+marcados do ensaio. Nenhum dado de produção entra nesse teste.
+
+Para a janela futura, os comandos de banco, **não autorizados para execução**, são:
+`python scripts/migrate.py status`, seguido de
+`python scripts/migrate.py apply <arquivo-da-lista-exata> --yes --lock-timeout 2s`
+para cada transacional, ou
+`python scripts/migrate.py apply <arquivo-NT-da-lista-exata> --yes --no-transaction`
+para as oito concorrentes. Usar o executor `37c7d68d`, SQL de `afdfb78d`, conexão
+fornecida apenas no ambiente seguro e encapsulamento de saída revisado; nunca
+URL em argumento ou saída bruta. Os comandos reais de contenção/backup/deploy
+só serão definidos após implementar e revisar o transporte e obter autorização
+para inspecionar identidades atuais. Não existe CLI de produção neste adaptador.
+
+Ambiente futuro: janela nominal da instalação legada, com writers contidos,
+backup novo e restore aprovado **antes** da primeira DDL. Riscos: indisponibilidade,
+locks, backfills sobre dados vivos e índice NT parcial. Antes de DDL, retorno só
+com baseline/imagem/ledger inalterados comprovados; após DDL, manter contenção,
+parar no primeiro erro e corrigir adiante, sem DROP/adoção/restore automático.
+Autorizações separadas: integração das PRs; inspeção remota sanitizada; ensaio
+físico além de PG local; janela de contenção/backup/51 migrations/deploy; retorno
+do piloto. Apresentar identidades, comandos e impactos concretos antes de cada
+operação arriscada. A autorização de publicação desta PR não cobre essas etapas.
+
+**Plano restante, em ordem:**
+
+1. Revisão dos sete arquivos concluída com Opus 5.5 high, sem bloqueador
+   local. Publicação e CI autorizadas em 28/10, em PR dependente da #598.
+   `backend-tests` inclui os 68 testes pelo launcher, imagem PG17 por digest e
+   ferramentas PG17; checkout completo fornece os dois commits revisados. O parecer genérico anterior foi complementado
+   pela revisão privada explicitamente autorizada; não confundir os dois.
+2. Antes da passagem ao transporte real, considerar uma fatia local de aplicação
+   dos 51 pendentes no clone restaurado, para antecipar colisões transacionais.
+   Isso não foi incorporado silenciosamente nesta revisão. Implementar o
+   transporte real contra o contrato estreito, sem remover as
+   guardas do controlador sintético. Preparar a comparação entre observação
+   real e contrato; não inventar revisão Git da imagem legada, nomes ou layout.
+   Sob o escopo atual, testar o código desse transporte só com doubles.
+3. Antes de um ensaio físico além do banco descartável, apresentar o comando,
+   recursos, efeitos esperados e limpeza, e obter ampliação explícita do escopo.
+   Um simulador não atesta que Nginx, mounts, Redis ou Evolution reais se comportam
+   dessa forma. Nenhuma inspeção remota está autorizada nesta continuação.
+4. Só então preparar a janela concreta: SHAs revisados, identidades e escopo
+   observados sob autorização, ingresso/writers contidos, backup novo e prova de
+   restore adequada, preflight real sanitizado, contingência após DDL e smoke
+   sem efeitos. Backup que pausa recursos compartilhados e suas consequências
+   precisam de decisão nominal. A proposta concreta vem antes da execução.
+5. Merge, deploy, DDL real e retorno do piloto são decisões próprias. Não
+   abrir/fechar gates, alterar privilégios, reparar índice, restaurar banco ou
+   iniciar serviços para obter aprovação de um teste. Depois da primeira DDL,
+   permanecer contido e corrigir adiante; retorno ao legado não demonstrado.
+
+O término local continua `database-verified`, `services=simulated-held`,
+`host_verified=false` e `production_ready=false`. Não há transição de produção
+pronta para disparar. A revisão Opus cobre o snapshot dos sete arquivos;
+o wiring de CI, documentação e remoção de um espaço final no helper de backup
+acrescentados depois são conferidos pelo Codex (sem mudança semântica do código).
+
+Limites residuais da revisão: os contadores reutilizados precisam corresponder
+às condições dos SQLs do candidato; os casos semeados não representam todos os
+estados possíveis de dados reais. O restore no mesmo cluster não prova
+comparação integral de payloads, triggers, ACLs ou roles globais. Intent de
+SIGTERM sem recibo, com processo ainda vivo, resulta em espera limitada/recusa;
+não há re-sinalização ou escalada automática. Exit code 0 continua exigido até
+um ensaio real autorizado demonstrar o comportamento do alvo.
+
 ### Fases e condições
 
-As fases 0 e 1 (preparação e leituras) estão cobertas pela autorização de
-27/10. As fases 2 a 7 envolvem escrita em PROD e precisam da aprovação nominal
-descrita acima, com ambiente, SHAs, escopo, janela e operador registrados fora
-do repositório. A fase 8 é uma decisão separada.
+Nesta continuação de 28/10, a autorização está limitada a código, simuladores
+e banco local descartável. As leituras autorizadas e registradas em 27/10 são
+históricas; não autorizam uma nova rodada remota agora. A fase 1 e qualquer
+operação real das fases 2 a 7 exigem autorização nominal para ambiente, SHAs,
+escopo, janela e operador. A fase 8 é uma decisão separada.
 
 0. **Preparação local (agora).**
    - Revisar esta prévia (Codex e segunda opinião).

@@ -22,6 +22,50 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Recuperação manual do CI, commit/push autorizado na #600 — 29/10/2026:** sobre o head
+publicado da #600 `3e3375ed`, proposta de cinco linhas: adicionar
+`workflow_dispatch` a backend-tests, frontend-ci, rls-integration, tooling-static
+e synthetic-release. E2E já possui esse gatilho. Nenhum job/permissão/gate muda.
+O dono autorizou commit/push sem force na própria #600 e acompanhamento do CI
+automático, com Sarah Opus 5.5 high. CI do novo head pendente nesta gravação;
+evidências finais serão registradas na PR. Merge e dispatch manual seguem proibidos.
+A integração futura habilita recuperação na nova main; não cria prova retroativa
+para `ed7f4c10`. Protocolo e comandos no início do runbook de release. 65 testes/30 subtestes
+offline e três cenários do gate DEV aprovados: dispatch não substitui event=push.
+Sarah Opus 5.5 high: GO do plano local, sem P0/P1; gate DEV permanece inalterado.
+
+**Correções da revisão automática da #600 — 29/10:** retomada compara presença
+e definição (hash de pg_get_indexdef) dos índices concorrentes com recibos do
+diário; divergência recusa sem reparar. Índice concorrente sem recibo após crash recusa retomada; não adota definições
+sem prova. Reobservação final confere os recibos antes de declarar conclusão.
+Backup sintético captura cluster/OID/proprietário antes de marcar o clone;
+limpa falha de comentário somente com identidade preservada. Falha antes de
+capturar identidade mantém recusa de limpeza, exigindo recuperação nominal.
+Sete regressões PG adicionadas para o CI; nenhum banco local executado.
+Subprocesso do teste SIGKILL agora desabilita bytecode. Testes offline do Codex:
+50 aprovados e 10 subtestes; Sarah revisa o diff sanitizado, sem executar testes.
+Main ed7f4c10 tem E2E manual aprovado (40814255271); cinco workflows sem runs
+no SHA exato, sem dispatch. Não declarar main verde nem transferir checks de
+árvore equivalente. Publicação e correções da #600 autorizadas, merge não.
+
+**Atualização vigente — #599 integrada em 29/10/2026.** Merge commit
+`ed7f4c10104f4537b8918000c0868992245b9429`, head autorizado `9e0dbda9`.
+Checks obrigatórios verdes, sem bypass e branch preservada. Vercel/DEV seguem
+suspensos. A atualização da #600 sobre esta main foi autorizada para commit/push normal,
+base main e CI, sem merge ou publicação das demais PRs.
+Conflito Vercel resolvido preservando deploymentEnabled=false global da main;
+o bloqueio antigo por branch da #600 não substitui a suspensão global.
+Código do adaptador e SHAs pinados afdfb78d/37c7d68d preservados. Leitor Git
+com modo estrito opt-in e empacotador da #599 preservados. Resultados do novo head na PR #600; checks anteriores não validam este candidato.
+Sarah Opus 5.5 high: GO para futura publicação/CI, sem P0/P1;
+50 testes e 10 subtestes offline aprovados, Ruff aprovado. CI de push da main ausente; E2E manual aprovado, cinco workflows
+ainda não executados no SHA exato. Main não declarada verde. SHAs pinados comprovados
+ancestrais da nova main; recibos antigos não validam o novo digest dos módulos.
+Chave PGDG segue obtida da fonte oficial por HTTPS sem fingerprint pinado;
+client 17 sem patch fixado: risco residual de suprimento restrito ao runner efêmero.
+Consulta oficial: https://wiki.postgresql.org/wiki/Apt. Não é gate operacional. Sem deploy, reativação, novo ensaio
+físico local, VPS ou dados de produção. Registros divergentes abaixo são históricos.
+
 **Revisão Sarah — Opus 5.5 high:** orientação vigente do dono: trabalhar
 com Sarah como revisora crítica e cética, confrontando seus achados com evidências,
 sem concordância automática. Sua revisão não concede autorização operacional.
@@ -138,27 +182,60 @@ A lista antiga de 22 tarefas está arquivada e não determina o progresso atual.
 
 **Outra correção adicional:** [PR #596](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/596) — evita falha quando dois pedidos iguais criam a mesma turma da Universidade da Vida ao mesmo tempo. 89 testes locais aprovados; revisão Codex e Opus aprovada. Estado atual: integrada na main em `afdfb78d`; quatro checks e Vercel aprovados no head `83dfcc4b`; CI da main com os quatro checks aprovados.
 
-**Agora:** plano e prévia revisados por Codex e Opus, disponíveis no [runbook operacional de release](docs/ops/RELEASE-LOTE-2026-10.md) para o SHA `afdfb78d71a53f2861632806e13cdda4662d7d63`, com 51 migrations pendentes e a primeira transição da instalação legada na VPS srv2031318. O dono recebe plano e prévia antes de qualquer aplicação. Próxima tarefa técnica local: implementar e ensaiar o adaptador da primeira transição, revisar o pacote e fixar o SHA do executor; não há deploy pronto para disparar. A correção de acesso duplicado foi CANCELADA após reset externo; não pedir identificadores nem executar reconciliação. Leitura atual confirmou 0 duplicidades. Escritas no banco, deploy, restart, gates, backup novo e canários não autorizados.
+**Agora:** plano e prévia revisados por Codex e Opus, disponíveis no [runbook operacional de release](docs/ops/RELEASE-LOTE-2026-10.md) para o SHA `afdfb78d71a53f2861632806e13cdda4662d7d63`, com 51 migrations pendentes e a primeira transição da instalação legada na VPS srv2031318. O dono recebe plano e prévia antes de qualquer aplicação. Preparação local do adaptador ensaiada; publicação/CI da composição atual autorizadas nesta etapa, sem merge; transporte real e qualquer ensaio físico adicional exigem decisão própria; não há deploy pronto para disparar. A correção de acesso duplicado foi CANCELADA após reset externo; não pedir identificadores nem executar reconciliação. Leitura atual confirmou 0 duplicidades. Escritas no banco, deploy, restart, gates, backup novo e canários não autorizados.
 
 **Consolidação local — 27/10/2026:** a pasta principal `PastorAi-1.0` foi atualizada por fast-forward para `afdfb78d`; plano e painel agora são gerados nela. Foram removidas 95 worktrees já integradas, sem apagar branches ou commits, e 1 foi arquivada reversivelmente por cache pertencente a outro usuário. Todos os 1.241 registros de arquivos/diretórios ignorados das pastas removidas foram preservados opacamente em área privada do Git, sem abrir conteúdo nem versioná-lo. O saldo registrado ainda inclui 9 áreas sob Codex e rascunhos pendentes de revisão. DEV local recuperado e saudável; produção não alterada. As alterações de documentação e ferramenta do painel seguem em PR própria e continuam aguardando integração; não alteram fases de produção nem gates.
 
 **Retomada local — 27/10/2026:** falha da #597 identificada na auditoria do lock
 de ferramentas (`msgpack 1.2.1`); correção local para `1.2.3` validada pelas duas
-auditorias, sem vulnerabilidades conhecidas retornadas. Publicação e CI do novo
-head ainda pendentes. Ensaio SQL do candidato exato `afdfb78d` em PG 17.6
+auditorias, sem vulnerabilidades conhecidas retornadas. Correção publicada na #597 (`d0382051`), com CI aprovada; PR aberta, sem merge. Ensaio SQL do candidato exato `afdfb78d` em PG 17.6
 descartável, sem rede externa: base de 78 seguida das 51 pendentes, ledger 129,
 zero pendentes/índices inválidos, quatro roles NOLOGIN e limpeza confirmada.
-Detalhes e limites no runbook do lote. Adaptador da primeira transição e revisão
-do pacote continuam pendentes; nenhuma operação em produção.
+Detalhes e limites no runbook do lote. Pacote publicado na #599 (`b3d9347`),
+com CI aprovada e sem merge; adaptador descrito abaixo. Nenhuma operação em produção.
 
 
-**Executor de migrations — preparação de PR em 27/10:** padrão CLI de 2s,
+**Executor de migrations — PR #598 publicada em 27/10:** padrão CLI de 2s,
 com `SET LOCAL`/`SHOW` para preservar o isolamento histórico. Validação local:
 60 testes (46 unitários e 14 PG 17.6), replays 78→129 e 0→129 pela CLI,
 ledger 129 e zero índices inválidos. A histórica `20260827_175634` recebeu
 5s explícitos, conforme seu SQL; as oito pendentes concorrentes usam o caminho
-próprio. Commit/push autorizados; CI e revisão do SHA publicado pendentes.
+próprio. Head `37c7d68d`, CI aprovada; PR aberta e dependente da #597, sem merge.
 Nenhuma migration ou operação em produção; adaptador real segue pendente.
+
+**Adaptador — [PR #600](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/600) publicada (28/10/2026):** branch
+`feat/first-transition-adapter-20261027`, base `37c7d68d` (#598).
+Registro histórico da autorização de 28/10 (não se transfere à composição atual): commit, push e PR para revisão, sem merge/deploy.
+Bloqueio histórico de preview por branch, superado pela suspensão global da main;
+`frontend/vercel.json` não muda outras branches nem configurações remotas.
+Preflight completo pré/pós, dump/restore fictício com extensões, matriz de cinco
+pontos de SIGKILL e contrato de host 3 Compose + 1 avulso por simulador.
+Arquivo de dump temporário, `archive_persisted=false`; não é backup operacional.
+Redis permanece simulado, sem conteúdo da dead, `content_verified=false`.
+O dono autorizou
+explicitamente enviar os sete arquivos novos e resumo sanitizado ao Claude.
+Opus 5.5 high revisou o código em três rodadas; a final concluiu **sem
+bloqueador para a fatia local**, sem aprovar produção. Foram corrigidos os seis
+achados: colisão de concorrentes antes do marcador, retry de execução incompleta
+(inclusive SIGKILL) sem bloquear replay concluído, gates de backfill por fase,
+manifesto das seis dependências locais, restore com dados fictícios não vazios
+sob FORCE RLS e ordenação C do ledger. Também foram fixados hostaddr, identidade
+com OID, recibo de restore vinculado ao marcador e colisões de nomes com qualquer
+relação. Candidatos são revalidados até a migration correspondente ser aplicada.
+**Validação local repetida para publicação: 68 passed em 138,20s**, Ruff aprovado, PostgreSQL e clones
+removidos. Parecer e manifesto do snapshot revisado em `output/release/`. Na preparação
+da PR, removido somente um espaço final no helper de backup; sem alteração semântica.
+CI própria preparada no check `backend-tests`: histórico Git completo, imagem
+PG17 por digest, ferramentas PG17 pelo repositório oficial PGDG e launcher dos
+68 testes. A primeira tentativa de CI falhou na instalação do client ausente
+no Ubuntu; corrigida a origem do pacote, sem mudar o código revisado. CI de `8ef92e3a7cfdb75e9c366a168ddff415962a8b5b` aprovada em 28/10:
+`backend-tests`, `frontend-ci`, `e2e-critical`, `rls-integration` (quatro shards
+e agregador), `tooling-static` e `synthetic-release`. No CI, os 68 testes do
+adaptador passaram em 154,49s, com limpeza confirmada. Nenhum deployment Vercel
+para esta branch na consulta de metadados. Esta atualização documental gera
+novo SHA; seu resultado exato fica na descrição da PR #600. A próxima
+etapa técnica é ensaiar as 51 no clone restaurado e preparar o transporte real
+contra o contrato, testando só com doubles até nova autorização. Sem merge, deploy, leituras remotas ou alterações em produção.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
