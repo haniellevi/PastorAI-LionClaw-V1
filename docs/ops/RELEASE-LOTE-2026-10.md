@@ -1,5 +1,17 @@
 # Release em lote, outubro de 2026
 
+**Atualização vigente — #597 integrada:** main
+`940ac49ef82eedf7a67da666fab8435c12f7d760`, merge commit do head `8542e991`,
+seis workflows verdes antes da integração. Proteções e suspensões preservadas.
+#598 preparada sobre essa main, sem conflitos; atualização autorizada para
+commit/push sem force push, base main e acompanhamento do CI;
+código/fixtures idênticos ao head original `37c7d68d`. Validação
+offline em Python 3.13: 46 testes unitários, Ruff e sintaxe aprovados. Apenas documentação de
+estado reconciliada. Resultados do novo head na PR #598; nenhum merge adicional ou publicação das
+demais PRs autorizado. Sem deploy, reativação ou ensaio físico local.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados por este merge.
+
+
 **Atualização vigente de integração — 28/10/2026:** #603 integrada pelo merge
 `e2eb2d04f08caf46f676a4f560acc77a61c5e351`. Proteção da main agora exige somente
 backend-tests, frontend-ci, e2e-critical e rls-integration (app_id 15368), com
@@ -489,6 +501,37 @@ Regras de aplicação:
   o aplicador extrai nas `NT` não se contornam. Se der timeout de lock, parar.
   Nova tentativa só depois da decisão, nunca aumentando o timeout por conta
   própria.
+  O executor de `migrate.py --lock-timeout` acrescenta padrão de 2s
+  nas 43 transacionais, incluindo as seis sem limite no SQL. As oito `NT`
+  mantêm o `SET lock_timeout` inicial do arquivo. Antes de usar esse executor
+  numa janela, fixar e revisar seu SHA e conferir os comandos que alteram o
+  limite nos 51 SQLs: a validação antes/depois não impede alteração temporária
+  durante o SQL. Chamadas diretas de `cmd_apply` precisam passar
+  `lock_timeout=2000` explicitamente; seu padrão continua 0 por compatibilidade.
+  Em 27/10, Python 3.13.15: 46 testes unitários e seis testes reais em PG 17
+  descartável passaram. Cobrem cancelamento de lock, rollback de DDL/ledger,
+  restauração do limite após commit e índice concorrente. Essa prova isolada
+  não autoriza produção.
+  Replay adicional local de 27/10: base de 78 pelo caminho original
+  (`lock_timeout=0` na chamada direta), seguida das 51 com o rascunho atual:
+  43 transacionais com `lock_timeout=2000`, oito concorrentes com o limite
+  do SQL; ledger exato de 129, zero pendentes e zero índices inválidos.
+  Ambiente limpo, Python 3.13.15, PG 17 descartável em loopback, sem dados reais.
+  Nesse primeiro ensaio, a base histórica não passou com o novo padrão:
+  `SET TRANSACTION ISOLATION LEVEL` conflitava com a consulta inicial.
+  Correção local posterior: `SET LOCAL` e `SHOW` substituem os SELECTs
+  anteriores à migration, preservando seu isolamento. Dois testes reais
+  falharam antes e passaram depois (SERIALIZABLE e REPEATABLE READ).
+  Validação posterior em PG 17.6 descartável: **60 testes** (46 unitários +
+  14 PG), replay **78→129** e instalação **0→129** pela CLI, ambos com ledger
+  exato de 129, zero pendentes/índices inválidos e quatro roles NOLOGIN.
+  Padrão de 2s preservado; somente a histórica `20260827_175634` recebeu
+  `--lock-timeout 5s`, compatível com o limite que ela declara; as oito
+  pendentes concorrentes seguiram com `--no-transaction` e seu limite SQL.
+  Esses ensaios não definem timeouts para PROD. Executor local verificado:
+  SHA-256 `df5f93254bdfbebd64d078b79abdbe4d139ea39e1cac0de4c647ba1fd646ac60`.
+  Preparado para PR própria; revisão e CI do commit publicado ainda necessárias.
+  Nenhuma operação real.
 - **Falha numa `NT`:** pode deixar índice `INVALID`. Seguir o comentário do
   próprio arquivo ("check validity before retrying") antes de qualquer nova
   tentativa.

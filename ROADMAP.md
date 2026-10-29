@@ -22,6 +22,23 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Atualização vigente — #597 integrada em 28/10/2026.** Merge commit
+`940ac49ef82eedf7a67da666fab8435c12f7d760`, head autorizado
+`8542e9911083924100a10f180241808c44fe91ee`, com seis workflows verdes antes do
+merge, sem bypass e com branch preservada. Main resultante `940ac49e`.
+As proteções de quatro checks e as suspensões Vercel/DEV foram reconfirmadas;
+nenhum deploy, reativação, VPS, dado de produção ou ensaio físico local.
+A #598 foi composta sobre essa main, sem conflitos, preservando integralmente
+o código e as fixtures do head anterior `37c7d68d`. Sua atualização recebeu
+autorização de commit/push sem force push, base main e acompanhamento do CI.
+Validação local em Python 3.13: **46 testes unitários passaram**; Ruff,
+JSON/YAML/Bash e diff check aprovados. Nenhum banco ou migration executado.
+Resultados do novo head na [PR #598](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/598);
+checks antigos não se transferem para ele. Nenhum merge da #598, nem publicação
+ou integração das #599–#602, autorizado nesta etapa. Merge exige decisão
+posterior às evidências do CI.
+Registros anteriores abaixo são históricos quando divergirem deste estado.
+
 **Atualização vigente — #603 integrada em 28/10/2026.** Main resultante
 `e2eb2d04f08caf46f676a4f560acc77a61c5e351`, merge commit do head autorizado
 `3283633ac6e912de7548f4e974575145083312df`, sem bypass e com branch preservada.
@@ -103,6 +120,14 @@ zero pendentes/índices inválidos, quatro roles NOLOGIN e limpeza confirmada.
 Detalhes e limites no runbook do lote. Adaptador da primeira transição e revisão
 do pacote continuam pendentes; nenhuma operação em produção.
 
+
+**Executor de migrations — preparação de PR em 27/10:** padrão CLI de 2s,
+com `SET LOCAL`/`SHOW` para preservar o isolamento histórico. Validação local:
+60 testes (46 unitários e 14 PG 17.6), replays 78→129 e 0→129 pela CLI,
+ledger 129 e zero índices inválidos. A histórica `20260827_175634` recebeu
+5s explícitos, conforme seu SQL; as oito pendentes concorrentes usam o caminho
+próprio. Commit/push autorizados; CI e revisão do SHA publicado pendentes.
+Nenhuma migration ou operação em produção; adaptador real segue pendente.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
