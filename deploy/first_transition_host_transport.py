@@ -13,6 +13,16 @@ from first_transition_adapter import ROLES
 from initial_transition_ops import Refused, require
 
 
+def host_command(operation, identifier):
+    """Pure encoder shared with the separately authorized disposable probe."""
+    require(isinstance(identifier, str) and re.fullmatch('[0-9a-f]{64}', identifier), 'transport-target')
+    commands = {'restart-no': ('docker', 'update', '--restart=no', identifier),
+                'term': ('docker', 'kill', '--signal=TERM', identifier),
+                'wait': ('docker', 'wait', identifier)}
+    require(operation in commands, 'transport-operation')
+    return commands[operation]
+
+
 class SimulatedHostTransport:
     def __init__(self, driver):
         require(getattr(driver, 'mode', None) == 'local-simulation', 'transport-simulation-required')
@@ -55,16 +65,16 @@ class SimulatedHostTransport:
 
     def disable_restart(self, identifier):
         self._target(identifier)
-        require(self._request(('docker', 'update', '--restart=no', identifier), 5) is True,
+        require(self._request(host_command('restart-no', identifier), 5) is True,
                 'transport-restart-receipt')
 
     def signal_term(self, identifier):
         self._target(identifier)
-        require(self._request(('docker', 'kill', '--signal=TERM', identifier), 5) is True,
+        require(self._request(host_command('term', identifier), 5) is True,
                 'transport-signal-receipt')
 
     def wait_stopped(self, identifier, timeout):
         require(type(timeout) is int and 0 < timeout <= 30, 'transport-wait-bound')
         self._target(identifier)
-        status = self._request(('docker', 'wait', identifier), timeout)
+        status = self._request(host_command('wait', identifier), timeout)
         require(type(status) is int and status == 0, 'transport-exit-not-clean')

@@ -653,7 +653,8 @@ def test_clone_replay_failure_preserves_source_and_cleans_clone(plan, database, 
     assert execute_sql(database, "SELECT count(*) FROM pg_database WHERE datname LIKE 'first_transition_restore_%'") == [(0,)]
 
 
-@pytest.mark.parametrize('fault', ['not-verified', 'wrong-sql', 'wrong-baseline'])
+@pytest.mark.parametrize('fault', ['not-verified', 'wrong-sql', 'wrong-baseline', 'wrong-source', 'wrong-plan',
+                                    'same-identity', 'bad-identity', 'missing-global-limit'])
 def test_invalid_clone_receipt_blocks_marker(plan, database, tmp_path, monkeypatch, fault):
     from first_transition_adapter import digest
     with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
@@ -662,13 +663,23 @@ def test_invalid_clone_receipt_blocks_marker(plan, database, tmp_path, monkeypat
                       baseline_digest=baseline_digest(before), restore_verified=True,
                       clone_rehearsal=dict(migrations_verified=True, applied=51, final_ledger=129,
                           concurrent=8, sql_digest=digest([(m.name, m.sha256) for m in plan.pending]),
-                          final_schema_digest='a'*64, clone_identity='b'*64))
+                          final_schema_digest='a'*64, clone_identity='b'*64, cluster_global_ddl_possible=True))
         if fault == 'not-verified':
             backup['clone_rehearsal']['migrations_verified'] = False
         elif fault == 'wrong-sql':
             backup['clone_rehearsal']['sql_digest'] = '0'*64
-        else:
+        elif fault == 'wrong-baseline':
             backup['baseline_digest'] = '0'*64
+        elif fault == 'wrong-source':
+            backup['source_identity'] = '0'*64
+        elif fault == 'wrong-plan':
+            backup['plan_digest'] = '0'*64
+        elif fault == 'same-identity':
+            backup['clone_rehearsal']['clone_identity'] = db.identity
+        elif fault == 'bad-identity':
+            backup['clone_rehearsal']['clone_identity'] = 'not-an-identity'
+        else:
+            backup['clone_rehearsal'].pop('cluster_global_ddl_possible')
         monkeypatch.setattr(db, 'rehearse_backup', lambda _plan: backup)
         with pytest.raises(Refused, match='clone-receipt-invalid'):
             LocalTransition(plan, db, journal).run(evidence(plan, db))
@@ -711,6 +722,24 @@ def test_clone_cleanup_terminates_leftover_client_and_preserves_failure(plan, da
     finally:
         for connection in connections:
             connection.close()
+
+
+
+def test_final_catalog_error_is_sanitized_and_holds(plan, database, tmp_path, monkeypatch):
+    import first_transition_local_backup as backup
+    snapshot = backup.snapshot
+    with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
+        def fail_final(connection):
+            if connection is db.conn and journal.last('adapter-ddl-marker'):
+                raise RuntimeError('synthetic-private-driver-details')
+            return snapshot(connection)
+        monkeypatch.setattr(backup, 'snapshot', fail_final)
+        with pytest.raises(Refused, match='^clone-source-schema-check-failed$') as failure:
+            LocalTransition(plan, db, journal).run(evidence(plan, db))
+        assert failure.value.__suppress_context__
+        assert journal.last('adapter-failed')['code'] == 'clone-source-schema-check-failed'
+        assert journal.last('adapter-database-verified') is None
+        assert len(db.observe()['ledger']) == 129
 
 
 @pytest.mark.parametrize('change', ['missing', 'definition'])

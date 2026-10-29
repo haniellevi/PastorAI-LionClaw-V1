@@ -1,6 +1,43 @@
 # Igreja 12 — roteiro único
 
-## Estado vigente — integração #600 e publicação autorizada da #601 (29/10/2026)
+## Estado vigente — #601 integrada e publicação da #602 autorizada (29/10/2026)
+
+#601 integrada por merge commit `19eae0b0c140ea36d7ea93a5874867bf53c34f70`,
+head autorizado `83f962a1`, sem bypass ou exclusão da branch. Os seis workflows
+push da nova main passaram: backend40828306185, frontend40828306170,
+E2E40828306164, RLS40828306174, tooling40828306177, sintético40828306165.
+Nenhum dispatch manual executado. A PR601 havia aprovado 98 testes do adaptador
+no CI, sem skips, com PostgreSQL descartável removido; isso não valida a #602.
+
+Candidato #602: composição do head `af5158d5` com esta main; commit/push sem
+force, base main e acompanhamento CI autorizados pelo dono em 29/10.
+Conflitos de testes resolvidos preservando as duas séries; Vercel false global
+herdado da main intacto. DEV disabled_manually e DEV_PIPELINE_ENABLED=false,
+Vercel Git desvinculado e nenhuma publicação ativa na conferência pré-merge.
+Código do probe não foi executado fisicamente. Apenas simuladores nos testes.
+Validação local: 99 passed, 2 subtests, sem skips; testes PG ainda não executados
+nesta composição. Resultados físicos/CI de 28/10 são históricos, não transferíveis.
+Sarah Opus 5.5 high: GO local, P0=0/P1=0; revisão sanitizada sem ferramentas.
+Pendências antes de ampliar/executar novamente o transporte: SIGTERM/SIGHUP do
+controlador podem impedir finally e deixar fixtures com restart=always;
+conferência residual por label ainda não implementada; snapshot inicial de backup
+pode propagar erro de driver antes do marcador. Probe usa socket Docker local
+sem guarda técnica de host: não executar em VPS. A allowlist explícita de
+`deploy/package_backend_release.py` exclui `rehearse_first_transition_commands.py`.
+Limites registrados, sem implementação/ensaio adicional nesta preparação.
+
+CI do novo head pendente nesta gravação; evidências finais na PR #602.
+Sem autorização de merge, dispatch manual, deploy, reativação, ensaios físicos
+locais, acesso VPS ou produção.
+
+Restam integração autorizada da #602 com CI do futuro head, proposta de topologia
+sintética e aprovação nominal de qualquer execução operacional. 51 migrations
+não foram aplicadas em produção. Transporte real/ingresso/filas, backup/restore
+operacional, preflight atual, janela/SHAs/contingência e retomada do piloto seguem
+pendentes. Registros abaixo são históricos e não concedem autorização vigente.
+
+
+## Histórico — preparação e publicação da #601 antes da integração
 
 #600 integrada por merge commit `60e29d142040ebc5b21c35af18884b2449321308`,
 head autorizado `da1cc2e0`, sem bypass, git push manual ou exclusão da branch. Dono aceitou
@@ -282,6 +319,41 @@ explicitamente desabilitado, sem alterar outras branches ou configuração remot
 Merge, deploy, VPS e produção continuam fora do escopo.
 Próximo passo após validação: apresentar a diff e definir ensaio físico isolado
 antes de implementar/conectar qualquer driver real. Sem merge/deploy/VPS/produção.
+
+**HISTÓRICO — preparação de 28/10, publicada em `af5158d5`, base `84366305`:** branch
+`feat/local-transport-rehearsal-20261028`, publicada na [PR #602](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/602), sobre #601.
+Pendências do Opus tratadas localmente: sanitização do erro de catálogo final,
+identidade distinta do clone e flag explícita de DDL global. Ensaio de comandos
+preparado com modo padrão sem efeitos e nove testes com doubles; execução física
+autorizada especificamente pelo dono e concluída com sucesso em 28/10. Proposta: quatro processos fictícios, sem rede/portas,
+512 MiB/1 CPU no total, imagem local imutável e limpeza por nomes/UUID próprios.
+Comandos de execução/recuperação, recursos e limites no [runbook](docs/ops/RELEASE-LOTE-2026-10.md#ensaio-local-de-comandos--executado-com-aprovação).
+**Validação local: 106 passed em 277,79s**, PostgreSQL descartável removido.
+Após acrescentar `--no-healthcheck`, os nove testes do ensaio preparado foram
+revalidados (9 passed); Ruff, YAML/Bash e diff check aprovados. Ensaio físico dos comandos: **PASS em quatro fixtures**, saídas 0, sem reinício,
+limpeza `clean` e zero contêineres do UUID na consulta local independente. As
+duas primeiras tentativas falharam no logging e foram limpas; corrigido
+`compress=false` mantendo um arquivo local de 1 MiB, com nove testes revalidados.
+Não prova workers reais, Compose, ingresso ou filas. Não confundir com o CI da #601.
+Nova autorização cobre revisão externa pelo Opus 5.5 high, correções, commit/push,
+PR separada e acompanhamento de CI; não cobre novos ensaios físicos. A revisão
+identificou argumento inválido no launcher do CI e ausência de `--run-id`
+obrigatório nos modos com efeito; ambos corrigidos. Validação posterior apenas
+offline: **78 passed, 2 subtests passed**; revisão final Opus 5.5 high sem bloqueadores locais, Ruff e diff check aprovados. Preview
+desabilitado também para esta branch. Resultados finais e SHA do CI devem ser
+consultados na [PR #602](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/602); provas físicas acima são históricas.
+Ordem de integração proposta: **#597 → #598 → #599 → #600 → #601 → #602** (#598/#599
+independentes entre si após #597). Nenhum merge autorizado; integração pode
+publicar frontend na main e requer decisão específica. Antes do release ainda
+faltam transporte real/ingresso/filas/topologia ensaiados e revisados, integração
+aprovada, backup/restore operacional, preflight atual sanitizado, decisões de
+contenção/gates, janela com SHAs e contingência, e retorno nominal do piloto.
+Consultas GitHub confirmaram #597–#601 abertas, sem merge e com os seis workflows
+verdes nos respectivos heads. Publicação/revisão externa estão autorizadas;
+VPS, produção, merge/deploy e novos ensaios físicos permanecem fora do escopo.
+Na integração, além do frontend automático na main, `dev-synthetic.yml` pode
+promover para DEV após CI se `DEV_PIPELINE_ENABLED` estiver habilitado (estado
+não verificado); isso precisa ser tratado antes de autorizar merge.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 

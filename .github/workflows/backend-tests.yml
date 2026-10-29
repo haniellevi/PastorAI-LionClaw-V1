@@ -124,9 +124,9 @@ jobs:
           "$RUNNER_TEMP/pip-audit-venv/bin/ruff" check \
             deploy/first_transition_adapter.py deploy/first_transition_local_backup.py \
             deploy/first_transition_host_contract.py deploy/first_transition_host_transport.py \
-            deploy/rehearse_first_transition_database.py \
+            deploy/rehearse_first_transition_database.py deploy/rehearse_first_transition_commands.py \
             deploy/tests/test_first_transition_adapter.py deploy/tests/test_first_transition_adapter_pg.py \
-            deploy/tests/test_first_transition_host_contract.py
+            deploy/tests/test_first_transition_host_contract.py deploy/tests/test_first_transition_commands.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" deploy/rehearse_first_transition_database.py \
             --python "$RUNNER_TEMP/backend-runtime-venv/bin/python"
 
