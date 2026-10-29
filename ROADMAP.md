@@ -1,6 +1,6 @@
 # Igreja 12 — roteiro único
 
-Atualizado em 27/10/2026 (UTC) sobre a `main` `77a8fd3f` (registra até #593). Esta é a única fonte ativa
+Atualizado em 27/10/2026 às 15:38 UTC sobre a `main` `afdfb78d`. Esta é a única fonte ativa
 de planejamento; substitui os planos de MVP e refatoração e seu acompanhamento.
 O [PRD canônico](docs/Docs20260611_163530/PRD20260611_163530.md) conserva os
 requisitos. As decisões de 15/10 prevalecem sobre os cortes antigos de escopo,
@@ -21,6 +21,22 @@ Quando falta prova, usamos **não verificado**. Produção é o sistema em uso;
 o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
+
+**Atualização vigente — #603 integrada em 28/10/2026.** Main resultante
+`e2eb2d04f08caf46f676a4f560acc77a61c5e351`, merge commit do head autorizado
+`3283633ac6e912de7548f4e974575145083312df`, sem bypass e com branch preservada.
+Removido somente o requisito Vercel da proteção da main; backend-tests,
+frontend-ci, e2e-critical e rls-integration mantidos com app_id 15368,
+strict=true e enforce_admins=true. Demais proteções conferidas sem alteração.
+DEV continua disabled_manually com variável false; Vercel permanece sem Git e
+sem publicação pendente. Nenhum deploy, reativação, VPS ou dados de produção.
+A atualização da #597 sobre essa main teve commit/push e acompanhamento do CI
+autorizados. Preserva o histórico do head anterior `d0382051`, o painel/runbook
+e a suspensão #603, sem force push. Os resultados do novo head devem ser
+consultados na [PR #597](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/597);
+checks antigos não validam o candidato atualizado. Nenhum merge da #597 ou
+publicação/merge das #598–#602 autorizado nesta etapa. Merge depende de nova
+decisão após as evidências. Referências históricas abaixo não alteram esse limite.
 
 **Decisão vigente — 28/10/2026: suspender publicações automáticas antes da integração.**
 O dono decidiu suspender painel/Vercel e promoção DEV antes das PRs #597–#602.
@@ -44,6 +60,334 @@ Publicação manual, retomada automática e eventual cancelamento de execução 
 iniciada exigem autorização própria. Histórico de autorizações anteriores não
 prevalece sobre esta decisão.
 
+## Execução autônoma solicitada em 25/10
+
+Objetivo contínuo registrado em 25/10/2026 19:56 UTC, com janela solicitada
+até 26/10/2026 19:56 UTC. A continuidade depende da sessão e dos limites da plataforma;
+não há garantia de 24 horas ininterruptas.
+
+- Equipe segue implementando, testando, revisando e publicando PRs, sem pedir confirmação a cada fatia.
+- Claude Opus 5.5 executa e aplica `/pr`; Codex revisa; segunda opinião Claude preservada.
+- Ao terminar uma tarefa, selecionar a próxima pendência executável deste ROADMAP.
+- Se um item depender do dono, registrar motivo, ação e onde fazer; continuar os demais itens independentes.
+- Autorizações específicas permanecem necessárias para merge de cada PR e operações reais, conforme AGENTS. O dono aprovou o pacote #577–#594 para integração nesta sessão, incluindo eventual frontend automático na Vercel. Backend, banco, restart e gates exigem autorização separada.
+- Release, aceite pastoral e ampliação do piloto não são concluídos apenas com código e testes.
+
+Após a solicitação original, o dono aprovou em 26/10 a integração específica do pacote #577–#594; essa é a fase atual em execução, com os gates de backend e banco separados.
+
+## Pendências — visão rápida
+
+Atualização: 27/10/2026, 15:38 UTC. **14 frentes pendentes e 1 encerrada**;
+resumo das pendências detalhadas abaixo, sem somar tarefas repetidas.
+A lista antiga de 22 tarefas está arquivada e não determina o progresso atual.
+
+**Última integração:** [PR #596](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/596), merge `afdfb78d`; quatro checks e Vercel aprovados no head antes do merge. Isso não comprova operação do backend em produção.
+
+**Frontend automático:** publicação com sucesso registrada na Vercel para `7bc7fa72` às 2026-10-27T00:59:10Z. Prova por metadados GitHub/Vercel; funcionamento da interface, backend e banco não verificados nesta integração.
+**Integrações concluídas: 18/18 do pacote + #595 e #596.** Main `afdfb78d`; quatro checks obrigatórios aprovados no merge. Backend e banco não foram publicados por essas integrações.
+
+**Correção adicional (fora das 18):** [PR #595](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/595) — evita erro quando dois pedidos iguais criam o mesmo currículo ao mesmo tempo. Revisão Codex e Opus aprovada; 234 testes de CD passaram em banco sintético. Estado: integrada na main em `7bc7fa72`; CI pós-merge com os quatro checks aprovados.
+
+**Outra correção adicional:** [PR #596](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/596) — evita falha quando dois pedidos iguais criam a mesma turma da Universidade da Vida ao mesmo tempo. 89 testes locais aprovados; revisão Codex e Opus aprovada. Estado atual: integrada na main em `afdfb78d`; quatro checks e Vercel aprovados no head `83dfcc4b`; CI da main com os quatro checks aprovados.
+
+**Agora:** plano e prévia revisados por Codex e Opus, disponíveis no [runbook operacional de release](docs/ops/RELEASE-LOTE-2026-10.md) para o SHA `afdfb78d71a53f2861632806e13cdda4662d7d63`, com 51 migrations pendentes e a primeira transição da instalação legada na VPS srv2031318. O dono recebe plano e prévia antes de qualquer aplicação. Próxima tarefa técnica local: implementar e ensaiar o adaptador da primeira transição, revisar o pacote e fixar o SHA do executor; não há deploy pronto para disparar. A correção de acesso duplicado foi CANCELADA após reset externo; não pedir identificadores nem executar reconciliação. Leitura atual confirmou 0 duplicidades. Escritas no banco, deploy, restart, gates, backup novo e canários não autorizados.
+
+**Consolidação local — 27/10/2026:** a pasta principal `PastorAi-1.0` foi atualizada por fast-forward para `afdfb78d`; plano e painel agora são gerados nela. Foram removidas 95 worktrees já integradas, sem apagar branches ou commits, e 1 foi arquivada reversivelmente por cache pertencente a outro usuário. Todos os 1.241 registros de arquivos/diretórios ignorados das pastas removidas foram preservados opacamente em área privada do Git, sem abrir conteúdo nem versioná-lo. O saldo registrado ainda inclui 9 áreas sob Codex e rascunhos pendentes de revisão. DEV local recuperado e saudável; produção não alterada. As alterações de documentação e ferramenta do painel seguem em PR própria e continuam aguardando integração; não alteram fases de produção nem gates.
+
+**Retomada local — 27/10/2026:** falha da #597 identificada na auditoria do lock
+de ferramentas (`msgpack 1.2.1`); correção local para `1.2.3` validada pelas duas
+auditorias, sem vulnerabilidades conhecidas retornadas. Publicação e CI do novo
+head ainda pendentes. Ensaio SQL do candidato exato `afdfb78d` em PG 17.6
+descartável, sem rede externa: base de 78 seguida das 51 pendentes, ledger 129,
+zero pendentes/índices inválidos, quatro roles NOLOGIN e limpeza confirmada.
+Detalhes e limites no runbook do lote. Adaptador da primeira transição e revisão
+do pacote continuam pendentes; nenhuma operação em produção.
+
+
+**Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
+
+| Frente | O que falta / para quê | Quem resolve |
+|---|---|---|
+| 1. Parada segura | Provas sintéticas integradas (#577–#581 e #586). Falta adaptar, ensaiar e revisar a primeira transição real do legado; controlador existente é só sintético. | Equipe prepara; operação real depende de autorização. |
+| 2. Backup e recuperação | Provar que o sistema pode ser restaurado se algo falhar. | Equipe prepara; você autoriza operação real e ajusta backup externo. |
+| 3. Conta duplicada | **Encerrada.** Correção cancelada pelo dono; reset externo realizado. Leitura de 27/10: zero duplicidades. Não executar desvínculo. | Nenhuma correção a executar; só revalidar na janela. |
+| 4. Atualização do banco | Aplicar as **51 migrations pendentes**, uma por vez, após backup e aprovação. Lista exata no runbook do release. | Equipe prepara; você aprova antes de aplicar. |
+| 5. Publicação do piloto | Preparar primeira transição da VPS antiga, atualizar os quatro serviços e validar compatibilidade com o painel, preservando igreja/master/Pessoa/configurações. | Equipe prepara; você aprova a janela e a retomada. |
+| 6. Aceite pastoral | Validar 20 conversas e o caminho completo do G12. | Você/equipe pastoral testa; equipe técnica corrige. |
+| 7. Memória e exclusão | #584 e #585 integradas; falta publicar, provisionar identidades privadas e validar sob gates próprios. Não ativar automaticamente. | Equipe prepara; ativação depende de autorização. |
+| 8. Conhecimento oficial | Validar respostas com fontes aprovadas e fechar decisão pastoral. | Equipe + você/equipe pastoral. |
+| 9. Pessoas e rotinas | Completar planejamento e alertas. Correção de acesso ao alerta #589 integrada; validação no piloto ainda pendente. | Equipe; você decide regras de acesso pendentes. |
+| 10. Agenda | Concluir Google e lembretes; conferir eventos antigos antes de reenviar. | Equipe; conexão Google e envios exigem autorização. |
+| 11. Comunicados, e-mail e cobrança | Validar cada canal separadamente antes do uso real. | Equipe prepara; você aprova cada teste real. |
+| 12. Segurança e bugs | MFA depende de configuração. Logout, B5/B15 e prova B7 integrados (#568/#591–#593); publicação e aceite ainda pendentes. | Equipe; você configura MFA e decide regras pendentes. |
+| 13. Uso, velocidade e monitoramento | Testar celular/acessibilidade, medir lentidão e completar alertas. | Equipe + testadores do piloto. |
+| 14. Ambiente de testes online | Definir custo/recursos e disponibilizar testes separados da produção. | Equipe prepara; você decide custo e contratação. |
+| 15. Organização e lançamento | Publicar acompanhamento restante, organizar arquivos e revisar ampliação. | Equipe; limpeza e ampliação dependem de sua decisão. |
+
+**Condicionado, sem ativação autorizada:** Jev depende de contrato de proteção
+de dados, avaliação de qualidade e sua decisão específica.
+**Já integradas:** #572, #573, #574, #575, #576 e #577. Isso não comprova atualização de produção.
+Este resumo mantém a ordem e os critérios do roteiro detalhado; não é plano novo.
+
+## Progresso da retomada — 24/10/2026
+
+Acompanhamento desta retomada dentro do roteiro; não é plano paralelo nem muda
+as prioridades abaixo. Produção: somente a leitura datada na seção seguinte.
+
+| Tarefa | Estado | Próximo passo |
+|---|---|---|
+| Levantamento da `main` e das PRs | feito | GitHub reconfirmado em 25/10: #572, #573, #574, #575 e #576 integradas; main em `6b0b302b`. |
+| Sessões de trabalho | feito | Executor Opus 5.5 e segunda opinião estabelecidos; Codex orquestra e revisa. |
+| Reconciliação do ROADMAP e do [runbook do lote](docs/ops/RELEASE-LOTE-2026-10.md) | feito (local) | Plano atual de 27/10: 51 migrations conferidas por nome e ordem (8 concorrentes). Registro anterior de 42 descreve o recorte histórico, não o release atual. Diff check passou; nenhuma aplicação. |
+| Integração documental | parcial | O runbook atualizado e uma atualização do ROADMAP estão publicados na #573. O gerador do painel e o acompanhamento local ampliado ainda não foram publicados. |
+| Painel local derivado do roteiro (`tools/render_progress.py` → `output/painel/`) | feito (local) | Validado pelo Codex: gerado com Python 3.13; `index.html` e a fonte local com HTTP 200 em `127.0.0.1:8777`, sem servir o restante do repositório; filtros, busca e limpar funcionando; desktop e celular (390 px) sem overflow nem erro de JS. Visualização do roteiro, sem percentual global nem prova de produção. **Não é** a validação sintética do pacote, registrada na linha seguinte. |
+| Validação sintética do pacote do lote | feito (local) | Evidências locais distintas, sem somar totais: (a) restauração sintética `RESTORE_SINTETICO=OK tabelas=2 contagens=2:1`; (b) PG: `test_release_preflight_pg`, `test_release_bundle_pg` e `test_release_schema_compatibility_pg` com 11 passed, 0 skip, 37,34 s, Python 3.13.14, PostgreSQL 17 alpine isolado, ambiente limpo e 124 migrations ativas aplicadas por `migrate.cmd_apply`; (c) `deploy/tests`: 156 testes + 141 subtestes, 0 skip, 98,89 s, em 7 arquivos (backend_release, release_image_compose, maintenance_schema, maintenance_release, dev_pipeline, dev_coordination, backend_workflow), Python 3.13.14 com `network=none`, sem socket real; (d) ensaio físico PASS no SHA `354a83d891fe7295164d980a175dacdd2feba69e` com 9 checks (independent-migrations, process-readiness, frontend-http-headers, persistent-pending-queue, failed-swap-containment, additive-code-recovery, synthetic-reset, reset-reservation-invalidated, completed-acceptance-preserved), imagens construídas limpas (backend `8fbc14c58e9a`, frontend `dfb46ef35735`), relatório conferido pelo Codex e limpeza com 0 containers, redes e volumes. **Não comprova** compatibilidade com o banco de PROD nem com o SHA ativo, gates, backup real, release ou aceite das 20 conversas. |
+| Conferir backend/banco e preparar janela | em andamento | Leitura 27/10 pós-reset: 78 aplicadas/51 pendentes no candidato `afdfb78d`; 0 duplicidades e 0 vínculos inválidos. VPS saudável em layout legado, imagem sem revisão Git, gates preservados. Redis: 2 itens de falha preservados; não ler conteúdo, apagar ou reenviar. Preparar plano e prévia antes de aplicar; adaptador real da primeira transição ainda não disponível. |
+| Reconciliação excepcional de vínculo Pessoa (#572) | feito (integrado) | Merge `830decc1`, todos os checks aprovados. Escolha privada das contas e execução real dependem de backup, contenção e autorização nominal. |
+| Ensaio sintético de contenção (#573) | feito — integrada | Commit `61cdf07e`: 54 testes locais, sete cenários Docker e 129 testes dos workers aprovados. Às 20:46 UTC: todos os checks GitHub passaram, incluindo backend-tests, frontend-ci, e2e-critical e rls-integration. Merge autorizado e concluído às 20:50 UTC em `c5c180ca`. |
+| Ciclo de vida do queue-worker real do legado | feito — #574 integrada | Branch `test/legacy-queue-entrypoint-20261024`, base `c5c180ca`: Claude Code executor, revisão Codex e segundo Claude sem bloqueios. 88 testes, zero skip; sete verificações físicas PASS, fonte/lock legado conferidos e limpeza sem sobras. Publicada na [PR #574](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/574), commit `94a4b9ec`; todos os checks aprovados e merge autorizado em 25/10 às 18:45 UTC, SHA `3f21b20a`. Não prova ingestão ativa nem produção. |
+| Ingestão ativa durante SIGTERM | feito — #575 integrada | Rebase próprio em `785dad91` sobre a main após o merge da #574; código testado preservado, base e descrição atualizadas pelo Claude Opus 5.5 aplicando a skill `/pr`. Todos os checks do SHA `785dad91` aprovados, incluindo backend-tests, frontend-ci, e2e-critical e rls-integration. Merge autorizado em 25/10 às 19:01 UTC, SHA `a3e83a51`. 130 testes (42 novos + 88 regressão), 20 verificações físicas aprovadas; commit/ACK únicos, dedup com/sem marcador, isolamento RLS e limpeza sem sobras. Revisão Claude incorporada; versão final verificada pelo Codex. [PR #575](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/575). Não comprova turno completo, parada após escritas não confirmadas ou produção. |
+| Parada do cron-worker real durante tick ativo | feito — #576 integrada | Claude Opus 5.5 implementou e publicou usando a skill `/pr`; revisão independente Claude e Codex concluídas. Commit `441629b2`: 176 testes (46 novos + 130 regressão), 13 verificações físicas PASS, bloqueio 6,445 s, saída 0,652 s, limpeza sem sobras. [PR #576](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/576). Contenção só após saída; não prova produção, supervisor, pós-DDL nem SLA/billing com trabalho ativo. Todos os checks do SHA `441629b2` aprovados. Merge autorizado e confirmado em 25/10 às 19:41 UTC: `6b0b302b`. |
+| Parada do broadcast ocioso real | feito — integrada no pacote | Commit `f8ded9c6`: 216 testes (40 novos + 176 regressão), 10 verificações físicas PASS com PID1 Python explicitamente garantido; dois ciclos ociosos/paradas em 0,503/0,549 s; limpeza sem sobras. Claude executor e segunda opinião, revisão Codex; publicada com skill `/pr`. [PR #577](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/577). Não cobre envio ativo, pendências no banco, supervisor ou produção. Todos os checks do SHA `f8ded9c6` aprovados; integração confirmada. Integração confirmada neste pacote: #577 em 92821e35. |
+| Parada do backend com requisição em andamento | feito — integrada no pacote | Commit `8f6bb9b4`: 279 testes (103 novos + 176 regressão) e 12 verificações físicas PASS. Ciclo HTTP retido durante SIGTERM, 202 e envelope único na fila, novas conexões recusadas; saída 1,202 s após liberação e fila preservada no reinício. ACK TCP confirmado; posição interna do handler inferida. Limpeza sem sobras, revisão Claude/Codex, skill `/pr`. [PR #578](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/578). Não prova produção, consumo pelo agente ou pós-DDL. Todos os checks do SHA `8f6bb9b4` aprovados, incluindo backend-tests, frontend-ci, e2e-critical e rls-integration. integração confirmada. Integração confirmada neste pacote: #578 em 64d7509d. |
+| Transição inicial legado → release atual | feito — integrada no pacote | **#579:** pronta, integração confirmada. **#580:** atualização/rollback; CI aprovada, depende da #579. **#581:** retomada segura; CI aprovada, depende da #579. Ensaios sintéticos aprovados; produção inalterada. Integração confirmada neste pacote: #579 em 84fb7f11, #580 em 74919ee0, #581 em 87ba1e42. |
+| Conta restrita para exclusão de áudios | feito — integrada no pacote | SHA `1f8e164`, base #582. Revisão independente Claude e Codex aprovadas; os quatro checks obrigatórios passaram na nova rodada. Autorização de merge solicitada, sem resposta. Depois da #582: retarget para main e novo CI. Nenhuma migration ou credencial foi aplicada em produção. Integração confirmada neste pacote: #582 em 1a5cb9c9, #583 em ae15449d. |
+| Upload concluído sem resposta | feito — integrada no pacote | SHA `98a66c9`, base #583. Revisão independente e Codex aprovadas; 980 testes de regressão, 88 novos, 14 falhas provocadas detectadas e dois ensaios físicos aprovados (rodadas distintas). Backend, frontend, E2E, RLS, ensaio sintético e preview aprovados no SHA exato. Depois da #583: retarget para main e novos checks. Sem merge ou produção. Integração confirmada neste pacote: #583 em ae15449d, #584 em a5c1b06b. |
+| Conta restrita para finalizar envios | feito — integrada no pacote | SHA `80cadcb8`, base #583, independente da #584. Revisão Claude/Codex aprovada; backend e 2.636 casos completos de RLS aprovados, zero falhas/skips. 21 arquivos do commit conferidos com o manifesto revisado. Recursos de teste removidos. Backend, frontend, E2E e RLS aprovados no SHA exato; integração confirmada. Sem produção. Integração confirmada neste pacote: #583 em ae15449d, #584 em a5c1b06b, #585 em 5d4e735e. |
+| Parada de comunicado durante envio | feito — integrada no pacote | SHA `cf291a15`, base #577. Revisão final Claude/Codex aprovada; 329 testes distintos e ensaios 200/500 aprovados após correções. Tempo total 4,153/4,057 s, registros preservados e limpeza conferida. Publicação revisada pelo Codex; quatro checks obrigatórios aprovados no SHA exato. Sem merge ou produção. Integração confirmada neste pacote: #577 em 92821e35, #586 em 80b1373f. |
+| Permissões dos donos das funções privadas | feito — integrada no pacote | SHA `451fba52`, base #585. Revisões aprovadas; 248 testes locais, incluindo oito novos, sem somar rodadas sobrepostas. Histórico da fatia: checagem de cinco contratos. Candidato atual examina dez contratos mais exclusões específicas; assinaturas presentes não atestam corpo/ACL. Quatro checks obrigatórios aprovados. Sem migration, elevação automática de privilégios, merge ou produção. Integração confirmada neste pacote: #585 em 5d4e735e, #587 em 2c47c160. |
+| Credencial da geração de memória | feito — integrada no pacote | Branch `feat/private-summary-runtime-20261026`, base #587. Revisão independente de autenticação/RLS e Codex aprovadas; 507 testes de regressão e 7.039 testes backend + 14 subtestes aprovados, com sobreposição. Migração só sintética; sem ativação. Login principal continua poderoso; entregar a credencial só ao cron e isolar retomada seguem pendentes. Publicada em `cac435c4` sobre #587; quatro checks aprovados, merge não autorizado. Integração confirmada neste pacote: #587 em 2c47c160, #588 em bd673afa. |
+| Baixa de alertas de célula | feito — integrada no pacote | Branch `fix/cell-alert-authorization-20261026`, base main `6b0b302b`, independente das PRs de memória. Problema reproduzido duas vezes; 21 novos cenários aprovados e 1.476 casos distintos de regressão verificados em execuções complementares. Revisões Opus e Codex aprovadas. Publicada em `57f47d76` sobre main; quatro checks aprovados. Sem gerador novo, merge ou produção. Integração confirmada neste pacote: #589 em 8a5dcada. |
+| Identidade da fila inteira | feito — integrada no pacote | Commit 0f2f6b8d sobre #588; os quatro checks passaram, incluindo os quatro shards e agregador RLS. Modo atual preservado como padrão; credencial dedicada só por configuração explícita, sem fallback. 132 testes locais aprovados com e sem dependência de outro banco; revisão Opus/Codex aprovada. Migration só sintética; sem LOGIN provisionado ou ativação. Integração confirmada neste pacote: #588 em bd673afa, #590 em 383115d1. |
+| Falsos “sem interesse” (B5) | feito — integrada no pacote | Commit 21e8975f sobre main 6b0b302b, independente da #590. Quatro checks aprovados. 358 testes locais, incluindo nove de turno; Opus/Codex GO. Heurística limitada, sem reprocessar contatos antigos; opt-out, consentimento e regra geográfica preservados. Sem produção. Integração confirmada neste pacote: #590 em 383115d1, #591 em de437cf2. |
+| Números do relatório (B15) | feito — integrada no pacote | Commit a2af8eec sobre main 6b0b302b. Correção revisada por Opus/Codex; 477 testes de regressão e quatro de turno passaram. Quatro checks obrigatórios aprovados no SHA publicado (consulta 18:18 UTC). Sem novo registro oficial, alteração de roteamento ou produção. Integração confirmada neste pacote: #592 em 09bb14d7. |
+| Primeiro consentimento (B7) | feito — integrada no pacote | Commit 0c9d6e4b sobre main 6b0b302b. Três testes novos com webhook/migrations reais e 57 regressões passaram; Codex/Opus GO. Uma igreja sintética; fila em memória e LLM simulado. Sem código de aplicação, regra nova ou produção. Integração confirmada neste pacote: #593 em 77a8fd3f. |
+| Auditoria após exclusão | feito — integrada no pacote | Commit a2a00891 sobre main 6b0b302b. Documenta UUIDs/hash técnicos preservados, correlação e acessos existentes. Só docs; diff/links/fontes conferidos, Codex/Opus GO. Sem nova retenção, purga, política ou acesso. Integração confirmada neste pacote: #594 em 03d2ad43. |
+| Release do piloto e aceite das 20 conversas | falta | Operações reais só com autorização nominal e runbook específico. |
+
+## Evidência operacional — consulta iniciada em 24/10/2026, 15:40 UTC
+
+**Pós-reset — 27/10/2026, 15:20–15:24 UTC:** consultas somente leitura confirmaram 1 igreja, 1 usuário utilizável ligado à Pessoa da mesma igreja, 1 Pessoa, 4 planos, 2 papéis e 1 admin de plataforma; há 1 configuração de agente ativa. Configurações/permissões preservadas são declaração do dono, não comparação integral de conteúdo. Zero mensagens, outbox e fila de trabalho no banco; Redis tem 2 itens em dead, zero na fila principal/retry/processing neste instante. Os dois itens de falha foram preservados, sem leitura de conteúdo nem reenvio. Manifesto de backup: verified em 27/10 06:16 UTC; relação com horário do reset e cobertura pós-reset não verificadas. Nenhuma escrita, backup novo, migration, deploy, restart ou alteração de gates.
+
+
+**Prévia do vínculo — encerrada pelo dono:** correção cancelada após reset externo. Nenhuma reconciliação foi aplicada. Consulta agregada de 27/10 às 15:20 UTC confirmou zero grupos duplicados. Não retomar a prévia nominal nem solicitar UUIDs, nomes ou credenciais para essa correção.
+
+
+**Histórico antes do reset — conferência de 27/10/2026, 02:30 UTC:** acesso confirmado à VPS e ao Supabase por CLI (MCP sem permissão). Candidato `afdfb78d`: 129 migrations ativas, 78 registradas, 51 pendentes, 0 desconhecidas; 0 vínculos inválidos de célula; 1 grupo com dois acessos vinculados à mesma Pessoa. Quatro papéis dedicados e dez contratos privados ainda ausentes. API local HTTP200; imagem sem revisão Git, layout legado e URLs dedicadas ausentes. Manifesto de backup `verified` em 26/10 06:16 UTC; restauração/cobertura não verificadas. Gates existentes preservados. Nenhuma escrita, backup novo, migration, deploy ou restart. Bloqueio histórico, posteriormente encerrado: a correção foi cancelada pelo dono após reset externo; a leitura de 15:20 UTC confirmou zero duplicidades. Não executar a reconciliação. As consultas retornaram somente metadados e contagens, sem PII/UUIDs; não foi execução integral de `release_preflight.py`.
+
+Preparação local adicional em 24/10: replay sintético das 78 migrations
+operacionais seguido das 46 pendentes produz catálogo idêntico à reconstrução
+limpa das 124. A guarda de compatibilidade aditiva recusa corretamente
+`previous schema contract changed`; retorno automático ao legado não provado.
+Ensaio com dados fictícios passou em 10 verificações de duplicidade,
+atomicidade, índice e isolamento, além de 6 testes dos backfills de julho.
+Isso não prova os dados reais nem autoriza migrations. Reconciliação nominal posteriormente validada, revisada e integrada pela
+#572 (`830decc1`); execução real continua pendente. Ver resultados abaixo.
+
+Verificação somente leitura autorizada pelo pedido do usuário nesta sessão;
+não autoriza escrita, migration, deploy, restart nem abertura de gate.
+
+- API: `GET /health` 200 (`status=ok`) e `GET /ready` 200 (`status=ready`);
+  app, admin e painel responderam 200.
+- Frontend: Vercel confirma deploy de produção READY
+  [`dpl_CGiT9GTCvk2GQvcd8T8zhqV12YiK`](https://vercel.com/raniel-levis-projects/pastorai-frontend-prod/CGiT9GTCvk2GQvcd8T8zhqV12YiK),
+  aliases dos três domínios, SHA `354a83d891fe7295164d980a175dacdd2feba69e`.
+- Backend: OpenAPI público 200, 150 rotas, sem `/auth/logout` nem
+  `/admin/logout`. Indica divergência de capacidades entre frontend e backend;
+  não prova o SHA do backend nem a ausência real da rota.
+- Banco (projeto `pffafnchtxbimpwyaczq`): o conector MCP `codex_apps` segue
+  sem permissão, mas o CLI Supabase já autenticado executou `SELECT` dentro de
+  `BEGIN READ ONLY` nesta sessão (24/10). Resultado: 78 linhas em
+  `public.schema_migrations`; a migration de logout `20261023_120000` não está
+  registrada e `public.auth_sessions` não existe; o maior nome lexical
+  registrado é `20261002_173000_visitor_expectation_whatsapp.sql` (não indica
+  a última aplicação cronológica). Comparação de nomes na mesma via
+  somente leitura: 124 migrations ativas no SHA `354a83d`, 78 registradas, 46
+  pendentes (exatamente as 4 antigas e as 42 do lote), 0 desconhecidas.
+  Consulta agregada equivalente aos dois checks de dados do preflight, em
+  `REPEATABLE READ READ ONLY` com `bypassrls=true`: `invalid_cell_links=0` e
+  `duplicate_user_person_groups=1` (não é execução integral do preflight; sem
+  UUIDs nem PII). A duplicidade bloqueia o lote até reconciliação pelo fluxo
+  administrativo autorizado, sem SQL de escrita automático. Nenhuma migration
+  aplicada por nós. Outros ledgers e o restante do schema: **não verificado**.
+- Devin tem `supabase-prod-readonly` e Hostinger cadastrados, sem ferramentas
+  expostas nesta conversa; o OAuth `devin mcp login supabase-prod-readonly` foi
+  concluído pelo usuário em 24/10, com retorno `Successfully authenticated`.
+  As ferramentas nativas ainda não estão expostas nesta conversa; o CLI
+  permite continuar as consultas somente leitura.
+- SSH em `srv2031318.hstgr.cloud`: acesso temporário como `igreja12-ops`
+  configurado pelo dono e testado em 24/10. O usuário tem sudo completo;
+  uso autorizado nesta etapa apenas para consultas. Chave expira em
+  26/10 às 00:00 UTC; nenhum arquivo protegido lido.
+- VPS: `/opt/pastorai-current` e `/opt/pastorai-releases` ausentes conforme
+  consulta do dono; instalação localizada em `/opt/pastorai-lionclaw`, sem Git.
+  Backend e três workers usam a imagem
+  `sha256:4a65f30e1c2dfbcf84c88e9c88203a4176a8d10f7d1b345248bc367ec9a9b241`,
+  criada em 02/10/2026 às 16:44 UTC, sem label de revisão. Sem mounts na
+  consulta do dono; `docker diff` do backend vazio na consulta SSH direta.
+  Reinícios de 23–24/10 não comprovam release novo. Commit exato do backend:
+  **não verificado**. O primeiro release exige transição inicial testada a
+  partir dessa instalação, sem inventar SHA nem contornar guardas do script.
+- Gates (`docker inspect` com allowlist só dos quatro gates de serviço, sem
+  ler `.env`): `backend`, `queue-worker` e `cron-worker` com
+  `ALLOW_REAL_SENDS=true`, `BREVO_SEND_MODE=live`,
+  `BROADCAST_ASYNC_ENABLED=false` e `ASAAS_BILLING_ENABLED` ausente;
+  `broadcast-worker` com `ALLOW_REAL_SENDS=true` (entrada duplicada),
+  `BROADCAST_ASYNC_ENABLED=false` e `BREVO_SEND_MODE`/`ASAAS_BILLING_ENABLED`
+  ausentes. Ausência não prova `false`; defaults, `AgentConfig.ativo` e Jev:
+  **não verificado**. O runbook exige gates fechados como condição da janela
+  futura, com contenção e autorização próprias; não é ordem para fechar agora.
+- CORS: permite as três origens públicas.
+- Consultas agregadas adicionais em 24/10, somente leitura: os predicados
+  exatos dos dois backfills de julho retornaram 0 candidatos cada; repetir
+  antes da aplicação. O grupo duplicado tem igreja e não envolve liderança
+  ativa na consulta atual (1 grupo, 0 sem igreja, 0 com liderança ativa).
+  Isso não escolhe a conta a conservar nem autoriza corrigir o vínculo.
+- Ferramentas na VPS: Docker Compose 5.6.0 e `timeout` presentes. Backend,
+  queue e cron têm labels do projeto Compose `pastorai`; broadcast não tem
+  labels de projeto/serviço. A contenção não pode presumir que Compose
+  gerencia os quatro containers da mesma forma.
+- Identidade histórica da imagem: o ID vivo coincide exatamente com o
+  [recibo sanitizado de 02/10](docs/performance/2026-10-02-backend-maintenance-production.json),
+  que o associa ao candidato `07a3f4d9a4fe510cf83fd48d5deaa52dcfbb7e02`.
+  Hoje `/health` e `/ready` retornam 200 e `x-backend-release=unknown`.
+  Isso associa a imagem ao release registrado, sem revalidar todos os arquivos.
+  Comparação somente leitura dentro do backend vivo com o `candidate_manifest`
+  de `maintenance-profile.json` (`app/*.py` e `requirements.lock`, sem copiar
+  conteúdo): 148 esperados, 148 iguais, 0 ausentes, 0 diferentes, 0
+  inseguros. Comprova a identidade desse recorte com `07a3f4d`; não comprova
+  a imagem inteira nem a configuração.
+  O recibo preservava workers legados e Brevo `off`; hoje os quatro serviços
+  usam a imagem da API e três declaram Brevo `live`. Quando e por que essas
+  mudanças ocorreram: **não verificado**. Raniel confirmou no chat de 24/10
+  que Brevo em `live` está autorizado; preservar essa configuração. Essa
+  confirmação não autoriza novos testes de envio, deploy ou mudanças de gates.
+- GitHub (só metadata): o workflow manual **Backend release** existe no SHA; o
+  environment `backend-production` tem revisor e restrição à branch `main`;
+  variáveis de allowlist/base configuradas. Nenhum secret
+  `BACKEND_DEPLOY_HOST`, `BACKEND_DEPLOY_USER`, `BACKEND_DEPLOY_SSH_KEY` ou
+  `BACKEND_DEPLOY_KNOWN_HOSTS` listado no repositório nem no environment
+  consultados. Validade de credenciais: **não verificado**.
+
+### Ensaio de contenção e retomada pré-DDL — validado localmente
+
+Autorizado pelo dono após o merge da #572. Fatia isolada na branch
+`test/legacy-containment-rehearsal-20261024`, base `830decc1`, com Claude Code
+Opus como executor e revisão independente concluída, sem bloqueios de
+segurança para o ambiente descartável. Publicada com autorização do dono na
+[PR #573](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/573), commit
+`61cdf07ed3eb62ccc813e772501b624690dedf22`. Em 24/10 às 20:46 UTC, todos os checks passaram,
+incluindo backend-tests, frontend-ci, e2e-critical e rls-integration;
+Merge autorizado pelo dono e concluído em 24/10 às 20:50 UTC, SHA `c5c180ca1aa9769c38086d171eb2262c9d371ac1`. Execução em produção não autorizada nesta etapa. Ambiente exclusivamente
+sintético: quatro processos, broadcast sem labels Compose, ingresso interno,
+pendências e trabalho em curso, parada graciosa, recusa por identidade/timeout
+e retomada explícita antes de DDL, preservando a configuração dos gates.
+
+Validação concluída em 24/10: **54 testes unitários e sete cenários Docker
+aprovados**. Redis real com dados fictícios; workers e provedor simulados.
+Envio em curso antes do SIGTERM comprovado nos casos de conclusão e resposta
+perdida; retomada não repete o efeito ambíguo. Pendências, bytes, prazos e gates
+preservados. Cleanup de todos os cenários limpo; inventário independente
+confirmou ausência de sobras e preservação dos recursos preexistentes.
+`production_ready=false`: não é prova de prontidão para operação real.
+
+Regressão de suporte concluída no SHA `830decc1`: 129 testes de queue,
+cron e broadcast aprovados, zero falhas/skips, runtime do lock exato e rede
+bloqueada. Esse resultado cobre classes e fluxos com provedores simulados;
+não é prova de SIGTERM do entrypoint nem da versão legada viva.
+
+O ensaio anterior insere marcadores somente depois de parar e os retira antes
+de recuperar; não comprova tratamento de trabalho em curso. O novo recibo
+deve separar provas do controlador/topologia simulada das provas de workers
+reais. SIGTERM do legado, retry de provedores externos, reinício de daemon e
+recuperação pós-DDL continuam não verificados até ensaios próprios. Nenhuma
+operação de produção nem reinício do Docker compartilhado foi autorizado.
+
+### Reconciliação excepcional — validação local de 24/10
+
+Fatia isolada em `fix/reconcile-team-legacy-20261024`, baseada em
+`354a83d891fe7295164d980a175dacdd2feba69e`. Commit/push/abertura autorizados
+pelo dono em 24/10 e concluídos: commit `b2dc832f6a4f7e0f2e757a13a66d485f58e494a4`,
+[PR #572](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/572).
+Checks oficiais concluídos com sucesso: backend-tests, frontend-ci,
+e2e-critical, rls-integration, tooling-static e synthetic-release; preview
+Vercel aprovado. Resultado confirmado para o commit `b2dc832f`. Merge autorizado e concluído em 24/10 às 19:25 UTC, commit
+`830decc1fb18226e036555f1baae259a467ec62f`. Execução em produção não
+autorizada por essa solicitação; merge não comprova deploy ou reconciliação real.
+A ferramenta exige escolha nominal de qual acesso desvincular, autorização
+atual de admin/operador, confirmação do conteúdo e auditoria atômica. A prévia
+é somente leitura. Não houve execução contra produção.
+
+Segunda rodada: **116 testes aprovados, zero falhas e zero skips**, em 74,32 s,
+com dois avisos de depreciação. **Limite descoberto depois:** a imagem reutilizada
+tinha LangGraph 1.0.10, abaixo do requisito atual >=1.2.3; esse resultado é
+parcial. **Revalidação concluída:** os mesmos 116 testes passaram sem falhas
+ou skips no runtime exato (Python 3.13.14, LangGraph 1.2.14, manifesto e
+pip check aprovados). Inclui baseline sintético das 78 migrations,
+reconciliação, aplicação das 46 pendentes, concorrência de revogação,
+idempotência e regressão da gestão de equipe. Revisão independente por
+Claude Code Opus 5.5: nenhum bloqueio concreto de código. Isso não substitui
+`backend-tests`, `frontend-ci`, `e2e-critical` e `rls-integration` do diff antes
+da integração. Os testes não comprovam aplicação ou autorização em produção.
+
+Validação local ampliada concluída no ambiente corrigido: Ruff aprovado;
+frontend com Node 24 e lock exato passou lint, TypeScript, 1.381 testes
+em 153 arquivos, build e smoke de cabeçalhos — passos do workflow reproduzidos
+localmente; depois, os checks oficiais da #572 também passaram antes do merge. E2E: 88/88 aprovados em 6,9 min,
+com Playwright 1.62.1, Chromium 1234 e API simulada. RLS completo aprovado: 2.566 executados, zero falhas, erros ou skips,
+com os quatro relatórios JUnit conferidos pelo verificador oficial. Também
+aprovados 13 contratos de coleta/divisão, um contrato de schema de deploy
+e oito testes de manutenção PostgreSQL.
+Backend offline: 6.927 casos cobertos em execuções complementares — 6.898
+aprovados na rodada ampla, 27 Redis7 aprovados separadamente com Docker
+real descartável e dois casos de health/performance aprovados após corrigir
+a variável de SHA do runner (25 testes na repetição). Contratos deploy/monitor:
+213 de 214 comprovados em execuções complementares; o teste que exige
+systemd ativo permanece não verificado. Quatro testes JS de monitor passaram
+com Node 24. Esses resultados não equivalem a quatro jobs verdes no GitHub. Auditorias Python de runtime (61 dependências) e tooling
+(29 dependências) sem vulnerabilidades conhecidas.
+Auditoria de dependências frontend de produção: zero vulnerabilidades;
+auditoria incluindo desenvolvimento apontou três pacotes afetados já presentes
+no lock da base (`undici` high, `vitest` e `@vitest/mocker` moderate).
+Correção desses alertas ainda não realizada; não confundir o resultado da
+auditoria de produção com ausência de alertas no conjunto inteiro.
+
+Leitura SSH de 24/10 às 17:22 UTC: os quatro containers vivos declaram
+`restart=always`; sinal e timeout de parada não estão explícitos nos campos
+inspecionados. Prazo efetivo e outros supervisores continuam não verificados.
+Nenhum restart ou alteração de configuração foi executado.
+
+Pendente operacional: conter escritores entre a reconciliação e o índice
+único, definir recuperação da transição e registrar a prévia no aceite nominal.
+A escolha das contas e autorização real continuam humanas; não publicar
+identidades no plano ou no chat.
+
+## O que depende de Raniel agora
+
+1. Supabase de produção: conexão atual **não verificada**. O OAuth/CLI
+   registrado em 24/10 não comprova acesso nesta sessão. A última consulta
+   pelo MCP foi recusada por permissão; em 26/10 o conector manual não apareceu
+   entre as ferramentas disponíveis. Reconectar o MCP correto e liberar leitura
+   será necessário antes de uma nova consulta autorizada; não enviar tokens no chat.
+2. VPS: acesso testado em 24/10 conforme registro histórico; conexão e versão
+   em uso agora **não verificadas**. Operações reais continuam condicionadas
+   à autorização nominal e ao runbook, sem presumir acesso atual.
+3. Preparar as credenciais temporárias do release em GitHub > Settings >
+   Secrets and variables > Actions (ou no environment `backend-production`),
+   pelos canais seguros; nunca colar no chat. Não executar o release agora.
+4. Revalidar antes da janela que a contagem de grupos duplicados de vínculo
+   Pessoa continua em zero. A reconciliação foi cancelada após o reset;
+   não solicitar identificadores nem executar correção cadastral.
+5. A equipe prepara o pacote, a transição inicial testada e o plano de
+   contenção dos gates, e pede autorizações separadas (backup, migrations e
+   deploy) quando estiver pronto; nada a autorizar nem fechar agora.
+6. Aceite das 20 conversas e do G12 após release autorizado à equipe interna;
+   não enviar conversas reais ao chat.
+
+Demais correções e testes seguem com a equipe de agentes.
+
+Regra do dono de 25/10: trabalhos de PR são executados pelo Claude Code Opus 5.5 com a skill `/pr`, com acompanhamento e revisão do Codex.
+
 ## 1. Organização (histórico)
 
 Roteiro único (#480) e arquivamento documental (lotes 1 e 2, #481/#482) feitos.
@@ -52,6 +396,15 @@ Checkout principal em `main` com estado anterior preservado em
 locais restantes (`output/`, configurações locais e exemplos de ambiente) e
 limpar worktrees antigas de forma recuperável. Nada de limpeza global, apagar
 migrations ou branches remotas sem ordem própria.
+
+Consolidação local de 27/10, autorizada pelo dono:
+- o checkout principal avançou por fast-forward para a `main` `afdfb78d`, com
+  as alterações locais preservadas em stash retido;
+- o lote 1 de limpeza removeu 17 worktrees integradas, preservando as branches;
+- o plano, o runbook do lote e o painel foram reunidos no checkout principal
+  como trabalho local, **ainda não integrado na `main` remota**;
+- as worktrees com trabalho local, as divergentes e as sem prova continuam
+  preservadas até decisão própria.
 
 ## 2. Critério de pronto e saúde técnica
 
@@ -234,7 +587,7 @@ vínculo Pessoa e ordem de aplicação), para transformar estoque em uso real.
 | Pedido de oração pelo WhatsApp (V4) | feito | Primeira versão de texto e pedido próprio integrada na main pela [PR #484](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/484), merge `2d408d92`; implementação e testes registrados. DESLIGADO por igreja e por trava de release; sem produção. Sigilo da coleta/histórico integrado pela #515; áudio protegido retido e excluído pela fila privada (#529) (backend/RLS, marcador, prévia e mídia; exclusão privada #509 e fila durável). Fatia 2 integrada pela #519: inbox mostra marcador acessível e orientação ao pastor, reconcilia a cada poll (texto e mídia protegidos somem no mesmo ciclo), mantém leitura autorizada pelo servidor, paginação/handoff/busca e mostra recibo de exclusão atualizável; sem backend/migration ou ativação. Decisões pastorais provisórias. Pendente: aceite pastoral (áudio já integrado pela #529). | não verificado em produção |
 | Indicar células próximas | feito | Indicação guiada somente por bairro integrada na main pela [PR #486](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/486), merge `1caf4a36`; implementação e testes registrados. Só células ativas com divulgação autorizada, sem endereço ou dados do líder; sem cálculo de distância ou vínculo automático. DESLIGADO por igreja e por trava de release; sem produção. | não verificado em produção |
 | Fluxo G12: ganhar, consolidar e célula | em andamento | Implementado na main, desligado e sem produção: evento real de visita de célula ligado à Pessoa ([PR #487](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/487), merge `05eb07b9`); aceite explícito da fonovisita com convite de 24h, troca após aceite e autoatribuição ([PR #488](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/488), merge `8d3d13f2`); primeira visita sugere vínculo com a célula, confirmado por pastor/admin ([PR #489](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/489), merge `b3fdd6fc`). G12 PR 5 integrada na [PR #490](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/490): percurso reunião → atraso → lembrete → baixa comprovado pelo agente e painel com provedor simulado; supressão terminal registrada só para igrejas da release/lista V1a; handoff e conexão indisponível são transitórios; nenhum gate aberto. Falta aceitar com o piloto o caminho completo. | Fluxo completo: não verificado |
-| Aceite pastoral do atendimento | falta | Aprovar 20 conversas reais, incluindo visitante, oração, horário, opt-out e crise; corrigir os problemas encontrados. | não verificado |
+| Aceite pastoral do atendimento | falta | Aprovar 20 conversas reais, incluindo visitante, oração, horário, opt-out e crise; corrigir os problemas encontrados. Roteiro preparado, não executado: [aceite pastoral do piloto](docs/ops/ACEITE-PASTORAL-PILOTO.md). | não verificado |
 
 ## 4. Demais funcionalidades e qualidade
 
@@ -247,7 +600,7 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Atendimento básico, consentimento, opt-out, passagem para humano e informações públicas | feito | Resposta de IA ao texto atual, contexto curto da conversa e consultas determinísticas registrados; isolamento e controles mantidos. | Piloto registrado; estado atual não verificado. |
 | Ações por papel (S3) | feito | Na main, com testes sintéticos registrados. A fatia não conclui o módulo; ativação não comprovada. | não verificado |
 | Relatório por texto (V1a) | feito | Na main, com testes sintéticos registrados. A fatia não conclui o módulo; ativação não comprovada. | não verificado |
-| Relatório por áudio (V1b) | feito | Versão base na main, com testes sintéticos registrados. Decisão pastoral 15 (18/10, Raniel), integrada pela #512: mídia, transcrição e hashes sob consentimento v2 sem purga automática de 24h; saída por exclusão admin/aprovação de pedido da pessoa. Capturas v1/sem versão v2 preservam purga de até 24h. Exclusão por conversa (#509), pessoa/igreja (#518/#541/#561) e pedido da pessoa pelo WhatsApp com decisão do admin (#535) estão implementados, todos desligados (pedido: release None, lista vazia); operação não comprovada. Risco: maior volume retido; sem migration/backfill. Ver [política](docs/ops/EXCLUSAO-PRIVADA.md). Antes de ativar: pré-requisitos de Memória privada abaixo (upload com resultado desconhecido, identidade do worker, tombstones). A fatia não conclui o módulo; ativação não comprovada. | não verificado |
+| Relatório por áudio (V1b) | feito | Versão base na main, com testes sintéticos registrados. Decisão pastoral 15 (18/10, Raniel), integrada pela #512: mídia, transcrição e hashes sob consentimento v2 sem purga automática de 24h; saída por exclusão admin/aprovação de pedido da pessoa. Capturas v1/sem versão v2 preservam purga de até 24h. Exclusão por conversa (#509), pessoa/igreja (#518/#541/#561) e pedido da pessoa pelo WhatsApp com decisão do admin (#535) estão implementados, todos desligados (pedido: release None, lista vazia); operação não comprovada. Risco: maior volume retido; sem migration/backfill. Ver [política](docs/ops/EXCLUSAO-PRIVADA.md). Antes de ativar: pré-requisitos de Memória privada abaixo (upload com resultado desconhecido, identidade do worker, tombstones); validar a operação desses caminhos, porque o aviso v2 promete o pedido de exclusão. A fatia não conclui o módulo; ativação não comprovada. | não verificado |
 | Agenda V2 | feito | Na main, com testes sintéticos registrados. A fatia não conclui o módulo; ativação não comprovada. | não verificado |
 | Consolidação V3 | feito | Na main, com testes sintéticos registrados. A fatia não conclui o módulo; ativação não comprovada. | não verificado |
 | Presença própria (V4) | feito | Na main, com testes sintéticos registrados. A fatia não conclui o módulo; ativação não comprovada. | não verificado |
@@ -264,7 +617,7 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Pessoas, responsabilidades, Minha Célula, Central e Hoje | em andamento | Integradas: pendências da Central em Hoje (#528), responsabilidade por setor com vigência (#530), pendências por responsabilidade vigente (#534) e gestão web de responsabilidades (#539). O aviso de contas da coordenação sem Pessoa ativa já foi entregue pela #557. Integrada pela #589 (`8a5dcada`; checks do SHA `868fecd1` verdes antes do merge): a baixa de alerta de célula passa a seguir a regra da leitura (pastor/admin ou líder direto, escopo do detalhe, `igreja_id` explícito); superior na cadeia deixa de baixar alerta que não vê. Faltam planejamento e o gerador de alertas (RF-26), que depende de decisão sobre gatilhos. | Cobertura completa: não verificado. |
 | Triagem semântica Jev | em andamento | S1 implementada/testada com simulações; falta avaliar qualidade real, crise/humano e falsos opt-outs, contrato de tratamento de dados e autorização específica. Jev B/C/D continuam condicionados. | não verificado; não autoriza ativação. |
 | Comunicados, assinatura/Asaas e e-mail/Brevo | em andamento | Bases implementadas; faltam aceite por finalidade, domínio/remetente e canários separados. Não envolver a igreja em cortesia em cobrança real. | não verificado |
-| Onboarding da igreja, equipe, permissões e console | em andamento | Integradas: autorização de telas isolada por igreja (#536), reenvio de convite isolado (#538) e vínculo Pessoa ↔ usuário pelo admin, com auditoria e índice único (#543); ativação trava a igreja antes de Pessoa/usuário, eliminando a espera mútua com a gestão de equipe, com teste da corrida com convite que já traz Pessoa (#556). A tela de equipe sinaliza contas sem Pessoa vinculada (#557). Antes do release da #543: reconciliar manualmente duplicidades legadas de (igreja, pessoa). | Cobertura completa: não verificado. |
+| Onboarding da igreja, equipe, permissões e console | em andamento | Integradas: autorização de telas isolada por igreja (#536), reenvio de convite isolado (#538) e vínculo Pessoa ↔ usuário pelo admin, com auditoria e índice único (#543); ativação trava a igreja antes de Pessoa/usuário, eliminando a espera mútua com a gestão de equipe, com teste da corrida com convite que já traz Pessoa (#556). A tela de equipe sinaliza contas sem Pessoa vinculada (#557). Leitura após reset em 27/10: zero duplicidades de (igreja, pessoa). Correção nominal cancelada; revalidar ausência antes da migration da #543. | Cobertura completa: não verificado. |
 | Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatias integradas: #509, #518, pedido da pessoa com decisão admin (#535) e reset privado por pessoa (#541). Reset privado preserva cadastros/opt-out/consentimento e não autoriza reset cadastral. A trilha de vínculo Pessoa (#543) guarda UUIDs após exclusão aprovada; contrato atual documentado (#594) no [runbook de exclusão](docs/ops/EXCLUSAO-PRIVADA.md#trilha-de-vínculo-pessoa-543-após-exclusão), sem anonimização nem purga; produção não verificada. Novos derivados acompanham sua implementação. | não verificado |
 | UX, acessibilidade e desempenho do painel | em andamento | Integradas: teclado nas abas da Central (#527) e foco/anúncios/reflow no atendimento (#532). Faltam leitor de tela e celular reais, zoom e métricas autenticadas de campo. | Frontend publicado conforme registros; backend/telemetria e operação completa: não verificado. |
 | Agenda completa e importação Google | em andamento | Operações locais pelo WhatsApp com SIM e recibo integradas (#540), desligadas. Lembretes pela outbox com gate próprio fechado (#547) e janela configurável por evento (2h/24h/72h/168h, públicos existentes, invalidação de pendentes; #560). Faltam G2b e credencial Google isolada por igreja antes de usar Google. | não verificado |
@@ -275,8 +628,9 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 - **em andamento:** auditoria de 03/10: redação de segredo em logs e escopo
   de igreja nas rotinas automáticas integrados (#558). Faltam MFA no console
   (depende de ligar no Clerk). Logout no servidor integrado pela #568
-  (`354a83d8`); migration `20261023_120000` não aplicada em PROD; produção não
-  verificada. Acessibilidade
+  (`354a83d8`); aplicação da migration `20261023_120000` e publicação em
+  produção: **não verificado**. Release segue o [runbook do lote](docs/ops/RELEASE-LOTE-2026-10.md):
+  migration, backend e frontend, e o deploy encerra todas as sessões. Acessibilidade
   automática (axe WCAG 2.1 A/AA) nas telas principais integrada (#559); leitor
   de tela e celular reais: **não verificado**.
 - **em andamento:** dependências corrigidas e triadas (#463/#469/#470; Next 15.5.28 em #552);
@@ -333,11 +687,11 @@ dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta 
 
 | Entrega | Estado | O que falta |
 |---|---|---|
-| Banco Supabase e histórico de migrations | em andamento | Registro de 14/10: 78 aplicadas, backup e quatro pendentes de propósito (`20260711_023515`, `20260711_152127`, `20260925_183811`, `20260926_120446`). Estado atual **não verificado**. Decidir destino das pendentes e eventual consolidação do histórico sem impedir recriação local; Neon cancelada. |
+| Banco Supabase e histórico de migrations | em andamento | Leitura somente leitura de 27/10 após reset externo: 129 migrations ativas no SHA `afdfb78d`, 78 no ledger, 51 pendentes (4 antigas + 47 novas), 0 desconhecidas e 0 pausadas aplicadas; 0 grupos duplicados e 0 vínculos de célula inválidos. As duas classificações antigas têm 0 candidatos neste instante. Decisão 23/10 de aplicar as quatro antigas preservada; cada aplicação continua sujeita à janela, backup e autorização. Contagens não provam igualdade integral do schema ou configurações; preflight integral e backup pós-reset ainda pendentes. Lista exata e condições no runbook do release; Neon cancelada. |
 | Reconciliação da virada da agenda V2b | falta | Visibilidade/inventário de usuários, gates e entrega dos 11 eventos EVT-7: **não verificado**. Conciliar com provedor/logs antes de decidir qualquer reenvio, que pode duplicar. |
 | Resposta rápida (B17), capacidade e estabilidade | falta | Meta abaixo de 10 s adiada para esta etapa; medir região de servidor/banco e decidir infraestrutura. Investigar incidentes e falhas de prontidão da API: monitor verde registrado não prova causa resolvida. |
 | DEV online isolado | em andamento | Preparação integrada e ensaio sintético registrados (#468/#471); ambiente disponível **não verificado**, registrado como ainda inexistente. Faltam executor exclusivo, região, teto de custo, recursos e aceite de login/Storage/navegador com duas igrejas. Local continua opcional para depuração/testes. |
-| Publicação coordenada de backend/frontend e recuperação | em andamento | Preparação e ensaio integrados (#472/#473; merge de #473 confirmado no Git). Checagens só leitura (#563, `61e84383`) e runbook com ensaio de restauração sintético (#565, `100463ba`) integrados; ensaios de parada, transição, topologia e retomada integrados (#574–#581, #586). Falta pacote validado, versão viva anterior, compatibilidade de banco, contenção dos consumidores, janela e autorização nominal. Não prometer rollback universal. |
+| Publicação coordenada de backend/frontend e recuperação | em andamento | Preparação e ensaio integrados (#472/#473; merge de #473 confirmado no Git). Checagens só leitura (#563, `61e84383`) e runbook com ensaio de restauração sintético (#565, `100463ba`) integrados; ensaios de parada, transição, topologia e retomada integrados (#574–#581, #586). [Runbook do lote](docs/ops/RELEASE-LOTE-2026-10.md) com o plano e a prévia de 27/10. Execução contra PROD: **não verificado**. Falta pacote validado, versão viva anterior, compatibilidade de banco, contenção dos consumidores, janela e autorização nominal. Não prometer rollback universal. |
 | Publicação automática no DEV e explícita em PROD | falta | Operar o caminho preparado e acertar a publicação do frontend com a API (B9/B13). Não alterar agora a automação atual ou gates. |
 | Backup diário e restauração | em andamento | PROD agora é a VPS `srv2031318.hstgr.cloud` (a `srv1728329` será desativada); runbooks atualizados (#545). Em 21/10, leitura somente: backup diário com manifesto recente e monitor de produção instalado e saudável na VPS nova. Faltam restaurar em alvo isolado, aceitar a chave do host novo no backup externo (Windows) e incluir novas tabelas privadas. |
 | Revisão antes de ampliar o piloto ou lançar | falta | Conferir autenticação/Clerk Production, configurações, gates e privacidade; canários Asaas/Brevo/broadcast/agente independentes. Governança pausada não é reativada automaticamente. |
@@ -364,11 +718,15 @@ A consolidação usa os dois planos agora históricos
 [acompanhamento arquivado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/tarefas.json), a [cobertura do PRD](docs/ai/PRD-COVERAGE.md) e o Git da base.
 O [registro V2b](docs/sprints/2026-10-15-v2b-verificacao-pos-cutover.md) mantém
 explícitos os limites da consulta anterior; ele não declara o banco consistente.
-Não houve consulta à produção nesta entrega. Os documentos históricos são
+Na retomada de 24/10 houve só a leitura de produção registrada em "Evidência
+operacional", sem escrita. Os documentos históricos são
 evidência, não instruções para retomar suas sequências ou manter seu painel.
 
 Daqui para frente, atualizar somente este roteiro quando o estado/escopo mudar
 e registrar entrega, testes e limites na descrição da PR. Requisitos e runbooks
 continuam sendo referências técnicas; sem novo sprint, painel ou plano paralelo.
+O painel local solicitado em 24/10 (`output/painel/`) é só visualização gerada
+deste roteiro, sem planejamento paralelo; após atualizar esta fonte, executar
+`tools/render_progress.py` para regenerá-lo.
 Integração exige `backend-tests`, `frontend-ci`, `e2e-critical` e
 `rls-integration`; produção e efeitos reais exigem autorização nominal própria.
