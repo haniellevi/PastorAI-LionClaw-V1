@@ -1,5 +1,21 @@
 # Release em lote, outubro de 2026
 
+**Revisão Sarah — Opus 5.5 high:** orientação vigente do dono: trabalhar
+com Sarah como revisora crítica e cética, confrontando seus achados com evidências,
+sem concordância automática. Sua revisão não concede autorização operacional.
+Na #599, revisão inicial pediu recusa de arquivos inesperados, permissões
+explícitas e prova do empacotador real no CI. Correções: exclusão documental
+explícita, diretórios 0755 e extração com permissões do pacote, Python 3.13.14
+fixado no workflow manual e execução da CLI real sobre o SHA do CI.
+35 testes e 10 subtestes locais passaram, Ruff aprovado; sem ensaio físico.
+A hipótese de diretórios root impedirem appuser foi limitada pela evidência
+de chown no Dockerfile; ainda assim as permissões agora são determinísticas.
+Inventário atual: backend/app somente Python; fora de Python/SQL nas árvores
+selecionadas existe apenas backend/migrations/README.md. .env.example aparece
+só como comentário do Compose, não é dependência executada do pacote.
+O build físico histórico de afdfb78d não valida este head; nenhum novo build
+físico foi executado. CI/revisão finais constam na PR #599 e não autorizam merge.
+
 **Atualização vigente — #598 integrada em 28/10/2026.** Merge commit
 `beb194f930eecd5bf7df744bd6e23eaa88d04b4b`, head autorizado
 `083c3f9ec720af1dfe3917980f4b68499c4a920b`. Seis workflows verdes no
@@ -332,7 +348,8 @@ reais ou autorização para produção. Os bloqueios abaixo continuam abertos.
   por seleção explícita de blobs do commit exato. Inclui Python da aplicação,
   SQL das migrations e os arquivos necessários ao build/check/deploy; exclui
   configuração privada, scripts administrativos, testes e ferramentas de DEV.
-  Recusa caminhos protegidos selecionados e links simbólicos antes de ler blobs;
+  Recusa caminhos protegidos nas árvores selecionadas antes de ler blobs;
+  links simbólicos selecionados são recusados antes da leitura do próprio link;
   não usa conteúdo do checkout nem atributos `export-ignore`/`export-subst`.
   O manifesto registra SHA do commit e SHA-256 de cada arquivo. A alteração
   do workflow preserva os gates de ator, ancestralidade, SHA e disparo manual.

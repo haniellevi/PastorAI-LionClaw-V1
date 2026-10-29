@@ -165,7 +165,7 @@ class Journal:
 
 
 # -- Git ------------------------------------------------------------------
-def git_tree(repo, sha, pathspecs, pattern, git=None):
+def git_tree(repo, sha, pathspecs, pattern, git=None, excluded=None):
     """``{path: bytes}`` of tracked blobs matching ``pattern``; blob hashes re-verified.
 
     Any listed path with a protected component refuses the whole read before
@@ -194,6 +194,7 @@ def git_tree(repo, sha, pathspecs, pattern, git=None):
     files = {}
     for mode, kind, oid, path in entries:
         if not pattern.fullmatch(path):
+            require(excluded is None or path in excluded, 'source-unexpected-file')
             continue
         require(kind == 'blob' and mode in ('100644', '100755'), 'source-entry-type')
         data = call('cat-file', 'blob', oid)

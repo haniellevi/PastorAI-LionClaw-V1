@@ -69,18 +69,46 @@ class ReleasePackageTest(unittest.TestCase):
         result = package.build(self.repo, self.sha, self.output)
         self.assertTrue(self.output.is_file(), 'the reviewed archive must be created')
         with tarfile.open(self.output, 'r:gz') as tar:
-            self.assertEqual(set(tar.getnames()), {*self.files, 'release-manifest.json'})
+            self.assertEqual({m.name for m in tar.getmembers() if m.isfile()}, {*self.files, 'release-manifest.json'})
             for name, data in self.files.items():
                 self.assertEqual(tar.extractfile(name).read(), data)
             manifest = json.load(tar.extractfile('release-manifest.json'))
             self.assertEqual(manifest['commit'], self.sha)
             self.assertEqual(manifest['files'], {n: hashlib.sha256(d).hexdigest() for n, d in self.files.items()})
             for member in tar.getmembers():
+                if member.isdir():
+                    self.assertEqual(member.mode, 0o755)
+                    continue
                 self.assertTrue(member.isfile())
                 self.assertEqual((member.uid, member.gid, member.mtime), (0, 0, 0))
                 self.assertEqual(member.mode, 0o755 if member.name == 'deploy/backend-release.sh' else 0o644)
         self.assertEqual(result['sha256'], hashlib.sha256(self.output.read_bytes()).hexdigest())
         self.assertEqual(result['files'], len(self.files))
+
+    def test_unexpected_runtime_file_refuses(self):
+        for name in ('backend/app/prompts/example.md', 'backend/app/foo-bar/x.py'):
+            with self.subTest(name=name):
+                self.write(name, b'SYNTHETIC_RUNTIME_RESOURCE')
+                sha = self.commit()
+                with self.assertRaisesRegex(package.Refused, 'source-unexpected-file'):
+                    package.build(self.repo, sha, self.output)
+                self.assertFalse(self.output.exists())
+                (self.repo / name).unlink()
+
+    def test_reviewed_documentation_exclusion(self):
+        self.write('backend/migrations/README.md', b'SYNTHETIC_DOCUMENTATION')
+        package.build(self.repo, self.commit(), self.output)
+        with tarfile.open(self.output) as tar:
+            self.assertNotIn('backend/migrations/README.md', tar.getnames())
+
+    def test_extraction_directories_under_private_umask(self):
+        package.build(self.repo, self.sha, self.output)
+        extracted = self.root / 'extracted'
+        extracted.mkdir()
+        subprocess.run(['bash', '-c', 'umask 077; tar --no-same-owner --same-permissions -xzf "$1" -C "$2"',
+                        'fixture', str(self.output), str(extracted)], check=True)
+        for directory in ('backend', 'backend/app', 'backend/app/services', 'deploy'):
+            self.assertEqual((extracted / directory).stat().st_mode & 0o777, 0o755)
 
     def test_archive_is_reproducible(self):
         package.build(self.repo, self.sha, self.output)

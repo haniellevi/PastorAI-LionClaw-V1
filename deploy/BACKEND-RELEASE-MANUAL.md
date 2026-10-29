@@ -143,8 +143,17 @@ de migrations e os seis arquivos de deploy/check/Compose necessários. Não incl
 `.env.example`, configuração privada, scripts administrativos ou ferramentas de
 DEV. O arquivo `release-manifest.json` registra o commit e o SHA-256 de cada
 arquivo; alterações locais e atributos de `git archive` não afetam o resultado.
-Arquivos obrigatórios ausentes, links simbólicos e caminhos protegidos
-selecionados recusam o pacote. O destino deve ser novo; não há sobrescrita.
+O manifesto é informativo para auditoria; não é validado pelo host e não
+substitui a integridade do transporte SSH. Arquivos inesperados nas árvores
+selecionadas recusam o pacote; a única exclusão documental explícita é
+`backend/migrations/README.md`. Arquivos obrigatórios ausentes e links
+simbólicos selecionados recusam o pacote. Caminhos protegidos em qualquer
+ponto das árvores selecionadas recusam antes da leitura de blobs.
+Diretórios têm modo 0755; arquivos 0644, exceto o shell de release (0755),
+com timestamps zerados. Isso é intencional. Python 3.13.14 está fixado no
+workflow; reprodutibilidade binária pressupõe a mesma versão Python/zlib.
+O leitor compartilhado com o controlador sintético é reutilizado apenas
+para leitura verificada de blobs: importar esse módulo não executa o controlador. O destino deve ser novo; não há sobrescrita.
 Essa seleção não substitui revisão do código candidato nem as autorizações do release.
 
 Com o gate de PROD separado e concedido, dispare **Backend release (manual)**
