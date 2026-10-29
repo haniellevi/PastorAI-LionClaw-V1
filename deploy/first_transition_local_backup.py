@@ -69,6 +69,21 @@ def snapshot(connection):
             cursor.execute('ROLLBACK')
 
 
+def restore_identity(connection, target):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT (SELECT system_identifier::text FROM pg_control_system()), "
+                       "oid,datdba,shobj_description(oid,'pg_database') FROM pg_database WHERE datname=%s",
+                       (target,))
+        return cursor.fetchone()
+
+
+def mark_restore(connection, target, nonce):
+    from psycopg2 import sql
+    with connection.cursor() as cursor:
+        cursor.execute(sql.SQL('COMMENT ON DATABASE {} IS %s').format(sql.Identifier(target)),
+                       ('igreja12-local-disposable:' + nonce,))
+
+
 def rehearse_backup(database, plan):
     import psycopg2
     from psycopg2 import sql
@@ -94,6 +109,8 @@ def rehearse_backup(database, plan):
         require(version.returncode == 0 and match is not None, 'local-pg17-tools-unavailable')
         versions[name] = match.group(1)
     created = False
+    claimed = None
+    marked = False
     try:
         with tempfile.TemporaryDirectory(prefix='igreja12-synthetic-restore-') as directory:
             archive = Path(directory) / 'synthetic.archive'
@@ -106,8 +123,10 @@ def rehearse_backup(database, plan):
                 with database.conn.cursor() as cursor:
                     cursor.execute(sql.SQL('CREATE DATABASE {} TEMPLATE template0').format(sql.Identifier(target)))
                     created = True
-                    cursor.execute(sql.SQL('COMMENT ON DATABASE {} IS %s').format(sql.Identifier(target)),
-                                   ('igreja12-local-disposable:' + nonce,))
+                claimed = restore_identity(database.conn, target)
+                require(claimed is not None and claimed[3] is None, 'local-restore-claim-failed')
+                mark_restore(database.conn, target, nonce)
+                marked = True
                 # Full pg_dump expects the template's public schema to exist.
                 result = subprocess.run([str(TOOLS / 'pg_restore'), '--exit-on-error', '--single-transaction',
                                          '--dbname', target, str(archive)], env=env,
@@ -135,11 +154,13 @@ def rehearse_backup(database, plan):
     finally:
         if created:
             try:
+                ownership = restore_identity(database.conn, target)
+                expected_marker = 'igreja12-local-disposable:' + nonce
+                require(claimed is not None and ownership is not None
+                        and ownership[:3] == claimed[:3]
+                        and ownership[3] in ({expected_marker} if marked else {None, expected_marker}),
+                        'local-restore-ownership-changed')
                 with database.conn.cursor() as cursor:
-                    cursor.execute("SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=%s", (target,))
-                    ownership = cursor.fetchone()
-                    require(ownership is not None and ownership[0] == 'igreja12-local-disposable:' + nonce,
-                            'local-restore-ownership-changed')
                     cursor.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(target)))
             except psycopg2.Error:
                 raise Refused('local-restore-cleanup-failed') from None

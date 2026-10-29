@@ -22,6 +22,20 @@ o agente ligado como está, sem ampliar o piloto. O registro informa resposta em
 cerca de 28 s e monitor verde desde 14/10; o estado atual é **não verificado**.
 O último backend registrado é `eb5a09b` (27/09); versão atual: **não verificado**.
 
+**Correções da revisão automática da #600 — 29/10:** retomada compara presença
+e definição (hash de pg_get_indexdef) dos índices concorrentes com recibos do
+diário; divergência recusa sem reparar. Sem recibo após crash, não há hash
+anterior de definição para comparar: esse limite permanece explícito.
+Backup sintético captura cluster/OID/proprietário antes de marcar o clone;
+limpa falha de comentário somente com identidade preservada. Falha antes de
+capturar identidade mantém recusa de limpeza, exigindo recuperação nominal.
+Quatro regressões PG adicionadas para o CI; nenhum banco local executado.
+Subprocesso do teste SIGKILL agora desabilita bytecode. Testes offline do Codex:
+50 aprovados e 10 subtestes; Sarah revisa o diff sanitizado, sem executar testes.
+Main ed7f4c10 tem E2E manual aprovado (40814255271); cinco workflows sem runs
+no SHA exato, sem dispatch. Não declarar main verde nem transferir checks de
+árvore equivalente. Publicação e correções da #600 autorizadas, merge não.
+
 **Atualização vigente — #599 integrada em 29/10/2026.** Merge commit
 `ed7f4c10104f4537b8918000c0868992245b9429`, head autorizado `9e0dbda9`.
 Checks obrigatórios verdes, sem bypass e branch preservada. Vercel/DEV seguem
@@ -32,8 +46,8 @@ o bloqueio antigo por branch da #600 não substitui a suspensão global.
 Código do adaptador e SHAs pinados afdfb78d/37c7d68d preservados. Leitor Git
 com modo estrito opt-in e empacotador da #599 preservados. Resultados do novo head na PR #600; checks anteriores não validam este candidato.
 Sarah Opus 5.5 high: GO para futura publicação/CI, sem P0/P1;
-50 testes e 10 subtestes offline aprovados, Ruff aprovado. CI da nova main
-ainda sem runs observáveis; resultado não verificado. SHAs pinados comprovados
+50 testes e 10 subtestes offline aprovados, Ruff aprovado. CI de push da main ausente; E2E manual aprovado, cinco workflows
+ainda não executados no SHA exato. Main não declarada verde. SHAs pinados comprovados
 ancestrais da nova main; recibos antigos não validam o novo digest dos módulos.
 Chave PGDG segue obtida da fonte oficial por HTTPS sem fingerprint pinado;
 client 17 sem patch fixado: risco residual de suprimento restrito ao runner efêmero.

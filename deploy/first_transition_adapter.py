@@ -316,6 +316,8 @@ class LocalDatabase:
                 invalid = tuple(row[0] for row in cur.fetchall())
                 cur.execute("SELECT c.oid,c.relname,c.relkind,a.attnum,a.attname,a.atttypid,a.attnotnull FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname='public' ORDER BY c.oid,a.attnum")
                 catalog = digest(cur.fetchall())
+                cur.execute("SELECT c.relname,pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' ORDER BY c.relname")
+                indexes = {name: digest(definition) for name, definition in cur.fetchall()}
                 cur.execute('SELECT count(*) FROM (SELECT 1 FROM public.app_users WHERE pessoa_id IS NOT NULL GROUP BY igreja_id,pessoa_id HAVING count(*)>1) s')
                 duplicates = cur.fetchone()[0]
                 cur.execute('SELECT count(*) FROM public.celula_solicitacao r WHERE r.celula_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.celulas c WHERE c.id=r.celula_id AND c.igreja_id=r.igreja_id)')
@@ -326,7 +328,7 @@ class LocalDatabase:
                 backfills = cur.fetchone()[0]
                 cur.execute("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' ORDER BY c.relname")
                 relations = tuple(row[0] for row in cur.fetchall())
-                return dict(ledger=ledger, invalid=invalid, catalog=catalog, relations=relations,
+                return dict(ledger=ledger, invalid=invalid, catalog=catalog, relations=relations, indexes=indexes,
                             duplicates=duplicates, invalid_links=invalid_links,
                             aptitude_backfill=aptitude_backfill, backfills=backfills)
             finally:
@@ -363,6 +365,11 @@ class LocalDatabase:
             except OSError:
                 raise Refused('migration-executor-unavailable') from None
             require(result.returncode == 0, 'migration-failed')
+
+
+def reviewed_indexes(migration, observation):
+    require(set(migration.indexes) <= observation['indexes'].keys(), 'reviewed-index-missing')
+    return {name: observation['indexes'][name] for name in migration.indexes}
 
 
 def baseline_digest(observation):
@@ -475,8 +482,12 @@ class LocalTransition:
                         'migration-intent-changed')
                 if migration.name in ledger:
                     require(self.j.last('intent', step) is not None, 'unjournaled-migration')
-                    if not self.j.last('done', step):
-                        self.j.append('done', step=step, recovered=True)
+                    index_receipt = reviewed_indexes(migration, observed)
+                    done = self.j.last('done', step)
+                    if done:
+                        require(done.get('indexes') == index_receipt, 'reviewed-index-changed')
+                    else:
+                        self.j.append('done', step=step, recovered=True, indexes=index_receipt)
                     continue
                 current = self.db.observe()
                 step_invariants(current)
@@ -489,7 +500,7 @@ class LocalTransition:
                 after = self.db.observe()
                 step_invariants(after)
                 require(set(after['ledger']) == set(ledger) | {migration.name}, 'migration-ledger-mismatch')
-                self.j.append('done', step=step)
+                self.j.append('done', step=step, indexes=reviewed_indexes(migration, after))
                 ledger.append(migration.name)
             require(set(ledger) == {m.name for m in self.plan.migrations}, 'final-ledger')
             preflight = self.db.full_preflight(self.plan, len(ledger))
