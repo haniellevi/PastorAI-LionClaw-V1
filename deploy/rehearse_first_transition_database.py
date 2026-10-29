@@ -54,12 +54,12 @@ def main(argv=None):
             address = docker('port', name, '5432/tcp', capture_output=True, text=True).stdout.strip()
             port = address.split(':')[-1]
             env = dict(PATH='/usr/bin:/bin', PYTHON_DOTENV_DISABLED='1',
-                       PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+                       PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTHONDONTWRITEBYTECODE='1',
                        FIRST_TRANSITION_LOCAL_URL=f'postgresql://postgres:synthetic-only@127.0.0.1:{port}/first_transition_test',
                        FIRST_TRANSITION_LOCAL_NONCE=nonce)
             with tempfile.TemporaryDirectory(prefix='igreja12-first-transition-client-') as client:
                 result = subprocess.run([
-                    args.python, '-m', 'pytest', '-o', 'addopts=', '-q', '--tb=short',
+                    args.python, '-m', 'pytest', '-p', 'no:cacheprovider', '-o', 'addopts=', '-q', '--tb=short',
                     str(root / 'deploy/tests/test_first_transition_adapter.py'),
                     str(root / 'deploy/tests/test_first_transition_adapter_pg.py'),
                     str(root / 'deploy/tests/test_first_transition_host_contract.py'),

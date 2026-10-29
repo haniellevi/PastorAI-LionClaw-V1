@@ -308,6 +308,7 @@ class LocalDatabase:
             cur.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
             try:
                 cur.execute("SET LOCAL statement_timeout='3s'")
+                cur.execute('SET LOCAL search_path=pg_catalog,public')
                 cur.execute("SELECT count(*) FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid() AND backend_type='client backend'")
                 require(cur.fetchone()[0] == 0, 'other-database-client')
                 cur.execute('SELECT name FROM public.schema_migrations ORDER BY name COLLATE "C"')
@@ -316,6 +317,8 @@ class LocalDatabase:
                 invalid = tuple(row[0] for row in cur.fetchall())
                 cur.execute("SELECT c.oid,c.relname,c.relkind,a.attnum,a.attname,a.atttypid,a.attnotnull FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname='public' ORDER BY c.oid,a.attnum")
                 catalog = digest(cur.fetchall())
+                cur.execute("SELECT c.relname,pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' ORDER BY c.relname")
+                indexes = {name: digest(definition) for name, definition in cur.fetchall()}
                 cur.execute('SELECT count(*) FROM (SELECT 1 FROM public.app_users WHERE pessoa_id IS NOT NULL GROUP BY igreja_id,pessoa_id HAVING count(*)>1) s')
                 duplicates = cur.fetchone()[0]
                 cur.execute('SELECT count(*) FROM public.celula_solicitacao r WHERE r.celula_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.celulas c WHERE c.id=r.celula_id AND c.igreja_id=r.igreja_id)')
@@ -326,7 +329,7 @@ class LocalDatabase:
                 backfills = cur.fetchone()[0]
                 cur.execute("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' ORDER BY c.relname")
                 relations = tuple(row[0] for row in cur.fetchall())
-                return dict(ledger=ledger, invalid=invalid, catalog=catalog, relations=relations,
+                return dict(ledger=ledger, invalid=invalid, catalog=catalog, relations=relations, indexes=indexes,
                             duplicates=duplicates, invalid_links=invalid_links,
                             aptitude_backfill=aptitude_backfill, backfills=backfills)
             finally:
@@ -363,6 +366,11 @@ class LocalDatabase:
             except OSError:
                 raise Refused('migration-executor-unavailable') from None
             require(result.returncode == 0, 'migration-failed')
+
+
+def reviewed_indexes(migration, observation):
+    require(set(migration.indexes) <= observation['indexes'].keys(), 'reviewed-index-missing')
+    return {name: observation['indexes'][name] for name in migration.indexes}
 
 
 def baseline_digest(observation):
@@ -412,7 +420,9 @@ class LocalTransition:
     """Durable local DB sequence; incomplete post-marker runs need explicit retry.
 
     adapter-failed is diagnostic; run-start/complete determine recovery consent.
-    Completed replay is read-only. No service promotion or legacy resume.
+    Completed replay is read-only. Concurrent migrations committed without an
+    index receipt refuse recovery; no automatic adoption of their definitions.
+    No service promotion or legacy resume.
     """
     def __init__(self, plan, database, journal: Journal, *, host=None):
         self.plan, self.db, self.j, self.host = plan, database, journal, host
@@ -493,8 +503,13 @@ class LocalTransition:
                         'migration-intent-changed')
                 if migration.name in ledger:
                     require(self.j.last('intent', step) is not None, 'unjournaled-migration')
-                    if not self.j.last('done', step):
-                        self.j.append('done', step=step, recovered=True)
+                    index_receipt = reviewed_indexes(migration, observed)
+                    done = self.j.last('done', step)
+                    if done:
+                        require(done.get('indexes') == index_receipt, 'reviewed-index-changed')
+                    else:
+                        require(not migration.indexes, 'reviewed-index-receipt-missing')
+                        self.j.append('done', step=step, recovered=True, indexes=index_receipt)
                     continue
                 current = self.db.observe()
                 step_invariants(current)
@@ -507,7 +522,7 @@ class LocalTransition:
                 after = self.db.observe()
                 step_invariants(after)
                 require(set(after['ledger']) == set(ledger) | {migration.name}, 'migration-ledger-mismatch')
-                self.j.append('done', step=step)
+                self.j.append('done', step=step, indexes=reviewed_indexes(migration, after))
                 ledger.append(migration.name)
             require(set(ledger) == {m.name for m in self.plan.migrations}, 'final-ledger')
             preflight = self.db.full_preflight(self.plan, len(ledger))
@@ -516,6 +531,13 @@ class LocalTransition:
             require(snapshot(self.db.conn)['catalog'] == backup['clone_rehearsal']['final_schema_digest'],
                     'clone-source-schema-divergence')
             self._check_host(evidence)
+            final = self.db.observe()
+            step_invariants(final)
+            require(set(final['ledger']) == set(ledger), 'ledger-changed')
+            for migration in self.plan.pending:
+                done = self.j.last('done', 'adapter-migration:' + migration.name)
+                require(done is not None and done.get('indexes') == reviewed_indexes(migration, final),
+                        'reviewed-index-changed')
             self.j.append('adapter-preflight', phase='after-ddl', **preflight)
             if self.j.last('adapter-database-verified') is None:
                 self.j.append('adapter-database-verified', ledger=len(ledger), production_ready=False)
