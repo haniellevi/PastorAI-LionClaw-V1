@@ -1,5 +1,123 @@
 # Release em lote, outubro de 2026
 
+**Atualização vigente — #598 integrada em 28/10/2026.** Merge commit
+`beb194f930eecd5bf7df744bd6e23eaa88d04b4b`, head autorizado
+`083c3f9ec720af1dfe3917980f4b68499c4a920b`. Seis workflows verdes no
+head e na main anterior antes do merge, sem bypass e com branch preservada.
+A #599 foi composta localmente sobre essa main, sem conflitos, preservando
+seu código original `b3d93473` e as suspensões Vercel/DEV da main.
+Validação local em Python 3.13: 26 testes e 8 subtestes passaram; Ruff aprovado.
+Atualização autorizada para commit/push sem force push, base main e CI da #599.
+Nenhum merge ou publicação das demais PRs autorizado. Resultados do novo head
+na [PR #599](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/599);
+checks antigos não validam o novo candidato. Os registros
+anteriores são históricos quando divergirem deste estado. Nenhum deploy,
+reativação, novo ensaio físico local, acesso à VPS ou dados de produção.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados.
+
+**Atualização vigente — #597 integrada:** main
+`940ac49ef82eedf7a67da666fab8435c12f7d760`, merge commit do head `8542e991`,
+seis workflows verdes antes da integração. Proteções e suspensões preservadas.
+#598 preparada sobre essa main, sem conflitos; atualização autorizada para
+commit/push sem force push, base main e acompanhamento do CI;
+código/fixtures idênticos ao head original `37c7d68d`. Validação
+offline em Python 3.13: 46 testes unitários, Ruff e sintaxe aprovados. Apenas documentação de
+estado reconciliada. Resultados do novo head na PR #598; nenhum merge adicional ou publicação das
+demais PRs autorizado. Sem deploy, reativação ou ensaio físico local.
+SQLs e aplicador pinados nos ensaios anteriores não são repinados por este merge.
+
+
+**Atualização vigente de integração — 28/10/2026:** #603 integrada pelo merge
+`e2eb2d04f08caf46f676a4f560acc77a61c5e351`. Proteção da main agora exige somente
+backend-tests, frontend-ci, e2e-critical e rls-integration (app_id 15368), com
+strict=true e enforce_admins=true; demais regras preservadas. Vercel Git segue
+desconectado e DEV desabilitado com variável false. Publicações não reativadas.
+A #597 foi composta sobre a main resultante, preservando suspensão, painel e
+documentos; sua atualização recebeu autorização de commit/push sem force push
+e CI próprio. Resultados do novo head na PR #597; não transferir checks antigos.
+Nenhum merge da #597 nem publicação/merge das demais PRs autorizado. As seções
+de preparação anteriores são histórico. Não repinar SQL/aplicador por causa
+desta atualização.
+
+
+## Suspensão das publicações automáticas — aplicada, integração pendente
+
+Decisão do dono em 28/10: suspender publicação automática do painel e promoção
+DEV antes da integração #597–#602. Autorização posterior cobriu suspensão remota,
+verificação e, depois dela, commit/push/PR e CI. Não cobre merge, deploy, novos
+ensaios físicos locais, VPS ou dados de produção.
+
+Resultado verificado em 28/10/2026: workflow `380485201` desabilitado manualmente;
+variável booleana antes ausente agora false; vínculo Git do projeto
+`prj_e0hSMDbhUty2OK372oPcSQBXBKGE` desconectado. Metadados confirmam mesmo projeto,
+seis domínios e último deployment `dpl_AeABTdSidFDtNVSXumMeTfm857Wb`, READY.
+Nenhuma publicação pendente foi encontrada; não houve cancelamento. Não foi
+feito teste funcional do site ou acesso a dados de domínio.
+O conector não expõe a desconexão; usada CLI oficial Vercel 65.5.0 em cache
+temporário, com autenticação existente sem exibir credenciais. Comando aplicado:
+
+```bash
+vercel git disconnect --project prj_e0hSMDbhUty2OK372oPcSQBXBKGE --scope raniel-levis-projects --yes
+```
+
+Mudança versionada: `frontend/vercel.json` com `git.deploymentEnabled=false`
+(todas as branches, incluindo previews); `dev-synthetic.yml` sem `workflow_run`,
+apenas `workflow_dispatch`, mantendo main, variável habilitadora e verificação
+dos checks do candidato. Workflows de CI não são modificados. Isso não interrompe
+o painel já servido nem os serviços existentes. Não bloqueia publicação manual
+via CLI/API/deploy hooks; esses caminhos continuam fora da autorização.
+
+### Procedimento autorizado e executado — registro e reconferência
+
+1. Confirmar por metadados o projeto Vercel do painel
+   `prj_e0hSMDbhUty2OK372oPcSQBXBKGE`, equipe `raniel-levis-projects`, vínculo Git,
+   configuração do workflow DEV e execuções de publicação em fila/andamento.
+   Não ler variáveis secretas, logs pastorais, VPS ou dados de domínio. Registrar
+   o estado anterior da variável booleana e se ela estava ausente.
+2. Suspender somente o workflow de publicação DEV e definir a variável como false:
+
+   ```bash
+   gh workflow disable dev-synthetic.yml --repo haniellevi/PastorAI-LionClaw-V1
+   gh variable set DEV_PIPELINE_ENABLED --body false --repo haniellevi/PastorAI-LionClaw-V1
+   ```
+
+   Não desabilitar GitHub Actions globalmente. Isso não cancela execução já
+   iniciada: se houver uma, parar a sequência e apresentar ID, estado e impacto
+   para decidir cancelamento/recuperação, sem acessar o host.
+3. No projeto Vercel confirmado, Settings → Git → Disconnect (ou CLI acima): desconectar
+   temporariamente somente o vínculo Git do painel. Efeito: parar publicações
+   automáticas por Git, incluindo previews das outras branches; preservar
+   projeto, domínios e deployment atualmente servido. Não remover integração
+   GitHub da organização nem excluir/pausar o projeto. Se a interface/capacidade
+   disponível divergir, reapresentar a ação concreta antes de substituí-la.
+   Publicações já iniciadas e deploy hooks exigem avaliação separada.
+4. Conferir por metadados workflow desabilitado, variável false, vínculo Git
+   desconectado e ausência de publicações pendentes. Registrar evidências;
+   não presumir suspensão apenas por sucesso do comando.
+5. Após confirmação, publicação da PR autorizada: [PR #603](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/603)
+   independente sobre main, com CI. Reutiliza o lock de auditoria já corrigido
+   na #597 (msgpack 1.2.3, arquivo idêntico); runtime da aplicação inalterado. Seu merge exige autorização própria. Integrá-la antes
+   de #597–#602, preservando `deploymentEnabled=false` ao resolver o conflito
+   esperado com os arquivos adicionados nas #600–#602. A #597 também atualiza
+   ROADMAP: preservar a decisão vigente e os demais registros novos.
+
+### Recuperação e retomada
+
+Falha parcial mantém as suspensões já efetuadas; não reativar automaticamente
+para desfazer uma etapa. Registrar exatamente o que foi aplicado e o que falta.
+Não apagar deployment, domínio, imagem, volume ou dado. Suspender automação não
+é desligar o sistema em uso, nem prova de contenção de filas.
+
+Para retomar futuramente, obter autorização específica: restaurar o vínculo Git
+registrado somente com as regras Vercel revistas na main; reabilitar o workflow
+DEV apenas quando desejado, preservando o modo manual e a variável false até
+aprovação de publicação. Reativação automática exigiria outra mudança de código.
+Uma reconexão pode gerar eventos: antes dela, conferir regras, commits e filas.
+Não reverter cegamente toda a PR, pois isso reintroduziria os gatilhos automáticos.
+
+Referências: https://vercel.com/docs/project-configuration/git-configuration e
+https://vercel.com/docs/cli/git. Consultadas somente como documentação pública.
+
 Atualizado em 27/10/2026: a seção "Plano e prévia atual" vale para o candidato
 `afdfb78d71a53f2861632806e13cdda4662d7d63`. As seções datadas de 24/10/2026
 (`main` em `354a83d`) e anteriores são históricas.
@@ -411,6 +529,37 @@ Regras de aplicação:
   o aplicador extrai nas `NT` não se contornam. Se der timeout de lock, parar.
   Nova tentativa só depois da decisão, nunca aumentando o timeout por conta
   própria.
+  O executor de `migrate.py --lock-timeout` acrescenta padrão de 2s
+  nas 43 transacionais, incluindo as seis sem limite no SQL. As oito `NT`
+  mantêm o `SET lock_timeout` inicial do arquivo. Antes de usar esse executor
+  numa janela, fixar e revisar seu SHA e conferir os comandos que alteram o
+  limite nos 51 SQLs: a validação antes/depois não impede alteração temporária
+  durante o SQL. Chamadas diretas de `cmd_apply` precisam passar
+  `lock_timeout=2000` explicitamente; seu padrão continua 0 por compatibilidade.
+  Em 27/10, Python 3.13.15: 46 testes unitários e seis testes reais em PG 17
+  descartável passaram. Cobrem cancelamento de lock, rollback de DDL/ledger,
+  restauração do limite após commit e índice concorrente. Essa prova isolada
+  não autoriza produção.
+  Replay adicional local de 27/10: base de 78 pelo caminho original
+  (`lock_timeout=0` na chamada direta), seguida das 51 com o rascunho atual:
+  43 transacionais com `lock_timeout=2000`, oito concorrentes com o limite
+  do SQL; ledger exato de 129, zero pendentes e zero índices inválidos.
+  Ambiente limpo, Python 3.13.15, PG 17 descartável em loopback, sem dados reais.
+  Nesse primeiro ensaio, a base histórica não passou com o novo padrão:
+  `SET TRANSACTION ISOLATION LEVEL` conflitava com a consulta inicial.
+  Correção local posterior: `SET LOCAL` e `SHOW` substituem os SELECTs
+  anteriores à migration, preservando seu isolamento. Dois testes reais
+  falharam antes e passaram depois (SERIALIZABLE e REPEATABLE READ).
+  Validação posterior em PG 17.6 descartável: **60 testes** (46 unitários +
+  14 PG), replay **78→129** e instalação **0→129** pela CLI, ambos com ledger
+  exato de 129, zero pendentes/índices inválidos e quatro roles NOLOGIN.
+  Padrão de 2s preservado; somente a histórica `20260827_175634` recebeu
+  `--lock-timeout 5s`, compatível com o limite que ela declara; as oito
+  pendentes concorrentes seguiram com `--no-transaction` e seu limite SQL.
+  Esses ensaios não definem timeouts para PROD. Executor local verificado:
+  SHA-256 `df5f93254bdfbebd64d078b79abdbe4d139ea39e1cac0de4c647ba1fd646ac60`.
+  Preparado para PR própria; revisão e CI do commit publicado ainda necessárias.
+  Nenhuma operação real.
 - **Falha numa `NT`:** pode deixar índice `INVALID`. Seguir o comentário do
   próprio arquivo ("check validity before retrying") antes de qualquer nova
   tentativa.

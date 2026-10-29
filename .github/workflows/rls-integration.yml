@@ -63,6 +63,7 @@ jobs:
       V3_DELIVERY_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_delivery_test
       OPERATIONAL_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/obs_d2_test
       UV_TURMAS_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/uv_turmas_test
+      MIGRATE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/migrate_lock_test
       V3_WORKFLOW_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_workflow_test
       V3_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v3_migration_exact_test
       V2B_MIGRATION_EXACT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/v2b_migration_exact_test
@@ -138,6 +139,7 @@ jobs:
               connection.exec_driver_sql("CREATE DATABASE v3_migration_exact_test")
               connection.exec_driver_sql("CREATE DATABASE v3_workflow_test")
               connection.exec_driver_sql("CREATE DATABASE uv_turmas_test")
+              connection.exec_driver_sql("CREATE DATABASE migrate_lock_test")
               connection.exec_driver_sql("CREATE DATABASE obs_d2_test")
               connection.exec_driver_sql("CREATE DATABASE v3_delivery_test")
               connection.exec_driver_sql("CREATE DATABASE v3_consolidation_test")

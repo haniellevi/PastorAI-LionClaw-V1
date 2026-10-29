@@ -73,6 +73,10 @@ def migrated_database(rls_database_url):
         command = [sys.executable, str(ROOT/'scripts/migrate.py'), 'apply', filename, '--yes']
         if concurrent:
             command.append('--no-transaction')
+        elif filename == '20260827_175634_d1a_tenant_runtime_integrity.sql':
+            # Reviewed historical SQL declares SET LOCAL lock_timeout = '5s'.
+            # Keep the CLI default for every other transactional migration.
+            command.extend(['--lock-timeout', '5s'])
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         assert result.returncode == 0, f"{filename}: {result.stderr}"
     yield engine
