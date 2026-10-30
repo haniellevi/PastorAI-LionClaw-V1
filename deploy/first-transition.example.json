@@ -1,0 +1,65 @@
+{
+  "schema": "igreja12.first-transition-config/1",
+  "repo": "/srv/example/pastorai-checkout",
+  "state_dir": "/var/lib/example-first-transition/state",
+  "migration_workdir": "/var/lib/example-first-transition/migrations",
+  "python": "/usr/bin/python3",
+  "docker": {
+    "binary": "/usr/bin/docker",
+    "endpoint": "unix:///run/example/docker.sock",
+    "config_dir": "/etc/example/docker-cli"
+  },
+  "database": {
+    "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+    "catalog": "2222222222222222222222222222222222222222222222222222222222222222",
+    "lease_columns": [
+      ["broadcast_execucoes", "lease_ate"],
+      ["broadcast_entregas", "lease_ate"],
+      ["notification_outbox", "claimed_until"],
+      ["cell_report_audio_inputs", "lease_until"]
+    ],
+    "observer_applications": []
+  },
+  "host": {
+    "schema": "igreja12.first-transition-host-manifest/1",
+    "daemon_id": "00000000-0000-4000-8000-0000000000aa",
+    "legacy_project": "example-legacy",
+    "network_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "service_ids": {
+      "backend": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "cron-worker": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "broadcast-worker": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "queue-worker": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4"
+    },
+    "support_ids": {
+      "redis": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "evolution-postgres": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "evolution-api": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3"
+    },
+    "processing_keys": [],
+    "gate_names": ["ALLOW_REAL_SENDS", "ASAAS_BILLING_ENABLED", "BREVO_SEND_MODE", "BROADCAST_ASYNC_ENABLED"]
+  },
+  "candidate": {
+    "sha": "afdfb78d71a53f2861632806e13cdda4662d7d63",
+    "image": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "project": "example-release",
+    "containers": {
+      "backend": "example_release_backend",
+      "cron-worker": "example_release_cron_worker",
+      "broadcast-worker": "example_release_broadcast_worker",
+      "queue-worker": "example_release_queue_worker"
+    },
+    "network_name": "example_default",
+    "release_root": "/opt/pastorai-releases",
+    "hold_override": "/var/lib/example-first-transition/state/a9-hold.override.yml",
+    "env_file": "/srv/example/private/backend.conf",
+    "smoke_seconds": 30
+  },
+  "package_manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "timeouts": {
+    "migration_s": 300,
+    "observe_s": 10,
+    "quiescence_interval_s": 5,
+    "quiescence_budget_s": 60
+  }
+}

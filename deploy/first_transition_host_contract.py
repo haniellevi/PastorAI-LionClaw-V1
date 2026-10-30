@@ -3,7 +3,12 @@
 LocalHostContract proves the orchestration against a simulator only.
 ObservedHostContract is a contract over a caller-supplied driver: every field
 (ingress, unknown writers, queue counts, health, digests) is driver-reported,
-never independent host evidence, so receipts carry host_verified=False. Queue
+never independent host evidence, so receipts carry host_verified=False.
+``unknown_writers`` counts UNDECLARED sources only and must be 0 on every
+observation, the running-legacy baseline included: the four legacy roles are
+declared sources, whose stop is proven separately by their service states.
+``ingress_blocked``/``ingress_open`` mean both entries blocked/open; a partial
+state is neither, so a resume completes only with both open. Queue
 counts cannot prove contents or quiescence. It may resume the pinned legacy
 only while no DDL marker is journaled; marker absence is no proof that DDL did
 not run elsewhere. The resume token binds the host identity, not a human
@@ -193,10 +198,14 @@ class ObservedHostContract:
         if data is None:
             data = self._call('snapshot')
         require(isinstance(data, dict) and set(data) == {
-            'mode', 'ingress_blocked', 'support_digest', 'unknown_writers', 'queue_digest', 'queue_counts',
-            'services'}, 'observed-host-shape')
+            'mode', 'scope_digest', 'ingress_blocked', 'ingress_open', 'support_digest', 'unknown_writers',
+            'queue_digest', 'queue_counts', 'services'}, 'observed-host-shape')
         require(data['mode'] == 'observed-host', 'observed-host-required')
-        require(type(data['ingress_blocked']) is bool
+        require(isinstance(data['scope_digest'], str) and HEX.fullmatch(data['scope_digest']),
+                'observed-host-scope')
+        # ingress_blocked = both entries blocked, ingress_open = both open; a partial state is neither.
+        require(type(data['ingress_blocked']) is bool and type(data['ingress_open']) is bool
+                and not (data['ingress_blocked'] and data['ingress_open'])
                 and isinstance(data['support_digest'], str) and HEX.fullmatch(data['support_digest']),
                 'observed-host-shape')
         require(type(data['unknown_writers']) is int and data['unknown_writers'] == 0,
@@ -210,7 +219,7 @@ class ObservedHostContract:
         _observed_services(services)
         # started/restart_count legitimately change on resume; un-resumed roles keep
         # their baseline and resumed roles keep their receipted fresh start.
-        fingerprint = digest([data['support_digest'], {
+        fingerprint = digest([data['scope_digest'], data['support_digest'], {
             role: {key: state[key] for key in sorted(FIELDS - DYNAMIC - RESUMABLE)}
             for role, state in services.items()}])
         baseline = self.j.last('observed-host-init')
@@ -244,7 +253,7 @@ class ObservedHostContract:
         settled = self.j.last('observed-host-settled')
         require(self.j.last('observed-host-init') is not None and settled is not None,
                 'observed-host-unobserved')
-        data, fingerprint = self._snapshot()
+        data, fingerprint = self._contain_observe()
         require(data['ingress_blocked'] is True, 'observed-host-ingress-open')
         for state in data['services'].values():
             require(state['restart_policy'] == 'no' and not state['running'] and state['exit_code'] == 0,
@@ -257,11 +266,12 @@ class ObservedHostContract:
     def contain(self):
         self._assert_own_journal()
         require(self.j.last('observed-host-intent', 'legacy-resume') is None, 'observed-host-resume-started')
-        data, fingerprint = self._snapshot()
+        data, fingerprint = self._contain_observe()
         if self.j.last('observed-host-init') is None:
             require(all(s['running'] and s['restart_policy'] == 'always' for s in data['services'].values()),
                     'observed-host-baseline-state')
             self.j.append('observed-host-init', fingerprint=fingerprint, mode='observed-host',
+                          scope_digest=data['scope_digest'],
                           evidence='driver-reported', host_verified=False,
                           initial_started={role: data['services'][role]['started'] for role in ROLES},
                           initial_restarts={role: data['services'][role]['restart_count'] for role in ROLES})
@@ -269,21 +279,21 @@ class ObservedHostContract:
             require(data['ingress_blocked'], 'observed-host-ingress-reopened')
         if not data['ingress_blocked']:
             self._intent('ingress')
-            self._call('block_ingress')
-        require(self._snapshot()[0]['ingress_blocked'] is True, 'observed-host-ingress-open')
+            self._effect('block_ingress', self._contain_snapshot)
+        require(self._contain_observe()[0]['ingress_blocked'] is True, 'observed-host-ingress-open')
         self._done('ingress')
         for role in ROLES:
-            state = self._snapshot()[0]['services'][role]
+            state = self._contain_observe()[0]['services'][role]
             step = 'restart-no:' + role
             if self.j.last('observed-host-done', step):
                 require(state['restart_policy'] == 'no', 'observed-host-restart-reenabled')
             if state['restart_policy'] != 'no':
                 self._intent(step)
-                self._call('disable_restart', state['id'])
-            require(self._snapshot()[0]['services'][role]['restart_policy'] == 'no',
+                self._effect('disable_restart', self._contain_snapshot, state['id'])
+            require(self._contain_observe()[0]['services'][role]['restart_policy'] == 'no',
                     'observed-host-restart-not-disabled')
             self._done(step)
-            state = self._snapshot()[0]['services'][role]
+            state = self._contain_observe()[0]['services'][role]
             step = 'term:' + role
             if self.j.last('observed-host-done', step):
                 require(not state['running'], 'observed-host-restarted')
@@ -291,12 +301,12 @@ class ObservedHostContract:
                 # Never re-signal an unreceipted SIGTERM; wait or hold.
                 if self.j.last('observed-host-intent', step) is None:
                     self._intent(step)
-                    self._call('signal_term', state['id'])
+                    self._effect('signal_term', self._contain_snapshot, state['id'])
                 self._call('wait_stopped', state['id'], 30)
-            state = self._snapshot()[0]['services'][role]
+            state = self._contain_observe()[0]['services'][role]
             require(not state['running'] and state['exit_code'] == 0, 'observed-host-exit-not-clean')
             self._done(step)
-        settled_data = self._snapshot()[0]
+        settled_data = self._contain_observe()[0]
         if self.j.last('observed-host-settled') is None:
             self.j.append('observed-host-settled', queue_digest=settled_data['queue_digest'],
                           queue_counts=settled_data['queue_counts'], evidence='driver-reported',
@@ -305,6 +315,30 @@ class ObservedHostContract:
         if self.j.last('observed-host-contained') is None:
             self.j.append('observed-host-contained', **receipt)
         return receipt
+
+    def _contain_observe(self):
+        data, fingerprint = self._snapshot()
+        if self.j.last('observed-host-init') is not None:
+            self._contain_snapshot(data)  # validate adoption/phase without another port read
+        return data, fingerprint
+
+    def _contain_snapshot(self, data=None):
+        require(self.j.last('observed-host-intent', 'legacy-resume') is None, 'observed-host-resume-started')
+        data, _ = self._snapshot(data)
+        if self.j.last('observed-host-done', 'ingress'):
+            require(data['ingress_blocked'] is True, 'observed-host-ingress-reopened')
+        for role, state in data['services'].items():
+            if self.j.last('observed-host-intent', 'restart-no:' + role) is None:
+                require(state['restart_policy'] == 'always', 'observed-host-unintended-policy')
+            if self.j.last('observed-host-done', 'restart-no:' + role):
+                require(state['restart_policy'] == 'no', 'observed-host-restart-reenabled')
+            if self.j.last('observed-host-intent', 'term:' + role) is None:
+                require(state['running'] is True, 'observed-host-unintended-stop')
+            elif not state['running']:
+                require(state['exit_code'] == 0, 'observed-host-exit-not-clean')
+            if self.j.last('observed-host-done', 'term:' + role):
+                require(not state['running'], 'observed-host-restarted')
+        return data
 
     def resume_token(self):
         init = self.j.last('observed-host-init')
@@ -410,6 +444,7 @@ class ObservedHostContract:
     def resume_legacy(self, confirmation, expected_token=None, *, allow_queue_drift=False):
         self._assert_pre_ddl()
         self._assert_own_journal()
+        require(getattr(self.port, 'supports_resume', False) is True, 'observed-host-resume-unavailable')
         require(self.j.last('observed-host-contained') is not None, 'observed-host-not-contained')
         token = self.resume_token()  # bound to this journal's observed host; not a human approval
         require(expected_token is None or expected_token == token, 'observed-host-resume-confirmation')
@@ -456,14 +491,16 @@ class ObservedHostContract:
             if self.j.last('observed-host-intent', 'open-ingress') is None:
                 self._resume_snapshot()  # still blocked and pre-DDL right before authorizing it
                 self._intent('open-ingress')
-            if self._resume_snapshot()['ingress_blocked']:
-                # _snapshot() re-validates every receipted fresh start on the final observation.
+            if self._resume_snapshot()['ingress_open'] is not True:
+                # Blocked or partial (an earlier opening interrupted): the driver opens only the
+                # entries still blocked, after its own fresh ledger proof. _snapshot() re-validates
+                # every receipted fresh start on the final observation.
                 self._effect('open_ingress', self._resume_snapshot)
-            require(not self._resume_snapshot()['ingress_blocked'], 'observed-host-ingress-still-blocked')
+            require(self._resume_snapshot()['ingress_open'] is True, 'observed-host-ingress-still-blocked')
             self._done('open-ingress')
-        # Every call, terminal replay included, re-proves the resumed host.
+        # Every call, terminal replay included, re-proves the resumed host: BOTH entries open.
         final_data = self._resume_snapshot()
-        require(final_data['ingress_blocked'] is False, 'observed-host-ingress-still-blocked')
+        require(final_data['ingress_open'] is True, 'observed-host-ingress-still-blocked')
         if self.j.last('observed-host-resumed') is None:
             self.j.append('observed-host-resumed', resumed_roles=START_ORDER, evidence='driver-reported')
         return dict(mode='observed-host', status='legacy-resumed', resumed_roles=START_ORDER,

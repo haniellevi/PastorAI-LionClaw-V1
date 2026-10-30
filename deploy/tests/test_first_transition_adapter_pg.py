@@ -511,7 +511,8 @@ def test_changed_adapter_artifact_manifest_cannot_resume_a_journal(plan, databas
             LocalTransition(plan, db, journal).run(receipt)
         assert set(journal.last('adapter-init')['adapter_sources']) == {
             'first_transition_adapter.py', 'first_transition_local_backup.py', 'first_transition_host_contract.py',
-            'first_transition_host_transport.py',
+            'first_transition_host_transport.py', 'first_transition_host_driver.py', 'first_transition_database.py',
+            'first_transition_candidate.py', 'first_transition_orchestrator.py', 'package_backend_release.py',
             'initial_transition_files.py', 'initial_transition_ops.py', 'release_topology.py'}
         changed = replace(plan, adapter_sources=((plan.adapter_sources[0][0], '0' * 64), *plan.adapter_sources[1:]))
         with pytest.raises(Refused, match='plan-changed'):

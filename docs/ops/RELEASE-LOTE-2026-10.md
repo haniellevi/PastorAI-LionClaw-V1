@@ -1,5 +1,43 @@
 # Release em lote, outubro de 2026
 
+## Decisão vigente A9 para a primeira transição (30/10/2026)
+
+O dono aprovou preparar quatro candidatos e iniciar somente backend para smoke, com ingresso externo/interno comprovadamente bloqueado. Queue/cron/broadcast permanecem `created`, com StartedAt inicial e restart=no, até a retomada nominal A10. Não chamar `create_and_start` atual nem iniciar consumidores por dependência/Compose. O cron novo com gates fechados também poderia cancelar pendências; parar somente o cron legado não prova preservação na subida. Backend deve ser verificado contra manutenção/agendador no startup. A aprovação atual cobre implementação local em dois blocos e testes exclusivamente simulados, não execução desses comandos ou inventário em ambiente real. Nenhum novo gate é criado nem os existentes são abertos para passar testes.
+
+### Recuperação — API Python exata (somente local/sintética)
+
+Sem CLI; nada executa no import. Os provedores (`connect`, `secret`, `ingress`, `writers`, `backup_proof`) são entradas da Fase 3 e aqui só existem como fakes de teste:
+
+```python
+from pathlib import Path
+from first_transition_adapter import prepare
+from first_transition_orchestrator import assemble, load_config
+from initial_transition_files import Journal
+
+config = load_config(Path('/caminho/first-transition.json'))  # só valores públicos
+with Journal(Path(config.state_dir) / 'journal') as journal:   # mesmo diário em todo replay
+    t = assemble(config, plan=prepare(Path(config.repo)), journal=journal, connect=connect, secret=secret,
+                 ingress=ingress, writers=writers, backup_proof=backup_proof)
+    r = t.recovery()      # só classifica: state, procedure, open_steps, legacy_resume_allowed; não age
+    # conforme r['state']:
+    #   not-started                                            -> nada a recuperar
+    #   containment-partial / contained-pre-ddl                -> t.run()  (replay; contain() nunca re-sinaliza)
+    #   contained-pre-ddl / resume-partial                     -> t.resume_legacy(t.host.resume_token())
+    #   backup-window-used                                     -> sem novo pedido nem reuso; t.resume_legacy(...) e diário novo
+    #   legacy-resumed                                         -> novo diário para nova tentativa
+    #   ddl-ambiguous / ddl-failed / post-ddl-failed           -> parar; leitura read-only; restore do backup DA JANELA
+    #                                                             (r['window_backup_id'], nunca o do A6), nunca automático,
+    #                                                             ou correção por nova decisão
+    #   candidate-ambiguous / candidate-failed                 -> parar sem desfazer; consumidores held; ingresso bloqueado
+    #   a9-complete                                            -> manter; A10 exige autorização própria
+```
+
+`t.run()` após `transition-failed` recusa (`transition-stopped`); após `ddl-marker`, `resume_legacy` recusa (`post-ddl-resume-forbidden`). Identidade de banco divergente após uma migration é registrada como ambígua (`definite=False`). Binding `writers`: devolve só escritores desconhecidos, isto é, fontes NÃO declaradas, e precisa devolver 0 em toda observação, inclusive na baseline com os quatro legados rodando. Fontes declaradas, nunca contadas: os quatro papéis legados do manifesto (a parada deles é provada à parte pelos estados do host: restart=no, saída 0), o observador e o filho de migration e, só a partir do início do backend no A9, o backend candidato. Consumidor candidato, outro container ou cliente externo contam e recusam. Zero sessões de escrita e zero leases no PostgreSQL são exigidos separadamente antes do `ddl-marker` e de cada migration; `observer_applications` nunca isenta sessão ativa no PostgreSQL.
+
+Binding `backup_proof(request)`: chamado uma única vez por janela, depois da quiescência, com o pedido já gravado no diário (`transition-backup-request`: nonce novo, plano, identidade, baseline, config e digest do evento `transition-quiescent`). Deve devolver o recibo de um backup NOVO feito após esse pedido, com `request_digest` = digest do pedido, `backup_id` hex64 e os campos de restore/ensaio de clone de `validate_clone_receipt`. Um recibo do A6 não atesta o pedido e é recusado (`transition-backup-unbound`). O diário guarda só a cópia sanitizada do recibo, sem caminhos ou extras do provedor. Antes do `ddl-marker` ela é revalidada junto com a contenção e a quiescência, sem chamar o provedor de novo. Pedido sem recibo é ambíguo (`transition-backup-ambiguous`): não há nova solicitação automática, e uma segunda invocação nunca reutiliza a janela (`transition-backup-window-used`).
+
+Prova de ledger (`LedgerProof`): compara ledger e impressão digital do catálogo do schema `public`. A impressão cobre relações/RLS/dono/ACL/views, atributos/defaults/generated/identity, constraints, índices/validade, triggers, rules, policies, funções, tipos/enums, sequências, extensões e privilégios, com hash no servidor. Ela prova igualdade do estado coberto agora, não que nunca houve DDL: objetos fora de `public`, objetos globais do cluster e alterações revertidas antes da observação não são cobertos. Ingresso: `ingress_blocked` e `ingress_open` são fatos separados (ambas as entradas bloqueadas/abertas). A retomada só conclui com ambas abertas, e o replay de uma abertura parcial abre apenas a entrada restante, com prova fresca.
+
 ## Fase 1 — transporte observado e consolidação enxuta (29/10/2026)
 
 Sobre a `main` `64853268a4c1623f5b9d4906457335fcb7849931`, o plano de release passa a seguir os 5 pacotes de fase consolidados no `ROADMAP.md`, encerrando a construção de VM QEMU offline artesanal (A1/I0). O arquivamento dos artefatos temporários de `/tmp/igreja12-*-20261029/` fora do repositório é registro do operador e não foi reverificado nesta fatia.

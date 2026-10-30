@@ -46,7 +46,9 @@ def adapter_sources():
     root = Path(__file__).resolve().parent
     return tuple((name, hashlib.sha256(read_regular(root / name)).hexdigest()) for name in (
         'first_transition_adapter.py', 'first_transition_local_backup.py',
-        'first_transition_host_contract.py', 'first_transition_host_transport.py', 'initial_transition_files.py',
+        'first_transition_host_contract.py', 'first_transition_host_transport.py', 'first_transition_host_driver.py',
+        'first_transition_database.py', 'first_transition_candidate.py', 'first_transition_orchestrator.py',
+        'initial_transition_files.py', 'package_backend_release.py',
         'initial_transition_ops.py', 'release_topology.py'))
 
 

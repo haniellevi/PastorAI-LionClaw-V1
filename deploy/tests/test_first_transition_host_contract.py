@@ -261,6 +261,8 @@ NETWORK = '9' * 64
 
 
 class ObservedDriver:
+    supports_resume = True
+    scope_digest = 'f' * 64
     mode = 'observed-host'
 
     def __init__(self):
@@ -269,6 +271,9 @@ class ObservedDriver:
         self.crash_after_start = None
         self.on_start = None
         self.on_inspect = None
+        # The fake moves both ingress entries together via host.data['ingress_blocked'];
+        # partial_ingress explicitly models one entry diverging (neither blocked nor open).
+        self.partial_ingress = False
         self.queues = {'pastorai:webhooks': 3, 'pastorai:webhooks:dead': 1}
         self.support = {role: dict(id=str(number) * 64, image='sha256:' + 'b' * 64,
                                    compose_project='synthetic-legacy', compose_service=role, running=True,
@@ -283,7 +288,9 @@ class ObservedDriver:
             if self.on_inspect:
                 self.on_inspect()
             data = host.snapshot()
-            return dict(ingress_blocked=data['ingress_blocked'], unknown_writers=data['unknown_writers'],
+            blocked, partial = data['ingress_blocked'], self.partial_ingress
+            return dict(scope_digest=self.scope_digest, ingress_blocked=blocked and not partial,
+                        ingress_open=not blocked and not partial, unknown_writers=data['unknown_writers'],
                         network_id=NETWORK, services=data['services'], support=deepcopy(self.support))
         if argv[0] == 'redis-meta':
             command, key = argv[1:]
@@ -299,7 +306,7 @@ class ObservedDriver:
             return True
         if argv == ('open-ingress',):
             host.calls.append(('open-ingress', None))
-            host.data['ingress_blocked'] = False
+            host.data['ingress_blocked'], self.partial_ingress = False, False
             return True
         if argv[:3] == ('docker', 'update', '--restart=no'):
             host.disable_restart(argv[3])
@@ -379,12 +386,29 @@ def test_observed_transport_validates_scope_before_any_call(override, code):
 def test_observed_transport_snapshot_is_sanitized_metadata():
     driver = ObservedDriver()
     data = observed_transport(driver).snapshot()
-    assert set(data) == {'mode', 'ingress_blocked', 'support_digest', 'unknown_writers', 'queue_digest',
-                         'queue_counts', 'services'}
+    assert set(data) == {'mode', 'scope_digest', 'ingress_blocked', 'ingress_open', 'support_digest',
+                         'unknown_writers', 'queue_digest', 'queue_counts', 'services'}
     assert data['mode'] == 'observed-host' and data['queue_counts']['pastorai:webhooks'] == 3
     assert {command for command, _ in driver.commands} <= {('inspect-host',)} | {
         ('redis-meta', c, k) for c in ('TYPE', 'PTTL', 'LLEN', 'ZCARD') for k in data['queue_counts']}
     assert effects(driver) == []
+
+
+@pytest.mark.parametrize('change', [
+    lambda raw: raw.pop('ingress_open'), lambda raw: raw.update(ingress_open=None),
+    lambda raw: raw.update(ingress_blocked=True, ingress_open=True),
+])
+def test_observed_transport_never_derives_ingress_open_from_not_blocked(change):
+    driver = ObservedDriver()
+    original = driver.request
+    def request(argv, *, timeout):
+        raw = original(argv, timeout=timeout)
+        if argv == ('inspect-host',):
+            change(raw)
+        return raw
+    driver.request = request
+    with pytest.raises(Refused, match='^transport-snapshot$'):
+        observed_transport(driver).snapshot()
 
 
 def _support(driver, role, **changes):
@@ -432,7 +456,8 @@ def test_observed_transport_binds_network_and_support_digest():
 def test_observed_transport_refuses_arbitrary_targets_and_replaced_identity(method):
     driver = ObservedDriver()
     transport = observed_transport(driver)
-    args = {'wait_stopped': (30,), 'enable_restart': (lambda _final: None,),
+    args = {'disable_restart': (lambda _final: None,), 'signal_term': (lambda _final: None,),
+            'wait_stopped': (30,), 'enable_restart': (lambda _final: None,),
             'start_service': (lambda _final: None,)}.get(method, ())
     with pytest.raises(Refused, match='transport-target'):
         getattr(transport, method)('other; shell-command', *args)
@@ -459,7 +484,7 @@ def test_observed_transport_sanitizes_errors_and_bounds_wait():
         raise TimeoutError('synthetic-private-timeout-details')
     driver.request = timeout
     with pytest.raises(TimeoutError, match='^observed-transport-timeout$'):
-        transport.block_ingress()
+        transport.block_ingress(lambda _final: None)
     driver.mode = 'remote'
     with pytest.raises(Refused, match='transport-observed-required'):
         transport.snapshot()
@@ -1286,3 +1311,76 @@ def test_local_transition_requires_an_open_journal_even_without_a_host(tmp_path)
     for journal in (None, Journal(tmp_path / 'closed')):
         with pytest.raises(Refused, match='^local-transition-journal-required$'):
             LocalTransition(None, UntouchableDatabase(), journal)
+
+
+@pytest.mark.parametrize('method', ['disable_restart', 'signal_term'])
+@pytest.mark.parametrize('change', ['writer', 'gate'])
+def test_containment_checks_its_final_transport_observation(tmp_path, method, change):
+    driver = ObservedDriver()
+    with Journal(tmp_path / 'journal') as journal:
+        contract = observed_contract(driver, journal)
+        def mutate():
+            if change == 'writer':
+                driver.host.data['unknown_writers'] = 1
+            else:
+                driver.host.data['services']['cron-worker']['gates_digest'] = 'f' * 64
+        inside_final_observation(contract, driver, method, mutate, 'backend')
+        with pytest.raises(Refused):
+            contract.contain()
+        effect = 'restart-no' if method == 'disable_restart' else 'term'
+        assert (effect, 'backend') not in driver.host.calls
+        assert journal.last('observed-host-contained') is None
+
+
+@pytest.mark.parametrize('change', [dict(running=False, exit_code=143),
+                                   dict(running=False, exit_code=0), dict(restart_policy='no')])
+def test_containment_rejects_unintended_phase_change_in_another_role(tmp_path, change):
+    driver = ObservedDriver()
+    with Journal(tmp_path / 'journal') as journal:
+        contract = observed_contract(driver, journal)
+        inside_final_observation(contract, driver, 'disable_restart',
+            lambda: driver.host.data['services']['cron-worker'].update(change), 'backend')
+        with pytest.raises(Refused):
+            contract.contain()
+        assert ('restart-no', 'backend') not in driver.host.calls
+        assert ('term', 'backend') not in driver.host.calls
+
+
+def test_clean_but_unintended_stop_is_not_adopted_at_the_last_role(tmp_path, monkeypatch):
+    driver = ObservedDriver()
+    with Journal(tmp_path / 'journal') as journal:
+        contract = observed_contract(driver, journal)
+        append = journal.append
+        def external_stop(kind, **fields):
+            result = append(kind, **fields)
+            if kind == 'observed-host-done' and fields.get('step') == 'restart-no:queue-worker':
+                driver.host.data['services']['queue-worker'].update(running=False, exit_code=0)
+            return result
+        monkeypatch.setattr(journal, 'append', external_stop)
+        with pytest.raises(Refused):
+            contract.contain()
+        assert journal.last('observed-host-intent', 'term:queue-worker') is None
+        assert journal.last('observed-host-done', 'term:queue-worker') is None
+        assert journal.last('observed-host-contained') is None
+
+
+def test_externally_stopped_host_after_init_is_not_adopted_on_replay(tmp_path, monkeypatch):
+    driver = ObservedDriver()
+    with Journal(tmp_path / 'journal') as journal:
+        append = journal.append
+        def crash(kind, **fields):
+            result = append(kind, **fields)
+            if kind == 'observed-host-init':
+                raise KeyboardInterrupt()
+            return result
+        monkeypatch.setattr(journal, 'append', crash)
+        with pytest.raises(KeyboardInterrupt):
+            observed_contract(driver, journal).contain()
+    driver.host.data['ingress_blocked'] = True
+    for state in driver.host.data['services'].values():
+        state.update(running=False, exit_code=0, restart_policy='no')
+    with Journal(tmp_path / 'journal') as journal:
+        before = list(journal.events)
+        with pytest.raises(Refused):
+            observed_contract(driver, journal).contain()
+        assert journal.events == before

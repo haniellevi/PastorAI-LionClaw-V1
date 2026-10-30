@@ -116,6 +116,11 @@ class ObservedHostTransport:
         self.identities, self.support_ids = dict(service_ids), dict(support_ids)
         self.processing_keys = processing_keys  # validated by queue_metadata on every snapshot
         self.support_digest = None
+        self.scope_digest = None
+
+    @property
+    def supports_resume(self):
+        return getattr(self.driver, 'supports_resume', False) is True
 
     def _request(self, argv, timeout):
         require(getattr(self.driver, 'mode', None) == 'observed-host', 'transport-observed-required')
@@ -127,12 +132,25 @@ class ObservedHostTransport:
             raise Refused('observed-transport-failed') from None
 
     def snapshot(self):
+        declared = getattr(self.driver, 'transport_scope', None)
+        if callable(declared):
+            require(declared() == dict(legacy_project=self.legacy_project, network_id=self.network_id,
+                                      service_ids=self.identities, support_ids=self.support_ids,
+                                      processing_keys=self.processing_keys), 'transport-driver-scope')
         raw = self._request(('inspect-host',), 10)
         require(isinstance(raw, dict) and set(raw) == {
-            'ingress_blocked', 'unknown_writers', 'network_id', 'services', 'support'}, 'transport-snapshot')
+            'scope_digest', 'ingress_blocked', 'ingress_open', 'unknown_writers', 'network_id', 'services',
+            'support'}, 'transport-snapshot')
+        require(isinstance(raw['scope_digest'], str) and re.fullmatch('[0-9a-f]{64}', raw['scope_digest']),
+                'transport-scope-digest')
+        if self.scope_digest is None:
+            self.scope_digest = raw['scope_digest']
+        require(raw['scope_digest'] == self.scope_digest, 'transport-scope-changed')
         require(raw['network_id'] == self.network_id, 'transport-network-mismatch')
-        require(type(raw['ingress_blocked']) is bool and type(raw['unknown_writers']) is int
-                and raw['unknown_writers'] >= 0, 'transport-snapshot')
+        # Both ingress facts are explicit; neither is ever derived from the other.
+        require(type(raw['ingress_blocked']) is bool and type(raw['ingress_open']) is bool
+                and not (raw['ingress_blocked'] and raw['ingress_open'])
+                and type(raw['unknown_writers']) is int and raw['unknown_writers'] >= 0, 'transport-snapshot')
         support = raw['support']
         require(isinstance(support, dict) and set(support) == set(SUPPORT_ROLES), 'transport-support-scope')
         for role, state in support.items():
@@ -163,7 +181,8 @@ class ObservedHostTransport:
                                processing_keys=self.processing_keys)
         # Field types/topology/gates validation remains in ObservedHostContract;
         # only the declared keys leave the transport, never extra driver data.
-        return dict(mode='observed-host', ingress_blocked=raw['ingress_blocked'], support_digest=support_digest,
+        return dict(mode='observed-host', scope_digest=raw['scope_digest'], ingress_blocked=raw['ingress_blocked'],
+                    ingress_open=raw['ingress_open'], support_digest=support_digest,
                     unknown_writers=raw['unknown_writers'], queue_digest=queue['metadata_digest'],
                     queue_counts=queue['counts'],
                     services=deepcopy({role: {key: services[role][key] for key in SERVICE_FIELDS}
@@ -180,16 +199,16 @@ class ObservedHostTransport:
         # This final observation, not an earlier one, is what the guard judges.
         guard(self.snapshot())
 
-    def block_ingress(self):
-        self.snapshot()
+    def block_ingress(self, guard=None):
+        self._guarded(guard)
         require(self._request(('block-ingress',), 5) is True, 'transport-ingress-receipt')
 
     def open_ingress(self, guard=None):
         self._guarded(guard)
         require(self._request(('open-ingress',), 5) is True, 'transport-ingress-receipt')
 
-    def disable_restart(self, identifier):
-        self._target(identifier)
+    def disable_restart(self, identifier, guard=None):
+        self._guarded(guard, identifier)
         require(self._request(host_command('restart-no', identifier), 5) is True,
                 'transport-restart-receipt')
 
@@ -198,8 +217,8 @@ class ObservedHostTransport:
         require(self._request(host_command('restart-always', identifier), 5) is True,
                 'transport-restart-receipt')
 
-    def signal_term(self, identifier):
-        self._target(identifier)
+    def signal_term(self, identifier, guard=None):
+        self._guarded(guard, identifier)
         require(self._request(host_command('term', identifier), 5) is True,
                 'transport-signal-receipt')
 
