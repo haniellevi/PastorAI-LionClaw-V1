@@ -37,19 +37,30 @@ ALLOWLIST = re.compile(
 )
 
 
-def build(repo: Path, sha: str, output: Path) -> dict:
-    output = no_symlink(output)
-    require(not output.exists(), 'package-output-exists')
-    files = git_tree(repo, sha, PATHSPECS, ALLOWLIST,
+def source_files(repo: Path, sha: str, git=None) -> dict:
+    """The exact allowlisted blobs of ``sha`` that the package carries."""
+    files = git_tree(repo, sha, PATHSPECS, ALLOWLIST, git,
                      excluded={'backend/migrations/README.md'})
     require(set(REQUIRED) <= files.keys(), 'package-required-files')
     require(any(re.fullmatch(r'backend/migrations/[^/]+\.sql', name) for name in files),
             'package-migrations-missing')
+    return files
+
+
+def release_manifest(sha: str, files: dict) -> bytes:
+    """``release-manifest.json`` bytes: binds the package to its commit and blob digests."""
     manifest = {
         'commit': sha,
         'files': {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())},
     }
-    contents = {**files, 'release-manifest.json': (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()}
+    return (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
+
+
+def build(repo: Path, sha: str, output: Path) -> dict:
+    output = no_symlink(output)
+    require(not output.exists(), 'package-output-exists')
+    files = source_files(repo, sha)
+    contents = {**files, 'release-manifest.json': release_manifest(sha, files)}
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode='w', format=tarfile.PAX_FORMAT) as tar:
         directories = {str(parent) for name in contents for parent in Path(name).parents

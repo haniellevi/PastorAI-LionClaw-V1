@@ -263,6 +263,20 @@ def write_layout(root, sha, files, topology, manifest, image):
     the maintenance override pinned to ``image`` (verified ID); no private config. Idempotent."""
     releases = no_symlink(Path(root) / 'releases')
     releases.mkdir(mode=0o755, parents=True, exist_ok=True)
+    return _materialize(releases, sha, files, topology, manifest, image)
+
+
+def write_release(release_root, sha, files, topology, manifest, image):
+    """``<release_root>/<sha>`` (production layout, e.g. ``/opt/pastorai-releases``) with the same
+    content rules as ``write_layout``. The root is configured and must already exist; an existing
+    release is only verified byte for byte, never overwritten."""
+    releases = no_symlink(Path(release_root))
+    require(os.path.lexists(releases) and stat.S_ISDIR(os.lstat(releases).st_mode), 'release-root-missing')
+    return _materialize(releases, sha, files, topology, manifest, image)
+
+
+def _materialize(releases, sha, files, topology, manifest, image):
+    require(SHA.fullmatch(sha or ''), 'sha')
     require(release_topology.IMAGE_ID.fullmatch(image or ''), 'layout-topology')
     wanted = layout_files(files, topology, image, sha)
     target = releases / sha
@@ -283,7 +297,13 @@ def write_layout(root, sha, files, topology, manifest, image):
     staging.chmod(0o755)
     found = runpy.run_path(str(staging / 'backend/scripts/migrate.py'))['migration_files'](staging / 'backend/migrations')
     require(found == manifest, 'layout-manifest')
-    os.rename(staging, target)
+    # Exclusive: an empty reservation is the only thing rename may replace; a
+    # concurrent non-empty target makes rename fail instead of being overwritten.
+    try:
+        os.mkdir(target, 0o755)
+        os.rename(staging, target)
+    except OSError:
+        raise Refused('layout-exists') from None
     return len(wanted)
 
 
