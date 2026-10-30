@@ -227,7 +227,11 @@ def _full_preflight_at(plan, url, applied, nonce):
 
 @dataclass(frozen=True)
 class LocalEvidence:
-    """A test receipt, bound to plan/catalog/ledger. Never a real backup receipt."""
+    """A test receipt, bound to plan/catalog/ledger. Never a real backup receipt.
+
+    kind='observed-host' is only a metadata envelope over driver-reported data:
+    validating it neither authorizes LocalTransition nor proves production.
+    """
     plan_digest: str
     baseline_digest: str
     stopped_roles: tuple[str, ...] = ROLES
@@ -243,11 +247,15 @@ class LocalEvidence:
     def synthetic(cls, plan_digest, baseline_digest, *, host_digest=None):
         return cls(plan_digest, baseline_digest, host_digest=host_digest)
 
+    @classmethod
+    def observed(cls, plan_digest, baseline_digest, *, host_digest):
+        return cls(plan_digest, baseline_digest, kind='observed-host', host_digest=host_digest)
+
     def validate(self, plan_digest, baseline_digest):
-        require(self.kind == 'local-simulation' and self.plan_digest == plan_digest
+        require(self.kind in ('local-simulation', 'observed-host') and self.plan_digest == plan_digest
                 and self.baseline_digest == baseline_digest and self.stopped_roles == ROLES
-                and (self.host_digest is None or isinstance(self.host_digest, str)
-                     and re.fullmatch('[0-9a-f]{64}', self.host_digest))
+                and (self.host_digest is None and self.kind == 'local-simulation'
+                     or isinstance(self.host_digest, str) and re.fullmatch('[0-9a-f]{64}', self.host_digest))
                 and all(value is True for value in (self.ingress_blocked, self.backup_rehearsal_requested,
                         self.queue_preservation_assumed, self.support_preserved, self.gates_preserved)),
                 'local-evidence-mismatch')
@@ -424,17 +432,35 @@ class LocalTransition:
     adapter-failed is diagnostic; run-start/complete determine recovery consent.
     Completed replay is read-only. Concurrent migrations committed without an
     index receipt refuse recovery; no automatic adoption of their definitions.
-    No service promotion or legacy resume.
+    No service promotion or legacy resume. The local disposable DB composes only
+    with the simulated LocalHostContract: an observed host, observed-host
+    evidence or a journal holding observed-host-* events is refused before any
+    DB observation or journal write, at construction and before every step.
     """
     def __init__(self, plan, database, journal: Journal, *, host=None):
+        if host is not None:
+            from first_transition_host_contract import LocalHostContract
+            # One valid journal shared with the host contract.
+            require(journal is not None and getattr(host, 'j', None) is journal, 'local-host-journal-mismatch')
+            require(isinstance(host, LocalHostContract), 'local-transition-simulated-host-required')
         self.plan, self.db, self.j, self.host = plan, database, journal, host
+        self._check_journal()
+
+    def _check_journal(self):
+        require(isinstance(self.j, Journal) and self.j.lock_fd is not None,
+                'local-transition-journal-required')
+        require(not any(event['kind'].startswith('observed-host-') for event in self.j.events),
+                'local-transition-observed-journal')
 
     def _check_host(self, evidence):
+        self._check_journal()
+        require(evidence.kind == 'local-simulation', 'local-transition-simulated-evidence-required')
         if self.host is None:
             require(evidence.host_digest is None, 'local-host-evidence-unbound')
         else:
             receipt = self.host.assert_contained()
-            require(evidence.host_digest == receipt['fingerprint'], 'local-host-evidence-mismatch')
+            require(receipt.get('mode') == 'local-simulation' and receipt.get('host_verified') is False
+                    and evidence.host_digest == receipt['fingerprint'], 'local-host-evidence-mismatch')
 
     def run(self, evidence: LocalEvidence, *, retry=False):
         self._check_host(evidence)
