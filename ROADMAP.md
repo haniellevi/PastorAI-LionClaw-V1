@@ -2,7 +2,7 @@
 
 ## A3 — blocos A e B implementados localmente (30/10/2026)
 
-Pacote 1 autorizado: preparar commit/push sem force e uma PR, com preview desabilitado e apenas CI/revisão automática. Novas suítes sintéticas de A3 incluídas explicitamente no `backend-tests`; publicação/CI ainda em acompanhamento. Sem merge/dispatch/deploy/reativação ou acesso operacional.
+Pacote 1 publicado na [PR #606](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/606), sem merge. Commit de código `c80d6615f3b68ba27b78353ca0cce39c183780c9`: seis workflows automáticos verdes, incluindo os quatro checks obrigatórios e o passo sintético A3 adicionado ao `backend-tests`; nenhuma conversa de revisão pendente na consulta de fechamento. Preview desabilitado; DEV/Vercel reconfirmados suspensos, sem vínculo Git ou publicação em andamento nas consultas desta publicação. O head corrente e as suspensões devem ser reconferidos antes de integrar. Sem dispatch/deploy/reativação ou acesso operacional.
 
 Base `e241a63fc8fc6a08c7305a5762ef7549bb01d488` (#605). **Escopo corrigido pelo dono:** A3 é só código local + testes sintéticos. Todo inventário real de host/banco (daemon, rede, IDs, ingresso, escritores, identidade/catálogo do banco, provedores de conexão/segredo) pertence à **Fase 3/A5**, junto do preflight; backup/restore real à **A6**. Configuração real ausente é entrada da Fase 3, não bloqueio de código: os ports falham fechados sem ela. A9 aprovado: backend saudável + queue/cron/broadcast criados e nunca iniciados (restart=no) até A10, que exige autorização própria.
 
