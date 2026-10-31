@@ -48,7 +48,7 @@ next-env.d.ts
 .vercel/
 
 # ===== Editores =====
-.idea/
+.idea
 .vscode/
 *.swp
 
@@ -84,3 +84,30 @@ secrets/
 .playwright-mcp/
 .agy-acp/
 .reticle/
+
+# Artefatos locais do checkout principal (fora do Git)
+# output/ local fica fora; as evidências versionadas de output/release/a3-final-local/ continuam visíveis
+/output/*
+!/output/release/
+/output/release/*
+!/output/release/a3-final-local/
+/pastorai-lionclaw-v1/
+/_lixeira/
+.claude/worktrees/
+.claude/settings.json
+.claude/settings.json.bak-*
+# Arquivos vazios deixados pelo sandbox do agente; .gitmodules fica de fora de propósito
+/.bashrc
+/.bash_profile
+/.profile
+/.zshrc
+/.zprofile
+/.gitconfig
+/.ripgreprc
+/.claude/commands
+/.claude/hooks
+/.claude/skills
+/.claude/workflows
+/.claude/routines
+/.claude/output-styles
+/.claude/loop.md
