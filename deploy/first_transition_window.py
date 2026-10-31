@@ -9,7 +9,9 @@ source database:
 * ``rehearse-backup``: runs the window backup provider with a REHEARSAL request (never
   journaled, so its receipt can never attest a window): fresh dump, isolated clone restore
   and replay of the pending migrations; prints the sanitized receipt;
-* ``run``: refused (``window-bindings-pending``) until the ingress and writer bindings exist.
+* ``check-bindings``: observes both ingress entries and the unknown-writer count through the
+  host bindings (first_transition_window_bindings); blocks or opens nothing;
+* ``run``: refused (``window-bindings-pending``) until the window is wired to the bindings.
 
 The source URL is read from a root-only env file by name (``DATABASE_URL``) inside the
 process, never printed, logged or put in argv. Output is aggregates and fixed codes only.
@@ -30,6 +32,7 @@ import first_transition_database as fdb
 from first_transition_adapter import prepare
 from first_transition_orchestrator import load_config
 from first_transition_window_backup import REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
+from first_transition_window_bindings import bindings_from_dict
 from initial_transition_files import read_regular
 from initial_transition_ops import Refused, require
 
@@ -111,12 +114,30 @@ def rehearse_backup(args, out=print):
     return 0
 
 
+def check_bindings(args, out=print):
+    config, _, _, secret, database = _load(args)
+    data = json.loads(read_regular(Path(args.bindings_config), 64 * 1024))
+    ingress, writers = bindings_from_dict(data, secret=secret, connect=database.connect)
+    timeout = dict(config.timeouts).get('observe_s', 10)
+    result = {}
+    for name, binding in (*ingress.items(), ('unknown_writers', writers)):
+        try:
+            result[name] = binding.observe(binding.scope, timeout=timeout)
+        except Refused as exc:
+            result[name] = 'refused:' + str(exc)
+        except Exception:
+            result[name] = 'refused:window-binding-failed'
+    out(json.dumps(result, sort_keys=True))
+    return 0 if all(type(v) is int or not v.startswith('refused:') for v in result.values()) else 1
+
+
 def main(argv=None, out=print):
     parser = argparse.ArgumentParser(prog='first_transition_window')
-    parser.add_argument('mode', choices=('check', 'rehearse-backup', 'run'))
+    parser.add_argument('mode', choices=('check', 'rehearse-backup', 'check-bindings', 'run'))
     parser.add_argument('--config', required=True)
     parser.add_argument('--env-file', required=True)
     parser.add_argument('--backup-config')
+    parser.add_argument('--bindings-config')
     args = parser.parse_args(argv)
     try:
         if args.mode == 'check':
@@ -124,6 +145,9 @@ def main(argv=None, out=print):
         if args.mode == 'rehearse-backup':
             require(args.backup_config is not None, 'window-backup-config-missing')
             return rehearse_backup(args, out)
+        if args.mode == 'check-bindings':
+            require(args.bindings_config is not None, 'window-bindings-config-missing')
+            return check_bindings(args, out)
         raise Refused('window-bindings-pending')
     except Refused as exc:
         out(json.dumps(dict(refused=str(exc))))
