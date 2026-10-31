@@ -311,3 +311,39 @@ def test_entry_point_run_is_refused_and_errors_leak_no_text(tmp_path, monkeypatc
     monkeypatch.setattr(window, 'load_config', boom)
     assert window.main(['check', '--config', '/x', '--env-file', '/y'], out=lines.append) == 2
     assert json.loads(lines[-1]) == {'refused': 'window-failed'} and SOURCE_URL not in ''.join(lines)
+
+
+def test_check_bindings_only_observes_and_reports_refusals_by_code(tmp_path, monkeypatch):
+    lines = []
+    assert window.main(['check-bindings', '--config', '/x', '--env-file', '/y'], out=lines.append) == 2
+    assert json.loads(lines[-1]) == {'refused': 'window-bindings-config-missing'}
+
+    class Binding:
+        scope = 'a' * 64
+
+        def __init__(self, answer):
+            self.answer, self.calls = answer, []
+
+        def observe(self, scope, *, timeout):
+            self.calls.append(scope)
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+        def block(self, *args, **kwargs):
+            raise AssertionError('check-bindings must never block')
+        open = block
+
+    bindings = {'external': Binding(Refused('window-nginx-include-missing')),
+                'evolution-backend': Binding('open')}
+    writers = Binding(0)
+    config = type('Config', (), {'timeouts': ()})()
+    database = type('Database', (), {'connect': None})()
+    monkeypatch.setattr(window, '_load', lambda args: (config, None, None, lambda: SOURCE_URL, database))
+    monkeypatch.setattr(window, 'read_regular', lambda path, limit: b'{}')
+    monkeypatch.setattr(window, 'bindings_from_dict', lambda data, secret, connect: (bindings, writers))
+    assert window.main(['check-bindings', '--config', '/x', '--env-file', '/y', '--bindings-config', '/z'],
+                       out=lines.append) == 1
+    assert json.loads(lines[-1]) == {'evolution-backend': 'open', 'external': 'refused:window-nginx-include-missing',
+                                     'unknown_writers': 0}
+    assert writers.calls == ['a' * 64]
