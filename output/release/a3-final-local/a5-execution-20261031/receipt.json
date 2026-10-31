@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-31T00:00:00Z",
+  "stage": "A5 read-only inventory",
+  "status": "db-complete-host-blocked",
+  "channels": {
+    "supabase_prod_readonly": "ok: project pffafnchtxbimpwyaczq, role supabase_read_only_user, tx_read_only=on, BYPASSRLS=true, PostgreSQL 17.6",
+    "hostinger_vps": "partial: VM 2031318 <vps-host> running confirmed; Docker Manager API unsupported on this OS",
+    "vercel_mcp": "unavailable: server not active in this session; suspensions not re-verified remotely",
+    "host_shell": "unavailable: no approved shell channel; container/network/ingress/lease inventory not verified"
+  },
+  "db_findings": {
+    "ledger": "files_active=129 applied=78 pending=51 unknown=0 (43 transactional + 8 concurrent-index non-transactional)",
+    "core_tables": "app_users, celula_solicitacao, celulas present",
+    "fk_violations": 0,
+    "duplicate_groups": 0,
+    "expected_backup_tables": 0,
+    "missing_backup_tables": 0,
+    "private_definer_contracts": {"examined": 0, "unverified": 10, "findings": 0},
+    "public_tables": 74,
+    "db_size": "22 MB",
+    "installed_extensions": "pg_stat_statements=1.11 pgcrypto=1.3 plpgsql=1.0 supabase_vault=0.3.1 uuid-ossp=1.1",
+    "shared_preload_libraries": "includes pg_cron and pg_net; cron.job absent in this database",
+    "roles": "15 non-builtin names, all Supabase standards; no custom app role",
+    "publications": 1,
+    "subscriptions": 0,
+    "sessions": "11 on postgres db; Supavisor pooler x4, PostgREST, pg_net, pg_cron scheduler, exporter, mgmt-api",
+    "agent_configs": "1 row, 1 ativo (pilot gate open as expected)",
+    "notification_outbox": "0 rows; zero pending",
+    "work_queue_items": "0 rows; zero pending"
+  },
+  "not_verified": [
+    "host containers/networks/ports/ingress bindings (no shell channel; Docker Manager API unsupported)",
+    "Evolution->backend direct path and per-instance overlap",
+    "Redis queue metadata and the four required lease pairs",
+    "env gates ALLOW_REAL_SENDS/ASAAS_BILLING_ENABLED/BREVO_SEND_MODE/BROADCAST_ASYNC_ENABLED",
+    "binaries/versions on <vps-host>",
+    "DEV/Vercel suspensions (no live channel this session)"
+  ],
+  "production_writes": 0,
+  "domain_rows_read": 0,
+  "note": "All queries returned aggregates/status/technical names only. A5 host portion blocked pending approved shell channel; A6 remains conditioned on full A5 acceptance."
+}

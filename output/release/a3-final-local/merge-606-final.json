@@ -1,0 +1,63 @@
+{
+  "at": "2026-10-30T17:15:27.298136+00:00",
+  "pr": 606,
+  "merged": true,
+  "merge_method": "merge commit",
+  "main": "6d46206c8b92e6a932a87cf4fde84a2f81b11b19",
+  "branch_preserved": "refs/heads/feat/first-transition-host-driver-20261030",
+  "workflows": [
+    {
+      "id": 41094830730,
+      "name": "Frontend CI",
+      "event": "push",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41094830730"
+    },
+    {
+      "id": 41094828239,
+      "name": "Tooling Static Checks",
+      "event": "push",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41094828239"
+    },
+    {
+      "id": 41094827859,
+      "name": "Synthetic release rehearsal",
+      "event": "push",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41094827859"
+    },
+    {
+      "id": 41094827965,
+      "name": "E2E Critical",
+      "event": "push",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41094827965"
+    },
+    {
+      "id": 41094827868,
+      "name": "RLS Integration",
+      "event": "push",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41094827868"
+    },
+    {
+      "id": 41094828049,
+      "name": "Backend Tests",
+      "event": "push",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41094828049"
+    }
+  ],
+  "required_checks": [
+    "backend-tests",
+    "e2e-critical",
+    "frontend-ci",
+    "rls-integration"
+  ],
+  "dev_workflow": "disabled_manually",
+  "DEV_PIPELINE_ENABLED": "false",
+  "github_deployments_for_merge": 0,
+  "operations_executed": false,
+  "plan_local_only": "ROADMAP.md"
+}

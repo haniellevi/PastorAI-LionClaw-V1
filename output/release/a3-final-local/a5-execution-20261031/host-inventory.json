@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-31",
+  "channel": "ssh alias vps (<ops-user>@<vps-host>), read-only commands only",
+  "host": {
+    "hostname": "<vps-host>", "vm_id": 2031318, "state": "running",
+    "plan": "KVM 1 (1 vCPU / 4 GiB / 50 GB)", "os": "Ubuntu 24.04, kernel 6.8",
+    "uptime_days": 7, "disk_free": "33G", "mem_available_mb": 2338,
+    "docker": "29.8.2 (socket denied: user not in docker group; inventory via ps + /proc cgroup + configs)",
+    "nginx": "1.24.0"
+  },
+  "firewall_group_371535": "accepts TCP 22/80/443 + ICMP only; is_synced=false",
+  "containers": {
+    "total_shims": 10,
+    "pastorai_compose": "/opt/pastorai-lionclaw/deploy/docker-compose.yml + override (root:root readable); name=pastorai",
+    "pastorai_services": {
+      "redis": "172.18.0.4:6379 v7.4.11, container 4ea94eeb6e16, restart=always declared",
+      "evolution-postgres": "postgres:16-alpine, container aacfd600c39f9, restart=always declared",
+      "evolution-api": "evoapicloud/evolution-api:v2.3.7, 172.18.0.8->127.0.0.1:8080, restart=always declared",
+      "backend": "pastorai-backend:latest uvicorn :8000, container a36a14468b30, 172.18.0.7->127.0.0.1:8000",
+      "queue-worker": "container 0d703f5712db",
+      "cron-worker": "container 83926bf195b4e"
+    },
+    "broadcast_avulso": "container 03e07a30439d2 'python -m app.workers.broadcast_worker' uid 10001; compose file not readable (likely /root); restart policy unverified",
+    "other_projects": [
+      "sites-api: container 79edc42f2e2e7 node server.mjs, 172.19.x->127.0.0.1:8090, compose /srv/sites-api/releases/84518bf4aefd",
+      "gravai-worker: container 0d714803bfabf 'tsx src/main.ts', compose /opt/gravai/worker",
+      "one more container (172.20.x->127.0.0.1:18101, emcorr PocketBase-class service)"
+    ]
+  },
+  "ingress": {
+    "external_firewall": "only 22/80/443",
+    "nginx_routes": {
+      "api.igreja12.com.br:443": "-> 127.0.0.1:8000 (pastorai backend, ONLY pastorai public route)",
+      "cms.emcorr.com.br:443": "-> 127.0.0.1:18101",
+      "api.sitesespeciais.com.br:443": "-> 127.0.0.1:8090",
+      ":80 default": "static /var/www/html"
+    },
+    "docker_proxies": "all published ports bound to 127.0.0.1 (8000, 8080, 8090, 18101); no direct external container ingress",
+    "evolution_to_backend": "internal only: WEBHOOK_GLOBAL_URL http://backend:8000/whatsapp/webhook?token=${EVOLUTION_WEBHOOK_SECRET} on 172.18 network; evolution-api 8080 not proxied publicly; per-instance overrides unverified (volumes root-owned)"
+  },
+  "redis_queue_metadata": {
+    "db0_keys": 14,
+    "pastorai:webhooks": "absent (0)",
+    "pastorai:webhooks:processing": "absent (0)",
+    "pastorai:webhooks:retry-scheduled": "absent (0)",
+    "pastorai:webhooks:dead": "list len=2",
+    "pastorai:webhooks:dead:quarantine:20260826T165417Z:994de6119f3664c4": "list len=1",
+    "pastorai:webhooks:workers": "persistent set",
+    "pastorai:webhooks:worker-lease:14b89c7e...": "string, pttl ~30s (active lease)",
+    "heartbeats": "queue-worker ~26s, cron-worker ~24s, broadcast-worker ~22s pttl (all alive)",
+    "pastorai:processed:*": "7 idempotency markers",
+    "db1": "evolution_pastorai:instance:<uuid> x1 (one WhatsApp instance registered)"
+  },
+  "not_verified": [
+    ".env gate names/values: file root:600 and /proc environ denied (ALLOW_REAL_SENDS, ASAAS_BILLING_ENABLED, BREVO_SEND_MODE, BROADCAST_ASYNC_ENABLED unconfirmed)",
+    "broadcast-worker compose path, image tag and restart policy (source dir not readable)",
+    "evolution per-instance webhook overrides (data volume root-owned)",
+    "container restart policies beyond compose declarations (docker inspect denied)",
+    "docker logs content (socket denied)",
+    "DEV/Vercel suspensions (no live channel)",
+    "A6 clone target resources/tools (not provisioned; host has disk/RAM headroom but vCPU=1 shared)"
+  ],
+  "writes": 0,
+  "secrets_read": 0,
+  "a6_status": "not started; A5 host inventory complete, DB checks clean; A6 decision pending owner"
+}

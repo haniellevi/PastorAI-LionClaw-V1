@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-30T18:14:19.664494+00:00",
+  "stage": "A5 identity preflight",
+  "status": "stopped",
+  "reason": "Supabase connector refused the nominal project metadata request",
+  "project_ref": "pffafnchtxbimpwyaczq",
+  "expected_project_name": "Pastor-Ai-LionClaw-v1",
+  "expected_region": "us-west-2",
+  "source": "docs/ops/PROD-ENV-RUNBOOK.md:25",
+  "metadata_requests": 1,
+  "project_identity_verified": false,
+  "domain_sql_queries": 0,
+  "ssh_connections": 0,
+  "backups_created": 0,
+  "restores": 0,
+  "migration_replays": 0,
+  "production_writes": 0,
+  "cleanup_executed": false,
+  "fallback_attempted": false,
+  "new_tools_or_credentials": false,
+  "pins": {
+    "application": "afdfb78d71a53f2861632806e13cdda4662d7d63",
+    "executor": "37c7d68d60b6f86cfb1fe75d4c720530537845d6",
+    "controller": "6d46206c8b92e6a932a87cf4fde84a2f81b11b19"
+  },
+  "a6_status": "not started; A5 prerequisites unverified"
+}

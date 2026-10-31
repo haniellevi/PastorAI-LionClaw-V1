@@ -1,0 +1,20 @@
+{
+  "session": "stylish-harrier",
+  "requested_model": "gemini-4-argon-high",
+  "verified_model": null,
+  "model_selection_source": "explicit ACP --model flag; registered model id",
+  "model_before": null,
+  "agent_info": {
+    "name": "affogato",
+    "title": "Devin Agent",
+    "version": "0.0.0-dev"
+  },
+  "history_updates_loaded": 0,
+  "original_session_touched": false,
+  "context_source": "sanitized handoff and current ROADMAP only",
+  "agent_type": "summarizer (no tools)",
+  "at": "2026-10-30T20:02:22.439247+00:00",
+  "stop_reason": "end_turn",
+  "client_tool_requests": 0,
+  "reply_characters": 8354
+}

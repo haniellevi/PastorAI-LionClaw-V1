@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-30T17:35:11.160673+00:00",
+  "destination": "<home>/igreja12-release-candidates/A4-20261030",
+  "verified_files": 24,
+  "sha256sums_sha256": "1001ad21f7d869c535cd48ad63fe455db5f732ff48b8156008cda03e13a5c7ab",
+  "pins": {
+    "application": "afdfb78d71a53f2861632806e13cdda4662d7d63",
+    "controller": "6d46206c8b92e6a932a87cf4fde84a2f81b11b19",
+    "executor": "37c7d68d60b6f86cfb1fe75d4c720530537845d6"
+  },
+  "artifacts": [
+    {
+      "bytes": 1262849,
+      "file": "backend-afdfb78d71a53f2861632806e13cdda4662d7d63.tar.gz",
+      "sha256": "5780362531fc8550c3e71cb6a99f4c4170694999263b1d86edf2b2d948116b7d"
+    },
+    {
+      "bytes": 70357,
+      "file": "controller-6d46206c8b92e6a932a87cf4fde84a2f81b11b19.tar.gz",
+      "sha256": "5ac1857f7f6050359cb632b7315e7f29228025bebe2c03ff68314c92eaadda28"
+    },
+    {
+      "bytes": 4059,
+      "file": "executor-37c7d68d60b6f86cfb1fe75d4c720530537845d6.tar.gz",
+      "sha256": "b5398cb641b92aa2631ce19251f3166593986af73a8dabbd5c0150a12653752e"
+    }
+  ],
+  "plan_digest": "67784cac5827b5bf814f667a323590665ff5c17a06dc3c0fed58b53e927746aa",
+  "real_data_read": false,
+  "phase3_executed": false,
+  "origins_preserved": true
+}

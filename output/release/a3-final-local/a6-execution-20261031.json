@@ -1,0 +1,74 @@
+{
+  "at": "2026-10-31",
+  "stage": "A6 backup/restore/replay rehearsal",
+  "status": "completed-clean",
+  "source": {
+    "channel": "libpq service prod-read via Supabase pooler session mode (aws-1-us-west-2.pooler.supabase.com:5432); direct db.* endpoint unreachable on this network (IPv6 refused)",
+    "role": "postgres (superuser on source; read-only enforced at session level via default_transaction_read_only + SELECT-only statements; zero writes)",
+    "snapshot": "0000000C-000097C0-1 exported by read-only repeatable-read tx; pg_dump imported it successfully (exit 0) before holder was killed by server-side statement_timeout",
+    "dump": "source.dump 865216 bytes sha256=9c1f3b141d9da3a0b213de15495f859b06632de0c8d16e15dee4b8ebee61e1b8"
+  },
+  "clone": {
+    "image": "public.ecr.aws/supabase/postgres:17.11.0.004 (local cache, zero download)",
+    "network": "a6-isolated-20261031 docker --internal (no gateway, no egress); reached via bridge IP only",
+    "preload": "pgsodium,pg_stat_statements only; pg_cron and pg_net absent",
+    "adjustments": "roles supabase_realtime_admin + cli_login_postgres created NOLOGIN/no-password; postgres granted SUPERUSER to mirror source topology (required for event-trigger ownership)",
+    "db": "a6target (fresh from template0)",
+    "restore": "pg_restore --exit-on-error --single-transaction as supabase_admin: exit 0, zero errors"
+  },
+  "pre_replay_clone": {
+    "ledger": 78,
+    "public_tables": 74,
+    "outbox": 0,
+    "work_queue": 0,
+    "pg_indexes": 282,
+    "policies": 81,
+    "rls_forced": 17,
+    "constraints": 436
+  },
+  "replay": {
+    "executor": "migrate.py sha256 df5f93254bdfbebd64d078b79abdbe4d139ea39e1cac0de4c647ba1fd646ac60 (pin 37c7d68d)",
+    "runner": "backend/.venv python 3.12.3 psycopg2 2.9.12, env -i, clone-only PGPASSFILE 0600, no source DSN inheritance",
+    "applied": 51,
+    "failed": 0,
+    "nt_files": 8,
+    "tx_files": 43
+  },
+  "post_replay_clone": {
+    "ledger": 129,
+    "public_tables": 129,
+    "pg_indexes": 446,
+    "policies": 161,
+    "rls_forced": 73,
+    "constraints": 850,
+    "fk_violations": 0,
+    "dup_groups": 0,
+    "private_definer_contracts_present": 10,
+    "owner_cannot_bypass": 0
+  },
+  "caveats": [
+    "catalog counts were compared pre/post-restore (not inside the dump snapshot): holder tx killed by server-side statement_timeout; A8 runbook must use keepalive SELECTs or accept pg_dump-only consistency",
+    "production source used postgres superuser via pooler because that is the provisioned credential; equivalent read-only discipline enforced in-session",
+    "real data remains confined to ~/a6-run-20261031 (0700) and the isolated container; nothing left the protected boundary"
+  ],
+  "cleanup_pending_decision": [],
+  "writes_to_source": 0,
+  "cleanup_executed": {
+    "at": "2026-10-31",
+    "approved": "Opção B do dono",
+    "removed": [
+      "container a6-clone-20261031",
+      "network a6-isolated-20261031",
+      "dir <home>/a6-run-20261031 (dump real + PGPASSFILE + clone pw)"
+    ],
+    "credentials_removed": [
+      "service [prod-read] de ~/.pg_service.conf",
+      "3 linhas PROD de ~/.pgpass"
+    ],
+    "backups_kept": [
+      "~/.pg_service.conf.bak-20261031 (sem senhas por natureza)",
+      "~/.pgpass.bak-20261031 (senhas substituídas por REMOVIDO)"
+    ],
+    "evidence_preserved": "sha256 e resultados permanecem neste recibo e no ROADMAP.md"
+  }
+}
