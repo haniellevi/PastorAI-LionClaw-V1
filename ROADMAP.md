@@ -1,5 +1,91 @@
 # Igreja 12 — roteiro único
 
+## PLANO (não executado): artefatos de imagem/painel + A7–A10 até o cutover (31/10/2026)
+
+Plano de preparação aprovado só para leitura. `[OK-DONO]` marca etapa que exige autorização nominal do dono na hora. Nada aqui foi executado.
+
+### Artefato I — imagem backend imutável do pin `afdfb78d`
+
+- **Objetivo:** gerar imagem executável correspondente ao tarball A4 verificado, com digest e label conferíveis.
+- **Pré-requisitos:** tarball `backend-afdfb78d…tar.gz` + `SHA256SUMS` em `igreja12-release-candidates/A4-20261030`; Docker local; `requirements.lock` com `--require-hashes`; base `python:3.13.14-slim-trixie@sha256:9662417a…` já no Dockerfile.
+- **Comandos (local, `[OK-DONO]` para build+push se houver):**
+  ```bash
+  mkdir -p <home>/igreja12-release-candidates/A4-20261030/img-src
+  tar -xzf backend-afdfb78d….tar.gz -C img-src backend
+  cd img-src/backend
+  docker build -t pastorai-backend:afdfb78d \
+    --build-arg PASTORAI_RELEASE_SHA=afdfb78d71a53f2861632806e13cdda4662d7d63 .
+  docker image inspect pastorai-backend:afdfb78d --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
+  docker save pastorai-backend:afdfb78d | gzip > pastorai-backend-afdfb78d.tar.gz
+  sha256sum pastorai-backend-afdfb78d.tar.gz >> ../SHA256SUMS
+  ```
+- **Riscos:** base pull = download (decidir: já em cache ou autorizar pull); imagem ≠ prova de produção; tag `latest` legado na VPS fica intocada até A9.
+- **Aceite:** digest+label batem com o pin; imagem sobe localmente (`docker run --rm … uvicorn --help` ou healthcheck sintético) sem segredos; tarball+sha registrados no pacote A4.
+- **Reverter:** artefato é local; remover diretório/tarball não afeta nada. Push de imagem (se autorizado) exige registro do alvo.
+- **Painel (frontend):** pendência aberta — candidato exato do frontend ainda não fixado. Compatibilidade com aplicação pinada e forma de publicação manual (Vercel continua suspensa; `vercel.json` existe) precisam de decisão própria `[OK-DONO]` antes da janela: build estático + deploy manual no host vs reativação Vercel. Sem candidato fixado, A9 sobe só backend e painel fica como está.
+
+### A7 — preparação da janela (sem tocar PROD)
+
+- **Objetivo:** congelar candidato, agendar janela, ensaiar comandos finais no clone A6 descartado.
+- **Pré-requisitos:** imagem+painel fechados; runbook da janela revisado; aviso pastoral à equipe Filadélfia.
+- **Comandos:** gerar `first-transition.json` de produção (valores públicos: IDs/digests do inventário A5); `python -c "from first_transition_adapter import prepare; …"` só configuração; revisar `deploy/backup-production.sh` (NÃO executar completo — pausa suporte; backup da janela será o `pg_dump` comprovado na A6).
+- **Riscos:** drift desde A5/A6 (ledger, containers, fila) → revalidar inventário na véspera; escolha da data fora do horário de culto.
+- **Aceite:** plano+config revisados, janela agendada, rollback ensaiado no clone.
+- **Reverter:** nada aplicado; cancelar janela é decisão livre.
+
+### A8 — janela: conter → backup → migrations `[OK-DONO: PROD]`
+
+- **Objetivo:** conter os 4 legados, provar quiescência, backup novo vinculado ao pedido, aplicar 51 migrations, subir backend candidato contido.
+- **Pré-requisitos:** `[OK-DONO]` nominal com data/hora; acesso de escrita à VPS (canal hoje é read-only!); credencial de banco para `migrate.py`; imagem candidata transferida.
+- **Comandos (ordem fixa, via diário do controlador `6d46206c`):**
+  ```bash
+  # 1. Contenção (fail-closed; nomes confirmados pelo dono em 31/10)
+  docker update --restart=no pastorai_backend pastorai_queue_worker pastorai_cron_worker pastorai_broadcast_worker
+  docker stop --time=30 pastorai_backend pastorai_queue_worker pastorai_cron_worker pastorai_broadcast_worker  # SIGTERM; exige saída 0
+  # 2. Quiescência (port writers=0 desconhecidos; 0 sessões de escrita; 0 leases PG)
+  psql "$SRC" -c "select count(*) from pg_stat_activity where datname='postgres' and state='active' and usename not in (<declaradas>)"
+  # 3. Pedido de backup gravado no diário → backup NOVO vinculado (pg_dump, não o do A6)
+  pg_dump "$SRC" --format=custom --file=$WINDOW_DIR/window.dump --lock-wait-timeout=10s
+  sha256sum window.dump  # recibo → backup_proof(request)
+  # 4. ddl-marker no diário → 51 migrations uma a uma
+  MIGRATION_DATABASE_URL="$SRC" python migrate.py status
+  for f in <43 TX>; do python migrate.py apply "$f" --yes; done
+  for f in <8 NT>; do python migrate.py apply "$f" --yes --no-transaction; done
+  # 5. Candidato: SÓ backend criado+iniciado contido; queue/cron/broadcast created nunca iniciados (restart=no)
+  docker compose -p pastorai-v2 up -d --no-start queue-worker cron-worker broadcast-worker
+  docker compose -p pastorai-v2 up -d backend   # ingresso segue bloqueado (nginx não alterado ainda)
+  ```
+- **Riscos:** broadcast avulso sem compose (definir comando exato de contenção na véspera); dead-queue 3 itens a preservar; `statement_timeout` server-side mata holders → contagens/bkp sem sleep longo; erro em migration → parar, leitura read-only, restaurar backup DA JANELA (nunca o do A6) e retomar legado.
+- **Aceite:** contenção exit 0 ×4, writers=0, backup novo com `request_digest` válido, 51 aplicadas sem retry, ledger=129.
+- **Reverter (pré-DDL):** `resume_legacy` ordeiro (backend→queue→broadcast→cron, restart=always, ingress reaberto por último). Reverter (pós-DDL): restaurar `window.dump` no cluster separado e subir legado — NUNCA automático.
+
+### A9 — smoke e gates conferidos `[OK-DONO: PROD]`
+
+- **Objetivo:** backend candidato saudável com tudo sensível desligado.
+- **Comandos:** `curl -sf http://127.0.0.1:8000/health` (loopback); `docker logs pastorai-v2_backend` (sem startup de scheduler/manutenção); conferir gates no `.env` novo (`ALLOW_REAL_SENDS=false`, `BREVO_SEND_MODE` no valor desligado nominal, `BROADCAST_ASYNC_ENABLED=false`, `ASAAS_BILLING_ENABLED` continua ausente — nomes já conhecidos, valores via canal aprovado); smoke do painel `pastorai-frontend-prod` já publicado (sem nova publicação).
+- **Riscos:** backend novo não deve drenar fila nem chamar Evolution; cron novo com gates fechados também pode cancelar pendências → consumidores ficam `created`, nunca iniciados.
+- **Aceite:** health 200, sem jobs, ingresso ainda bloqueado, gates confirmados fechados.
+- **Reverter:** parar backend candidato; legado continua contido e pode retomar.
+
+### A10 — retomada do piloto `[OK-DONO: PROD + envios reais]`
+
+- **Objetivo:** reabrir só para a equipe interna Filadélfia.
+- **Comandos:** abrir ingresso externo (nginx já serve 443→8000; se novo projeto/topo, ajustar proxy para o candidato — os dois paths documentados); iniciar consumidores em ordem `queue → broadcast → cron` com restart=always; reabrir `ALLOW_REAL_SENDS` no `.env` do candidato; monitorar heartbeats/leases no Redis (`172.18.x`, mesmos padrões do inventário); aceite pastoral com os 20 cenários.
+- **Riscos:** fechar gate pode cancelar pendências (outbox estava vazia; revalidar antes); abrir antes do aceite = envio real a usuários.
+- **Aceite:** 20 conversas do aceite pastoral verdes; fila drenando; nenhum erro de domínio em 24h.
+- **Reverter:** fechar gates + parar consumidores + `resume_legacy` para legado (se pós-DDL, manter schema novo — ele é compatível com legado por desenho das migrations).
+
+### Pendências RESOLVIDAS pelo dono em 31/10 (leitura SSH com sudo, somente leitura)
+
+1. **Broadcast avulso identificado:** container `pastorai_broadcast_worker`, `docker run` manual de 03/10, `restart=always`, mesma imagem `pastorai-backend:latest` dos demais; heartbeat no Redis, 0 log em 24 h, não vem de cron. **Contenção aprovada:** `docker update --restart=no` + `docker stop -t 30` nele **antes** de fechar gates. Comandos da janela passam a usar o nome `pastorai_broadcast_worker` (não só ID `03e07a30439d2`).
+2. **Gates confirmados (nomes só, sem valores exibidos):** `ALLOW_REAL_SENDS=true` (inclusive no broadcast), `BREVO_SEND_MODE=live`, `BROADCAST_ASYNC_ENABLED=false`, `ASAAS_BILLING_ENABLED` **ausente** do `.env`. Fatos vivos adicionais: backend/queue/cron foram **recriados em 31/10 12:53 UTC** com a mesma imagem `pastorai-backend:latest` — **origem conhecida: o operador atualizou a senha do banco no `.env`** (mesma imagem); digest do inventário A5 precisa de revalidação na véspera da janela.
+3. **Painel decidido:** manter o deployment de produção atual `pastorai-frontend-prod` (main `afdfb78d`, mesmo pin do backend); frontend da main atual só muda `vercel.json`. **Sem nova publicação.** Smoke do painel depois do backend novo em A9. Projeto `pastorai-frontend` (legado) descartado.
+4. **Acesso de escrita:** só na janela, com o dono presente — `MIGRATION_DATABASE_URL` com role dona, só no ambiente da sessão, descartada + **troca de senha ao final**. Correção de registro: `<ops-user>` tem hoje `sudo NOPASSWD` total (o plano anterior dizia sem sudo).
+5. **DEV/Vercel reconfirmados:** `dev-synthetic.yml` disabled_manually, `DEV_PIPELINE_ENABLED=false`, Vercel prod sem vínculo Git, nenhuma publicação de produção depois de `afdfb78d` (27/10).
+
+**Restam abertas (não bloqueiam plano; exigem provisão/execução só na janela):** canal de escrita à VPS na janela (sudo NOPASSWD existe; usar com comando nominal e dono por perto), credencial de banco dona descartável, revalidação de drift do inventário na véspera (containers recriados em 31/10).
+
+
 ## A6 executada no clone isolado: dump→restore→replay das 51 aprovados (31/10/2026)
 
 **Vigente:** A5 aceita pelo dono como concluída (pendências do `.env` ficam abertas e registradas). A6 executada dentro do escopo já autorizado: cluster isolado local, sem instalação, download, deploy ou push; zero escritas na fonte. Recibo: `output/release/a3-final-local/a6-execution-20261031.json`.
