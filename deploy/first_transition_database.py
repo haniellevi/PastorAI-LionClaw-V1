@@ -69,7 +69,7 @@ Q_CATALOG = (
     'SELECT kind, name, md5(definition) AS hash FROM ('
     "SELECT 'namespace'::text AS kind, n.nspname::text AS name, row(n.nspowner::regrole, n.nspacl)::text "
     "AS definition FROM pg_namespace n WHERE n.nspname='public' "
-    "UNION ALL SELECT 'default-acl', d.defaclrole::regrole::text || ':' || d.defaclobjtype || ':' "
+    "UNION ALL SELECT 'default-acl', d.defaclrole::regrole::text || ':' || d.defaclobjtype::text || ':' "
     "|| CASE WHEN d.defaclnamespace=0 THEN '*' ELSE 'public' END, row(d.defaclacl)::text "
     'FROM pg_default_acl d WHERE d.defaclnamespace IN (0, ' + PUBLIC + ') '
     "UNION ALL SELECT 'extension', e.extname::text, row(e.extversion, e.extowner::regrole, e.extrelocatable)::text "

@@ -820,3 +820,26 @@ def test_failed_clone_identity_claim_preserves_residue_with_explicit_code(plan, 
         assert execute_sql(database, 'SELECT datname FROM pg_database WHERE datname=%s', (targets[0],))
         with db.conn.cursor() as cursor:
             cursor.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(targets[0])))
+
+
+def test_window_catalog_fingerprint_runs_on_real_postgres(database):
+    # The window observer's Q_CATALOG on a real server: "char" columns (defaclobjtype) need ::text
+    # on PostgreSQL 17, and the fixture's default privileges make that branch return rows.
+    import psycopg2
+    import first_transition_database as fdb
+    connection = psycopg2.connect(database[0])
+    connection.autocommit = True
+    try:
+        with connection.cursor() as cur:
+            cur.execute(fdb.Q_BEGIN)
+            try:
+                cur.execute(fdb.Q_PATH)
+                cur.execute(fdb.Q_CATALOG)
+                kinds = {row[0] for row in cur.fetchall()}
+                first, second = fdb._catalog(cur), fdb._catalog(cur)
+            finally:
+                cur.execute('ROLLBACK')
+    finally:
+        connection.close()
+    assert {'default-acl', 'namespace', 'relation', 'attribute', 'policy'} <= kinds
+    assert fdb.HEX64.fullmatch(first) and first == second
