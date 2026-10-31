@@ -1,6 +1,6 @@
 {
   "at": "2026-10-30T17:35:11.160673+00:00",
-  "destination": "/home/raniel-linux/igreja12-release-candidates/A4-20261030",
+  "destination": "<home>/igreja12-release-candidates/A4-20261030",
   "verified_files": 24,
   "sha256sums_sha256": "1001ad21f7d869c535cd48ad63fe455db5f732ff48b8156008cda03e13a5c7ab",
   "pins": {

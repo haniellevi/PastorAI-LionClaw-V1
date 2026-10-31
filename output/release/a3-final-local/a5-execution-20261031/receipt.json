@@ -4,7 +4,7 @@
   "status": "db-complete-host-blocked",
   "channels": {
     "supabase_prod_readonly": "ok: project pffafnchtxbimpwyaczq, role supabase_read_only_user, tx_read_only=on, BYPASSRLS=true, PostgreSQL 17.6",
-    "hostinger_vps": "partial: VM 2031318 srv2031318.hstgr.cloud running confirmed; Docker Manager API unsupported on this OS",
+    "hostinger_vps": "partial: VM 2031318 <vps-host> running confirmed; Docker Manager API unsupported on this OS",
     "vercel_mcp": "unavailable: server not active in this session; suspensions not re-verified remotely",
     "host_shell": "unavailable: no approved shell channel; container/network/ingress/lease inventory not verified"
   },
@@ -33,7 +33,7 @@
     "Evolution->backend direct path and per-instance overlap",
     "Redis queue metadata and the four required lease pairs",
     "env gates ALLOW_REAL_SENDS/ASAAS_BILLING_ENABLED/BREVO_SEND_MODE/BROADCAST_ASYNC_ENABLED",
-    "binaries/versions on srv2031318",
+    "binaries/versions on <vps-host>",
     "DEV/Vercel suspensions (no live channel this session)"
   ],
   "production_writes": 0,

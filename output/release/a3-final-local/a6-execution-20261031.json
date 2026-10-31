@@ -59,7 +59,7 @@
     "removed": [
       "container a6-clone-20261031",
       "network a6-isolated-20261031",
-      "dir /home/raniel-linux/a6-run-20261031 (dump real + PGPASSFILE + clone pw)"
+      "dir <home>/a6-run-20261031 (dump real + PGPASSFILE + clone pw)"
     ],
     "credentials_removed": [
       "service [prod-read] de ~/.pg_service.conf",

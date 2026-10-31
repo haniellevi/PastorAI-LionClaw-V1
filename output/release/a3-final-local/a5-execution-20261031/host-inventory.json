@@ -1,8 +1,8 @@
 {
   "at": "2026-10-31",
-  "channel": "ssh alias vps (igreja12-ops@srv2031318), read-only commands only",
+  "channel": "ssh alias vps (<ops-user>@<vps-host>), read-only commands only",
   "host": {
-    "hostname": "srv2031318", "vm_id": 2031318, "state": "running",
+    "hostname": "<vps-host>", "vm_id": 2031318, "state": "running",
     "plan": "KVM 1 (1 vCPU / 4 GiB / 50 GB)", "os": "Ubuntu 24.04, kernel 6.8",
     "uptime_days": 7, "disk_free": "33G", "mem_available_mb": 2338,
     "docker": "29.8.2 (socket denied: user not in docker group; inventory via ps + /proc cgroup + configs)",
