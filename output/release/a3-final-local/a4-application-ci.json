@@ -1,0 +1,257 @@
+{
+  "sha": "afdfb78d71a53f2861632806e13cdda4662d7d63",
+  "checks": [
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40735465182/job/122982679631"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40734923527/job/122980767542"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40681793777/job/122794071157"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40681280090/job/122792307330"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40639765595/job/122654927306"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40638983233/job/122652428062"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40606959808/job/122548740609"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40606216476/job/122546245019"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40582140126/job/122464050128"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40580469233/job/122458169672"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40541627568/job/122321229658"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40536881384/job/122304406371"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40493488742/job/122152977130"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40489791072/job/122140539448"
+    },
+    {
+      "name": "verificar-endpoints",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40457370533/job/122033727344"
+    },
+    {
+      "name": "public-health",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40453605912/job/122021726632"
+    },
+    {
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40435195071/job/121962132189"
+    },
+    {
+      "name": "eligible",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40435195071/job/121962087556"
+    },
+    {
+      "name": "rls-integration",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268491/job/121961959236"
+    },
+    {
+      "name": "eligible",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40435031977/job/121961589445"
+    },
+    {
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40435031977/job/121961560633"
+    },
+    {
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434997849/job/121961448842"
+    },
+    {
+      "name": "eligible",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434997849/job/121961448147"
+    },
+    {
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434595318/job/121960130220"
+    },
+    {
+      "name": "eligible",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434595318/job/121960129705"
+    },
+    {
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434495332/job/121959832244"
+    },
+    {
+      "name": "eligible",
+      "status": "completed",
+      "conclusion": "skipped",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434495332/job/121959801296"
+    },
+    {
+      "name": "rls-shard (2)",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268491/job/121959080973"
+    },
+    {
+      "name": "rls-shard (3)",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268491/job/121959080917"
+    },
+    {
+      "name": "rls-shard (0)",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268491/job/121959080833"
+    },
+    {
+      "name": "synthetic-release",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268645/job/121959080799"
+    },
+    {
+      "name": "e2e-critical",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268500/job/121959080694"
+    },
+    {
+      "name": "tooling-static",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268566/job/121959080547"
+    },
+    {
+      "name": "frontend-ci",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268487/job/121959080497"
+    },
+    {
+      "name": "rls-shard (1)",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268491/job/121959080485"
+    },
+    {
+      "name": "backend-tests",
+      "status": "completed",
+      "conclusion": "success",
+      "app_id": 15368,
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/40434268518/job/121959080315"
+    }
+  ]
+}

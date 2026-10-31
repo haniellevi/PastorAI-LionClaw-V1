@@ -1,0 +1,64 @@
+{
+  "at": "2026-10-30T16:58:04.138712+00:00",
+  "head": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+  "main": "e241a63fc8fc6a08c7305a5762ef7549bb01d488",
+  "delete_branch_on_merge": false,
+  "required_checks_green": [
+    "backend-tests",
+    "e2e-critical",
+    "frontend-ci",
+    "rls-integration"
+  ],
+  "active_publications": [
+    {
+      "workflow": 380485201,
+      "status": "queued",
+      "count": 0
+    },
+    {
+      "workflow": 380485201,
+      "status": "in_progress",
+      "count": 0
+    },
+    {
+      "workflow": 380485201,
+      "status": "waiting",
+      "count": 0
+    },
+    {
+      "workflow": 380485201,
+      "status": "pending",
+      "count": 0
+    },
+    {
+      "workflow": 380485201,
+      "status": "requested",
+      "count": 0
+    },
+    {
+      "workflow": 370273944,
+      "status": "queued",
+      "count": 0
+    },
+    {
+      "workflow": 370273944,
+      "status": "in_progress",
+      "count": 0
+    },
+    {
+      "workflow": 370273944,
+      "status": "waiting",
+      "count": 0
+    },
+    {
+      "workflow": 370273944,
+      "status": "pending",
+      "count": 0
+    },
+    {
+      "workflow": 370273944,
+      "status": "requested",
+      "count": 0
+    }
+  ]
+}

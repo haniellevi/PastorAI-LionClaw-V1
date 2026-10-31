@@ -1,0 +1,118 @@
+{
+  "at": "2026-10-30T16:40:53.274649+00:00",
+  "pr": 606,
+  "autoMergeRequest": null,
+  "headRefOid": "c80d6615f3b68ba27b78353ca0cce39c183780c9",
+  "mergeStateStatus": "CLEAN",
+  "mergedAt": null,
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:32:48Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405873/job/124179004406",
+      "name": "backend-tests",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "Backend Tests"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:30:30Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405798/job/124179003739",
+      "name": "e2e-critical",
+      "startedAt": "2026-10-30T16:23:16Z",
+      "status": "COMPLETED",
+      "workflowName": "E2E Critical"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:25:23Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405885/job/124179004073",
+      "name": "frontend-ci",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "Frontend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:30:56Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405871/job/124179004300",
+      "name": "rls-shard (0)",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "RLS Integration"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:26:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089406061/job/124179004860",
+      "name": "synthetic-release",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "Synthetic release rehearsal"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:23:28Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405977/job/124179004426",
+      "name": "tooling-static",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "Tooling Static Checks"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:31:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405871/job/124179005001",
+      "name": "rls-shard (1)",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "RLS Integration"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:30:53Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405871/job/124179004978",
+      "name": "rls-shard (2)",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "RLS Integration"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:30:47Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405871/job/124179004825",
+      "name": "rls-shard (3)",
+      "startedAt": "2026-10-30T16:23:17Z",
+      "status": "COMPLETED",
+      "workflowName": "RLS Integration"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-30T16:31:17Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41089405871/job/124183145714",
+      "name": "rls-integration",
+      "startedAt": "2026-10-30T16:31:02Z",
+      "status": "COMPLETED",
+      "workflowName": "RLS Integration"
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "Devin Review",
+      "startedAt": "2026-10-30T16:23:15Z",
+      "state": "SUCCESS",
+      "targetUrl": "https://app.devin.ai/review/haniellevi/pastorai-lionclaw-v1/pull/606"
+    }
+  ]
+}

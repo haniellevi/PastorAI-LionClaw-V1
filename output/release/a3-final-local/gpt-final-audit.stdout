@@ -1,0 +1,15 @@
+**NO-GO for the local candidate. P0: 0. P1: 3.**
+
+1. **Partial ingress reopening is falsely recorded as complete.**  
+   Location: `first_transition_host_driver.py::_inspect_host`; `first_transition_host_contract.py::resume_legacy`.  
+   Reproduction: resume all four legacy services; opening `evolution-backend` succeeds, then opening `external` times out before taking effect. Replay `resume_legacy`. Because `ingress_blocked` means **both blocked**, the partially open state reports `False`. Replay skips `open_ingress`, accepts `not ingress_blocked`, and records `observed-host-resumed` while external ingress remains blocked. Recovery reports success without restoring service.
+
+2. **The “DDL-free” proof accepts schema changes omitted from its fingerprint.**  
+   Location: `first_transition_database.py::Q_CATALOG`, `require_ddl_free`, `LedgerProof.prove`.  
+   Reproduction: establish the expected baseline, then execute `ALTER TABLE public.notification_outbox ALTER COLUMN claimed_until SET DEFAULT now()` outside this journal, without updating the migration ledger. The fingerprint excludes defaults; relation/attribute identity, ledger, invalid indexes and index builds remain unchanged. `LedgerProof` consequently accepts the altered schema and permits legacy resume. Changes to policies, function bodies and constraint definitions have the same coverage gap.
+
+3. **Incomplete configured lease coverage can authorize DDL with active leases.**  
+   Location: `first_transition_orchestrator.py::parse_config`; `first_transition_database.py::ReadOnlyDatabase.__init__`, `_observe`.  
+   Reproduction: supply `lease_columns=[["notification_outbox","claimed_until"]]`; leave that table unclaimed while `broadcast_entregas.lease_ate` contains a future lease. Configuration accepts this nonempty subset. With other containment checks satisfied, both quiet observations report `active_leases=0`, allowing the DDL marker and migrations despite the outstanding broadcast lease. Missing mandatory lease coverage therefore fails open.
+
+These are control-flow findings from the supplied bytes; no execution or environment verification was performed.

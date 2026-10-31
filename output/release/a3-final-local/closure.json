@@ -1,0 +1,41 @@
+{
+  "base": "e241a63fc8fc6a08c7305a5762ef7549bb01d488",
+  "branch": "feat/first-transition-host-driver-20261030",
+  "at": "2026-10-30T15:59:16.030902+00:00",
+  "audit_rounds": 1,
+  "audit_findings": {
+    "P0": 0,
+    "P1": 5
+  },
+  "resolved_P1": 5,
+  "remaining_local": {
+    "P0": 0,
+    "P1": 0
+  },
+  "fixed_bytes_re_reviewed": false,
+  "tests": {
+    "passed": 652,
+    "subtests_passed": 51,
+    "scope": "synthetic only"
+  },
+  "published": false,
+  "files": {
+    "ROADMAP.md": "b323d0951d1556954fc5066659d75ed3e4d9f4a2967c5e6d4424303d344e3f3e",
+    "docs/ops/RELEASE-LOTE-2026-10.md": "6c3cdcbdde2e5f0cfaf18223d525db7d5f3c04667ccb1bd7e36dfff6281df8bb",
+    "deploy/first-transition.example.json": "eb96f2ffd6c3e170d991c7b4e3b764722091e5ac7ddb2ff3e2256ca95ebe9e1a",
+    "deploy/first_transition_adapter.py": "7f1d065d824b635527ba577d296486dbb94a4bd09ccf1863d004816e74a057a9",
+    "deploy/first_transition_host_driver.py": "a387e4bd3238fe769e89f3d1831792bfac73e634589418e5e34ab232719206c4",
+    "deploy/first_transition_host_contract.py": "ff86cb9b333e4748efb311eb2c65abd2d2e4430eac47d4c742928b5944eca613",
+    "deploy/first_transition_host_transport.py": "ac74a031689fb44bbeab6e27ab6cf48b838e0efdafc5b07f93411443bc77cfc4",
+    "deploy/first_transition_database.py": "4f03de2cd8bd3ff1d14c9eb86a07d66e9c04f22e5f34ee03c1285071142d8108",
+    "deploy/first_transition_candidate.py": "cd0632bef893c9a964ffe6c65340312f273cfe23fbbd8f936ca49e4e546a420a",
+    "deploy/first_transition_orchestrator.py": "8236716b86bc326df1ad725d7122227dcbe7b5060b0dfe0a077fc84a3ac4b55b",
+    "deploy/initial_transition_files.py": "a3a1995d3b73464e5e24032e3a035935b70b713da2ef8478530ace396f822bf6",
+    "deploy/package_backend_release.py": "23c5e24ccfbda0f95d214a64270f1012ab1e774c0012e674943c3daeedb4b6ae",
+    "deploy/tests/test_first_transition_adapter_pg.py": "30307979ac6b53216bfcac520cd6b49b10488eaea35df3cf21aa50023417965f",
+    "deploy/tests/test_first_transition_host_contract.py": "469ba18a9387a0f03196986a2585f1fc29b5cd49a354ee6dea973e352321a833",
+    "deploy/tests/test_first_transition_host_driver.py": "164d3e440d3cd446bc88d85d86a2faaa1e5fde5997fd3dcb1a8b7425b8b313a7",
+    "deploy/tests/test_first_transition_database.py": "88eea1271cbf07ff1e85cf725fb200d003f88072a963ac9d185395579f2acf10",
+    "deploy/tests/test_first_transition_orchestrator.py": "f43440fc3544bc3465e0bddb8d707683ae5a41204d4c1401e42f346e424ce78d"
+  }
+}

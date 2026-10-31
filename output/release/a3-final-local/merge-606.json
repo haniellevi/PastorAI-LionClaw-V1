@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-30T17:00:00.399207+00:00",
+  "merge": "6d46206c8b92e6a932a87cf4fde84a2f81b11b19",
+  "parents": [
+    "e241a63fc8fc6a08c7305a5762ef7549bb01d488",
+    "a095605a588046e6d30669a6a00cd045a8fd4bc9"
+  ],
+  "same_tree_as_reviewed_head": true,
+  "push_runs": [
+    {
+      "id": 41094830730,
+      "name": "Frontend CI",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 41094828049,
+      "name": "Backend Tests",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 41094827965,
+      "name": "E2E Critical",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 41094827859,
+      "name": "Synthetic release rehearsal",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 41094828239,
+      "name": "Tooling Static Checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 41094827868,
+      "name": "RLS Integration",
+      "status": "in_progress",
+      "conclusion": null
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "at": "2026-10-30T16:55:26.849064+00:00",
+  "pr": 606,
+  "head": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+  "base": "e241a63fc8fc6a08c7305a5762ef7549bb01d488",
+  "open": true,
+  "merged": false,
+  "auto_merge": false,
+  "preview_enabled": false,
+  "required_checks": [
+    {
+      "name": "rls-integration",
+      "app_id": 15368,
+      "conclusion": "success"
+    },
+    {
+      "name": "e2e-critical",
+      "app_id": 15368,
+      "conclusion": "success"
+    },
+    {
+      "name": "frontend-ci",
+      "app_id": 15368,
+      "conclusion": "success"
+    },
+    {
+      "name": "backend-tests",
+      "app_id": 15368,
+      "conclusion": "success"
+    }
+  ],
+  "workflows": [
+    {
+      "id": 41092222308,
+      "name": "Frontend CI",
+      "event": "pull_request",
+      "head_sha": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41092222308"
+    },
+    {
+      "id": 41092222983,
+      "name": "Synthetic release rehearsal",
+      "event": "pull_request",
+      "head_sha": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41092222983"
+    },
+    {
+      "id": 41092222765,
+      "name": "RLS Integration",
+      "event": "pull_request",
+      "head_sha": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41092222765"
+    },
+    {
+      "id": 41092222106,
+      "name": "Tooling Static Checks",
+      "event": "pull_request",
+      "head_sha": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41092222106"
+    },
+    {
+      "id": 41092222209,
+      "name": "E2E Critical",
+      "event": "pull_request",
+      "head_sha": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41092222209"
+    },
+    {
+      "id": 41092222042,
+      "name": "Backend Tests",
+      "event": "pull_request",
+      "head_sha": "a095605a588046e6d30669a6a00cd045a8fd4bc9",
+      "conclusion": "success",
+      "url": "https://github.com/haniellevi/PastorAI-LionClaw-V1/actions/runs/41092222042"
+    }
+  ],
+  "publication_suspensions": {
+    "dev_workflow": "disabled_manually",
+    "DEV_PIPELINE_ENABLED": "false",
+    "vercel_projects_git_detached": 3,
+    "vercel_active_deployments": 0
+  },
+  "review_threads_open": 0,
+  "code_sources_match_local_acceptance": true,
+  "local_tests": {
+    "passed": 652,
+    "subtests_passed": 51,
+    "scope": "synthetic only"
+  },
+  "limits": "No merge, dispatch, deploy, reactivation, VPS or production operations."
+}
