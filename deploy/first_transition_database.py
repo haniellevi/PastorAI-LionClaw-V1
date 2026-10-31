@@ -63,18 +63,22 @@ PUBLIC = "(SELECT oid FROM pg_namespace WHERE nspname='public')"
 # Every definition (defaults, view/function/policy/trigger/constraint/index bodies, ACLs) is hashed
 # SERVER-SIDE by md5(row(...)::text); no body, literal or expression ever reaches Python or a journal.
 # pg_get_functiondef is not defined for aggregates (prokind 'a'): their pg_aggregate row is hashed instead.
+# Portable across clusters, so a restored clone hashes like its source: a NULL ACL is replaced by its exact
+# acldefault() and internal triggers (OID-named RI_ConstraintTrigger_*, fully derived from the FK constraint
+# already hashed by pg_get_constraintdef) are left out.
 CATALOG_KINDS = ('attribute', 'constraint', 'default-acl', 'extension', 'function', 'index', 'namespace',
                  'policy', 'relation', 'rule', 'sequence', 'trigger', 'type')
 Q_CATALOG = (
     'SELECT kind, name, md5(definition) AS hash FROM ('
-    "SELECT 'namespace'::text AS kind, n.nspname::text AS name, row(n.nspowner::regrole, n.nspacl)::text "
-    "AS definition FROM pg_namespace n WHERE n.nspname='public' "
+    "SELECT 'namespace'::text AS kind, n.nspname::text AS name, row(n.nspowner::regrole, "
+    "coalesce(n.nspacl, acldefault('n', n.nspowner)))::text AS definition FROM pg_namespace n WHERE n.nspname='public' "
     "UNION ALL SELECT 'default-acl', d.defaclrole::regrole::text || ':' || d.defaclobjtype::text || ':' "
     "|| CASE WHEN d.defaclnamespace=0 THEN '*' ELSE 'public' END, row(d.defaclacl)::text "
     'FROM pg_default_acl d WHERE d.defaclnamespace IN (0, ' + PUBLIC + ') '
     "UNION ALL SELECT 'extension', e.extname::text, row(e.extversion, e.extowner::regrole, e.extrelocatable)::text "
     'FROM pg_extension e WHERE e.extnamespace=' + PUBLIC + ' '
-    "UNION ALL SELECT 'relation', c.relname::text, row(c.relkind, c.relowner::regrole, c.relacl, c.relrowsecurity, "
+    "UNION ALL SELECT 'relation', c.relname::text, row(c.relkind, c.relowner::regrole, coalesce(c.relacl, "
+    "acldefault(CASE WHEN c.relkind='S' THEN 's'::\"char\" ELSE 'r'::\"char\" END, c.relowner)), c.relrowsecurity, "
     'c.relforcerowsecurity, c.relpersistence, c.relreplident, c.reloptions, c.relispartition, c.reloftype::regtype, '
     "CASE WHEN c.relkind IN ('v', 'm') THEN pg_get_viewdef(c.oid) END, pg_get_partkeydef(c.oid), "
     'pg_get_expr(c.relpartbound, c.oid), ARRAY(SELECT h.inhparent::regclass::text FROM pg_inherits h '
@@ -92,20 +96,20 @@ Q_CATALOG = (
     'i.indnullsnotdistinct)::text FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid '
     'WHERE c.relnamespace=' + PUBLIC + ' '
     "UNION ALL SELECT 'trigger', c.relname || '.' || t.tgname, row(t.tgenabled, pg_get_triggerdef(t.oid))::text "
-    'FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relnamespace=' + PUBLIC + ' '
+    'FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relnamespace=' + PUBLIC + ' AND NOT t.tgisinternal '
     "UNION ALL SELECT 'rule', c.relname || '.' || r.rulename, row(r.ev_enabled, pg_get_ruledef(r.oid))::text "
     'FROM pg_rewrite r JOIN pg_class c ON c.oid=r.ev_class WHERE c.relnamespace=' + PUBLIC + ' '
     "UNION ALL SELECT 'policy', c.relname || '.' || p.polname, row(p.polcmd, p.polpermissive, "
     'ARRAY(SELECT r::regrole::text FROM unnest(p.polroles) r ORDER BY 1), pg_get_expr(p.polqual, p.polrelid), '
     'pg_get_expr(p.polwithcheck, p.polrelid))::text FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid '
     'WHERE c.relnamespace=' + PUBLIC + ' '
-    "UNION ALL SELECT 'function', p.oid::regprocedure::text, row(p.prokind, p.proowner::regrole, p.proacl, "
+    "UNION ALL SELECT 'function', p.oid::regprocedure::text, row(p.prokind, p.proowner::regrole, coalesce(p.proacl, acldefault('f', p.proowner)), "
     'p.proconfig, p.prosecdef, p.proleakproof, p.proisstrict, p.provolatile, p.proparallel, '
     "pg_get_function_result(p.oid), CASE WHEN p.prokind <> 'a' THEN pg_get_functiondef(p.oid) END, "
     '(SELECT row(g.aggkind, g.aggtransfn::regproc, g.aggfinalfn::regproc, g.aggcombinefn::regproc, '
     'g.aggtranstype::regtype, g.agginitval)::text FROM pg_aggregate g WHERE g.aggfnoid=p.oid))::text '
     'FROM pg_proc p WHERE p.pronamespace=' + PUBLIC + ' '
-    "UNION ALL SELECT 'type', t.oid::regtype::text, row(t.typtype, t.typowner::regrole, t.typacl, t.typnotnull, "
+    "UNION ALL SELECT 'type', t.oid::regtype::text, row(t.typtype, t.typowner::regrole, coalesce(t.typacl, acldefault('T', t.typowner)), t.typnotnull, "
     't.typdefault, format_type(t.typbasetype, t.typtypmod), t.typcollation::regcollation, '
     'ARRAY(SELECT e.enumlabel::text FROM pg_enum e WHERE e.enumtypid=t.oid ORDER BY e.enumsortorder))::text '
     'FROM pg_type t WHERE t.typnamespace=' + PUBLIC + ' '
