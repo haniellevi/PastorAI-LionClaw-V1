@@ -8,7 +8,7 @@ first_transition_orchestrator.assemble. Called once per window, after quiescence
    0700 run directory; the source URL travels only in the child environment (``-e NAME``),
    never in argv, output, exceptions or the receipt;
 2. starts a disposable clone cluster from a digest-pinned image in a NEW ``--internal``
-   Docker network (no egress), mirrors the source role NAMES only (NOLOGIN, no password),
+   Docker network (no egress), mirrors the source role NAMES only (NOLOGIN NOINHERIT, no password),
    restores with ``pg_restore --exit-on-error --single-transaction`` and requires the
    restored ledger and catalog fingerprint (first_transition_database.Q_CATALOG) to equal
    the expected baseline before any replay (``restore_verified``);
@@ -236,7 +236,7 @@ class WindowBackup:
         path = run_dir / 'window.dump'
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'wb') as handle:
-            rc, _ = self._docker(('run', '--rm', '--network', self.config.dump_network, '-e', SOURCE_ENV,
+            rc, _ = self._docker(('run', '--rm', '--pull=never', '--network', self.config.dump_network, '-e', SOURCE_ENV,
                                   '-e', 'PGAPPNAME=igreja12-window-backup', self.config.dump_image,
                                   'sh', '-c', 'exec pg_dump "$' + SOURCE_ENV + '" --format=custom '
                                   '--lock-wait-timeout=10s --no-password'),
@@ -258,7 +258,7 @@ class WindowBackup:
     def _start_clone(self, name, password):
         self._ok(('network', 'create', '--internal', '--label', 'igreja12.window-backup=' + name, name),
                  'window-backup-network-failed')
-        self._ok(('run', '-d', '--name', name, '--network', name, '--label', 'igreja12.window-backup=' + name,
+        self._ok(('run', '-d', '--pull=never', '--name', name, '--network', name, '--label', 'igreja12.window-backup=' + name,
                   '-e', CLONE_ENV, self.config.clone_image, *self.config.clone_command),
                  'window-backup-clone-failed', env={CLONE_ENV: password})
         address = self._ok(('inspect', '--format', '{{(index .NetworkSettings.Networks "' + name + '").IPAddress}}',
@@ -283,7 +283,7 @@ class WindowBackup:
             created = 0
             for role in roles:
                 if role not in existing:
-                    cur.execute(sql.SQL('CREATE ROLE {} NOLOGIN').format(sql.Identifier(role)))
+                    cur.execute(sql.SQL('CREATE ROLE {} NOLOGIN NOINHERIT').format(sql.Identifier(role)))
                     created += 1
             for role in self.config.clone_superusers:
                 cur.execute(sql.SQL('ALTER ROLE {} SUPERUSER').format(sql.Identifier(role)))

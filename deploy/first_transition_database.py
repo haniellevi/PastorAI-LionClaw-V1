@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import os
 import re
 
 from first_transition_adapter import digest
@@ -298,18 +299,29 @@ class LedgerProof:
                     ledger_digest=observation['ledger_digest'], catalog=observation['catalog'])
 
 
-def psycopg2_connector(secret, *, application_name=OBSERVER_APPLICATION):
+def require_explicit_environment():
+    """Ambient libpq defaults cannot change the provider's route or security.
+
+    Inspect names only and refuse; never mutate the process environment or
+    disclose the inherited names/values. Children already use constructed envs.
+    """
+    require(not any(name.startswith('PG') for name in os.environ), 'database-libpq-environment')
+
+
+def psycopg2_connector(secret, *, application_name=OBSERVER_APPLICATION, connect=None):
     """Connection factory for a future authorized run; the URL comes only from ``secret()``.
 
     The session is forced read-only by default; the URL is never stored,
-    logged or put in argv. Unused by tests.
+    logged or put in argv. Ambient libpq settings refuse before secret/driver IO.
     """
     require(callable(secret) and APPLICATION.fullmatch(application_name), 'database-connect-missing')
 
-    def connect(*, timeout):
+    def open_connection(*, timeout):
+        require_explicit_environment()
         import psycopg2
         url = secret()
         require(isinstance(url, str) and url.startswith('postgresql://') and '\n' not in url, 'database-secret')
-        return psycopg2.connect(url, connect_timeout=max(1, int(timeout)), application_name=application_name,
-                                options='-c default_transaction_read_only=on')
-    return connect
+        connector = connect or psycopg2.connect
+        return connector(url, connect_timeout=max(1, int(timeout)), application_name=application_name,
+                         options='-c default_transaction_read_only=on')
+    return open_connection

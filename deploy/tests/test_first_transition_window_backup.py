@@ -179,6 +179,16 @@ def test_receipt_attests_request_and_passes_the_orchestrator_validation(plan, tm
     assert dump.parent.name == digest(req)
 
 
+@pytest.mark.parametrize('verb,image', [('--rm', IMAGE), ('-d', CLONE_IMAGE)])
+def test_dump_and_clone_never_pull_images(plan, tmp_path, verb, image):
+    host = Host(plan)
+    provider(plan, tmp_path, host)(request(plan, expectation(plan)))
+    args = next(args for args, _ in host.calls if args[:2] == ('run', verb))
+    assert args.count('--pull=never') == 1
+    assert args.index('--pull=never') < args.index(image)
+    assert not any(a in ('pull', '--pull=always', '--pull=missing') for a in args)
+
+
 def test_secrets_never_reach_argv_receipt_or_the_clone(plan, tmp_path):
     host = Host(plan)
     receipt = provider(plan, tmp_path, host)(request(plan, expectation(plan)))
@@ -287,7 +297,15 @@ def test_config_refuses_unpinned_images_secrets_and_bad_values(tmp_path):
             wb.WindowBackupConfig.from_dict(dict(base, **bad))
 
 
-def test_env_file_secret_requires_root_only_file_and_single_value(tmp_path):
+def test_env_file_secret_requires_root_only_file_and_single_value(tmp_path, monkeypatch):
+    # This test's files are fictional and user-owned; simulate only root ownership metadata.
+    real_fstat = os.fstat
+
+    def root_stat(fd):
+        values = list(real_fstat(fd))
+        values[4] = 0
+        return os.stat_result(values)
+    monkeypatch.setattr(window.os, 'fstat', root_stat)
     path = tmp_path / '.env'
     path.write_text('A=1\nDATABASE_URL="' + SOURCE_URL + '"\n')
     path.chmod(0o600)
@@ -304,7 +322,7 @@ def test_env_file_secret_requires_root_only_file_and_single_value(tmp_path):
 def test_entry_point_run_is_refused_and_errors_leak_no_text(tmp_path, monkeypatch):
     lines = []
     assert window.main(['run', '--config', '/x', '--env-file', '/y'], out=lines.append) == 2
-    assert json.loads(lines[-1]) == {'refused': 'window-bindings-pending'}
+    assert json.loads(lines[-1]) == {'refused': 'window-run-prerequisites'}
 
     def boom(*args, **kwargs):
         raise RuntimeError('connection to ' + SOURCE_URL + ' failed')
@@ -341,9 +359,20 @@ def test_check_bindings_only_observes_and_reports_refusals_by_code(tmp_path, mon
     database = type('Database', (), {'connect': None})()
     monkeypatch.setattr(window, '_load', lambda args: (config, None, None, lambda: SOURCE_URL, database))
     monkeypatch.setattr(window, 'read_regular', lambda path, limit: b'{}')
-    monkeypatch.setattr(window, 'bindings_from_dict', lambda data, secret, connect: (bindings, writers))
+    monkeypatch.setattr(window, '_bindings', lambda data, config, secret, database, io: (bindings, writers))
     assert window.main(['check-bindings', '--config', '/x', '--env-file', '/y', '--bindings-config', '/z'],
                        out=lines.append) == 1
     assert json.loads(lines[-1]) == {'evolution-backend': 'open', 'external': 'refused:window-nginx-include-missing',
                                      'unknown_writers': 0}
     assert writers.calls == ['a' * 64]
+
+
+def test_new_clone_roles_are_minimal_noinherit_without_altering_existing_roles(plan, tmp_path):
+    host = Host(plan)
+    backup = provider(plan, tmp_path, host)
+    assert backup._prepare_clone(Conn(host, host.sql), ('postgres', 'private_storage_runtime'), 'fictional') == 1
+    creates = [q for q in host.sql if 'CREATE ROLE' in str(q)]
+    assert len(creates) == 1 and 'NOLOGIN NOINHERIT' in str(creates[0])
+    assert 'private_storage_runtime' in str(creates[0]) and 'postgres' not in str(creates[0])
+    assert not any('ALTER ROLE' in str(q) and 'private_storage_runtime' in str(q) for q in host.sql)
+    assert any('SUPERUSER' in str(q) and 'postgres' in str(q) for q in host.sql)
