@@ -117,6 +117,8 @@ jobs:
             deploy/tests/test_first_transition_window_backup.py deploy/tests/test_first_transition_window_bindings.py \
             deploy/tests/test_first_transition_window_backup_docker.py \
             deploy/tests/test_first_transition_candidate_writers.py deploy/tests/test_first_transition_window_entry.py \
+            deploy/tests/test_first_transition_candidate_network.py \
+            deploy/tests/test_first_transition_candidate_network_docker.py \
             deploy/tests/test_first_transition_libpq_environment.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -q -p no:cacheprovider \
             deploy/tests/test_first_transition_host_driver.py deploy/tests/test_first_transition_host_contract.py \
@@ -127,6 +129,8 @@ jobs:
             deploy/tests/test_backend_workflow.py deploy/tests/test_first_transition_window_backup.py \
             deploy/tests/test_first_transition_window_bindings.py \
             deploy/tests/test_first_transition_candidate_writers.py deploy/tests/test_first_transition_window_entry.py \
+            deploy/tests/test_first_transition_candidate_network.py \
+            deploy/tests/test_first_transition_candidate_network_docker.py \
             deploy/tests/test_first_transition_libpq_environment.py
 
       - name: Validar adaptador da primeira transição em PG17 descartável
