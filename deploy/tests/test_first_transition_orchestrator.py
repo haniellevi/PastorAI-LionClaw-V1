@@ -23,7 +23,7 @@ from first_transition_candidate import (CANDIDATE_TEMPLATE, CLOSED_GATES, HOLD_O
                                         CandidatePort, CandidateRunner, CandidateSpec, write_candidate_release)
 from first_transition_database import LedgerProof, ReadOnlyDatabase
 from first_transition_host_contract import ObservedHostContract
-from first_transition_host_driver import INFO_ARGV, ObservedHostDriver
+from first_transition_host_driver import INFO_ARGV, NETWORK_TEMPLATE, ObservedHostDriver
 from first_transition_host_transport import ObservedHostTransport, host_command
 from first_transition_orchestrator import (PROCEDURES, FirstTransition, MigrationExecutor, ProcessRunner, assemble,
                                            load_config, parse_config)
@@ -143,6 +143,8 @@ class FakeCandidateDocker:
         self.on_create = self.on_start = None
         self.starts = 0
         self.database_env = ['DATABASE_URL=' + SECRET_URL]
+        self.created_network_id = ''  # Docker 29 leaves the effective ID empty until first start.
+        self.network_rows = [[spec.network_id, spec.network_name]] * 2
 
     def __call__(self, argv, *, timeout, max_output):
         assert type(argv) is tuple and 0 < timeout <= 60
@@ -150,6 +152,8 @@ class FakeCandidateDocker:
         spec = self.spec
         if argv == INFO_ARGV:
             return 0, (json.dumps(DAEMON) + '\n').encode()
+        if argv == ('docker', 'network', 'inspect', '--format', NETWORK_TEMPLATE, spec.network_id, spec.network_name):
+            return 0, ''.join(json.dumps(row) + '\n' for row in self.network_rows).encode()
         if argv == spec.compose_argv():
             for role in ROLES:
                 self.containers[CANDIDATE_IDS[role]] = dict(
@@ -189,7 +193,8 @@ class FakeCandidateDocker:
         return ['/' + c['name'], ident, c.get('image', spec.image), c.get('project', spec.project), c['service'],
                 spec.sha, c['status'], c['running'],
                 False, False, 0, c['started'], None, c['restarts'], c['policy'], NET_NAME, [*c['env'], None],
-                [None], [[NET_NAME, [c['service']], spec.network_id], None]]
+                [None], [[NET_NAME, [c['service']], self.created_network_id if c['status'] == 'created'
+                          else spec.network_id], None]]
 
     def effects(self):
         return [a for a in self.calls if a[:2] == ('docker', 'start') or a[:2] == ('docker', 'compose')]
@@ -727,6 +732,7 @@ def test_a9_failures_stop_without_undo(world, fault, code):
         c.gates = ['ALLOW_REAL_SENDS=true', *c.gates[1:]]
     elif fault == 'restart-always':
         c.hold_applied = False
+        c.created_network_id = world.spec.network_id  # Isolate the held-state guard from network intent.
     elif fault == 'autostart':
         c.autostart = {'cron-worker'}
     elif fault == 'start-dependency':
@@ -799,6 +805,7 @@ def test_candidate_port_refuses_a_non_backend_id_with_zero_starts_or_smokes(worl
 def test_candidate_port_refuses_starting_a_backend_that_is_not_held(world):
     port = CandidatePort(world.spec, runner=world.cdocker)
     world.cdocker.hold_applied = False
+    world.cdocker.created_network_id = world.spec.network_id
     world.cdocker(world.spec.compose_argv(), timeout=60, max_output=64)
     with pytest.raises(Refused, match='^candidate-backend-not-held$'):
         port.start_backend(CANDIDATE_IDS['backend'])

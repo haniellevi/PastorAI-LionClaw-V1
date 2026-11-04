@@ -15,6 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.db.session  # noqa: F401 - registers the tenant session listener
+from app.config import get_settings
 from app.agent import runtime as runtime_module
 from app.db.models import (
     AgentActionProposal,
@@ -52,6 +53,13 @@ pytestmark = pytest.mark.rls_integration
 
 _TERM = "v3-turn-synthetic-term"
 _INSTANCE = "v3-turn-synthetic"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_cache():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def _turn_database_url() -> str:
@@ -458,7 +466,13 @@ def _install_v3_gates(monkeypatch: pytest.MonkeyPatch, tenant: uuid.UUID) -> Non
     monkeypatch.setattr(runtime_module, "get_settings", lambda: settings)
     monkeypatch.setattr(whatsapp_privilege, "get_settings", lambda: settings)
     monkeypatch.setattr(agent_privilege_catalog, "get_settings", lambda: settings)
-    monkeypatch.setattr("app.config.get_settings", lambda: settings)
+    # The pending reply imports config at call time. Keep that real Settings
+    # provider intact so a late-imported dedicated login cannot retain a fake.
+    monkeypatch.setenv("FRONTEND_URL", settings.frontend_url)
+    monkeypatch.setenv("AGENT_TERM_VERSION", settings.agent_term_version)
+    monkeypatch.setenv("AGENT_TRUSTED_INBOUND_IDENTITY_ENABLED", "false")
+    monkeypatch.setenv("SESSION_JWT_SECRET", settings.effective_session_secret)
+    get_settings.cache_clear()
     monkeypatch.setattr(semantic_triage, "tier_a_enabled_from_environment", lambda _tenant: False)
     monkeypatch.setattr(cell_report_whatsapp, "cell_report_enabled_from_environment", lambda _tenant: False)
     monkeypatch.setattr(crypto, "decrypt_secret", lambda _cipher: "synthetic-key")
