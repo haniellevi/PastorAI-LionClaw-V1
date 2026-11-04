@@ -1362,6 +1362,9 @@ Governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 de governança perma
 pausados; reavaliação somente por necessidade e decisão próprias. Isso não
 adianta banco/infra nem impede desenvolver UV/CD após a etapa 3.
 
+
+**Ingresso nominal HTTP+HTTPS da janela (04/11/2026, preparação local):** controlador aceita um HTTPS com manutenção no server antes do único proxy e um HTTP exclusivamente de redirect para o mesmo domínio (literal ou modelo Certbot guardado). Valida ambas as famílias declaradas, URL/marcador exatos, symlink nominal estável e unicidade no grafo de includes. Inclui espera limitada pelo reload e recusa de TLS/rotas/configs ambíguos.60casos Nginx focados aprovados em Python3.13, Ruff/diff-check e revisão Claude GO LOCAL sem P0/P1 após correções. Aplicação/runtime/A4/gates preservados. Novo hash do controlador muda plan_digest e exige recompor os vínculos dependentes; não reutilizar journal. Sem Nginx real/VPS/reload/deploy/DDL nesta entrega; admissão do site completo e include/diretório operacionais permanecem pendentes. Integração incremental sobre a PR616/88b6af4, sem incorporar trabalho de origem ainda não commitado de outra frente.
+
 ## Evidências e manutenção
 
 A consolidação usa os dois planos agora históricos
