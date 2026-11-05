@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from first_transition_candidate import check_closed_gates, check_candidate_database
 import first_transition_database as fdb
+import first_transition_origin as origin
 from first_transition_adapter import digest, prepare
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
                                         verify_candidate_release)
@@ -60,6 +61,10 @@ CODES = frozenset({
     'window-executor-role', 'window-candidate-database', 'database-libpq-environment',
     'window-backup-image-unpinned', 'window-backup-paths', 'window-backup-timeouts',
     'package-identity-mismatch', 'candidate-layout-not-prepared', 'candidate-hold-mismatch', 'layout-mismatch',
+    'window-origin-arguments', 'window-origin-version', 'window-origin-mode', 'window-origin-metadata',
+    'window-origin-binding', 'window-origin-window-proof-pending',
+    'window-source-auth-arguments', 'window-source-auth-mode', 'window-source-auth-binding',
+    'window-source-auth-preflight-only',
 })
 
 
@@ -139,6 +144,9 @@ class Prepared:
 
 
 def prepare_window(args):
+    selected_origin = origin.selection(args)
+    selected_source = _source_selection(args)
+    require(not (selected_source and selected_origin), 'window-source-auth-arguments')
     require(all(getattr(args, k, None) for k in ('config', 'backup_config', 'bindings_config', 'env_file', 'env_var')),
             'window-run-prerequisites')
     io = getattr(args, '_io', {})
@@ -163,7 +171,50 @@ def prepare_window(args):
     record = dict(schema='igreja12.window/1', plan_digest=plan.digest, transition_digest=config.digest,
                   backup_digest=digest(asdict(backup)), bindings_digest=digest(bindings),
                   provider_digest=digest(dict(path=args.env_file, variable=args.env_var)))
+    if selected_origin:
+        record['origin_preflight'] = _origin_preflight(args, config, plan)
+    if selected_source:
+        record['source_auth_preflight'] = _source_preflight(args, config, plan)
     return Prepared(config, plan, backup, bindings, record)
+
+
+def _origin_preflight(args, config, plan):
+    expected = fdb.DatabaseExpectation(config.identity, plan.baseline, config.catalog).validated()
+    return origin.assess(origin.read_metadata(args.origin_plan), origin.read_metadata(args.origin_observation),
+                         expected=expected, daemon_id=config.manifest.daemon_id, now=time.time())
+
+
+def check_origin(args, out=print):
+    require(origin.selection(args), 'window-origin-arguments')
+    config = load_config(Path(args.config))
+    plan = prepare(Path(config.repo), git=getattr(args, '_io', {}).get('git'))
+    out(json.dumps(_origin_preflight(args, config, plan), sort_keys=True))
+    return 0
+
+
+def _source_selection(args):
+    values = tuple(getattr(args, k, None) for k in ('source_request', 'source_report'))
+    if all(v is None for v in values):
+        require(args.mode != 'check-source-preflight', 'window-source-auth-arguments')
+        return False
+    require(all(type(v) is str and v for v in values), 'window-source-auth-arguments')
+    require(args.mode in ('prepare', 'run', 'check-source-preflight'), 'window-source-auth-mode')
+    return True
+
+
+def _source_preflight(args, config, plan):
+    expected = fdb.DatabaseExpectation(config.identity, plan.baseline, config.catalog).validated()
+    return origin.bind_authenticated_preflight(origin.read_metadata(args.source_request),
+        origin.read_metadata(args.source_report), expected=expected, controller_plan_digest=plan.digest,
+        now=time.time())
+
+
+def check_source_preflight(args, out=print):
+    require(_source_selection(args), 'window-source-auth-arguments')
+    config = load_config(Path(args.config))
+    plan = prepare(Path(config.repo), git=getattr(args, '_io', {}).get('git'))
+    out(json.dumps(_source_preflight(args, config, plan), sort_keys=True))
+    return 0
 
 
 def _load(args):
@@ -329,6 +380,10 @@ def _readiness(args, prepared, secret, database, ingress):
 
 
 def run(args, out=print):
+    require(not _source_selection(args), 'window-source-auth-preflight-only')
+    # Schema 2 is a preflight prerequisite, not a fresh-window recovery receipt.
+    # Refuse before credential, daemon, journal or host access; never downgrade.
+    require(not origin.selection(args), 'window-origin-window-proof-pending')
     fdb.require_explicit_environment()
     require(args.expect_plan_digest and args.expect_window_digest, 'window-run-prerequisites')
     prepared = prepare_window(args)
@@ -410,7 +465,8 @@ class _Parser(argparse.ArgumentParser):
 
 def main(argv=None, out=print, *, io=None):
     parser = _Parser(prog='first_transition_window', description='Expected digests are NOT human authorization.')
-    parser.add_argument('mode', choices=('prepare', 'check', 'rehearse-backup', 'check-bindings', 'run'))
+    parser.add_argument('mode', choices=('prepare', 'check', 'rehearse-backup', 'check-bindings', 'check-origin',
+                                       'check-source-preflight', 'run'))
     parser.add_argument('--config', required=True)
     parser.add_argument('--env-file')
     parser.add_argument('--env-var', help='Explicit variable in the private file; required for prepare/run.')
@@ -418,9 +474,16 @@ def main(argv=None, out=print, *, io=None):
     parser.add_argument('--bindings-config')
     parser.add_argument('--expect-plan-digest', help='Exact typo guard, NOT human authorization.')
     parser.add_argument('--expect-window-digest', help='Exact typo guard, NOT human authorization.')
+    parser.add_argument('--origin-contract', help='Explicit origin metadata contract version: 2 (preflight only).')
+    parser.add_argument('--origin-plan', help='Public metadata: full R16 plan, never a credential/provider file.')
+    parser.add_argument('--origin-observation', help='Public schema-2 capture metadata, not the private companion.')
+    parser.add_argument('--source-request', help='Public authenticated-read-only preflight request metadata.')
+    parser.add_argument('--source-report', help='Public authenticated-read-only preflight report metadata.')
     try:
         args = parser.parse_args(argv)
         args._io = io or {}
+        _source_selection(args)
+        origin.selection(args)  # No mode may silently ignore partially supplied or unsupported origin flags.
         if args.mode == 'prepare':
             p = prepare_window(args)
             out(json.dumps(dict(plan_digest=p.plan.digest, window_digest=p.window_digest,
@@ -428,6 +491,10 @@ def main(argv=None, out=print, *, io=None):
             return 0
         if args.mode == 'run':
             return run(args, out)
+        if args.mode == 'check-origin':
+            return check_origin(args, out)
+        if args.mode == 'check-source-preflight':
+            return check_source_preflight(args, out)
         if args.mode == 'check-bindings':
             require(args.bindings_config is not None, 'window-bindings-config-missing')
             return check_bindings(args, out)

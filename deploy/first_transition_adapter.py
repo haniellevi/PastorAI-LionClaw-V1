@@ -51,7 +51,8 @@ def adapter_sources():
         'initial_transition_files.py', 'package_backend_release.py',
         'initial_transition_ops.py', 'release_topology.py',
         'first_transition_window.py', 'first_transition_window_backup.py',
-        'first_transition_window_bindings.py'))
+        'first_transition_window_bindings.py', 'first_transition_origin.py',
+        'first_transition_capture_contract.py', 'first_transition_auth_preflight.py'))
 
 
 PREFLIGHT_PROBE = r'''

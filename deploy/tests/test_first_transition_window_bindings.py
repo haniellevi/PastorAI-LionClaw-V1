@@ -665,3 +665,33 @@ def test_nginx_unquoted_hash_cannot_hide_a_second_include(tmp_path):
     with pytest.raises(Refused, match='^window-nginx-topology$'):
         ingress.block(SCOPE, timeout=5)
     assert not ingress.snippet.exists() and not any(c[0].endswith('systemctl') for c in fake.calls)
+
+
+
+def test_nginx_nominal_http11_proxy_round_trip(tmp_path):
+    ingress, fake = _dual_nginx(tmp_path, certbot=True)
+    path = Path(ingress.config.site_path)
+    path.write_text(path.read_text().replace('        proxy_pass', '        proxy_http_version 1.1;\n        proxy_pass'))
+    assert path.read_text().count('proxy_http_version 1.1;') == 1
+    assert ingress.observe(SCOPE, timeout=5) == 'open'
+    assert ingress.block(SCOPE, timeout=5) is True
+    assert ingress.open(SCOPE, timeout=5) is True
+
+
+@pytest.mark.parametrize('fault', ['different-version', 'duplicate', 'server-level', 'http-server'])
+def test_nginx_proxy_version_is_exact_and_location_scoped(tmp_path, fault):
+    ingress, fake = _dual_nginx(tmp_path)
+    path = Path(ingress.config.site_path)
+    text = path.read_text()
+    if fault == 'different-version':
+        text = text.replace('        proxy_pass', '        proxy_http_version 1.0;\n        proxy_pass')
+    elif fault == 'duplicate':
+        text = text.replace('        proxy_pass', '        proxy_http_version 1.1;\n        proxy_http_version 1.1;\n        proxy_pass')
+    elif fault == 'server-level':
+        text = text.replace('    location / {', '    proxy_http_version 1.1;\n    location / {')
+    else:
+        text = text.replace('    listen 80;', '    proxy_http_version 1.1;\n    listen 80;')
+    path.write_text(text)
+    with pytest.raises(Refused, match='^window-nginx-topology$'):
+        ingress.block(SCOPE, timeout=5)
+    assert fake.calls == [] and not ingress.snippet.exists()

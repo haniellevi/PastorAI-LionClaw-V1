@@ -113,6 +113,8 @@ jobs:
             deploy/tests/test_first_transition_host_driver.py deploy/tests/test_first_transition_database.py \
             deploy/tests/test_first_transition_orchestrator.py deploy/tests/test_first_transition_host_contract.py \
             deploy/first_transition_window.py deploy/first_transition_window_backup.py \
+            deploy/first_transition_origin.py deploy/first_transition_capture_contract.py deploy/first_transition_auth_preflight.py \
+            deploy/tests/test_first_transition_origin.py deploy/tests/test_first_transition_auth_preflight.py \
             deploy/first_transition_window_bindings.py deploy/tests/first_transition_bridge_netns.py \
             deploy/tests/test_first_transition_window_backup.py deploy/tests/test_first_transition_window_bindings.py \
             deploy/tests/test_first_transition_window_backup_docker.py \
@@ -131,7 +133,8 @@ jobs:
             deploy/tests/test_first_transition_candidate_writers.py deploy/tests/test_first_transition_window_entry.py \
             deploy/tests/test_first_transition_candidate_network.py \
             deploy/tests/test_first_transition_candidate_network_docker.py \
-            deploy/tests/test_first_transition_libpq_environment.py
+            deploy/tests/test_first_transition_libpq_environment.py \
+            deploy/tests/test_first_transition_origin.py deploy/tests/test_first_transition_auth_preflight.py
 
       - name: Validar adaptador da primeira transição em PG17 descartável
         working-directory: .

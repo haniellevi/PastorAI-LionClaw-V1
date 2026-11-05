@@ -1,5 +1,16 @@
 # Release em lote, outubro de 2026
 
+
+## Admissão de metadados da origem no controlador (05/11/2026)
+
+O controlador inclui explicitamente os contratos de origem, captura e preflight autenticado no conjunto de18fontes que compõe o plano. `check-origin` recebe `--origin-contract 2`, `--origin-plan` e `--origin-observation`; `check-source-preflight` recebe `--source-request` e `--source-report`. Os argumentos devem ser completos, corresponder ao modo e selecionar um único perfil. `prepare` vincula os assessments ao window_digest; retirar ou substituir a seleção altera esse vínculo.
+
+São verificações locais de consistência e freshness dos metadados, sem abrir provedor, credencial, conexão, captura, daemon ou diário. A origem schema2 exige o plano completo R16 e suas identidades/ledger/baseline; o relatório autenticado exige o perfil gerenciado explícito, plano do controlador correspondente, TLS e fechamento, dentro de60segundos. O PASS R19 histórico não é evidência fresca. O contrato não atesta os bytes de artefatos nem o binário gerenciado e não transforma uma declaração do chamador em autorização.
+
+`run` com qualquer desses perfis recusa antes de acessar segredo/host. Captura HOST-DIRECT/schema4 e R4 não são reclassificadas como schema2 nem como recibo A8; também não há fallback automático ao caminho legado. `check`, `check-bindings` e `rehearse-backup` recusam flags incompatíveis. Captura nova no contexto da janela, recuperação/replay independentes e seus vínculos operacionais ainda dependem da implementação/evidência próprias. Nenhuma operação de produção é ativada por esta integração.
+
+Os ensaios nativos e preflights históricos permanecem preservados nas frentes existentes, com seus horários e limites. A integração reutiliza essas provas apenas no escopo correspondente, inclui os dois novos arquivos de testes/lint no CI do controlador e valida o candidato exato antes do pacote preparatório. Não repetir restauração, captura ou replay51 para validar esta mudança de código.
+
 ## Decisão vigente A9 para a primeira transição (30/10/2026)
 
 O dono aprovou preparar quatro candidatos e iniciar somente backend para smoke, com ingresso externo/interno comprovadamente bloqueado. Queue/cron/broadcast permanecem `created`, com StartedAt inicial e restart=no, até a retomada nominal A10. Não chamar `create_and_start` atual nem iniciar consumidores por dependência/Compose. O cron novo com gates fechados também poderia cancelar pendências; parar somente o cron legado não prova preservação na subida. Backend deve ser verificado contra manutenção/agendador no startup. A aprovação atual cobre implementação local em dois blocos e testes exclusivamente simulados, não execução desses comandos ou inventário em ambiente real. Nenhum novo gate é criado nem os existentes são abertos para passar testes.
