@@ -193,6 +193,7 @@ def _validate_nginx_topology(text, config):
         'ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;',
     }
     headers = {
+        'proxy_http_version 1.1;',  # Nominal existing API proxy; no other version inferred.
         'proxy_set_header Host $host;', 'proxy_set_header X-Real-IP $remote_addr;',
         'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;',
         'proxy_set_header X-Forwarded-Proto $scheme;',
