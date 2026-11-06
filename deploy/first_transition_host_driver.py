@@ -106,15 +106,15 @@ def _label(key):
 
 def inspect_template(gate_names):
     """One JSON array per container; the trusted Docker CLI filters env by name before stdout."""
-    quoted = ' '.join('"' + name + '"' for name in _gate_names(gate_names))
+    quoted = ' '.join('"' + name.lower() + '"' for name in _gate_names(gate_names))
     return ('[{{json .Id}},{{json .Image}},' + ','.join(_label(k) for k in (
             PROJECT_LABEL, SERVICE_LABEL, REVISION_LABEL)) + ','
             '{{json .State.Status}},{{json .State.Running}},{{json .State.Paused}},{{json .State.Restarting}},'
             '{{json .State.ExitCode}},{{json .State.StartedAt}},'
-            '{{with .State.Health}}{{json .Status}}{{else}}null{{end}},'
+            '{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}},'
             '{{json .RestartCount}},{{json .HostConfig.RestartPolicy.Name}},{{json .HostConfig.NetworkMode}},'
-            '[{{range .Config.Env}}{{if eq (index (split . "=") 0) ' + quoted + '}}{{json .}},{{end}}{{end}}null],'
-            '[{{range .Mounts}}[{{json .Type}},{{json .Name}},{{json .Source}},{{json .Destination}},'
+            '[{{range .Config.Env}}{{if eq (lower (index (split . "=") 0)) ' + quoted + '}}{{json .}},{{end}}{{end}}null],'
+            '[{{range .Mounts}}[{{json .Type}},{{json (index . "Name")}},{{json .Source}},{{json .Destination}},'
             '{{json .RW}}],{{end}}null],'
             '[{{range $name, $net := .NetworkSettings.Networks}}[{{json $name}},{{json $net.Aliases}},'
             '{{json $net.NetworkID}}],{{end}}null]]')
@@ -519,7 +519,7 @@ def _runner_argv(argv, resume=False):
 
 
 class PopenRunner:
-    """Bounded docker CLI runner for a future authorized operator; never used by tests unmocked.
+    """Bounded Docker CLI runner for a future authorized operator.
 
     The endpoint (``unix://`` socket), docker binary and an operator-provided
     config directory are explicit; the child gets a minimal environment, so no
@@ -528,8 +528,8 @@ class PopenRunner:
     by ID only when constructed with ``resume=True``. On timeout, oversize or error it
     ends only its own CLI process, waits at most ``cleanup_wait`` and never
     retries; an unreaped CLI is counted, not escalated. Killing the CLI does not
-    undo a request the daemon already received. Compatibility with a real
-    Docker CLI/daemon is unverified here.
+    undo a request the daemon already received. Synthetic rehearsals have a
+    bounded scope; compatibility with the nominal production host remains separate.
     """
 
     def __init__(self, *, docker_binary, endpoint, config_dir, popen=None, cleanup_wait=2.0, chunk=4096,

@@ -49,7 +49,24 @@ def adapter_sources():
         'first_transition_host_contract.py', 'first_transition_host_transport.py', 'first_transition_host_driver.py',
         'first_transition_database.py', 'first_transition_candidate.py', 'first_transition_orchestrator.py',
         'initial_transition_files.py', 'package_backend_release.py',
-        'initial_transition_ops.py', 'release_topology.py'))
+        'initial_transition_ops.py', 'release_topology.py',
+        'first_transition_window.py', 'first_transition_window_backup.py',
+        'first_transition_window_bindings.py', 'first_transition_origin.py',
+        'first_transition_capture_contract.py', 'first_transition_auth_preflight.py',
+        'first_transition_native_v2.py', 'first_transition_native_v3.py',
+        'first_transition_native_v3_compare.py', 'first_transition_native_settings.py',
+        'first_transition_native_readers.py', 'first_transition_native_job.py',
+        'first_transition_native_factory.py', 'first_transition_native_events.py',
+        'first_transition_native_transports.py', 'first_transition_native_candidate_ca.py',
+        'first_transition_native_candidate_bootstrap.py', 'first_transition_native_joint.py',
+        'first_transition_native_joint_artifacts.py', 'first_transition_native_joint_capture.py',
+        'first_transition_native_http_reader.py', 'first_transition_native_http_hook.py',
+        'first_transition_native_candidate_admission.py','first_transition_native_candidate_runtime.py',
+        'first_transition_native_supervision.py',
+        'first_transition_c2_adapter.py','first_transition_c2_containment.py','first_transition_c2_cron.py',
+        'first_transition_c2_guards.py','first_transition_c2_lifecycle.py','first_transition_c2_native.py',
+        'first_transition_c2_systemctl.py', 'first_transition_native_cleanup.py',
+        'first_transition_native_gates.py','first_transition_native_dispatch.py','first_transition_native_outer.py','first_transition_native_fence.py'))
 
 
 PREFLIGHT_PROBE = r'''
@@ -166,17 +183,17 @@ class Plan:
                     adapter_sources_digest=digest(self.adapter_sources))
 
 
-def prepare(repo: Path, application_sha=APPLICATION_SHA, executor_sha=EXECUTOR_SHA):
+def prepare(repo: Path, application_sha=APPLICATION_SHA, executor_sha=EXECUTOR_SHA, *, git=None):
     require(application_sha == APPLICATION_SHA and executor_sha == EXECUTOR_SHA, 'unreviewed-release')
-    files = git_tree(repo, application_sha, ('backend/migrations',), SQL_PATH)
+    files = git_tree(repo, application_sha, ('backend/migrations',), SQL_PATH, git)
     migrations = tuple(Migration(Path(name).name, sql) for name, sql in sorted(files.items())
                        if b'OPERATIONAL_AUTHORIZATION=BLOCKED' not in sql)
     baseline = tuple(m.name for m in migrations if m.name < '20261015' and m.name not in MISSING)
     runner = 'backend/scripts/migrate.py'
-    executor = git_tree(repo, executor_sha, (runner,), re.compile(re.escape(runner)))
+    executor = git_tree(repo, executor_sha, (runner,), re.compile(re.escape(runner)), git)
     require(runner in executor, 'executor-missing')
     probe = 'backend/scripts/release_preflight.py'
-    probes = git_tree(repo, application_sha, (probe,), re.compile(re.escape(probe)))
+    probes = git_tree(repo, application_sha, (probe,), re.compile(re.escape(probe)), git)
     require(probe in probes, 'preflight-missing')
     plan = Plan(application_sha, executor_sha, migrations, baseline, executor[runner], probes[probe], adapter_sources())
     require((len(migrations), len(baseline), len(plan.pending)) == (129, 78, 51), 'release-shape')

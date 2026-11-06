@@ -151,3 +151,39 @@ def test_restore_endpoint_is_explicit_and_uuid_scoped(path, restore, accepted):
     else:
         with pytest.raises(Refused, match='local-disposable-endpoint-required'):
             LocalDatabase(url, nonce, restore=restore)
+
+
+def test_controller_sources_include_window_entrypoint_and_its_dependencies():
+    # Recreate only the declared controller files, without generating an archive.
+    import ast
+    from first_transition_adapter import adapter_sources
+
+    sources = dict(adapter_sources())
+    assert {'first_transition_window.py', 'first_transition_window_backup.py',
+            'first_transition_window_bindings.py'} <= sources.keys()
+    deploy = pathlib.Path(__file__).resolve().parents[1]
+    for name in sources:
+        tree = ast.parse((deploy / name).read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                dependency = node.module.split('.')[0] + '.py'
+                if (deploy / dependency).is_file():
+                    assert dependency in sources, (name, dependency)
+            elif isinstance(node, ast.Import):
+                for imported in node.names:
+                    dependency = imported.name.split('.')[0] + '.py'
+                    if (deploy / dependency).is_file():
+                        assert dependency in sources, (name, dependency)
+def test_c2_runtime_change_invalidates_integrated_controller_plan(monkeypatch):
+    import first_transition_adapter as adapter
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[2]
+    before=adapter.prepare(root)
+    original=adapter.read_regular
+    def changed(path,*args,**kwargs):
+        value=original(path,*args,**kwargs)
+        if path.name=='first_transition_c2_lifecycle.py':return value+b'\n# synthetic changed runtime\n'
+        return value
+    monkeypatch.setattr(adapter,'read_regular',changed)
+    after=adapter.prepare(root)
+    assert after.digest!=before.digest, 'C2 runtime changes must invalidate the integrated controller plan'
