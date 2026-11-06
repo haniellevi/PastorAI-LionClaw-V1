@@ -14,8 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Keywords that flag a message as a cell report (any one is enough alongside a
-# number, e.g. "tivemos 12 presentes").
+# Keywords that flag a message as a cell report alongside an extractable
+# value, e.g. "tivemos 12 presentes".
 REPORT_KEYWORDS: tuple[str, ...] = (
     "presente",
     "presentes",
@@ -95,13 +95,12 @@ class CellReport:
 
 
 def looks_like_report(text: str | None) -> bool:
-    """Heuristic: the message mentions a report keyword and at least one number."""
+    """Require a report keyword and a value the report parser can extract."""
     if not text:
         return False
     lowered = text.lower()
     has_kw = any(kw in lowered for kw in REPORT_KEYWORDS)
-    has_num = bool(re.search(r"\d", lowered))
-    return has_kw and has_num
+    return has_kw and not parse_cell_report(text).is_empty
 
 
 def parse_cell_report(text: str | None) -> CellReport:
