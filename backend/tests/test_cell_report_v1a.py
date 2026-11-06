@@ -101,6 +101,36 @@ def test_v1a_text_parser_preserves_legacy_inline_report_prefix() -> None:
     assert candidate.observacoes is None
 
 
+@pytest.mark.parametrize("label", ["presentes", "visitantes", "decisões"])
+@pytest.mark.parametrize("separator", [",", ".", "/"], ids=["comma", "dot", "slash"])
+@pytest.mark.parametrize(
+    "template", ["{label}: 2{separator}5", "2{separator}5 {label}"],
+    ids=["label-first", "value-first"],
+)
+def test_v1a_text_parser_rejects_fractional_counts_without_truncating(
+    label: str, separator: str, template: str,
+) -> None:
+    with pytest.raises(CellReportV1aError):
+        parse_v1a_cell_report_text(template.format(label=label, separator=separator))
+
+
+@pytest.mark.parametrize(
+    ("text", "offering"),
+    [
+        ("presentes: 8, visitantes: 0. decisões: 1; oferta: R$ 42,50", "42.50"),
+        ("8 presentes, 0 visitantes. 1 decisão; oferta: R$ 1.234,50", "1234.50"),
+    ],
+    ids=["label-first", "value-first"],
+)
+def test_v1a_count_validation_preserves_field_punctuation_and_decimal_offering(
+    text: str, offering: str,
+) -> None:
+    candidate = parse_v1a_cell_report_text(text)
+
+    assert (candidate.presentes, candidate.visitantes, candidate.decisoes) == (8, 0, 1)
+    assert candidate.oferta == offering
+
+
 def test_v1a_revision_replaces_only_explicit_aggregate_values() -> None:
     initial = parse_v1a_cell_report_text(
         "presentes: 8; visitantes: 2; decisões: 1; oferta: 42,50"

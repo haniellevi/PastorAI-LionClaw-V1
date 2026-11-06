@@ -173,7 +173,9 @@ def test_aggregate_report_decision_emits_no_individual_tool_call() -> None:
         c["ferramenta"] for c in final["turn_effects"]["tool_calls"]
     ]
     assert "registrar_decisao" not in names
-    assert "Relatório recebido" in final["response"]
+    assert "Relatório recebido" not in final["response"]
+    assert "Esta mensagem não finaliza o relatório" in final["response"]
+    assert "Minha Célula" in final["response"]
     assert "confirmação humana" in final["response"]
     assert "Registrei" not in final["response"]
 

@@ -324,7 +324,7 @@ def _looks_like_report(text: object) -> bool:
     )
     return any(
         token in normalized
-        for token in ("presente", "visitante", "decisao", "oferta", "relatorio")
+        for token in ("presente", "visitante", "decisao", "decisoes", "oferta", "relatorio")
     )
 
 
