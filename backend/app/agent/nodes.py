@@ -445,7 +445,10 @@ def report_capture_node(
     return {
         "route": ROUTE_REPORT,
         "response": (
-            f"Relatório recebido! Resumo informado: {contagens}. "
+            f"Resumo informado: {contagens}. "
+            "Esta mensagem não finaliza o relatório da reunião. "
+            "Para enviá-lo, o líder responsável deve preencher e conferir "
+            "o relatório em Minha Célula, no painel. "
             "As decisões individuais precisam de confirmação humana antes do registro."
         ),
         "turn_effects": effects,
