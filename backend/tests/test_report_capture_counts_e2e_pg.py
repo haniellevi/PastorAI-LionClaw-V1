@@ -38,6 +38,7 @@ _CONTACT_PHONE = "5500000000002"
 _REPORTS = (
     "presentes: 12\nvisitantes: 3\ndecisões: 1",
     "presentes: 12 visitantes: 3 decisões: 1",
+    "Relatório 10/11 - 12 presentes - 3 visitantes - 1 decisão",
 )
 
 
@@ -172,6 +173,9 @@ def test_non_ministerial_report_text_gets_no_report_confirmation(b15_turn, texto
     "Lembrete do relatório de 10/11",
     "Quanto foi a oferta do dia 03/11?",
     "Na reunião de 20/11 teremos visitantes",
+    "Lista de presentes 10/11",
+    "dia 10/11 presentes",
+    "oferta: 10/11/2026",
 ])
 def test_ministerial_message_without_report_values_gets_no_confirmation(b15_turn, texto):
     evolution = _run(b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-NO-VALUES", texto)
@@ -180,6 +184,30 @@ def test_ministerial_message_without_report_values_gets_no_confirmation(b15_turn
     assert len(evolution.calls) == 1
     assert "Relatório recebido" not in evolution.calls[0][2]
     assert _outbound(b15_turn, b15_turn.leader_conversation) == [evolution.calls[0][2]]
+    assert _count(b15_turn, Decision) == 0
+    assert _count(b15_turn, AgentActionProposal) == 0
+
+
+def test_report_date_preserves_explicit_zeroes_and_offering(b15_turn):
+    evolution = _run(
+        b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-DATE-COUNTS",
+        "Relatório de 10/11: presentes: 0 visitantes: 3 decisões: 0 oferta: 12,50",
+    )
+
+    events = _report_events(b15_turn, b15_turn.leader_conversation)
+    assert len(events) == 1
+    assert events[0]["relatorio"] == {
+        "presentes": 0,
+        "visitantes": 3,
+        "decisoes": 0,
+        "oferta": 12.5,
+    }
+    assert len(evolution.calls) == 1
+    response = evolution.calls[0][2]
+    assert "Resumo informado: 0 presentes, 3 visitantes, 0 decisões." in response
+    assert "confirmação humana" in response
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [response]
+    assert b15_turn.llm_calls == []
     assert _count(b15_turn, Decision) == 0
     assert _count(b15_turn, AgentActionProposal) == 0
 

@@ -139,6 +139,48 @@ def test_parse_cell_report_extracts_counts() -> None:
     assert report.has_decisions is True
 
 
+@pytest.mark.parametrize("text", [
+    "Lista de presentes 10/11",
+    "dia 10/11 presentes",
+    "presentes: 10/11/2026",
+    "visitantes = 10 / 11 / 2026",
+    "2026-11-10 decisões",
+    "decisões: 10-11-2026",
+    "oferta: 10/11/2026",
+    "oferta: 2026-11-10",
+    "presentes: 10.11.2026",
+    "presentes10/11",
+    "10/11presentes",
+    "relatório: R$ 10/11/2026",
+    "presentes: 10/11 12",
+    "10 10/11 presentes",
+])
+def test_report_dates_are_not_counts_or_offerings(text: str) -> None:
+    assert parse_cell_report(text).is_empty
+    assert not looks_like_report(text)
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("Relatório de 10/11: presentes: 0 visitantes: 3 decisões: 0 oferta: 12,50",
+     (0, 3, 0, 12.5)),
+    ("presentes 10/11; presentes: 12", (12, None, None, None)),
+    ("presentes 10/11 3 visitantes", (None, 3, None, None)),
+    ("oferta 10/11; oferta: R$ 1.234,56", (None, None, None, 1234.56)),
+    ("Relatório de 2026-11-10: 12 presentes - 3 visitantes", (12, 3, None, None)),
+    ("presentes: 12\nData: 10/11\nvisitantes: 0", (12, 0, None, None)),
+    ("Relatório 10/11 - 12 presentes - 3 visitantes", (12, 3, None, None)),
+    ("Dia 10/11 - 12 presentes", (12, None, None, None)),
+    ("presentes: 12 - 10/11", (12, None, None, None)),
+    ("oferta: R$ 50 - 10/11", (None, None, None, 50.0)),
+    ("Dia 10-11 - 12 presentes", (12, None, None, None)),
+    ("oferta: R$ 1.234.567,89", (None, None, None, 1234567.89)),
+])
+def test_report_keeps_valid_values_around_dates(text: str, expected: tuple) -> None:
+    report = parse_cell_report(text)
+    assert (report.presentes, report.visitantes, report.decisoes, report.oferta) == expected
+    assert looks_like_report(text)
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

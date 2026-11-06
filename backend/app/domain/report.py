@@ -27,6 +27,15 @@ REPORT_KEYWORDS: tuple[str, ...] = (
 )
 
 _INT_AFTER = r"(\d+)"
+# Spaced hyphens separate report fields; dates must keep one separator.
+_NUMERIC_DATE = re.compile(
+    r"(?<!\d)(?:"
+    r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2}-\d{2,4}"
+    r"|\d{4}[ \t]*([./])[ \t]*\d{1,2}[ \t]*\1[ \t]*\d{1,2}"
+    r"|\d{1,2}[ \t]*([./])[ \t]*\d{1,2}[ \t]*\2[ \t]*\d{2,4}"
+    r"|\d{1,2}[ \t]*/[ \t]*\d{1,2}"
+    r")(?!\d)"
+)
 
 
 def _find_count(text: str, *keywords: str) -> int | None:
@@ -107,6 +116,8 @@ def parse_cell_report(text: str | None) -> CellReport:
     """Extract a structured report from free text (best-effort)."""
     if not text:
         return CellReport(None, None, None, None)
+    # Block numeric dates without joining neighbouring labels and values.
+    text = _NUMERIC_DATE.sub("|", text)
     return CellReport(
         presentes=_find_count(text, "presente"),
         visitantes=_find_count(text, "visitante"),
