@@ -1729,6 +1729,170 @@ Este documento e o merge do código não são autorizações operacionais.
 
 ### Critérios de contenção — provas operacionais ainda pendentes
 
+#### Mapa de escritores: fechamento documental de 06/11/2026
+
+**Preparação documental revisada; operação no alvo continua NO-GO.** Esta atualização foi
+autorizada somente para completar o mapa e preparar perguntas, sem enviá-las.
+Não executa contenção, consultas de produção, mudança de gates, backup, restore,
+DDL, deploy ou ativação. Não cria outro controlador ou plano de release.
+
+Referência fixa de código: aplicação candidata `6154c891f8419580d2d015e29e0071ff6525027e`,
+árvore `f86ddb406fffc8f79d959a6b95e51c1561435f48`. O CI verde não identifica a
+versão instalada nem aprova esta operação. As observações do alvo abaixo são de
+06/11, 10:10–10:22 UTC (FENCE) e 17:06–17:12 UTC (leitura delimitada), sem
+revalidação nesta preparação. O código candidato não prova o comportamento do legado.
+
+O registro sanitizado FENCE-TOPOLOGIA-20261106, seção "Controles existentes e
+fronteira que falta", continua sendo a fonte das capacidades observadas. A matriz abaixo completa
+suas lacunas operacionais neste runbook, sem reproduzir o inventário de recursos.
+Uma classe possível não é declarada ativa sem evidência.
+
+**Dono humano autorizado: não designado nos registros examinados, em todas as
+linhas.** A8/C2 são responsáveis por frentes de implementação; uma role, uma conta
+técnica ou o título Owner/Admin não nomeiam o operador autorizado da janela.
+
+Na matriz, **NR** significa NÃO RESOLVIDO: falta atribuição ou prova suficiente
+para a operação. Não significa que o provedor seja incapaz de oferecer solução.
+As três garantias são independentes: impedir novas admissões não comprova que
+pedidos aceitos terminaram, nem que o estado continuará contido até o aplicador
+assumir. TTL, timeout do cliente, lista vazia, contagem estável e observação de
+processo parado são evidências auxiliares, não substitutos dessas garantias.
+
+| ID e canal, com evidência | Dono autorizado | Barreira a novas admissões | Pedidos já aceitos | Manter até a entrega ao aplicador | Fechamento desta passada |
+|---|---|---|---|---|---|
+| W1. API, ações humanas, login e webhooks. Backend observado running; no candidato, login pode gravar sessão, WhatsApp enfileira Redis e Asaas pode gravar receipt/commit [K1]. | Não designado. | Contrato de contenção abrange API e ingressos, inclusive o caminho direto Evolution para backend. Parar só workers ou bloquear só o proxy é insuficiente. `ASAAS_BILLING_ENABLED` não é consultado pelo handler de webhook citado. | Ensaios locais de HTTP/graceful shutdown existem; término e política de retry dos provedores reais não foram demonstrados. Resultado ambíguo não autoriza reenvio. | Cobrir restart/supervisores e todos os ingressos; preservar os gates nominais. Atual autoridade e prova no alvo: NR. | NR interno: operador, ingresso real e conciliação/retry. Não transferir ao Supabase a responsabilidade pelos callbacks Evolution/Asaas. |
+| W2. Queue worker e consumo Redis. Processo observado running; fluxo ready, processing, persistência e ack no candidato [K2]. | Não designado. | Contrato C2 e ensaios de parada do worker são preparação existente; nenhum foi operado no alvo nesta tarefa. Cessar o consumidor não bloqueia os produtores de W1. | Preservar item em curso, claim, retry e resultado de envio desconhecido. Não inferir término por fila momentaneamente vazia. | Impedir reinício/reclaim/retomada até a transferência aprovada, preservando pendências e reconciliação. | NR interno: vínculo entre consumidor real, principal, item em curso e procedimento de pausa preservadora. |
+| W3. Cron worker e manutenção. Processo observado running; a purga V1a do candidato pode ocorrer com release/allowlist fechados [K3]. | Não designado. | Conter o processo e seus gatilhos pelo procedimento aprovado. Gate de envio ou de V1a não é parada geral das escritas de manutenção. | O tick pode continuar após SIGTERM. Prova sintética de fim não atribui pedidos Storage em curso na origem. | Impedir relançamento/ticks e conservar a contenção também dos acessos diretos W8–W11. | NR interno; Q2 ou Q3 conforme o caminho Storage efetivamente atribuído à manutenção. Tick real e resultado no provedor continuam pendentes. |
+| W4. Broadcast avulso. Observado running, sem labels Compose; duas ocorrências de `ALLOW_REAL_SENDS`, somente nomes lidos [E1/E2]. | Não designado. | A contenção precisa identificar o processo avulso; operar somente o projeto Compose não o cobre por inferência. Valor efetivo do gate: não verificado. | O contrato permite concluir a requisição já iniciada. Resultado externo ambíguo exige conciliação, sem retry cego. | Cobrir restart/supervisor e manter o gate nominal aprovado. Fechar gate pode cancelar pendências, conforme [Fases e condições, etapa 2](#fases-e-condições), e não é solução autorizada aqui. | NR interno: identidade, configuração efetiva sanitizada e fim do envio em curso. Não há prova de que envios estejam habilitados. |
+| W5. SQL direto e pooler. Banco sem restrição por IP e sessões observados no instante E1/E2; clientes e pools não atribuídos. | Não designado. | Restrições de rede documentadas cobrem SQL/pooler. O default read-only é parcial e contornável; alcance no projeto/role do migrador precisa ser validado [D1/D2]. | Falta procedimento comprovado para transações/sessões existentes e conexões persistentes do pooler. | Impedir reconexões e alterações concorrentes, conservando só a capacidade nominal necessária ao migrador. | NR interno e Q1: atribuição dos clientes, procedimento suportado e resultado terminal. |
+| W6. Data API, REST/RPC e eventual GraphQL. Data API ligada em E1. | Não designado. | O controle PostgREST é parcial; restrição de rede SQL não cobre HTTPS. Alcance da desativação sobre RPC/GraphQL e propagação: NR [D1/D2]. | Desativar entrada não comprova fim de chamadas antes aceitas ou dos efeitos que iniciaram. | Impedir reativação/reconfiguração e novas emissões até a entrega ao aplicador. | NR e Q1: superfície efetiva, propagação, chamadas em curso e transferência de controle. |
+| W7. Auth gerenciado do provedor. Produto candidato usa Clerk; atividade mutadora de Supabase Auth não foi demonstrada [E1/K5]. | Não designado. | Não presumir que logout, chave revogada ou restrição de rede SQL desative todas as operações Auth por HTTPS [D1/D2]. | Suspensão e fim das operações gerenciadas que pertençam ao corte: NR. Distinguir esse serviço do login da aplicação em W1. | Controlar clientes e operações administrativas pertinentes; não depender somente da expiração de token. | NR interno e Q1. Não declarar o serviço ativo nem dispensá-lo sem atribuição. |
+| W8. Storage standard/REST e chamadas privilegiadas. Storage, grants e principais privilegiados observados; permissão efetiva de cada emissor não atribuída [E1]. | Não designado. | Cobrir upload, substituição, cópia, movimento e exclusão, inclusive identidade privilegiada. Toggle Data API ou S3 não comprova bloqueio dessa superfície. | Falta identificação e conciliação dos pedidos admitidos e dos resultados tardios/ambíguos. | Manter restrição para as identidades capazes de escrever e impedir retries/reabertura. | NR e Q2: controle suportado, pedidos aceitos e resultado terminal. |
+| W9. Storage TUS/resumable. Capacidade documentada; uso e sessões no alvo não atribuídos. | Não designado. | Cobrir criação e `PATCH` de retomada nas URLs já emitidas, inclusive signed upload token [D3]. | URL com validade própria não prova fim de upload nem encerramento seguro do pedido em curso. | Impedir retomada e recriação automática pelo cliente, mantendo prova do resultado terminal. | NR e Q2 por caminho TUS; não transformar validade documentada em tempo de espera aprovado. |
+| W10. URLs de upload assinadas do Storage. Emissão/uso no alvo não atribuídos. | Não designado. | Chave de assinatura própria, separada do Auth. Rotação isolada mantém a anterior válida; revogação documentada nega URLs antigas [D4]. Disponibilidade e efeitos no alvo: NR. | A documentação consultada não demonstra cancelamento/conclusão de requisição previamente aceita pela revogação. | Conter também emissores e impedir reativação da chave durante a janela. Não estender esse controle a SigV4 por inferência. | NR e Q2 por caminho signed. URLs de leitura/cache CDN não são escritores; purge de CDN não vira requisito automático de contenção de escrita. |
+| W11. S3, presigned SigV4 e multipart. S3 ligado e zero access keys dedicadas vistos em E1; isso não exclui outras autorizações. | Não designado. | Cobrir protocolo, access keys, session tokens e URLs presigned pertinentes. Não presumir que URL Signing Keys do Storage revogue SigV4 [D5/D6]. | Multipart tem mecanismos próprios; lista vazia, aborto automático por prazo ou retorno local de erro não demonstram ausência de PUT, parts ou complete em curso. | Manter capacidades contidas contra novos clientes, retomadas e conclusão tardia até a transferência de controle. | NR e Q3: escopo das credenciais, pedidos em curso e garantia suportada de término. |
+| W12. Gatilhos do host, banco e Edge. E1 registrou cron do host ativo, crontab inconclusivo, `cron.job`/`net.http_request_queue` ausentes e nenhuma Edge Function retornada naquele corte. Triggers SQL do candidato acompanham suas transações [K4]. | Não designado. | Atribuir apenas gatilhos pertinentes; cron da aplicação é W3. Não inventar pg_cron, HTTP trigger ou Edge ativo. Monitor/backup também não são mutadores de domínio por nome. | Jobs reais, possíveis efeitos HTTP e supervisores pertinentes: NR. Triggers transacionais não são automaticamente escritores autônomos. | Manter o agendamento pertinente sob controle nominal sem atingir outros sites/recursos do host. | NR interno; Q1 só para limites de serviços gerenciados que o inventário pertinente confirmar. Ausência histórica de objetos não prova ausência atual de automação. |
+| W13. Administração humana e automações privilegiadas: SQL Editor, MCP, CLI e console [E1]. | Não designado. | Atribuir emissores e autoridade de mudança; principal privilegiado pode escapar de controles destinados a clientes comuns. Roles e contas não identificam a pessoa autorizada. | Operações administrativas já iniciadas e efeitos assíncronos: NR. | Impedir alterações concorrentes, reabertura de canais e transferência com lacuna. A exclusividade do migrador precisa ser explícita. | NR interno: responsável, canais pertinentes e compromisso/procedimento operacional verificável. |
+
+**Estado Redis a preservar, não um escritor adicional.** O candidato distingue
+ready/processing/dead, retries, marcadores de processados, registros, leases e
+locks de recuperação de usos com TTL, como heartbeat/rate limit [K2]. Esses
+estados não foram declarados descartáveis nem integralmente recuperáveis de
+outro lugar. Os dois itens históricos da dead permanecem fora de leitura,
+replay e limpeza. Escopo do corte/recuperação precisa classificar a função de
+cada estado pertinente, sem fazer backup de todo cache por rotina nem apagar
+pendências para obter quiescência aparente.
+
+**Resultado fechado desta passada: NO-GO para a janela no ambiente atual.**
+Todas as classes terminaram com lacuna explícita; nenhuma ganhou um dono ou
+uma garantia por inferência. Além da atribuição interna, os pontos críticos
+são conclusão dos pedidos já aceitos e manutenção da barreira nos caminhos
+W5–W11/W13. O mapa está preparado; a capacidade operacional continua pendente.
+R4 original permanece 8/9, sem aceitação automática de recuperação integral.
+R9/replay51, Storage53 e custódia já comprovados são reutilizados, sem repetição.
+Pós-DDL não há rollback universal nem retorno ao legado demonstrados.
+
+#### Perguntas ao provedor: rascunhos, NÃO ENVIADOS
+
+Consulta técnica sobre capacidades suportadas, sem solicitar execução. Antes
+de qualquer envio, o operador autorizado deve definir o projeto e o canal
+privado de suporte. Não anexar chaves, DSNs, URLs assinadas, logs brutos, IDs de
+pessoas ou conteúdo de banco/objetos. Pedir resposta por caminho, com fonte,
+limites, efeitos e forma observável de reconhecer término; resposta genérica
+não fecha uma linha NR.
+
+1. **Q1, SQL/pooler e serviços gerenciados (W5–W7):** qual procedimento
+   suportado permite impedir novas escritas e reconhecer a conclusão
+   das transações e chamadas já aceitas, mantendo apenas o migrador autorizado?
+   Diferenciar conexões diretas, pooler, REST/RPC/GraphQL e Auth; esclarecer o
+   alcance/propagação dos controles e a manutenção desse estado até a entrega
+   ao aplicador. Indicar explicitamente os caminhos sem essa garantia e os
+   efeitos sobre tarefas gerenciadas pertinentes.
+2. **Q2, Storage standard, TUS e signed (W8–W10):** quais controles e sinais
+   suportados permitem impedir novas mutações e reconhecer o resultado terminal
+   das já aceitas, separadamente para standard, retomadas TUS e upload assinado?
+   Explicitar o tratamento de URLs/sessões já emitidas, requisições em curso,
+   retries e resultado desconhecido, inclusive o que a revogação da URL Signing
+   Key faz e não faz. Informar os limites de validade/expiração por caminho,
+   sem equipará-los a comprovação de término.
+3. **Q3, S3/SigV4 e multipart (W11):** qual procedimento suportado contém as
+   capacidades pertinentes de access key, session token e presigned SigV4 e
+   comprova término/conciliação de PUT, parts e complete já aceitos?
+   Diferenciar bloqueio de nova admissão, semântica de abort/listagem e manutenção
+   do bloqueio contra retomada/conclusão tardia. Informar o que fica sem garantia
+   e não presumir cobertura pela URL Signing Key do Storage.
+
+#### Pendências internas, fora das perguntas ao provedor
+
+- Designar operador humano autorizado e atribuir os processos, pools, emissores
+  e gatilhos pertinentes. Reutilizar os fatos datados e pedir somente a leitura
+  nominal que faltar; não iniciar inventário real nesta preparação.
+- Definir o corte e a conciliação de filas, objetos, resultados externos
+  desconhecidos e reentregas de Evolution/Asaas. O Supabase não responde pelo
+  retry desses provedores. Não reenviar mensagens ou cobranças para testar.
+- Definir a configuração nominal a preservar, inclusive origem da duplicidade
+  vista só no legado. Gates de envio/cobrança não substituem contenção e não
+  devem ser fechados para concluir o mapa.
+- Decidir admissibilidade do R4 histórico e cobertura conjunta DB/Storage/Redis
+  pertinente. Preservar 8/9 e o companion; não alterar guarda/catálogo nem supor
+  que ACLs atuais iguais sejam uma autorização de recuperação integral.
+
+#### Fontes e alcance do mapa
+
+- **E1:** registro sanitizado FENCE-TOPOLOGIA-20261106, observação de 06/11,
+  10:10–10:22 UTC, seções de topologia, sessões, gatilhos e Storage. Contagens e
+  logs não são prova de barreira global.
+- **E2:** registro sanitizado "Leitura delimitada autorizada do alvo",
+  de 06/11, 17:06–17:12 UTC. Somente metadados; sem atribuição dos principais
+  efetivos dos pools ou leitura dos valores de gates.
+- **E3:** registro sanitizado RESTORE-R4-ACL-DELTA-20261104, seção "Dois
+  privilégios iniciais: fidelidade histórica separada". O companion privado não
+  foi aberto ou anexado.
+  Identificadores SHA-256 dos registros sanitizados: E1
+  `ddb4e821df762ea5ce1cde7bcb020f5ce0f8670095142c51ae9c2b8649c42458`;
+  E2 `96c5bce642d1779910fad5c5126ee24c92e20ae03cf4b4215e43cbf9d849f251`;
+  E3 `582d0f3ea854aab151c4310e97d6daad2c5ad894399e023a20600b23d2d22490`.
+  Eles identificam os registros, sem provar atualidade, quiescência ou conteúdo
+  ausente. E2 reúne consultas distintas: Supabase 17:06:57–17:09:44 e VPS 17:12:46 UTC,
+  sem snapshot conjunta. Não são resultados verificáveis somente pela PR.
+- **K1:** fonte candidata pinada: [login/sessão](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/app/routers/auth.py#L326),
+  [ingresso WhatsApp](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/app/routers/whatsapp.py#L392)
+  e [webhook Asaas/receipt](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/app/routers/subscription.py#L3357).
+- **K2:** [fila e estados Redis no candidato](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/app/workers/queue_worker.py#L133).
+  Contrato de contenção C2 e ensaios históricos deste runbook não equivalem a
+  instalação/execução do controlador na origem; a frente permanece pausada.
+- **K3:** [purga V1a no cron candidato](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/app/workers/cron_worker.py#L400).
+- **K4:** [triggers SQL no candidato](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/migrations/0004_triggers.sql#L99).
+- **K5:** [cliente Clerk na aplicação candidata](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/6154c891f8419580d2d015e29e0071ff6525027e/backend/app/main.py#L139).
+- **D1:** [read-only parcial do projeto Hosted](https://supabase.com/kb/troubleshooting/putting-a-project-in-read-only-mode-or-freezing-writes-during-a-migration-b5a2c7).
+- **D2:** [escopo das restrições de rede](https://supabase.com/docs/guides/platform/network-restrictions),
+  que não cobrem as APIs HTTPS.
+- **D3:** [TUS: URL de upload, retomada e token assinado](https://supabase.com/docs/guides/storage/uploads/resumable-uploads).
+- **D4:** [URL Signing Keys](https://supabase.com/docs/guides/storage/security/signing-keys).
+  Rotação e revogação são operações distintas; não foram executadas.
+- **D5:** [autenticação S3](https://supabase.com/docs/guides/storage/s3/authentication)
+  e [compatibilidade/SigV4](https://supabase.com/docs/guides/storage/s3/compatibility).
+- **D6:** [uploads S3 e multipart](https://supabase.com/docs/guides/storage/uploads/s3-uploads).
+  D1–D6 são documentação oficial mutável, consultada em 06/11/2026, sem
+  validação da configuração do plano/alvo. Context7 foi usado como complemento.
+  As fontes consultadas não demonstram drain
+  global ou rollback de efeitos externos; nenhum procedimento delas foi executado.
+
+Revisão independente realizada via Claude Code, modelo `claude-opus-5-5`,
+esforço solicitado `high`: **GO PARA ENTREGA DOCUMENTAL**, sem bloqueadores.
+O revisor leu o trecho sanitizado e os excertos fornecidos, sem executar testes
+ou acessar produção. Fontes e preservação dos bytes anteriores foram conferidas
+pelo Codex. Esse GO não autoriza uma operação no alvo. O registro da revisão e
+os registros E1–E3 ficam em custódia privada autorizada; não são artefatos desta
+PR nem evidência verificável pelo CI. Solicitar acesso pelo canal autorizado,
+sem anexar dumps, conteúdo pessoal ou segredos. Os resumos datados acima não
+substituem a conferência nominal anterior a uma operação.
+
+#### Histórico de contenção e ensaios anteriores
+
+O texto abaixo preserva os cortes e limites originais. Não ordena repetir provas
+válidas nem prevalece sobre o NO-GO e o escopo documental acima.
+
 A contenção do legado precisa identificar explicitamente backend, queue,
 cron e broadcast: este último não tem labels Compose na leitura de 24/10.
 Parar somente workers não bloqueia escritas humanas nem webhooks na API.
