@@ -231,6 +231,17 @@ jobs:
                              cwd=capsule, env=env, check=True)
           PY
 
+      - name: Validar fronteiras da fence com Storage e PG simulados
+        working-directory: .
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTHON_DOTENV_DISABLED: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          "$RUNNER_TEMP/pip-audit-venv/bin/ruff" check deploy/tests/test_writer_fence_boundaries.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -B -m pytest -q --tb=short \
+            -p no:cacheprovider --rootdir=. --confcutdir=. deploy/tests/test_writer_fence_boundaries.py
+
       - name: Validar adaptador da primeira transição em PG17 descartável
         working-directory: .
         run: |
