@@ -201,6 +201,12 @@ export interface ReportRecord {
 
 /** Relatório consolidado da reunião (ReportOut). */
 export interface ReportOut {
+  schema?: "cell-report/v2";
+  totals?: {
+    presentes: number;
+    visitantes: number;
+    decisoes: number;
+  };
   meeting_id: string;
   /** ISO date (YYYY-MM-DD). */
   data: string;
