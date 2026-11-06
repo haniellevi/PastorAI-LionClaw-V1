@@ -103,11 +103,17 @@ def test_report_routes_to_report_capture() -> None:
     ("accepted_version", "expected_route"),
     [("v1", ROUTE_ONBOARDING), (None, ROUTE_CONSENT)],
 )
+@pytest.mark.parametrize("text", [
+    "Lembrete do relatório de 10/11",
+    "Lista de presentes 10/11",
+    "dia 10/11 presentes",
+    "oferta: 10/11/2026",
+])
 def test_report_reminder_without_values_does_not_capture_empty_report(
-    accepted_version: str | None, expected_route: str,
+    accepted_version: str | None, expected_route: str, text: str,
 ) -> None:
     final = _turn(
-        _state(texto="Lembrete do relatório de 10/11"),
+        _state(texto=text),
         _context(accepted_version=accepted_version, roles=frozenset({"pastor"})),
     )
     assert final["route"] == expected_route
