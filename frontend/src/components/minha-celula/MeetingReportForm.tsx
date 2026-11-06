@@ -188,6 +188,42 @@ export function MeetingReportForm({
   if (!report) return null;
 
   const locked = report.relatorio_status === "enviado";
+  const totals = locked && report.schema === "cell-report/v2" ? report.totals : undefined;
+  if (totals) {
+    return (
+      <div className="mc-report">
+        <header className="mc-report-head">
+          <div>
+            <h2>{formatMeetingDate(report.data)}</h2>
+            {report.tema ? <p>Tema: {report.tema}</p> : null}
+          </div>
+          <span className="mc-report-status is-sent"><span aria-hidden="true" />Enviado</span>
+        </header>
+        <div className="mc-report-locked" role="status">
+          <Icon name="lock" />
+          <span>Relatório enviado e bloqueado para edição.</span>
+        </div>
+        <section className="card card-pad" aria-label="Resumo do relatório">
+          <h3>Resumo do relatório</h3>
+          <p>Os totais foram informados sem identificação individual.</p>
+          <ul className="mc-report-summary-list">
+            {([
+              ["Presença", `${totals.presentes} ${totals.presentes === 1 ? "presente" : "presentes"}`, "team"],
+              ["Visitantes", `${totals.visitantes} ${totals.visitantes === 1 ? "visitante" : "visitantes"}`, "user"],
+              ["Decisões", `${totals.decisoes} ${totals.decisoes === 1 ? "decisão" : "decisões"}`, "document"],
+              ["Oferta", report.oferta_valor == null ? "Oferta não informada" : report.oferta_valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), "send"],
+            ] as const).map(([label, value, icon]) => (
+              <li key={label}>
+                <span className="mc-report-summary-icon" aria-hidden="true"><Icon name={icon} /></span>
+                <span><strong>{label}</strong><small>{value}</small></span>
+              </li>
+            ))}
+          </ul>
+          {report.observacoes ? <p>Observações: {report.observacoes}</p> : null}
+        </section>
+      </div>
+    );
+  }
   const present = report.presencas.filter((presence) => presence.estado === "compareceu").length;
   const attendanceSaved = members.length > 0 && report.presencas.length >= members.length;
   const summaries = [
