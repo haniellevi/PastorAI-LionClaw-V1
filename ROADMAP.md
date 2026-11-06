@@ -1,5 +1,30 @@
 # Igreja 12 — roteiro único
 
+## Mapa de escritores e consultas ao provedor (06/11/2026)
+
+Preparação documental concluída no
+[runbook existente](docs/ops/RELEASE-LOTE-2026-10.md#mapa-de-escritores-fechamento-documental-de-06112026):
+13 classes/caminhos, com fonte, dono autorizado, barreira a novas admissões,
+pedidos já aceitos e manutenção até o aplicador assumir. Lacunas operacionais
+permanecem explícitas; nenhum operador foi designado por inferência.
+
+Três perguntas estão preparadas e **não foram enviadas**: Q1 para SQL/pooler,
+Data API/Auth; Q2 para Storage standard/TUS/signed; Q3 para S3/SigV4/multipart.
+Nomeação do operador, atribuição dos clientes/pools, conciliação de efeitos e
+critério de recuperação são decisões internas, separadas do suporte do provedor.
+
+**NO-GO para operação no ambiente atual, pelas evidências disponíveis.** O mapa
+não cria autoridade, não prova drain e não aprova janela, DDL, deploy ou ativação.
+A referência fixa do candidato é 6154c891/árvore f86ddb40; observações do alvo são
+de 06/11, 10:10–10:22 e 17:06–17:12 UTC, sem nova consulta nesta preparação. Os registros
+sanitizados de suporte estão identificados no runbook e mantidos fora desta PR.
+
+R4 original permanece 8/9; recuperação conjunta/Redis pertinente e configuração
+efetiva seguem pendentes. Reaproveitar as provas válidas, sem relaxar guardas ou
+repetir restores por rotina. A preparação não retoma infraestrutura pausada nem
+altera gates. Próximo passo: designar operador autorizado e decidir sobre as
+consultas preparadas. Os planos históricos abaixo não substituem esses limites.
+
 ## PLANO (não executado): artefatos de imagem/painel + A7–A10 até o cutover (31/10/2026)
 
 Plano de preparação aprovado só para leitura. `[OK-DONO]` marca etapa que exige autorização nominal do dono na hora. Nada aqui foi executado.
