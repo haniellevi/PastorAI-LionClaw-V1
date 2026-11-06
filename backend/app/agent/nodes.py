@@ -437,13 +437,15 @@ def report_capture_node(
     effects["events"].append(
         {"evento": "report_captured", "payload": {"relatorio": resumo}}
     )
+    contagens = ", ".join((
+        f"{report.presentes} presentes" if report.presentes is not None else "presentes não informados",
+        f"{report.visitantes} visitantes" if report.visitantes is not None else "visitantes não informados",
+        f"{report.decisoes} decisões" if report.decisoes is not None else "decisões não informadas",
+    ))
     return {
         "route": ROUTE_REPORT,
         "response": (
-            "Relatório recebido! Resumo informado: "
-            f"{report.presentes or 0} presentes, "
-            f"{report.visitantes or 0} visitantes, "
-            f"{report.decisoes or 0} decisões. "
+            f"Relatório recebido! Resumo informado: {contagens}. "
             "As decisões individuais precisam de confirmação humana antes do registro."
         ),
         "turn_effects": effects,

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from langgraph.runtime import Runtime
 
 from app.agent.context import LegacyTermContext, TrustedAgentContext
@@ -95,6 +97,23 @@ def test_report_routes_to_report_capture() -> None:
     # Relatório é ação ministerial (#10b Fase 2): só roteia p/ report se líder.
     state = _state(texto="Relatório: 10 presentes, 2 decisões")
     assert _route(state, _context(roles=frozenset({"pastor"}))) == ROUTE_REPORT
+
+
+@pytest.mark.parametrize(
+    ("accepted_version", "expected_route"),
+    [("v1", ROUTE_ONBOARDING), (None, ROUTE_CONSENT)],
+)
+def test_report_reminder_without_values_does_not_capture_empty_report(
+    accepted_version: str | None, expected_route: str,
+) -> None:
+    final = _turn(
+        _state(texto="Lembrete do relatório de 10/11"),
+        _context(accepted_version=accepted_version, roles=frozenset({"pastor"})),
+    )
+    assert final["route"] == expected_route
+    assert "Relatório recebido" not in final["response"]
+    assert all(event["evento"] != "report_captured" for event in final["turn_effects"]["events"])
+    assert final["turn_effects"]["tool_calls"] == []
 
 
 def test_report_from_non_ministerial_routes_to_onboarding() -> None:

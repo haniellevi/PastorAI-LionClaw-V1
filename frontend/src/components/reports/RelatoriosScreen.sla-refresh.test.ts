@@ -17,7 +17,7 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Page } from "@/lib/dashboard-api";
+import { ApiError, type Page } from "@/lib/dashboard-api";
 import type { ReportItem } from "@/lib/reports-api";
 
 // Objeto ESTÁVEL entre renders: a tela memoiza `load` a partir de
@@ -69,7 +69,11 @@ function page(status: "pendente" | "atrasado" | "recebido"): Page<ReportItem> {
 
 // ---- requisições controladas ------------------------------------------------
 /** Requisições em voo, na ordem de disparo. */
-let pending: Array<{ semana: string | undefined; resolve: (p: Page<ReportItem>) => void }>;
+let pending: Array<{
+  semana: string | undefined;
+  resolve: (p: Page<ReportItem>) => void;
+  reject: (error: Error) => void;
+}>;
 
 async function resolveRequest(index: number, p: Page<ReportItem>) {
   const alvo = pending[index];
@@ -77,6 +81,15 @@ async function resolveRequest(index: number, p: Page<ReportItem>) {
   pending.splice(index, 1);
   await act(async () => {
     alvo.resolve(p);
+  });
+}
+
+async function rejectRequest(index: number, error: Error) {
+  const alvo = pending[index];
+  if (!alvo) throw new Error(`não há requisição em voo na posição ${index}`);
+  pending.splice(index, 1);
+  await act(async () => {
+    alvo.reject(error);
   });
 }
 
@@ -93,11 +106,12 @@ let root: Root;
 beforeEach(() => {
   vi.useFakeTimers();
   pending = [];
+  auth.expireSession.mockClear();
   apiMock.fetchReports.mockReset();
   apiMock.fetchReports.mockImplementation(
     (_token: string, semana?: string) =>
-      new Promise<Page<ReportItem>>((resolve) => {
-        pending.push({ semana, resolve });
+      new Promise<Page<ReportItem>>((resolve, reject) => {
+        pending.push({ semana, resolve, reject });
       }),
   );
   container = document.createElement("div");
@@ -143,6 +157,83 @@ function clickTab(label: string) {
 }
 
 describe("RelatoriosScreen — refetch na fronteira do SLA (P2 #221)", () => {
+  it.each(["Semana atual", "Histórico"])(
+    "remove relatório e modal após recusa de acesso no refresh de %s",
+    async (tab) => {
+      render();
+      await resolveRequest(0, page("pendente"));
+      if (tab === "Histórico") clickTab(tab);
+      else await advance(60_000);
+      const received = page("recebido");
+      received.items[0] = { ...received.items[0]!, presentes: 10, oferta: 30, observacoes: "Observação sintética reservada" };
+      await resolveRequest(0, received);
+      clickTab("Ver relatório");
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(text()).toContain("Observação sintética reservada");
+
+      await advance(60_000);
+      await rejectRequest(0, new ApiError(403, "Não foi possível carregar os relatórios."));
+
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(text()).not.toContain("Célula Zoe");
+      expect(text()).not.toContain("Observação sintética reservada");
+      expect(text()).not.toContain("Nenhuma reunião");
+      expect(text()).not.toContain("Tudo em dia!");
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain("Você não tem permissão para consultar os relatórios.");
+      expect(auth.expireSession).not.toHaveBeenCalled();
+
+      // Uma autorização posterior permite consultar novamente, sem reabrir o modal.
+      await advance(60_000);
+      await resolveRequest(0, received);
+      expect(text()).toContain("Célula Zoe");
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+    },
+  );
+
+  it("preserva dados e modal quando o refresh falha por indisponibilidade", async () => {
+    render();
+    await resolveRequest(0, page("recebido"));
+    clickTab("Ver relatório");
+    await advance(60_000);
+    await rejectRequest(0, new ApiError(503, "Serviço indisponível."));
+    expect(text()).toContain("Célula Zoe");
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("não confunde a nova tentativa após 403 com uma semana sem reuniões", async () => {
+    render();
+    await resolveRequest(0, page("recebido"));
+    await advance(60_000);
+    await rejectRequest(0, new ApiError(403, "Acesso negado."));
+    clickTab("Tentar novamente");
+    expect(container.querySelector(".skeleton")).not.toBeNull();
+    expect(text()).not.toContain("Nenhuma reunião");
+    expect(text()).not.toContain("Tudo em dia!");
+    await resolveRequest(0, page("recebido"));
+    expect(container.querySelector(".skeleton")).toBeNull();
+    expect(text()).toContain("Célula Zoe");
+  });
+
+  it("uma resposta antiga não repõe os dados após a recusa mais recente", async () => {
+    render();
+    clickTab("Histórico");
+    await rejectRequest(1, new ApiError(403, "Acesso negado."));
+    await resolveRequest(0, page("recebido"));
+    expect(text()).not.toContain("Célula Zoe");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Você não tem permissão");
+  });
+
+  it("uma recusa antiga não apaga a consulta autorizada mais recente", async () => {
+    render();
+    clickTab("Histórico");
+    await resolveRequest(1, page("recebido"));
+    await rejectRequest(0, new ApiError(403, "Acesso negado."));
+    expect(text()).toContain("Célula Zoe");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("migra Pendente -> Atrasado após 60s, sem recarregar a página", async () => {
     render();
     expect(pending).toHaveLength(1);

@@ -109,10 +109,23 @@ def test_terminal_sair_token_is_an_explicit_optout_without_broadening_phrases() 
 
 
 # ---- report parsing (US-24 / delta-041) -----------------------------------
-def test_looks_like_report() -> None:
-    assert looks_like_report("relatório: 10 presentes, 2 visitantes")
-    assert not looks_like_report("bom dia, tudo bem?")
-    assert not looks_like_report(None)
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("relatório: 10 presentes, 2 visitantes", True),
+        ("presentes: 0", True),
+        ("presentes: 12", True),
+        ("relatório: R$ 50,00", True),
+        ("Lembrete do relatório de 10/11", False),
+        ("Quanto foi a oferta do dia 03/11?", False),
+        ("Na reunião de 20/11 teremos visitantes", False),
+        ("R$ 50,00", False),
+        ("bom dia, tudo bem?", False),
+        (None, False),
+    ],
+)
+def test_looks_like_report(text: str | None, expected: bool) -> None:
+    assert looks_like_report(text) is expected
 
 
 def test_parse_cell_report_extracts_counts() -> None:

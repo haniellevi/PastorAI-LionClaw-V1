@@ -110,7 +110,7 @@ export function RelatoriosScreen() {
       const requestId = ++latestRequest.current;
       inFlight.current = true;
       if (!background) {
-        if (mode === "initial") setLoading(true);
+        setLoading(true);
         setError(null);
       }
       try {
@@ -124,8 +124,15 @@ export function RelatoriosScreen() {
       } catch (err) {
         if (handleSessionError(err)) return;
         if (requestId !== latestRequest.current) return;
-        // Falha de poll é silenciosa: mantém na tela os dados já carregados,
-        // sem piscar banner de erro, e tenta de novo no ciclo seguinte.
+        if (err instanceof ApiError && err.status === 403) {
+          setReports([]);
+          setDetailId(null);
+          setLoaded(false);
+          setError("Você não tem permissão para consultar os relatórios.");
+          return;
+        }
+        // Indisponibilidade no poll mantém os dados já carregados. Recusa de
+        // acesso acima remove também o detalhe e informa a perda de permissão.
         if (!background) {
           setError(
             err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios.",
