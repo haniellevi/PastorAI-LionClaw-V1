@@ -26,7 +26,8 @@ from first_transition_adapter import digest, prepare
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
                                         verify_candidate_release)
 from first_transition_orchestrator import assemble, load_config
-from first_transition_window_backup import REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
+from first_transition_window_backup import (REHEARSAL_SCHEMA, OriginWindowBackup, OriginWindowPorts,
+                                            WindowBackup, WindowBackupConfig)
 from first_transition_window_bindings import (UnknownWriters, bindings_from_dict, validate_bindings_config)
 from initial_transition_files import Journal, read_regular
 from initial_transition_ops import Refused, require
@@ -65,6 +66,10 @@ CODES = frozenset({
     'window-origin-binding', 'window-origin-window-proof-pending',
     'window-source-auth-arguments', 'window-source-auth-mode', 'window-source-auth-binding',
     'window-source-auth-preflight-only',
+    'window-origin-capability-binding', 'window-origin-provider-failed', 'window-origin-proof-invalid',
+    'window-origin-request', 'window-origin-already-used',
+    'window-origin-provider-not-admitted',
+    'window-origin-native-factory-binding', 'window-origin-native-admission-incomplete',
 })
 
 
@@ -165,6 +170,8 @@ def prepare_window(args):
         ('postgres', '-c', 'shared_preload_libraries='),
         ('postgres', '-c', 'shared_preload_libraries=pg_stat_statements'),
         ('postgres', '-c', 'shared_preload_libraries=pgsodium,pg_stat_statements'),
+        ('postgres', '-c', 'shared_preload_libraries=', '-c', 'session_preload_libraries=',
+         '-c', 'local_preload_libraries='),
     ), 'window-backup-isolation')
     require(os.path.isabs(args.env_file) and '\x00' not in args.env_file and ENV_NAME.fullmatch(args.env_var),
             'window-env-file')
@@ -297,10 +304,14 @@ def _source_version(connect, expected_user):
     return rows[0][0] // 10000
 
 
-def _readiness(args, prepared, secret, database, ingress):
+def _readiness(args, prepared, secret, database, ingress, source_transports=None):
     c, b, io = prepared.config, prepared.backup, args._io
     verify_candidate_release(c.repo, c.candidate, c.manifest, package_manifest_sha256=c.package_manifest_sha256,
                              git=io.get('git'))
+    if source_transports is not None:
+        require(c.candidate.native_ca_override is not None
+            and read_regular(Path(c.candidate.native_ca_override),65536) == source_transports.candidate_override(),
+            'native-candidate-override')
     for path in (c.state_dir, c.migration_workdir, c.candidate.release_root, c.docker[2], b.backup_root, b.clone_workdir):
         # Runtime backup directories may be named "backups": inspect only metadata,
         # never pass their contents to the artifact reader or generate anything here.
@@ -327,7 +338,9 @@ def _readiness(args, prepared, secret, database, ingress):
     check_closed_gates(file_env, code='window-compose')
     prefix = (c.docker[0], '--config', c.docker[2], '--host', c.docker[1])
     CandidatePort(c.candidate, runner=CandidateRunner(c.candidate, docker_binary=c.docker[0], endpoint=c.docker[1],
-                                                     config_dir=c.docker[2], popen=io.get('popen'))).project_ids()
+                                                     config_dir=c.docker[2], popen=io.get('popen'),
+                  native_runtime=source_transports.candidate_runtime if source_transports is not None else None),
+                  source_transports=source_transports).project_ids()
     platform = _read_command(args, (*prefix, 'info', '--format', PLATFORM_TEMPLATE))
     architectures = {'x86_64': 'amd64', 'amd64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}
     require(isinstance(platform, list) and len(platform) == 2 and platform[0] == 'linux'
@@ -369,7 +382,11 @@ def _readiness(args, prepared, secret, database, ingress):
         require(service.get('image') == c.candidate.image and service.get('restart') == 'no'
                 and isinstance(env, dict) and env.get('PASTORAI_RELEASE_SHA') == c.candidate.sha, 'window-compose')
         check_closed_gates(env.items(), code='window-compose')
-        check_candidate_database(env.items(), secret())
+        if source_transports is not None:
+            source_transports.candidate_environment(env.items(),secret())
+            source_transports.candidate_compose(service,role=role)
+        else:
+            check_candidate_database(env.items(), secret())
         ports = service.get('ports', [])
         require(ports == [] if role != 'backend' else isinstance(ports, list) and len(ports) == 1
                 and ports[0].get('host_ip') == '127.0.0.1' and str(ports[0].get('published')) == '8000'
@@ -380,27 +397,59 @@ def _readiness(args, prepared, secret, database, ingress):
 
 
 def run(args, out=print):
-    require(not _source_selection(args), 'window-source-auth-preflight-only')
-    # Schema 2 is a preflight prerequisite, not a fresh-window recovery receipt.
-    # Refuse before credential, daemon, journal or host access; never downgrade.
-    require(not origin.selection(args), 'window-origin-window-proof-pending')
+    selected_source, selected_origin = _source_selection(args), origin.selection(args)
+    ports = args._io.get('origin_window_ports')
+    # Normal CLI has no native implementation: metadata alone still refuses
+    # before any file/provider/host/journal access. Only reviewed trusted Python
+    # composition may supply the separately bound native capability. No fallback.
+    if selected_source:
+        require(type(ports) is OriginWindowPorts, 'window-source-auth-preflight-only')
+    elif selected_origin:
+        require(type(ports) is OriginWindowPorts, 'window-origin-window-proof-pending')
+    else:
+        require(ports is None, 'window-origin-arguments')
     fdb.require_explicit_environment()
     require(args.expect_plan_digest and args.expect_window_digest, 'window-run-prerequisites')
     prepared = prepare_window(args)
     require(args.expect_plan_digest == prepared.plan.digest, 'window-plan-digest')
     require(args.expect_window_digest == prepared.window_digest, 'window-window-digest')
     io, c = args._io, prepared.config
-    secret = env_file_secret(args.env_file, args.env_var, fstat=io.get('secret_fstat'))
-    secret()  # Validate the one explicit provider before any journal or host effect.
-    database = fdb.ReadOnlyDatabase(fdb.psycopg2_connector(secret, connect=io.get('connect')),
-                                    lease_columns=c.lease_columns, observer_applications=c.observer_applications)
-    ingress, writers = _bindings(prepared.bindings, c, secret, database, io)
-    require(isinstance(writers, UnknownWriters) and callable(writers.bind_candidate), 'window-writer-required')
-    _readiness(args, prepared, secret, database, ingress)
+    context = origin.window_context(prepared.record) if selected_source or selected_origin else None
+    if context is not None:
+        ports.validate(context)  # independently pinned context, still before reading the provider
+    consumers = ports.consumers if context is not None else None
+    provider = env_file_secret(args.env_file, args.env_var, fstat=io.get('secret_fstat'))
+    selected_secret = []
+    def secret():
+        # Admission may reject an unimplemented consumer before even opening
+        # the provider. If it needs the URI, freeze that first read for every
+        # later consumer, including the validation immediately below.
+        if not selected_secret:
+            selected_secret.append(provider())
+        return selected_secret[0]
     expected = fdb.DatabaseExpectation(c.identity, prepared.plan.baseline, c.catalog).validated()
-    backup = WindowBackup(prepared.backup, prepared.plan, expected, secret=secret, connect=database.connect,
-                          run=io.get('run'), clone_connect=io.get('clone_connect'), migrate_run=io.get('run'),
-                          sleep=io.get('sleep'))
+    if context is not None:
+        # Freeze one selected provider in memory: no role/dump/candidate source
+        # switch if the file rotates during containment or native recovery.
+        backup = OriginWindowBackup(prepared.backup, prepared.plan, expected, context, ports,
+                                    secret=secret, clock=io.get('origin_clock'))
+        backup.admit_source_consumers()
+        secret()  # Validate the frozen provider before journal or host effects.
+        connect = backup.connect
+    else:
+        backup = None
+        secret()
+        connect = fdb.psycopg2_connector(secret, connect=io.get('connect'))
+    database = fdb.ReadOnlyDatabase(connect,
+                                    lease_columns=c.lease_columns, observer_applications=c.observer_applications)
+    binding_io = {**io,'endpoint':consumers.endpoint} if consumers is not None else io
+    ingress, writers = _bindings(prepared.bindings, c, secret, database, binding_io)
+    require(isinstance(writers, UnknownWriters) and callable(writers.bind_candidate), 'window-writer-required')
+    _readiness(args, prepared, secret, database, ingress, source_transports=consumers)
+    if backup is None:
+        backup = WindowBackup(prepared.backup, prepared.plan, expected, secret=secret, connect=database.connect,
+                              run=io.get('run'), clone_connect=io.get('clone_connect'), migrate_run=io.get('run'),
+                              sleep=io.get('sleep'))
     with Journal(Path(c.state_dir) / 'journal') as journal:
         init = journal.last('window-init')
         values = {**prepared.record, 'window_digest': prepared.window_digest}
@@ -412,7 +461,9 @@ def run(args, out=print):
                     'window-inputs-changed')
         transition = assemble(c, plan=prepared.plan, journal=journal, connect=database.connect, secret=secret,
                               ingress=ingress, writers=writers, backup_proof=backup, popen=io.get('popen'),
-                              run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'))
+                              run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'),
+                              backup_receipt_validator=backup.validate_receipt if context is not None else None,
+                              source_transports=consumers)
         try:
             result = transition.run()
         except BaseException as exc:

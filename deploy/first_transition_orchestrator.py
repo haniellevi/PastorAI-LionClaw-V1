@@ -175,13 +175,16 @@ class MigrationExecutor:
 
 class FirstTransition:
     def __init__(self, *, plan, journal, host, database, expected, backup_proof, executor, layout, candidate,
-                 config_digest, clock=time.monotonic, sleep=time.sleep, timeouts=None):
+                 config_digest, clock=time.monotonic, sleep=time.sleep, timeouts=None,
+                 backup_receipt_validator=None):
         for value, kind, code in ((plan, Plan, 'plan'), (journal, Journal, 'journal'),
                                   (host, ObservedHostContract, 'host'), (database, ReadOnlyDatabase, 'database'),
                                   (expected, DatabaseExpectation, 'expectation'),
                                   (executor, MigrationExecutor, 'executor'), (candidate, CandidatePort, 'candidate')):
             require(isinstance(value, kind), 'transition-' + code + '-missing')
         require(callable(backup_proof), 'transition-backup-missing')
+        require(backup_receipt_validator is None or callable(backup_receipt_validator),
+                'transition-backup-validator')
         require(callable(layout), 'transition-layout-missing')
         require(journal.lock_fd is not None and host.j is journal, 'transition-journal')
         require(executor.plan is plan and candidate.spec.sha == plan.application_sha, 'transition-plan-binding')
@@ -193,6 +196,7 @@ class FirstTransition:
         self.t = {**TIMEOUTS, **(timeouts or {})}
         self.plan, self.j, self.host, self.db, self.expected = plan, journal, host, database, expected
         self.backup_proof, self.executor, self.layout, self.candidate = backup_proof, executor, layout, candidate
+        self.backup_receipt_validator = backup_receipt_validator
         self.config_digest, self.clock, self.sleep = config_digest, clock, sleep
 
     # -- journal helpers -------------------------------------------------------------------
@@ -288,15 +292,20 @@ class FirstTransition:
 
     def _window_receipt(self, receipt, request_digest):
         """Validated, sanitized copy: only the attested fields, never paths or provider extras."""
+        require('origin_window' not in receipt or self.backup_receipt_validator is not None,
+                'transition-backup-origin-validator-required')
         validate_clone_receipt(receipt, self.plan, self.expected.identity, self.expected.baseline_digest)
         require(receipt.get('request_digest') == request_digest, 'transition-backup-unbound')
         require(isinstance(receipt.get('backup_id'), str) and re.fullmatch('[0-9a-f]{64}', receipt['backup_id']),
                 'transition-backup-unbound')
         clone = receipt['clone_rehearsal']
-        return dict(plan_digest=receipt['plan_digest'], source_identity=receipt['source_identity'],
+        record = dict(plan_digest=receipt['plan_digest'], source_identity=receipt['source_identity'],
                     baseline_digest=receipt['baseline_digest'], restore_verified=True,
                     request_digest=request_digest, backup_id=receipt['backup_id'],
                     clone_rehearsal={key: clone[key] for key in CLONE_FIELDS})
+        if self.backup_receipt_validator is not None:
+            record['origin_window'] = self.backup_receipt_validator(receipt, request_digest)
+        return record
 
     def _backup(self):
         """The window backup, requested exactly once after this run's quiescence."""
@@ -333,6 +342,9 @@ class FirstTransition:
         fingerprint, queue, _ = self._quiet_observation()
         require((fingerprint, queue) == (quiescent['host_fingerprint'], quiescent['queue_digest']),
                 'transition-quiescence-changed')
+        # Host/database IO above may outlive the origin proof's freshness bound.
+        # Pure revalidation must be last: no capture or observation is repeated.
+        _, backup = self._stored_backup()
         self.j.append('ddl-marker', irrevocable=True, pending=[m.name for m in self.plan.pending],
                       baseline_digest=self.expected.baseline_digest, backup_digest=backup['receipt_digest'],
                       window_backup_id=backup['backup_id'], backup_request_digest=backup['request_digest'],
@@ -500,10 +512,11 @@ class FirstTransition:
             require(not self._open('a9:start-backend'), 'candidate-start-ambiguous')
             self._held(ids, snapshot, None)
             self._intent('a9:start-backend', id=ids['backend'])
-            self.candidate.start_backend(ids['backend'])
+            native_runtime = self.candidate.start_backend(ids['backend'])
             state = self._candidate_states(ids)['backend']
             check_backend_running(state)
-            started = self._done('a9:start-backend', started=state['started'])
+            started = self._done('a9:start-backend', started=state['started'],
+                **({'native_runtime':native_runtime,'native_runtime_digest':digest(native_runtime)} if native_runtime is not None else {}))
         self._held(ids, snapshot, started['started'])
         smoke = self.candidate.smoke(ids['backend'])  # fresh read-only probe on every invocation
         self._held(ids, snapshot, started['started'])
@@ -577,9 +590,11 @@ def parse_config(data):
     require(isinstance(docker, dict) and set(docker) == {'binary', 'endpoint', 'config_dir'}, 'config-docker')
     require(isinstance(database, dict) and set(database) == {
         'identity', 'catalog', 'lease_columns', 'observer_applications'}, 'config-database')
-    require(isinstance(candidate, dict) and set(candidate) == {
+    candidate_keys = {
         'sha', 'image', 'project', 'containers', 'network_name', 'release_root', 'hold_override', 'env_file',
-        'smoke_seconds'}, 'config-candidate')
+        'smoke_seconds'}
+    require(isinstance(candidate, dict) and set(candidate) in (candidate_keys,candidate_keys|{'native_ca_override'}),
+            'config-candidate')
     require(isinstance(timeouts, dict) and set(timeouts) <= set(TIMEOUTS)
             and all(type(v) is int and 0 < v <= 3600 for v in timeouts.values())
             and timeouts.get('observe_s', TIMEOUTS['observe_s']) <= 30, 'config-timeouts')
@@ -599,7 +614,8 @@ def parse_config(data):
                          containers=tuple((r, containers[r]) for r in ROLES), network_id=manifest.network_id,
                          network_name=candidate['network_name'], release_root=candidate['release_root'],
                          hold_override=candidate['hold_override'], env_file=candidate['env_file'],
-                         daemon_id=manifest.daemon_id, smoke_seconds=candidate['smoke_seconds']).validated()
+                         daemon_id=manifest.daemon_id, smoke_seconds=candidate['smoke_seconds'],
+                         native_ca_override=candidate.get('native_ca_override')).validated()
     require(spec.sha == APPLICATION_SHA, 'config-candidate-sha')
     require(isinstance(data['package_manifest_sha256'], str)
             and re.fullmatch('[0-9a-f]{64}', data['package_manifest_sha256']), 'config-package')
@@ -623,7 +639,7 @@ def load_config(path):
 
 
 def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup_proof, popen=None, run=None,
-             clock=time.monotonic, sleep=time.sleep, git=None):
+             clock=time.monotonic, sleep=time.sleep, git=None, backup_receipt_validator=None, source_transports=None):
     """Wire real ports from configuration plus injected providers; any absent provider refuses.
 
     Providers (database connection, secret, ingress/writer bindings, backup
@@ -653,6 +669,10 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
     after that request, carrying ``request_digest`` (``digest(request)``), a
     64-hex ``backup_id`` and the restore/clone rehearsal fields; it is called
     once per window and never retried.
+
+    A trusted origin-window provider supplies ``backup_receipt_validator`` to
+    retain and revalidate its sanitized extra proof before the DDL marker.
+    It validates stored evidence only; it must never recapture or contact IO.
     """
     require(isinstance(config, FirstTransitionConfig), 'transition-config')
     for value, code in ((connect, 'database'), (secret, 'secret'), (backup_proof, 'backup')):
@@ -662,17 +682,27 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
     database = ReadOnlyDatabase(connect, lease_columns=config.lease_columns,
                                 observer_applications=config.observer_applications)
     expected = DatabaseExpectation(config.identity, plan.baseline, config.catalog).validated()
+    if source_transports is not None:
+        from first_transition_native_transports import NativeSourceTransports
+        require(type(source_transports) is NativeSourceTransports and source_transports.plan == plan
+            and source_transports.expected == expected
+            and source_transports.context['config_digest'] == config.digest,'native-transports-binding')
+        source_transports.validate(source_transports.context)
     proof = LedgerProof(database, expected, scope=config.manifest.digest)
     driver = ObservedHostDriver(config.manifest, ingress=ingress, writers=writers, ledger_proof=proof,
                                 runner=PopenRunner(docker_binary=binary, endpoint=endpoint, config_dir=config_dir,
                                                    popen=popen, resume=True))
     host = ObservedHostContract(ObservedHostTransport(driver, **config.manifest.transport_scope()), journal)
     candidate = CandidatePort(config.candidate, runner=CandidateRunner(
-        config.candidate, docker_binary=binary, endpoint=endpoint, config_dir=config_dir, popen=popen),
-        database_secret=secret)
-    executor = MigrationExecutor(plan, python=config.python, workdir=config.migration_workdir, secret=secret,
-                                 runner=ProcessRunner(binaries=(config.python,), run=run),
-                                 timeout=dict(config.timeouts).get('migration_s', TIMEOUTS['migration_s']))
+        config.candidate, docker_binary=binary, endpoint=endpoint, config_dir=config_dir, popen=popen,
+        native_runtime=source_transports.candidate_runtime if source_transports is not None else None),
+        database_secret=secret,source_transports=source_transports)
+    if source_transports is not None:
+        executor = source_transports.migration_executor(python=config.python,workdir=config.migration_workdir,plan=plan)
+    else:
+        executor = MigrationExecutor(plan, python=config.python, workdir=config.migration_workdir, secret=secret,
+                                     runner=ProcessRunner(binaries=(config.python,), run=run),
+                                     timeout=dict(config.timeouts).get('migration_s', TIMEOUTS['migration_s']))
     migrations = [m.name for m in plan.migrations]
 
     def layout():
@@ -680,7 +710,8 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
                                        package_manifest_sha256=config.package_manifest_sha256, git=git)
     transition = FirstTransition(plan=plan, journal=journal, host=host, database=database, expected=expected,
                                  backup_proof=backup_proof, executor=executor, layout=layout, candidate=candidate,
-                                 config_digest=config.digest, clock=clock, sleep=sleep, timeouts=dict(config.timeouts))
+                                 config_digest=config.digest, clock=clock, sleep=sleep, timeouts=dict(config.timeouts),
+                                 backup_receipt_validator=backup_receipt_validator)
     bind_candidate = getattr(writers, 'bind_candidate', None)
     if bind_candidate is not None:
         require(writers.declared == frozenset(i for _, i in config.manifest.service_ids),

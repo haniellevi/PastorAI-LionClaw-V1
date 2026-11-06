@@ -174,3 +174,16 @@ def test_controller_sources_include_window_entrypoint_and_its_dependencies():
                     dependency = imported.name.split('.')[0] + '.py'
                     if (deploy / dependency).is_file():
                         assert dependency in sources, (name, dependency)
+def test_c2_runtime_change_invalidates_integrated_controller_plan(monkeypatch):
+    import first_transition_adapter as adapter
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[2]
+    before=adapter.prepare(root)
+    original=adapter.read_regular
+    def changed(path,*args,**kwargs):
+        value=original(path,*args,**kwargs)
+        if path.name=='first_transition_c2_lifecycle.py':return value+b'\n# synthetic changed runtime\n'
+        return value
+    monkeypatch.setattr(adapter,'read_regular',changed)
+    after=adapter.prepare(root)
+    assert after.digest!=before.digest, 'C2 runtime changes must invalidate the integrated controller plan'

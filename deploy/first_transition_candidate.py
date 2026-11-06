@@ -62,6 +62,12 @@ PG_OVERRIDES = ('PGHOST', 'PGHOSTADDR', 'PGPORT', 'PGDATABASE', 'PGSERVICE', 'PG
 DATABASE_TEMPLATE = ('[{{json .Id}},[{{range .Config.Env}}{{if eq (lower (index (split . "=") 0)) '
                      + ' '.join('"' + n.lower() + '"' for n in (*DATABASE_NAMES, *PG_OVERRIDES))
                      + '}}{{json .}},{{end}}{{end}}null]]')
+NATIVE_DATABASE_TEMPLATE = (
+    '[{{json .Id}},[{{range .Config.Env}}{{$k := upper (index (split . "=") 0)}}'
+    '{{if or (and (ge (len $k) 2) (eq (slice $k 0 2) "PG")) (eq $k '
+    + ' '.join('"'+name+'"' for name in DATABASE_NAMES)
+    + ')}}{{json .}},{{end}}{{end}}null],'
+    '[{{range .Mounts}}[{{json .Type}},{{json .Source}},{{json .Destination}},{{json .RW}}],{{end}}null]]')
 SAFE_QUERY = frozenset({'sslmode', 'connect_timeout', 'application_name', 'channel_binding', 'gssencmode',
                         'target_session_attrs'})
 
@@ -171,6 +177,7 @@ class CandidateSpec:
     env_file: str
     daemon_id: str
     smoke_seconds: int = 60
+    native_ca_override: str | None = None
 
     def validated(self):
         names = dict(self.containers) if isinstance(self.containers, tuple) else {}
@@ -185,7 +192,8 @@ class CandidateSpec:
                 and isinstance(self.network_name, str) and NETWORK_NAME.fullmatch(self.network_name)
                 and all(_absolute(p) for p in (self.release_root, self.hold_override, self.env_file))
                 and isinstance(self.daemon_id, str) and DAEMON.fullmatch(self.daemon_id)
-                and type(self.smoke_seconds) is int and 5 <= self.smoke_seconds <= 50, 'candidate-spec')
+                and type(self.smoke_seconds) is int and 5 <= self.smoke_seconds <= 50
+                and (self.native_ca_override is None or _absolute(self.native_ca_override)), 'candidate-spec')
         return self
 
     @property
@@ -199,7 +207,9 @@ class CandidateSpec:
         deploy = self.deploy_dir
         return ('docker', 'compose', '--project-name', self.project, '--env-file', '/dev/null', '--project-directory', deploy,
                 '--file', deploy + '/docker-compose.yml', '--file', deploy + '/docker-compose.override.yml',
-                '--file', self.hold_override, 'up', '--no-start', '--no-deps', '--no-build', '--no-recreate',
+                '--file', self.hold_override,
+                *(('--file',self.native_ca_override) if self.native_ca_override is not None else ()),
+                'up', '--no-start', '--no-deps', '--no-build', '--no-recreate',
                 '--pull', 'never', *ROLES)
 
     def ps_argv(self):
@@ -266,11 +276,22 @@ def write_hold_override(spec):
 class CandidateRunner(PopenRunner):
     """PopenRunner whose allowlist is exactly the argv this spec's CandidatePort builds."""
 
-    def __init__(self, spec, **kwargs):
+    def __init__(self, spec, *,native_runtime=None, **kwargs):
         self.spec = spec.validated()
+        if native_runtime is not None:
+            from first_transition_native_candidate_runtime import NativeCandidateRuntime
+            require(type(native_runtime) is NativeCandidateRuntime and native_runtime.spec==spec,'native-candidate-runtime-binding')
+        self.native_runtime=native_runtime
         super().__init__(**kwargs)
 
     def _allowed(self, argv):
+        if self.native_runtime is not None:
+            runtime=self.native_runtime
+            if len(argv)>2 and HEX64.fullmatch(argv[-1]) and argv==runtime.inspect_argv(argv[-1]):return True
+            if len(argv)>2 and HEX64.fullmatch(argv[2]) and argv==runtime.admission_argv(argv[2]):return True
+            if len(argv)>2 and HEX64.fullmatch(argv[2]) and runtime._receipt is not None and argv==runtime.observe_argv(argv[2]):return True
+            if len(argv)>2 and HEX64.fullmatch(argv[2]) and argv==runtime.smoke_argv(argv[2]):return True
+            if len(argv)==5 and HEX64.fullmatch(argv[-1]) and argv==runtime.stop_argv(argv[-1]):return True
         if argv in (INFO_ARGV, self.spec.compose_argv(), self.spec.ps_argv(), self.spec.network_argv()):
             return True
         if len(argv) == 3 and argv[:2] == ('docker', 'start'):
@@ -278,7 +299,7 @@ class CandidateRunner(PopenRunner):
         if len(argv) == 8 and HEX64.fullmatch(argv[2]):
             return argv == self.spec.smoke_argv(argv[2])
         return (6 < len(argv) <= 10 and argv[:5] == ('docker', 'inspect', '--type', 'container', '--format')
-                and argv[5] in (CANDIDATE_TEMPLATE, DATABASE_TEMPLATE)
+                and argv[5] in (CANDIDATE_TEMPLATE, DATABASE_TEMPLATE,NATIVE_DATABASE_TEMPLATE)
                 and all(HEX64.fullmatch(i) for i in argv[6:]) and len(set(argv[6:])) == len(argv[6:]))
 
     def _env(self):
@@ -287,11 +308,22 @@ class CandidateRunner(PopenRunner):
 
 
 class CandidatePort:
-    def __init__(self, spec, *, runner, database_secret=None):
+    def __init__(self, spec, *, runner, database_secret=None, source_transports=None):
         require(isinstance(spec, CandidateSpec), 'candidate-spec')
         require(callable(runner), 'candidate-runner')
         self.spec, self.runner = spec.validated(), runner
         self.database_secret = database_secret
+        if source_transports is not None:
+            from first_transition_native_transports import NativeSourceTransports
+            require(type(source_transports) is NativeSourceTransports and spec.native_ca_override is not None,
+                'native-candidate-transports')
+        else:
+            require(spec.native_ca_override is None,'native-candidate-transports')
+        self.source_transports = source_transports
+        self.native_runtime = source_transports.candidate_runtime if source_transports is not None else None
+        if self.native_runtime is not None:
+            require(self.native_runtime.spec==spec and self.native_runtime.transports is source_transports,
+                'native-candidate-runtime-binding')
 
     def check_database(self, ident, *, timeout=20):
         """Fresh private Env projection of exactly the created backend; no URL enters public state."""
@@ -300,16 +332,28 @@ class CandidatePort:
         deadline = self._deadline(timeout)
         self._daemon(timeout=self._remaining(deadline))
         require(isinstance(ident, str) and HEX64.fullmatch(ident), 'window-candidate-database')
-        rc, out = self._run(('docker', 'inspect', '--type', 'container', '--format', DATABASE_TEMPLATE, ident),
+        template = NATIVE_DATABASE_TEMPLATE if self.source_transports is not None else DATABASE_TEMPLATE
+        rc, out = self._run(('docker', 'inspect', '--type', 'container', '--format', template, ident),
                             self._remaining(deadline), LIMITS['inspect'])
         self._remaining(deadline)
         require(rc == 0, 'window-candidate-database')
         try:
             row = json.loads(out)
-            require(isinstance(row, list) and len(row) == 2 and row[0] == ident, 'window-candidate-database')
+            require(isinstance(row, list) and len(row) == (3 if self.source_transports is not None else 2)
+                    and row[0] == ident, 'window-candidate-database')
             env = _tail(row[1], 'window-candidate-database')
             require(all(isinstance(v, str) and '=' in v for v in env), 'window-candidate-database')
-            check_candidate_database((v.split('=', 1) for v in env), self.database_secret())
+            if self.source_transports is not None:
+                self.source_transports.candidate_environment((v.split('=',1) for v in env),self.database_secret())
+                proof = self.source_transports.candidate_mounts(row[2])
+                if self.native_runtime is None:
+                    require(proof['effective_ca_verified'] is True,'native-candidate-effective-ca-unproven')
+                else:
+                    if self.native_runtime._receipt is None:
+                        self.native_runtime.pre_start(ident,runner=self.runner,timeout=self._remaining(deadline))
+                    else:self.native_runtime.observe_live(ident,runner=self.runner,timeout=self._remaining(deadline))
+            else:
+                check_candidate_database((v.split('=', 1) for v in env), self.database_secret())
         except (ValueError, TypeError):
             raise Refused('window-candidate-database') from None
 
@@ -426,16 +470,31 @@ class CandidatePort:
         return state
 
     def start_backend(self, backend_id):
+        if self.source_transports is not None:
+            require(self.native_runtime is not None and callable(self.database_secret),'native-candidate-effective-ca-unproven')
+            self.check_database(backend_id)
         # A consumer, a foreign project or a foreign image refuses before any start is issued.
         check_held(self._backend(backend_id), code='candidate-backend-not-held')
         self._daemon()
-        rc, out = self._run(('docker', 'start', backend_id), 30, LIMITS['effect'])
-        require(rc == 0 and out == (backend_id + '\n').encode(), 'candidate-start-receipt')
+        try:
+            rc, out = self._run(('docker', 'start', backend_id), 30, LIMITS['effect'])
+            require(rc == 0 and out == (backend_id + '\n').encode(), 'candidate-start-receipt')
+            if self.native_runtime is not None:
+                return self.native_runtime.after_start(backend_id,runner=self.runner,timeout=15)
+        except BaseException as error:
+            if self.native_runtime is not None:
+                try:self.native_runtime.abort(backend_id,runner=self.runner,timeout=10)
+                except BaseException:raise Refused('native-candidate-runtime-cleanup-unproven') from None
+                if not isinstance(error,Exception):raise KeyboardInterrupt from None
+                raise Refused('native-candidate-runtime-start-failed') from None
+            raise
 
     def smoke(self, backend_id):
         check_backend_running(self._backend(backend_id))
+        if self.native_runtime is not None:self.native_runtime.observe_live(backend_id,runner=self.runner,timeout=10)
         self._daemon()
-        rc, out = self._run(self.spec.smoke_argv(backend_id), self.spec.smoke_seconds + 10, LIMITS['smoke'])
+        argv=self.native_runtime.smoke_argv(backend_id) if self.native_runtime is not None else self.spec.smoke_argv(backend_id)
+        rc, out = self._run(argv, self.spec.smoke_seconds + 10, LIMITS['smoke'])
         ok, value = _attempt(_lines, out)
         require(rc == 0 and ok and len(value) == 1 and isinstance(value[0], dict)
                 and set(value[0]) == SMOKE_KEYS, 'candidate-smoke-malformed')
@@ -443,6 +502,7 @@ class CandidatePort:
         require(result['health'] == 200 and result['health_ok'] is True, 'candidate-health-failed')
         require(result['ready'] == 200 and result['required_ok'] is True
                 and result['ready_status'] in ('ready', 'degraded'), 'candidate-ready-failed')
+        if self.native_runtime is not None:self.native_runtime.observe_live(backend_id,runner=self.runner,timeout=10)
         return dict(health=200, ready=200, ready_status=result['ready_status'])
 
 

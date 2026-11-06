@@ -52,7 +52,21 @@ def adapter_sources():
         'initial_transition_ops.py', 'release_topology.py',
         'first_transition_window.py', 'first_transition_window_backup.py',
         'first_transition_window_bindings.py', 'first_transition_origin.py',
-        'first_transition_capture_contract.py', 'first_transition_auth_preflight.py'))
+        'first_transition_capture_contract.py', 'first_transition_auth_preflight.py',
+        'first_transition_native_v2.py', 'first_transition_native_v3.py',
+        'first_transition_native_v3_compare.py', 'first_transition_native_settings.py',
+        'first_transition_native_readers.py', 'first_transition_native_job.py',
+        'first_transition_native_factory.py', 'first_transition_native_events.py',
+        'first_transition_native_transports.py', 'first_transition_native_candidate_ca.py',
+        'first_transition_native_candidate_bootstrap.py', 'first_transition_native_joint.py',
+        'first_transition_native_joint_artifacts.py', 'first_transition_native_joint_capture.py',
+        'first_transition_native_http_reader.py', 'first_transition_native_http_hook.py',
+        'first_transition_native_candidate_admission.py','first_transition_native_candidate_runtime.py',
+        'first_transition_native_supervision.py',
+        'first_transition_c2_adapter.py','first_transition_c2_containment.py','first_transition_c2_cron.py',
+        'first_transition_c2_guards.py','first_transition_c2_lifecycle.py','first_transition_c2_native.py',
+        'first_transition_c2_systemctl.py', 'first_transition_native_cleanup.py',
+        'first_transition_native_gates.py','first_transition_native_dispatch.py','first_transition_native_outer.py','first_transition_native_fence.py'))
 
 
 PREFLIGHT_PROBE = r'''

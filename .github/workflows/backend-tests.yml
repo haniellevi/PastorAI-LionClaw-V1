@@ -113,16 +113,65 @@ jobs:
             deploy/tests/test_first_transition_host_driver.py deploy/tests/test_first_transition_database.py \
             deploy/tests/test_first_transition_orchestrator.py deploy/tests/test_first_transition_host_contract.py \
             deploy/first_transition_window.py deploy/first_transition_window_backup.py \
+            deploy/first_transition_native_v2.py deploy/first_transition_native_v3.py \
+            deploy/first_transition_native_v3_compare.py deploy/first_transition_native_settings.py \
+            deploy/first_transition_native_readers.py deploy/first_transition_native_job.py \
+            deploy/first_transition_native_factory.py deploy/rehearse_native_window.py \
+            deploy/first_transition_native_events.py deploy/first_transition_native_transports.py \
+            deploy/first_transition_native_candidate_ca.py deploy/first_transition_native_candidate_bootstrap.py \
+            deploy/first_transition_native_joint.py deploy/first_transition_native_joint_artifacts.py \
+            deploy/first_transition_native_joint_capture.py deploy/first_transition_native_http_reader.py \
+            deploy/first_transition_native_http_hook.py \
+            deploy/first_transition_native_candidate_admission.py deploy/first_transition_native_candidate_runtime.py \
+            deploy/first_transition_native_supervision.py deploy/tests/test_first_transition_native_supervision.py \
+            deploy/first_transition_native_cleanup.py deploy/first_transition_native_gates.py deploy/first_transition_native_dispatch.py deploy/first_transition_native_outer.py deploy/first_transition_native_fence.py \
+            deploy/tests/test_first_transition_native_cleanup.py deploy/tests/test_first_transition_native_gates.py deploy/tests/test_first_transition_native_dispatch.py deploy/tests/test_first_transition_native_outer.py deploy/tests/test_first_transition_native_fence.py \
+            deploy/tests/test_first_transition_native_candidate_admission.py deploy/tests/test_first_transition_native_candidate_runtime.py \
+            deploy/tests/test_first_transition_native_candidate_ca.py \
+            deploy/tests/test_first_transition_native_joint.py deploy/tests/test_first_transition_native_joint_artifacts.py \
             deploy/first_transition_origin.py deploy/first_transition_capture_contract.py deploy/first_transition_auth_preflight.py \
             deploy/tests/test_first_transition_origin.py deploy/tests/test_first_transition_auth_preflight.py \
+            deploy/tests/test_first_transition_native_job.py \
+            deploy/tests/test_first_transition_native_factory.py deploy/tests/test_rehearse_native_window.py \
+            deploy/tests/test_first_transition_native_events.py deploy/tests/test_first_transition_native_transports.py \
+            deploy/tests/test_first_transition_native_readers.py \
+            deploy/tests/test_first_transition_native_worker.py \
+            deploy/tests/test_first_transition_native_snapshot.py \
+            deploy/tests/test_first_transition_native_artifacts.py \
+            deploy/tests/test_first_transition_origin_window.py \
             deploy/first_transition_window_bindings.py deploy/tests/first_transition_bridge_netns.py \
             deploy/tests/test_first_transition_window_backup.py deploy/tests/test_first_transition_window_bindings.py \
             deploy/tests/test_first_transition_window_backup_docker.py \
             deploy/tests/test_first_transition_candidate_writers.py deploy/tests/test_first_transition_window_entry.py \
             deploy/tests/test_first_transition_candidate_network.py \
             deploy/tests/test_first_transition_candidate_network_docker.py \
-            deploy/tests/test_first_transition_libpq_environment.py
+            deploy/tests/test_first_transition_libpq_environment.py \
+            deploy/check_integrated_candidate.py deploy/tests/test_candidate_ci_checks.py \
+            deploy/check_c2_integration.py \
+            deploy/first_transition_c2_adapter.py \
+            deploy/first_transition_c2_containment.py \
+            deploy/first_transition_c2_cron.py \
+            deploy/first_transition_c2_guards.py \
+            deploy/first_transition_c2_lifecycle.py \
+            deploy/first_transition_c2_native.py \
+            deploy/first_transition_c2_systemctl.py \
+            deploy/tests/c2_lifecycle_fixture.py \
+            deploy/tests/test_check_c2_integration.py \
+            deploy/tests/test_first_transition_c2_containment.py \
+            deploy/tests/test_first_transition_c2_cron.py \
+            deploy/tests/test_first_transition_c2_guards.py \
+            deploy/tests/test_first_transition_c2_lifecycle.py \
+            deploy/tests/test_first_transition_c2_lifecycle_vertical.py \
+            deploy/tests/test_first_transition_c2_native.py \
+            deploy/tests/test_first_transition_c2_native_integration.py \
+            deploy/tests/test_first_transition_c2_schedule_integration.py \
+            deploy/tests/test_first_transition_c2_systemctl.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -q -p no:cacheprovider \
+            deploy/tests/test_first_transition_native_cleanup.py deploy/tests/test_first_transition_native_gates.py deploy/tests/test_first_transition_native_dispatch.py deploy/tests/test_first_transition_native_outer.py deploy/tests/test_first_transition_native_fence.py \
+            deploy/tests/test_first_transition_native_supervision.py \
+            deploy/tests/test_first_transition_native_candidate_admission.py deploy/tests/test_first_transition_native_candidate_runtime.py \
+            deploy/tests/test_first_transition_native_candidate_ca.py \
+            deploy/tests/test_first_transition_native_joint.py deploy/tests/test_first_transition_native_joint_artifacts.py \
             deploy/tests/test_first_transition_host_driver.py deploy/tests/test_first_transition_host_contract.py \
             deploy/tests/test_first_transition_adapter.py deploy/tests/test_first_transition_commands.py \
             deploy/tests/test_initial_transition.py deploy/tests/test_initial_transition_layout.py \
@@ -134,7 +183,53 @@ jobs:
             deploy/tests/test_first_transition_candidate_network.py \
             deploy/tests/test_first_transition_candidate_network_docker.py \
             deploy/tests/test_first_transition_libpq_environment.py \
-            deploy/tests/test_first_transition_origin.py deploy/tests/test_first_transition_auth_preflight.py
+            deploy/tests/test_first_transition_origin.py deploy/tests/test_first_transition_auth_preflight.py \
+            deploy/tests/test_first_transition_native_job.py \
+            deploy/tests/test_first_transition_native_factory.py deploy/tests/test_rehearse_native_window.py \
+            deploy/tests/test_first_transition_native_events.py deploy/tests/test_first_transition_native_transports.py \
+            deploy/tests/test_first_transition_native_readers.py \
+            deploy/tests/test_first_transition_native_worker.py \
+            deploy/tests/test_first_transition_native_snapshot.py \
+            deploy/tests/test_first_transition_native_artifacts.py \
+            deploy/tests/test_first_transition_origin_window.py
+      - name: Validate isolated C2 integration capsule
+        working-directory: .
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -I -B - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os, subprocess, sys, tempfile
+          root = Path.cwd()
+          checker = root / 'deploy/check_c2_integration.py'
+          contract = root / 'deploy/c2-candidate-interface.json'
+          expected_checker = '9cc6448b0435c5005a03c3d0256fdacc4215ac43e6176ba8b1abbc124ed2c675'
+          expected_contract = 'ad3c6da5e08bb06543c8047fadb634455f897f4fa3c122a9fdd658d3736e50aa'
+          assert hashlib.sha256(checker.read_bytes()).hexdigest() == expected_checker
+          assert hashlib.sha256(contract.read_bytes()).hexdigest() == expected_contract
+          env = dict(PATH='/usr/local/bin:/usr/bin:/bin', LC_ALL='C.UTF-8',
+                     PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTHON_DOTENV_DISABLED='1',
+                     PYTHONDONTWRITEBYTECODE='1')
+          def verify(source):
+              subprocess.run([sys.executable, '-I', '-B', str(checker), '--source-root', str(source),
+                              '--contract', str(contract), '--expect-contract-sha256', expected_contract],
+                             env=env, check=True)
+          verify(root)
+          body = json.loads(contract.read_bytes())
+          with tempfile.TemporaryDirectory(prefix='i12-c2-ci-', dir='/tmp') as temporary:
+              capsule = Path(temporary)
+              for name, pin in body['files'].items():
+                  raw = (root / name).read_bytes()
+                  assert hashlib.sha256(raw).hexdigest() == pin
+                  target = capsule / name
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(raw)
+              (capsule / 'deploy/c2-candidate-interface.json').write_bytes(contract.read_bytes())
+              verify(capsule)
+              tests = sorted(name for name in body['files'] if name.startswith('deploy/tests/test_'))
+              subprocess.run([sys.executable, '-I', '-B', '-m', 'pytest', '-q', '--tb=short',
+                              '-p', 'no:cacheprovider', '--rootdir='+str(capsule),
+                              '--confcutdir='+str(capsule), '--basetemp', str(capsule/'temporary'), *tests],
+                             cwd=capsule, env=env, check=True)
+          PY
 
       - name: Validar adaptador da primeira transição em PG17 descartável
         working-directory: .
@@ -195,7 +290,8 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_release_topology.py \
             ../deploy/tests/test_release_topology_compose.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_coordination.py
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_pipeline.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_pipeline.py \
+            ../deploy/tests/test_candidate_ci_checks.py
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_schema.py -v
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_release.py -v
 

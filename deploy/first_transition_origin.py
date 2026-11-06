@@ -2,8 +2,9 @@
 
 No provider discovery, credential read, source connection or capture is exposed.
 The full R16 plan is required to bind the controller's identity and V1 baseline.
-The capture scope excludes A8: run must refuse this profile until a separately
-reviewed fresh-window recovery implementation exists. No legacy fallback.
+The capture scope excludes A8. The CLI refuses this profile without a separately
+reviewed fresh-window recovery implementation; trusted Python composition can
+bind its independent native ports through window_context. No legacy fallback.
 """
 import json
 import math
@@ -32,7 +33,10 @@ def bind_authenticated_preflight(request, report, *, expected, controller_plan_d
                 request.get('source_identity_sha256') == expected.identity and
                 request.get('baseline_v1_digest') == expected.baseline_digest and
                 request.get('expected_ledger_names') == list(expected.ledger), 'window-source-auth-binding')
-        return authenticated.assess(request, report, now=now)
+        result = authenticated.assess(request, report, now=now)
+        return {**result, **{key: request[key] for key in (
+            'source_descriptor_sha256', 'endpoint_identity_sha256', 'ca_sha256',
+            'code_bundle_sha256', 'startup_profile', 'expected_server_version_num')}}
     except (ValueError, KeyError, TypeError, OverflowError, RecursionError):
         raise Refused('window-source-auth-binding') from None
 
@@ -116,3 +120,38 @@ def assess(plan, observation, *, expected, daemon_id, now):
                 metadata_consistent=True, origin_authenticated=False, artifact_bytes_verified=False,
                 provider_opened=False, execution_authorized=False, a8_window_proven=False,
                 receipt_emitted=False, production_ready=False)
+
+
+def window_context(record):
+    """Public binding for a trusted window provider; never evidence of capture.
+
+    The provider must independently pin this context. Neither these hashes nor
+    the preflight JSON establish provenance or authorize an operation.
+    """
+    selected = [key for key in ('origin_preflight', 'source_auth_preflight') if key in record]
+    require(len(selected) == 1, 'window-origin-capability-binding')
+    key = selected[0]
+    profile = record[key]
+    source = key == 'source_auth_preflight'
+    try:
+        context = dict(
+            schema='igreja12.window-origin-context/1', profile=key,
+            profile_digest=digest(profile), window_digest=digest(record),
+            plan_digest=record['plan_digest'], config_digest=record['transition_digest'],
+            backup_config_digest=record['backup_digest'],
+            source_identity=profile['source_identity_sha256'],
+            baseline_digest=profile['baseline_v1_digest' if source else 'baseline_digest'],
+            provider_descriptor_sha256=profile['source_descriptor_sha256' if source
+                                               else 'provider_descriptor_sha256'],
+            endpoint_identity_sha256=profile['endpoint_identity_sha256'], ca_sha256=profile['ca_sha256'],
+            protocol_pins=({'code_bundle_sha256': profile['code_bundle_sha256']} if source
+                           else dict(profile['protocol_pins'])),
+            startup_profile=profile['startup_profile'] if source else 'origin-schema-2',
+        )
+        require(all(type(value) is str and capture._hex(value) for name, value in context.items()
+                    if name not in ('schema', 'profile', 'protocol_pins', 'startup_profile'))
+                and context['protocol_pins'] and all(capture._hex(value)
+                    for value in context['protocol_pins'].values()), 'window-origin-capability-binding')
+        return context
+    except (KeyError, TypeError, ValueError):
+        raise Refused('window-origin-capability-binding') from None
