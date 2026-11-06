@@ -187,6 +187,61 @@ def test_v1a_correction_replaces_delivered_summary_before_confirmation(report_tu
     assert len(_rows(turn, AgentActionReceipt)) == 1
 
 
+@pytest.mark.parametrize(('correcting', 'invalid_text'), (
+    (False, 'Relatório: presentes: 2,5; visitantes: 2; decisões: 1; oferta: 30,00'),
+    (True, 'Correção: 2/5 presentes'),
+    (True, 'decisões: 2,5'),
+), ids=('initial', 'correction', 'bare-decisions-correction'))
+def test_v1a_fractional_count_is_clarified_without_overwriting_then_recovers(report_turn, correcting, invalid_text):
+    from app.db.models import CellReportAiReservation, CellReportDraft
+    turn = report_turn
+    evolution = _CommittedReceiptEvolution(turn)
+    original_snapshot = _snapshot(turn)
+    if correcting:
+        _run(turn, 'V1A-FRACTION-START', _REPORT, evolution)
+        draft = _rows(turn, CellReportDraft)[0]
+        original_draft = (draft.id, draft.revision, draft.candidate_json, draft.candidate_sha256)
+    previous_sends = len(evolution.calls)
+
+    _run(turn, 'V1A-FRACTION-INVALID', invalid_text, evolution)
+
+    assert len(evolution.calls) == previous_sends + 1
+    assert 'Envie apenas presentes, visitantes, decisões e oferta total.' in evolution.calls[-1][2]
+    assert _snapshot(turn) == original_snapshot
+    assert _rows(turn, AgentActionReceipt) == []
+    assert _rows(turn, CellReportAiReservation) == []
+    assert not any(p.state == 'pendente' for p in _rows(turn, AgentActionProposal))
+    if correcting:
+        draft = _rows(turn, CellReportDraft)[0]
+        assert (draft.id, draft.revision, draft.candidate_json, draft.candidate_sha256) == original_draft
+    else:
+        assert _rows(turn, CellReportDraft) == []
+
+    # S3 already cancels the previous proposal on a non-confirmation inbound.
+    # A SIM after clarification therefore cannot confirm the old or truncated data.
+    _run(turn, 'V1A-FRACTION-EARLY-SIM', 'SIM', evolution)
+    assert _snapshot(turn) == original_snapshot
+    assert _rows(turn, AgentActionReceipt) == []
+
+    valid_text = 'Correção: presentes: 12' if correcting else (
+        'Relatório: presentes: 12; visitantes: 2; decisões: 1; oferta: 30,00'
+    )
+    _run(turn, 'V1A-FRACTION-VALID', valid_text, evolution)
+    assert '12 presentes, 2 visitantes, 1 decisão e oferta total de R$ 30,00.' in evolution.calls[-1][2]
+    assert _snapshot(turn) == original_snapshot
+    assert _rows(turn, AgentActionReceipt) == []
+    assert len([p for p in _rows(turn, AgentActionProposal) if p.state == 'pendente']) == 1
+
+    _run(turn, 'V1A-FRACTION-VALID-SIM', 'SIM', evolution)
+    state, raw = _snapshot(turn)
+    assert state == 'enviado'
+    report = validate_cell_report_snapshot_v2(raw)
+    assert (report.totals.presentes, report.totals.visitantes, report.totals.decisoes) == (12, 2, 1)
+    assert report.oferta_valor == Decimal('30.00')
+    assert len(_rows(turn, AgentActionReceipt)) == 1
+    assert evolution.committed_receipts == 1
+
+
 @pytest.mark.parametrize('revocation', ('term', 'meeting_cancelled', 'release'))
 def test_v1a_authorization_revoked_before_sim_prevents_effect(report_turn, monkeypatch, revocation):
     turn = report_turn

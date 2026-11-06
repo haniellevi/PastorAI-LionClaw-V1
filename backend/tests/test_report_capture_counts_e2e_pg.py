@@ -17,8 +17,8 @@ from sqlalchemy.engine import Engine
 
 from app.agent import runtime as runtime_module
 from app.db.models import (
-    AgentActionProposal, AgentConfig, AgentConversationLog, AppUser,
-    ConsentRecord, Conversation, Decision, LlmCredential, Message, Pessoa,
+    AgentActionProposal, AgentActionReceipt, AgentConfig, AgentConversationLog, AppUser,
+    CelulaReuniao, ConsentRecord, Conversation, Decision, LlmCredential, Message, Pessoa,
     UserRole,
 )
 from app.services import crypto, semantic_triage
@@ -148,11 +148,16 @@ def test_ministerial_report_binds_counts_to_labels(b15_turn, texto):
     assert len(evolution.calls) == 1
     assert expected in evolution.calls[0][2]
     assert "confirmação humana" in evolution.calls[0][2]
-    assert any(expected in (out or "") for out in _outbound(b15_turn, b15_turn.leader_conversation))
+    assert "Relatório recebido" not in evolution.calls[0][2]
+    assert "Esta mensagem não finaliza o relatório" in evolution.calls[0][2]
+    assert "Minha Célula" in evolution.calls[0][2]
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [evolution.calls[0][2]]
     # Report replies are deterministic and create no individual records.
     assert b15_turn.llm_calls == []
     assert _count(b15_turn, Decision) == 0
     assert _count(b15_turn, AgentActionProposal) == 0
+    assert _count(b15_turn, AgentActionReceipt) == 0
+    assert _count(b15_turn, CelulaReuniao) == 0
 
 
 @pytest.mark.parametrize("texto", _REPORTS)
