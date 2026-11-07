@@ -1837,6 +1837,104 @@ não fecha uma linha NR.
   pertinente. Preservar 8/9 e o companion; não alterar guarda/catálogo nem supor
   que ACLs atuais iguais sejam uma autorização de recuperação integral.
 
+#### Pedido de leitura de metadados: preparado, execução pendente
+
+**PREPARADO SOMENTE COMO DOCUMENTO. EXECUÇÃO NÃO AUTORIZADA.** O pedido fica
+pendente da nomeação dos responsáveis abaixo e de autorização específica do
+dono para ação, alvo, escopo e canal. Nomeação, revisão deste texto, merge e CI
+não autorizam conexão ou leitura. A preparação não preenche essas pendências.
+
+Objetivo da futura leitura: identificar as versões de backend e painel e
+comparar o schema/ledger observado com os contratos necessários à fatia
+escolhida, indicando dependência de migrations ou de transição ainda bloqueada.
+A proposta de análise é o V1a por texto e sua leitura no painel; isso não aprova
+um recorte operacional, testadores ou redução do aceite das 20 conversas reais.
+Os contratos propostos são acesso/sessão e autorização no servidor, workflow
+V1a com persistência oficial e leitura autorizada do relatório no painel.
+Seus objetos e propriedades obrigatórios devem ser relacionados pelo código
+pinado antes de aprovar as projeções; modos opcionais não viram requisitos.
+
+O mapa acima conserva o pin histórico `6154c891`/`f86ddb40`. A referência
+`799907e4`/`b0ee7b97` incorpora a #624, que muda somente os dois documentos;
+o runtime é o mesmo. Nenhum dos pins identifica por inferência a instalação viva.
+
+| Campo necessário antes da execução | Estado deste pedido |
+|---|---|
+| Operador humano responsável pela leitura | NÃO DESIGNADO; A8/C2 ou uma conta técnica não suprem a nomeação. |
+| Pastor responsável pelo aceite | NÃO DESIGNADO; sua nomeação não concede acesso técnico ao alvo. |
+| Autorização nominal do dono para esta leitura | PENDENTE, separada das nomeações e de qualquer autorização de release. |
+| Alvo e serviços | Ambiente que atende o piloto interno Filadélfia, com backend, painel e banco a confirmar nominalmente com o dono, no canal privado aprovado. Não escolher conexão por identificadores históricos. |
+| Canal e acesso somente leitura | A DEFINIR pelo operador e aprovar pelo dono; usar acesso existente, sem criar login, elevar privilégio ou trocar de conta/canal para contornar recusa. Segredos ficam fora do pedido. |
+| Fatia e contratos a comparar | A CONFIRMAR nominalmente; relacionar os contratos exigidos pela fatia antes da leitura. Não abrir todo o catálogo de serviços por rotina. |
+| Momento e alcance da autorização | PENDENTES; a execução futura registra seu próprio início/fim em UTC e respeita o alcance aprovado. |
+| Referência de análise no Git | `799907e42229d0d41001336d19be39ae65aff523`, árvore `b0ee7b97542a79830227970a7574934964e345e8`. É fonte de comparação, sem afirmar versão instalada ou candidato operacional aprovado. Mudança do pin exige rever o pedido. |
+
+##### Metadados propostos, sujeitos à autorização
+
+| Superfície | Leitura delimitada | Limite da conclusão |
+|---|---|---|
+| Backend | Identidade nominal do artefato/release pelos metadados de implantação aprovados; ID/digest de imagem e SHA/label, quando existentes e atribuíveis. Sem exportar configuração de containers. | Tag mutável, nome de serviço, CI ou ausência de label não provam qual código está instalado; versão não atribuível fica NÃO VERIFICADA. |
+| Painel | Vínculo do endereço/alias efetivamente servido ao deployment, artefato e SHA pelos metadados de publicação aprovados, e vínculo nominal ao backend do escopo, quando demonstrável sem configuração protegida. | Não fazer login, navegar fluxos, carregar dados de usuário ou disparar chamadas de negócio para descobrir a versão. Se faltar evidência, registrar NÃO VERIFICADO. |
+| Banco | Metadados de versão, existência do ledger e registros de nomes das migrations pertinentes; objetos, colunas/tipos, constraints, flags de RLS, assinaturas e permissões dos contratos previamente relacionados, com projeções restritas de catálogo. | Não basta contagem do ledger ou presença de tabela/função. Corpos/atributos não examinados e semântica de RLS/autorização não demonstrada permanecem NÃO VERIFICADOS; não há prova de execução do fluxo. |
+
+O operador deve revisar as projeções antes de conectar, usar somente o canal
+somente leitura aprovado e encerrar as sessões sem persistência. Não executar
+aplicadores, inicializadores, funções/RPCs de aplicação, probes de negócio ou
+preflights que possam criar ledger, gravar sessão ou produzir outro efeito de
+domínio. Falta de acesso suficiente é resultado pendente, sem ajuste automático
+de permissões, ledger, catálogo, configuração ou ambiente.
+
+Ficam excluídos: linhas de domínio e contagens de pessoas/filas, mensagens,
+áudios, transcrições, objetos e corpos de Storage, dados pastorais, dumps e
+backups, credenciais/DSNs/URLs assinadas, arquivos `env`, valores de variáveis,
+configuração bruta, logs completos e conteúdo de requisições. Não buscar esses
+dados para preencher uma lacuna de versão ou compatibilidade. Não instalar
+ferramentas, mudar gates, parar serviços, testar envios ou criar instrumentação.
+Não incluir corpos de funções, expressões default, opções de funções ou
+configuração de roles nas projeções de catálogo. Se o contrato exigir um
+atributo excluído, mantê-lo NÃO VERIFICADO; ampliar a leitura exige novo escopo
+e autorização específica, sem buscar o valor para completar este pedido.
+
+##### Resultado, parada e limites
+
+Registrar somente evidência sanitizada por contrato e aspecto examinado:
+esperado na referência pinada, referência da fonte, observação permitida,
+horário UTC e classificação
+**COMPATÍVEL NO ASPECTO EXAMINADO**, **INCOMPATÍVEL** ou **NÃO VERIFICADO**, com
+o motivo. INCOMPATÍVEL exige divergência demonstrada em requisito obrigatório;
+permissão insuficiente, identidade não atribuída ou ausência de evidência
+resultam em NÃO VERIFICADO. A referência privada do alvo permanece no canal
+aprovado; sem dados pessoais ou segredos no runbook, prompts, PR, CI ou
+artefatos compartilhados.
+O fechamento informa quais dependências de migration/transição foram
+identificadas e o que ainda impede decidir; resultado parcial não vira GO geral.
+
+Interromper a parte dependente se faltar nomeação/autorização, a identidade do
+alvo não corresponder ao alvo aprovado, a referência pinada mudar, o acesso for
+negado, houver necessidade de dados excluídos ou de escrita, ou aparecer uma
+condição fora do alcance aprovado. Registrar apenas
+o bloqueio sanitizado, sem exceção bruta, retry cego, novo canal ou correção no
+alvo. Leituras em horários distintos não constituem snapshot conjunta, prova
+de ausência de drift ou garantia de que pedidos aceitos terminaram.
+Uma conexão diagnóstica não demonstra a identidade do pool usado pela aplicação.
+Divergência da versão instalada em relação à referência de comparação é achado
+a registrar, sem substituir automaticamente o alvo ou o pin.
+
+A comparação local já realizada não encontrou mudança nos arquivos SQL entre
+o commit `afdfb78d` usado na comparação anterior e esta referência;
+as PRs #621–#623 não acrescentam
+migration. O README e o executor possuem alterações próprias, sem prova de
+aplicação no alvo. A igualdade do SQL não resolve Q1–Q3, não confirma o schema
+vivo nem dispensa contenção, término dos pedidos ou recuperação.
+Não repetir replay/restore para datar o
+pedido e não reaproveitar automaticamente o pacote A4 como artefato atual.
+
+O NO-GO operacional, R4 original 8/9 e os limites de recuperação conjunta
+DB/Storage/Redis permanecem. Não há rollback universal pós-DDL ou retorno ao
+legado demonstrados. Q1–Q3 continuam **NÃO ENVIADAS**; este pedido não decide
+dispensá-las nem autoriza contato com provedor. Não há autorização de DDL,
+backup/restore, deploy, ativação, aceite real ou retomada da #619/A8/C2.
+
 #### Fontes e alcance do mapa
 
 - **E1:** registro sanitizado FENCE-TOPOLOGIA-20261106, observação de 06/11,
