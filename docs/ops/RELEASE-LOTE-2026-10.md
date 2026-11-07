@@ -1895,6 +1895,448 @@ configuração de roles nas projeções de catálogo. Se o contrato exigir um
 atributo excluído, mantê-lo NÃO VERIFICADO; ampliar a leitura exige novo escopo
 e autorização específica, sem buscar o valor para completar este pedido.
 
+##### Lista mínima e consultas propostas (preparação documental, 07/11/2026 UTC)
+
+**PROPOSTA NÃO EXECUTADA.** A hipótese continua sendo V1a por texto e leitura
+no painel, a confirmar pelo dono. Este detalhamento usa somente fonte Git
+`799907e4`/`b0ee7b97`; a integração documental da #625 em `813f04c8` não muda
+o runtime comparado nem repina este pedido. Não é coletor, preflight, release
+aprovado ou autorização de conexão. Operador, pastor, alvo, canal, momento e
+autorização nominal continuam pendentes nos campos acima.
+
+A lista cobre dependências de schema dos três contratos propostos, incluindo
+as consultas ORM completas efetivamente feitas pelo código. Nomes de colunas
+de pessoa, credencial, configuração, mídia ou mensagem abaixo são apenas
+metadados: **nenhum valor dessas colunas será consultado**. A presença dessas
+colunas não declara áudio, memória, cobrança ou outras capacidades avaliadas.
+
+**Contratos e fontes pinadas.** Todas as referências `arquivo:linha` desta
+seção pertencem ao pin `799907e4`, não ao checkout local ou ao alvo vivo:
+
+| Contrato | Fronteira realmente examinada |
+|---|---|
+| Acesso/sessão do painel | `backend/app/deps.py:183–205,220–305` carrega AppUser, AuthSession, UserRole e Igreja completos; login/bootstrap carrega RolePermission em `backend/app/routers/auth.py:329–335,812–820` e `backend/app/services/permissions.py:18–24`. |
+| V1a, texto numérico determinístico | `backend/app/services/cell_report_v1a_service.py:620–680,1049` e `agent_action_proposals.py:1030–1045` usam proposta/confirmação e revalidam o contexto com `whatsapp_privilege.py:332–510` (`sensitive=False`); o finalizador em `cell_report_finalizer.py:116–157,201–279` altera reunião/snapshot e o recibo pertence à transação do chamador. `backend/app/services/cell_report_application.py:834–915,1075–1110` revalida/locka o acesso. Isso não demonstra entrega/commit na instalação. |
+| Leitura do relatório no painel | Líder lê a própria célula por `backend/app/routers/cell_meetings.py:1728–1788`; listagem da igreja exige pastor/admin em `backend/app/routers/reports.py:193–220,255–295`. Fontes são `celula_reuniao`/`celulas`, com snapshot V2 para V1a enviado; a tabela legada `reports` não é requisito dessa leitura. `frontend/src/lib/cell-meetings-api.ts:493–507` e `frontend/src/lib/reports-api.ts:86` chamam esses caminhos. |
+
+Derivação adicional confirmada na fonte: `cell_report_v1a_service.py:366–381`
+seleciona ConsentRecord completo, justificando `consent_records` no núcleo.
+No ramo de relatório **V1a enviado com snapshot V2**, a leitura do líder usa
+`cell_meetings.py:332–337,1110–1123,1744–1776`,
+`backend/app/deps.py:426–438,464–469`: CelulaReuniao, Celula e AppUser,
+sem nova relação. A listagem Central usa
+`reports.py:225–228,240–260`: CelulaReuniao e projeção Celula.id/nome.
+Não executar esses SELECTs de domínio; são somente fonte da derivação local.
+O fallback de relatório sem snapshot ou legado em `cell_meetings.py:1777–1788`
+pode consultar outras relações e não está coberto: sua lista e compatibilidade
+ficam A CONFIRMAR/NÃO VERIFICADAS. Este diagnóstico não certifica toda a
+navegação do painel, edição humana ou leitura de presenças/registros legados.
+
+**Relações e colunas fechadas.** Todas no schema `public`. `NN` é não nula e `?`
+é nullable na referência; `timestamptz` significa timestamp with time zone.
+`texto` na tabela significa String no ORM. Isso não torna varchar obrigatório quando o
+DDL usa text ou enum. Comparar tipo/typmod/nulabilidade com o modelo e a migration
+pinados; divergência exige avaliar o requisito, sem classificar automaticamente
+qualquer diferença como incompatibilidade.
+
+| Relação e fonte do modelo (`backend/app/db/models.py`) | Colunas por tipo/nulabilidade |
+|---|---|
+| cell_report_drafts, linha1742 | uuid NN: id, igreja_id, conversation_id, reuniao_id, actor_pessoa_id, source_message_id; text NN: state; integer NN: revision; jsonb ?: candidate_json; text ?: candidate_sha256; timestamptz NN: started_at, expires_at, updated_at; timestamptz ?: terminal_at, content_purged_at. |
+| agent_action_proposals, linha1583 | uuid NN: id, igreja_id, conversation_id, actor_pessoa_id, actor_app_user_id, source_message_id, target_id; text NN: action, target_kind, arguments_sha256, scope_fingerprint, summary_sha256, state; jsonb NN: arguments_json; uuid ?: summary_message_id, confirmation_message_id; timestamptz ?: delivered_at, expires_at, executed_at; text ?: terminal_reason; timestamptz NN: created_at. |
+| agent_action_receipts, linha1657 | uuid NN: id, igreja_id, proposal_id, conversation_id, confirmation_message_id; text NN: outcome, effect_reference, receipt_text; timestamptz NN: created_at. |
+| celula_reuniao, linha604 | uuid NN: id, igreja_id, celula_id; date NN: data; text ?: hora, tema, observacoes; texto NN: status, relatorio_status; timestamptz ?: relatorio_enviado_em, updated_at; uuid ?: relatorio_enviado_por; numeric(12,2) ?: oferta_valor; jsonb ?: relatorio_snapshot; timestamptz NN: created_at. |
+| celulas, linha443 | uuid NN: id, igreja_id; text NN: nome, cobertura_espiritual; uuid ?: lider_id, anfitriao_id, auxiliar_id; text ?: dia_reuniao, endereco, horario, link_grupo, link_localizacao, mensagem_convite, bairro; boolean NN: divulgar_whatsapp, ativo; timestamptz NN: created_at. |
+| conversations, linha1144 | bigint NN: deletion_generation; uuid NN: id, igreja_id; uuid ?: pessoa_id, assumido_por, secretaria_oferta_message_id, secretaria_oferta_resposta_message_id; text NN: telefone; texto ?: estado; text ?: ultima_mensagem, secretaria_oferta_estado; integer NN: nao_lidas; timestamptz ?: assumido_em, espera_desde, secretaria_oferta_expira_em; boolean NN: numero_oficial; timestamptz NN: updated_at. |
+| messages, linha1280 | uuid NN: id, igreja_id, conversation_id; texto NN: direcao, autor, tipo; text ?: agent_reply_state, texto, provider_message_id, media_path, media_mime, media_nome, autor_nome; boolean ?: public_info_reply; jsonb ?: agent_privilege_context; integer ?: media_tamanho; uuid ?: enviado_por; timestamptz NN: criado_em. |
+| consent_records, linha4136 | uuid NN: id, igreja_id, pessoa_id; text ?: termo_versao; timestamptz ?: aceite_em; uuid ?: ator_id. |
+| pessoas, linha172 | uuid NN: id, igreja_id; text NN: nome, telefone; text ?: email, faixa_etaria, endereco, origem, sem_interesse_motivo, arquivada_motivo; texto ?: genero, tipo, etapa, subetapa, acompanhamento; integer NN: presencas_celula; boolean NN: aceitou_jesus, consentimento, optout, apto_proxima_cd, apto_lider, sem_interesse; timestamptz ?: primeiro_contato, arquivada_em; uuid ?: celula_id, lider_id, arquivada_por; timestamptz NN: created_at. |
+| agent_configs, linha4168 | uuid NN: id, igreja_id; text ?: nome, tom; text NN: comportamento; jsonb NN: informacoes_publicas; text[] ?: publico_alvo, acessos; boolean NN: ativo. |
+| igrejas, linha78 | uuid NN: id; text NN: nome; texto NN: status; text ?: plano, logo_path, endereco_institucional, horarios_culto; numeric(10,2) ?: setup_fee_override; uuid ?: dono_id; timestamptz NN: notification_outbox_cutover_at, created_at. |
+| app_users, linha266 | uuid NN: id; uuid ?: igreja_id, pessoa_id, celula_pendente_id; text ?: clerk_user_id, chat_nome; text NN: nome, email; texto ?: status; timestamptz NN: created_at; timestamptz ?: password_changed_at. |
+| user_roles, linha392 | uuid NN: id, igreja_id, user_id; texto NN: papel. |
+| auth_sessions, linha354 | text NN/PK: jti; uuid NN: app_user_id; uuid ?: igreja_id; timestamptz NN: issued_at, expires_at; timestamptz ?: revoked_at. |
+| role_permissions, linha416 | uuid NN: id, igreja_id; public.role_perm_papel NN: papel; text NN: tela. |
+
+Tipos enum correspondentes: `igrejas.status=public.igreja_status`,
+`app_users.status=public.app_user_status`, `user_roles.papel=public.user_role_papel`;
+`pessoas.genero/tipo/etapa/subetapa/acompanhamento` usam respectivamente os tipos
+`pessoa_genero/pessoa_tipo/pessoa_etapa/pessoa_subetapa/pessoa_acompanhamento`;
+`conversations.estado=conversation_estado` e `messages.direcao/autor/tipo`
+usam `message_direcao/message_autor/message_tipo`. Origem: `0001_extensions_and_enums.sql:19–74`
+e `0015_message_media.sql:18–28`. Identidade do tipo entra em M3; rótulos dos
+enums não serão lidos nesta proposta e sua compatibilidade fica NÃO VERIFICADA.
+
+**Parâmetro fechado de relações para M2–M6:**
+
+```text
+["igrejas", "app_users", "user_roles", "auth_sessions", "role_permissions",
+ "pessoas", "agent_configs", "conversations", "messages", "consent_records",
+ "celulas", "celula_reuniao", "cell_report_drafts", "agent_action_proposals",
+ "agent_action_receipts"]
+```
+
+`auth_sessions` usa PK `jti`; os outros 14 objetos usam PK `id`.
+`app_users.igreja_id` e `auth_sessions.igreja_id` são nullable na referência;
+não exigir NOT NULL por uma regra genérica de tenant. `role_permissions` é
+dependência do login/bootstrap, sem ampliar cadastro, reset de senha ou billing.
+Pessoa/AgentConfig/Igreja/AppUser/UserRole pertencem à revalidação real do SIM,
+portanto não podem ser omitidos só por não serem o relatório.
+
+**Chaves e índices necessários à comparação.** M4 deve confrontar as chaves
+primárias e FKs dos 15 objetos com as fontes abaixo, incluindo ações e validação.
+Pontos críticos: chaves de tenant `(igreja_id,id)` em pessoas, app_users,
+conversations e celula_reuniao; tripla de messages `(igreja_id,conversation_id,id)`;
+FKs de proposals/drafts/receipts para essas âncoras; `messages_tenant_conversation_fkey`,
+`app_users_tenant_pessoa_fkey`, `user_roles_tenant_user_fkey` e
+`auth_sessions_tenant_user_fkey`. PK/FK validadas não demonstram elegibilidade viva.
+
+Unicidades adicionais: `app_users.clerk_user_id`, `user_roles(user_id,papel)`,
+`role_permissions(igreja_id,papel,tela)`, `agent_configs.igreja_id`,
+`cell_report_drafts_source_once_key(igreja_id,source_message_id)`;
+`agent_action_proposals_source_once_key`, `agent_action_proposals_summary_once_key`
+e `agent_action_proposals_confirmation_once_key`, cada uma sobre igreja e sua
+mensagem correspondente; `agent_action_proposals_receipt_once_key(igreja_id,proposal_id)`
+é o nome real da restrição em **agent_action_receipts**. A tabela de mensagens
+conserva também suas chaves de tenant. Não substituir equivalência por nome homônimo.
+
+**Parâmetro fechado de índices para M5:**
+
+```text
+["cell_report_drafts_one_active_conversation_idx",
+ "agent_action_proposals_one_active_conversation_idx",
+ "agent_action_proposals_v1a_one_executed_meeting_idx",
+ "celula_reuniao_slot_uq", "app_users_pessoa_unica_por_igreja"]
+```
+
+Esperados UNIQUE, válidos, prontos e vivos. Os dois primeiros usam chaves
+`(igreja_id,conversation_id)`; o efeito único usa `(igreja_id,target_id,action)`;
+slot usa `(igreja_id,celula_id,data,coalesce(hora,''))`; identidade usa
+`(igreja_id,pessoa_id)`. São parciais ou por expressão: sem ler predicado/expressão,
+a proteção semântica permanece NÃO VERIFICADA. Índices não únicos de busca não
+são requisito de integridade nem causa automática de INCOMPATÍVEL.
+
+CHECKs a localizar por nome/tipo/validação em M4: famílias
+`cell_report_drafts_{state_closed,revision_positive,candidate_object_chk,candidate_digest_shape,expiry_window}`,
+`agent_action_proposals_{action_closed,target_kind_closed,state_closed,arguments_digest_shape,scope_fingerprint_shape,summary_digest_shape,expiry_requires_delivery}`,
+`agent_action_receipts_{outcome_closed,effect_reference_shape,receipt_text_closed}`,
+`celula_reuniao_{hora_chk,status_chk,relatorio_status_chk}`,
+`auth_sessions_expiry_after_issue_check` e `messages_agent_reply_state_check`.
+As expressões e sua semântica ficam excluídas; listas fechadas de actions/recibos
+evoluíram após V1a e não devem ser comparadas cegamente com o DDL inicial.
+
+**RLS e ACL esperadas nos aspectos permitidos.** ENABLE+FORCE em
+`cell_report_drafts`, `agent_action_proposals`, `agent_action_receipts` e
+`auth_sessions`. Nos demais, conferir RLS habilitada e registrar FORCE sem
+exigi-lo por analogia; `app_users` preserva tratamento do owner para o helper.
+Policies nominadas: `cell_report_drafts_worker_only`,
+`agent_action_proposals_worker_only`, `agent_action_receipts_worker_only`
+(ALL para authenticated); `igrejas_self_select`; `tenant_isolation` nos demais
+objetos de tenant, exceto auth_sessions, cujas policies são
+`auth_sessions_self_select`, `auth_sessions_self_update`,
+`auth_sessions_admin_select`, `auth_sessions_admin_revoke`.
+M6 registra também nomes/comandos de policies extras nesses objetos delimitados;
+a presença das esperadas não demonstra isolamento.
+
+Na referência pinada, no núcleo privado, authenticated tem SELECT/INSERT/UPDATE em drafts/proposals
+e SELECT/INSERT em receipts, sem DELETE e sem privilégio PUBLIC. Os endpoints HTTP sob o seam de `backend/app/db/rls.py:36–79` requerem
+SELECT nos objetos lidos; row locks na revalidação precisam de capacidade
+de UPDATE pertinente, que pode existir por coluna. Na referência, `auth_sessions` concede
+UPDATE somente em `revoked_at` para authenticated. M6 verifica só ACL de tabela:
+SELECT/INSERT/UPDATE de tabela falsos não excluem grants por coluna, que não
+serão coletados neste pedido. `has_table_privilege` pode incorporar PUBLIC e
+herança; a origem do grant não é determinada. A capacidade efetiva de escrever
+os sete campos oficiais em celula_reuniao e de obter locks em app_users,
+user_roles, pessoas, celulas e consent_records permanece NÃO VERIFICADA,
+inclusive quanto à policy UPDATE aplicável. O principal do login/bootstrap
+e do registrador de sessão também permanece NÃO VERIFICADO; não inferir
+exigências de SELECT em role_permissions ou INSERT em auth_sessions para
+`authenticated` a partir de uma leitura feita por factory privilegiada. USAGE de schema, demais roles,
+configuração/memberships, privilégios adicionais e principal efetivo do pool
+ficam NÃO VERIFICADOS; não solicitar seus valores para completar o resultado.
+
+**Nomes fechados para M8 (origens, não plano de aplicação).** Esta lista localiza
+as dependências encontradas, sem pretender enumerar toda evolução dos 15 objetos.
+A presença de nome no ledger não substitui comparação de objeto nem cobre drift.
+As colunas de mídia e outros campos estruturais continuam sendo apenas nomes/tipos.
+
+```text
+0001_extensions_and_enums.sql
+0002_schema_tables.sql
+0003_rls_policies.sql
+0011_app_users_celula_pendente.sql
+0015_message_media.sql
+0016_message_author.sql
+0017_app_user_status_revogado.sql
+20260623_170000_igreja_dono_assinatura.sql
+20260624_003030_current_igreja_id_guc_worker.sql
+20260624_090102_current_igreja_id_guard_empty_claims.sql
+20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql
+20260705_120000_celula_pr3_reuniao_relatorio_campos.sql
+20260707_011455_igreja_logo_branding.sql
+20260708_160128_sec3a_app_users_password_changed_at.sql
+20260720_191143_consent_records_ator_id_reoptin.sql
+20260730_205332_billing_setup_configuration.sql
+20260805_153000_security_definer_execute_hardening.sql
+20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql
+20260827_175634_d1a_tenant_runtime_integrity.sql
+20260925_183811_preserve_platform_admins_on_tenant_deletion.sql
+20260927_120000_church_cell_public_data.sql
+20260927_170000_whatsapp_privilege_actions.sql
+20260927_190000_cell_report_whatsapp_v1a.sql
+20260927_220000_notification_outbox_v2b.sql
+20260928_080000_whatsapp_consolidation_v3.sql
+20261002_173000_visitor_expectation_whatsapp.sql
+20261017_180100_consolidacao_atribuicoes_aceite.sql
+20261018_090000_exclusao_privada.sql
+20261023_120000_auth_session_revocation.sql
+20261025_100000_team_pessoa.sql
+```
+
+Fontes centrais: `backend/migrations/0002_schema_tables.sql:16–152,239,363`,
+`0003_rls_policies.sql:16–77`, `20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql:29–77`,
+`20260705_120000_celula_pr3_reuniao_relatorio_campos.sql:29–63`,
+`20260827_175634_d1a_tenant_runtime_integrity.sql:392–455`,
+`20260927_170000_whatsapp_privilege_actions.sql:99–208,322–384`,
+`20260927_190000_cell_report_whatsapp_v1a.sql:31–98,200–321`,
+`20261023_120000_auth_session_revocation.sql:5–32,34–110`.
+Os demais nomes acima localizam parte da evolução de colunas e CHECKs citados; consultar
+somente sua fonte Git para comparar o aspecto, sem executar o arquivo. `backend/scripts/migrate.py:30,107–112` fixa
+`public.schema_migrations` e a coluna `name`; `migration_files():60–65` usa
+basenames com extensão `.sql`; `cmd_apply():140–143,187` valida esse formato
+e registra o mesmo nome, sem caminho. É o ledger da aplicação proposto,
+sem procurar ledgers homônimos em outros schemas.
+
+**Identidade dos artefatos, sem exportar configuração.** No canal de metadados
+que o dono aprovar, propor apenas: (a) backend, vínculo serviço nominal →
+artefato/digest → SHA atribuível; (b) painel, vínculo alias/endereço aprovado →
+deployment → artefato/SHA, e vínculo nominal ao backend aprovado. Comparar com
+o pin sem transformar divergência em troca automática de alvo ou de versão.
+`backend/Dockerfile:34–36` prevê a label
+`org.opencontainers.image.revision`, mas admite `unknown`; nome/tag ou label
+sem proveniência não bastam. `frontend/Dockerfile:11–23` prevê SHA e labels
+de origem para imagem Docker; isso não identifica um deployment Vercel.
+`frontend/vercel.json:3–5` desliga publicação por Git, e
+`frontend/next.config.mjs:20–34` não estabelece vínculo de SHA servido.
+Ausência de proveniência atribuível no canal aprovado resulta em NÃO VERIFICADO.
+Não procurar valores de build/env, login, páginas de negócio, logs ou
+configuração bruta para completar o vínculo. Labels de origem, quando usadas,
+ficam somente no canal privado nominal, sem copiar endereço para o recibo.
+
+**Consultas SQL propostas.** São templates para PostgreSQL 17, revisados apenas
+estaticamente; não foram enviados a banco nem executados, inclusive localmente.
+`$1`/`$2` são parâmetros vinculados pela interface já autorizada, não fragmentos
+de SQL nem identificadores interpolados. Antes de conectar, o operador deve
+conferir canal somente leitura, lista literal, tipos e projeções com o dono.
+Se a interface não suportar esse formato ou faltar visibilidade, registrar
+pendência e revisar a proposta, sem improvisar executor, conta ou privilégio.
+Nenhum `SET ROLE`, `set_config`, função/RPC de domínio, `EXPLAIN ANALYZE`,
+`pg_stat_activity`, contagem/estimativa de linhas ou leitura de tabela de
+domínio integra estas consultas.
+
+**M1, versão e ledger.** A versão identifica compatibilidade desta proposta com
+os catálogos, não o alvo nominal nem a versão da aplicação. Se a versão não for
+17.x, parar M2–M8 e revisar estaticamente a proposta antes de qualquer continuação.
+Primeiro obter
+somente a existência/tipo da relação; não inicializar o ledger se ausente.
+
+```sql
+SELECT pg_catalog.current_setting('server_version_num') AS server_version_num,
+       n.nspname AS ledger_schema, c.relname AS ledger_name, c.relkind
+FROM (VALUES (1)) AS one(dummy)
+LEFT JOIN pg_catalog.pg_namespace n ON n.nspname = 'public'
+LEFT JOIN pg_catalog.pg_class c
+  ON c.relnamespace = n.oid AND c.relname = 'schema_migrations';
+
+SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+FROM pg_catalog.pg_attribute a
+JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relname = 'schema_migrations'
+  AND c.relkind = 'r' AND a.attname = 'name'
+  AND a.attnum > 0 AND NOT a.attisdropped;
+```
+
+**M2, relações e RLS.** `$1::text[]` contém exatamente as relações da lista
+fechada deste pedido, sem `schema_migrations`. Preservar linhas ausentes como
+tais, sem confundir falta de visibilidade com ausência comprovada.
+
+```sql
+SELECT w.relname AS expected_relation, c.relkind,
+       c.relrowsecurity, c.relforcerowsecurity
+FROM pg_catalog.unnest($1::text[]) AS w(relname)
+LEFT JOIN pg_catalog.pg_namespace n ON n.nspname = 'public'
+LEFT JOIN pg_catalog.pg_class c
+  ON c.relnamespace = n.oid AND c.relname = w.relname
+ORDER BY w.relname;
+```
+
+**M3, colunas.** Mesmo `$1`. Retornar apenas posição, nome, tipo e nulabilidade;
+sem `pg_attrdef`, defaults, comentários ou valores. A posição liga as chaves de
+M4/M5 às colunas. Colunas extras não são falha por si; comparar os requisitos
+mapeados na fonte, sem exigir igualdade de todo o banco.
+
+```sql
+SELECT c.relname, a.attnum, a.attname, tn.nspname AS type_schema,
+       t.typname AS type_name, pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+       a.attnotnull
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace
+WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+  AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY c.relname, a.attnum;
+```
+
+**M4, restrições.** Mesmo `$1`. Comparar PK/UNIQUE/FK, colunas ordenadas,
+referência, ações e validação com as migrations citadas. Nome sozinho não prova
+restrição equivalente. CHECK aparece só por nome/tipo/validação: sua expressão
+fica excluída e a semântica NÃO VERIFICADA.
+
+```sql
+SELECT c.relname, k.conname, k.contype, k.conkey,
+       rn.nspname AS referenced_schema, r.relname AS referenced_relation,
+       k.confkey, k.confupdtype, k.confdeltype,
+       k.convalidated, k.condeferrable, k.condeferred
+FROM pg_catalog.pg_constraint k
+JOIN pg_catalog.pg_class c ON c.oid = k.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_catalog.pg_class r ON r.oid = k.confrelid
+LEFT JOIN pg_catalog.pg_namespace rn ON rn.oid = r.relnamespace
+WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+ORDER BY c.relname, k.conname;
+```
+
+**M5, índices.** `$1` é a mesma lista; `$2::text[]` contém somente os nomes
+explicitamente relacionados como necessários abaixo. Não exportar definição,
+predicado ou expressão. `indkey=0`, índice parcial ou chave por expressão deixa
+sua semântica NÃO VERIFICADA, mesmo com nome/UNIQUE/validade esperados.
+
+```sql
+SELECT t.relname, i.relname AS index_name, x.indisunique, x.indisprimary,
+       x.indisvalid, x.indisready, x.indislive, x.indnkeyatts, x.indkey,
+       (x.indexprs IS NOT NULL) AS has_expression,
+       (x.indpred IS NOT NULL) AS has_predicate
+FROM pg_catalog.pg_index x
+JOIN pg_catalog.pg_class t ON t.oid = x.indrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid
+WHERE n.nspname = 'public' AND t.relname = ANY($1::text[])
+  AND i.relname = ANY($2::text[])
+ORDER BY t.relname, i.relname;
+```
+
+**M6, policies e permissão nominal.** Mesmo `$1`. Policies: somente nome,
+comando e indicação explícita de PUBLIC/authenticated, sem expressões,
+configuração ou inventário de roles. A ACL testa a role técnica `authenticated`,
+prevista em `backend/app/db/rls.py:36–54,59–79`, sem assumi-la como identidade
+da conexão/pool vivo. NULL nas colunas `authenticated_*` desta SQL decorre de
+role não encontrada por `to_regrole`, não de autorização de aplicação. Se a
+ausência estiver demonstrada no alvo atribuído, confrontá-la com o requisito
+de `rls.py`; ela pode demonstrar incompatibilidade desse aspecto. Erro/recusa
+ou alvo não atribuído continuam NÃO VERIFICADOS.
+Permissão de tabela não prova permissão por linha,
+coluna, caminho efetivamente usado ou autorização da pessoa. Privilégios via
+outras memberships e qualquer configuração de role ficam NÃO VERIFICADOS.
+
+```sql
+SELECT c.relname, p.polname, p.polcmd, p.polpermissive,
+       (0::oid = ANY(p.polroles)) AS names_public,
+       (pg_catalog.to_regrole('authenticated')::oid = ANY(p.polroles))
+         AS names_authenticated
+FROM pg_catalog.pg_policy p
+JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+ORDER BY c.relname, p.polname;
+
+SELECT c.relname, v.privilege,
+       CASE WHEN pg_catalog.to_regrole('authenticated') IS NOT NULL
+         THEN pg_catalog.has_table_privilege('authenticated', c.oid, v.privilege)
+       END AS authenticated_has_privilege,
+       pg_catalog.has_table_privilege('public', c.oid, v.privilege)
+         AS public_has_privilege
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) v(privilege)
+WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+  AND c.relkind IN ('r', 'p')
+ORDER BY c.relname, v.privilege;
+```
+
+**M7, assinatura SQL necessária.** Apenas `public.current_igreja_id()` sem
+argumentos, retorno `uuid`, e EXECUTE para `authenticated`. Não chamar a função,
+ler seu corpo/opções/dono/configuração de role, nem percorrer suas dependências.
+Não há RPC SQL de V1a nova exigida pelo serviço. Isolamento e semântica do
+resolvedor, inclusive escolha de claim e contexto transacional, ficam NÃO
+VERIFICADOS nesta leitura; `proretset` não é projetado, portanto retorno `uuid`
+não demonstra cardinalidade escalar nem assinatura integral equivalente.
+`actor_role` é dado Python, não RPC a inventariar.
+
+```sql
+SELECT n.nspname, p.proname,
+       pg_catalog.oidvectortypes(p.proargtypes) AS input_types,
+       pg_catalog.format_type(p.prorettype, NULL) AS result_type,
+       CASE WHEN pg_catalog.to_regrole('authenticated') IS NOT NULL
+         THEN pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       END AS authenticated_can_execute
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public' AND p.proname = 'current_igreja_id'
+  AND p.pronargs = 0 AND p.prokind = 'f';
+```
+
+**M8, nomes pertinentes no ledger.** Só propor depois de M1 confirmar
+ledger como tabela comum e coluna `name` textual no canal aprovado. `$1::text[]` é a lista fechada de arquivos de migration citados
+abaixo. Não ler outras linhas, `applied_at`, payload ou executar `migrate.py`.
+M1 não mede visibilidade/RLS do ledger. Resultado vazio ou parcial de M8 fica
+NÃO VERIFICADO: não distinguir ausência de aplicação de falta de visibilidade
+ou filtragem. Nome retornado é apenas nome observado; não inventar estado
+aplicado/pendente por contagem, nem certificar o ledger completo.
+
+```sql
+SELECT name FROM public.schema_migrations
+WHERE name = ANY($1::text[])
+ORDER BY name;
+```
+
+**Rendimento e limites.** M1–M8 permitem confrontar identidade atribuível,
+estrutura, restrições sem expressão e permissões nominais nos aspectos
+permitidos. Não demonstram dados corretos, sessão válida, permissões de uma
+pessoa, semântica de RLS/CHECK/default/índices parciais, execução de turno,
+commit único, recibo entregue, privacidade efetiva ou compatibilidade integral.
+Permissão insuficiente ou aspecto excluído resulta em NÃO VERIFICADO; só uma
+divergência demonstrada de requisito obrigatório admite INCOMPATÍVEL.
+O dono poderá avaliar o rendimento esperado antes de autorizar a leitura.
+Ficam explicitamente NÃO VERIFICADOS: aceitação pelos CHECKs atuais de
+`enviar_relatorio_celula`, `reuniao` e `Relatório confirmado.`; rótulos dos enums
+(inclusive papéis ministeriais e `revogado`); ausência de SUPERUSER/BYPASSRLS em
+`authenticated`; MATCH das FKs compostas e comportamento de UNIQUE com NULLs.
+Ausência/divergência de `celula_reuniao_slot_uq` ou
+`app_users_pessoa_unica_por_igreja` exige avaliação da dependência funcional,
+sem INCOMPATÍVEL automático. Não buscar propriedades excluídas para fechar NV.
+
+O caso mínimo proposto é numérico determinístico. Texto livre dependente de
+extração paga exige outras tabelas/serviço e continua NÃO VERIFICADO; isso não
+altera o requisito do produto. Não há inventário de áudio/Storage, memória/resumos, catálogo inteiro,
+transporte WhatsApp/Evolution, fila/Redis, provedores ou dados pastorais.
+Dependências desses caminhos não examinadas permanecem NÃO VERIFICADAS,
+mesmo quando esta lista contém colunas compartilhadas por eles. Não se reduz
+o aceite de 20 conversas reais nem se resolve contenção/recuperação por esta
+comparação. A afirmação histórica de retorno ao legado no ROADMAP deve ser
+reconciliada antes de qualquer janela; este pedido mantém o limite vigente
+sem rollback universal pós-DDL.
+
+Referências dos catálogos consultadas na preparação: documentação PostgreSQL17
+[pg_attribute](https://www.postgresql.org/docs/17/catalog-pg-attribute.html),
+[pg_constraint](https://www.postgresql.org/docs/17/catalog-pg-constraint.html),
+[pg_index](https://www.postgresql.org/docs/17/catalog-pg-index.html),
+[pg_policy](https://www.postgresql.org/docs/17/catalog-pg-policy.html) e
+[pg_proc](https://www.postgresql.org/docs/17/catalog-pg-proc.html) e
+[funções de metadados/permissão](https://www.postgresql.org/docs/17/functions-info.html).
+
+
 ##### Resultado, parada e limites
 
 Registrar somente evidência sanitizada por contrato e aspecto examinado:
