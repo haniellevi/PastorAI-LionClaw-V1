@@ -25,6 +25,13 @@ repetir restores por rotina. A preparação não retoma infraestrutura pausada n
 altera gates. Próximo passo: designar operador autorizado e decidir sobre as
 consultas preparadas. Os planos históricos abaixo não substituem esses limites.
 
+Pedido de leitura de metadados preparado no
+[mesmo runbook](docs/ops/RELEASE-LOTE-2026-10.md#pedido-de-leitura-de-metadados-preparado-execução-pendente),
+com escopo proposto, exclusões, parada e resultados por aspecto/contrato.
+**Execução não autorizada**, pendente de operador, pastor e autorização nominal
+específica. Nenhuma consulta ao alvo realizada; NO-GO, R4 8/9 e perguntas
+não enviadas preservados. Nomeação ou revisão documental não abre a leitura.
+
 ## PLANO (não executado): artefatos de imagem/painel + A7–A10 até o cutover (31/10/2026)
 
 Plano de preparação aprovado só para leitura. `[OK-DONO]` marca etapa que exige autorização nominal do dono na hora. Nada aqui foi executado.
