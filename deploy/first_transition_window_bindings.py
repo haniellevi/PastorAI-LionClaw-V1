@@ -35,7 +35,7 @@ construction. Tests use fakes and synthetic namespaces only.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import ipaddress
 import json
 import os
@@ -160,6 +160,45 @@ class NginxConfig:
         return 'include ' + self.include_dir + '/*.conf;'
 
 
+def _validate_nginx_topology(text, config):
+    """Pure, deliberately narrow nominal grammar; other site formats need manual review.
+
+    Only a single HTTPS server and its single root proxy location are supported. Comments
+    occupy whole lines; quotes, escapes, inline blocks and extra directives are not inferred.
+    The maintenance include belongs to the server rewrite phase, before the location.
+    """
+    stack, seen = [], set()
+    server_commands = {'server_name ' + config.server_name + ';', config.include_line, 'listen 443 ssl;'}
+    # Only LF ends a line/comment in this grammar; Unicode separators cannot
+    # manufacture directives hidden inside one nginx comment.
+    for raw in text.split('\n'):
+        line = raw.strip(' \t\r')
+        if not line or line.startswith('#'):
+            continue
+        if line == 'server {':
+            require(not stack and 'server' not in seen, 'window-nginx-topology')
+            seen.add('server')
+            stack.append('server')
+        elif line == 'location / {':
+            require(stack == ['server'] and config.include_line in seen and 'location' not in seen,
+                    'window-nginx-topology')
+            seen.add('location')
+            stack.append('location')
+        elif line == '}':
+            require(bool(stack), 'window-nginx-topology')
+            stack.pop()
+        elif stack == ['server'] and line in server_commands:
+            require(line not in seen and (line != config.include_line or 'location' not in seen),
+                    'window-nginx-topology')
+            seen.add(line)
+        elif stack == ['server', 'location'] and line == 'proxy_pass http://127.0.0.1:8000;':
+            require('proxy' not in seen, 'window-nginx-topology')
+            seen.add('proxy')
+        else:
+            raise Refused('window-nginx-topology')
+    require(not stack and seen == server_commands | {'server', 'location', 'proxy'}, 'window-nginx-topology')
+
+
 class NginxMaintenanceIngress(_Binding):
     entry = 'external'
 
@@ -178,8 +217,27 @@ class NginxMaintenanceIngress(_Binding):
             info = os.fstat(handle.fileno())
             require(stat.S_ISREG(info.st_mode) and info.st_uid == self.owner_uid and not info.st_mode & 0o022
                     and info.st_size <= OUTPUT, 'window-nginx-site')
-            lines = [line.strip() for line in handle.read(OUTPUT + 1).decode('utf-8').splitlines()]
+            text = handle.read(OUTPUT + 1).decode('utf-8')
+            lines = [line.strip() for line in text.splitlines()]
         require(lines.count(self.config.include_line) == 1, 'window-nginx-include-missing')
+        return text
+
+    def verify_topology(self, *, timeout=10):
+        """Constrained nominal site only; complex/ambiguous server routing refuses for review."""
+        deadline = _deadline(timeout)
+        text = self._include_present()
+        _validate_nginx_topology(text, self.config)
+        rc, out = self._run((self.config.nginx_binary, '-T'), deadline, code='window-nginx-topology')
+        require(rc == 0, 'window-nginx-topology')
+        marker = '# configuration file ' + self.config.site_path + ':\n'
+        effective = out.decode('utf-8')
+        require(effective.count(marker) == 1, 'window-nginx-topology')
+        selected = effective.split(marker, 1)[1].split('# configuration file ', 1)[0]
+        require(selected.strip() == text.strip()
+                and sum(self.config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]
+                        for names in re.findall(
+                    r'\bserver_name\s+([^;{}]+);', re.sub(r'#[^\n]*', '', effective))) == 1,
+                'window-nginx-topology')
 
     def _directory(self):
         try:
@@ -222,7 +280,7 @@ class NginxMaintenanceIngress(_Binding):
     def observe(self, scope, *, timeout):
         self._check(scope)
         deadline = _deadline(timeout)
-        self._include_present()
+        self.verify_topology(timeout=_remaining(deadline))
         snippet = self._snippet_state()
         status, marker = self._probe(deadline)
         if snippet == 'exact' and marker and status == 503:
@@ -241,7 +299,7 @@ class NginxMaintenanceIngress(_Binding):
     def block(self, scope, *, timeout):
         self._check(scope)
         deadline = _deadline(timeout)
-        self._include_present()
+        self.verify_topology(timeout=_remaining(deadline))
         if self._snippet_state() == 'absent':
             temp = self.snippet.with_name('.' + SNIPPET_NAME + '.tmp')
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
@@ -266,7 +324,7 @@ class NginxMaintenanceIngress(_Binding):
     def open(self, scope, *, timeout):
         self._check(scope)
         deadline = _deadline(timeout)
-        self._include_present()
+        self.verify_topology(timeout=_remaining(deadline))
         if self._snippet_state() == 'exact':
             os.unlink(self.snippet)
         self._reload(deadline)
@@ -415,23 +473,38 @@ class UnknownWriters(_Binding):
         self.readonly_roles, self.internal_roles = tuple(readonly_roles), tuple(internal_roles)
         self.proc = Path(proc)
         self.own_pid = own_pid or os.getpid()
+        self._candidate_provider = None
+
+    def bind_candidate(self, provider):
+        """Assembly-only hook: every observation gets a freshly validated A9 backend ID."""
+        require(self._candidate_provider is None and callable(provider), 'window-writers-candidate-binding')
+        self._candidate_provider = provider
 
     def _containers(self, deadline):
         """{namespace inode: set of container IDs} for every running container."""
         rc, out = self._run((*self.docker, 'ps', '-q', '--no-trunc'), deadline, code='window-writers-docker')
         require(rc == 0, 'window-writers-docker')
         ids = out.decode().split()
-        require(all(HEX64.fullmatch(i) for i in ids), 'window-writers-docker')
+        require(all(HEX64.fullmatch(i) for i in ids) and len(set(ids)) == len(ids), 'window-writers-docker')
         spaces = {}
         if not ids:
             return spaces
         rc, out = self._run((*self.docker, 'inspect', '--format', '{{json .Id}} {{json .State.Pid}}', *ids),
                             deadline, code='window-writers-docker')
         require(rc == 0, 'window-writers-docker')
-        for line in out.decode().splitlines():
-            ident, pid = (json.loads(v) for v in line.split(' '))
-            require(ident in ids and type(pid) is int and pid > 0, 'window-writers-docker')
+        seen = set()
+        try:
+            rows = [tuple(json.loads(v) for v in line.split(' ')) for line in out.decode().splitlines()]
+        except (ValueError, UnicodeError):
+            raise Refused('window-writers-docker') from None
+        for row in rows:
+            require(len(row) == 2, 'window-writers-docker')
+            ident, pid = row
+            require(isinstance(ident, str) and ident in ids and ident not in seen
+                    and type(pid) is int and pid > 0, 'window-writers-docker')
+            seen.add(ident)
             spaces.setdefault(self._netns(pid), (pid, set()))[1].add(ident)
+        require(seen == set(ids), 'window-writers-docker')
         return spaces
 
     def _netns(self, pid):
@@ -478,16 +551,17 @@ class UnknownWriters(_Binding):
                 continue
         return inodes
 
-    def _host_side(self, deadline):
+    def _host_side(self, deadline, declared_ids=None):
         """(declared connections, undeclared connections) towards the database endpoint."""
         declared = undeclared = 0
+        declared_ids = self.declared if declared_ids is None else declared_ids
         spaces = self._containers(deadline)
         host_ns = self._netns(1)
         for namespace, (pid, ids) in spaces.items():
             if namespace == host_ns:
                 continue  # host-network containers are judged with the host namespace below
             connections = len(self._connections(pid))
-            if ids <= self.declared:
+            if ids <= declared_ids:
                 declared += connections
             else:
                 undeclared += connections
@@ -521,7 +595,7 @@ class UnknownWriters(_Binding):
                 cur.execute('ROLLBACK')
         finally:
             conn.close()
-        require(all(isinstance(r, (list, tuple)) and len(r) == 2 and type(r[1]) is int for r in rows),
+        require(all(isinstance(r, (list, tuple)) and len(r) == 2 and type(r[1]) is int and r[1] >= 0 for r in rows),
                 'window-writers-shape')
         exempt = set(self.internal_roles) | readonly
         return sum(count for role, count in rows if role not in exempt)
@@ -529,7 +603,11 @@ class UnknownWriters(_Binding):
     def observe(self, scope, *, timeout):
         self._check(scope)
         deadline = _deadline(timeout)
-        declared, undeclared = self._host_side(deadline)
+        backend = None if self._candidate_provider is None else self._candidate_provider(timeout=_remaining(deadline))
+        require(backend is None or isinstance(backend, str) and HEX64.fullmatch(backend)
+                and backend not in self.declared, 'window-writers-candidate')
+        declared_ids = self.declared | ({backend} if backend is not None else set())
+        declared, undeclared = self._host_side(deadline, declared_ids)
         active = self._database_side(deadline)
         return undeclared + max(0, active - declared)
 
@@ -538,8 +616,8 @@ BINDINGS_KEYS = frozenset({'scope', 'nginx', 'bridge', 'writers'})
 WRITERS_KEYS = frozenset({'declared_containers', 'readonly_roles', 'docker'})
 
 
-def bindings_from_dict(data, *, secret, connect):
-    """(ingress mapping, writers) from the public bindings config; unknown keys refuse."""
+def validate_bindings_config(data, *, config=None):
+    """Pure schema/cross-scope validation. No secret, DNS, process or connection is consulted."""
     require(isinstance(data, dict) and set(data) == BINDINGS_KEYS and all(
         isinstance(data[k], dict) for k in ('nginx', 'bridge', 'writers')), 'window-bindings-config')
     writers = data['writers']
@@ -548,13 +626,36 @@ def bindings_from_dict(data, *, secret, connect):
             and len(writers['docker']) == 3 and isinstance(writers.get('readonly_roles', []), list),
             'window-bindings-config')
     try:
-        nginx, bridge = NginxConfig(**data['nginx']), BridgeConfig(**data['bridge'])
+        nginx = NginxConfig(**data['nginx']).validated()
+        bridge = BridgeConfig(**data['bridge']).validated()
     except TypeError:
         raise Refused('window-bindings-config') from None
-    scope = data['scope']
-    ingress = {'external': NginxMaintenanceIngress(nginx, scope=scope),
-               'evolution-backend': BridgePortIngress(bridge, scope=scope)}
-    unknown = UnknownWriters(scope=scope, connect=connect, endpoint=database_endpoint(secret()),
+    scope = _bound_scope(data['scope'])
+    ids, roles, docker = writers['declared_containers'], writers.get('readonly_roles', []), writers['docker']
+    require(ids and all(isinstance(i, str) and HEX64.fullmatch(i) for i in ids) and len(set(ids)) == len(ids)
+            and all(isinstance(r, str) and ROLE.fullmatch(r) for r in roles)
+            and not set(roles) & set(SUPABASE_INTERNAL), 'window-bindings-config')
+    require(all(isinstance(p, str) for p in docker) and _absolute(docker[0]) and _absolute(docker[2])
+            and docker[1].startswith('unix:///'), 'window-bindings-docker')
+    if config is not None:
+        require(scope == config.manifest.digest, 'window-bindings-scope')
+        require(bridge.bridge == 'br-' + config.manifest.network_id[:12] and bridge.port == 8000,
+                'window-bindings-bridge')
+        require(set(ids) == {i for _, i in config.manifest.service_ids}, 'window-bindings-declarations')
+        require(tuple(docker) == config.docker, 'window-bindings-docker')
+    return dict(scope=scope, nginx=asdict(nginx), bridge=asdict(bridge),
+                writers=dict(declared_containers=sorted(ids), readonly_roles=sorted(roles), docker=list(docker)))
+
+
+def bindings_from_dict(data, *, secret, connect, run=None, proc='/proc', owner_uid=0, endpoint=None):
+    """Real bindings with optional external IO, never an alternative writer implementation."""
+    data = validate_bindings_config(data)
+    nginx, bridge = NginxConfig(**data['nginx']), BridgeConfig(**data['bridge'])
+    writers, scope = data['writers'], data['scope']
+    ingress = {'external': NginxMaintenanceIngress(nginx, scope=scope, run=run, owner_uid=owner_uid),
+               'evolution-backend': BridgePortIngress(bridge, scope=scope, run=run)}
+    unknown = UnknownWriters(scope=scope, connect=connect, endpoint=(endpoint or database_endpoint)(secret()),
                              declared_containers=tuple(writers['declared_containers']),
-                             docker=tuple(writers['docker']), readonly_roles=tuple(writers.get('readonly_roles', ())))
+                             docker=tuple(writers['docker']), readonly_roles=tuple(writers['readonly_roles']),
+                             proc=proc, run=run)
     return ingress, unknown
