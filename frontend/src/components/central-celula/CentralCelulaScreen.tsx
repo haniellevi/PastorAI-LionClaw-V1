@@ -11,10 +11,10 @@ import "../cells/operations-ux-v2.css";
  * Materiais. Cada aba é um painel próprio que consome os endpoints da Central
  * (cell-central-api, cell-requests-api, cell-notices-api, cell-materials-api,
  * multiplicacoes-api). O dashboard é buscado aqui (fonte única dos badges) e
- * recarregado ao voltar a Hoje ou quando uma aba altera o estado (onChanged).
+ * recarregado com a fila ao abrir ou atualizar Hoje.
  * Master-detail no desktop e empilhado no mobile, no mesmo código-base.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DsEmptyState } from "@/components/ds/EmptyState";
 import { DsToast, DsToastRegion } from "@/components/ds/Toast";
@@ -22,7 +22,9 @@ import { Icon } from "@/lib/icons";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
-import { getDashboard, type CentralDashboard } from "@/lib/cell-central-api";
+import { getDashboard, getHealth, getPendingReports, type CentralDashboard } from "@/lib/cell-central-api";
+import { listRequests } from "@/lib/cell-requests-api";
+import { getMultiplicacoesList } from "@/lib/multiplicacoes-api";
 
 import { VisitCellSuggestions } from "../contacts/VisitCellSuggestions";
 import { CentralTabs } from "./CentralTabs";
@@ -31,7 +33,37 @@ import { ManageCellsPanel } from "./ManageCellsPanel";
 import { RequestsPanel } from "./RequestsPanel";
 import { NoticesPanel } from "./NoticesPanel";
 import { MaterialsPanel } from "./MaterialsPanel";
+import { buildTodayQueue, type TodayItem } from "./today-queue";
 import type { CentralTab, CentralToast } from "./types";
+
+function readValue<T>(result: PromiseSettledResult<T>): T {
+  if (result.status === "rejected") throw result.reason;
+  return result.value;
+}
+
+async function readToday(token: string, summary: Promise<CentralDashboard>) {
+  // Keep the refresh in flight until every read has finished, even on error.
+  const results = await Promise.allSettled([
+    summary,
+    getPendingReports(token, 1, 8),
+    listRequests(token, "aguardando", 1, 8),
+    getMultiplicacoesList(token),
+    getHealth(token, 1, 12),
+  ]);
+  for (const result of results) {
+    if (result.status === "rejected" && result.reason instanceof SessionExpiredError) throw result.reason;
+  }
+  const [dashboard, reports, requests, multiplications, health] = results;
+  return {
+    dashboard: readValue(dashboard),
+    queue: buildTodayQueue({
+      reports: readValue(reports).items,
+      requests: readValue(requests).items,
+      multiplications: readValue(multiplications).pendentes,
+      health: readValue(health).cells,
+    }),
+  };
+}
 
 export function CentralCelulaScreen() {
   const { token, user, expireSession } = useAuth();
@@ -40,9 +72,12 @@ export function CentralCelulaScreen() {
   const [tab, setTab] = useState<CentralTab>("dashboard");
   const [revealHealth, setRevealHealth] = useState(false);
   const [dashboard, setDashboard] = useState<CentralDashboard | null>(null);
-  const [loadingDash, setLoadingDash] = useState(true);
-  const [dashError, setDashError] = useState<string | null>(null);
-  const [dashboardRevision, setDashboardRevision] = useState(0);
+  const [queue, setQueue] = useState<TodayItem[] | null>(null);
+  const [loadingToday, setLoadingToday] = useState(true);
+  const [todayError, setTodayError] = useState<string | null>(null);
+  const activeTab = useRef<CentralTab>("dashboard");
+  const activeToken = useRef<string | null>(null);
+  const activeRequest = useRef<{ summary: Promise<CentralDashboard> } | null>(null);
 
   // Gate 10: sem timer manual — o DsToast é o dono do ciclo de vida (ok
   // auto-dismiss 3600ms; err persistente até fechar), igual ao contrato do
@@ -50,43 +85,87 @@ export function CentralCelulaScreen() {
   const [toast, setToast] = useState<CentralToast | null>(null);
   const flashToast = useCallback((t: CentralToast) => setToast(t), []);
 
-  const loadDashboard = useCallback((mode: "initial" | "reload") => {
-    if (mode === "initial") setLoadingDash(true);
-    setDashError(null);
-    setDashboardRevision((revision) => revision + 1);
-  }, []);
+  const loadDashboard = useCallback(async (
+    mode: "initial" | "refresh" | "changed" | "badge",
+    summaryInFlight?: Promise<CentralDashboard>,
+  ) => {
+    if (!token || activeToken.current !== token || !isCentral || (mode === "refresh" && activeRequest.current)) return;
+    const request = { summary: summaryInFlight ?? getDashboard(token) };
+    activeRequest.current = request;
+    if (mode !== "badge") {
+      setLoadingToday(true);
+      setTodayError(null);
+      if (mode === "initial") setQueue(null);
+    }
+
+    try {
+      if (mode === "badge") {
+        const data = await request.summary;
+        if (activeRequest.current === request) setDashboard(data);
+        return;
+      }
+      const data = await readToday(token, request.summary);
+      if (activeRequest.current !== request) return;
+      setDashboard(data.dashboard);
+      setQueue(data.queue);
+    } catch (err: unknown) {
+      if (activeRequest.current !== request) return;
+      setDashboard(null);
+      if (err instanceof SessionExpiredError) {
+        setQueue(null);
+        expireSession();
+      } else if (mode !== "badge") {
+        setQueue(null);
+        setTodayError(err instanceof ApiError ? err.message : "Não foi possível confirmar as pendências da Central.");
+      }
+    } finally {
+      if (activeRequest.current === request) {
+        activeRequest.current = null;
+        if (mode !== "badge") setLoadingToday(false);
+      }
+    }
+  }, [token, isCentral, expireSession]);
 
   useEffect(() => {
-    if (!token || !isCentral) return;
-    let active = true;
+    activeToken.current = isCentral ? token : null;
+    setDashboard(null);
+    void loadDashboard(activeTab.current === "dashboard" ? "initial" : "badge");
+    return () => {
+      activeToken.current = null;
+      activeRequest.current = null;
+    };
+  }, [token, isCentral, loadDashboard]);
 
-    void getDashboard(token)
-      .then((data) => {
-        if (active) setDashboard(data);
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        if (err instanceof SessionExpiredError) {
-          expireSession();
-          return;
-        }
-        setDashError(err instanceof ApiError ? err.message : "Não foi possível carregar o painel da central.");
-      })
-      .finally(() => {
-        if (active) setLoadingDash(false);
-      });
+  const refreshToday = useCallback(() => {
+    if (activeTab.current === "dashboard" && document.visibilityState !== "hidden") {
+      void loadDashboard("refresh");
+    }
+  }, [loadDashboard]);
 
-    return () => { active = false; };
-  }, [token, isCentral, expireSession, dashboardRevision]);
+  useEffect(() => {
+    if (tab !== "dashboard" || !isCentral || !token) return;
+    window.addEventListener("focus", refreshToday);
+    document.addEventListener("visibilitychange", refreshToday);
+    return () => {
+      window.removeEventListener("focus", refreshToday);
+      document.removeEventListener("visibilitychange", refreshToday);
+    };
+  }, [tab, isCentral, token, refreshToday]);
 
   const openTab = useCallback((nextTab: CentralTab, showHealth = false) => {
-    if (nextTab === "dashboard" && tab !== "dashboard") loadDashboard("initial");
+    const previousTab = activeTab.current;
+    activeTab.current = nextTab;
+    if (nextTab === "dashboard" && previousTab !== "dashboard") void loadDashboard("initial");
+    if (nextTab !== "dashboard" && previousTab === "dashboard" && activeRequest.current) {
+      // The other tabs still use the summary for their badges.
+      void loadDashboard("badge", activeRequest.current.summary);
+    }
     setRevealHealth(nextTab === "cells" && showHealth);
     setTab(nextTab);
-  }, [tab, loadDashboard]);
+  }, [loadDashboard]);
 
   const refreshDashboard = useCallback(() => {
-    void loadDashboard("reload");
+    void loadDashboard(activeTab.current === "dashboard" ? "changed" : "badge");
   }, [loadDashboard]);
 
   // Guarda de papel: a Central é exclusiva de pastor/admin.
@@ -122,11 +201,11 @@ export function CentralCelulaScreen() {
         <CentralTabs active={tab} onChange={openTab} badges={badges}>
           {tab === "dashboard" && token ? (
             <DashboardPanel
-              token={token}
-              dashboard={loadingDash || dashError ? null : dashboard}
-              loading={loadingDash}
-              error={dashError}
-              onRetry={() => void loadDashboard("initial")}
+              dashboard={queue ? dashboard : null}
+              queue={queue}
+              loading={loadingToday}
+              error={todayError}
+              onRefresh={refreshToday}
               onGoTo={openTab}
             />
           ) : null}

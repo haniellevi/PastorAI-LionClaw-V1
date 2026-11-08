@@ -4,8 +4,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SessionExpiredError } from "@/lib/api";
-import { ApiError } from "@/lib/dashboard-api";
 import type { CentralDashboard } from "@/lib/cell-central-api";
 
 import { DashboardPanel } from "./DashboardPanel";
@@ -15,31 +13,6 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-const mocks = vi.hoisted(() => ({
-  expireSession: vi.fn(),
-  getHealth: vi.fn(),
-  getPendingReports: vi.fn(),
-  getMultiplicacoesList: vi.fn(),
-  listRequests: vi.fn(),
-}));
-
-vi.mock("@/lib/auth-context", () => ({
-  useAuth: () => ({ expireSession: mocks.expireSession }),
-}));
-
-vi.mock("@/lib/cell-central-api", () => ({
-  getHealth: mocks.getHealth,
-  getPendingReports: mocks.getPendingReports,
-}));
-
-vi.mock("@/lib/cell-requests-api", () => ({
-  listRequests: mocks.listRequests,
-}));
-
-vi.mock("@/lib/multiplicacoes-api", () => ({
-  getMultiplicacoesList: mocks.getMultiplicacoesList,
-}));
 
 const dashboard: CentralDashboard = {
   relatorios_pendentes: 2,
@@ -53,30 +26,16 @@ const dashboard: CentralDashboard = {
 let container: HTMLDivElement;
 let root: Root;
 
-function props(token: string) {
-  return {
-    token,
-    dashboard,
-    loading: false,
-    error: null,
-    onRetry: vi.fn(),
-    onGoTo: vi.fn(),
-  };
-}
-
-async function flush(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
+const props = {
+  dashboard,
+  queue: [],
+  loading: false,
+  error: null,
+  onRefresh: vi.fn(),
+  onGoTo: vi.fn(),
+};
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  mocks.getPendingReports.mockResolvedValue({ items: [], page: 1, page_size: 8 });
-  mocks.listRequests.mockResolvedValue({ items: [], page: 1, pageSize: 8, total: 0 });
-  mocks.getMultiplicacoesList.mockResolvedValue({ pendentes: [] });
-  mocks.getHealth.mockResolvedValue({ cells: [] });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -89,66 +48,15 @@ afterEach(() => {
 
 describe("DashboardPanel", () => {
   it("não anuncia ausência sem dashboard confirmado, mesmo com a página de fila vazia", async () => {
-    await act(async () => root.render(<DashboardPanel {...props("token-a")} dashboard={null} error="Resumo indisponível." />));
-    await flush();
+    await act(async () => root.render(<DashboardPanel {...props} dashboard={null} error="Resumo indisponível." />));
     expect(container.textContent).toContain("Resumo indisponível.");
     expect(container.textContent).not.toContain("Nenhuma exceção aberta");
-    expect(container.textContent).not.toContain("Fila da Central zerada");
+    expect(container.textContent).not.toContain("Nenhuma pendência na lista carregada.");
     expect(container.querySelector(".central-cards")).toBeNull();
   });
 
-  it("não converte falha da fila em vazio e confirma ausência após retry", async () => {
-    const emptyDashboard = { ...dashboard, relatorios_pendentes: 0, solicitacoes_aguardando: 0, celulas_com_alerta: 0, multiplicacoes_pendentes: 0 };
-    mocks.getPendingReports.mockRejectedValueOnce(new ApiError(500, "Fila indisponível."));
-    await act(async () => root.render(<DashboardPanel {...props("token-a")} dashboard={emptyDashboard} />));
-    await flush();
-    expect(container.textContent).toContain("Fila indisponível.");
-    expect(container.textContent).not.toContain("Nenhuma exceção aberta");
-    expect(container.textContent).not.toContain("Fila da Central zerada");
-    const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Tentar novamente"))!;
-    await act(async () => retry.click());
-    await flush();
-    expect(container.textContent).toContain("Nenhuma pendência na lista carregada.");
-  });
-
   it("não duplica multiplicações no resumo de pendências", async () => {
-    await act(async () => root.render(<DashboardPanel {...props("token-a")} />));
-    await flush();
-
+    await act(async () => root.render(<DashboardPanel {...props} />));
     expect(container.textContent).toContain("6 pendências pedem atenção");
-  });
-
-  it("expira a sessão quando uma leitura da fila rejeita o token", async () => {
-    mocks.getPendingReports.mockRejectedValue(new SessionExpiredError());
-
-    await act(async () => root.render(<DashboardPanel {...props("token-a")} />));
-    await flush();
-
-    expect(mocks.expireSession).toHaveBeenCalledTimes(1);
-  });
-
-  it("limpa dados anteriores enquanto carrega uma nova sessão", async () => {
-    mocks.getPendingReports.mockResolvedValueOnce({
-      items: [
-        {
-          reuniao_id: "r1",
-          celula_id: "c1",
-          celula_nome: "Célula da sessão A",
-          lider_nome: "Líder A",
-          data: "2026-08-10",
-        },
-      ],
-      page: 1,
-      page_size: 8,
-    });
-
-    await act(async () => root.render(<DashboardPanel {...props("token-a")} />));
-    await flush();
-    expect(container.textContent).toContain("Célula da sessão A");
-
-    mocks.getPendingReports.mockReturnValueOnce(new Promise(() => {}));
-    await act(async () => root.render(<DashboardPanel {...props("token-b")} />));
-
-    expect(container.textContent).not.toContain("Célula da sessão A");
   });
 });

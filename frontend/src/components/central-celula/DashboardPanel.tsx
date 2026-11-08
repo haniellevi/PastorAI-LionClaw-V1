@@ -6,32 +6,15 @@
  * ficam recolhidos. Sem endpoint novo: reusa dashboard, pending-reports,
  * requests, multiplicações e health.
  */
-import { useEffect, useMemo, useState } from "react";
-
 import { SupportReveal } from "@/components/brand/SupportReveal";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
 import { formatLongDate, formatPublishedAt } from "@/components/minha-celula/format";
-import { SessionExpiredError } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
 import { Icon, type IconKey } from "@/lib/icons";
-import {
-  getHealth,
-  getPendingReports,
-  type CellHealth,
-  type CentralDashboard,
-  type PendingReportItem,
-} from "@/lib/cell-central-api";
-import { listRequests, type CellRequest } from "@/lib/cell-requests-api";
-import { ApiError } from "@/lib/dashboard-api";
-import {
-  getMultiplicacoesList,
-  type MultiplicacaoPendente,
-} from "@/lib/multiplicacoes-api";
+import type { CentralDashboard } from "@/lib/cell-central-api";
 
 import {
-  buildTodayQueue,
   countActionableItems,
   type TodayItem,
   type TodayKind,
@@ -115,133 +98,59 @@ function formatItemMeta(item: TodayItem): string {
 }
 
 export function DashboardPanel({
-  token,
   dashboard,
+  queue,
   loading,
   error,
-  onRetry,
+  onRefresh,
   onGoTo,
 }: {
-  token: string;
   dashboard: CentralDashboard | null;
+  queue: TodayItem[] | null;
   loading: boolean;
   error: string | null;
-  onRetry: () => void;
+  onRefresh: () => void;
   onGoTo: (tab: CentralTab, revealHealth?: boolean) => void;
 }) {
-  const { expireSession } = useAuth();
-  const [reports, setReports] = useState<PendingReportItem[]>([]);
-  const [requests, setRequests] = useState<CellRequest[]>([]);
-  const [multiplications, setMultiplications] = useState<MultiplicacaoPendente[]>([]);
-  const [health, setHealth] = useState<CellHealth[]>([]);
-  const [queueLoading, setQueueLoading] = useState(true);
-  const [queueLoaded, setQueueLoaded] = useState(false);
-  const [queueError, setQueueError] = useState<string | null>(null);
-  const [queueNonce, setQueueNonce] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setReports([]);
-    setRequests([]);
-    setMultiplications([]);
-    setHealth([]);
-    setQueueLoading(true);
-    setQueueLoaded(false);
-    setQueueError(null);
-
-    Promise.all([
-      getPendingReports(token, 1, 8),
-      listRequests(token, "aguardando", 1, 8),
-      getMultiplicacoesList(token),
-      getHealth(token, 1, 12),
-    ])
-      .then(([reportPage, requestPage, multiplicationList, healthList]) => {
-        if (cancelled) return;
-        setReports(reportPage.items);
-        setRequests(requestPage.items);
-        setMultiplications(multiplicationList.pendentes);
-        setHealth(healthList.cells);
-        setQueueLoaded(true);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof SessionExpiredError) {
-          expireSession();
-          return;
-        }
-        setQueueError(
-          err instanceof ApiError
-            ? err.message
-            : "Não foi possível carregar o que precisa de atenção hoje.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setQueueLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, expireSession, queueNonce]);
-
-  const queue = useMemo(
-    () =>
-      buildTodayQueue({
-        reports,
-        requests,
-        multiplications,
-        health,
-      }),
-    [reports, requests, multiplications, health],
-  );
-
-  const shownQueue = queue.slice(0, 8);
-  const showQueueSkeleton = queueLoading && !queueLoaded;
-  const showTotalsSkeleton = loading && !dashboard;
+  const shownQueue = queue?.slice(0, 8) ?? [];
+  const showQueueSkeleton = loading && !queue;
+  const loaded = dashboard && queue && !error;
   const pendingCount = countActionableItems(dashboard);
+  let status = loading
+    ? "Carregando as pendências da Central…"
+    : "Não foi possível confirmar as pendências agora.";
+  if (loaded) {
+    if (pendingCount > 0) {
+      status = `${pendingCount} ${pendingCount === 1 ? "pendência pede" : "pendências pedem"} atenção. Abra a pendência, não apenas o número.`;
+    } else if (shownQueue.length > 0) {
+      status = "A lista tem pendências. Atualize para conferir o total.";
+    } else {
+      status = loading
+        ? "Atualizando as pendências da Central…"
+        : "Nenhuma exceção aberta. Os totais da igreja ficam abaixo, se precisar conferir.";
+    }
+  }
 
   return (
     <section className="cc-today" aria-label="Hoje na Central">
       <header className="cc-today-head">
         <h3>Hoje na Central</h3>
-        <p>
-          {!dashboard || error || queueError
-            ? loading || showQueueSkeleton
-              ? "Carregando as pendências da Central…"
-              : "Não foi possível confirmar as pendências agora."
-            : pendingCount > 0
-            ? `${pendingCount} ${pendingCount === 1 ? "pendência pede" : "pendências pedem"} atenção. Abra a pendência, não apenas o número.`
-            : "Nenhuma exceção aberta. Os totais da igreja ficam abaixo, se precisar conferir."}
-        </p>
+        <p role="status">{status}</p>
+        <DsButton variant="secondary" onClick={onRefresh} loading={loading}>
+          Atualizar
+        </DsButton>
       </header>
 
       {error ? (
         <DsBanner
           kind="error"
           action={
-            <DsButton variant="secondary" onClick={onRetry} disabled={loading}>
+            <DsButton variant="secondary" onClick={onRefresh} disabled={loading}>
               Tentar novamente
             </DsButton>
           }
         >
           {error}
-        </DsBanner>
-      ) : null}
-
-      {queueError ? (
-        <DsBanner
-          kind="degraded"
-          action={
-            <DsButton
-              variant="secondary"
-              onClick={() => setQueueNonce((nonce) => nonce + 1)}
-              disabled={queueLoading}
-            >
-              Tentar novamente
-            </DsButton>
-          }
-        >
-          {queueError}
         </DsBanner>
       ) : null}
 
@@ -257,13 +166,17 @@ export function DashboardPanel({
             </div>
           ))}
         </div>
-      ) : !queueLoaded || (shownQueue.length === 0 && (!dashboard || error)) ? null : shownQueue.length === 0 ? (
+      ) : null}
+
+      {loaded && shownQueue.length === 0 && !loading ? (
         <DsEmptyState
           illustration={<Icon name="check" />}
           title="Nenhuma pendência na lista carregada."
           hint="Quando um relatório, solicitação ou célula pedir cuidado, aparece aqui."
         />
-      ) : (
+      ) : null}
+
+      {loaded && shownQueue.length > 0 ? (
         <ul className="cc-today-queue">
           {shownQueue.map((item) => {
             const visual = KIND_VISUAL[item.kind];
@@ -287,9 +200,9 @@ export function DashboardPanel({
             );
           })}
         </ul>
-      )}
+      ) : null}
 
-      {!showTotalsSkeleton && dashboard ? (
+      {dashboard && !error ? (
         <SupportReveal>
         <details className="cc-today-summary">
           <summary>Totais da igreja</summary>
