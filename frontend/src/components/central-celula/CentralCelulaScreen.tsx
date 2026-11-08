@@ -11,8 +11,8 @@ import "../cells/operations-ux-v2.css";
  * Materiais. Cada aba é um painel próprio que consome os endpoints da Central
  * (cell-central-api, cell-requests-api, cell-notices-api, cell-materials-api,
  * multiplicacoes-api). O dashboard é buscado aqui (fonte única dos badges) e
- * recarregado quando uma aba altera o estado (onChanged). Master-detail no
- * desktop e empilhado no mobile, no mesmo código-base.
+ * recarregado ao voltar a Hoje ou quando uma aba altera o estado (onChanged).
+ * Master-detail no desktop e empilhado no mobile, no mesmo código-base.
  */
 import { useCallback, useEffect, useState } from "react";
 
@@ -39,13 +39,10 @@ export function CentralCelulaScreen() {
 
   const [tab, setTab] = useState<CentralTab>("dashboard");
   const [revealHealth, setRevealHealth] = useState(false);
-  const openTab = useCallback((nextTab: CentralTab, showHealth = false) => {
-    setRevealHealth(nextTab === "cells" && showHealth);
-    setTab(nextTab);
-  }, []);
   const [dashboard, setDashboard] = useState<CentralDashboard | null>(null);
   const [loadingDash, setLoadingDash] = useState(true);
   const [dashError, setDashError] = useState<string | null>(null);
+  const [dashboardRevision, setDashboardRevision] = useState(0);
 
   // Gate 10: sem timer manual — o DsToast é o dono do ciclo de vida (ok
   // auto-dismiss 3600ms; err persistente até fechar), igual ao contrato do
@@ -53,30 +50,40 @@ export function CentralCelulaScreen() {
   const [toast, setToast] = useState<CentralToast | null>(null);
   const flashToast = useCallback((t: CentralToast) => setToast(t), []);
 
-  const loadDashboard = useCallback(
-    async (mode: "initial" | "reload") => {
-      if (!token || !isCentral) return;
-      if (mode === "initial") setLoadingDash(true);
-      setDashError(null);
-      try {
-        const data = await getDashboard(token);
-        setDashboard(data);
-      } catch (err) {
+  const loadDashboard = useCallback((mode: "initial" | "reload") => {
+    if (mode === "initial") setLoadingDash(true);
+    setDashError(null);
+    setDashboardRevision((revision) => revision + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !isCentral) return;
+    let active = true;
+
+    void getDashboard(token)
+      .then((data) => {
+        if (active) setDashboard(data);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
         if (err instanceof SessionExpiredError) {
           expireSession();
           return;
         }
         setDashError(err instanceof ApiError ? err.message : "Não foi possível carregar o painel da central.");
-      } finally {
-        setLoadingDash(false);
-      }
-    },
-    [token, isCentral, expireSession],
-  );
+      })
+      .finally(() => {
+        if (active) setLoadingDash(false);
+      });
 
-  useEffect(() => {
-    void loadDashboard("initial");
-  }, [loadDashboard]);
+    return () => { active = false; };
+  }, [token, isCentral, expireSession, dashboardRevision]);
+
+  const openTab = useCallback((nextTab: CentralTab, showHealth = false) => {
+    if (nextTab === "dashboard" && tab !== "dashboard") loadDashboard("initial");
+    setRevealHealth(nextTab === "cells" && showHealth);
+    setTab(nextTab);
+  }, [tab, loadDashboard]);
 
   const refreshDashboard = useCallback(() => {
     void loadDashboard("reload");
@@ -116,7 +123,7 @@ export function CentralCelulaScreen() {
           {tab === "dashboard" && token ? (
             <DashboardPanel
               token={token}
-              dashboard={dashboard}
+              dashboard={loadingDash || dashError ? null : dashboard}
               loading={loadingDash}
               error={dashError}
               onRetry={() => void loadDashboard("initial")}
