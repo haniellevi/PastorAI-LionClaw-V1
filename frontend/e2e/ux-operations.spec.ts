@@ -110,10 +110,72 @@ async function fixtures(page: Page) {
   });
   // Reinicia o cache local aquecido pelo dashboard com as rotas fictícias instaladas.
   await page.reload();
-  return { controls, writes, reportQueries };
+  return { controls, writes, reportQueries, reports };
 }
 
 test.beforeEach(async ({ request }) => resetHarness(request));
+
+test("líder consulta os totais do relatório V1a enviado em Minha Célula", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  const safety = await armBrowserSafety(page);
+  await loginThroughUi(page);
+  const fixture = await fixtures(page);
+  fixture.controls.leader = true;
+  const selectedMeeting = meetings[1]!;
+  fixture.reports.set(selectedMeeting.id, {
+    meeting_id: selectedMeeting.id,
+    data: selectedMeeting.data,
+    tema: selectedMeeting.tema,
+    schema: "cell-report/v2",
+    relatorio_status: "enviado",
+    totals: { presentes: 12, visitantes: 2, decisoes: 1 },
+    oferta_valor: 35.50,
+    observacoes: null,
+    presencas: [],
+    visitantes: [],
+    records: [],
+  });
+  const meetingWrites: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.url().startsWith(`${API_URL}/cell-meetings/`) &&
+      !["GET", "HEAD", "OPTIONS"].includes(request.method())
+    ) {
+      meetingWrites.push(request.method());
+    }
+  });
+
+  await page.reload();
+  await page.getByRole("button", { name: /Mais.*abrir menu/ }).click();
+  await page.getByRole("navigation", { name: "Menu principal", exact: true })
+    .getByRole("link", { name: "Minha Célula", exact: true }).click();
+  const picker = page.getByLabel("Reunião do relatório", { exact: true });
+  await expect(picker).toHaveValue(meetings[0]!.id);
+  const [reportResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.url() === `${API_URL}/cell-meetings/${selectedMeeting.id}/report` &&
+      response.request().method() === "GET",
+    ),
+    picker.selectOption(selectedMeeting.id),
+  ]);
+  expect(reportResponse.ok()).toBeTruthy();
+  await expect(picker).toHaveValue(selectedMeeting.id);
+  const reportPanel = page.getByRole("tabpanel", { name: "Relatório", exact: true });
+  const summary = reportPanel.getByRole("region", { name: "Resumo do relatório", exact: true });
+  await expect(reportPanel.getByText(`Tema: ${selectedMeeting.tema}`, { exact: true })).toBeVisible();
+  await expect(reportPanel.getByRole("status")).toHaveText("Relatório enviado e bloqueado para edição.");
+  for (const total of ["12 presentes", "2 visitantes", "1 decisão", /^R\$\s*35,50$/]) {
+    await expect(summary.getByText(total, { exact: true })).toBeVisible();
+  }
+  await expect(reportPanel.getByRole("checkbox")).toHaveCount(0);
+  await expect(reportPanel.getByRole("textbox")).toHaveCount(0);
+  await expect(reportPanel.getByRole("spinbutton")).toHaveCount(0);
+  await expect(reportPanel.getByRole("button", { name: "Enviar relatório", exact: true })).toHaveCount(0);
+  await expect(reportPanel.getByText(members[0]!.nome, { exact: true })).toHaveCount(0);
+  expect(meetingWrites).toEqual([]);
+  expect(fixture.writes).toEqual([]);
+  expectCleanBrowser(safety);
+});
 
 test("uma resposta atrasada da célula anterior não substitui a seleção atual", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
