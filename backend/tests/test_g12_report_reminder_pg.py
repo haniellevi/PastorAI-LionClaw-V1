@@ -2,13 +2,19 @@
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.db.models import CelulaReuniao, Conversation, Pessoa
+from app.db.models import AppUser, CelulaReuniao, Conversation, Pessoa
+from app.routers import cell_central
 from app.services import cell_report_reminders as reminders, cell_report_whatsapp
+from app.services.auth_sessions import register_session_with_backend_role
+from app.services.clerk import ClerkClient, get_clerk_client
 from tests.test_cell_report_v1a_reminder_pg import (  # noqa: F401
     _NOW, _IGREJA, _TERM, _REPORT, _run, _rows, _v1a_outbox_rows,
     _ReminderTransport, _ClassifiedEvolution, reminder_turn, report_turn,
@@ -81,11 +87,43 @@ def _panel_actor(turn):
 
 def _pending(turn):
     from app.db.rls import set_tenant_context_for_igreja
-    from app.routers import cell_central
     with turn.factory() as session:
         set_tenant_context_for_igreja(session, str(_IGREJA))
         return cell_central.get_pending_reports(page=1, page_size=20,
             db=session, current_user=_panel_actor(turn))
+
+
+@pytest.fixture
+def central_http(reminder_turn, monkeypatch):
+    turn = reminder_turn
+
+    class CentralClock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _NOW.astimezone(tz) if tz else _NOW.replace(tzinfo=None)
+
+    monkeypatch.setattr(cell_central, 'dt', SimpleNamespace(
+        datetime=CentralClock, timedelta=dt.timedelta, timezone=dt.timezone,
+    ))
+    monkeypatch.setattr('app.db.session.get_session_factory', lambda: turn.factory)
+    clerk = ClerkClient(SimpleNamespace(
+        effective_session_secret='synthetic-g12-central-session-secret',
+        session_ttl_hours=1,
+    ))
+    try:
+        with turn.factory() as session:
+            user = session.get(AppUser, turn.app_user_id)
+        token = clerk._mint_session_token(user.clerk_user_id)
+        register_session_with_backend_role(clerk, token, user, session_factory=turn.factory)
+
+        app = FastAPI()
+        app.include_router(cell_central.router)
+
+        app.dependency_overrides[get_clerk_client] = lambda: clerk
+        with TestClient(app, headers={'Authorization': f'Bearer {token}'}) as client:
+            yield client
+    finally:
+        clerk.close()
 
 
 def _submit(turn, channel, provider):
@@ -103,11 +141,24 @@ def _submit(turn, channel, provider):
 
 
 @pytest.mark.parametrize('channel', ('agent', 'panel'))
-def test_meeting_overdue_cron_reminder_report_and_central_closure(reminder_turn, monkeypatch, channel):
+def test_meeting_overdue_cron_reminder_report_and_central_closure(
+    reminder_turn, central_http, monkeypatch, channel,
+):
     from app.db.models import AgentActionProposal, AgentActionReceipt, Message
     from app.workers import cron_worker
     turn = reminder_turn
-    assert _pending(turn).total == 1
+
+    def assert_pending(meeting_ids):
+        pending = central_http.get('/cell-central/pending-reports')
+        assert pending.status_code == 200, pending.text
+        body = pending.json()
+        assert body['total'] == len(meeting_ids)
+        assert [item['reuniao_id'] for item in body['items']] == meeting_ids
+        dashboard = central_http.get('/cell-central/dashboard', params={'hoje': True})
+        assert dashboard.status_code == 200, dashboard.text
+        assert dashboard.json()['relatorios_pendentes'] == len(meeting_ids)
+
+    assert_pending([str(turn.meeting_id)])
     class Provider(_ReminderTransport):
         def __enter__(self):
             return self
@@ -134,7 +185,7 @@ def test_meeting_overdue_cron_reminder_report_and_central_closure(reminder_turn,
         assert any(m.direcao == 'out' and 'Comprovante:' in (m.texto or '')
             and m.agent_reply_state == 'ia' for m in messages)
         assert len(reply_provider.calls) == 2
-    assert _pending(turn).total == 0
+    assert_pending([])
     assert worker._run_cell_report_reminder_cycle(now=_NOW + dt.timedelta(minutes=1))[1:] == (0, 0)
     assert len(_v1a_outbox_rows(turn)) == 1 and len(reminder_provider.calls) == 1
 
