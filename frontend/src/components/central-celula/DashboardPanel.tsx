@@ -19,7 +19,7 @@ import {
   type TodayItem,
   type TodayKind,
 } from "./today-queue";
-import type { CentralTab } from "./types";
+import type { CellsSection, CentralTab } from "./types";
 
 interface CardDef {
   key: keyof CentralDashboard;
@@ -27,6 +27,7 @@ interface CardDef {
   icon: IconKey;
   delta: string;
   goTo: CentralTab;
+  section?: CellsSection;
   alertWhenPositive?: boolean;
 }
 
@@ -37,6 +38,7 @@ const CARDS: CardDef[] = [
     icon: "document",
     delta: "cobrar líderes",
     goTo: "cells",
+    section: "reports",
     alertWhenPositive: true,
   },
   {
@@ -110,7 +112,7 @@ export function DashboardPanel({
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
-  onGoTo: (tab: CentralTab, revealHealth?: boolean) => void;
+  onGoTo: (tab: CentralTab, section?: CellsSection) => void;
 }) {
   const shownQueue = queue?.slice(0, 8) ?? [];
   const showQueueSkeleton = loading && !queue;
@@ -180,12 +182,13 @@ export function DashboardPanel({
         <ul className="cc-today-queue">
           {shownQueue.map((item) => {
             const visual = KIND_VISUAL[item.kind];
+            const section = item.kind === "health" ? "health" : item.kind === "report" ? "reports" : undefined;
             return (
               <li key={item.id}>
                 <button
                   type="button"
                   className="cc-today-row"
-                  onClick={() => item.kind === "health" ? onGoTo(item.goTo, true) : onGoTo(item.goTo)}
+                  onClick={() => onGoTo(item.goTo, section)}
                 >
                   <span className={`cc-today-ic ${visual.cls}`} aria-hidden="true">
                     <Icon name={visual.icon} />
@@ -215,7 +218,7 @@ export function DashboardPanel({
                   key={card.key}
                   type="button"
                   className={`central-card${alert ? " alert" : ""}`}
-                  onClick={() => onGoTo(card.goTo)}
+                  onClick={() => onGoTo(card.goTo, card.section)}
                 >
                   <div className="cc-lbl">
                     <Icon name={card.icon} />

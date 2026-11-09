@@ -13,3 +13,5 @@ export type CentralTab =
   | "requests"
   | "notices"
   | "materials";
+
+export type CellsSection = "health" | "reports";

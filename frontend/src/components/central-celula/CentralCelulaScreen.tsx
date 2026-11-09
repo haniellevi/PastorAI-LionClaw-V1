@@ -34,7 +34,7 @@ import { RequestsPanel } from "./RequestsPanel";
 import { NoticesPanel } from "./NoticesPanel";
 import { MaterialsPanel } from "./MaterialsPanel";
 import { buildTodayQueue, type TodayItem } from "./today-queue";
-import type { CentralTab, CentralToast } from "./types";
+import type { CellsSection, CentralTab, CentralToast } from "./types";
 
 function readValue<T>(result: PromiseSettledResult<T>): T {
   if (result.status === "rejected") throw result.reason;
@@ -70,7 +70,7 @@ export function CentralCelulaScreen() {
   const isCentral = user?.roles.includes("pastor") || user?.roles.includes("admin") || false;
 
   const [tab, setTab] = useState<CentralTab>("dashboard");
-  const [revealHealth, setRevealHealth] = useState(false);
+  const [cellsSection, setCellsSection] = useState<CellsSection>();
   const [dashboard, setDashboard] = useState<CentralDashboard | null>(null);
   const [queue, setQueue] = useState<TodayItem[] | null>(null);
   const [loadingToday, setLoadingToday] = useState(true);
@@ -152,7 +152,7 @@ export function CentralCelulaScreen() {
     };
   }, [tab, isCentral, token, refreshToday]);
 
-  const openTab = useCallback((nextTab: CentralTab, showHealth = false) => {
+  const openTab = useCallback((nextTab: CentralTab, section?: CellsSection) => {
     const previousTab = activeTab.current;
     activeTab.current = nextTab;
     if (nextTab === "dashboard" && previousTab !== "dashboard") void loadDashboard("initial");
@@ -160,7 +160,7 @@ export function CentralCelulaScreen() {
       // The other tabs still use the summary for their badges.
       void loadDashboard("badge", activeRequest.current.summary);
     }
-    setRevealHealth(nextTab === "cells" && showHealth);
+    setCellsSection(nextTab === "cells" ? section : undefined);
     setTab(nextTab);
   }, [loadDashboard]);
 
@@ -211,7 +211,7 @@ export function CentralCelulaScreen() {
           ) : null}
 
           {tab === "cells" && token ? (
-            <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} revealHealth={revealHealth} />
+            <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} focusSection={cellsSection} />
           ) : null}
 
           {tab === "requests" && token ? (
