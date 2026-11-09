@@ -5,7 +5,7 @@
  * relatorio_status='pendente', com célula, líder (derivado de celulas.lider_id)
  * e data. Leitura paginada (mostra a 1ª página). Estados: loading · empty · erro.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
@@ -15,37 +15,34 @@ import { ApiError } from "@/lib/dashboard-api";
 import { getPendingReports, type PendingReportItem } from "@/lib/cell-central-api";
 import { formatLongDate } from "@/components/minha-celula/format";
 
-export function PendingReportsList({ token }: { token: string }) {
+export function PendingReportsList({ token, focusOnOpen }: { token: string; focusOnOpen?: boolean }) {
   const [items, setItems] = useState<PendingReportItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(
-    async (mode: "initial" | "retry") => {
-      if (mode === "initial") setLoading(true);
-      setError(null);
-      try {
-        const page = await getPendingReports(token);
-        setItems(page.items);
-        setLoaded(true);
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios pendentes.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [token],
-  );
+  const [attempt, setAttempt] = useState(0);
+  const section = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    void load("initial");
-  }, [load]);
+    if (focusOnOpen) section.current?.focus();
+  }, [focusOnOpen]);
 
-  const showSkeleton = loading && !loaded;
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    setItems([]);
+    void getPendingReports(token)
+      .then((page) => { if (active) setItems(page.items); })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios pendentes.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [token, attempt]);
 
   return (
-    <section className="card" aria-label="Relatórios pendentes">
+    <section className="card" aria-label="Relatórios pendentes" tabIndex={-1} ref={section}>
       <div className="panel-title">
         <Icon name="document" /> Relatórios pendentes
         {items.length ? <span className="count">· {items.length}</span> : null}
@@ -55,7 +52,7 @@ export function PendingReportsList({ token }: { token: string }) {
         <DsBanner
           kind="error"
           action={
-            <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
+            <DsButton variant="secondary" onClick={() => setAttempt((value) => value + 1)} disabled={loading}>
               Tentar novamente
             </DsButton>
           }
@@ -64,13 +61,13 @@ export function PendingReportsList({ token }: { token: string }) {
         </DsBanner>
       ) : null}
 
-      {showSkeleton ? (
-        <div className="section-body">
+      {loading ? (
+        <div className="section-body" aria-hidden="true">
           {Array.from({ length: 2 }).map((_, i) => (
             <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : error ? null : items.length === 0 ? (
         <DsEmptyState illustration={<Icon name="check" />} title="Nenhum relatório pendente." />
       ) : (
         <table className="data-table">

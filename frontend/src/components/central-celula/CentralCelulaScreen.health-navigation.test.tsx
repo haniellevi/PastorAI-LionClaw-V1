@@ -38,12 +38,15 @@ vi.mock("@/lib/contacts-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/contacts-api")>("@/lib/contacts-api"),
   fetchContacts: async () => ({ items: [], total: 0 }),
 }));
+vi.mock("@/lib/lookup-api", async () => ({
+  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  fetchCellListPage: async () => ({ items: [], total: 0, page: 1, pageSize: 20 }),
+}));
 vi.mock("@/lib/dashboard-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/dashboard-api")>("@/lib/dashboard-api"),
   fetchTeam: async () => ({ items: [], total: 0 }),
 }));
 vi.mock("./MultiplicationsList", () => ({ MultiplicationsList: () => null }));
-vi.mock("./PendingReportsList", () => ({ PendingReportsList: () => null }));
 vi.mock("./RequestsPanel", () => ({ RequestsPanel: () => <p>Decisões de solicitações</p> }));
 
 declare global {
@@ -87,8 +90,8 @@ async function render() {
   });
 }
 
-async function click(text: string) {
-  const button = Array.from(container.querySelectorAll("button")).find((item) =>
+async function click(text: string, within: ParentNode = container) {
+  const button = Array.from(within.querySelectorAll("button")).find((item) =>
     item.textContent?.trim() === text || item.querySelector(".cc-today-action")?.textContent === text,
   );
   expect(button, `ação ${text}`).toBeDefined();
@@ -274,14 +277,34 @@ describe("Central: destino de saúde", () => {
     expect(document.activeElement).toBe(healthDisclosure().querySelector("summary"));
   });
 
-  it("não revela o panorama ao navegar manualmente ou por relatório pendente", async () => {
-    mocks.getPendingReports.mockResolvedValue({ items: [{ reuniao_id: "synthetic-meeting", celula_id: "synthetic-cell", celula_nome: "Célula com relatório", lider_nome: "Líder fictício", data: "2026-09-30" }] });
+  it("leva o foco da pendência à lista de relatórios sem abrir o panorama", async () => {
+    mockPendingReport();
     await render();
     await click("Gerenciar células");
     expect(healthDisclosure().open).toBe(false);
+    const list = () => container.querySelector('[aria-label="Relatórios pendentes"]');
+    expect(document.activeElement).not.toBe(list());
     await click("Hoje");
     await click("Ver relatórios");
     expect(healthDisclosure().open).toBe(false);
+    expect(list()?.textContent).toContain(pendingMeeting.celula_nome);
+    expect(document.activeElement === list()).toBe(true);
+  });
+
+  it("não afirma ausência de relatórios quando a lista de destino falha", async () => {
+    mockPendingReport();
+    await render();
+    mocks.getPendingReports.mockRejectedValueOnce(new ApiError(500, "Leitura indisponível."));
+    await click("Ver relatórios");
+
+    const list = container.querySelector('[aria-label="Relatórios pendentes"]');
+    expect(list).not.toBeNull();
+    expect(list!.querySelector('[role="alert"]')?.textContent).toContain("Leitura indisponível.");
+    expect(list!.textContent).not.toContain("Nenhum relatório pendente.");
+
+    mocks.getPendingReports.mockResolvedValue({ items: [] });
+    await click("Tentar novamente", list!);
+    expect(list!.textContent).toContain("Nenhum relatório pendente.");
   });
 
   it("mantém uma multiplicação no destino de decisão", async () => {

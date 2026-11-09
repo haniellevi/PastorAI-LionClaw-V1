@@ -45,7 +45,7 @@ import { CellHealthList } from "./CellHealthList";
 import { PendingReportsList } from "./PendingReportsList";
 import { MultiplicationsList } from "./MultiplicationsList";
 import { TransferRemoveMemberModal } from "./TransferRemoveMemberModal";
-import type { CentralToast } from "./types";
+import type { CellsSection, CentralToast } from "./types";
 
 export function cellMemberAddBlockReason(
   cell: Pick<CellSummary, "ativo" | "liderId">,
@@ -59,21 +59,21 @@ export function ManageCellsPanel({
   token,
   onToast,
   onChanged,
-  revealHealth = false,
+  focusSection,
 }: {
   token: string;
   onToast: (t: CentralToast) => void;
   onChanged: () => void;
-  revealHealth?: boolean;
+  focusSection?: CellsSection;
 }) {
   const { user, expireSession } = useAuth();
   const healthDisclosure = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
-    if (!revealHealth || !healthDisclosure.current) return;
+    if (focusSection !== "health" || !healthDisclosure.current) return;
     healthDisclosure.current.open = true;
     healthDisclosure.current.querySelector("summary")?.focus();
-  }, [revealHealth]);
+  }, [focusSection]);
 
   const [cells, setCells] = useState<CellSummary[]>([]);
   const [query, setQuery] = useState("");
@@ -529,7 +529,7 @@ export function ManageCellsPanel({
         <summary>Saúde e multiplicações</summary>
         <div className="ops-disclosure-body ops-support"><CellHealthList token={token} /><MultiplicationsList token={token} /></div>
       </details>
-      <PendingReportsList token={token} />
+      <PendingReportsList token={token} focusOnOpen={focusSection === "reports"} />
 
       {showForm ? (
         <CellFormModal
