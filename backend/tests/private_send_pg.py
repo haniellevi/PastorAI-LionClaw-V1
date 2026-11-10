@@ -59,6 +59,14 @@ def install_private_send_release(engine, schema):
     sql = sql.replace('public.', f'{schema}.').replace(
         'pg_catalog,public', f'pg_catalog,{schema}').replace('on schema public', f'on schema {schema}')
     with engine.begin() as c:
+        # The real SQL revokes these Supabase roles. A fresh disposable PG may
+        # not have them; never depend on another test's cluster-wide setup.
+        for role in ('anon', 'service_role'):
+            c.exec_driver_sql(f"""do $$ begin
+                if not exists(select 1 from pg_roles where rolname='{role}') then
+                    create role {role} nologin noinherit nobypassrls;
+                end if;
+            end $$""")
         c.exec_driver_sql(f"""do $$ begin if not exists(select 1 from pg_policy where polname='send_worker'
             and polrelid='{schema}.private_deletion_sends'::regclass) then
             create policy send_worker on {schema}.private_deletion_sends for all to authenticated using(true);
