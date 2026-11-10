@@ -543,6 +543,27 @@ O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
 deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
 [`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).
 
+### Diagnóstico de alerta do PostgREST
+
+Em um alerta já analisado, a API de saúde reportou o componente `rest` como
+`UNHEALTHY`, com uma mensagem genérica de falha. Os logs disponíveis não
+permitiram identificar a causa.
+[API de saúde](https://supabase.com/docs/reference/api/v1-get-services-health).
+
+O `/ready` respondeu `200` nas amostras próximas do alerta. Essa rota verifica
+PostgreSQL via SQL e Redis, sem passar pela Data API.
+
+Uma resposta `401` da raiz OpenAPI (`/rest/v1/`) com chave pública é compatível
+com a restrição de acesso a essa rota. Esse teste não mede a disponibilidade do
+PostgREST. Os registros consultados não mostraram chamadas de consumidores da
+Data API. A evidência disponível deixa o impacto indeterminado.
+[Restrição da raiz OpenAPI](https://github.com/orgs/supabase/discussions/42949).
+
+Se o alerta voltar, registre o horário e o estado de `rest` no registro
+operacional interno. Compare com o `/ready` e com eventuais erros `5xx` de
+consumidores no gateway. Use essa correlação para decidir se há evidência de
+impacto antes de propor uma intervenção.
+
 ## 9.1. Atestação de ambiente permanece bloqueada
 
 O tooling separado de atestação somente leitura foi implementado no commit
