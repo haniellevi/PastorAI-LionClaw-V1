@@ -39,6 +39,10 @@ _REPORTS = (
     "presentes: 12\nvisitantes: 3\ndecisões: 1",
     "presentes: 12 visitantes: 3 decisões: 1",
     "Relatório 10/11 - 12 presentes - 3 visitantes - 1 decisão",
+    "visitantes 3 presentes 12 decisões 1",
+    "presentes12 visitantes3 decisões1",
+    "12 presentes 3 visitantes 1 decisão",
+    "12 presentes 3 visitantes sem oferta 1 decisão",
 )
 
 
@@ -145,6 +149,7 @@ def test_ministerial_report_binds_counts_to_labels(b15_turn, texto):
     assert len(events) == 1
     resumo = events[0]["relatorio"]
     assert (resumo["presentes"], resumo["visitantes"], resumo["decisoes"]) == (12, 3, 1)
+    assert resumo["oferta"] is None
     expected = "12 presentes, 3 visitantes, 1 decisões"
     assert len(evolution.calls) == 1
     assert expected in evolution.calls[0][2]
@@ -181,6 +186,12 @@ def test_non_ministerial_report_text_gets_no_report_confirmation(b15_turn, texto
     "Lista de presentes 10/11",
     "dia 10/11 presentes",
     "oferta: 10/11/2026",
+    "R$ -12 presentes",
+    "presentes:12visitantes",
+    "oferta 12 presentes",
+    "oferta 12 presentes 3 visitantes 1 decisão",
+    "oferta 50 presentes 12 visitantes 3 decisões 1",
+    "presentes: -12 visitantes",
 ])
 def test_ministerial_message_without_report_values_gets_no_confirmation(b15_turn, texto):
     evolution = _run(b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-NO-VALUES", texto)
@@ -247,6 +258,56 @@ def test_report_reply_distinguishes_missing_counts_from_zero(b15_turn, texto, co
         "decisoes": counts[2],
         "oferta": None,
     }
+    assert len(evolution.calls) == 1
+    response = evolution.calls[0][2]
+    assert f"Resumo informado: {summary}." in response
+    assert "confirmação humana" in response
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [response]
+    assert b15_turn.llm_calls == []
+    assert _count(b15_turn, Decision) == 0
+    assert _count(b15_turn, AgentActionProposal) == 0
+
+
+@pytest.mark.parametrize(("texto", "report", "summary"), [
+    pytest.param(
+        "decisões 2 presentes: 10/11",
+        {"presentes": None, "visitantes": None, "decisoes": 2, "oferta": None},
+        "presentes não informados, visitantes não informados, 2 decisões",
+        id="date-does-not-borrow-decisions",
+    ),
+    pytest.param(
+        "oferta 50 presentes12",
+        {"presentes": 12, "visitantes": None, "decisoes": None, "oferta": 50},
+        "12 presentes, visitantes não informados, decisões não informadas",
+        id="offering-does-not-become-attendance",
+    ),
+    pytest.param(
+        "oferta 12 presentes visitantes: 3 decisões: 1",
+        {"presentes": None, "visitantes": 3, "decisoes": 1, "oferta": None},
+        "presentes não informados, 3 visitantes, 1 decisões",
+        id="ambiguous-offering-does-not-shift-counts",
+    ),
+    pytest.param(
+        "oferta 12 presentes, 3 visitantes",
+        {"presentes": None, "visitantes": 3, "decisoes": None, "oferta": None},
+        "presentes não informados, 3 visitantes, decisões não informadas",
+        id="separator-preserves-unambiguous-count",
+    ),
+    pytest.param(
+        "Relatório com oferta\n12 presentes\n3 visitantes",
+        {"presentes": 12, "visitantes": 3, "decisoes": None, "oferta": None},
+        "12 presentes, 3 visitantes, decisões não informadas",
+        id="offering-heading-does-not-borrow-next-line",
+    ),
+])
+def test_report_values_are_not_borrowed_by_neighboring_fields(b15_turn, texto, report, summary):
+    evolution = _run(
+        b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-FIELD-VALUES", texto,
+    )
+
+    events = _report_events(b15_turn, b15_turn.leader_conversation)
+    assert len(events) == 1
+    assert events[0]["relatorio"] == report
     assert len(evolution.calls) == 1
     response = evolution.calls[0][2]
     assert f"Resumo informado: {summary}." in response
