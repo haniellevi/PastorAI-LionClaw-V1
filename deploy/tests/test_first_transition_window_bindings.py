@@ -20,7 +20,9 @@ UID = os.getuid()
 SITE = """server {{
     server_name api.example.test;
     {include}
-    location / {{ proxy_pass http://127.0.0.1:8000; }}
+    location / {{
+        proxy_pass http://127.0.0.1:8000;
+    }}
     listen 443 ssl;
 }}
 """
@@ -36,6 +38,10 @@ class Nginx:
         self.calls.append(argv)
         assert timeout > 0 and stdin is None
         if argv[0].endswith('nginx'):
+            if argv[1:] == ('-T',):
+                site = self.snippet.parent.parent / 'site'
+                return 0, ('# configuration file ' + str(site) + ':\n' + site.read_text()).encode()
+            assert argv[1:] == ('-t', '-q')
             return self.test_rc, b''
         if argv[0].endswith('systemctl'):
             assert argv[1:] == ('reload', 'nginx.service')
@@ -70,7 +76,7 @@ def test_nginx_block_and_open_round_trip_through_the_live_probe(tmp_path):
     assert ingress.block(SCOPE, timeout=5) is True  # idempotent
     assert ingress.open(SCOPE, timeout=5) is True
     assert not snippet.exists() and ingress.observe(SCOPE, timeout=5) == 'open'
-    assert sum(1 for c in fake.calls if c[0].endswith('nginx')) == 3
+    assert sum(1 for c in fake.calls if c[1:] == ('-t', '-q')) == 3
 
 
 def test_nginx_refuses_without_the_one_time_include(tmp_path):
@@ -103,6 +109,76 @@ def test_nginx_partial_or_foreign_states_refuse(tmp_path):
         ingress.block(SCOPE, timeout=5)
     with pytest.raises(Refused, match='window-binding-scope'):
         ingress.observe('b' * 64, timeout=5)
+
+
+@pytest.mark.parametrize('fault', [
+    'probe-only', 'late-include', 'inline-server', 'extra-server', 'extra-include',
+    'grpc', 'uwsgi', 'fastcgi', 'scgi', 'memcached', 'multi-command', 'inline-location',
+    'unbalanced-open', 'unbalanced-close', 'if', 'rewrite', 'return', 'unknown', 'unicode-newline',
+])
+def test_nginx_non_nominal_topology_refuses_before_any_external_io(tmp_path, fault):
+    ingress, fake = _nginx(tmp_path)
+    path = Path(ingress.config.site_path)
+    text = path.read_text()
+    include = '    ' + ingress.config.include_line + '\n'
+    if fault == 'probe-only':
+        text = text.replace(include, '').replace('    location / {',
+            '    location = ' + wb.PROBE_PATH + ' {\n' + include + '    }\n    location / {')
+    elif fault == 'late-include':
+        text = text.replace(include, '').replace('    listen', include + '    listen')
+    elif fault == 'inline-server':
+        text += 'server { listen 443 ssl; }\n'
+    elif fault == 'extra-server':
+        text += 'server {\n    listen 443 ssl;\n}\n'
+    elif fault == 'extra-include':
+        text = text.replace(include, include + '    include /synthetic/other.conf;\n')
+    elif fault in ('grpc', 'uwsgi', 'fastcgi', 'scgi', 'memcached'):
+        text = text.replace('        proxy_pass', '        ' + fault + '_pass 127.0.0.1:9000;\n        proxy_pass')
+    elif fault == 'multi-command':
+        text = text.replace('    listen 443 ssl;', '    listen 443 ssl; return 200;')
+    elif fault == 'inline-location':
+        text = text.replace('    location / {\n        proxy_pass http://127.0.0.1:8000;\n    }',
+                            '    location / { proxy_pass http://127.0.0.1:8000; }')
+    elif fault == 'unbalanced-open':
+        text += '{\n'
+    elif fault == 'unbalanced-close':
+        text += '}\n'
+    elif fault == 'unicode-newline':
+        text = '# comment\u2028' + text.replace('\n', '\u2028')
+    else:
+        line = {'if': 'if ($request_method = GET) {', 'rewrite': 'rewrite ^ /other;',
+                'return': 'return 200;', 'unknown': 'access_by_lua_block {'}[fault]
+        text = text.replace(include, include + '    ' + line + '\n')
+    path.write_text(text)
+    for operation in (ingress.verify_topology, lambda **kw: ingress.observe(SCOPE, **kw),
+                      lambda **kw: ingress.block(SCOPE, **kw), lambda **kw: ingress.open(SCOPE, **kw)):
+        with pytest.raises(Refused, match='^window-nginx-topology$'):
+            operation(timeout=5)
+    assert fake.calls == [] and not ingress.snippet.exists()
+
+
+@pytest.mark.parametrize('operation', ['observe', 'block', 'open'])
+def test_nginx_topology_is_fresh_after_readiness(tmp_path, operation):
+    ingress, fake = _nginx(tmp_path)
+    ingress.verify_topology(timeout=5)
+    # An existing maintenance snippet must not be removed or reloaded after drift either.
+    ingress.snippet.write_bytes(wb.SNIPPET)
+    ingress.snippet.chmod(0o644)
+    fake.live = True
+    path = Path(ingress.config.site_path)
+    path.write_text(path.read_text().replace('    location / {', '    include /synthetic/drift.conf;\n    location / {'))
+    before = list(fake.calls)
+    with pytest.raises(Refused, match='^window-nginx-topology$'):
+        getattr(ingress, operation)(SCOPE, timeout=5)
+    assert fake.calls == before and ingress.snippet.read_bytes() == wb.SNIPPET and fake.live
+
+
+def test_nginx_nominal_comments_and_blank_lines_pass(tmp_path):
+    ingress, fake = _nginx(tmp_path)
+    path = Path(ingress.config.site_path)
+    path.write_text('# synthetic server { return 200; }\n\n' + path.read_text())
+    ingress.verify_topology(timeout=5)
+    assert fake.calls == [(ingress.config.nginx_binary, '-T')]
 
 
 class Nft:
@@ -320,3 +396,27 @@ def test_writer_queries_run_on_real_postgres(database):  # noqa: F811
         busy.close()
         cur.execute(f'DROP ROLE {role}')
         admin.close()
+
+
+def test_window_preflight_metadata_queries_on_owned_postgres(database):  # noqa: F811
+    """Opt-in for the coordinator's PG17 harness, with the same owned disposable fixture."""
+    from first_transition_database import psycopg2_connector
+    from first_transition_window import _source_version
+    url, _ = database
+    assert _source_version(psycopg2_connector(lambda: url), 'postgres') == 17
+
+
+@pytest.mark.parametrize('names', ['alias.example.test api.example.test', 'api.example.test alias.example.test',
+                                 'API.EXAMPLE.TEST alias.example.test', '"api.example.test" alias.example.test',
+                                 "'API.EXAMPLE.TEST' alias.example.test"])
+def test_effective_nginx_duplicate_server_alias_refuses(tmp_path, names):
+    ingress, fake = _nginx(tmp_path)
+    def run(argv, **kwargs):
+        rc, data = fake(argv, **kwargs)
+        if argv[1:] == ('-T',):
+            data += ('# configuration file /other/site:\nserver {\nserver_name ' + names + ';\n}\n').encode()
+        return rc, data
+    ingress._run_command = run
+    with pytest.raises(wb.Refused, match='^window-nginx-topology$'):
+        ingress.verify_topology()
+    assert not ingress.snippet.exists()

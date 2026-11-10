@@ -34,12 +34,14 @@ import os
 from pathlib import Path
 import re
 import stat
+import time
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from first_transition_adapter import ROLES
 from first_transition_host_driver import (DAEMON, HEX64, IMAGE, INFO_ARGV, MANDATORY_GATES, NETWORK_NAME, STARTED,
                                           STATUSES, PopenRunner, _absolute, _attempt, _lines, _tail,
                                           inspect_template)
-from initial_transition_files import migration_manifest, no_symlink, write_release
+from initial_transition_files import inventory, layout_files, migration_manifest, no_symlink, read_regular, write_release
 from initial_transition_ops import Refused, require
 import package_backend_release
 import release_topology
@@ -50,6 +52,78 @@ ZERO_STARTED = '0001-01-01T00:00:00Z'
 CLOSED_GATES = {'ALLOW_REAL_SENDS': 'false', 'ASAAS_BILLING_ENABLED': 'false', 'BREVO_SEND_MODE': 'off',
                 'BROADCAST_ASYNC_ENABLED': 'false'}
 CANDIDATE_TEMPLATE = '[{{json .Name}},' + inspect_template(MANDATORY_GATES)[1:]
+# Private projection is consumed only in memory; never put it in candidate states or receipts.
+DATABASE_NAMES = ('DATABASE_URL', 'AGENT_RUNTIME_DATABASE_URL', 'PRIVATE_STORAGE_DATABASE_URL',
+                  'PRIVATE_SEND_DATABASE_URL', 'PRIVATE_SUMMARY_DATABASE_URL', 'QUEUE_WORKER_DATABASE_URL')
+PG_OVERRIDES = ('PGHOST', 'PGHOSTADDR', 'PGPORT', 'PGDATABASE', 'PGSERVICE', 'PGSERVICEFILE',
+                'PGOPTIONS', 'PGSYSCONFDIR')
+DATABASE_TEMPLATE = ('[{{json .Id}},[{{range .Config.Env}}{{if eq (lower (index (split . "=") 0)) '
+                     + ' '.join('"' + n.lower() + '"' for n in (*DATABASE_NAMES, *PG_OVERRIDES))
+                     + '}}{{json .}},{{end}}{{end}}null]]')
+SAFE_QUERY = frozenset({'sslmode', 'connect_timeout', 'application_name', 'channel_binding', 'gssencmode',
+                        'target_session_attrs'})
+
+
+def check_closed_gates(items, *, code):
+    """Case-insensitive discovery, canonical unique names, app-compatible closed values only."""
+    seen = set()
+    for name, value in items:
+        require(isinstance(name, str), code)
+        upper = name.upper()
+        if upper in CLOSED_GATES:
+            require(name == upper and upper not in seen and str(value).lower() == CLOSED_GATES[upper], code)
+            seen.add(upper)
+
+
+def database_target(value):
+    """Conservative routing comparison only, not proof of a live connection. No secret escapes."""
+    code = 'window-candidate-database'
+    try:
+        require(isinstance(value, str) and 0 < len(value) <= 16384
+                and not any(ord(c) < 33 or ord(c) == 127 for c in value), code)
+        uri = urlsplit(value)
+        require(uri.scheme in ('postgresql', 'postgresql+psycopg2') and not uri.fragment, code)
+        host = (uri.hostname or '').lower()
+        require(re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', host) is not None
+                and '..' not in host and not host.endswith('.'), code)
+        port = uri.port if uri.port is not None else 5432
+        db = unquote(uri.path[1:]) if uri.path.startswith('/') else ''
+        require(0 < port < 65536 and db and not any(c in db for c in '/\\')
+                and not any(ord(c) < 33 or ord(c) == 127 for c in db), code)
+        query = parse_qsl(uri.query, keep_blank_values=True, strict_parsing=True)
+        require(len({k for k, _ in query}) == len(query) and {k for k, _ in query} <= SAFE_QUERY
+                and all(not any(ord(c) < 32 or ord(c) == 127 for c in v) for _, v in query), code)
+        project = None
+        if host.endswith('.pooler.supabase.com'):
+            user = unquote(uri.username or '')
+            role, sep, project = user.rpartition('.')
+            require(bool(role and sep) and re.fullmatch(r'[a-z0-9]{1,63}', project) is not None, code)
+        return host, port, db, project
+    except (ValueError, TypeError):
+        raise Refused(code) from None
+
+
+def check_candidate_database(items, source):
+    """Compare explicit candidate URLs to the single provider, discard values and return a count only.
+
+    Empty optional URLs are not evaluated; no fallback or credential provisioning is inferred.
+    """
+    code = 'window-candidate-database'
+    target, urls = database_target(source), {}
+    for name, value in items:
+        require(isinstance(name, str), code)
+        upper = name.upper()
+        require(upper not in PG_OVERRIDES, code)
+        if upper in DATABASE_NAMES:
+            require(name == upper and upper not in urls and isinstance(value, str), code)
+            urls[upper] = value
+    require(bool(urls.get('DATABASE_URL')), code)
+    for value in urls.values():
+        if value:
+            require(database_target(value) == target, code)
+    return sum(not urls.get(name) for name in DATABASE_NAMES[1:])
+
+
 HOLD_OVERRIDE = ('# A9 hold: candidate containers are created with restart "no" and never started here.\n'
                  '{"services": {' + ', '.join(f'"{r}": {{"restart": "no"}}' for r in ROLES) + '}}\n')
 LIMITS = dict(info=256, compose=64 * 1024, ps=4096, inspect=64 * 1024, effect=256, smoke=1024)
@@ -121,7 +195,7 @@ class CandidateSpec:
 
     def compose_argv(self):
         deploy = self.deploy_dir
-        return ('docker', 'compose', '--project-name', self.project, '--project-directory', deploy,
+        return ('docker', 'compose', '--project-name', self.project, '--env-file', '/dev/null', '--project-directory', deploy,
                 '--file', deploy + '/docker-compose.yml', '--file', deploy + '/docker-compose.override.yml',
                 '--file', self.hold_override, 'up', '--no-start', '--no-deps', '--no-build', '--no-recreate',
                 '--pull', 'never', *ROLES)
@@ -140,14 +214,31 @@ def topology_contract(spec, manifest):
                 containers=spec.names(), reserved_legacy=dict(manifest.service_ids))
 
 
-def write_candidate_release(repo, spec, manifest, *, package_manifest_sha256, migrations, git=None):
-    """Exact package blobs of ``spec.sha`` -> ``<release_root>/<sha>``; returns the file count."""
+def candidate_release_files(repo, spec, *, package_manifest_sha256, git=None):
+    """Read and authenticate the exact allowlisted package blobs; never materialize them."""
     spec = spec.validated()
     require(isinstance(package_manifest_sha256, str) and HEX64.fullmatch(package_manifest_sha256),
             'package-identity-missing')
     files = package_backend_release.source_files(repo, spec.sha, git)
     require(hashlib.sha256(package_backend_release.release_manifest(spec.sha, files)).hexdigest()
             == package_manifest_sha256, 'package-identity-mismatch')
+    return files
+
+
+def verify_candidate_release(repo, spec, manifest, *, package_manifest_sha256, git=None):
+    """Read-only preflight of a previously prepared layout and hold file; never repair."""
+    files = candidate_release_files(repo, spec, package_manifest_sha256=package_manifest_sha256, git=git)
+    wanted = layout_files(files, topology_contract(spec, manifest), spec.image, spec.sha)
+    target = no_symlink(Path(spec.release_root) / spec.sha)
+    require(target.is_dir(), 'candidate-layout-not-prepared')
+    require(inventory(target) == sorted(wanted), 'layout-mismatch')
+    require(all(read_regular(target / p) == value for p, value in wanted.items()), 'layout-mismatch')
+    require(read_regular(Path(spec.hold_override)) == HOLD_OVERRIDE.encode(), 'candidate-hold-mismatch')
+
+
+def write_candidate_release(repo, spec, manifest, *, package_manifest_sha256, migrations, git=None):
+    """Exact package blobs of ``spec.sha`` -> ``<release_root>/<sha>``; returns the file count."""
+    files = candidate_release_files(repo, spec, package_manifest_sha256=package_manifest_sha256, git=git)
     sql = {p.split('/', 2)[2]: b for p, b in files.items() if re.fullmatch(r'backend/migrations/[^/]+\.sql', p)}
     names = migration_manifest(files['backend/scripts/migrate.py'], sql)
     require(list(names) == list(migrations), 'layout-migrations-differ-from-plan')
@@ -180,8 +271,8 @@ class CandidateRunner(PopenRunner):
             return HEX64.fullmatch(argv[2]) is not None
         if len(argv) == 8 and HEX64.fullmatch(argv[2]):
             return argv == self.spec.smoke_argv(argv[2])
-        return (6 < len(argv) <= 10 and argv[:6] == ('docker', 'inspect', '--type', 'container', '--format',
-                                                     CANDIDATE_TEMPLATE)
+        return (6 < len(argv) <= 10 and argv[:5] == ('docker', 'inspect', '--type', 'container', '--format')
+                and argv[5] in (CANDIDATE_TEMPLATE, DATABASE_TEMPLATE)
                 and all(HEX64.fullmatch(i) for i in argv[6:]) and len(set(argv[6:])) == len(argv[6:]))
 
     def _env(self):
@@ -190,10 +281,31 @@ class CandidateRunner(PopenRunner):
 
 
 class CandidatePort:
-    def __init__(self, spec, *, runner):
+    def __init__(self, spec, *, runner, database_secret=None):
         require(isinstance(spec, CandidateSpec), 'candidate-spec')
         require(callable(runner), 'candidate-runner')
         self.spec, self.runner = spec.validated(), runner
+        self.database_secret = database_secret
+
+    def check_database(self, ident, *, timeout=20):
+        """Fresh private Env projection of exactly the created backend; no URL enters public state."""
+        if self.database_secret is None:  # Low-level synthetic ports need not wire a window provider.
+            return
+        deadline = self._deadline(timeout)
+        self._daemon(timeout=self._remaining(deadline))
+        require(isinstance(ident, str) and HEX64.fullmatch(ident), 'window-candidate-database')
+        rc, out = self._run(('docker', 'inspect', '--type', 'container', '--format', DATABASE_TEMPLATE, ident),
+                            self._remaining(deadline), LIMITS['inspect'])
+        self._remaining(deadline)
+        require(rc == 0, 'window-candidate-database')
+        try:
+            row = json.loads(out)
+            require(isinstance(row, list) and len(row) == 2 and row[0] == ident, 'window-candidate-database')
+            env = _tail(row[1], 'window-candidate-database')
+            require(all(isinstance(v, str) and '=' in v for v in env), 'window-candidate-database')
+            check_candidate_database((v.split('=', 1) for v in env), self.database_secret())
+        except (ValueError, TypeError):
+            raise Refused('window-candidate-database') from None
 
     def _run(self, argv, timeout, limit):
         outcome = None
@@ -208,14 +320,27 @@ class CandidatePort:
                 and type(result[1]) is bytes and len(result[1]) <= limit, 'candidate-runner-failed')
         return result
 
-    def _daemon(self):
-        rc, out = self._run(INFO_ARGV, 10, LIMITS['info'])
+    @staticmethod
+    def _deadline(timeout):
+        require(type(timeout) in (int, float) and 0 < timeout <= 30, 'candidate-timeout-bound')
+        return time.monotonic() + timeout
+
+    @staticmethod
+    def _remaining(deadline):
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, 'candidate-timeout')
+        return min(10, remaining)
+
+    def _daemon(self, *, timeout=10):
+        rc, out = self._run(INFO_ARGV, min(10, timeout), LIMITS['info'])
         ok, value = _attempt(_lines, out)
         require(rc == 0 and ok and value == [self.spec.daemon_id], 'candidate-daemon-mismatch')
 
-    def project_ids(self):
-        self._daemon()
-        rc, out = self._run(self.spec.ps_argv(), 10, LIMITS['ps'])
+    def project_ids(self, *, timeout=20):
+        deadline = self._deadline(timeout)
+        self._daemon(timeout=self._remaining(deadline))
+        rc, out = self._run(self.spec.ps_argv(), self._remaining(deadline), LIMITS['ps'])
+        self._remaining(deadline)
         ok, text = _attempt(bytes.decode, out, 'ascii')
         require(rc == 0 and ok and (text == '' or text.endswith('\n')), 'candidate-ps-failed')
         ids = text.split()
@@ -227,12 +352,15 @@ class CandidatePort:
         rc, _ = self._run(self.spec.compose_argv(), 60, LIMITS['compose'])
         require(rc == 0, 'candidate-create-failed')
 
-    def inspect(self, ids):
+    def inspect(self, ids, *, timeout=20):
         require(isinstance(ids, (tuple, list)) and 1 <= len(ids) <= 4
-                and all(isinstance(i, str) and HEX64.fullmatch(i) for i in ids), 'candidate-ids')
-        self._daemon()
+                and all(isinstance(i, str) and HEX64.fullmatch(i) for i in ids)
+                and len(set(ids)) == len(ids), 'candidate-ids')
+        deadline = self._deadline(timeout)
+        self._daemon(timeout=self._remaining(deadline))
         rc, out = self._run(('docker', 'inspect', '--type', 'container', '--format', CANDIDATE_TEMPLATE, *ids),
-                            10, LIMITS['inspect'])
+                            self._remaining(deadline), LIMITS['inspect'])
+        self._remaining(deadline)
         require(rc == 0, 'candidate-inspect-failed')
         ok, rows = _attempt(_lines, out)
         require(ok and all(isinstance(r, list) and len(r) == 19 for r in rows)

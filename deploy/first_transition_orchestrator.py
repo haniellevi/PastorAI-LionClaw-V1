@@ -25,8 +25,9 @@ Sequence (one durable journal, shared with ObservedHostContract):
 8. A9: four candidate containers created held (restart=no, gates closed), ONLY
    the backend started and smoked; consumers proven never started; legacy
    stopped, support preserved and ingress blocked throughout. From its A9
-   start the candidate backend is a declared source for the injected writer
-   binding (see ``assemble``), never an unknown writer.
+   confirmed start receipt the exact backend ID is revalidated for every writer
+   observation. Fresh PG quiet checks also guard start and A9 checkpoints, as
+   idle TCP pools cannot attribute remote active sessions.
 
 Recovery is objective (``recovery()``), never automatic: no undo, no retry of a
 destructive operation, no legacy resume once the DDL marker exists. A
@@ -401,6 +402,56 @@ class FirstTransition:
             self._done('layout', files=files)
 
     # -- A9 ----------------------------------------------------------------------------------------
+    def candidate_writer(self, *, timeout):
+        """Journal-bound backend only, inspected without recursing through the host binding.
+
+        Project inspection refuses premature candidates even without database sockets.
+        An intent without a receipt never authorizes adoption or another start.
+        """
+        require(type(timeout) in (int, float) and 0 < timeout <= 30, 'candidate-timeout-bound')
+        deadline = time.monotonic() + timeout
+
+        def remaining():
+            value = deadline - time.monotonic()
+            require(value > 0, 'candidate-timeout')
+            return value
+
+        created = self.j.last('transition-done', 'a9:create')
+        started = self.j.last('transition-done', 'a9:start-backend')
+        require(not self._open('a9:start-backend'), 'candidate-start-ambiguous')
+        ids = self.candidate.project_ids(timeout=remaining())
+        if created is not None:
+            require(ids == tuple(sorted(created['ids'].values())), 'candidate-project-changed')
+        else:
+            require(started is None and not ids, 'candidate-project-not-empty')
+        if not ids:
+            return None
+        states = self.candidate.inspect(ids, timeout=remaining())
+        for ident, state in states.items():
+            role = state['service']
+            require(role in ROLES, 'candidate-identity-mismatch')
+            check_identity(self.candidate.spec, role, state)
+            if created is not None:
+                require(created['ids'][role] == ident, 'candidate-identity-mismatch')
+            if role == 'backend' and started is not None:
+                require(self.j.last('ddl-marker') is not None, 'candidate-start-before-ddl')
+                check_backend_running(state, started['started'])
+            else:
+                require(not state['running'], 'candidate-premature-running')
+                check_held(state, None if created is None else created['created'][role])
+        remaining()
+        return created['ids']['backend'] if started is not None else None
+
+    def _a9_quiet(self):
+        observation = self._observe()
+        require_same_database(observation, self.expected)
+        require(observation['ledger'] == tuple(sorted(m.name for m in self.plan.migrations)), 'final-ledger')
+        require(observation['catalog'] == self.j.last('transition-migrated')['catalog'], 'database-ddl-drift')
+        require(not observation['invalid'] and observation['index_builds'] == 0, 'database-ddl-in-progress')
+        # Idle TCP pools cannot attribute remote PG sessions. Even legitimate
+        # backend activity conservatively refuses until the database is quiet.
+        require_quiet(observation)
+
     def _candidate_states(self, ids):
         states = self.candidate.inspect(tuple(ids[r] for r in ROLES))
         result = {role: states[ids[role]] for role in ROLES}
@@ -418,6 +469,7 @@ class FirstTransition:
         else:
             check_backend_running(states['backend'], backend_started)
         self.host.assert_contained()
+        self._a9_quiet()
         return states
 
     def _a9(self):
@@ -443,6 +495,7 @@ class FirstTransition:
         ids, snapshot = created['ids'], created['created']
         require(self.candidate.project_ids() == tuple(sorted(ids.values())), 'candidate-project-changed')
         started = self.j.last('transition-done', 'a9:start-backend')
+        self.candidate.check_database(ids['backend'])
         if started is None:
             require(not self._open('a9:start-backend'), 'candidate-start-ambiguous')
             self._held(ids, snapshot, None)
@@ -585,13 +638,15 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
       broadcast-worker, cron-worker): their stop is verified separately by the
       host states (restart=no, clean exit 0), not by this binding;
     * this tool's own observer and migration child;
-    * from the A9 backend start on only, the candidate backend of
-      ``config.candidate`` (its project/container name).
+    * after the durable A9 backend start receipt only, its exact ID from the
+      creation receipt, with fresh CandidatePort identity/StartedAt checks.
 
     Anything else (a candidate consumer, another container or a foreign client)
     counts and refuses. Independently of this binding, zero writing sessions
-    and zero active leases in PostgreSQL are required before the DDL marker
-    and before every migration (``require_quiet``).
+    and zero active leases in PostgreSQL are required before the DDL marker,
+    before every migration and at A9 hold checkpoints including immediately
+    before the start intent and after smoke (``require_quiet``). This may refuse
+    legitimate backend activity; it never treats idle pools as proof of no remote writer.
 
     ``backup_proof(request)`` receives the journaled window request (see the
     module docstring, step 4) and must return a receipt for a NEW backup made
@@ -613,7 +668,8 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
                                                    popen=popen, resume=True))
     host = ObservedHostContract(ObservedHostTransport(driver, **config.manifest.transport_scope()), journal)
     candidate = CandidatePort(config.candidate, runner=CandidateRunner(
-        config.candidate, docker_binary=binary, endpoint=endpoint, config_dir=config_dir, popen=popen))
+        config.candidate, docker_binary=binary, endpoint=endpoint, config_dir=config_dir, popen=popen),
+        database_secret=secret)
     executor = MigrationExecutor(plan, python=config.python, workdir=config.migration_workdir, secret=secret,
                                  runner=ProcessRunner(binaries=(config.python,), run=run),
                                  timeout=dict(config.timeouts).get('migration_s', TIMEOUTS['migration_s']))
@@ -622,6 +678,14 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
     def layout():
         return write_candidate_release(config.repo, config.candidate, config.manifest, migrations=migrations,
                                        package_manifest_sha256=config.package_manifest_sha256, git=git)
-    return FirstTransition(plan=plan, journal=journal, host=host, database=database, expected=expected,
-                           backup_proof=backup_proof, executor=executor, layout=layout, candidate=candidate,
-                           config_digest=config.digest, clock=clock, sleep=sleep, timeouts=dict(config.timeouts))
+    transition = FirstTransition(plan=plan, journal=journal, host=host, database=database, expected=expected,
+                                 backup_proof=backup_proof, executor=executor, layout=layout, candidate=candidate,
+                                 config_digest=config.digest, clock=clock, sleep=sleep, timeouts=dict(config.timeouts))
+    bind_candidate = getattr(writers, 'bind_candidate', None)
+    if bind_candidate is not None:
+        require(writers.declared == frozenset(i for _, i in config.manifest.service_ids),
+                'transition-writer-declarations')
+        require(writers.docker == (binary, '--config', config_dir, '--host', endpoint),
+                'transition-writer-docker')
+        bind_candidate(transition.candidate_writer)
+    return transition
