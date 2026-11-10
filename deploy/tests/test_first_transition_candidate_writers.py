@@ -142,7 +142,8 @@ class Assembly:
         self.popen_calls.append((argv, kwargs))
         assert SECRET_URL not in str(argv) and 'MIGRATION_DATABASE_URL' not in kwargs['env']
         logical = ('docker', *argv[5:])
-        candidate = logical == self.world.spec.ps_argv() or logical == self.world.spec.compose_argv() or (
+        candidate = logical in (self.world.spec.ps_argv(), self.world.spec.compose_argv(),
+                                self.world.spec.network_argv()) or (
             logical[:2] in (('docker', 'start'), ('docker', 'exec')) and logical[2] in CANDIDATE_IDS.values()) or (
             logical[:5] == ('docker', 'inspect', '--type', 'container', '--format')
             and logical[5] in (CANDIDATE_TEMPLATE, DATABASE_TEMPLATE))

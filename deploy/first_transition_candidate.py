@@ -18,12 +18,14 @@ injected runner (``(argv, *, timeout, max_output) -> (rc, stdout)``):
   service, name, network, closed gates) and still held;
 * ``smoke``: same identity check plus running, then a bounded /health + /ready
   probe executed inside the backend, printing only status codes and fixed flags;
-* ``inspect``: restricted projection (gates by name only, never full Env).
+* ``inspect``: restricted projection (gates by name only, never full Env), bracketed
+  by fresh network lookups binding both its full ID and its configured name.
 
 There is no operation to start a consumer, change a gate, open ingress, remove
 or recreate a container: A10 is a separate, not implemented step. Every call is
-preceded by a daemon identity check. Compatibility with a real Docker
-CLI/Compose is unverified; tests use fixtures only.
+preceded by a daemon identity check. A never-started container may expose network
+intent without an effective NetworkID; only that held state can use the freshly
+verified name/ID binding. A running backend always requires the effective ID.
 """
 from __future__ import annotations
 
@@ -38,7 +40,7 @@ import time
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from first_transition_adapter import ROLES
-from first_transition_host_driver import (DAEMON, HEX64, IMAGE, INFO_ARGV, MANDATORY_GATES, NETWORK_NAME, STARTED,
+from first_transition_host_driver import (DAEMON, HEX64, IMAGE, INFO_ARGV, MANDATORY_GATES, NETWORK_NAME, NETWORK_TEMPLATE, STARTED,
                                           STATUSES, PopenRunner, _absolute, _attempt, _lines, _tail,
                                           inspect_template)
 from initial_transition_files import inventory, layout_files, migration_manifest, no_symlink, read_regular, write_release
@@ -126,7 +128,7 @@ def check_candidate_database(items, source):
 
 HOLD_OVERRIDE = ('# A9 hold: candidate containers are created with restart "no" and never started here.\n'
                  '{"services": {' + ', '.join(f'"{r}": {{"restart": "no"}}' for r in ROLES) + '}}\n')
-LIMITS = dict(info=256, compose=64 * 1024, ps=4096, inspect=64 * 1024, effect=256, smoke=1024)
+LIMITS = dict(info=256, network=1024, compose=64 * 1024, ps=4096, inspect=64 * 1024, effect=256, smoke=1024)
 PROJECT_LABEL = 'com.docker.compose.project'
 SMOKE_PROBE = r'''
 import json, sys, time, urllib.error, urllib.request
@@ -203,6 +205,10 @@ class CandidateSpec:
     def ps_argv(self):
         return ('docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter', f'label={PROJECT_LABEL}={self.project}')
 
+    def network_argv(self):
+        # Resolve both selectors: a recycled/ambiguous name cannot stand in for the pinned ID.
+        return ('docker', 'network', 'inspect', '--format', NETWORK_TEMPLATE, self.network_id, self.network_name)
+
     def smoke_argv(self, backend_id):
         return ('docker', 'exec', backend_id, 'python', '-I', '-c', SMOKE_PROBE, str(self.smoke_seconds))
 
@@ -265,7 +271,7 @@ class CandidateRunner(PopenRunner):
         super().__init__(**kwargs)
 
     def _allowed(self, argv):
-        if argv in (INFO_ARGV, self.spec.compose_argv(), self.spec.ps_argv()):
+        if argv in (INFO_ARGV, self.spec.compose_argv(), self.spec.ps_argv(), self.spec.network_argv()):
             return True
         if len(argv) == 3 and argv[:2] == ('docker', 'start'):
             return HEX64.fullmatch(argv[2]) is not None
@@ -336,6 +342,14 @@ class CandidatePort:
         ok, value = _attempt(_lines, out)
         require(rc == 0 and ok and value == [self.spec.daemon_id], 'candidate-daemon-mismatch')
 
+    def _network(self, deadline):
+        rc, out = self._run(self.spec.network_argv(), self._remaining(deadline), LIMITS['network'])
+        self._remaining(deadline)
+        ok, rows = _attempt(_lines, out)
+        binding = [self.spec.network_id, self.spec.network_name]
+        require(rc == 0 and ok and rows == [binding, binding], 'candidate-network-binding')
+        return binding
+
     def project_ids(self, *, timeout=20):
         deadline = self._deadline(timeout)
         self._daemon(timeout=self._remaining(deadline))
@@ -358,6 +372,7 @@ class CandidatePort:
                 and len(set(ids)) == len(ids), 'candidate-ids')
         deadline = self._deadline(timeout)
         self._daemon(timeout=self._remaining(deadline))
+        self._network(deadline)
         rc, out = self._run(('docker', 'inspect', '--type', 'container', '--format', CANDIDATE_TEMPLATE, *ids),
                             self._remaining(deadline), LIMITS['inspect'])
         self._remaining(deadline)
@@ -365,31 +380,42 @@ class CandidatePort:
         ok, rows = _attempt(_lines, out)
         require(ok and all(isinstance(r, list) and len(r) == 19 for r in rows)
                 and [r[1] for r in rows] == list(ids), 'candidate-inspect-malformed')
-        return {row[1]: self._row(row) for row in rows}
+        states = {row[1]: self._row(row) for row in rows}
+        binding = self._network(deadline)
+        # Per-inspection evidence, never cached; keep the raw effective IDs unchanged.
+        for state in states.values():
+            state['network_binding'] = list(binding)
+        return states
 
     @staticmethod
     def _row(row):
         (name, ident, image, project, service, revision, status, running, paused, restarting, exit_code, started,
-         health, restarts, policy, _mode, gates, mounts, networks) = row
+         health, restarts, policy, mode, gates, mounts, networks) = row
         require(isinstance(name, str) and name.startswith('/') and isinstance(image, str)
                 and isinstance(status, str) and status in STATUSES and type(running) is bool
                 and running == (status == 'running') and paused is False and restarting is False
                 and type(exit_code) is int and isinstance(started, str) and STARTED.fullmatch(started)
                 and (health is None or isinstance(health, str))
-                and type(restarts) is int and restarts >= 0 and isinstance(policy, str),
+                and type(restarts) is int and restarts >= 0 and isinstance(policy, str)
+                and isinstance(mode, str) and len(mode) <= 128,
                 'candidate-inspect-state')
         gates = _tail(gates, 'candidate-inspect-gates')
         require(all(isinstance(g, str) and '=' in g for g in gates), 'candidate-inspect-gates')
         values = dict(g.split('=', 1) for g in gates)
         require(len(values) == len(gates) and set(values) <= set(MANDATORY_GATES), 'candidate-inspect-gates')
         networks = _tail(networks, 'candidate-inspect-networks')
-        require(all(isinstance(n, list) and len(n) == 3 and isinstance(n[2], str) for n in networks),
+        require(len(networks) <= 16 and all(
+            isinstance(n, list) and len(n) == 3 and isinstance(n[0], str) and NETWORK_NAME.fullmatch(n[0])
+            and (n[1] is None or isinstance(n[1], list) and all(isinstance(a, str) for a in n[1]))
+            and isinstance(n[2], str) and (n[2] == '' or HEX64.fullmatch(n[2])) for n in networks)
+            and len({n[0] for n in networks}) == len(networks),
                 'candidate-inspect-networks')
         _tail(mounts, 'candidate-inspect-mounts')
         labels = [None if v in (None, '') else v for v in (project, service, revision)]
         return dict(id=ident, name=name[1:], image=image, project=labels[0], service=labels[1], revision=labels[2],
                     status=status, running=running, exit_code=exit_code, started=started, health=health,
                     restart_count=restarts, restart_policy=policy or 'no', gates=values,
+                    network_mode=mode, network_names=sorted(n[0] for n in networks),
                     networks=sorted(n[2] for n in networks))
 
     def _backend(self, backend_id):
@@ -425,7 +451,12 @@ def check_identity(spec, role, state):
     require(state['image'] == spec.image and state['revision'] == spec.sha, 'candidate-image-mismatch')
     require(state['project'] == spec.project and state['service'] == role
             and state['name'] == spec.names()[role], 'candidate-identity-mismatch')
-    require(state['networks'] == [spec.network_id], 'candidate-network-mismatch')
+    require(state.get('network_binding') == [spec.network_id, spec.network_name]
+            and state.get('network_names') == [spec.network_name]
+            and state.get('network_mode') in (spec.network_id, spec.network_name), 'candidate-network-mismatch')
+    if state['networks'] != [spec.network_id]:
+        require(state['networks'] == [''], 'candidate-network-mismatch')
+        check_held(state, code='candidate-network-mismatch')
     require(all(state['gates'].get(g, CLOSED_GATES[g]) == CLOSED_GATES[g] for g in MANDATORY_GATES),
             'candidate-gate-open')
 
