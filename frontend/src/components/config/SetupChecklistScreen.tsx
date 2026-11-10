@@ -21,6 +21,7 @@ import { Icon, type IconKey } from "@/lib/icons";
 import { fetchSetupChecklist, type SetupItem, type SetupItemId } from "@/lib/setup-api";
 import { resolveSetupNavAction } from "@/lib/setup-nav";
 import { useHashRoute } from "@/lib/use-hash-route";
+import { DsButton } from "@/components/ds/Button";
 
 const ITEM_COPY: Record<
   SetupItemId,
@@ -122,14 +123,13 @@ export function SetupChecklistScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void load()}
             disabled={loading}
           >
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -172,9 +172,8 @@ export function SetupChecklistScreen() {
                     <div className="meta">{item.done ? copy.done : copy.pending}</div>
                   </div>
                   <div className="qactions">
-                    <button
-                      type="button"
-                      className={`btn btn-sm${item.id === nextItem?.id ? " btn-primary" : ""}`}
+                    <DsButton
+                      variant={item.id === nextItem?.id ? "primary" : "secondary"}
                       aria-label={`${item.done ? "Ver" : copy.cta}: ${copy.label}`}
                       onClick={() => {
                         const action = resolveSetupNavAction(item);
@@ -186,7 +185,7 @@ export function SetupChecklistScreen() {
                       }}
                     >
                       {item.done ? "Ver" : copy.cta}
-                    </button>
+                    </DsButton>
                   </div>
                 </li>
               );

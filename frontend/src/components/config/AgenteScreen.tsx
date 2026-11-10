@@ -43,6 +43,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
+import { DsButton } from "@/components/ds/Button";
 
 type Tab = "behavior" | "credential" | "crons";
 
@@ -422,13 +423,13 @@ export function AgenteScreen() {
         </div>
       </div>
 
-      {supportError ? <div className="error-banner" role="alert">{supportError}<button type="button" className="btn btn-sm" onClick={() => setSupportAttempt((value) => value + 1)}>Tentar novamente</button></div> : null}
+      {supportError ? <div className="error-banner" role="alert">{supportError}<DsButton variant="secondary" onClick={() => setSupportAttempt((value) => value + 1)}>Tentar novamente</DsButton></div> : null}
       {loadError ? <div className="error-banner" role="alert"><span>{loadError}</span></div> : null}
       <div className="admin-context">
         <strong>{loading ? "Carregando estado do assistente…" : !configLoaded ? "Estado do assistente indisponível" : ativo ? "Assistente ativo" : "Assistente desativado"}</strong>
         <p>Credencial e conexão são pré-requisitos. Salvar a chave ou o modelo não altera o estado do assistente.</p>
       </div>
-      <div className="tabs admin-tabs" style={{ marginBottom: "var(--s4)" }}>
+      <div className="tabs admin-tabs ds-mb-4">
         <button
           type="button"
           className={`tab${tab === "behavior" ? " active" : ""}`}
@@ -460,13 +461,8 @@ export function AgenteScreen() {
         <>
         <div className="card card-pad">
           <div
-            className="error-banner"
+            className="error-banner ds-mb-3"
             role="status"
-            style={{
-              marginBottom: "var(--s3)",
-              background: "var(--accent-soft)",
-              color: "var(--accent)",
-            }}
           >
             <Icon name="lock" />
             <span>
@@ -475,19 +471,19 @@ export function AgenteScreen() {
               requisição ao master abaixo.
             </span>
           </div>
-          <div className="row" style={{ marginBottom: "var(--s3)" }}>
-            <div className="field" style={{ margin: 0 }}>
+          <div className="row ds-mb-3">
+            <div className="field ds-m-0">
               <label>Nome do agente</label>
               <div className="val">{loading ? "Carregando…" : !configLoaded ? "Indisponível" : nome || "—"}</div>
             </div>
-            <div className="field" style={{ margin: 0 }}>
+            <div className="field ds-m-0">
               <label>Tom de voz</label>
               <div className="val">{loading ? "Carregando…" : !configLoaded ? "Indisponível" : tom || "—"}</div>
             </div>
           </div>
-          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+          <div className="field ds-mb-3">
             <label>Comportamento e instruções</label>
-            <div className="val" style={{ whiteSpace: "pre-wrap" }}>
+            <div className="val ds-prewrap">
               {loading ? "Carregando…" : !configLoaded ? "Indisponível" : comportamento || "Ainda não configurado pela plataforma."}
             </div>
           </div>
@@ -502,8 +498,7 @@ export function AgenteScreen() {
 
         {/* ── Requisição de mudança ao master ──────────────────────────── */}
         <form
-          className="card card-pad"
-          style={{ marginTop: "var(--s4)" }}
+          className="card card-pad ds-mt-4"
           onSubmit={(e) => {
             e.preventDefault();
             void submitRequest();
@@ -511,12 +506,12 @@ export function AgenteScreen() {
         >
           <div className="panel-title">Solicitar mudança ao master</div>
           {reqError ? (
-            <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+            <div className="error-banner ds-mb-3" role="alert">
               <Icon name="alert" />
               <span>{reqError}</span>
             </div>
           ) : null}
-          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+          <div className="field ds-mb-3">
             <label htmlFor="agReq">O que você gostaria de ajustar?</label>
             <textarea
               id="agReq"
@@ -526,19 +521,18 @@ export function AgenteScreen() {
               placeholder="Ex.: deixar o tom mais formal e citar o nome da igreja na saudação."
             />
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
+          <div className="ds-flex ds-gap-2">
+            <DsButton
               type="submit"
-              className="btn btn-primary"
               disabled={!configLoaded || requestsLoading || reqMensagem.trim().length === 0 || sendingReq}
-              aria-busy={sendingReq || undefined}
+              loading={sendingReq}
             >
               {sendingReq ? "Enviando…" : "Enviar requisição"}
-            </button>
+            </DsButton>
           </div>
 
           {requests.length > 0 ? (
-            <div style={{ marginTop: "var(--s4)" }}>
+            <div className="ds-mt-4">
               <div className="panel-title">Minhas requisições</div>
               <table className="data-table">
                 <thead>
@@ -551,13 +545,13 @@ export function AgenteScreen() {
                 <tbody>
                   {requests.map((r) => (
                     <tr key={r.id}>
-                      <td className="nm" style={{ whiteSpace: "pre-wrap" }}>{r.mensagem}</td>
+                      <td className="nm ds-prewrap">{r.mensagem}</td>
                       <td>
                         <StatusPill tone={REQUEST_TONE[r.status]}>
                           {REQUEST_LABEL[r.status]}
                         </StatusPill>
                       </td>
-                      <td className="sub" style={{ whiteSpace: "pre-wrap" }}>
+                      <td className="sub ds-prewrap">
                         {r.resposta ?? "—"}
                       </td>
                     </tr>
@@ -580,14 +574,14 @@ export function AgenteScreen() {
           }}
         >
           {credError ? (
-            <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+            <div className="error-banner ds-mb-3" role="alert">
               <Icon name="alert" />
               <span>{credError}</span>
             </div>
           ) : null}
-          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+          <div className="field ds-mb-3">
             <h3>Credencial e modelo</h3>
-            <p className="sub">Confira o resultado da validação. A chave permanece protegida e salvar não ativa o assistente.</p>
+            <p className="sub ds-mb-3">Confira o resultado da validação. A chave permanece protegida e salvar não ativa o assistente.</p>
             <label htmlFor="agProvider">Provedor</label>
             <select
               id="agProvider"
@@ -602,7 +596,7 @@ export function AgenteScreen() {
               ))}
             </select>
           </div>
-          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+          <div className="field ds-mb-3">
             <label htmlFor="agModel">Modelo</label>
             <select
               id="agModel"
@@ -618,7 +612,7 @@ export function AgenteScreen() {
               ))}
             </select>
             {selectedModel ? (
-              <div className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+              <div className="sub ds-muted ds-mt-2">
                 <div>{selectedModel.perfil}</div>
                 <div>
                   Entrada: US$ {selectedModel.precoEntradaUsdMilhao.toFixed(2)} · Saída:
@@ -638,7 +632,7 @@ export function AgenteScreen() {
               </div>
             ) : null}
           </div>
-          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+          <div className="field ds-mb-3">
             <label htmlFor="agKey">Chave da API</label>
             <input
               id="agKey"
@@ -654,31 +648,28 @@ export function AgenteScreen() {
             />
             {credentialState === "active" ? (
               <p
-                className="sub"
-                style={{ color: "var(--ok)", marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}
+                className="sub ds-text-ok ds-mt-2 ds-flex ds-items-center ds-gap-2"
               >
                 <Icon name="check" />
                 <span>Chave configurada — preencha só se quiser trocá-la.</span>
               </p>
             ) : credentialState === "invalid" ? (
               <p
-                className="sub"
-                style={{ color: "var(--danger)", marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}
+                className="sub ds-text-danger ds-mt-2 ds-flex ds-items-center ds-gap-2"
               >
                 <Icon name="alert" />
                 <span>Há uma chave salva, mas inválida — informe uma nova.</span>
               </p>
             ) : null}
-            <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+            <p className="sub ds-muted ds-mt-2">
               A chave é cifrada no servidor e nunca é reexibida após salvar.
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
+          <div className="ds-flex ds-gap-2">
+            <DsButton
               type="submit"
-              className="btn btn-primary"
               disabled={!credReady || savingCred}
-              aria-busy={savingCred || undefined}
+              loading={savingCred}
             >
               {savingCred
                 ? "Validando…"
@@ -687,7 +678,7 @@ export function AgenteScreen() {
                   : modelChanged
                     ? "Validar e salvar modelo"
                     : "Revalidar credencial"}
-            </button>
+            </DsButton>
           </div>
         </form>
       ) : null}
@@ -696,21 +687,20 @@ export function AgenteScreen() {
       {tab === "crons" ? (
         <>
           <form
-            className="card card-pad"
-            style={{ marginBottom: "var(--s4)" }}
+            className="card card-pad ds-mb-4"
             onSubmit={(e) => {
               e.preventDefault();
               void submitCron();
             }}
           >
             {cronError ? (
-              <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+              <div className="error-banner ds-mb-3" role="alert">
                 <Icon name="alert" />
                 <span>{cronError}</span>
               </div>
             ) : null}
-            <div className="row" style={{ marginBottom: "var(--s3)" }}>
-              <div className="field" style={{ margin: 0 }}>
+            <div className="row ds-mb-3">
+              <div className="field ds-m-0">
                 <label htmlFor="cronName">Nome do agendamento</label>
                 <input
                   id="cronName"
@@ -719,7 +709,7 @@ export function AgenteScreen() {
                   placeholder="Ex.: Cobrar relatórios pendentes"
                 />
               </div>
-              <div className="field" style={{ margin: 0 }}>
+              <div className="field ds-m-0">
                 <label htmlFor="cronFreq">Frequência</label>
                 <select
                   id="cronFreq"
@@ -734,7 +724,7 @@ export function AgenteScreen() {
                 </select>
               </div>
             </div>
-            <div className="field" style={{ marginBottom: "var(--s3)" }}>
+            <div className="field ds-mb-3">
               <label htmlFor="cronTrigger">Gatilho de estado</label>
               <select
                 id="cronTrigger"
@@ -748,11 +738,11 @@ export function AgenteScreen() {
                   </option>
                 ))}
               </select>
-              <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+              <p className="sub ds-muted ds-mt-2">
                 O gatilho é validado antes de salvar — gatilhos inválidos são recusados.
               </p>
             </div>
-            <div className="field" style={{ marginBottom: "var(--s3)" }}>
+            <div className="field ds-mb-3">
               <label htmlFor="cronAcao">Ação (mensagem/automação)</label>
               <textarea
                 id="cronAcao"
@@ -762,7 +752,7 @@ export function AgenteScreen() {
                 placeholder="O que o agente deve fazer quando o gatilho ocorrer…"
               />
             </div>
-            <div className="seg-toggle-row" style={{ marginBottom: "var(--s3)" }}>
+            <div className="seg-toggle-row ds-mb-3">
               <span>{!configLoaded ? "Configuração indisponível" : cronAtivo ? "Agendamento ativo" : "Agendamento pausado"}</span>
               <Toggle
                 checked={cronAtivo}
@@ -771,28 +761,26 @@ export function AgenteScreen() {
                 disabled={savingCron || !configLoaded}
               />
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
+            <div className="ds-flex ds-gap-2">
+              <DsButton
                 type="submit"
-                className="btn btn-primary"
                 disabled={!configLoaded || cronsLoading || !cronReady || savingCron}
-                aria-busy={savingCron || undefined}
+                loading={savingCron}
               >
                 {savingCron
                   ? "Salvando…"
                   : editingId
                     ? "Salvar alterações"
                     : "Criar agendamento"}
-              </button>
+              </DsButton>
               {editingId ? (
-                <button
-                  type="button"
-                  className="btn btn-sm"
+                <DsButton
+                  variant="secondary"
                   onClick={resetCronForm}
                   disabled={savingCron}
                 >
                   Cancelar
-                </button>
+                </DsButton>
               ) : null}
             </div>
           </form>
@@ -800,7 +788,7 @@ export function AgenteScreen() {
           <div className="card">
             <div className="panel-title">Agendamentos configurados</div>
             {cronsLoading ? <p role="status">Carregando agendamentos…</p> : crons.length === 0 ? (
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+              <div className="empty-state ds-p-6">
                 <Icon name="clock" />
                 <p>
                   <strong>Nenhum agendamento ainda.</strong> Crie o primeiro acima
@@ -837,24 +825,22 @@ export function AgenteScreen() {
                         </StatusPill>
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            type="button"
-                            className="btn btn-sm"
+                        <div className="ds-flex ds-gap-2">
+                          <DsButton
+                            variant="secondary"
                             onClick={() => startEdit(c)}
                             disabled={!configLoaded || togglingId === c.id}
                           >
                             Editar
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-sm"
+                          </DsButton>
+                          <DsButton
+                            variant="secondary"
                             onClick={() => void toggleCron(c)}
                             disabled={!configLoaded || togglingId !== null || editingId === c.id}
-                            aria-busy={togglingId === c.id || undefined}
+                            loading={togglingId === c.id}
                           >
                             {c.ativo ? "Desativar" : "Ativar"}
-                          </button>
+                          </DsButton>
                         </div>
                       </td>
                     </tr>

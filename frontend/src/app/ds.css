@@ -71,6 +71,12 @@
 .ds-btn--secondary:hover:not(:disabled) {
   background: var(--selection-soft);
 }
+/* Botão de alternância selecionado: fundo + anel interno, para não se
+   confundir com o hover (que usa o mesmo fundo). */
+.ds-btn--secondary[aria-pressed="true"] {
+  background: var(--selection-soft);
+  box-shadow: inset 0 0 0 1px var(--action-primary);
+}
 .ds-btn--tertiary {
   background: transparent;
   color: var(--action-primary);
@@ -647,4 +653,50 @@ textarea.ds-input {
   .admin-audit-table .sub {
     margin-top: 0;
   }
+}
+
+/* ---------- Utilitários de layout (fundação) ----------
+   Substituem `style={{…}}` nas telas: espaçamento só na escala --s1..--s6,
+   cor só por token. Cada classe faz UMA coisa e usa !important de propósito —
+   é o contrato de utilitário: vence regras contextuais (ex.: `.field`,
+   `.card-pad`) exatamente como o estilo inline que ela substitui vencia.
+   Composição com mais de três utilitários é sinal de que falta uma classe
+   semântica no CSS da tela. */
+.ds-m-0 { margin: 0 !important; }
+.ds-mt-0 { margin-top: 0 !important; }
+.ds-mt-1 { margin-top: var(--s1) !important; }
+.ds-mt-2 { margin-top: var(--s2) !important; }
+.ds-mt-3 { margin-top: var(--s3) !important; }
+.ds-mt-4 { margin-top: var(--s4) !important; }
+.ds-mb-0 { margin-bottom: 0 !important; }
+.ds-mb-1 { margin-bottom: var(--s1) !important; }
+.ds-mb-2 { margin-bottom: var(--s2) !important; }
+.ds-mb-3 { margin-bottom: var(--s3) !important; }
+.ds-mb-4 { margin-bottom: var(--s4) !important; }
+.ds-p-3 { padding: var(--s3) !important; }
+.ds-p-4 { padding: var(--s4) !important; }
+.ds-p-6 { padding: var(--s6) !important; }
+.ds-gap-1 { gap: var(--s1) !important; }
+.ds-gap-2 { gap: var(--s2) !important; }
+.ds-gap-3 { gap: var(--s3) !important; }
+.ds-flex { display: flex !important; }
+.ds-block { display: block !important; }
+.ds-wrap { flex-wrap: wrap !important; }
+.ds-items-start { align-items: start !important; }
+.ds-items-center { align-items: center !important; }
+.ds-items-baseline { align-items: baseline !important; }
+.ds-justify-between { justify-content: space-between !important; }
+.ds-justify-end { justify-content: flex-end !important; }
+.ds-min-w-0 { min-width: 0 !important; }
+.ds-muted { color: var(--text-secondary) !important; }
+.ds-text-danger { color: var(--state-danger) !important; }
+.ds-text-ok { color: var(--state-ok) !important; }
+.ds-text-warn { color: var(--state-warn) !important; }
+.ds-regular { font-weight: 400 !important; }
+.ds-prewrap { white-space: pre-wrap !important; }
+.ds-fieldset-reset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }
