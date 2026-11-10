@@ -205,6 +205,104 @@ def test_parse_cell_report_binds_each_count_to_its_own_label(
     assert (report.presentes, report.visitantes, report.decisoes) == expected
 
 
+@pytest.mark.parametrize(("text", "expected"), [
+    ("visitantes 3 presentes 12 decisões 1", (12, 3, 1, None)),
+    ("12 presentes 3 visitantes 1 decisão", (12, 3, 1, None)),
+    ("presentes12 visitantes3 decisões1", (12, 3, 1, None)),
+    ("presentes120", (120, None, None, None)),
+    ("presentes0 visitantes0 decisões0", (0, 0, 0, None)),
+    ("12presentes 3visitantes 1decisão", (12, 3, 1, None)),
+    ("presentes12-3visitantes", (12, 3, None, None)),
+    ("presentes - 12 visitantes - 3", (12, 3, None, None)),
+    ("12 presentes: 3 visitantes: 1", (3, 1, None, None)),
+    ("12 presentes: 10/11", (None, None, None, None)),
+    ("decisões 2 presentes: 10/11", (None, None, 2, None)),
+    ("presentes 12 visitantes", (12, None, None, None)),
+    ("visitantes: 3 presentes", (None, 3, None, None)),
+    ("presentes 12 presentes: 7 visitantes3", (7, 3, None, None)),
+    ("presentes: 7 presentes 12 visitantes", (7, None, None, None)),
+    ("oferta 50 presentes12", (12, None, None, 50.0)),
+    ("oferta50 presentes", (None, None, None, 50.0)),
+    ("oferta12,50 presentes", (None, None, None, 12.5)),
+    ("R$12,50 presentes3", (3, None, None, 12.5)),
+    ("12 presentes R$3,50 visitantes", (12, None, None, 3.5)),
+    ("R$60 oferta50 presentes12", (12, None, None, 50.0)),
+    ("oferta: R$ 1.234,56 presentes: 12", (12, None, None, 1234.56)),
+    ("oferta 50 oferta 70 visitantes", (None, None, None, 50.0)),
+    ("oferta: 0,00 presentes0", (0, None, None, 0.0)),
+    ("presentes:12,visitantes:3", (12, 3, None, None)),
+    ("12 presentes,3 visitantes", (12, 3, None, None)),
+    ("presentes:12.visitantes:3", (12, 3, None, None)),
+    ("Presentes:\n3 visitantes", (None, 3, None, None)),
+    ("Presentes:\n12\nVisitantes:\n0", (12, 0, None, None)),
+    ("2 deciso\u0303es", (None, None, 2, None)),
+    ("decisa\u0303o: 1", (None, None, 1, None)),
+    ("12 presentes 3 visitantes sem oferta 1 decisão", (12, 3, 1, None)),
+    ("nenhuma oferta 1 decisão", (None, None, 1, None)),
+    ("oferta 12 presentes", (None, None, None, None)),
+    ("oferta - 12 presentes", (None, None, None, None)),
+    ("oferta- 12 presentes", (None, None, None, None)),
+    ("oferta: 12 presentes", (None, None, None, 12.0)),
+    ("oferta R$ 12 presentes", (None, None, None, 12.0)),
+    ("Culto 20:00 presentes 12", (12, None, None, None)),
+    ("às 19:30 presentes 12", (12, None, None, None)),
+    ("oferta 12 presentes 3 visitantes 1 decisão", (None, None, None, None)),
+    ("oferta 12 presentes 3 visitantes", (None, None, None, None)),
+    ("oferta 50 presentes 12 visitantes 3 decisões 1", (None, None, None, None)),
+    ("oferta 50 presentes 12 visitantes 3", (None, None, None, None)),
+    ("oferta 50 visitantes 3 presentes 12", (None, None, None, None)),
+    ("oferta 50 presentes 12", (None, None, None, None)),
+    ("presentes: 12 oferta 50 visitantes 3 decisões 1", (12, None, None, None)),
+    ("oferta 12 presentes 3 visitantes decisões: 1", (None, None, 1, None)),
+    ("oferta 12 presentes visitantes: 3 decisões: 1", (None, 3, 1, None)),
+    ("oferta 12 presentes, 3 visitantes", (None, 3, None, None)),
+    ("oferta 12 presentes; visitantes 3", (None, 3, None, None)),
+    ("oferta 12 presentes - 3 visitantes", (None, 3, None, None)),
+    ("oferta 12 presentes 3,50 visitantes", (None, None, None, None)),
+    ("oferta 12 presentes R$ 5", (None, None, None, 5.0)),
+    ("oferta 50 presentes 12\nvisitantes: 3 decisões: 1", (None, 3, 1, None)),
+    ("Oferta em R$\n12 presentes", (12, None, None, None)),
+    ("Relatório com oferta\n12 presentes\n3 visitantes", (12, 3, None, None)),
+    ("Oferta:\n50\npresentes: 12", (12, None, None, 50.0)),
+    ("Oferta:\nR$ 12,50\npresentes: 0", (0, None, None, 12.5)),
+])
+def test_report_values_belong_to_one_field(text: str, expected: tuple) -> None:
+    report = parse_cell_report(text)
+    assert (report.presentes, report.visitantes, report.decisoes, report.oferta) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "oferta12,5 presentes",
+    "R$12,500 presentes",
+    "oferta R$ 12:30 presentes",
+    "R$12.5 presentes",
+])
+def test_malformed_offering_is_not_truncated_or_counted_as_attendance(text: str) -> None:
+    assert parse_cell_report(text).is_empty
+
+
+@pytest.mark.parametrize("text", [
+    "oferta: -12 presentes",
+    "R$ -12 presentes",
+    "oferta: +12 presentes",
+    "R$ +12 presentes",
+    "presentes:12visitantes",
+    "presentes: 12visitantes",
+    "presentes20:00",
+    "presentes: -12 visitantes",
+    "decisões=+2 presentes",
+    "R$ \u221212 presentes",
+    "presentes: \u221212 visitantes",
+    "oferta -12 presentes",
+    "presentes -12",
+    "-12 presentes",
+    "12-3 visitantes",
+])
+def test_rejected_field_value_is_not_reassigned(text: str) -> None:
+    assert parse_cell_report(text).is_empty
+    assert not looks_like_report(text)
+
+
 def test_parse_cell_report_without_decisions() -> None:
     report = parse_cell_report("tivemos 8 presentes e 1 visitante")
     assert report.presentes == 8
