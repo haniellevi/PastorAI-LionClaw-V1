@@ -1,5 +1,34 @@
 # Igreja 12 — roteiro único
 
+## Estado vigente da consolidação e do piloto (10/11/2026)
+
+A consolidação está na `main` até `6088efb1`, com os seis workflows desse
+commit aprovados.
+
+| PR | Entrega |
+|---|---|
+| [#634](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/634) | Validação da rede A9 em candidatos nunca iniciados. |
+| [#635](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/635) | Isolamento da configuração da fixture de consolidação. |
+| [#636](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/636) | Roles necessárias à fixture de envio privado no PostgreSQL descartável. |
+| [#637](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/637) | Diagnóstico sanitizado do alerta do PostgREST no runbook de produção. |
+| [#638](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/638) | Correção da associação de campos no parser legado de relatórios. |
+
+A [#619](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/619) foi
+fechada como trabalho pausado. A branch foi preservada em `9ce9a5d9`. A9 e os
+ajustes de fixtures entraram pelas #634 a #636. O controlador A8/C2 e a
+contenção de escritores continuam pausados.
+
+Raniel confirmou o recorte V1a por texto e painel para a Filadélfia nos
+[cenários 19 e 20](docs/ops/ACEITE-PASTORAL-PILOTO.md) e assumiu o aceite
+pastoral. Ele fará pessoalmente os testes, somente após um deploy autorizado.
+O aceite real dos cenários segue pendente.
+
+Migrations de produção, deploy e ativação seguem suspensos. Não enviar as
+perguntas preparadas ao suporte do Supabase.
+
+O mapa de escritores e os pedidos preparados abaixo ficam como histórico.
+As instruções desta seção prevalecem sobre os próximos passos daqueles registros.
+
 ## Mapa de escritores e consultas ao provedor (06/11/2026)
 
 Preparação documental concluída no
