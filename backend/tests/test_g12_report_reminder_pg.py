@@ -1,14 +1,39 @@
-"""G12 PR5: synthetic meeting-to-report lifecycle on disposable PostgreSQL."""
+"""G12 PR5: synthetic meeting-to-report lifecycle on disposable PostgreSQL.
+
+For the local Playwright proof, set V1A_CENTRAL_FRONTEND_ROOT to a temporary
+copy of frontend with its dependencies available, use Node 24 and Chrome
+(/usr/bin/google-chrome), and select
+test_meeting_overdue_cron_reminder_report_and_central_closure[agent-browser].
+The default collection (including RLS CI) runs the [agent] and [panel] HTTP
+cases. The browser case is collected only when its frontend is configured.
+Point RLS_TEST_DATABASE_URL at a fresh local PostgreSQL; the fixtures build
+their schema directly.
+"""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import datetime as dt
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.db.models import CelulaReuniao, Conversation, Pessoa
+from app.db.models import AppUser, Celula, CelulaReuniao, Conversation, Pessoa
+from app.routers import cell_central, cell_requests, cells, church, multiplicacoes
 from app.services import cell_report_reminders as reminders, cell_report_whatsapp
+from app.services.auth_sessions import register_session_with_backend_role
+from app.services.clerk import ClerkClient, get_clerk_client
+from app.visits.models import VisitEvent  # noqa: F401 - Central visit suggestions use the fixture schema
+from tests.test_cell_report_v1a_panel_pg import _panel_http
 from tests.test_cell_report_v1a_reminder_pg import (  # noqa: F401
     _NOW, _IGREJA, _TERM, _REPORT, _run, _rows, _v1a_outbox_rows,
     _ReminderTransport, _ClassifiedEvolution, reminder_turn, report_turn,
@@ -81,11 +106,111 @@ def _panel_actor(turn):
 
 def _pending(turn):
     from app.db.rls import set_tenant_context_for_igreja
-    from app.routers import cell_central
     with turn.factory() as session:
         set_tenant_context_for_igreja(session, str(_IGREJA))
         return cell_central.get_pending_reports(page=1, page_size=20,
             db=session, current_user=_panel_actor(turn))
+
+
+@dataclass
+class CentralHttp:
+    client: TestClient
+    app: FastAPI
+    token: str = field(repr=False)
+
+
+@pytest.fixture
+def central_http(reminder_turn, monkeypatch, with_browser):
+    turn = reminder_turn
+
+    class CentralClock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _NOW.astimezone(tz) if tz else _NOW.replace(tzinfo=None)
+
+    monkeypatch.setattr(cell_central, 'dt', SimpleNamespace(
+        datetime=CentralClock, timedelta=dt.timedelta, timezone=dt.timezone,
+    ))
+    monkeypatch.setattr('app.db.session.get_session_factory', lambda: turn.factory)
+    clerk = ClerkClient(SimpleNamespace(
+        effective_session_secret='synthetic-g12-central-session-secret',
+        session_ttl_hours=1,
+    ))
+    try:
+        with turn.factory() as session:
+            user = session.get(AppUser, turn.app_user_id)
+        token = clerk._mint_session_token(user.clerk_user_id)
+        register_session_with_backend_role(clerk, token, user, session_factory=turn.factory)
+
+        app = FastAPI()
+        app.include_router(cell_central.router)
+        if with_browser:
+            app.include_router(cell_requests.router)
+            app.include_router(cells.router)
+            app.include_router(church.router)
+            app.include_router(multiplicacoes.router)
+            app.add_middleware(
+                CORSMiddleware, allow_origin_regex=r'http://127\.0\.0\.1:\d+',
+                allow_methods=['GET'], allow_headers=['Authorization'],
+            )
+
+        app.dependency_overrides[get_clerk_client] = lambda: clerk
+        with TestClient(app, headers={'Authorization': f'Bearer {token}'}) as client:
+            yield CentralHttp(client, app, token)
+    finally:
+        clerk.close()
+
+
+@pytest.fixture
+def central_browser(central_http, reminder_turn, with_browser, tmp_path):
+    """Optional real browser on the same synthetic meeting as the HTTP proof."""
+    if not with_browser:
+        yield None
+        return
+
+    frontend = Path(os.environ['V1A_CENTRAL_FRONTEND_ROOT']).resolve(strict=True)
+    script = frontend / 'e2e/support/v1a-real-central.mjs'
+    assert script.is_file(), 'Missing scenario 20 runner in the frontend projection'
+    with reminder_turn.factory() as session:
+        meeting = session.get(CelulaReuniao, reminder_turn.meeting_id)
+        cell_name = session.get(Celula, meeting.celula_id).nome
+    with _panel_http(central_http.app, bridge_directory=None) as http_options:
+        ready = tmp_path / 'ready.json'
+        ready.touch(mode=0o600, exist_ok=False)
+        try:
+            with ready.open('w', encoding='utf-8') as handle:
+                json.dump({
+                    'token': central_http.token,
+                    'meeting_id': str(reminder_turn.meeting_id),
+                    'cell_name': cell_name,
+                    'api_url': http_options['base_url'],
+                }, handle)
+            with subprocess.Popen(
+                ['node', str(script), '--frontend-root', str(frontend),
+                 '--bridge-dir', str(tmp_path)],
+            ) as browser:
+                try:
+                    yield SimpleNamespace(process=browser, directory=tmp_path)
+                finally:
+                    if browser.poll() is None:
+                        browser.terminate()
+                        try:
+                            browser.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            browser.kill()
+                            browser.wait()
+        finally:
+            ready.unlink(missing_ok=True)
+
+
+def _wait_for_pending_in_browser(browser, meeting_id):
+    pending = browser.directory / 'browser-pending.json'
+    deadline = time.monotonic() + 60
+    while not pending.exists() and time.monotonic() < deadline:
+        assert browser.process.poll() is None, 'Playwright exited before proving the pending state'
+        time.sleep(0.05)
+    assert pending.exists(), 'Playwright did not prove the pending state within 60 seconds'
+    assert json.loads(pending.read_text(encoding='utf-8')) == {'meeting_id': meeting_id}
 
 
 def _submit(turn, channel, provider):
@@ -102,12 +227,34 @@ def _submit(turn, channel, provider):
             cell_meetings.submit_report(str(turn.meeting_id), session, _panel_actor(turn))
 
 
-@pytest.mark.parametrize('channel', ('agent', 'panel'))
-def test_meeting_overdue_cron_reminder_report_and_central_closure(reminder_turn, monkeypatch, channel):
+_CENTRAL_CLOSURE_CASES = [
+    pytest.param('agent', False, id='agent'),
+    pytest.param('panel', False, id='panel'),
+]
+# The RLS CI aggregator rejects skips, so opt in at collection time.
+if os.environ.get('V1A_CENTRAL_FRONTEND_ROOT'):
+    _CENTRAL_CLOSURE_CASES.append(pytest.param('agent', True, id='agent-browser'))
+
+
+@pytest.mark.parametrize(('channel', 'with_browser'), _CENTRAL_CLOSURE_CASES)
+def test_meeting_overdue_cron_reminder_report_and_central_closure(
+    reminder_turn, central_http, central_browser, monkeypatch, channel,
+):
     from app.db.models import AgentActionProposal, AgentActionReceipt, Message
     from app.workers import cron_worker
     turn = reminder_turn
-    assert _pending(turn).total == 1
+
+    def assert_pending(meeting_ids):
+        pending = central_http.client.get('/cell-central/pending-reports')
+        assert pending.status_code == 200, pending.text
+        body = pending.json()
+        assert body['total'] == len(meeting_ids)
+        assert [item['reuniao_id'] for item in body['items']] == meeting_ids
+        dashboard = central_http.client.get('/cell-central/dashboard', params={'hoje': True})
+        assert dashboard.status_code == 200, dashboard.text
+        assert dashboard.json()['relatorios_pendentes'] == len(meeting_ids)
+
+    assert_pending([str(turn.meeting_id)])
     class Provider(_ReminderTransport):
         def __enter__(self):
             return self
@@ -119,6 +266,8 @@ def test_meeting_overdue_cron_reminder_report_and_central_closure(reminder_turn,
     assert worker._run_cell_report_reminder_cycle(now=_NOW)[1:] == (1, 1)
     assert len(reminder_provider.calls) == 1
     assert _v1a_outbox_rows(turn)[0].state == 'enviado'
+    if central_browser:
+        _wait_for_pending_in_browser(central_browser, str(turn.meeting_id))
     reply_provider = _ClassifiedEvolution()
     _submit(turn, channel, reply_provider)
     with turn.factory() as session:
@@ -134,7 +283,13 @@ def test_meeting_overdue_cron_reminder_report_and_central_closure(reminder_turn,
         assert any(m.direcao == 'out' and 'Comprovante:' in (m.texto or '')
             and m.agent_reply_state == 'ia' for m in messages)
         assert len(reply_provider.calls) == 2
-    assert _pending(turn).total == 0
+    assert_pending([])
+    if central_browser:
+        (central_browser.directory / 'confirmed').touch(exist_ok=False)
+        assert central_browser.process.wait(timeout=60) == 0, 'Playwright did not prove the closure'
+        evidence = json.loads((central_browser.directory / 'browser-done.json').read_text(encoding='utf-8'))
+        assert evidence['meeting_id'] == str(turn.meeting_id)
+        assert evidence['counter'] == evidence['list_totals'] == [1, 0]
     assert worker._run_cell_report_reminder_cycle(now=_NOW + dt.timedelta(minutes=1))[1:] == (0, 0)
     assert len(_v1a_outbox_rows(turn)) == 1 and len(reminder_provider.calls) == 1
 

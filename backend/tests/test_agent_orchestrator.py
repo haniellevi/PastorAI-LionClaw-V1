@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from langgraph.runtime import Runtime
 
 from app.agent.context import LegacyTermContext, TrustedAgentContext
@@ -97,6 +99,29 @@ def test_report_routes_to_report_capture() -> None:
     assert _route(state, _context(roles=frozenset({"pastor"}))) == ROUTE_REPORT
 
 
+@pytest.mark.parametrize(
+    ("accepted_version", "expected_route"),
+    [("v1", ROUTE_ONBOARDING), (None, ROUTE_CONSENT)],
+)
+@pytest.mark.parametrize("text", [
+    "Lembrete do relatório de 10/11",
+    "Lista de presentes 10/11",
+    "dia 10/11 presentes",
+    "oferta: 10/11/2026",
+])
+def test_report_reminder_without_values_does_not_capture_empty_report(
+    accepted_version: str | None, expected_route: str, text: str,
+) -> None:
+    final = _turn(
+        _state(texto=text),
+        _context(accepted_version=accepted_version, roles=frozenset({"pastor"})),
+    )
+    assert final["route"] == expected_route
+    assert "Relatório recebido" not in final["response"]
+    assert all(event["evento"] != "report_captured" for event in final["turn_effects"]["events"])
+    assert final["turn_effects"]["tool_calls"] == []
+
+
 def test_report_from_non_ministerial_routes_to_onboarding() -> None:
     # Um contato comum mandando algo que "parece relatório" cai em onboarding —
     # sem confirmação falsa, sem decisão auto-registrada (anti-escalonamento).
@@ -154,7 +179,9 @@ def test_aggregate_report_decision_emits_no_individual_tool_call() -> None:
         c["ferramenta"] for c in final["turn_effects"]["tool_calls"]
     ]
     assert "registrar_decisao" not in names
-    assert "Relatório recebido" in final["response"]
+    assert "Relatório recebido" not in final["response"]
+    assert "Esta mensagem não finaliza o relatório" in final["response"]
+    assert "Minha Célula" in final["response"]
     assert "confirmação humana" in final["response"]
     assert "Registrei" not in final["response"]
 

@@ -14,8 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Keywords that flag a message as a cell report (any one is enough alongside a
-# number, e.g. "tivemos 12 presentes").
+# Keywords that flag a message as a cell report alongside an extractable
+# value, e.g. "tivemos 12 presentes".
 REPORT_KEYWORDS: tuple[str, ...] = (
     "presente",
     "presentes",
@@ -27,6 +27,15 @@ REPORT_KEYWORDS: tuple[str, ...] = (
 )
 
 _INT_AFTER = r"(\d+)"
+# Spaced hyphens separate report fields; dates must keep one separator.
+_NUMERIC_DATE = re.compile(
+    r"(?<!\d)(?:"
+    r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2}-\d{2,4}"
+    r"|\d{4}[ \t]*([./])[ \t]*\d{1,2}[ \t]*\1[ \t]*\d{1,2}"
+    r"|\d{1,2}[ \t]*([./])[ \t]*\d{1,2}[ \t]*\2[ \t]*\d{2,4}"
+    r"|\d{1,2}[ \t]*/[ \t]*\d{1,2}"
+    r")(?!\d)"
+)
 
 
 def _find_count(text: str, *keywords: str) -> int | None:
@@ -95,19 +104,20 @@ class CellReport:
 
 
 def looks_like_report(text: str | None) -> bool:
-    """Heuristic: the message mentions a report keyword and at least one number."""
+    """Require a report keyword and a value the report parser can extract."""
     if not text:
         return False
     lowered = text.lower()
     has_kw = any(kw in lowered for kw in REPORT_KEYWORDS)
-    has_num = bool(re.search(r"\d", lowered))
-    return has_kw and has_num
+    return has_kw and not parse_cell_report(text).is_empty
 
 
 def parse_cell_report(text: str | None) -> CellReport:
     """Extract a structured report from free text (best-effort)."""
     if not text:
         return CellReport(None, None, None, None)
+    # Block numeric dates without joining neighbouring labels and values.
+    text = _NUMERIC_DATE.sub("|", text)
     return CellReport(
         presentes=_find_count(text, "presente"),
         visitantes=_find_count(text, "visitante"),

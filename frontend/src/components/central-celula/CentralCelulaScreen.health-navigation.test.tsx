@@ -3,6 +3,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SessionExpiredError } from "@/lib/api";
+import { ApiError } from "@/lib/dashboard-api";
 
 import { CentralCelulaScreen } from "./CentralCelulaScreen";
 
@@ -16,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth-context", () => ({
-  useAuth: () => ({ token: "synthetic-token", user: { roles: ["pastor"] }, expireSession: mocks.expireSession }),
+  useAuth: () => ({ token: authToken, user: { roles: ["pastor"] }, expireSession: mocks.expireSession }),
 }));
 vi.mock("@/lib/cell-central-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/cell-central-api")>("@/lib/cell-central-api"),
@@ -27,6 +29,7 @@ vi.mock("@/lib/cell-central-api", async () => ({
 vi.mock("@/lib/multiplicacoes-api", () => ({ getMultiplicacoesList: mocks.getMultiplicacoesList }));
 vi.mock("@/lib/cell-requests-api", () => ({ listRequests: mocks.listRequests }));
 vi.mock("@/lib/church-cadastro-api", () => ({ fetchChurchCadastroCapability: async () => false }));
+vi.mock("../contacts/VisitCellSuggestions", () => ({ VisitCellSuggestions: () => null }));
 vi.mock("@/lib/cells-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/cells-api")>("@/lib/cells-api"),
   fetchCellsFull: async () => ({ items: [], total: 0 }),
@@ -35,12 +38,15 @@ vi.mock("@/lib/contacts-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/contacts-api")>("@/lib/contacts-api"),
   fetchContacts: async () => ({ items: [], total: 0 }),
 }));
+vi.mock("@/lib/lookup-api", async () => ({
+  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  fetchCellListPage: async () => ({ items: [], total: 0, page: 1, pageSize: 20 }),
+}));
 vi.mock("@/lib/dashboard-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/dashboard-api")>("@/lib/dashboard-api"),
   fetchTeam: async () => ({ items: [], total: 0 }),
 }));
 vi.mock("./MultiplicationsList", () => ({ MultiplicationsList: () => null }));
-vi.mock("./PendingReportsList", () => ({ PendingReportsList: () => null }));
 vi.mock("./RequestsPanel", () => ({ RequestsPanel: () => <p>Decisões de solicitações</p> }));
 
 declare global {
@@ -51,6 +57,30 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement;
 let root: Root;
+let authToken: string;
+
+const noOpenItems = {
+  relatorios_pendentes: 0,
+  solicitacoes_aguardando: 0,
+  celulas_com_alerta: 0,
+  multiplicacoes_pendentes: 0,
+  avisos_recentes: 0,
+  materiais_recentes: 0,
+};
+
+const pendingMeeting = {
+  reuniao_id: "synthetic-meeting",
+  celula_id: "synthetic-cell",
+  celula_nome: "Célula com relatório",
+  lider_nome: "Líder fictício",
+  data: "2026-09-30",
+};
+
+function mockPendingReport() {
+  mocks.getDashboard.mockResolvedValue({ ...noOpenItems, relatorios_pendentes: 1 });
+  mocks.getHealth.mockResolvedValue({ cells: [] });
+  mocks.getPendingReports.mockResolvedValue({ items: [pendingMeeting] });
+}
 
 async function render() {
   await act(async () => {
@@ -60,8 +90,10 @@ async function render() {
   });
 }
 
-async function click(text: string) {
-  const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes(text));
+async function click(text: string, within: ParentNode = container) {
+  const button = Array.from(within.querySelectorAll("button")).find((item) =>
+    item.textContent?.trim() === text || item.querySelector(".cc-today-action")?.textContent === text,
+  );
   expect(button, `ação ${text}`).toBeDefined();
   await act(async () => button!.click());
 }
@@ -72,7 +104,8 @@ function healthDisclosure() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getDashboard.mockResolvedValue({ relatorios_pendentes: 0, solicitacoes_aguardando: 0, celulas_com_alerta: 1, multiplicacoes_pendentes: 0, avisos_recentes: 0, materiais_recentes: 0 });
+  authToken = "synthetic-token";
+  mocks.getDashboard.mockResolvedValue({ ...noOpenItems, celulas_com_alerta: 1 });
   mocks.getHealth.mockResolvedValue({ cells: [{ celula_id: "synthetic-cell", celula_nome: "Célula de teste em atenção", status: "atencao", vermelhos: 0, alertas: 1, sinais: [] }] });
   mocks.getPendingReports.mockResolvedValue({ items: [] });
   mocks.getMultiplicacoesList.mockResolvedValue({ pendentes: [] });
@@ -85,6 +118,148 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+});
+
+it("atualiza o contador e a lista ao voltar à aba Hoje após receber um relatório", async () => {
+  mockPendingReport();
+
+  await render();
+  expect(container.querySelector(".cc-today-head p")?.textContent).toContain("1 pendência pede atenção");
+  expect(container.querySelector(".cc-today-queue")?.textContent).toContain(pendingMeeting.celula_nome);
+  expect(mocks.getDashboard).toHaveBeenCalledTimes(1);
+  await click("Solicitações");
+  expect(container.textContent).toContain("Decisões de solicitações");
+
+  mocks.getDashboard.mockResolvedValue(noOpenItems);
+  mocks.getPendingReports.mockResolvedValue({ items: [] });
+  await click("Hoje");
+
+  expect(container.querySelector(".cc-today-queue")).toBeNull();
+  expect(container.querySelector(".cc-today-head p")?.textContent).toContain("Nenhuma exceção aberta");
+  await click("Hoje");
+  expect(mocks.getDashboard).toHaveBeenCalledTimes(2);
+});
+
+it("atualiza o contador e a lista ao retornar à janela com Hoje aberta", async () => {
+  mockPendingReport();
+  await render();
+  expect(container.textContent).toContain("1 pendência pede atenção");
+  expect(container.querySelector(".cc-today-queue")?.textContent).toContain(pendingMeeting.celula_nome);
+
+  mocks.getDashboard.mockResolvedValue(noOpenItems);
+  mocks.getPendingReports.mockResolvedValue({ items: [] });
+  await act(async () => window.dispatchEvent(new Event("focus")));
+
+  expect(container.textContent).toContain("Nenhuma exceção aberta");
+  expect(container.querySelector(".cc-today-queue")).toBeNull();
+  expect(mocks.getDashboard).toHaveBeenCalledTimes(2);
+  expect(mocks.getPendingReports).toHaveBeenCalledTimes(2);
+});
+
+it("Atualizar publica contador e fila juntos e reaproveita a busca em andamento no retorno à janela", async () => {
+  mockPendingReport();
+  await render();
+  const reports = Promise.withResolvers<{ items: typeof pendingMeeting[] }>();
+  mocks.getDashboard.mockResolvedValue(noOpenItems);
+  mocks.getPendingReports.mockReturnValueOnce(reports.promise);
+  await click("Atualizar");
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+
+  expect(container.textContent).toContain("1 pendência pede atenção");
+  expect(container.querySelector(".cc-today-queue")?.textContent).toContain(pendingMeeting.celula_nome);
+  expect(mocks.getDashboard).toHaveBeenCalledTimes(2);
+  expect(mocks.getPendingReports).toHaveBeenCalledTimes(2);
+  await act(async () => reports.resolve({ items: [] }));
+
+  expect(container.textContent).toContain("Nenhuma exceção aberta");
+  expect(container.querySelector(".cc-today-queue")).toBeNull();
+});
+
+it.each(["getDashboard", "getPendingReports"] as const)("falha em %s não parece fila vazia e permite tentar novamente", async (read) => {
+  mockPendingReport();
+  mocks.getDashboard.mockResolvedValueOnce({ ...noOpenItems, relatorios_pendentes: 1, solicitacoes_aguardando: 3 });
+  await render();
+  expect(container.querySelector('[role="tab"][id$="-requests"]')?.textContent).toContain("3");
+  mocks.getDashboard.mockResolvedValue(noOpenItems);
+  mocks.getPendingReports.mockResolvedValue({ items: [] });
+  mocks[read].mockRejectedValueOnce(new ApiError(500, "Leitura indisponível."));
+
+  await click("Atualizar");
+  expect(container.textContent).toContain("Leitura indisponível.");
+  expect(container.textContent).not.toContain("Nenhuma exceção aberta");
+  expect(container.textContent).not.toContain("Nenhuma pendência na lista carregada.");
+  expect(container.querySelector('[role="tab"][id$="-requests"]')?.textContent).not.toContain("3");
+
+  await click("Tentar novamente");
+  expect(container.textContent).toContain("Nenhuma exceção aberta");
+  expect(container.querySelector(".cc-today-queue")).toBeNull();
+});
+
+it("preserva a leitura do selo ao sair de Hoje antes de a fila carregar", async () => {
+  const summary = Promise.withResolvers<typeof noOpenItems>();
+  const reports = Promise.withResolvers<{ items: typeof pendingMeeting[] }>();
+  mocks.getDashboard.mockReturnValueOnce(summary.promise);
+  mocks.getPendingReports.mockReturnValueOnce(reports.promise);
+  await render();
+  await click("Solicitações");
+  await act(async () => summary.resolve({ ...noOpenItems, solicitacoes_aguardando: 3 }));
+
+  expect(container.querySelector('[role="tab"][id$="-requests"]')?.textContent).toContain("3");
+  expect(mocks.getDashboard).toHaveBeenCalledTimes(1);
+  await act(async () => reports.resolve({ items: [] }));
+});
+
+it("não atualiza Hoje ao focar outra aba da Central", async () => {
+  await render();
+  await click("Solicitações");
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(mocks.getDashboard).toHaveBeenCalledTimes(1);
+  expect(mocks.getPendingReports).toHaveBeenCalledTimes(1);
+});
+
+it("expira uma única vez quando resumo e fila recusam a sessão atual", async () => {
+  mocks.getDashboard.mockRejectedValueOnce(new SessionExpiredError());
+  mocks.getPendingReports.mockRejectedValueOnce(new SessionExpiredError());
+  await render();
+  expect(mocks.expireSession).toHaveBeenCalledTimes(1);
+});
+
+it("oculta a fila anterior enquanto carrega uma sessão diferente", async () => {
+  mockPendingReport();
+  await render();
+  expect(container.textContent).toContain(pendingMeeting.celula_nome);
+
+  authToken = "synthetic-token-b";
+  const reports = Promise.withResolvers<{ items: typeof pendingMeeting[] }>();
+  mocks.getDashboard.mockResolvedValue(noOpenItems);
+  mocks.getPendingReports.mockReturnValueOnce(reports.promise);
+  await render();
+  expect(container.textContent).not.toContain(pendingMeeting.celula_nome);
+  expect(container.textContent).toContain("Carregando as pendências da Central");
+  await act(async () => reports.resolve({ items: [] }));
+  expect(container.textContent).toContain("Nenhuma exceção aberta");
+});
+
+it("aguarda o contador atualizado e ignora uma falha de sessão de consulta anterior", async () => {
+  mocks.getDashboard.mockResolvedValue({ ...noOpenItems, relatorios_pendentes: 1 });
+  mocks.getHealth.mockResolvedValue({ cells: [] });
+  await render();
+  await click("Solicitações");
+
+  const previous = Promise.withResolvers<typeof noOpenItems>();
+  mocks.getDashboard.mockReturnValueOnce(previous.promise);
+  await click("Hoje");
+  expect(container.textContent).toContain("Carregando as pendências da Central");
+  expect(container.textContent).not.toContain("1 pendência pede atenção");
+  expect(container.textContent).not.toContain("Nenhuma pendência na lista carregada.");
+  await click("Solicitações");
+  mocks.getDashboard.mockResolvedValue(noOpenItems);
+  await click("Hoje");
+  await act(async () => previous.reject(new SessionExpiredError()));
+
+  expect(container.querySelector(".cc-today-head p")?.textContent).toContain("Nenhuma exceção aberta");
+  expect(mocks.expireSession).not.toHaveBeenCalled();
 });
 
 describe("Central: destino de saúde", () => {
@@ -102,14 +277,34 @@ describe("Central: destino de saúde", () => {
     expect(document.activeElement).toBe(healthDisclosure().querySelector("summary"));
   });
 
-  it("não revela o panorama ao navegar manualmente ou por relatório pendente", async () => {
-    mocks.getPendingReports.mockResolvedValue({ items: [{ reuniao_id: "synthetic-meeting", celula_id: "synthetic-cell", celula_nome: "Célula com relatório", lider_nome: "Líder fictício", data: "2026-09-30" }] });
+  it("leva o foco da pendência à lista de relatórios sem abrir o panorama", async () => {
+    mockPendingReport();
     await render();
     await click("Gerenciar células");
     expect(healthDisclosure().open).toBe(false);
+    const list = () => container.querySelector('[aria-label="Relatórios pendentes"]');
+    expect(document.activeElement).not.toBe(list());
     await click("Hoje");
     await click("Ver relatórios");
     expect(healthDisclosure().open).toBe(false);
+    expect(list()?.textContent).toContain(pendingMeeting.celula_nome);
+    expect(document.activeElement === list()).toBe(true);
+  });
+
+  it("não afirma ausência de relatórios quando a lista de destino falha", async () => {
+    mockPendingReport();
+    await render();
+    mocks.getPendingReports.mockRejectedValueOnce(new ApiError(500, "Leitura indisponível."));
+    await click("Ver relatórios");
+
+    const list = container.querySelector('[aria-label="Relatórios pendentes"]');
+    expect(list).not.toBeNull();
+    expect(list!.querySelector('[role="alert"]')?.textContent).toContain("Leitura indisponível.");
+    expect(list!.textContent).not.toContain("Nenhum relatório pendente.");
+
+    mocks.getPendingReports.mockResolvedValue({ items: [] });
+    await click("Tentar novamente", list!);
+    expect(list!.textContent).toContain("Nenhum relatório pendente.");
   });
 
   it("mantém uma multiplicação no destino de decisão", async () => {

@@ -550,7 +550,9 @@ _NEGATIVE_OFFERING_PATTERN: Final = re.compile(
 )
 _MALFORMED_COUNT_TOKEN_PATTERN: Final = re.compile(
     r"(?:"
-    rf"(?<!\w){_GLUED_NUMBER_TOKEN}(?!\w)\s*{_COUNT_LABEL}(?!\w)"
+    rf"(?<!\w)[0-9]+[.,/][0-9]+\s+{_COUNT_LABEL}(?!\w)"
+    rf"|{_COUNT_LABEL_CLOSED}(?:\s*[:=]\s*|\s+)[0-9]+[.,/][0-9]+"
+    rf"|(?<!\w){_GLUED_NUMBER_TOKEN}(?!\w)\s*{_COUNT_LABEL}(?!\w)"
     rf"|{_COUNT_LABEL_CLOSED}\s*[:=]?\s*"
     rf"{_GLUED_NUMBER_TOKEN}(?!\w)"
     rf"|(?<!\w)[0-9]+\s*{_COUNT_LABEL}(?=\w)"

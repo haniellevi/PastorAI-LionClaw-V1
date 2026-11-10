@@ -17,8 +17,8 @@ from sqlalchemy.engine import Engine
 
 from app.agent import runtime as runtime_module
 from app.db.models import (
-    AgentActionProposal, AgentConfig, AgentConversationLog, AppUser,
-    ConsentRecord, Conversation, Decision, LlmCredential, Message, Pessoa,
+    AgentActionProposal, AgentActionReceipt, AgentConfig, AgentConversationLog, AppUser,
+    CelulaReuniao, ConsentRecord, Conversation, Decision, LlmCredential, Message, Pessoa,
     UserRole,
 )
 from app.services import crypto, semantic_triage
@@ -38,6 +38,7 @@ _CONTACT_PHONE = "5500000000002"
 _REPORTS = (
     "presentes: 12\nvisitantes: 3\ndecisões: 1",
     "presentes: 12 visitantes: 3 decisões: 1",
+    "Relatório 10/11 - 12 presentes - 3 visitantes - 1 decisão",
 )
 
 
@@ -148,11 +149,16 @@ def test_ministerial_report_binds_counts_to_labels(b15_turn, texto):
     assert len(evolution.calls) == 1
     assert expected in evolution.calls[0][2]
     assert "confirmação humana" in evolution.calls[0][2]
-    assert any(expected in (out or "") for out in _outbound(b15_turn, b15_turn.leader_conversation))
+    assert "Relatório recebido" not in evolution.calls[0][2]
+    assert "Esta mensagem não finaliza o relatório" in evolution.calls[0][2]
+    assert "Minha Célula" in evolution.calls[0][2]
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [evolution.calls[0][2]]
     # Report replies are deterministic and create no individual records.
     assert b15_turn.llm_calls == []
     assert _count(b15_turn, Decision) == 0
     assert _count(b15_turn, AgentActionProposal) == 0
+    assert _count(b15_turn, AgentActionReceipt) == 0
+    assert _count(b15_turn, CelulaReuniao) == 0
 
 
 @pytest.mark.parametrize("texto", _REPORTS)
@@ -164,5 +170,88 @@ def test_non_ministerial_report_text_gets_no_report_confirmation(b15_turn, texto
     assert "Relatório recebido" not in evolution.calls[0][2]
     assert all("Relatório recebido" not in (out or "")
                for out in _outbound(b15_turn, b15_turn.contact_conversation))
+    assert _count(b15_turn, Decision) == 0
+    assert _count(b15_turn, AgentActionProposal) == 0
+
+
+@pytest.mark.parametrize("texto", [
+    "Lembrete do relatório de 10/11",
+    "Quanto foi a oferta do dia 03/11?",
+    "Na reunião de 20/11 teremos visitantes",
+    "Lista de presentes 10/11",
+    "dia 10/11 presentes",
+    "oferta: 10/11/2026",
+])
+def test_ministerial_message_without_report_values_gets_no_confirmation(b15_turn, texto):
+    evolution = _run(b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-NO-VALUES", texto)
+
+    assert _report_events(b15_turn, b15_turn.leader_conversation) == []
+    assert len(evolution.calls) == 1
+    assert "Relatório recebido" not in evolution.calls[0][2]
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [evolution.calls[0][2]]
+    assert _count(b15_turn, Decision) == 0
+    assert _count(b15_turn, AgentActionProposal) == 0
+
+
+def test_report_date_preserves_explicit_zeroes_and_offering(b15_turn):
+    evolution = _run(
+        b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-DATE-COUNTS",
+        "Relatório de 10/11: presentes: 0 visitantes: 3 decisões: 0 oferta: 12,50",
+    )
+
+    events = _report_events(b15_turn, b15_turn.leader_conversation)
+    assert len(events) == 1
+    assert events[0]["relatorio"] == {
+        "presentes": 0,
+        "visitantes": 3,
+        "decisoes": 0,
+        "oferta": 12.5,
+    }
+    assert len(evolution.calls) == 1
+    response = evolution.calls[0][2]
+    assert "Resumo informado: 0 presentes, 3 visitantes, 0 decisões." in response
+    assert "confirmação humana" in response
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [response]
+    assert b15_turn.llm_calls == []
+    assert _count(b15_turn, Decision) == 0
+    assert _count(b15_turn, AgentActionProposal) == 0
+
+
+@pytest.mark.parametrize(("texto", "counts", "summary"), [
+    pytest.param(
+        "presentes: 12", (12, None, None),
+        "12 presentes, visitantes não informados, decisões não informadas",
+        id="partial-presentes",
+    ),
+    pytest.param(
+        "presentes: 0 visitantes: 0 decisões: 0", (0, 0, 0),
+        "0 presentes, 0 visitantes, 0 decisões",
+        id="explicit-zeroes",
+    ),
+    pytest.param(
+        "visitantes: 3", (None, 3, None),
+        "presentes não informados, 3 visitantes, decisões não informadas",
+        id="missing-presentes",
+    ),
+])
+def test_report_reply_distinguishes_missing_counts_from_zero(b15_turn, texto, counts, summary):
+    evolution = _run(
+        b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-MISSING-COUNTS", texto,
+    )
+
+    events = _report_events(b15_turn, b15_turn.leader_conversation)
+    assert len(events) == 1
+    assert events[0]["relatorio"] == {
+        "presentes": counts[0],
+        "visitantes": counts[1],
+        "decisoes": counts[2],
+        "oferta": None,
+    }
+    assert len(evolution.calls) == 1
+    response = evolution.calls[0][2]
+    assert f"Resumo informado: {summary}." in response
+    assert "confirmação humana" in response
+    assert _outbound(b15_turn, b15_turn.leader_conversation) == [response]
+    assert b15_turn.llm_calls == []
     assert _count(b15_turn, Decision) == 0
     assert _count(b15_turn, AgentActionProposal) == 0

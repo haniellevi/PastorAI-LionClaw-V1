@@ -3,13 +3,20 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, select
 
-from app.db.models import AgentActionProposal, AgentActionReceipt, CelulaReuniao, ConsentRecord, Conversation
+from app.db.models import AgentActionProposal, AgentActionReceipt, AppUser, CelulaReuniao, ConsentRecord, Conversation, UserRole
+from app.db.session import get_db
 from app.domain.cell_report_snapshot import validate_cell_report_snapshot_v2
+from app.routers import reports
 from app.services import cell_report_whatsapp
+from app.services.auth_sessions import register_session_with_backend_role
+from app.services.clerk import ClerkClient, get_clerk_client
 from app.services.llm import LLMClient
 from app.workers import queue_worker as worker_module
 from tests.test_agent_privileged_turn_pg import (  # noqa: F401 - fixtures
@@ -107,6 +114,62 @@ def test_v1a_summary_then_new_sim_commits_report_and_receipt_once(report_turn):
         assert panel.oferta_valor == 30.0
         assert panel.presencas == panel.visitantes == panel.records == []
 
+    # Exercise the Central's HTTP projection with the real session and role
+    # checks, then reuse the same signed token after its role is revoked.
+    clerk = ClerkClient(SimpleNamespace(
+        effective_session_secret='synthetic-v1a-reports-session-secret',
+        session_ttl_hours=1,
+    ))
+    try:
+        token = clerk._mint_session_token('clerk-s3-synthetic')
+        with turn.factory() as session:
+            app_user = session.get(AppUser, turn.app_user_id)
+            meeting = session.get(CelulaReuniao, turn.meeting_id)
+            cell_id, meeting_date = meeting.celula_id, meeting.data
+        register_session_with_backend_role(
+            clerk, token, app_user, session_factory=turn.factory,
+        )
+        app = FastAPI()
+        app.include_router(reports.router)
+
+        def db():
+            with turn.factory() as session:
+                yield session
+
+        app.dependency_overrides[get_db] = db
+        app.dependency_overrides[get_clerk_client] = lambda: clerk
+        year, week, _ = meeting_date.isocalendar()
+        url = f'/reports?semana={year}-W{week:02d}'
+        headers = {'Authorization': f'Bearer {token}'}
+        with TestClient(app) as client:
+            response = client.get(url, headers=headers)
+            assert response.status_code == 200
+            body = response.json()
+            assert body['total'] == 1
+            assert body['items'] == [{
+                'id': str(turn.meeting_id),
+                'celulaId': str(cell_id),
+                'celulaNome': 'Célula Sintética',
+                'semana': f'{year}-W{week:02d}',
+                'status': 'recebido',
+                'dataReuniao': meeting_date.isoformat(),
+                'presentes': report.totals.presentes,
+                'visitantes': report.totals.visitantes,
+                'decisoes': report.totals.decisoes,
+                'oferta': float(report.oferta_valor),
+                'observacoes': report.observacoes,
+            }]
+            with turn.factory.begin() as session:
+                session.execute(delete(UserRole).where(
+                    UserRole.igreja_id == _IGREJA,
+                    UserRole.user_id == turn.app_user_id,
+                ))
+            rejected = client.get(url, headers=headers)
+            assert rejected.status_code == 403
+            assert rejected.json() == {'detail': 'Ação restrita à Central de Células'}
+    finally:
+        clerk.close()
+
 
 def test_v1a_correction_replaces_delivered_summary_before_confirmation(report_turn):
     turn = report_turn
@@ -122,6 +185,61 @@ def test_v1a_correction_replaces_delivered_summary_before_confirmation(report_tu
     assert (report.totals.presentes, report.totals.visitantes, report.totals.decisoes) == (12, 2, 1)
     assert report.oferta_valor == Decimal('35.50')
     assert len(_rows(turn, AgentActionReceipt)) == 1
+
+
+@pytest.mark.parametrize(('correcting', 'invalid_text'), (
+    (False, 'Relatório: presentes: 2,5; visitantes: 2; decisões: 1; oferta: 30,00'),
+    (True, 'Correção: 2/5 presentes'),
+    (True, 'decisões: 2,5'),
+), ids=('initial', 'correction', 'bare-decisions-correction'))
+def test_v1a_fractional_count_is_clarified_without_overwriting_then_recovers(report_turn, correcting, invalid_text):
+    from app.db.models import CellReportAiReservation, CellReportDraft
+    turn = report_turn
+    evolution = _CommittedReceiptEvolution(turn)
+    original_snapshot = _snapshot(turn)
+    if correcting:
+        _run(turn, 'V1A-FRACTION-START', _REPORT, evolution)
+        draft = _rows(turn, CellReportDraft)[0]
+        original_draft = (draft.id, draft.revision, draft.candidate_json, draft.candidate_sha256)
+    previous_sends = len(evolution.calls)
+
+    _run(turn, 'V1A-FRACTION-INVALID', invalid_text, evolution)
+
+    assert len(evolution.calls) == previous_sends + 1
+    assert 'Envie apenas presentes, visitantes, decisões e oferta total.' in evolution.calls[-1][2]
+    assert _snapshot(turn) == original_snapshot
+    assert _rows(turn, AgentActionReceipt) == []
+    assert _rows(turn, CellReportAiReservation) == []
+    assert not any(p.state == 'pendente' for p in _rows(turn, AgentActionProposal))
+    if correcting:
+        draft = _rows(turn, CellReportDraft)[0]
+        assert (draft.id, draft.revision, draft.candidate_json, draft.candidate_sha256) == original_draft
+    else:
+        assert _rows(turn, CellReportDraft) == []
+
+    # S3 already cancels the previous proposal on a non-confirmation inbound.
+    # A SIM after clarification therefore cannot confirm the old or truncated data.
+    _run(turn, 'V1A-FRACTION-EARLY-SIM', 'SIM', evolution)
+    assert _snapshot(turn) == original_snapshot
+    assert _rows(turn, AgentActionReceipt) == []
+
+    valid_text = 'Correção: presentes: 12' if correcting else (
+        'Relatório: presentes: 12; visitantes: 2; decisões: 1; oferta: 30,00'
+    )
+    _run(turn, 'V1A-FRACTION-VALID', valid_text, evolution)
+    assert '12 presentes, 2 visitantes, 1 decisão e oferta total de R$ 30,00.' in evolution.calls[-1][2]
+    assert _snapshot(turn) == original_snapshot
+    assert _rows(turn, AgentActionReceipt) == []
+    assert len([p for p in _rows(turn, AgentActionProposal) if p.state == 'pendente']) == 1
+
+    _run(turn, 'V1A-FRACTION-VALID-SIM', 'SIM', evolution)
+    state, raw = _snapshot(turn)
+    assert state == 'enviado'
+    report = validate_cell_report_snapshot_v2(raw)
+    assert (report.totals.presentes, report.totals.visitantes, report.totals.decisoes) == (12, 2, 1)
+    assert report.oferta_valor == Decimal('30.00')
+    assert len(_rows(turn, AgentActionReceipt)) == 1
+    assert evolution.committed_receipts == 1
 
 
 @pytest.mark.parametrize('revocation', ('term', 'meeting_cancelled', 'release'))

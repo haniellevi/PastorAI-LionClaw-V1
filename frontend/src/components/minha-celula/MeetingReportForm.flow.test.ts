@@ -118,4 +118,40 @@ describe("MeetingReportForm, fluxo guiado", () => {
       ),
     ).toBe(false);
   });
+
+  it.each([
+    { presentes: 10, visitantes: 2, decisoes: 1, oferta: 30 },
+    { presentes: 0, visitantes: 0, decisoes: 0, oferta: 0 },
+  ])("mostra os totais confirmados sem atribuir dados a pessoas: %j", async (totals) => {
+    const { oferta, ...counts } = totals;
+    const report = {
+      ...baseReport,
+      schema: "cell-report/v2" as const,
+      relatorio_status: "enviado",
+      oferta_valor: oferta,
+      presencas: [],
+      visitantes: [],
+      records: [],
+      totals: counts,
+    };
+    await renderReport(report);
+
+    const text = container.textContent?.replace(/\s+/g, " ");
+    expect(text).toContain(`${totals.presentes} presentes`);
+    expect(text).toContain(`${totals.visitantes} visitantes`);
+    expect(text).toContain(`${totals.decisoes} ${totals.decisoes === 1 ? "decisão" : "decisões"}`);
+    expect(text).toContain(`R$ ${totals.oferta.toFixed(2).replace(".", ",")}`);
+    expect(text).toContain("Relatório enviado e bloqueado para edição.");
+    expect(text).toContain("Os totais foram informados sem identificação individual.");
+    expect(text).not.toContain("de 2 presentes");
+    expect(text).not.toContain("Sem visitantes registrados");
+    expect(text).not.toContain("Sem registros");
+    expect(text).not.toContain("Ana Carolina");
+    expect(text).not.toContain("Contato sem nome");
+    expect(container.querySelector('input, textarea, select, [role="switch"]')).toBeNull();
+    expect(container.querySelector("[aria-expanded]")).toBeNull();
+    expect([...container.querySelectorAll("button")].some((button) =>
+      button.textContent?.includes("Enviar relatório"),
+    )).toBe(false);
+  });
 });
