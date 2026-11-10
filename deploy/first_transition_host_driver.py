@@ -519,7 +519,7 @@ def _runner_argv(argv, resume=False):
 
 
 class PopenRunner:
-    """Bounded docker CLI runner for a future authorized operator; never used by tests unmocked.
+    """Bounded Docker CLI runner for a future authorized operator.
 
     The endpoint (``unix://`` socket), docker binary and an operator-provided
     config directory are explicit; the child gets a minimal environment, so no
@@ -528,8 +528,8 @@ class PopenRunner:
     by ID only when constructed with ``resume=True``. On timeout, oversize or error it
     ends only its own CLI process, waits at most ``cleanup_wait`` and never
     retries; an unreaped CLI is counted, not escalated. Killing the CLI does not
-    undo a request the daemon already received. Compatibility with a real
-    Docker CLI/daemon is unverified here.
+    undo a request the daemon already received. Synthetic rehearsals have a
+    bounded scope; compatibility with the nominal production host remains separate.
     """
 
     def __init__(self, *, docker_binary, endpoint, config_dir, popen=None, cleanup_wait=2.0, chunk=4096,
