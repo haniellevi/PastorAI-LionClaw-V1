@@ -105,9 +105,7 @@ export function ConfirmEventModal({
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return convs;
-    return convs.filter(
-      (c) => (c.nome ?? "").toLowerCase().includes(q) || c.telefone.includes(q),
-    );
+    return convs.filter((c) => (c.nome ?? "").toLowerCase().includes(q) || c.telefone.includes(q));
   }, [convs, busca]);
 
   const togglePublico = (p: PublicoAlvo) =>
@@ -162,7 +160,8 @@ export function ConfirmEventModal({
       : (ANTECEDENCIAS.find((a) => a.id === quando)?.label.toLowerCase() ?? "");
 
   return (
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -191,11 +190,7 @@ export function ConfirmEventModal({
           className="field"
           style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
         >
-          <input
-            type="checkbox"
-            checked={notify}
-            onChange={(e) => setNotify(e.target.checked)}
-          />
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
           <span>Notificar sobre este evento</span>
         </label>
 
@@ -237,7 +232,12 @@ export function ConfirmEventModal({
                 {PUBLICOS.map((p) => (
                   <label
                     key={p}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      cursor: "pointer",
+                    }}
                   >
                     <input
                       type="checkbox"
@@ -318,9 +318,7 @@ export function ConfirmEventModal({
                   ))
                 )}
               </div>
-              <span className="helper">
-                Só contatos que já conversaram no WhatsApp da igreja.
-              </span>
+              <span className="helper">Só contatos que já conversaram no WhatsApp da igreja.</span>
             </div>
 
             <div className="field">

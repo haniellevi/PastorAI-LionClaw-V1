@@ -10,7 +10,10 @@ it("pausa aba oculta, retoma exatamente uma vez e limpa no unmount", () => {
   let visibility = "visible";
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
   const poll = vi.fn();
-  function Probe() { useVisibleInterval(poll, 15_000); return null; }
+  function Probe() {
+    useVisibleInterval(poll, 15_000);
+    return null;
+  }
   const root = createRoot(document.createElement("div"));
   act(() => root.render(<Probe />));
   act(() => vi.advanceTimersByTime(15_000));

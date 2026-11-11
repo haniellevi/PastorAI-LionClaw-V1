@@ -25,11 +25,7 @@ import type { FlashToast } from "./types";
 
 /** Tipos de campo sensível da célula que o líder pode solicitar por esta tela. */
 export type SensitiveCellRequestType =
-  | "alterar_dia"
-  | "alterar_horario"
-  | "alterar_endereco"
-  | "alterar_anfitriao"
-  | "alterar_auxiliar";
+  "alterar_dia" | "alterar_horario" | "alterar_endereco" | "alterar_anfitriao" | "alterar_auxiliar";
 
 const HORA_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 
@@ -144,7 +140,8 @@ export function SensitiveFieldRequestModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -153,9 +150,7 @@ export function SensitiveFieldRequestModal({
       description="Campos sensíveis não mudam na hora. Esta solicitação vai para a Central aprovar; o dado só muda após a aprovação."
     >
       <>
-
-
-      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
+        {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           className="modal-form ops-dialog"

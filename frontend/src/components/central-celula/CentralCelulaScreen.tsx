@@ -22,7 +22,12 @@ import { Icon } from "@/lib/icons";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
-import { getDashboard, getHealth, getPendingReports, type CentralDashboard } from "@/lib/cell-central-api";
+import {
+  getDashboard,
+  getHealth,
+  getPendingReports,
+  type CentralDashboard,
+} from "@/lib/cell-central-api";
 import { listRequests } from "@/lib/cell-requests-api";
 import { getMultiplicacoesList } from "@/lib/multiplicacoes-api";
 
@@ -51,7 +56,8 @@ async function readToday(token: string, summary: Promise<CentralDashboard>) {
     getHealth(token, 1, 12),
   ]);
   for (const result of results) {
-    if (result.status === "rejected" && result.reason instanceof SessionExpiredError) throw result.reason;
+    if (result.status === "rejected" && result.reason instanceof SessionExpiredError)
+      throw result.reason;
   }
   const [dashboard, reports, requests, multiplications, health] = results;
   return {
@@ -85,46 +91,59 @@ export function CentralCelulaScreen() {
   const [toast, setToast] = useState<CentralToast | null>(null);
   const flashToast = useCallback((t: CentralToast) => setToast(t), []);
 
-  const loadDashboard = useCallback(async (
-    mode: "initial" | "refresh" | "changed" | "badge",
-    summaryInFlight?: Promise<CentralDashboard>,
-  ) => {
-    if (!token || activeToken.current !== token || !isCentral || (mode === "refresh" && activeRequest.current)) return;
-    const request = { summary: summaryInFlight ?? getDashboard(token) };
-    activeRequest.current = request;
-    if (mode !== "badge") {
-      setLoadingToday(true);
-      setTodayError(null);
-      if (mode === "initial") setQueue(null);
-    }
-
-    try {
-      if (mode === "badge") {
-        const data = await request.summary;
-        if (activeRequest.current === request) setDashboard(data);
+  const loadDashboard = useCallback(
+    async (
+      mode: "initial" | "refresh" | "changed" | "badge",
+      summaryInFlight?: Promise<CentralDashboard>,
+    ) => {
+      if (
+        !token ||
+        activeToken.current !== token ||
+        !isCentral ||
+        (mode === "refresh" && activeRequest.current)
+      )
         return;
+      const request = { summary: summaryInFlight ?? getDashboard(token) };
+      activeRequest.current = request;
+      if (mode !== "badge") {
+        setLoadingToday(true);
+        setTodayError(null);
+        if (mode === "initial") setQueue(null);
       }
-      const data = await readToday(token, request.summary);
-      if (activeRequest.current !== request) return;
-      setDashboard(data.dashboard);
-      setQueue(data.queue);
-    } catch (err: unknown) {
-      if (activeRequest.current !== request) return;
-      setDashboard(null);
-      if (err instanceof SessionExpiredError) {
-        setQueue(null);
-        expireSession();
-      } else if (mode !== "badge") {
-        setQueue(null);
-        setTodayError(err instanceof ApiError ? err.message : "Não foi possível confirmar as pendências da Central.");
+
+      try {
+        if (mode === "badge") {
+          const data = await request.summary;
+          if (activeRequest.current === request) setDashboard(data);
+          return;
+        }
+        const data = await readToday(token, request.summary);
+        if (activeRequest.current !== request) return;
+        setDashboard(data.dashboard);
+        setQueue(data.queue);
+      } catch (err: unknown) {
+        if (activeRequest.current !== request) return;
+        setDashboard(null);
+        if (err instanceof SessionExpiredError) {
+          setQueue(null);
+          expireSession();
+        } else if (mode !== "badge") {
+          setQueue(null);
+          setTodayError(
+            err instanceof ApiError
+              ? err.message
+              : "Não foi possível confirmar as pendências da Central.",
+          );
+        }
+      } finally {
+        if (activeRequest.current === request) {
+          activeRequest.current = null;
+          if (mode !== "badge") setLoadingToday(false);
+        }
       }
-    } finally {
-      if (activeRequest.current === request) {
-        activeRequest.current = null;
-        if (mode !== "badge") setLoadingToday(false);
-      }
-    }
-  }, [token, isCentral, expireSession]);
+    },
+    [token, isCentral, expireSession],
+  );
 
   useEffect(() => {
     activeToken.current = isCentral ? token : null;
@@ -152,17 +171,20 @@ export function CentralCelulaScreen() {
     };
   }, [tab, isCentral, token, refreshToday]);
 
-  const openTab = useCallback((nextTab: CentralTab, section?: CellsSection) => {
-    const previousTab = activeTab.current;
-    activeTab.current = nextTab;
-    if (nextTab === "dashboard" && previousTab !== "dashboard") void loadDashboard("initial");
-    if (nextTab !== "dashboard" && previousTab === "dashboard" && activeRequest.current) {
-      // The other tabs still use the summary for their badges.
-      void loadDashboard("badge", activeRequest.current.summary);
-    }
-    setCellsSection(nextTab === "cells" ? section : undefined);
-    setTab(nextTab);
-  }, [loadDashboard]);
+  const openTab = useCallback(
+    (nextTab: CentralTab, section?: CellsSection) => {
+      const previousTab = activeTab.current;
+      activeTab.current = nextTab;
+      if (nextTab === "dashboard" && previousTab !== "dashboard") void loadDashboard("initial");
+      if (nextTab !== "dashboard" && previousTab === "dashboard" && activeRequest.current) {
+        // The other tabs still use the summary for their badges.
+        void loadDashboard("badge", activeRequest.current.summary);
+      }
+      setCellsSection(nextTab === "cells" ? section : undefined);
+      setTab(nextTab);
+    },
+    [loadDashboard],
+  );
 
   const refreshDashboard = useCallback(() => {
     void loadDashboard(activeTab.current === "dashboard" ? "changed" : "badge");
@@ -211,7 +233,12 @@ export function CentralCelulaScreen() {
           ) : null}
 
           {tab === "cells" && token ? (
-            <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} focusSection={cellsSection} />
+            <ManageCellsPanel
+              token={token}
+              onToast={flashToast}
+              onChanged={refreshDashboard}
+              focusSection={cellsSection}
+            />
           ) : null}
 
           {tab === "requests" && token ? (

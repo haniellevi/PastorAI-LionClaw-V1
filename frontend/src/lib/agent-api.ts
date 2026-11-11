@@ -190,9 +190,7 @@ export interface AgentConfigRequestItem {
 }
 
 /** Lista as requisições da própria igreja (histórico + status). */
-export async function fetchConfigRequests(
-  token: string,
-): Promise<AgentConfigRequestItem[]> {
+export async function fetchConfigRequests(token: string): Promise<AgentConfigRequestItem[]> {
   const res = await authedFetch(token, "/agent/config/requests");
   if (!res.ok) {
     const detail = await readDetail(res);

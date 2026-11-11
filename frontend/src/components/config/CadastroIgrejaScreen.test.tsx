@@ -4,7 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  useAuth: vi.fn(), capability: vi.fn(), get: vi.fn(), save: vi.fn(), expireSession: vi.fn(),
+  useAuth: vi.fn(),
+  capability: vi.fn(),
+  get: vi.fn(),
+  save: vi.fn(),
+  expireSession: vi.fn(),
 }));
 vi.mock("@/lib/auth-context", () => ({ useAuth: mocks.useAuth }));
 vi.mock("@/lib/church-cadastro-api", () => ({
@@ -22,7 +26,8 @@ const empty = { enderecoInstitucional: null, horariosCulto: null };
 
 function render(token = "sessao-a", churchId = "igreja-a") {
   mocks.useAuth.mockReturnValue({
-    token, user: { appUserId: `user-${churchId}`, churchId, roles: ["admin"] },
+    token,
+    user: { appUserId: `user-${churchId}`, churchId, roles: ["admin"] },
     expireSession: mocks.expireSession,
   });
   act(() => root.render(h(CadastroIgrejaScreen)));
@@ -31,7 +36,10 @@ function render(token = "sessao-a", churchId = "igreja-a") {
 function change(id: string, value: string) {
   const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${id}`);
   if (!input) throw new Error(`Campo ausente: ${id}`);
-  const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const prototype =
+    input instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
@@ -45,7 +53,10 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); });
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
 
 it("backend antigo ou sem suporte esconde campos e não lê nem salva cadastro", async () => {
   mocks.capability.mockResolvedValue(false);
@@ -58,7 +69,8 @@ it("backend antigo ou sem suporte esconde campos e não lê nem salva cadastro",
 
 it("papel sem admin não consulta nem edita o cadastro", async () => {
   mocks.useAuth.mockReturnValue({
-    token: "sessao-a", user: { appUserId: "user-a", churchId: "igreja-a", roles: ["pastor"] },
+    token: "sessao-a",
+    user: { appUserId: "user-a", churchId: "igreja-a", roles: ["pastor"] },
     expireSession: mocks.expireSession,
   });
   await act(async () => root.render(h(CadastroIgrejaScreen)));
@@ -69,17 +81,32 @@ it("papel sem admin não consulta nem edita o cadastro", async () => {
 
 it("admin salva e reabre somente endereço institucional e horários", async () => {
   await act(async () => render());
-  act(() => { change("cadastroEndereco", " Rua Exemplo, 100 "); change("cadastroHorarios", " Domingo, 19h "); });
-  await act(async () => container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click());
-  expect(mocks.save).toHaveBeenCalledWith("sessao-a", {
-    enderecoInstitucional: "Rua Exemplo, 100", horariosCulto: "Domingo, 19h",
-  }, expect.any(AbortSignal));
+  act(() => {
+    change("cadastroEndereco", " Rua Exemplo, 100 ");
+    change("cadastroHorarios", " Domingo, 19h ");
+  });
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click(),
+  );
+  expect(mocks.save).toHaveBeenCalledWith(
+    "sessao-a",
+    {
+      enderecoInstitucional: "Rua Exemplo, 100",
+      horariosCulto: "Domingo, 19h",
+    },
+    expect.any(AbortSignal),
+  );
   expect(container.textContent).toContain("Cadastro salvo.");
   act(() => root.unmount());
   root = createRoot(container);
-  mocks.get.mockResolvedValueOnce({ enderecoInstitucional: "Rua Exemplo, 100", horariosCulto: "Domingo, 19h" });
+  mocks.get.mockResolvedValueOnce({
+    enderecoInstitucional: "Rua Exemplo, 100",
+    horariosCulto: "Domingo, 19h",
+  });
   await act(async () => render());
-  expect(container.querySelector<HTMLInputElement>("#cadastroEndereco")?.value).toBe("Rua Exemplo, 100");
+  expect(container.querySelector<HTMLInputElement>("#cadastroEndereco")?.value).toBe(
+    "Rua Exemplo, 100",
+  );
 });
 
 it("troca de tenant mascara valores antigos e ignora GET tardio sem suporte", async () => {
@@ -95,7 +122,11 @@ it("troca de tenant mascara valores antigos e ignora GET tardio sem suporte", as
 
 it("GET antigo resolvido após troca não expõe dados na nova sessão", async () => {
   let resolveA!: (value: unknown) => void;
-  mocks.get.mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve; }));
+  mocks.get.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveA = resolve;
+    }),
+  );
   await act(async () => render());
   mocks.capability.mockResolvedValueOnce(false);
   await act(async () => render("sessao-a", "igreja-b"));
@@ -106,10 +137,17 @@ it("GET antigo resolvido após troca não expõe dados na nova sessão", async (
 
 it("PUT antigo concluído após troca de sessão não sobrescreve B", async () => {
   let resolveA!: (value: unknown) => void;
-  mocks.save.mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve; }));
+  mocks.save.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveA = resolve;
+    }),
+  );
   await act(async () => render());
   act(() => change("cadastroEndereco", "Endereco A"));
-  await act(async () => { container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click(); await Promise.resolve(); });
+  await act(async () => {
+    container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    await Promise.resolve();
+  });
   mocks.get.mockResolvedValueOnce({ enderecoInstitucional: "Endereco B", horariosCulto: null });
   await act(async () => render("sessao-b", "igreja-b"));
   await act(async () => resolveA({ enderecoInstitucional: "Endereco A", horariosCulto: null }));

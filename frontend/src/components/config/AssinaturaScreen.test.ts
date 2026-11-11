@@ -323,9 +323,7 @@ describe("AssinaturaScreen — links do checkout", () => {
     // atualiza a assinatura existente.
     expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
     expect(
-      [...container.querySelectorAll("button")].some((b) =>
-        b.textContent?.includes("Contratar"),
-      ),
+      [...container.querySelectorAll("button")].some((b) => b.textContent?.includes("Contratar")),
     ).toBe(false);
 
     const mudar = [...container.querySelectorAll("button")].find((button) =>
@@ -386,9 +384,7 @@ describe("AssinaturaScreen — links do checkout", () => {
       button.textContent?.includes("Mudar plano"),
     )!;
     expect(mudar.disabled).toBe(true);
-    expect(container.textContent).toContain(
-      "Regularize as cobranças pendentes",
-    );
+    expect(container.textContent).toContain("Regularize as cobranças pendentes");
     expect(changePlan).not.toHaveBeenCalled();
   });
 
@@ -631,9 +627,7 @@ describe("AssinaturaScreen — links do checkout", () => {
     await flush();
 
     expect(container.textContent).toContain("Conclua as cobranças");
-    expect(container.textContent).toContain(
-      "Os links ainda estão sendo preparados pelo Asaas.",
-    );
+    expect(container.textContent).toContain("Os links ainda estão sendo preparados pelo Asaas.");
     expect(createCheckout).not.toHaveBeenCalled();
   });
 });

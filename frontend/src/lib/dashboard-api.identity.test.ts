@@ -48,10 +48,13 @@ it("mantém 401 como expiração e rejeita sucesso fora do contrato", async () =
   );
 });
 
-it.each([404, 405, 501])("API ausente %i responde com mensagem compatível sem ecoar backend", async (status) => {
-  fetchMock.mockResolvedValue(Response.json({ detail: "trace privado" }, { status }));
-  const error = await confirmAgentIdentity("sessao", "codigo-opaco").catch((reason) => reason);
-  expect(error.status).toBe(status);
-  expect(error.message).toContain("indisponível nesta versão");
-  expect(error.message).not.toContain("trace privado");
-});
+it.each([404, 405, 501])(
+  "API ausente %i responde com mensagem compatível sem ecoar backend",
+  async (status) => {
+    fetchMock.mockResolvedValue(Response.json({ detail: "trace privado" }, { status }));
+    const error = await confirmAgentIdentity("sessao", "codigo-opaco").catch((reason) => reason);
+    expect(error.status).toBe(status);
+    expect(error.message).toContain("indisponível nesta versão");
+    expect(error.message).not.toContain("trace privado");
+  },
+);

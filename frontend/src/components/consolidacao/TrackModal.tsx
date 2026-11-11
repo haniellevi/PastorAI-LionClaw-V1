@@ -139,9 +139,7 @@ export function TrackModal({
             const cls = `stop${isDone ? " done" : ""}${isNow ? " now" : ""}`;
             return (
               <div className={cls} key={step.etapa}>
-                <span className="dot">
-                  {isDone ? <Icon name="check" /> : null}
-                </span>
+                <span className="dot">{isDone ? <Icon name="check" /> : null}</span>
                 <div>
                   <div className="nm">
                     {step.label}
@@ -163,7 +161,9 @@ export function TrackModal({
         </p>
 
         {canAct && next ? (
-          <p className="people-next-label">Confirmar registra {etapaLabel(next)} para {contact.nome}.</p>
+          <p className="people-next-label">
+            Confirmar registra {etapaLabel(next)} para {contact.nome}.
+          </p>
         ) : null}
 
         <div className="modal-foot">

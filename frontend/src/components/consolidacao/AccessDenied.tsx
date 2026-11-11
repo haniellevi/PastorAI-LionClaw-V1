@@ -20,9 +20,8 @@ export function AccessDenied({ title, route }: { title: string; route: string })
           <Icon name="lock" className="access-ic" />
           <h3>Acesso restrito</h3>
           <p>
-            Esta área é exclusiva da liderança de consolidação (Administrador,
-            Pastor ou Líder de Consolidação). Fale com a liderança da sua igreja se
-            precisar de acesso.
+            Esta área é exclusiva da liderança de consolidação (Administrador, Pastor ou Líder de
+            Consolidação). Fale com a liderança da sua igreja se precisar de acesso.
           </p>
         </div>
       </div>

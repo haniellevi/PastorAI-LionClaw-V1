@@ -5,95 +5,245 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { UVScreen } from "./UVScreen";
 
 const state = vi.hoisted(() => ({ request: vi.fn(), roles: ["admin"] }));
-vi.mock("@/lib/auth-context", () => ({ useAuth: () => ({ token: "synthetic", user: { roles: state.roles, churchId: "church", appUserId: "user" } }) }));
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({
+    token: "synthetic",
+    user: { roles: state.roles, churchId: "church", appUserId: "user" },
+  }),
+}));
 vi.mock("@/lib/uv-api", () => ({ uvRequest: (...args: unknown[]) => state.request(...args) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-let container: HTMLDivElement; let root: Root;
+let container: HTMLDivElement;
+let root: Root;
 const turma = { id: "turma", nome: "Turma teste", encerrada: false };
-const detail = { ...turma, atividades: [], responsaveis: [], matriculas: [{ id: "m", pessoa_id: "p", nome: "Pessoa sintética", conexao_celula_pendente: true }] };
-const button = (text: string) => Array.from(container.querySelectorAll("button")).find(b => b.textContent?.includes(text));
-async function render() { await act(async () => { root.render(h(UVScreen)); }); }
+const detail = {
+  ...turma,
+  atividades: [],
+  responsaveis: [],
+  matriculas: [
+    { id: "m", pessoa_id: "p", nome: "Pessoa sintética", conexao_celula_pendente: true },
+  ],
+};
+const button = (text: string) =>
+  Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes(text));
+async function render() {
+  await act(async () => {
+    root.render(h(UVScreen));
+  });
+}
 beforeEach(() => {
-  state.roles = ["admin"]; state.request.mockReset();
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : detail));
-  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+  state.roles = ["admin"];
+  state.request.mockReset();
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : detail,
+    ),
+  );
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); });
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
 
 it("consulta turma e expõe nove datas, pendência e matrícula explícita", async () => {
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.querySelectorAll('fieldset input[type="date"]:not([name])')).toHaveLength(9);
   expect(container.textContent).toContain("Conexão à célula pendente");
   expect(button("Matricular pessoa")?.disabled).toBe(true);
-  expect(state.request.mock.calls.every(call => call[2] === "GET")).toBe(true);
+  expect(state.request.mock.calls.every((call) => call[2] === "GET")).toBe(true);
 });
 
 it("recusa papel sem acesso antes de consultar dados", async () => {
-  state.roles = ["operador"]; await render();
+  state.roles = ["operador"];
+  await render();
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Acesso restrito");
   expect(state.request).not.toHaveBeenCalled();
 });
 
 it("erro recuperável mantém atualização disponível", async () => {
-  state.request.mockRejectedValueOnce(new Error("Acesso revogado")); await render();
+  state.request.mockRejectedValueOnce(new Error("Acesso revogado"));
+  await render();
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Acesso revogado");
   expect(button("Atualizar turmas")?.disabled).toBe(false);
 });
 
 it("turma encerrada mantém consulta e desabilita formulários da UV", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [{ ...turma, encerrada: true }] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
-  expect(Array.from(container.querySelectorAll("fieldset")).filter(f => !f.querySelector("legend")?.textContent?.startsWith("Reencontro:")).every(f => f.disabled)).toBe(true);
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [{ ...turma, encerrada: true }]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : { ...detail, encerrada: true },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
+  expect(
+    Array.from(container.querySelectorAll("fieldset"))
+      .filter((f) => !f.querySelector("legend")?.textContent?.startsWith("Reencontro:"))
+      .every((f) => f.disabled),
+  ).toBe(true);
   expect(button("Matricular pessoa")?.disabled).toBe(true);
   expect(button("Encerrar turma")).toBeUndefined();
 });
 
 it("encerramento exige confirmação e só depois envia mutação", async () => {
-  await render(); await act(async () => { button("Turma teste")!.click(); });
-  await act(async () => { button("Encerrar turma")!.click(); });
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
+  await act(async () => {
+    button("Encerrar turma")!.click();
+  });
   expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-  expect(state.request.mock.calls.some(call => call[2] === "POST")).toBe(false);
-  await act(async () => { button("Confirmar encerramento")!.click(); });
-  expect(state.request).toHaveBeenCalledWith("synthetic", "/turma/encerrar", "POST", undefined, expect.any(AbortSignal));
+  expect(state.request.mock.calls.some((call) => call[2] === "POST")).toBe(false);
+  await act(async () => {
+    button("Confirmar encerramento")!.click();
+  });
+  expect(state.request).toHaveBeenCalledWith(
+    "synthetic",
+    "/turma/encerrar",
+    "POST",
+    undefined,
+    expect.any(AbortSignal),
+  );
 });
 
 it("responsável consulta sem buscar equipe nem oferecer ações de coordenação", async () => {
   state.roles = ["lider_consol"];
   await render();
-  expect(state.request.mock.calls.some(call => String(call[1]).includes("opcoes"))).toBe(false);
-  await act(async () => { button("Turma teste")!.click(); });
+  expect(state.request.mock.calls.some((call) => String(call[1]).includes("opcoes"))).toBe(false);
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Salvar responsáveis")).toBeUndefined();
   expect(button("Encerrar turma")).toBeUndefined();
-  expect(state.request.mock.calls.some(call => String(call[1]).includes("finalidade=usuarios"))).toBe(false);
+  expect(
+    state.request.mock.calls.some((call) => String(call[1]).includes("finalidade=usuarios")),
+  ).toBe(false);
 });
 
 it("mostra chamada só das oito aulas e registra reposição explícita", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-    atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }, { ordem: 5, tipo: "encontro", aula: null, data: "2026-10-15" }],
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [] }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              atividades: [
+                { ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" },
+                { ordem: 5, tipo: "encontro", aula: null, data: "2026-10-15" },
+              ],
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [],
+                  aulas_pendentes: [1, 2, 3, 4, 5, 6, 7, 8],
+                  presencas: [],
+                },
+              ],
+            },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).toContain("Chamada de presença");
   expect(container.textContent).toContain("Pendentes: 1, 2, 3, 4, 5, 6, 7, 8");
-  const lesson = container.querySelector<HTMLSelectElement>('select[aria-label="Aula da chamada"]')!;
-  expect(Array.from(lesson.options).map(o => o.textContent)).not.toContain("Encontro");
-  const modality = container.querySelector<HTMLSelectElement>('select[aria-label="Modalidade da presença"]')!;
-  await act(async () => { const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!; setter.call(modality, "reposicao"); modality.dispatchEvent(new Event("change", { bubbles: true })); });
-  await act(async () => { button("Registrar presença")!.click(); });
-  expect(state.request.mock.calls.some(c => c[1] === "/turma/matriculas/m/presencas/1" && c[2] === "POST" && c[3].modalidade === "reposicao" && c[3].presente === true)).toBe(true);
+  const lesson = container.querySelector<HTMLSelectElement>(
+    'select[aria-label="Aula da chamada"]',
+  )!;
+  expect(Array.from(lesson.options).map((o) => o.textContent)).not.toContain("Encontro");
+  const modality = container.querySelector<HTMLSelectElement>(
+    'select[aria-label="Modalidade da presença"]',
+  )!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+    setter.call(modality, "reposicao");
+    modality.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await act(async () => {
+    button("Registrar presença")!.click();
+  });
+  expect(
+    state.request.mock.calls.some(
+      (c) =>
+        c[1] === "/turma/matriculas/m/presencas/1" &&
+        c[2] === "POST" &&
+        c[3].modalidade === "reposicao" &&
+        c[3].presente === true,
+    ),
+  ).toBe(true);
 });
 
 it("correção exige confirmação e envia a versão anterior; consulta mostra auditoria", async () => {
-  const revision = { registrada_por_nome: "Equipe sintética", aula: 1, registro_id: "previous", presente: false, modalidade: "regular", registrada_por: "equipe", registrada_em: "2026-10-17T12:00:00Z" };
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : String(path).endsWith("/historico") ? [{ ...revision, anterior_id: null }] : { ...detail,
-    atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [revision] }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  const revision = {
+    registrada_por_nome: "Equipe sintética",
+    aula: 1,
+    registro_id: "previous",
+    presente: false,
+    modalidade: "regular",
+    registrada_por: "equipe",
+    registrada_em: "2026-10-17T12:00:00Z",
+  };
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : String(path).endsWith("/historico")
+            ? [{ ...revision, anterior_id: null }]
+            : {
+                ...detail,
+                atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
+                matriculas: [
+                  {
+                    ...detail.matriculas[0],
+                    aulas_cumpridas: [],
+                    aulas_pendentes: [1, 2, 3, 4, 5, 6, 7, 8],
+                    presencas: [revision],
+                  },
+                ],
+              },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Salvar correção")!.disabled).toBe(true);
-  const checkbox = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(c => c.parentElement?.textContent?.includes("Confirmo a correção"))!;
-  await act(async () => { checkbox.click(); });
-  await act(async () => { button("Salvar correção")!.click(); });
-  expect(state.request.mock.calls.some(c => c[2] === "POST" && c[3]?.anterior_id === "previous")).toBe(true);
-  await act(async () => { button("Consultar histórico")!.click(); });
+  const checkbox = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ).find((c) => c.parentElement?.textContent?.includes("Confirmo a correção"))!;
+  await act(async () => {
+    checkbox.click();
+  });
+  await act(async () => {
+    button("Salvar correção")!.click();
+  });
+  expect(
+    state.request.mock.calls.some((c) => c[2] === "POST" && c[3]?.anterior_id === "previous"),
+  ).toBe(true);
+  await act(async () => {
+    button("Consultar histórico")!.click();
+  });
   expect(container.textContent).toContain("Registro inicial: Ausente");
   expect(container.textContent).toContain("Equipe sintética");
 });
@@ -101,34 +251,102 @@ it("correção exige confirmação e envia a versão anterior; consulta mostra a
 it("falha de transporte preserva a chave da chamada na repetição", async () => {
   let failed = false;
   state.request.mockImplementation((_token, path, method) => {
-    if (method === "POST" && !failed) { failed = true; return Promise.reject(new Error("Falha de conexão")); }
-    return Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-      atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
-      matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [], aulas_pendentes: [1,2,3,4,5,6,7,8], presencas: [] }] });
+    if (method === "POST" && !failed) {
+      failed = true;
+      return Promise.reject(new Error("Falha de conexão"));
+    }
+    return Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [],
+                  aulas_pendentes: [1, 2, 3, 4, 5, 6, 7, 8],
+                  presencas: [],
+                },
+              ],
+            },
+    );
   });
-  await render(); await act(async () => { button("Turma teste")!.click(); });
-  await act(async () => { button("Registrar presença")!.click(); });
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
+  await act(async () => {
+    button("Registrar presença")!.click();
+  });
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Falha de conexão");
-  await act(async () => { button("Registrar presença")!.click(); });
-  const posts = state.request.mock.calls.filter(c => c[2] === "POST");
+  await act(async () => {
+    button("Registrar presença")!.click();
+  });
+  const posts = state.request.mock.calls.filter((c) => c[2] === "POST");
   expect(posts).toHaveLength(2);
   expect(posts[0]![3].id).toBe(posts[1]![3].id);
 });
 
 it("inicia a correção com o registro atual e sincroniza ao trocar de aula", async () => {
   const records = [
-    { aula: 1, registro_id: "first", presente: false, modalidade: "reposicao", registrada_por: "equipe", registrada_em: "2026-10-17T12:00:00Z" },
-    { aula: 2, registro_id: "second", presente: true, modalidade: "regular", registrada_por: "equipe", registrada_em: "2026-10-17T13:00:00Z" },
+    {
+      aula: 1,
+      registro_id: "first",
+      presente: false,
+      modalidade: "reposicao",
+      registrada_por: "equipe",
+      registrada_em: "2026-10-17T12:00:00Z",
+    },
+    {
+      aula: 2,
+      registro_id: "second",
+      presente: true,
+      modalidade: "regular",
+      registrada_por: "equipe",
+      registrada_em: "2026-10-17T13:00:00Z",
+    },
   ];
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-    atividades: records.map(r => ({ ordem: r.aula, tipo: "aula", aula: r.aula, data: "2026-10-01" })),
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [2], aulas_pendentes: [1,3,4,5,6,7,8], presencas: records }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
-  const status = () => container.querySelector<HTMLSelectElement>('.uv-student fieldset select:not([aria-label])')!;
-  const modality = () => container.querySelector<HTMLSelectElement>('select[aria-label="Modalidade da presença"]')!;
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              atividades: records.map((r) => ({
+                ordem: r.aula,
+                tipo: "aula",
+                aula: r.aula,
+                data: "2026-10-01",
+              })),
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [2],
+                  aulas_pendentes: [1, 3, 4, 5, 6, 7, 8],
+                  presencas: records,
+                },
+              ],
+            },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
+  const status = () =>
+    container.querySelector<HTMLSelectElement>(".uv-student fieldset select:not([aria-label])")!;
+  const modality = () =>
+    container.querySelector<HTMLSelectElement>('select[aria-label="Modalidade da presença"]')!;
   expect(status().value).toBe("false");
   expect(modality().value).toBe("reposicao");
-  const lesson = container.querySelector<HTMLSelectElement>('select[aria-label="Aula da chamada"]')!;
+  const lesson = container.querySelector<HTMLSelectElement>(
+    'select[aria-label="Aula da chamada"]',
+  )!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(lesson, "2");
     lesson.dispatchEvent(new Event("change", { bubbles: true }));
@@ -141,17 +359,57 @@ it("inicia a correção com o registro atual e sincroniza ao trocar de aula", as
   });
   expect(status().value).toBe("false");
   expect(modality().value).toBe("reposicao");
-  const checkbox = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(c => c.parentElement?.textContent?.includes("Confirmo a correção"))!;
-  await act(async () => { checkbox.click(); });
-  await act(async () => { button("Salvar correção")!.click(); });
-  expect(state.request.mock.calls.find(c => c[2] === "POST")?.[3]).toMatchObject({ presente: false, modalidade: "reposicao", anterior_id: "first" });
+  const checkbox = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ).find((c) => c.parentElement?.textContent?.includes("Confirmo a correção"))!;
+  await act(async () => {
+    checkbox.click();
+  });
+  await act(async () => {
+    button("Salvar correção")!.click();
+  });
+  expect(state.request.mock.calls.find((c) => c[2] === "POST")?.[3]).toMatchObject({
+    presente: false,
+    modalidade: "reposicao",
+    anterior_id: "first",
+  });
 });
 
 it("marcos exigem validação humana e conclusão exige os quatro critérios", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [], presencas: [],
-      marcos: [{ id: "e", tipo: "encontro", data: "2020-01-01", anterior_turma: true, validada_por: "equipe", validada_em: "2026-10-17" }], conclusao: null }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [1, 2, 3, 4, 5, 6, 7, 8],
+                  aulas_pendentes: [],
+                  presencas: [],
+                  marcos: [
+                    {
+                      id: "e",
+                      tipo: "encontro",
+                      data: "2020-01-01",
+                      anterior_turma: true,
+                      validada_por: "equipe",
+                      validada_em: "2026-10-17",
+                    },
+                  ],
+                  conclusao: null,
+                },
+              ],
+            },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).toContain("Marcos e conclusão");
   expect(container.textContent).toContain("Anterior à turma");
   expect(button("Concluir UV")!.disabled).toBe(true);
@@ -159,33 +417,114 @@ it("marcos exigem validação humana e conclusão exige os quatro critérios", a
   const form = button("Validar batismo")!.closest("form")!;
   const date = form.querySelector<HTMLInputElement>('input[type="date"]')!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2020-02-01");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+      date,
+      "2020-02-01",
+    );
     date.dispatchEvent(new Event("input", { bubbles: true }));
     date.dispatchEvent(new Event("change", { bubbles: true }));
     form.querySelector<HTMLInputElement>('input[type="checkbox"][name="confirmado"]')!.click();
   });
-  await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
-  expect(state.request.mock.calls.some(c => c[2] === "POST" && c[1].endsWith("/marcos/batismo") && c[3].confirmado === true)).toBe(true);
+  await act(async () => {
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+  expect(
+    state.request.mock.calls.some(
+      (c) => c[2] === "POST" && c[1].endsWith("/marcos/batismo") && c[3].confirmado === true,
+    ),
+  ).toBe(true);
 });
 
 it("conclusão pede confirmação explícita e mostra o histórico na Pessoa", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [], presencas: [],
-      marcos: ["encontro","batismo"].map(tipo => ({ id: tipo, tipo, data: "2020-01-01", anterior_turma: true, validada_por: "equipe", validada_em: "2026-10-17" })), conclusao: null }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [1, 2, 3, 4, 5, 6, 7, 8],
+                  aulas_pendentes: [],
+                  presencas: [],
+                  marcos: ["encontro", "batismo"].map((tipo) => ({
+                    id: tipo,
+                    tipo,
+                    data: "2020-01-01",
+                    anterior_turma: true,
+                    validada_por: "equipe",
+                    validada_em: "2026-10-17",
+                  })),
+                  conclusao: null,
+                },
+              ],
+            },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Concluir UV")!.disabled).toBe(true);
-  const confirm = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(c => c.parentElement?.textContent?.includes("Confirmo a conclusão"))!;
-  await act(async () => { confirm.click(); });
-  await act(async () => { button("Concluir UV")!.click(); });
-  expect(state.request.mock.calls.some(c => c[2] === "POST" && c[1].endsWith("/concluir") && c[3].confirmado === true)).toBe(true);
+  const confirm = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ).find((c) => c.parentElement?.textContent?.includes("Confirmo a conclusão"))!;
+  await act(async () => {
+    confirm.click();
+  });
+  await act(async () => {
+    button("Concluir UV")!.click();
+  });
+  expect(
+    state.request.mock.calls.some(
+      (c) => c[2] === "POST" && c[1].endsWith("/concluir") && c[3].confirmado === true,
+    ),
+  ).toBe(true);
 });
 
 it("consulta conclusão persistida com autor, transição e origem legada sem pedir batismo de novo", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [], presencas: [],
-      marcos: ["encontro","batismo"].map(tipo => ({ id: tipo, tipo, data: "2020-01-01", anterior_turma: true, validada_por: "equipe", validada_em: "2026-10-17" })),
-      conclusao: { id: "conclusao", confirmada_por: "equipe", confirmada_em: "2026-10-17", etapa_anterior: "enviar", etapa_resultante: "enviar", origem_aptidao: "legado" } }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [1, 2, 3, 4, 5, 6, 7, 8],
+                  aulas_pendentes: [],
+                  presencas: [],
+                  marcos: ["encontro", "batismo"].map((tipo) => ({
+                    id: tipo,
+                    tipo,
+                    data: "2020-01-01",
+                    anterior_turma: true,
+                    validada_por: "equipe",
+                    validada_em: "2026-10-17",
+                  })),
+                  conclusao: {
+                    id: "conclusao",
+                    confirmada_por: "equipe",
+                    confirmada_em: "2026-10-17",
+                    etapa_anterior: "enviar",
+                    etapa_resultante: "enviar",
+                    origem_aptidao: "legado",
+                  },
+                },
+              ],
+            },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).toContain("UV concluída em 2026-10-17 por equipe");
   expect(container.textContent).toContain("enviar → enviar");
   expect(container.textContent).toContain("Aptidão à próxima CD: legado");
@@ -194,34 +533,117 @@ it("consulta conclusão persistida com autor, transição e origem legada sem pe
 });
 
 it("conclusão bloqueia a chamada e marcos reutilizados identificam a turma de origem", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail,
-    atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
-    matriculas: [{ ...detail.matriculas[0], aulas_cumpridas: [1,2,3,4,5,6,7,8], aulas_pendentes: [],
-      presencas: [{ aula: 1, registro_id: "previous", presente: true, modalidade: "regular" }],
-      marcos: [{ id: "b", tipo: "batismo", data: "2020-01-01", anterior_turma: false, turma_id: "outra-turma", turma_nome: "Primeira turma", validada_por: "equipe", validada_em: "2026-10-17" }],
-      conclusao: { id: "c", confirmada_por: "equipe", confirmada_em: "2026-10-17", etapa_anterior: "consolidar", etapa_resultante: "discipular", origem_aptidao: "conclusao_uv" } }] }));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              atividades: [{ ordem: 1, tipo: "aula", aula: 1, data: "2026-10-01" }],
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  aulas_cumpridas: [1, 2, 3, 4, 5, 6, 7, 8],
+                  aulas_pendentes: [],
+                  presencas: [
+                    { aula: 1, registro_id: "previous", presente: true, modalidade: "regular" },
+                  ],
+                  marcos: [
+                    {
+                      id: "b",
+                      tipo: "batismo",
+                      data: "2020-01-01",
+                      anterior_turma: false,
+                      turma_id: "outra-turma",
+                      turma_nome: "Primeira turma",
+                      validada_por: "equipe",
+                      validada_em: "2026-10-17",
+                    },
+                  ],
+                  conclusao: {
+                    id: "c",
+                    confirmada_por: "equipe",
+                    confirmada_em: "2026-10-17",
+                    etapa_anterior: "consolidar",
+                    etapa_resultante: "discipular",
+                    origem_aptidao: "conclusao_uv",
+                  },
+                },
+              ],
+            },
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).toContain("Durante a turma de origem: Primeira turma");
   expect(button("Salvar correção")!.closest("fieldset")!.disabled).toBe(true);
   expect(button("Consultar histórico")!.disabled).toBe(false);
 });
 
-
 it("histórico mostra nome do autor mesmo sem vínculo atual de responsável", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).endsWith("/historico") ? [
-    { registro_id: "r", anterior_id: null, presente: true, modalidade: "regular", registrada_por: "00000000-0000-4000-8000-000000000001", registrada_por_nome: "Autora sintética", registrada_em: "2026-10-17T12:00:00Z" }
-  ] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : detail));
-  await render(); await act(async () => { button("Turma teste")!.click(); });
-  await act(async () => { button("Consultar histórico")!.click(); });
-  const history=container.querySelector(".uv-student ol")!;
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).endsWith("/historico")
+          ? [
+              {
+                registro_id: "r",
+                anterior_id: null,
+                presente: true,
+                modalidade: "regular",
+                registrada_por: "00000000-0000-4000-8000-000000000001",
+                registrada_por_nome: "Autora sintética",
+                registrada_em: "2026-10-17T12:00:00Z",
+              },
+            ]
+          : String(path).startsWith("/opcoes")
+            ? { pessoas: [], usuarios: [] }
+            : detail,
+    ),
+  );
+  await render();
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
+  await act(async () => {
+    button("Consultar histórico")!.click();
+  });
+  const history = container.querySelector(".uv-student ol")!;
   expect(history.textContent).toContain("Autora sintética");
   expect(history.textContent).not.toContain("00000000-0000-4000-8000-000000000001");
 });
 
 it("coordenação registra Reencontro separado da conclusão UV", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, matriculas: [{ id: "m", pessoa_id: "p", nome: "Pessoa sintética", aulas_pendentes: [], marcos: [], conclusao: null }] }));
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              matriculas: [
+                {
+                  id: "m",
+                  pessoa_id: "p",
+                  nome: "Pessoa sintética",
+                  aulas_pendentes: [],
+                  marcos: [],
+                  conclusao: null,
+                },
+              ],
+            },
+    ),
+  );
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).toContain("Reencontro: validação humana");
   expect(button("Validar reencontro")!.disabled).toBe(true);
 });
@@ -229,45 +651,155 @@ it("coordenação registra Reencontro separado da conclusão UV", async () => {
 it("responsável não oferece validação de Reencontro", async () => {
   state.roles = ["lider_consol"];
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Validar reencontro")).toBeUndefined();
 });
 
 it("Reencontro revogado sinaliza bloqueio sem destituição", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: true, revogada_em: "2026-10-18", validada_por: "coordenação" }] }] }));
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  marcos: [
+                    {
+                      id: "r",
+                      tipo: "reencontro",
+                      data: "2020-01-01",
+                      revogada: true,
+                      revogada_em: "2026-10-18",
+                      validada_por: "coordenação",
+                    },
+                  ],
+                },
+              ],
+            },
+    ),
+  );
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).toContain("evidência revogada");
   expect(container.textContent).toContain("liderança preservada");
   expect(button("Revogar Reencontro")).toBeUndefined();
 });
 
 it("Reencontro continua disponível após encerrar a turma UV", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true, matriculas: [{ ...detail.matriculas[0], marcos: [], conclusao: null }] }));
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              encerrada: true,
+              matriculas: [{ ...detail.matriculas[0], marcos: [], conclusao: null }],
+            },
+    ),
+  );
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Validar reencontro")!.closest("fieldset")!.disabled).toBe(false);
   expect(button("Validar batismo")!.closest("fieldset")!.disabled).toBe(true);
 });
 
 it("revogação de Reencontro continua disponível na turma encerrada", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: false, validada_por: "coordenação" }] }] }));
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              encerrada: true,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  marcos: [
+                    {
+                      id: "r",
+                      tipo: "reencontro",
+                      data: "2020-01-01",
+                      revogada: false,
+                      validada_por: "coordenação",
+                    },
+                  ],
+                },
+              ],
+            },
+    ),
+  );
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Revogar Reencontro")!.closest("fieldset")!.disabled).toBe(false);
 });
 
 it("coordenação revalida Reencontro revogado mesmo com turma encerrada", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, encerrada: true, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: true }] }] }));
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              encerrada: true,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  marcos: [{ id: "r", tipo: "reencontro", data: "2020-01-01", revogada: true }],
+                },
+              ],
+            },
+    ),
+  );
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(button("Revalidar reencontro")?.closest("fieldset")?.disabled).toBe(false);
 });
 
 it("evidência ativa substitui a revogada na apresentação", async () => {
-  state.request.mockImplementation((_token, path) => Promise.resolve(path === "" ? [turma] : String(path).startsWith("/opcoes") ? { pessoas: [], usuarios: [] } : { ...detail, matriculas: [{ ...detail.matriculas[0], marcos: [{ id: "old", tipo: "reencontro", data: "2020-01-01", revogada: true }, { id: "new", tipo: "reencontro", data: "2021-01-01", revogada: false }] }] }));
+  state.request.mockImplementation((_token, path) =>
+    Promise.resolve(
+      path === ""
+        ? [turma]
+        : String(path).startsWith("/opcoes")
+          ? { pessoas: [], usuarios: [] }
+          : {
+              ...detail,
+              matriculas: [
+                {
+                  ...detail.matriculas[0],
+                  marcos: [
+                    { id: "old", tipo: "reencontro", data: "2020-01-01", revogada: true },
+                    { id: "new", tipo: "reencontro", data: "2021-01-01", revogada: false },
+                  ],
+                },
+              ],
+            },
+    ),
+  );
   await render();
-  await act(async () => { button("Turma teste")!.click(); });
+  await act(async () => {
+    button("Turma teste")!.click();
+  });
   expect(container.textContent).not.toContain("evidência revogada");
   expect(button("Revogar Reencontro")).toBeDefined();
 });

@@ -72,8 +72,7 @@ export function EditIgrejaModal({
 
   const submit = () => {
     const input: UpdateIgrejaInput = {};
-    const setupFeeValue =
-      setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
+    const setupFeeValue = setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
     if (setupFeeValue !== null && isInvalidSetupFee(setupFeeValue)) {
       setSetupFeeError("Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.");
       return;
@@ -186,38 +185,38 @@ export function EditIgrejaModal({
         </div>
 
         <details className="admin-disclosure">
-        <summary>Exclusão da igreja</summary>
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            marginTop: "var(--s3)",
-            paddingTop: "var(--s3)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "var(--s2)",
-          }}
-        >
-          <span className="sub" style={{ color: "var(--muted)" }}>
-            Excluir apaga a igreja e todos os seus dados.
-          </span>
-          <button
-            type="button"
-            className="btn btn-sm btn-danger"
-            disabled={busy}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Excluir a igreja "${igreja.nome}" e TODOS os seus dados? Esta ação é irreversível.`,
-                )
-              ) {
-                onDelete();
-              }
+          <summary>Exclusão da igreja</summary>
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              marginTop: "var(--s3)",
+              paddingTop: "var(--s3)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "var(--s2)",
             }}
           >
-            Excluir igreja
-          </button>
-        </div>
+            <span className="sub" style={{ color: "var(--muted)" }}>
+              Excluir apaga a igreja e todos os seus dados.
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Excluir a igreja "${igreja.nome}" e TODOS os seus dados? Esta ação é irreversível.`,
+                  )
+                ) {
+                  onDelete();
+                }
+              }}
+            >
+              Excluir igreja
+            </button>
+          </div>
         </details>
       </form>
     </DsDialog>

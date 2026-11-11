@@ -5,15 +5,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  expireSession: vi.fn(), fetchPermissions: vi.fn(), savePermissions: vi.fn(), setMatrix: vi.fn(),
+  expireSession: vi.fn(),
+  fetchPermissions: vi.fn(),
+  savePermissions: vi.fn(),
+  setMatrix: vi.fn(),
 }));
 vi.mock("@/lib/auth-context", () => ({
   useAuth: () => ({ token: "tenant-token-sintetico", expireSession: mocks.expireSession }),
 }));
-vi.mock("@/lib/permissions-context", () => ({ usePermissions: () => ({ setMatrix: mocks.setMatrix }) }));
+vi.mock("@/lib/permissions-context", () => ({
+  usePermissions: () => ({ setMatrix: mocks.setMatrix }),
+}));
 vi.mock("@/lib/roles-api", async () => ({
-  ...await vi.importActual<typeof import("@/lib/roles-api")>("@/lib/roles-api"),
-  fetchPermissions: mocks.fetchPermissions, savePermissions: mocks.savePermissions,
+  ...(await vi.importActual<typeof import("@/lib/roles-api")>("@/lib/roles-api")),
+  fetchPermissions: mocks.fetchPermissions,
+  savePermissions: mocks.savePermissions,
 }));
 
 import { PermissoesScreen } from "./PermissoesScreen";
@@ -28,7 +34,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let container: HTMLDivElement;
 let root: Root;
 let downstream: ((event: PopStateEvent) => void) | undefined;
-const savedState = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ["gestao-sintetica"], testEntry: "permissoes" };
+const savedState = {
+  __NA: true,
+  __PRIVATE_NEXTJS_INTERNALS_TREE: ["gestao-sintetica"],
+  testEntry: "permissoes",
+};
 
 function Surface() {
   const [route] = useHashRoute();
@@ -36,7 +46,9 @@ function Surface() {
 }
 
 function inbox() {
-  const checkbox = container.querySelector<HTMLInputElement>('input[aria-label="Pastor vê Conversas"]');
+  const checkbox = container.querySelector<HTMLInputElement>(
+    'input[aria-label="Pastor vê Conversas"]',
+  );
   if (!checkbox) throw new Error("Acesso Conversas não encontrado");
   return checkbox;
 }
@@ -67,8 +79,14 @@ async function moveHistory(direction: "back" | "forward", expectedHash?: string)
     if (confirmation) {
       // The capture guard stops the popstate event, so await its confirmation
       // and repaired URL rather than a listener that the guard deliberately blocks.
-      await vi.waitFor(() => expect(confirmation.mock.calls.length).toBeGreaterThan(previousCalls), {timeout:1000,interval:10});
-      await vi.waitFor(() => expect(window.location.hash).toBe(expectedHash), {timeout:1000,interval:10});
+      await vi.waitFor(
+        () => expect(confirmation.mock.calls.length).toBeGreaterThan(previousCalls),
+        { timeout: 1000, interval: 10 },
+      );
+      await vi.waitFor(() => expect(window.location.hash).toBe(expectedHash), {
+        timeout: 1000,
+        interval: 10,
+      });
     }
     // jsdom agenda a travessia e seus eventos em tarefas separadas.
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -76,8 +94,9 @@ async function moveHistory(direction: "back" | "forward", expectedHash?: string)
 }
 
 function discardDraft() {
-  const discard = [...container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent === "Descartar")!;
+  const discard = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Descartar",
+  )!;
   act(() => discard.click());
 }
 
@@ -91,7 +110,10 @@ async function dirtyWithPreviousEntry() {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
-  mocks.fetchPermissions.mockResolvedValue({ pastor: ["dashboard", "inbox"], membro: ["dashboard"] });
+  mocks.fetchPermissions.mockResolvedValue({
+    pastor: ["dashboard", "inbox"],
+    membro: ["dashboard"],
+  });
   window.history.replaceState(savedState, "", "/gestao#permissoes");
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -111,8 +133,12 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
   it("ordem real do Window mantém rascunho quando o assinante de hash precede o guard", async () => {
     const add = vi.spyOn(window, "addEventListener");
     await dirtyScreen();
-    const sync = add.mock.calls.find(([type, , capture]) => type === "hashchange" && !capture)?.[1] as EventListener;
-    const guard = add.mock.calls.find(([type, , capture]) => type === "popstate" && capture === true)?.[1] as EventListener;
+    const sync = add.mock.calls.find(
+      ([type, , capture]) => type === "hashchange" && !capture,
+    )?.[1] as EventListener;
+    const guard = add.mock.calls.find(
+      ([type, , capture]) => type === "popstate" && capture === true,
+    )?.[1] as EventListener;
     expect(sync).toBeTypeOf("function");
     expect(guard).toBeTypeOf("function");
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -124,7 +150,9 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
       sync(new HashChangeEvent("hashchange"));
     });
     expect(inbox().checked).toBe(false);
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
     expect(window.location.hash).toBe("#permissoes");
     expect(inbox().checked).toBe(false);
     expect(confirm).toHaveBeenCalledTimes(1);
@@ -134,17 +162,21 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
 
   it("cancelar um fragmento nativo com state null não dispara restore do wrapper Next nem perde o rascunho", async () => {
     const nativeReplace = window.history.replaceState.bind(window.history);
-    const restore = vi.fn(() => queueMicrotask(() => {
-      flushSync(() => root.render(h("div", null, "ACTION_RESTORE")));
-      flushSync(() => root.render(h(Surface)));
-    }));
+    const restore = vi.fn(() =>
+      queueMicrotask(() => {
+        flushSync(() => root.render(h("div", null, "ACTION_RESTORE")));
+        flushSync(() => root.render(h(Surface)));
+      }),
+    );
     // Contrato instalado do App Router 15.5.25: dados internos passam direto;
     // os demais disparam ACTION_RESTORE quando replaceState recebe uma URL.
     vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
       if (data?.__NA || data?._N) return nativeReplace(data, unused, url);
-      const state = { ...data,
+      const state = {
+        ...data,
         __NA: window.history.state?.__NA,
-        __PRIVATE_NEXTJS_INTERNALS_TREE: window.history.state?.__PRIVATE_NEXTJS_INTERNALS_TREE };
+        __PRIVATE_NEXTJS_INTERNALS_TREE: window.history.state?.__PRIVATE_NEXTJS_INTERNALS_TREE,
+      };
       if (url) restore();
       nativeReplace(state, unused, url);
     });
@@ -227,11 +259,14 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
   it("Minha célula tem rótulo legível e salva o identificador de rota existente", async () => {
     mocks.savePermissions.mockImplementation(async (_token, matrix) => matrix);
     await act(async () => root.render(h(Surface)));
-    const access = container.querySelector<HTMLInputElement>('input[aria-label="Pastor vê Minha célula"]');
+    const access = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Pastor vê Minha célula"]',
+    );
     expect(access).not.toBeNull();
     await act(async () => access!.click());
-    const save = [...container.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent === "Salvar permissões")!;
+    const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Salvar permissões",
+    )!;
     await act(async () => save.click());
     expect(mocks.savePermissions).toHaveBeenCalledTimes(1);
     expect(mocks.savePermissions.mock.calls[0]?.[1]?.pastor).toContain("minha-celula");
@@ -281,7 +316,9 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
     await dirtyScreen();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await hashEntry("setup", { testEntry: "setup" });
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe("#permissoes");
     expect(window.history.state).toMatchObject(savedState);
@@ -292,7 +329,9 @@ describe("PermissoesScreen: confirmação antes do roteador de histórico", () =
   it("descartar remove a proteção e permite a travessia sem confirmação", async () => {
     await dirtyWithPreviousEntry();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const discard = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Descartar")!;
+    const discard = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Descartar",
+    )!;
     await act(async () => discard.click());
     await traverse();
     expect(confirm).not.toHaveBeenCalled();

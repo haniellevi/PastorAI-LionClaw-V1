@@ -23,7 +23,31 @@ const profile = {
 
 let performanceMode = false;
 let queueSize = 1;
-const permissionEnvelope = {matriz:{pastor:["dashboard","inbox","ganhar","consolidar","consol-individual","universidade-vida","capacitacao","g12","central-celula","enviar","calendario","celulas","relatorios"],lider_g12:[],lider_consol:[],lider_celula:[],lider_mult:[],operador:[],membro:[]}};
+const permissionEnvelope = {
+  matriz: {
+    pastor: [
+      "dashboard",
+      "inbox",
+      "ganhar",
+      "consolidar",
+      "consol-individual",
+      "universidade-vida",
+      "capacitacao",
+      "g12",
+      "central-celula",
+      "enviar",
+      "calendario",
+      "celulas",
+      "relatorios",
+    ],
+    lider_g12: [],
+    lider_consol: [],
+    lider_celula: [],
+    lider_mult: [],
+    operador: [],
+    membro: [],
+  },
+};
 let requests = [];
 let nextRequestId = 1;
 let selectedModel = "gpt-5.6-luna";
@@ -40,21 +64,42 @@ function resetUxInbox() {
   if (!uxFixture) return;
   whatsapp = { numero: "00000000000", status: "online", ultimaSync: null };
   uxConversations = Array.from({ length: 103 }, (_, index) => ({
-    id: `ux-conversation-${index}`, telefone: `550000000${String(index).padStart(3, "0")}`,
-    pessoaId: null, nome: index < 3 ? ["Contato A", "Contato B", "Contato C"][index] : `Contato sintético ${index + 1}`,
+    id: `ux-conversation-${index}`,
+    telefone: `550000000${String(index).padStart(3, "0")}`,
+    pessoaId: null,
+    nome:
+      index < 3 ? ["Contato A", "Contato B", "Contato C"][index] : `Contato sintético ${index + 1}`,
     estado: index === 0 ? "aguardando" : index === 1 ? "humano" : "ia",
-    ultimaMensagem: index === 1 ? "Mensagem sintética do atendimento B." : "Olá, gostaria de conhecer a igreja.",
+    ultimaMensagem:
+      index === 1 ? "Mensagem sintética do atendimento B." : "Olá, gostaria de conhecer a igreja.",
     naoLidas: index === 0 ? 1 : 0,
     assumidoPor: index === 1 ? profile.appUserId : null,
     assumidoPorNome: index === 1 ? "Admin E2E" : null,
-    assumidoEm: null, esperaDesde: index === 0 ? "2026-09-30T16:00:00Z" : null,
-    atualizadoEm: "2026-09-30T16:05:00Z", tipo: "contato", semInteresse: false,
+    assumidoEm: null,
+    esperaDesde: index === 0 ? "2026-09-30T16:00:00Z" : null,
+    atualizadoEm: "2026-09-30T16:05:00Z",
+    tipo: "contato",
+    semInteresse: false,
   }));
-  uxMessages = new Map(uxConversations.map((c) => [c.id, [{
-    id: `${c.id}-message`, direcao: "in", autor: "contato", autorNome: null,
-    tipo: "texto", texto: c.ultimaMensagem, mediaUrl: null, mediaMime: null, mediaNome: null,
-    criadoEm: "2026-09-30T16:05:00Z",
-  }]]));
+  uxMessages = new Map(
+    uxConversations.map((c) => [
+      c.id,
+      [
+        {
+          id: `${c.id}-message`,
+          direcao: "in",
+          autor: "contato",
+          autorNome: null,
+          tipo: "texto",
+          texto: c.ultimaMensagem,
+          mediaUrl: null,
+          mediaMime: null,
+          mediaNome: null,
+          criadoEm: "2026-09-30T16:05:00Z",
+        },
+      ],
+    ]),
+  );
 }
 resetUxInbox();
 
@@ -76,7 +121,8 @@ function delayFor(pathname) {
   if (pathname === "/auth/login") return 280;
   if (pathname === "/auth/me" || pathname === "/auth/bootstrap") return 320;
   if (
-    pathname === "/work-queue" || pathname === "/work-queue/snapshot" ||
+    pathname === "/work-queue" ||
+    pathname === "/work-queue/snapshot" ||
     pathname === "/team/lookup" ||
     pathname === "/cells" ||
     pathname === "/dashboard/overview"
@@ -171,7 +217,7 @@ const server = createServer(async (request, response) => {
     const options = await readBody(request);
     resetState();
     performanceMode = options?.performance === true;
-    queueSize = Math.min(2000,Math.max(1,Number(options?.queueSize ?? 1)));
+    queueSize = Math.min(2000, Math.max(1, Number(options?.queueSize ?? 1)));
     sendJson(response, 200, { status: "reset" });
     return;
   }
@@ -210,7 +256,11 @@ const server = createServer(async (request, response) => {
 
     if (method === "POST" && pathname === "/auth/login") {
       record.status = 200;
-      sendJson(response, 200, { token, ...profile, ...(performanceMode ? {permissions:permissionEnvelope} : {}) });
+      sendJson(response, 200, {
+        token,
+        ...profile,
+        ...(performanceMode ? { permissions: permissionEnvelope } : {}),
+      });
       return;
     }
     if (method === "POST" && pathname === "/agent/identity-confirmations") {
@@ -225,20 +275,53 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (performanceMode && method === "GET" && pathname === "/auth/bootstrap") {
-      record.status = 200; sendJson(response,200,{user:profile,permissions:permissionEnvelope}); return;
+      record.status = 200;
+      sendJson(response, 200, { user: profile, permissions: permissionEnvelope });
+      return;
     }
     if (performanceMode && method === "GET" && pathname === "/work-queue/snapshot") {
       const revision = "0123456789abcdef0123456789abcdef";
-      if (url.searchParams.has("revision") && url.searchParams.get("revision") !== revision) { record.status=409; sendJson(response,409,{detail:"A fila mudou."}); return; }
-      const selectedPage = Math.max(1,Number(url.searchParams.get("page") ?? 1));
-      const size = Math.min(200,Math.max(1,Number(url.searchParams.get("pageSize") ?? 25)));
-      const rows = Array.from({length:queueSize},(_,index)=>({id:`00000000-0000-4000-8000-${String(index+10).padStart(12,"0")}`,tipo:"visitante",titulo:index === 0 ? "Acompanhar visitante E2E" : `Ação sintética ${index+1}`,contexto:"Fila sintética local",status:"pendente",pessoaId:null,responsavelId:null,prioridade:1,canMessage:false,prazo:"2099-01-01T12:00:00-03:00"}));
-      record.status=200; sendJson(response,200,{items:rows.slice((selectedPage-1)*size,selectedPage*size),total:rows.length,page:selectedPage,pageSize:size,revision}); return;
+      if (url.searchParams.has("revision") && url.searchParams.get("revision") !== revision) {
+        record.status = 409;
+        sendJson(response, 409, { detail: "A fila mudou." });
+        return;
+      }
+      const selectedPage = Math.max(1, Number(url.searchParams.get("page") ?? 1));
+      const size = Math.min(200, Math.max(1, Number(url.searchParams.get("pageSize") ?? 25)));
+      const rows = Array.from({ length: queueSize }, (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+        tipo: "visitante",
+        titulo: index === 0 ? "Acompanhar visitante E2E" : `Ação sintética ${index + 1}`,
+        contexto: "Fila sintética local",
+        status: "pendente",
+        pessoaId: null,
+        responsavelId: null,
+        prioridade: 1,
+        canMessage: false,
+        prazo: "2099-01-01T12:00:00-03:00",
+      }));
+      record.status = 200;
+      sendJson(response, 200, {
+        items: rows.slice((selectedPage - 1) * size, selectedPage * size),
+        total: rows.length,
+        page: selectedPage,
+        pageSize: size,
+        revision,
+      });
+      return;
     }
     // Known additive reads are absent on the simulated older API. Unknown
     // routes still fail with 501 so accidental traffic cannot pass silently.
-    if (method === "GET" && (/^\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary)$/.test(pathname) || /^\/conversations\/[^/]+\/messages\/media-urls$/.test(pathname))) {
-      record.status = 404; sendJson(response, 404, {detail:"Contrato adicional ausente nesta API sintética."}); return;
+    if (
+      method === "GET" &&
+      (/^\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary)$/.test(
+        pathname,
+      ) ||
+        /^\/conversations\/[^/]+\/messages\/media-urls$/.test(pathname))
+    ) {
+      record.status = 404;
+      sendJson(response, 404, { detail: "Contrato adicional ausente nesta API sintética." });
+      return;
     }
     // Hoje composes these counters for the synthetic admin/pastor session.
     if (method === "GET" && pathname === "/cell-central/dashboard") {
@@ -282,10 +365,19 @@ const server = createServer(async (request, response) => {
     // Shared scenarios have no proven visits. Dedicated visit fixtures can
     // supply evidence; these reads never simulate a domain write.
     if (method === "GET" && /^\/contacts\/[^/]+\/visit-cell-suggestion$/.test(pathname)) {
-      record.status = 200; sendJson(response, 200, null); return;
+      record.status = 200;
+      sendJson(response, 200, null);
+      return;
     }
     if (method === "GET" && pathname === "/cell-central/visit-cell-suggestions") {
-      record.status = 200; sendJson(response, 200, {items: [], page: Number(url.searchParams.get("page") ?? 1), page_size: 20, total: 0}); return;
+      record.status = 200;
+      sendJson(response, 200, {
+        items: [],
+        page: Number(url.searchParams.get("page") ?? 1),
+        page_size: 20,
+        total: 0,
+      });
+      return;
     }
     // New prayer capability stays off in the shared synthetic scenarios.
     // Keep unknown routes at 501 and all browser safety assertions intact.
@@ -345,7 +437,9 @@ const server = createServer(async (request, response) => {
             responsavelId: null,
             prioridade: 1,
             canMessage: uxFixture,
-            prazo: uxFixture ? new Date(Date.now() + 2 * 86_400_000).toISOString() : "2099-01-01T12:00:00-03:00",
+            prazo: uxFixture
+              ? new Date(Date.now() + 2 * 86_400_000).toISOString()
+              : "2099-01-01T12:00:00-03:00",
           },
         ]),
       );
@@ -353,12 +447,36 @@ const server = createServer(async (request, response) => {
     }
     if (method === "GET" && pathname === "/team/lookup") {
       record.status = 200;
-      sendJson(response, 200, page([{ ...profile, usuarioId: profile.appUserId, status: "ativo", papeis: profile.roles, pessoaId: null, tiposFila: ["visitante"] }]));
+      sendJson(
+        response,
+        200,
+        page([
+          {
+            ...profile,
+            usuarioId: profile.appUserId,
+            status: "ativo",
+            papeis: profile.roles,
+            pessoaId: null,
+            tiposFila: ["visitante"],
+          },
+        ]),
+      );
       return;
     }
     if (method === "GET" && pathname === "/cells") {
       record.status = 200;
-      sendJson(response, 200, page([{ id: "00000000-0000-4000-8000-000000000020", nome: "Célula E2E", liderId: profile.appUserId, ativo: true }]));
+      sendJson(
+        response,
+        200,
+        page([
+          {
+            id: "00000000-0000-4000-8000-000000000020",
+            nome: "Célula E2E",
+            liderId: profile.appUserId,
+            ativo: true,
+          },
+        ]),
+      );
       return;
     }
     if (method === "GET" && pathname === "/setup/checklist") {
@@ -403,10 +521,18 @@ const server = createServer(async (request, response) => {
       record.status = 200;
       const number = Math.max(1, Number(url.searchParams.get("page")) || 1);
       const size = Math.min(100, Math.max(1, Number(url.searchParams.get("pageSize")) || 100));
-      sendJson(response, 200, uxFixture ? {
-        items: uxConversations.slice((number - 1) * size, number * size),
-        page: number, pageSize: size, total: uxConversations.length,
-      } : page([]));
+      sendJson(
+        response,
+        200,
+        uxFixture
+          ? {
+              items: uxConversations.slice((number - 1) * size, number * size),
+              page: number,
+              pageSize: size,
+              total: uxConversations.length,
+            }
+          : page([]),
+      );
       return;
     }
     if (uxFixture && method === "GET" && pathname === "/conversations/agent-status") {
@@ -416,13 +542,24 @@ const server = createServer(async (request, response) => {
     }
     if (uxFixture && method === "GET" && pathname === "/team/inbox-lookup") {
       record.status = 200;
-      sendJson(response, 200, page([{ usuarioId: "ux-responsible", nome: "Responsável de exemplo", papeis: ["operador"] }]));
+      sendJson(
+        response,
+        200,
+        page([
+          { usuarioId: "ux-responsible", nome: "Responsável de exemplo", papeis: ["operador"] },
+        ]),
+      );
       return;
     }
-    const uxMatch = uxFixture && pathname.match(/^\/conversations\/([^/]+)\/(messages|handoff|read|photo)$/);
+    const uxMatch =
+      uxFixture && pathname.match(/^\/conversations\/([^/]+)\/(messages|handoff|read|photo)$/);
     if (uxMatch) {
       const conversation = uxConversations.find((c) => c.id === uxMatch[1]);
-      if (!conversation) { record.status = 404; sendJson(response, 404, { detail: "Conversa sintética ausente." }); return; }
+      if (!conversation) {
+        record.status = 404;
+        sendJson(response, 404, { detail: "Conversa sintética ausente." });
+        return;
+      }
       record.status = 200;
       const action = uxMatch[2];
       if (action === "handoff" && method === "POST") {
@@ -435,9 +572,16 @@ const server = createServer(async (request, response) => {
         sendJson(response, 200, page(uxMessages.get(conversation.id)));
       } else if (action === "messages" && method === "POST") {
         uxMessages.get(conversation.id).push({
-          id: `ux-message-${nextRequestId}`, direcao: "out", autor: "humano", autorNome: profile.chatNome,
-          tipo: "texto", texto: body.texto, criadoEm: "2026-09-30T17:00:00Z",
-          mediaUrl: null, mediaMime: null, mediaNome: null,
+          id: `ux-message-${nextRequestId}`,
+          direcao: "out",
+          autor: "humano",
+          autorNome: profile.chatNome,
+          tipo: "texto",
+          texto: body.texto,
+          criadoEm: "2026-09-30T17:00:00Z",
+          mediaUrl: null,
+          mediaMime: null,
+          mediaNome: null,
         });
         sendJson(response, 200, { status: "synthetic-only" });
       } else if (action === "photo" && method === "GET") {
@@ -514,7 +658,12 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (method === "PUT" && pathname === "/agent/public-profile") {
-      if (!body || typeof body !== "object" || !Array.isArray(body.celulas) || body.celulas.length > 5) {
+      if (
+        !body ||
+        typeof body !== "object" ||
+        !Array.isArray(body.celulas) ||
+        body.celulas.length > 5
+      ) {
         record.status = 422;
         sendJson(response, 422, { detail: "Perfil público E2E inválido." });
         return;

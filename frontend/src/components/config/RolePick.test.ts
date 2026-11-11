@@ -109,7 +109,9 @@ describe("RolePick — seleção múltipla de papéis (#equipe)", () => {
 
   it("legenda 'liderança'/'membro' reflete ROLE_DEFS[role].lead", () => {
     render(h(RolePick, { options, selected: new Set<Role>(), onToggle: vi.fn() }));
-    const rks = Array.from(container.querySelectorAll(".role-pick label .rk")).map((el) => el.textContent);
+    const rks = Array.from(container.querySelectorAll(".role-pick label .rk")).map(
+      (el) => el.textContent,
+    );
     expect(rks).toEqual(options.map((r) => (ROLE_DEFS[r].lead ? "liderança" : "membro")));
   });
 });
@@ -120,7 +122,9 @@ describe("RoleTags — papéis acumulados (agora via RoleBadgeList, #equipe)", (
     render(h(RoleTags, { roles }));
     const chips = Array.from(container.querySelectorAll(".role-chip"));
     expect(chips).toHaveLength(roles.length);
-    expect(chips.map((c) => c.textContent)).toEqual(sortedRoles(roles).map((r) => ROLE_DEFS[r].label));
+    expect(chips.map((c) => c.textContent)).toEqual(
+      sortedRoles(roles).map((r) => ROLE_DEFS[r].label),
+    );
   });
 
   it("não perde nem duplica papel algum para o conjunto completo de ROLE_ORDER", () => {
@@ -134,7 +138,9 @@ describe("RoleTags — papéis acumulados (agora via RoleBadgeList, #equipe)", (
     const roles: Role[] = ["lider_mult", "membro"];
     render(h(RoleTags, { roles }));
     const chips = Array.from(container.querySelectorAll(".role-chip"));
-    const byLabel = Object.fromEntries(chips.map((c) => [c.textContent, c.classList.contains("lead")]));
+    const byLabel = Object.fromEntries(
+      chips.map((c) => [c.textContent, c.classList.contains("lead")]),
+    );
     expect(byLabel[ROLE_DEFS.lider_mult.label]).toBe(true);
     expect(byLabel[ROLE_DEFS.membro.label]).toBe(false);
   });

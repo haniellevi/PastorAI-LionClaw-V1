@@ -93,8 +93,7 @@ export const CONSENT_GOVERNANCE_PURPOSES = [
   "comunicados",
 ] as const;
 
-export type ConsentGovernancePurpose =
-  (typeof CONSENT_GOVERNANCE_PURPOSES)[number];
+export type ConsentGovernancePurpose = (typeof CONSENT_GOVERNANCE_PURPOSES)[number];
 
 /**
  * Fatos e propostas operacionais que o Master pode preparar.
@@ -177,10 +176,7 @@ async function asJson<T>(res: Response): Promise<T> {
  * suspensa. Qualquer falha (credencial inválida OU conta sem acesso) volta como
  * AdminAuthError("forbidden") — o backend não distingue os casos.
  */
-export async function adminLogin(
-  email: string,
-  password: string,
-): Promise<{ token: string }> {
+export async function adminLogin(email: string, password: string): Promise<{ token: string }> {
   let res: Response;
   try {
     res = await adminAuthFetch(`${API_BASE}/admin/login`, {
@@ -232,10 +228,7 @@ export async function fetchAdminMe(token: string): Promise<AdminMe> {
     } catch {
       /* mantém o fallback seguro */
     }
-    throw new AdminAuthError(
-      "forbidden",
-      message,
-    );
+    throw new AdminAuthError("forbidden", message);
   }
   if (!res.ok) throw new AdminAuthError("network", "Não foi possível validar a sessão.");
   let data: unknown;
@@ -304,9 +297,7 @@ export const MIN_SETUP_FEE_BRL = 5;
 
 /** True quando o valor viola a regra "R$ 0,00 ou pelo menos R$ 5,00". */
 export function isInvalidSetupFee(value: number): boolean {
-  return (
-    !Number.isFinite(value) || value < 0 || (value > 0 && value < MIN_SETUP_FEE_BRL)
-  );
+  return !Number.isFinite(value) || value < 0 || (value > 0 && value < MIN_SETUP_FEE_BRL);
 }
 
 export interface AdminIgrejaAdmin {
@@ -400,7 +391,9 @@ export async function updateIgreja(
 export async function fetchBillingSettings(token: string): Promise<AdminBillingSettings> {
   let res: Response;
   try {
-    res = await fetchWithDeadline(`${API_BASE}/admin/billing/settings`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/billing/settings`, {
+      headers: authHeaders(token),
+    });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -444,13 +437,12 @@ export async function fetchMetrics(token: string): Promise<AdminMetrics> {
 }
 
 /** Drill-down de uma igreja (assinatura, custo de IA, contadores). */
-export async function fetchIgrejaDetail(
-  token: string,
-  id: string,
-): Promise<AdminIgrejaDetail> {
+export async function fetchIgrejaDetail(token: string, id: string): Promise<AdminIgrejaDetail> {
   let res: Response;
   try {
-    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}`, {
+      headers: authHeaders(token),
+    });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -501,10 +493,10 @@ export async function initializeIgrejaConsentGovernance(
 ): Promise<AdminConsentGovernanceState> {
   let res: Response;
   try {
-    res = await adminAuthFetch(
-      `${API_BASE}/admin/igrejas/${id}/consent-governance/initialize`,
-      { method: "POST", headers: authHeaders(token) },
-    );
+    res = await adminAuthFetch(`${API_BASE}/admin/igrejas/${id}/consent-governance/initialize`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -620,10 +612,7 @@ export async function listPlanos(token: string): Promise<AdminPlano[]> {
 }
 
 /** Cria um plano no catálogo (409 se o código já existir). */
-export async function createPlano(
-  token: string,
-  input: CreatePlanoInput,
-): Promise<AdminPlano> {
+export async function createPlano(token: string, input: CreatePlanoInput): Promise<AdminPlano> {
   let res: Response;
   try {
     res = await fetchWithDeadline(`${API_BASE}/admin/planos`, {
@@ -687,10 +676,7 @@ export interface AdminAuditEntry {
 }
 
 /** Lista as ações recentes do console (mais novas primeiro). */
-export async function fetchAudit(
-  token: string,
-  limit = 100,
-): Promise<AdminAuditEntry[]> {
+export async function fetchAudit(token: string, limit = 100): Promise<AdminAuditEntry[]> {
   let res: Response;
   try {
     res = await fetchWithDeadline(`${API_BASE}/admin/audit?limit=${limit}`, {
@@ -706,10 +692,7 @@ export async function fetchAudit(
 }
 
 /** Lista os administradores (owners) de uma igreja. */
-export async function fetchIgrejaAdmins(
-  token: string,
-  id: string,
-): Promise<AdminIgrejaAdmin[]> {
+export async function fetchIgrejaAdmins(token: string, id: string): Promise<AdminIgrejaAdmin[]> {
   let res: Response;
   try {
     res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/admins`, {
@@ -786,11 +769,7 @@ export async function resendAdminInvite(
 }
 
 /** Remove o papel de admin de um usuário (trava no último admin). */
-export async function removeIgrejaAdmin(
-  token: string,
-  id: string,
-  userId: string,
-): Promise<void> {
+export async function removeIgrejaAdmin(token: string, id: string, userId: string): Promise<void> {
   let res: Response;
   try {
     res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/admins/${userId}`, {
@@ -816,10 +795,7 @@ export interface AdminAgente {
 }
 
 /** Lê a config do agente de uma igreja (para o master editar). */
-export async function fetchIgrejaAgente(
-  token: string,
-  id: string,
-): Promise<AdminAgente> {
+export async function fetchIgrejaAgente(token: string, id: string): Promise<AdminAgente> {
   let res: Response;
   try {
     res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/agente`, {
@@ -849,7 +825,9 @@ export interface AdminOrquestrador {
 export async function fetchOrquestrador(token: string): Promise<AdminOrquestrador> {
   let res: Response;
   try {
-    res = await fetchWithDeadline(`${API_BASE}/admin/orquestrador`, { headers: authHeaders(token) });
+    res = await fetchWithDeadline(`${API_BASE}/admin/orquestrador`, {
+      headers: authHeaders(token),
+    });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
@@ -906,10 +884,7 @@ export async function saveIgrejaAgente(
 }
 
 /** Restaura a config do agente da igreja para o template do orquestrador. */
-export async function resetIgrejaAgente(
-  token: string,
-  id: string,
-): Promise<AdminAgente> {
+export async function resetIgrejaAgente(token: string, id: string): Promise<AdminAgente> {
   let res: Response;
   try {
     res = await fetchWithDeadline(`${API_BASE}/admin/igrejas/${id}/agente/reset`, {

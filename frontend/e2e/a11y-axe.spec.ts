@@ -34,65 +34,78 @@ test("telas principais atendem WCAG 2.1 A e AA", async ({ page, request }, testI
 
   expect((await request.post(`${API_URL}/__e2e/ux-inbox`)).ok()).toBeTruthy();
 
-  await page.route((url) => url.origin === API_URL && url.pathname === "/contacts", async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ status: 204, headers: cors });
-      return;
-    }
-    await json(route, {
-      items: [{
-        id: "a11y-person-1",
-        nome: "Pessoa Laboratório",
-        telefone: "550000000001",
-        email: null,
-        genero: null,
-        tipo: "membro",
-        etapa: "consolidar",
-        subetapa: null,
-        acompanhamento: null,
-        semInteresse: false,
-        semInteresseMotivo: null,
-        presencasCelula: 0,
-        aceitouJesus: false,
-        celulaId: null,
-        liderId: null,
-        aptoLider: false,
-        liderDeCelula: false,
-        arquivada: false,
-      }],
-      page: 1,
-      pageSize: 50,
-      total: 1,
-    });
-  });
+  await page.route(
+    (url) => url.origin === API_URL && url.pathname === "/contacts",
+    async (route) => {
+      if (route.request().method() === "OPTIONS") {
+        await route.fulfill({ status: 204, headers: cors });
+        return;
+      }
+      await json(route, {
+        items: [
+          {
+            id: "a11y-person-1",
+            nome: "Pessoa Laboratório",
+            telefone: "550000000001",
+            email: null,
+            genero: null,
+            tipo: "membro",
+            etapa: "consolidar",
+            subetapa: null,
+            acompanhamento: null,
+            semInteresse: false,
+            semInteresseMotivo: null,
+            presencasCelula: 0,
+            aceitouJesus: false,
+            celulaId: null,
+            liderId: null,
+            aptoLider: false,
+            liderDeCelula: false,
+            arquivada: false,
+          },
+        ],
+        page: 1,
+        pageSize: 50,
+        total: 1,
+      });
+    },
+  );
 
-  await page.route((url) => url.origin === API_URL && url.pathname === "/team", async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ status: 204, headers: cors });
-      return;
-    }
-    await json(route, {
-      items: [{
-        usuarioId: "00000000-0000-4000-8000-000000000001",
-        pessoaId: null,
-        nome: "Admin E2E",
-        email: "admin.e2e@example.test",
-        status: "ativo",
-        papeis: ["admin", "pastor"],
-      }],
-      total: 1,
-      page: 1,
-      pageSize: 50,
-    });
-  });
+  await page.route(
+    (url) => url.origin === API_URL && url.pathname === "/team",
+    async (route) => {
+      if (route.request().method() === "OPTIONS") {
+        await route.fulfill({ status: 204, headers: cors });
+        return;
+      }
+      await json(route, {
+        items: [
+          {
+            usuarioId: "00000000-0000-4000-8000-000000000001",
+            pessoaId: null,
+            nome: "Admin E2E",
+            email: "admin.e2e@example.test",
+            status: "ativo",
+            papeis: ["admin", "pastor"],
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+      });
+    },
+  );
 
-  await page.route((url) => url.origin === API_URL && url.pathname.startsWith("/conhecimento/"), async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ status: 204, headers: cors });
-      return;
-    }
-    await json(route, { pode_criar: true, responsavel_id: "a11y-user", documentos: [] });
-  });
+  await page.route(
+    (url) => url.origin === API_URL && url.pathname.startsWith("/conhecimento/"),
+    async (route) => {
+      if (route.request().method() === "OPTIONS") {
+        await route.fulfill({ status: 204, headers: cors });
+        return;
+      }
+      await json(route, { pode_criar: true, responsavel_id: "a11y-user", documentos: [] });
+    },
+  );
 
   await loginThroughUi(page);
 
@@ -101,7 +114,8 @@ test("telas principais atendem WCAG 2.1 A e AA", async ({ page, request }, testI
       id: "hoje",
       path: "/#dashboard",
       heading: page.locator(".dashboard .dh-title"),
-      ready: () => expect(page.getByText("Acompanhar visitante E2E", { exact: true })).toBeVisible(),
+      ready: () =>
+        expect(page.getByText("Acompanhar visitante E2E", { exact: true })).toBeVisible(),
     },
     {
       id: "atendimento",
@@ -114,15 +128,21 @@ test("telas principais atendem WCAG 2.1 A e AA", async ({ page, request }, testI
       path: "/gestao/#contatos",
       heading: page.locator(".people-screen .screen-head h2"),
       ready: async () => {
-        await expect(page.locator(".people-list-region[aria-busy]")).toHaveAttribute("aria-busy", "false");
-        await expect(page.getByRole("main").getByText("Pessoa Laboratório", { exact: true })).toBeVisible();
+        await expect(page.locator(".people-list-region[aria-busy]")).toHaveAttribute(
+          "aria-busy",
+          "false",
+        );
+        await expect(
+          page.getByRole("main").getByText("Pessoa Laboratório", { exact: true }),
+        ).toBeVisible();
       },
     },
     {
       id: "equipe",
       path: "/gestao/#equipe",
       heading: page.getByRole("heading", { name: "Pessoas com acesso", exact: true }),
-      ready: () => expect(page.getByRole("main").getByText("Admin E2E", { exact: true })).toBeVisible(),
+      ready: () =>
+        expect(page.getByRole("main").getByText("Admin E2E", { exact: true })).toBeVisible(),
     },
     {
       id: "agenda",
@@ -136,7 +156,9 @@ test("telas principais atendem WCAG 2.1 A e AA", async ({ page, request }, testI
       heading: page.locator(".conhecimento-screen .screen-head h2"),
       ready: async () => {
         await expect(page.locator(".conhecimento-screen")).toHaveAttribute("aria-busy", "false");
-        await expect(page.getByText("Nenhum documento disponível para seu acesso.", { exact: true })).toBeVisible();
+        await expect(
+          page.getByText("Nenhum documento disponível para seu acesso.", { exact: true }),
+        ).toBeVisible();
       },
     },
   ];

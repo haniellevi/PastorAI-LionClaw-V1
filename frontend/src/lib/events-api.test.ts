@@ -85,10 +85,7 @@ describe("fetchEvents", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await fetchUpcomingEvents(
-      "tok-dashboard",
-      new Date(2026, 7, 11, 9, 0, 0),
-    );
+    const result = await fetchUpcomingEvents("tok-dashboard", new Date(2026, 7, 11, 9, 0, 0));
 
     expect(result.items.map((item) => item.id)).toEqual(["e-futuro"]);
     expect(result.total).toBe(31);

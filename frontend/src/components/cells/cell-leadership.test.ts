@@ -28,11 +28,7 @@ function contact(id: string, overrides: Partial<Contact> = {}): Contact {
   };
 }
 
-function member(
-  pessoaId: string,
-  status: string | null,
-  suffix = "",
-): TeamMember {
+function member(pessoaId: string, status: string | null, suffix = ""): TeamMember {
   return {
     usuarioId: `u-${pessoaId}${suffix}`,
     pessoaId,
@@ -63,12 +59,7 @@ describe("buildCellLeaderOptions", () => {
 
   it("mantém convidado, revogado, sem acesso e acesso duplicado visíveis com motivo", () => {
     const options = buildCellLeaderOptions(
-      [
-        contact("convidado"),
-        contact("revogado"),
-        contact("sem-acesso"),
-        contact("duplicado"),
-      ],
+      [contact("convidado"), contact("revogado"), contact("sem-acesso"), contact("duplicado")],
       [
         member("convidado", "convidado"),
         member("revogado", "revogado"),
@@ -90,11 +81,7 @@ describe("buildCellLeaderOptions", () => {
       aptoLider: false,
       liderDeCelula: true,
     });
-    const [option] = buildCellLeaderOptions(
-      [current],
-      [member("atual", "revogado")],
-      "atual",
-    );
+    const [option] = buildCellLeaderOptions([current], [member("atual", "revogado")], "atual");
 
     expect(option).toMatchObject({
       id: "atual",
@@ -115,11 +102,7 @@ describe("buildCellLeaderOptions", () => {
       liderDeCelula: true,
       semInteresse: true,
     });
-    const [option] = buildCellLeaderOptions(
-      [current],
-      [member("atual", "ativo")],
-      "atual",
-    );
+    const [option] = buildCellLeaderOptions([current], [member("atual", "ativo")], "atual");
 
     expect(option).toMatchObject({
       id: "atual",

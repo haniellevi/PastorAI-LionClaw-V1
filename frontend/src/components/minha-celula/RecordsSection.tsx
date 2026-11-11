@@ -82,8 +82,7 @@ export function RecordsSection({
       setPessoaId("");
       onChanged();
     } catch (err) {
-      const text =
-        err instanceof ApiError ? err.message : "Não foi possível adicionar o registro.";
+      const text = err instanceof ApiError ? err.message : "Não foi possível adicionar o registro.";
       setError(text);
       onToast({ kind: "err", text });
     } finally {
@@ -175,12 +174,7 @@ export function RecordsSection({
               </div>
             ) : null}
             <div className="section-actions">
-              <DsButton
-                type="submit"
-                variant="primary"
-                loading={busy}
-                disabled={!conteudo.trim()}
-              >
+              <DsButton type="submit" variant="primary" loading={busy} disabled={!conteudo.trim()}>
                 <Icon name="plus" />
                 <span>{busy ? "Adicionando registro…" : "Adicionar registro"}</span>
               </DsButton>

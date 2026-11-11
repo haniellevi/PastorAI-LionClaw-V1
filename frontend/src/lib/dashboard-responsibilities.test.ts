@@ -28,11 +28,7 @@ describe("resolveDashboardResponsibilities", () => {
   );
 
   it("faz o papel amplo vencer sem perder os atalhos acumulados", () => {
-    const result = resolveDashboardResponsibilities([
-      "membro",
-      "lider_celula",
-      "lider_consol",
-    ]);
+    const result = resolveDashboardResponsibilities(["membro", "lider_celula", "lider_consol"]);
 
     expect(result.queueScope).toBe("igreja");
     expect(result.canAssignQueue).toBe(true);
@@ -66,12 +62,7 @@ describe("resolveDashboardResponsibilities", () => {
     const result = resolveDashboardResponsibilities(["membro", "lider_mult"]);
 
     expect(result.prioritizeShortcuts).toBe(true);
-    expect(result.shortcutCandidates).toEqual([
-      "enviar",
-      "g12",
-      "minha-celula",
-      "calendario",
-    ]);
+    expect(result.shortcutCandidates).toEqual(["enviar", "g12", "minha-celula", "calendario"]);
   });
 
   it("mantém a palavra pastoral exclusiva de quem possui papel pastor", () => {

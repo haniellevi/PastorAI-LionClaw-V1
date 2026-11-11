@@ -11,12 +11,7 @@
 import { ApiError, authedFetch } from "./dashboard-api";
 
 export type SetupItemId =
-  | "identidade"
-  | "equipe"
-  | "celulas"
-  | "whatsapp"
-  | "agente"
-  | "assinatura";
+  "identidade" | "equipe" | "celulas" | "whatsapp" | "agente" | "assinatura";
 
 export interface SetupItem {
   id: SetupItemId;

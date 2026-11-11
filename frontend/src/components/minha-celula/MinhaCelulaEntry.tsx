@@ -8,8 +8,14 @@
  */
 import { useAuth } from "@/lib/auth-context";
 import dynamic from "next/dynamic";
-const DiscipuloScreen = dynamic(() => import("./DiscipuloScreen").then((module) => module.DiscipuloScreen), { loading: () => <p role="status">Carregando sua célula…</p> });
-const MinhaCelulaLider = dynamic(() => import("./MinhaCelulaLider").then((module) => module.MinhaCelulaLider), { loading: () => <p role="status">Carregando sua célula…</p> });
+const DiscipuloScreen = dynamic(
+  () => import("./DiscipuloScreen").then((module) => module.DiscipuloScreen),
+  { loading: () => <p role="status">Carregando sua célula…</p> },
+);
+const MinhaCelulaLider = dynamic(
+  () => import("./MinhaCelulaLider").then((module) => module.MinhaCelulaLider),
+  { loading: () => <p role="status">Carregando sua célula…</p> },
+);
 
 export function MinhaCelulaEntry() {
   const { user } = useAuth();

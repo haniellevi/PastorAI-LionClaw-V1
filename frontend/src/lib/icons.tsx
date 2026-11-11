@@ -187,7 +187,10 @@ const PATHS: Record<IconKey, ReactNode> = {
   bell: <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />,
   sparkles: (
     <>
-      <path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4L12 3Z" strokeLinejoin="round" />
+      <path
+        d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4L12 3Z"
+        strokeLinejoin="round"
+      />
       <path d="M19 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" strokeLinejoin="round" />
     </>
   ),
@@ -229,11 +232,7 @@ const PATHS: Record<IconKey, ReactNode> = {
     </>
   ),
   refresh: (
-    <path
-      d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+    <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
   ),
   link: (
     <>

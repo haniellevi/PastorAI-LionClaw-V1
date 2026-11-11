@@ -64,10 +64,13 @@ export function AdminAppShell() {
   const warmRoute = useCallback(
     (target: string) => {
       if (!user || !isAdmin(user.roles) || document.visibilityState === "hidden") return;
-      const connection = (navigator as Navigator & {
-        connection?: { saveData?: boolean; effectiveType?: string };
-      }).connection;
-      if (connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType ?? "")) return;
+      const connection = (
+        navigator as Navigator & {
+          connection?: { saveData?: boolean; effectiveType?: string };
+        }
+      ).connection;
+      if (connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType ?? ""))
+        return;
 
       const targetBase = target.split("/", 1)[0] ?? target;
       if (
@@ -75,7 +78,8 @@ export function AdminAppShell() {
         !(targetBase in SCREEN_META) ||
         (!ALWAYS_ALLOWED.has(targetBase) && !ADMIN_SCREENS.has(targetBase)) ||
         (OWNER_ONLY.has(targetBase) && !user.isOwner)
-      ) return;
+      )
+        return;
 
       preloadScreenModule(targetBase);
     },

@@ -17,9 +17,7 @@ describe("Next security headers", () => {
 
   it("hardens browser boundaries without restricting Next resources", async () => {
     const [route] = await configuredHeaders();
-    const headers = Object.fromEntries(
-      route.headers.map(({ key, value }) => [key, value]),
-    );
+    const headers = Object.fromEntries(route.headers.map(({ key, value }) => [key, value]));
 
     expect(headers).toEqual({
       "Content-Security-Policy": "frame-ancestors 'none'",

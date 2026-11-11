@@ -90,9 +90,7 @@ describe("fetchAdminMe", () => {
   it("expira a sessão somente em 401", async () => {
     mockResponse(401);
 
-    await expect(fetchAdminMe("token")).rejects.toBeInstanceOf(
-      AdminSessionExpiredError,
-    );
+    await expect(fetchAdminMe("token")).rejects.toBeInstanceOf(AdminSessionExpiredError);
   });
 
   it.each([500, 503])("trata %s como indisponibilidade transitória", async (status) => {
@@ -251,9 +249,7 @@ describe("governança de consentimento draft-only", () => {
   it("lê o estado tenant-bound com o token do console", async () => {
     mockResponse(200, state);
 
-    await expect(fetchIgrejaConsentGovernance("tok", "igreja-1")).resolves.toEqual(
-      state,
-    );
+    await expect(fetchIgrejaConsentGovernance("tok", "igreja-1")).resolves.toEqual(state);
 
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "http://localhost:8000/admin/igrejas/igreja-1/consent-governance",
@@ -267,9 +263,7 @@ describe("governança de consentimento draft-only", () => {
   it("trata 404 somente na descoberta GET como capability ainda ausente", async () => {
     mockResponse(404, { detail: "Not Found" });
 
-    await expect(
-      fetchIgrejaConsentGovernance("tok", "igreja-1"),
-    ).resolves.toEqual({
+    await expect(fetchIgrejaConsentGovernance("tok", "igreja-1")).resolves.toEqual({
       enabled: false,
       initialized: false,
       schemaVersion: "d2b2b3a/governance-draft/v1",
@@ -296,9 +290,9 @@ describe("governança de consentimento draft-only", () => {
   it("mantém 404 de mutation como erro", async () => {
     mockResponse(404, { detail: "Not Found" });
 
-    await expect(
-      initializeIgrejaConsentGovernance("tok", "igreja-1"),
-    ).rejects.toMatchObject({ status: 404 });
+    await expect(initializeIgrejaConsentGovernance("tok", "igreja-1")).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it("salva somente revisão esperada e payload operacional estrito", async () => {
@@ -314,12 +308,10 @@ describe("governança de consentimento draft-only", () => {
       openQuestions: null,
     };
 
-    await updateIgrejaConsentGovernancePurpose(
-      "tok",
-      "igreja-1",
-      "atendimento_solicitado",
-      { expectedRevision: 4, decisionPayload },
-    );
+    await updateIgrejaConsentGovernancePurpose("tok", "igreja-1", "atendimento_solicitado", {
+      expectedRevision: 4,
+      decisionPayload,
+    });
 
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "http://localhost:8000/admin/igrejas/igreja-1/consent-governance/purposes/atendimento_solicitado",
@@ -339,9 +331,9 @@ describe("governança de consentimento draft-only", () => {
     vi.useFakeTimers();
     const getSignal = mockPendingFetch();
 
-    const assertion = expect(
-      fetchIgrejaConsentGovernance("tok", "igreja-1"),
-    ).rejects.toMatchObject({ kind: "network" });
+    const assertion = expect(fetchIgrejaConsentGovernance("tok", "igreja-1")).rejects.toMatchObject(
+      { kind: "network" },
+    );
     await vi.advanceTimersByTimeAsync(19_999);
     expect(getSignal()?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
@@ -361,27 +353,24 @@ describe("governança de consentimento draft-only", () => {
 
     mockResponse(409, { detail: "Revisão divergente." });
     await expect(
-      updateIgrejaConsentGovernancePurpose(
-        "tok",
-        "igreja-1",
-        "comunicados",
-        {
-          expectedRevision: 1,
-          decisionPayload: {
-            realProcessingAgents: null,
-            operationsAndMinimumData: null,
-            dataSensitivityAssessment: null,
-            operationalNeed: null,
-            systemsAndRecipients: null,
-            retentionAndDisposalInventory: null,
-            operatorInstructions: null,
-            openQuestions: null,
-          },
+      updateIgrejaConsentGovernancePurpose("tok", "igreja-1", "comunicados", {
+        expectedRevision: 1,
+        decisionPayload: {
+          realProcessingAgents: null,
+          operationsAndMinimumData: null,
+          dataSensitivityAssessment: null,
+          operationalNeed: null,
+          systemsAndRecipients: null,
+          retentionAndDisposalInventory: null,
+          operatorInstructions: null,
+          openQuestions: null,
         },
-      ),
-    ).rejects.toEqual(expect.objectContaining<Partial<AdminRequestError>>({
-      status: 409,
-      message: "Revisão divergente.",
-    }));
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<AdminRequestError>>({
+        status: 409,
+        message: "Revisão divergente.",
+      }),
+    );
   });
 });

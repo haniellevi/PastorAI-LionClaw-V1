@@ -51,30 +51,24 @@ export function SubmitReportButton({
 
   return (
     <div className="mc-report-submit" aria-label="Enviar relatório">
-        <p className="muted-note">
-          Ao enviar, o relatório é consolidado e <strong>bloqueado para edição</strong>.
-          Confira presença, visitantes, registros e oferta antes de confirmar.
-        </p>
+      <p className="muted-note">
+        Ao enviar, o relatório é consolidado e <strong>bloqueado para edição</strong>. Confira
+        presença, visitantes, registros e oferta antes de confirmar.
+      </p>
 
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        <div className="section-actions">
-          <DsButton
-            variant="primary"
-            size="lg"
-            block
-            onClick={() => void submit()}
-            loading={busy}
-          >
-            <Icon name="send" />
-            <span>{busy ? "Enviando relatório…" : "Enviar relatório"}</span>
-          </DsButton>
+      {error ? (
+        <div className="error-banner" role="alert">
+          <Icon name="alert" />
+          <span>{error}</span>
         </div>
+      ) : null}
+
+      <div className="section-actions">
+        <DsButton variant="primary" size="lg" block onClick={() => void submit()} loading={busy}>
+          <Icon name="send" />
+          <span>{busy ? "Enviando relatório…" : "Enviar relatório"}</span>
+        </DsButton>
+      </div>
     </div>
   );
 }

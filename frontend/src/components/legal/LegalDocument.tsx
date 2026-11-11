@@ -14,7 +14,9 @@ interface LegalDocumentProps {
 
 export function LegalDocument({ children, description, title }: LegalDocumentProps) {
   const sections = Children.toArray(children).flatMap((child) =>
-    isValidElement<{ id?: string; children?: ReactNode }>(child) && child.type === "h2" && child.props.id
+    isValidElement<{ id?: string; children?: ReactNode }>(child) &&
+    child.type === "h2" &&
+    child.props.id
       ? [{ id: child.props.id, title: child.props.children }]
       : [],
   );
@@ -61,7 +63,13 @@ export function LegalDocument({ children, description, title }: LegalDocumentPro
           <details className={styles.index}>
             <summary>Localizar seção</summary>
             <nav aria-label="Seções deste documento">
-              <ol>{sections.map((section) => <li key={section.id}><a href={`#${section.id}`}>{section.title}</a></li>)}</ol>
+              <ol>
+                {sections.map((section) => (
+                  <li key={section.id}>
+                    <a href={`#${section.id}`}>{section.title}</a>
+                  </li>
+                ))}
+              </ol>
             </nav>
           </details>
         ) : null}
@@ -71,8 +79,8 @@ export function LegalDocument({ children, description, title }: LegalDocumentPro
       <footer className={styles.footer}>
         <p>© 2026 {LEGAL_NAME}. Todos os direitos reservados.</p>
         <p>
-          Estes documentos descrevem o funcionamento atual do serviço e devem ser
-          revisados por profissional jurídico habilitado antes de uma expansão comercial.
+          Estes documentos descrevem o funcionamento atual do serviço e devem ser revisados por
+          profissional jurídico habilitado antes de uma expansão comercial.
         </p>
       </footer>
     </div>

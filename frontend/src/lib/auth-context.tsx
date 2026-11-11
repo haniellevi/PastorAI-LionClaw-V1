@@ -53,11 +53,7 @@ export interface SessionUser {
   igrejaLogoUrl: string | null;
 }
 
-export type AuthStatus =
-  | "loading"
-  | "unavailable"
-  | "unauthenticated"
-  | "authenticated";
+export type AuthStatus = "loading" | "unavailable" | "unauthenticated" | "authenticated";
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -231,7 +227,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const tokenRef = useRef<string | null>(null);
-  const [permissionSnapshot, setPermissionSnapshot] = useState<{ token: string; matrix: PermissionMatrix } | null>(null);
+  const [permissionSnapshot, setPermissionSnapshot] = useState<{
+    token: string;
+    matrix: PermissionMatrix;
+  } | null>(null);
   const sessionGeneration = useRef(0);
 
   // Bootstrap: restaura sessão de um token persistido.
@@ -257,15 +256,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (!active || generation !== sessionGeneration.current) return;
-        if (
-          error instanceof SessionExpiredError ||
-          error instanceof SessionAccessDeniedError
-        ) {
+        if (error instanceof SessionExpiredError || error instanceof SessionAccessDeniedError) {
           tokenRef.current = null;
           writeToken(null);
-          setAccessMessage(
-            error instanceof SessionAccessDeniedError ? error.message : null,
-          );
+          setAccessMessage(error instanceof SessionAccessDeniedError ? error.message : null);
           setStatus("unauthenticated");
         } else {
           setAccessMessage(null);
@@ -287,7 +281,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const generation = ++sessionGeneration.current;
     const { token, permissions, ...me } = await apiLogin(email, password);
-    if (generation !== sessionGeneration.current) throw new Error("Esta tentativa de acesso foi cancelada.");
+    if (generation !== sessionGeneration.current)
+      throw new Error("Esta tentativa de acesso foi cancelada.");
     clearAuthedResponseCache();
     setPermissionSnapshot(permissions ? { token, matrix: permissions } : null);
     preloadAuthenticatedSurface();
@@ -306,7 +301,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await logoutSession(token);
       } catch {
-        warning = "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
+        warning =
+          "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
       }
     }
     setPermissionSnapshot(null);

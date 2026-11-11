@@ -52,8 +52,7 @@ export function CellNoticeForm({
       setConteudo("");
       onPublished();
     } catch (err) {
-      const text =
-        err instanceof ApiError ? err.message : "Não foi possível publicar o aviso.";
+      const text = err instanceof ApiError ? err.message : "Não foi possível publicar o aviso.";
       setError(text);
       onToast({ kind: "err", text });
     } finally {

@@ -22,12 +22,7 @@
  * snake_case. Reaproveita o transporte autenticado (authedFetch) do dashboard-api.
  */
 
-import {
-  ApiError,
-  authedFetch,
-  isRecord,
-  readDetail,
-} from "./dashboard-api";
+import { ApiError, authedFetch, isRecord, readDetail } from "./dashboard-api";
 
 // ---------------------------------------------------------------------------
 // Tipos — Discípulo (cell_discipulo.py, snake_case na saída)
@@ -247,15 +242,11 @@ async function conflictMessage(res: Response, fallback: string): Promise<string>
  * Confirma a própria presença na reunião (1 toque). Idempotente: repetir mantém
  * `confirmou`. 409 se a reunião já ocorreu; 403 sem vínculo ativo na célula.
  */
-export async function confirmAttendance(
-  token: string,
-  reuniaoId: string,
-): Promise<AttendanceOut> {
-  const res = await authedFetch(
-    token,
-    `/cell-meetings/${reuniaoId}/attendance/confirm`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
+export async function confirmAttendance(token: string, reuniaoId: string): Promise<AttendanceOut> {
+  const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/attendance/confirm`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
   if (res.status === 409) {
     throw new MeetingConflictError(
       await conflictMessage(res, "A reunião já ocorreu; não é possível confirmar presença."),
@@ -272,15 +263,10 @@ export async function confirmAttendance(
  * Reverte a confirmação da própria presença enquanto a reunião não ocorreu.
  * Idempotente: sem linha, responde 200 com `nao_confirmou`. 409 se já ocorreu.
  */
-export async function revertAttendance(
-  token: string,
-  reuniaoId: string,
-): Promise<AttendanceOut> {
-  const res = await authedFetch(
-    token,
-    `/cell-meetings/${reuniaoId}/attendance/confirm`,
-    { method: "DELETE" },
-  );
+export async function revertAttendance(token: string, reuniaoId: string): Promise<AttendanceOut> {
+  const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/attendance/confirm`, {
+    method: "DELETE",
+  });
   if (res.status === 409) {
     throw new MeetingConflictError(
       await conflictMessage(res, "A reunião já ocorreu; não é possível reverter a presença."),
@@ -302,17 +288,13 @@ export async function indicateVisitor(
   reuniaoId: string,
   input: IndicateVisitorInput,
 ): Promise<VisitorExpectationOut> {
-  const res = await authedFetch(
-    token,
-    `/cell-meetings/${reuniaoId}/visitor-expectations`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        nomeVisitante: input.nomeVisitante,
-        observacaoOracao: input.observacaoOracao ?? null,
-      }),
-    },
-  );
+  const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/visitor-expectations`, {
+    method: "POST",
+    body: JSON.stringify({
+      nomeVisitante: input.nomeVisitante,
+      observacaoOracao: input.observacaoOracao ?? null,
+    }),
+  });
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível indicar o visitante.");
@@ -386,10 +368,7 @@ export async function getVisitorExpectations(
   token: string,
   reuniaoId: string,
 ): Promise<VisitorExpectationsOut> {
-  const res = await authedFetch(
-    token,
-    `/cell-meetings/${reuniaoId}/visitor-expectations`,
-  );
+  const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/visitor-expectations`);
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível carregar as expectativas.");
@@ -438,10 +417,7 @@ export async function addRecord(
   return (await res.json()) as RecordOut;
 }
 
-export async function getRecords(
-  token: string,
-  reuniaoId: string,
-): Promise<RecordsOut> {
+export async function getRecords(token: string, reuniaoId: string): Promise<RecordsOut> {
   const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/records`);
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -472,15 +448,11 @@ export async function saveReport(
   return (await res.json()) as SaveReportOut;
 }
 
-export async function submitReport(
-  token: string,
-  reuniaoId: string,
-): Promise<SubmitReportOut> {
-  const res = await authedFetch(
-    token,
-    `/cell-meetings/${reuniaoId}/report/submit`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
+export async function submitReport(token: string, reuniaoId: string): Promise<SubmitReportOut> {
+  const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/report/submit`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
   if (res.status === 409) {
     throw new MeetingConflictError(
       await conflictMessage(res, "O relatório já foi enviado e está bloqueado para edição."),
@@ -493,10 +465,7 @@ export async function submitReport(
   return (await res.json()) as SubmitReportOut;
 }
 
-export async function getReport(
-  token: string,
-  reuniaoId: string,
-): Promise<ReportOut> {
+export async function getReport(token: string, reuniaoId: string): Promise<ReportOut> {
   const res = await authedFetch(token, `/cell-meetings/${reuniaoId}/report`);
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -505,12 +474,30 @@ export async function getReport(
   return (await res.json()) as ReportOut;
 }
 
-
-export interface VisitPerson {id: string; nome: string; telefone: string}
-export async function lookupVisitorPeople(token: string, meetingId: string,
-  params: {q?: string; page?: number; pageSize?: number; signal?: AbortSignal}) {
-  const query = new URLSearchParams({q: params.q ?? "", page: String(params.page ?? 1), pageSize: String(Math.min(params.pageSize ?? 20,20))});
-  const response = await authedFetch(token, `/cell-meetings/${meetingId}/visitor-people?${query}`, {signal:params.signal});
-  if (!response.ok) throw new ApiError(response.status, "Não foi possível buscar as pessoas desta visita.");
-  return await response.json() as {items:VisitPerson[]; page:number; pageSize:number; total:number};
+export interface VisitPerson {
+  id: string;
+  nome: string;
+  telefone: string;
+}
+export async function lookupVisitorPeople(
+  token: string,
+  meetingId: string,
+  params: { q?: string; page?: number; pageSize?: number; signal?: AbortSignal },
+) {
+  const query = new URLSearchParams({
+    q: params.q ?? "",
+    page: String(params.page ?? 1),
+    pageSize: String(Math.min(params.pageSize ?? 20, 20)),
+  });
+  const response = await authedFetch(token, `/cell-meetings/${meetingId}/visitor-people?${query}`, {
+    signal: params.signal,
+  });
+  if (!response.ok)
+    throw new ApiError(response.status, "Não foi possível buscar as pessoas desta visita.");
+  return (await response.json()) as {
+    items: VisitPerson[];
+    page: number;
+    pageSize: number;
+    total: number;
+  };
 }

@@ -15,7 +15,13 @@ import { ApiError } from "@/lib/dashboard-api";
 import { getPendingReports, type PendingReportItem } from "@/lib/cell-central-api";
 import { formatLongDate } from "@/components/minha-celula/format";
 
-export function PendingReportsList({ token, focusOnOpen }: { token: string; focusOnOpen?: boolean }) {
+export function PendingReportsList({
+  token,
+  focusOnOpen,
+}: {
+  token: string;
+  focusOnOpen?: boolean;
+}) {
   const [items, setItems] = useState<PendingReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,13 +38,23 @@ export function PendingReportsList({ token, focusOnOpen }: { token: string; focu
     setError(null);
     setItems([]);
     void getPendingReports(token)
-      .then((page) => { if (active) setItems(page.items); })
+      .then((page) => {
+        if (active) setItems(page.items);
+      })
       .catch((err: unknown) => {
         if (!active) return;
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios pendentes.");
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Não foi possível carregar os relatórios pendentes.",
+        );
       })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [token, attempt]);
 
   return (
@@ -52,7 +68,11 @@ export function PendingReportsList({ token, focusOnOpen }: { token: string; focu
         <DsBanner
           kind="error"
           action={
-            <DsButton variant="secondary" onClick={() => setAttempt((value) => value + 1)} disabled={loading}>
+            <DsButton
+              variant="secondary"
+              onClick={() => setAttempt((value) => value + 1)}
+              disabled={loading}
+            >
               Tentar novamente
             </DsButton>
           }

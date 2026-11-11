@@ -75,8 +75,7 @@ export function WorkQueueItem({
   onFonovisita,
 }: WorkQueueItemProps) {
   const visual = TYPE_VISUAL[item.tipo] ?? DEFAULT_VISUAL;
-  const isLinkCellItem =
-    item.tipo === "visitante" || item.tipo === "conectar_celula";
+  const isLinkCellItem = item.tipo === "visitante" || item.tipo === "conectar_celula";
   const showLinkCellAction = canLinkCell && isLinkCellItem;
   const isFonovisita = item.tipo === "fonovisita";
   const deadlinePrefix = isFonovisita ? "fonovisita" : "prazo";
@@ -156,11 +155,16 @@ export function WorkQueueItem({
 
         {!assumeIsPrimary || canAssignQueue || item.canMessage ? (
           <details className="action-disclosure dh-item-more">
-            <summary>{[
-              !assumeIsPrimary ? "Assumir" : "",
-              canAssignQueue ? "Atribuir" : "",
-              item.canMessage ? "Enviar mensagem" : "",
-            ].filter(Boolean).join(" ou ")}<span className="sr-only">: {item.titulo}</span></summary>
+            <summary>
+              {[
+                !assumeIsPrimary ? "Assumir" : "",
+                canAssignQueue ? "Atribuir" : "",
+                item.canMessage ? "Enviar mensagem" : "",
+              ]
+                .filter(Boolean)
+                .join(" ou ")}
+              <span className="sr-only">: {item.titulo}</span>
+            </summary>
             <div className="action-disclosure-body">
               {!assumeIsPrimary ? (
                 <DsButton

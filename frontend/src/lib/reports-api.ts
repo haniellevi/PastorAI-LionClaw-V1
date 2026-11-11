@@ -183,9 +183,5 @@ export function previousIsoWeekInSaoPaulo(now: Date = new Date()): string {
   const { year, month, day } = saoPauloCivilDate(now);
   const anchor = new Date(Date.UTC(year, month - 1, day));
   anchor.setUTCDate(anchor.getUTCDate() - 7);
-  return isoWeekOfCivilDate(
-    anchor.getUTCFullYear(),
-    anchor.getUTCMonth() + 1,
-    anchor.getUTCDate(),
-  );
+  return isoWeekOfCivilDate(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, anchor.getUTCDate());
 }

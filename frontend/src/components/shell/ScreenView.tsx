@@ -60,33 +60,31 @@ function ScreenLoading() {
   );
 }
 
-const ResponsabilidadesScreen = dynamic(() => loadResponsabilidadesScreen().then(m => m.ResponsabilidadesScreen), { loading: ScreenLoading });
+const ResponsabilidadesScreen = dynamic(
+  () => loadResponsabilidadesScreen().then((m) => m.ResponsabilidadesScreen),
+  { loading: ScreenLoading },
+);
 
 const PrayerRequestsScreen = dynamic(
-  () => loadPrayerRequestsScreen().then(m => m.PrayerRequestsScreen),
+  () => loadPrayerRequestsScreen().then((m) => m.PrayerRequestsScreen),
   { loading: ScreenLoading },
 );
 
-const CalendarioScreen = dynamic(
-  () => loadCalendarioScreen().then((m) => m.CalendarioScreen),
-  { loading: ScreenLoading },
-);
-const CelulasScreen = dynamic(
-  () => loadCelulasScreen().then((m) => m.CelulasScreen),
-  { loading: ScreenLoading },
-);
-const AgenteScreen = dynamic(
-  () => loadAgenteScreen().then((m) => m.AgenteScreen),
-  { loading: ScreenLoading },
-);
-const AssinaturaScreen = dynamic(
-  () => loadAssinaturaScreen().then((m) => m.AssinaturaScreen),
-  { loading: ScreenLoading },
-);
-const EquipeScreen = dynamic(
-  () => loadEquipeScreen().then((m) => m.EquipeScreen),
-  { loading: ScreenLoading },
-);
+const CalendarioScreen = dynamic(() => loadCalendarioScreen().then((m) => m.CalendarioScreen), {
+  loading: ScreenLoading,
+});
+const CelulasScreen = dynamic(() => loadCelulasScreen().then((m) => m.CelulasScreen), {
+  loading: ScreenLoading,
+});
+const AgenteScreen = dynamic(() => loadAgenteScreen().then((m) => m.AgenteScreen), {
+  loading: ScreenLoading,
+});
+const AssinaturaScreen = dynamic(() => loadAssinaturaScreen().then((m) => m.AssinaturaScreen), {
+  loading: ScreenLoading,
+});
+const EquipeScreen = dynamic(() => loadEquipeScreen().then((m) => m.EquipeScreen), {
+  loading: ScreenLoading,
+});
 const IdentidadeVisualScreen = dynamic(
   () => loadIdentidadeVisualScreen().then((m) => m.IdentidadeVisualScreen),
   { loading: ScreenLoading },
@@ -95,14 +93,12 @@ const CadastroIgrejaScreen = dynamic(
   () => loadCadastroIgrejaScreen().then((m) => m.CadastroIgrejaScreen),
   { loading: ScreenLoading },
 );
-const IntegracoesScreen = dynamic(
-  () => loadIntegracoesScreen().then((m) => m.IntegracoesScreen),
-  { loading: ScreenLoading },
-);
-const PermissoesScreen = dynamic(
-  () => loadPermissoesScreen().then((m) => m.PermissoesScreen),
-  { loading: ScreenLoading },
-);
+const IntegracoesScreen = dynamic(() => loadIntegracoesScreen().then((m) => m.IntegracoesScreen), {
+  loading: ScreenLoading,
+});
+const PermissoesScreen = dynamic(() => loadPermissoesScreen().then((m) => m.PermissoesScreen), {
+  loading: ScreenLoading,
+});
 const SetupChecklistScreen = dynamic(
   () => loadSetupChecklistScreen().then((m) => m.SetupChecklistScreen),
   { loading: ScreenLoading },
@@ -111,63 +107,54 @@ const CentralCelulaScreen = dynamic(
   () => loadCentralCelulaScreen().then((m) => m.CentralCelulaScreen),
   { loading: ScreenLoading },
 );
-const MinhaCelulaEntry = dynamic(
-  () => loadMinhaCelulaEntry().then((m) => m.MinhaCelulaEntry),
-  { loading: ScreenLoading },
-);
-const ComunicadosScreen = dynamic(
-  () => loadComunicadosScreen().then((m) => m.ComunicadosScreen),
-  { loading: ScreenLoading },
-);
+const MinhaCelulaEntry = dynamic(() => loadMinhaCelulaEntry().then((m) => m.MinhaCelulaEntry), {
+  loading: ScreenLoading,
+});
+const ComunicadosScreen = dynamic(() => loadComunicadosScreen().then((m) => m.ComunicadosScreen), {
+  loading: ScreenLoading,
+});
 const ConsolIndividualScreen = dynamic(
   () => loadConsolIndividualScreen().then((m) => m.ConsolIndividualScreen),
   { loading: ScreenLoading },
 );
-const ConsolidarScreen = dynamic(
-  () => loadConsolidarScreen().then((m) => m.ConsolidarScreen),
-  { loading: ScreenLoading },
-);
-const CDScreen = dynamic(() => loadCDScreen().then(m => m.CDScreen), { loading: ScreenLoading });
-const UVScreen = dynamic(() => loadUVScreen().then(m => m.UVScreen), { loading: ScreenLoading });
+const ConsolidarScreen = dynamic(() => loadConsolidarScreen().then((m) => m.ConsolidarScreen), {
+  loading: ScreenLoading,
+});
+const CDScreen = dynamic(() => loadCDScreen().then((m) => m.CDScreen), { loading: ScreenLoading });
+const UVScreen = dynamic(() => loadUVScreen().then((m) => m.UVScreen), { loading: ScreenLoading });
 
-const ContatosScreen = dynamic(
-  () => loadContatosScreen().then((m) => m.ContatosScreen),
+const ContatosScreen = dynamic(() => loadContatosScreen().then((m) => m.ContatosScreen), {
+  loading: ScreenLoading,
+});
+const GanharScreen = dynamic(() => loadGanharScreen().then((m) => m.GanharScreen), {
+  loading: ScreenLoading,
+});
+const DashboardScreen = dynamic(() => loadDashboardScreen().then((m) => m.DashboardScreen), {
+  loading: ScreenLoading,
+});
+const ConhecimentoScreen = dynamic(
+  () => loadConhecimentoScreen().then((m) => m.ConhecimentoScreen),
   { loading: ScreenLoading },
 );
-const GanharScreen = dynamic(
-  () => loadGanharScreen().then((m) => m.GanharScreen),
-  { loading: ScreenLoading },
-);
-const DashboardScreen = dynamic(
-  () => loadDashboardScreen().then((m) => m.DashboardScreen),
-  { loading: ScreenLoading },
-);
-const ConhecimentoScreen = dynamic(() => loadConhecimentoScreen().then(m => m.ConhecimentoScreen), { loading: ScreenLoading });
 
-const EnviarScreen = dynamic(
-  () => loadEnviarScreen().then((m) => m.EnviarScreen),
-  { loading: ScreenLoading },
-);
-const G12Screen = dynamic(
-  () => loadG12Screen().then((m) => m.G12Screen),
-  { loading: ScreenLoading },
-);
-const InboxScreen = dynamic(
-  () => loadInboxScreen().then((m) => m.InboxScreen),
-  { loading: ScreenLoading },
-);
-const RelatoriosScreen = dynamic(
-  () => loadRelatoriosScreen().then((m) => m.RelatoriosScreen),
-  { loading: ScreenLoading },
-);
-const WhatsappScreen = dynamic(
-  () => loadWhatsappScreen().then((m) => m.WhatsappScreen),
-  { loading: ScreenLoading },
-);
-const PerfilScreen = dynamic(
-  () => loadPerfilScreen().then((m) => m.PerfilScreen),
-  { loading: ScreenLoading },
-);
+const EnviarScreen = dynamic(() => loadEnviarScreen().then((m) => m.EnviarScreen), {
+  loading: ScreenLoading,
+});
+const G12Screen = dynamic(() => loadG12Screen().then((m) => m.G12Screen), {
+  loading: ScreenLoading,
+});
+const InboxScreen = dynamic(() => loadInboxScreen().then((m) => m.InboxScreen), {
+  loading: ScreenLoading,
+});
+const RelatoriosScreen = dynamic(() => loadRelatoriosScreen().then((m) => m.RelatoriosScreen), {
+  loading: ScreenLoading,
+});
+const WhatsappScreen = dynamic(() => loadWhatsappScreen().then((m) => m.WhatsappScreen), {
+  loading: ScreenLoading,
+});
+const PerfilScreen = dynamic(() => loadPerfilScreen().then((m) => m.PerfilScreen), {
+  loading: ScreenLoading,
+});
 
 export function ScreenView({ route, param }: { route: string; param?: string | null }) {
   const { token, user } = useAuth();
@@ -291,8 +278,8 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
           <Icon name="construction" className="scaffold-ic" />
           <h3>Esta área está sendo preparada</h3>
           <p>
-            A estrutura e a navegação já estão prontas. O conteúdo operacional chega em
-            uma próxima entrega.
+            A estrutura e a navegação já estão prontas. O conteúdo operacional chega em uma próxima
+            entrega.
           </p>
           <span className="route-tag">#{route}</span>
         </div>

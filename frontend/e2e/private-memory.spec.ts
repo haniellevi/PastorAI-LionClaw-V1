@@ -22,17 +22,25 @@ test("admin vê contagens sintéticas da memória privada em Hoje", async ({ pag
   await expect(indicator).toContainText("1 atendidos e 0 recusados");
 
   const requests = await harnessRequests(request);
-  expect(requests.some((entry) =>
-    entry.method === "GET" && entry.path === "/operations/private-memory" && entry.status === 200,
-  )).toBe(true);
+  expect(
+    requests.some(
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path === "/operations/private-memory" &&
+        entry.status === 200,
+    ),
+  ).toBe(true);
   expectCleanBrowser(safety);
 });
 
-test("pastor sem papel admin não vê o indicador nem consulta contagens privadas", async ({ page, request }) => {
+test("pastor sem papel admin não vê o indicador nem consulta contagens privadas", async ({
+  page,
+  request,
+}) => {
   const safety = await armBrowserSafety(page);
   await page.route(`${API_URL}/auth/login`, async (route) => {
     const response = await route.fetch();
-    const profile = await response.json() as Record<string, unknown>;
+    const profile = (await response.json()) as Record<string, unknown>;
     await route.fulfill({ response, json: { ...profile, roles: ["pastor"], isOwner: false } });
   });
 

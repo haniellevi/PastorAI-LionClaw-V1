@@ -47,14 +47,10 @@ export function MeetingHistoryList({ items }: { items: HistoryItem[] }) {
             return (
               <div className="hist-item" key={`${it.data}-${idx}`}>
                 <div className="grow hist-main">
-                  <div className="nm hist-date">
-                    {formatMeetingDate(it.data)}
-                  </div>
+                  <div className="nm hist-date">{formatMeetingDate(it.data)}</div>
                   {it.tema ? <div className="sub">{it.tema}</div> : null}
                   {visitors.length ? (
-                    <div className="hist-visitors">
-                      Meus visitantes: {visitors.join(", ")}
-                    </div>
+                    <div className="hist-visitors">Meus visitantes: {visitors.join(", ")}</div>
                   ) : null}
                 </div>
                 <StatusPill tone={presence.tone}>{presence.label}</StatusPill>

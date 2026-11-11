@@ -31,11 +31,7 @@ import {
 
 const ADMIN_TOKEN_KEY = "pastorai:admin-token";
 
-export type AdminAuthStatus =
-  | "loading"
-  | "unavailable"
-  | "unauthenticated"
-  | "authenticated";
+export type AdminAuthStatus = "loading" | "unavailable" | "unauthenticated" | "authenticated";
 
 interface AdminAuthValue {
   status: AdminAuthStatus;
@@ -105,9 +101,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         ) {
           tokenRef.current = null;
           writeToken(null);
-          setAccessMessage(
-            error instanceof AdminAuthError ? error.message : null,
-          );
+          setAccessMessage(error instanceof AdminAuthError ? error.message : null);
           setStatus("unauthenticated");
         } else {
           setAccessMessage(null);
@@ -152,7 +146,8 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       try {
         await logoutAdminSession(token);
       } catch {
-        warning = "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
+        warning =
+          "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
       }
     }
     tokenRef.current = null;

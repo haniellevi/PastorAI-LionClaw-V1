@@ -201,7 +201,10 @@ export function MaterialsPanel({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <DsEmptyState illustration={<Icon name="document" />} title="Nenhum material publicado." />
+          <DsEmptyState
+            illustration={<Icon name="document" />}
+            title="Nenhum material publicado."
+          />
         ) : (
           <div>
             {items.map((m) => (

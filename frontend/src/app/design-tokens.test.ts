@@ -60,7 +60,7 @@ describe("isolamento de tokens (globals.css × design-tokens.css)", () => {
 
   it("favicon aponta para a microversão canônica do Diamante", () => {
     const layout = read("layout.tsx");
-    expect(layout).toContain('/brand/diamante-silhueta-16.svg');
+    expect(layout).toContain("/brand/diamante-silhueta-16.svg");
     expect(layout).not.toMatch(/icon:\s*["']\/icon\.svg/);
   });
 

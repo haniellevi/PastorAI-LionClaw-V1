@@ -64,11 +64,24 @@ export function DsToast(props: DsToastProps) {
         {kind === "ok" ? (
           <svg viewBox="0 0 20 20" width="18" height="18">
             <circle cx="10" cy="10" r="8.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M6.5 10.2l2.4 2.4 4.6-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M6.5 10.2l2.4 2.4 4.6-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         ) : (
           <svg viewBox="0 0 20 20" width="18" height="18">
-            <path d="M10 2.6L18.6 17H1.4L10 2.6z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path
+              d="M10 2.6L18.6 17H1.4L10 2.6z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
             <path d="M10 8v4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             <circle cx="10" cy="14.7" r="0.9" fill="currentColor" />
           </svg>
@@ -79,7 +92,13 @@ export function DsToast(props: DsToastProps) {
       {kind === "err" && onDismiss ? (
         <DsIconButton label="Fechar" onClick={onDismiss}>
           <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
-            <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+            <path
+              d="M5 5l10 10M15 5L5 15"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              fill="none"
+            />
           </svg>
         </DsIconButton>
       ) : null}

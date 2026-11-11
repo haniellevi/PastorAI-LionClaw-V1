@@ -5,9 +5,7 @@ import net from "node:net";
 import { fileURLToPath } from "node:url";
 
 const frontendRoot = fileURLToPath(new URL(".", import.meta.url));
-const nextBin = fileURLToPath(
-  new URL("./node_modules/next/dist/bin/next", import.meta.url),
-);
+const nextBin = fileURLToPath(new URL("./node_modules/next/dist/bin/next", import.meta.url));
 const expectedHeaders = {
   "content-security-policy": "frame-ancestors 'none'",
   "referrer-policy": "strict-origin-when-cross-origin",
@@ -80,15 +78,11 @@ async function waitUntilReady(child, port, logs) {
 
 const port = await freePort();
 const logs = [];
-const child = spawn(
-  process.execPath,
-  [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)],
-  {
-    cwd: frontendRoot,
-    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  },
-);
+const child = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
+  cwd: frontendRoot,
+  env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+  stdio: ["ignore", "pipe", "pipe"],
+});
 child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
 child.stderr.on("data", (chunk) => logs.push(chunk.toString()));
 

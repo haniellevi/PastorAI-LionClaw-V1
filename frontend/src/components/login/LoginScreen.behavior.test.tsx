@@ -38,7 +38,10 @@ let root: Root;
 function deferred() {
   let resolve!: () => void;
   let reject!: (error: Error) => void;
-  const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -57,15 +60,18 @@ async function fill(label: string, value: string) {
 }
 
 function button(text: string) {
-  const node = [...container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((el) => el.textContent?.trim() === text || el.getAttribute("aria-label") === text);
+  const node = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (el) => el.textContent?.trim() === text || el.getAttribute("aria-label") === text,
+  );
   expect(node, `botão ${text}`).toBeDefined();
   return node!;
 }
 
 async function submit() {
   await act(async () => {
-    container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    container
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 }
 
@@ -78,12 +84,14 @@ async function navigate(route: string) {
 
 async function render(route: string) {
   window.history.replaceState(null, "", `/#${route}`);
-  await act(async () => { root.render(h(LoginScreen)); });
+  await act(async () => {
+    root.render(h(LoginScreen));
+  });
 }
 
 async function returnToLogin() {
-  const control = container.querySelector<HTMLAnchorElement>('a[href="#login"]')
-    ?? button("Ir para o login");
+  const control =
+    container.querySelector<HTMLAnchorElement>('a[href="#login"]') ?? button("Ir para o login");
   await act(async () => {
     control.click();
     await vi.waitFor(() => expect(window.location.hash).toBe("#login"));
@@ -92,7 +100,12 @@ async function returnToLogin() {
 }
 
 function invite(token: string): InviteInfo {
-  return { nome: `Pessoa ${token}`, email: "pessoa@example.test", igreja: "Igreja Laboratório", precisaCadastro: false };
+  return {
+    nome: `Pessoa ${token}`,
+    email: "pessoa@example.test",
+    igreja: "Igreja Laboratório",
+    precisaCadastro: false,
+  };
 }
 
 beforeEach(() => {
@@ -122,7 +135,9 @@ describe("LoginScreen: formulário e retorno", () => {
     auth.consumeReturnTo.mockReturnValue("inbox");
     auth.login.mockImplementationOnce(async () => {
       await Promise.resolve();
-      flushSync(() => { root.render(h("main", { "aria-label": "Aplicativo autenticado" })); });
+      flushSync(() => {
+        root.render(h("main", { "aria-label": "Aplicativo autenticado" }));
+      });
     });
     await render("login");
     await fill("E-mail", "pessoa@example.test");
@@ -148,7 +163,8 @@ describe("LoginScreen: formulário e retorno", () => {
   });
 
   it("falha preserva valores e destino; sucesso consome o retorno uma única vez", async () => {
-    auth.login.mockRejectedValueOnce(new LoginError("invalid", "Credenciais inválidas."))
+    auth.login
+      .mockRejectedValueOnce(new LoginError("invalid", "Credenciais inválidas."))
       .mockResolvedValueOnce(undefined);
     auth.consumeReturnTo.mockReturnValue("inbox");
     await render("login");
@@ -158,7 +174,9 @@ describe("LoginScreen: formulário e retorno", () => {
     expect(input("E-mail").value).toBe("pessoa@example.test");
     expect(input("Senha").value).toBe("senha-sintetica");
     expect(input("Senha").disabled).toBe(false);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Credenciais inválidas.");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Credenciais inválidas.",
+    );
     expect(auth.consumeReturnTo).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#login");
     await submit();
@@ -171,14 +189,19 @@ describe("LoginScreen: formulário e retorno", () => {
     await render("login");
     await fill("Senha", "senha-sintetica");
     const reveal = button("Mostrar senha");
-    act(() => { reveal.focus(); reveal.click(); });
+    act(() => {
+      reveal.focus();
+      reveal.click();
+    });
     expect(input("Senha").type).toBe("text");
     expect(input("Senha").value).toBe("senha-sintetica");
     expect(input("Senha").getAttribute("autocomplete")).toBe("current-password");
     expect(reveal.getAttribute("aria-pressed")).toBe("true");
     expect(document.activeElement).toBe(reveal);
     expect(auth.login).not.toHaveBeenCalled();
-    act(() => { button("Ocultar senha").click(); });
+    act(() => {
+      button("Ocultar senha").click();
+    });
     expect(input("Senha").type).toBe("password");
     expect(input("Senha").value).toBe("senha-sintetica");
   });
@@ -194,7 +217,9 @@ describe("LoginScreen: formulário e retorno", () => {
     expect(auth.login).toHaveBeenCalledTimes(1);
     expect(input("Senha").disabled).toBe(true);
     expect(button("Mostrar senha").disabled).toBe(true);
-    await act(async () => { pending.reject(new LoginError("network", "Tente novamente.")); });
+    await act(async () => {
+      pending.reject(new LoginError("network", "Tente novamente."));
+    });
     expect(input("Senha").disabled).toBe(false);
     expect(input("Senha").value).toBe("senha-sintetica");
   });
@@ -215,7 +240,10 @@ describe("LoginScreen: formulário e retorno", () => {
     api.requestPasswordReset.mockImplementation(original.requestPasswordReset);
     const fetch = vi.spyOn(globalThis, "fetch");
     if (outcome === "rede") fetch.mockRejectedValue(new Error("NOT-EXPOSED"));
-    else fetch.mockResolvedValue(new Response('{"detail":"NOT-EXPOSED"}', { status: Number(outcome) }));
+    else
+      fetch.mockResolvedValue(
+        new Response('{"detail":"NOT-EXPOSED"}', { status: Number(outcome) }),
+      );
     await render("esqueci-senha");
     await fill("E-mail", "pessoa@example.test");
     await submit();
@@ -285,7 +313,11 @@ describe("LoginScreen: redefinição e ativação", () => {
     expect(input("Telefone / WhatsApp").value).toBe("5500000000000");
     expect(auth.logout).not.toHaveBeenCalled();
     await submit();
-    expect(api.activateInvite).toHaveBeenLastCalledWith("token-cadastro", "senha-sintetica", "5500000000000");
+    expect(api.activateInvite).toHaveBeenLastCalledWith(
+      "token-cadastro",
+      "senha-sintetica",
+      "5500000000000",
+    );
     expect(auth.logout).toHaveBeenCalledTimes(1);
     expect(auth.login).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(container.querySelector("h1"));
@@ -295,11 +327,17 @@ describe("LoginScreen: redefinição e ativação", () => {
 describe("LoginScreen: isolamento por token", () => {
   it("busca tardia do convite A não substitui os dados do convite B", async () => {
     let resolve!: (value: InviteInfo) => void;
-    api.fetchInvite.mockReturnValueOnce(new Promise<InviteInfo>((res) => { resolve = res; }));
+    api.fetchInvite.mockReturnValueOnce(
+      new Promise<InviteInfo>((res) => {
+        resolve = res;
+      }),
+    );
     await render("ativar/token-a");
     await navigate("ativar/token-b");
     expect(container.textContent).toContain("Pessoa token-b");
-    await act(async () => { resolve(invite("token-a")); });
+    await act(async () => {
+      resolve(invite("token-a"));
+    });
     expect(container.textContent).toContain("Pessoa token-b");
     expect(container.textContent).not.toContain("Pessoa token-a");
     expect(input("Senha").disabled).toBe(false);
@@ -318,7 +356,9 @@ describe("LoginScreen: isolamento por token", () => {
     await submit();
     await navigate(`${route}/token-b`);
     await fill(password, "senha-segunda");
-    await act(async () => { pending.reject(new LoginError("invalid", "Erro exclusivo do token A.")); });
+    await act(async () => {
+      pending.reject(new LoginError("invalid", "Erro exclusivo do token A."));
+    });
     expect(container.textContent).not.toContain("Erro exclusivo do token A.");
     expect(input(password).value).toBe("senha-segunda");
     expect(input(password).disabled).toBe(false);
@@ -347,7 +387,9 @@ describe("LoginScreen: isolamento por token", () => {
     await navigate("redefinir-senha/token-b");
     await fill("Nova senha", "senha-segunda");
     await fill("Confirmar nova senha", "senha-segunda");
-    await act(async () => { pending.resolve(); });
+    await act(async () => {
+      pending.resolve();
+    });
     expect(container.querySelector('[role="status"]')).toBeNull();
     expect(input("Nova senha").value).toBe("senha-segunda");
     expect(auth.logout).not.toHaveBeenCalled();
@@ -376,7 +418,9 @@ describe("LoginScreen: isolamento por token", () => {
     await navigate("ativar/token-b");
     await fill("Senha", "senha-segunda");
     await fill("Confirmar senha", "senha-segunda");
-    await act(async () => { pending.resolve(); });
+    await act(async () => {
+      pending.resolve();
+    });
     expect(container.querySelector('[role="status"]')).toBeNull();
     expect(input("Senha").value).toBe("senha-segunda");
     expect(container.textContent).toContain("Pessoa token-b");

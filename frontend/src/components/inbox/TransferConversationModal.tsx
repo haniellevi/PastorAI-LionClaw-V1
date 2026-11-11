@@ -26,9 +26,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 function rolesSummary(papeis: string[]): string {
-  const labels = papeis
-    .filter((p) => p in ROLE_LABEL)
-    .map((p) => ROLE_LABEL[p]);
+  const labels = papeis.filter((p) => p in ROLE_LABEL).map((p) => ROLE_LABEL[p]);
   return labels.length ? labels.join(" · ") : "Equipe";
 }
 

@@ -45,14 +45,15 @@ export interface LoginMetrics {
 
 const browserSafetyByPage = new WeakMap<Page, BrowserSafety>();
 
-export async function resetHarness(request: APIRequestContext, options?: {performance?:boolean;queueSize?:number}): Promise<void> {
-  const response = await request.post(`${API_URL}/__e2e/reset`, {data:options});
+export async function resetHarness(
+  request: APIRequestContext,
+  options?: { performance?: boolean; queueSize?: number },
+): Promise<void> {
+  const response = await request.post(`${API_URL}/__e2e/reset`, { data: options });
   expect(response.ok()).toBeTruthy();
 }
 
-export async function harnessRequests(
-  request: APIRequestContext,
-): Promise<HarnessRequest[]> {
+export async function harnessRequests(request: APIRequestContext): Promise<HarnessRequest[]> {
   const response = await request.get(`${API_URL}/__e2e/requests`);
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as { requests: HarnessRequest[] };
@@ -74,7 +75,12 @@ export async function armBrowserSafety(page: Page): Promise<BrowserSafety> {
     if (message.type() !== "error") return;
     // Exact missing additive routes are an exercised compatibility response.
     const location = message.location().url;
-    const additive404 = message.text().includes("404") && location.startsWith(API_URL) && /\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary|conversations\/[^/]+\/messages\/media-urls)(?:\?|$)/.test(location);
+    const additive404 =
+      message.text().includes("404") &&
+      location.startsWith(API_URL) &&
+      /\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary|conversations\/[^/]+\/messages\/media-urls)(?:\?|$)/.test(
+        location,
+      );
     if (!additive404) safety.consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => safety.pageErrors.push(error.message));
@@ -146,19 +152,13 @@ export async function resourceTimeline(page: Page) {
           };
         })
         .filter(
-          (entry) =>
-            entry.name.includes("/_next/") ||
-            entry.name.startsWith(allowedApiOrigin),
+          (entry) => entry.name.includes("/_next/") || entry.name.startsWith(allowedApiOrigin),
         ),
     apiOrigin,
   );
 }
 
-export async function attachJson(
-  testInfo: TestInfo,
-  name: string,
-  value: unknown,
-): Promise<void> {
+export async function attachJson(testInfo: TestInfo, name: string, value: unknown): Promise<void> {
   const evidence = {
     sourceSha: SOURCE_SHA,
     generatedAt: new Date().toISOString(),

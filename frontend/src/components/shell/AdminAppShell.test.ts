@@ -35,15 +35,23 @@ vi.mock("./ScreenView", () => ({
 // invalid targets to prove that the shell also validates speculative requests.
 vi.mock("./Sidebar", () => ({
   Sidebar: ({ onPreload }: { onPreload?: (target: string) => void }) =>
-    h("nav", null, ["setup", "equipe", "assinatura", "perfil", "inbox", "unknown"].map((target) =>
-      h("a", {
-        key: target,
-        href: `#${target}`,
-        onMouseEnter: () => onPreload?.(target),
-        onFocus: () => onPreload?.(target),
-        onPointerDown: () => onPreload?.(target),
-      }, target),
-    )),
+    h(
+      "nav",
+      null,
+      ["setup", "equipe", "assinatura", "perfil", "inbox", "unknown"].map((target) =>
+        h(
+          "a",
+          {
+            key: target,
+            href: `#${target}`,
+            onMouseEnter: () => onPreload?.(target),
+            onFocus: () => onPreload?.(target),
+            onPointerDown: () => onPreload?.(target),
+          },
+          target,
+        ),
+      ),
+    ),
 }));
 vi.mock("./Topbar", () => ({ Topbar: () => null }));
 
@@ -115,20 +123,23 @@ describe("AdminAppShell — deep-link parametrizado", () => {
 });
 
 describe("AdminAppShell: intenção de navegação", () => {
-  it.each(["mouseover", "focusin", "pointerdown"])("aquece o JS de uma tela permitida em %s sem navegar nem consultar dados", (event) => {
-    const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
-    window.location.hash = "#setup";
-    act(() => root.render(h(AdminAppShell)));
+  it.each(["mouseover", "focusin", "pointerdown"])(
+    "aquece o JS de uma tela permitida em %s sem navegar nem consultar dados",
+    (event) => {
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      window.location.hash = "#setup";
+      act(() => root.render(h(AdminAppShell)));
 
-    expect(preloadScreenModule).not.toHaveBeenCalled();
-    intent("equipe", event);
+      expect(preloadScreenModule).not.toHaveBeenCalled();
+      intent("equipe", event);
 
-    expect(preloadScreenModule).toHaveBeenCalledExactlyOnceWith("equipe");
-    expect(window.location.hash).toBe("#setup");
-    expect(screenState.props?.route).toBe("setup");
-    expect(fetch).not.toHaveBeenCalled();
-  });
+      expect(preloadScreenModule).toHaveBeenCalledExactlyOnceWith("equipe");
+      expect(window.location.hash).toBe("#setup");
+      expect(screenState.props?.route).toBe("setup");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("não aquece a tela ativa, uma rota operacional ou uma rota desconhecida", () => {
     window.location.hash = "#setup";

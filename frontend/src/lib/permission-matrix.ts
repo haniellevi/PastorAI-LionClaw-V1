@@ -6,10 +6,22 @@ export function parsePermissionMatrix(value: unknown): PermissionMatrix | null {
   const dto = value.matriz;
   if (!dto || typeof dto !== "object" || Array.isArray(dto)) return null;
   const matrix: PermissionMatrix = {};
-  for (const role of ["pastor", "lider_g12", "lider_consol", "lider_celula", "lider_mult", "operador", "membro"] as const) {
+  for (const role of [
+    "pastor",
+    "lider_g12",
+    "lider_consol",
+    "lider_celula",
+    "lider_mult",
+    "operador",
+    "membro",
+  ] as const) {
     const screens = (dto as Record<string, unknown>)[role];
-    if (screens !== undefined && (!Array.isArray(screens) || !screens.every((screen) => typeof screen === "string"))) return null;
-    matrix[role] = screens === undefined ? [] : [...screens as string[]];
+    if (
+      screens !== undefined &&
+      (!Array.isArray(screens) || !screens.every((screen) => typeof screen === "string"))
+    )
+      return null;
+    matrix[role] = screens === undefined ? [] : [...(screens as string[])];
   }
   return matrix;
 }

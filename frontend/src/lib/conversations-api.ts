@@ -77,30 +77,59 @@ export const isPastoralProtected = (message: Pick<ChatMessage, "texto">): boolea
 export function safeInboxMessage(message: ChatMessage): ChatMessage {
   if (!isPastoralProtected(message)) return message;
   return {
-    id: message.id, direcao: message.direcao, autor: message.autor,
-    autorNome: null, tipo: "texto", texto: PASTORAL_PROTECTED,
-    mediaUrl: null, mediaMime: null, mediaNome: null, criadoEm: message.criadoEm,
+    id: message.id,
+    direcao: message.direcao,
+    autor: message.autor,
+    autorNome: null,
+    tipo: "texto",
+    texto: PASTORAL_PROTECTED,
+    mediaUrl: null,
+    mediaMime: null,
+    mediaNome: null,
+    criadoEm: message.criadoEm,
   };
 }
 
-export const DELETION_LAYERS = ["mensagens", "midias", "transcricoes", "resumos", "checkpoints", "vetores", "logs_agente", "envios"] as const;
+export const DELETION_LAYERS = [
+  "mensagens",
+  "midias",
+  "transcricoes",
+  "resumos",
+  "checkpoints",
+  "vetores",
+  "logs_agente",
+  "envios",
+] as const;
 
 export interface PrivateDeletionReceipt {
   id: string;
   estado: "pendente" | "pendente_envio" | "concluido";
-  camadas: Record<string, { encontradas: number; apagadas: number; pendentes: number; falhas: number }>;
+  camadas: Record<
+    string,
+    { encontradas: number; apagadas: number; pendentes: number; falhas: number }
+  >;
 }
 
 export function readDeletionReceipt(value: unknown): PrivateDeletionReceipt {
-  if (!isRecord(value) || typeof value.id !== "string" ||
-      !["pendente", "pendente_envio", "concluido"].includes(String(value.estado)) || !isRecord(value.camadas)) {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !["pendente", "pendente_envio", "concluido"].includes(String(value.estado)) ||
+    !isRecord(value.camadas)
+  ) {
     throw new ApiError(502, "Recibo de exclusão inválido.");
   }
   const camadas: PrivateDeletionReceipt["camadas"] = Object.create(null);
   for (const [layer, row] of Object.entries(value.camadas)) {
     if (!isRecord(row)) throw new ApiError(502, "Recibo de exclusão inválido.");
-    const counts = { encontradas: row.encontradas, apagadas: row.apagadas, pendentes: row.pendentes, falhas: row.falhas };
-    if (!Object.values(counts).every(n => typeof n === "number" && Number.isInteger(n) && n >= 0)) throw new ApiError(502, "Recibo de exclusão inválido.");
+    const counts = {
+      encontradas: row.encontradas,
+      apagadas: row.apagadas,
+      pendentes: row.pendentes,
+      falhas: row.falhas,
+    };
+    if (!Object.values(counts).every((n) => typeof n === "number" && Number.isInteger(n) && n >= 0))
+      throw new ApiError(502, "Recibo de exclusão inválido.");
     camadas[layer] = counts as PrivateDeletionReceipt["camadas"][string];
   }
   return { id: value.id, estado: value.estado as PrivateDeletionReceipt["estado"], camadas };
@@ -152,7 +181,10 @@ export async function fetchConversations(
   signal?: AbortSignal,
   page = 1,
 ): Promise<Page<Conversation>> {
-  const res = await authedFetch(token, `/conversations?page=${page}&pageSize=${pageSize}`, { signal, cache: "no-store" });
+  const res = await authedFetch(token, `/conversations?page=${page}&pageSize=${pageSize}`, {
+    signal,
+    cache: "no-store",
+  });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
   }
@@ -173,7 +205,10 @@ export async function fetchInboxAgentStatus(
   token: string,
   signal?: AbortSignal,
 ): Promise<InboxAgentStatus> {
-  const res = await authedFetch(token, "/conversations/agent-status", { signal, cache: "no-store" });
+  const res = await authedFetch(token, "/conversations/agent-status", {
+    signal,
+    cache: "no-store",
+  });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
   }
@@ -337,8 +372,13 @@ export async function deleteConversation(
 }
 
 /** Reconsulta apenas o recibo; não carrega mensagens nem mídia. */
-export async function fetchConversationDeletionReceipt(token: string, conversationId: string): Promise<PrivateDeletionReceipt> {
-  const res = await authedFetch(token, `/conversations/${conversationId}/deletion-receipt`, { cache: "no-store" });
+export async function fetchConversationDeletionReceipt(
+  token: string,
+  conversationId: string,
+): Promise<PrivateDeletionReceipt> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/deletion-receipt`, {
+    cache: "no-store",
+  });
   if (!res.ok) throw new ApiError(res.status, "Não foi possível atualizar o recibo.");
   return readDeletionReceipt(await res.json());
 }
@@ -346,10 +386,7 @@ export async function fetchConversationDeletionReceipt(token: string, conversati
 // ---------------------------------------------------------------------------
 // Marcar como lida (zera o contador ao abrir a conversa)
 // ---------------------------------------------------------------------------
-export async function markConversationRead(
-  token: string,
-  conversationId: string,
-): Promise<void> {
+export async function markConversationRead(token: string, conversationId: string): Promise<void> {
   const res = await authedFetch(token, `/conversations/${conversationId}/read`, {
     method: "POST",
   });
@@ -383,10 +420,7 @@ export async function fetchInboxTransferTargets(
   let total = 0;
 
   do {
-    const res = await authedFetch(
-      token,
-      `/team/inbox-lookup?page=${page}&pageSize=${pageSize}`,
-    );
+    const res = await authedFetch(token, `/team/inbox-lookup?page=${page}&pageSize=${pageSize}`);
     if (!res.ok) {
       const detail = await readDetail(res);
       throw new ApiError(
@@ -455,18 +489,31 @@ export async function fetchMessageWindow(
   signal?: AbortSignal,
 ): Promise<MessageWindow> {
   if (options.legacy) {
-    const items = await fetchMessages(token,conversationId,200,signal);
-    return {items,page:1,pageSize:200,total:items.length,cursorSupported:false};
+    const items = await fetchMessages(token, conversationId, 200, signal);
+    return { items, page: 1, pageSize: 200, total: items.length, cursorSupported: false };
   }
   const query = new URLSearchParams({ page: "1", pageSize: "50", includeMedia: "false" });
   if (options.before) query.set("before", options.before);
   else if (options.after) query.set("after", options.after);
   else query.set("latest", "true");
-  const res = await authedFetch(token, `/conversations/${conversationId}/messages?${query}`, { signal, cache: "no-store" });
+  const res = await authedFetch(token, `/conversations/${conversationId}/messages?${query}`, {
+    signal,
+    cache: "no-store",
+  });
   if (!res.ok) throw new ApiError(res.status, "Não foi possível carregar as mensagens.");
-  const page = await res.json() as Page<ChatMessage> & { nextBefore?: string | null; nextAfter?: string | null };
+  const page = (await res.json()) as Page<ChatMessage> & {
+    nextBefore?: string | null;
+    nextAfter?: string | null;
+  };
   const supported = "nextBefore" in page && "nextAfter" in page;
-  if (supported && (!Array.isArray(page.items) || ![page.nextBefore,page.nextAfter].every(cursor => cursor === null || typeof cursor === "string"))) throw new ApiError(502,"A janela de mensagens recebida é inválida.");
+  if (
+    supported &&
+    (!Array.isArray(page.items) ||
+      ![page.nextBefore, page.nextAfter].every(
+        (cursor) => cursor === null || typeof cursor === "string",
+      ))
+  )
+    throw new ApiError(502, "A janela de mensagens recebida é inválida.");
   if (!supported) {
     const items = await fetchMessages(token, conversationId, 200, signal);
     return { items, page: 1, pageSize: 200, total: items.length, cursorSupported: false };
@@ -474,40 +521,67 @@ export async function fetchMessageWindow(
   return { ...page, items: page.items.map(safeInboxMessage), cursorSupported: true };
 }
 
-export async function fetchMessageMediaUrls(token: string, conversationId: string, ids: string[], signal?: AbortSignal): Promise<Record<string, string>> {
+export async function fetchMessageMediaUrls(
+  token: string,
+  conversationId: string,
+  ids: string[],
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
   if (!ids.length) return {};
-  const urls: Record<string,string> = {};
+  const urls: Record<string, string> = {};
   const unique = [...new Set(ids)];
   for (let offset = 0; offset < unique.length; offset += 200) {
-    const batch = unique.slice(offset,offset+200);
-    const res = await authedFetch(token, `/conversations/${conversationId}/messages/media-urls?ids=${encodeURIComponent(batch.join(","))}`, {signal,cache:"no-store"});
+    const batch = unique.slice(offset, offset + 200);
+    const res = await authedFetch(
+      token,
+      `/conversations/${conversationId}/messages/media-urls?ids=${encodeURIComponent(batch.join(","))}`,
+      { signal, cache: "no-store" },
+    );
     if (res.status === 404) return urls;
-    if (!res.ok) throw new ApiError(res.status,"Não foi possível carregar a mídia.");
-    const dto = await res.json() as {urls:Record<string,string>};
-    Object.assign(urls,dto.urls);
+    if (!res.ok) throw new ApiError(res.status, "Não foi possível carregar a mídia.");
+    const dto = (await res.json()) as { urls: Record<string, string> };
+    Object.assign(urls, dto.urls);
   }
   return urls;
 }
 
-
 /** Reconcile mutable rows inside the range the person already loaded. */
-export async function fetchLoadedMessageRange(token: string,conversationId: string,loaded: ChatMessage[],signal?: AbortSignal,completeHistory = false): Promise<MessageWindow> {
-  const latest = await fetchMessageWindow(token,conversationId,{},signal);
+export async function fetchLoadedMessageRange(
+  token: string,
+  conversationId: string,
+  loaded: ChatMessage[],
+  signal?: AbortSignal,
+  completeHistory = false,
+): Promise<MessageWindow> {
+  const latest = await fetchMessageWindow(token, conversationId, {}, signal);
   if (!latest.cursorSupported || !loaded.length) return latest;
   const oldest = loaded[0]!;
-  const compare = (left: ChatMessage,right: ChatMessage) => (left.criadoEm ?? "").localeCompare(right.criadoEm ?? "") || left.id.localeCompare(right.id);
-  const items = new Map(latest.items.map(item => [item.id,item]));
+  const compare = (left: ChatMessage, right: ChatMessage) =>
+    (left.criadoEm ?? "").localeCompare(right.criadoEm ?? "") || left.id.localeCompare(right.id);
+  const items = new Map(latest.items.map((item) => [item.id, item]));
   let before = latest.nextBefore;
   const seenCursors = new Set<string>();
-  const budget = Math.ceil(Math.max(latest.total,loaded.length) / 50) + 2;
-  for (let request = 1; before && (completeHistory || !items.size || compare([...items.values()].sort(compare)[0]!,oldest) > 0); request += 1) {
-    if (request >= budget || seenCursors.has(before)) throw new ApiError(502,"A conversa mudou enquanto era atualizada. Tente novamente.");
+  const budget = Math.ceil(Math.max(latest.total, loaded.length) / 50) + 2;
+  for (
+    let request = 1;
+    before &&
+    (completeHistory || !items.size || compare([...items.values()].sort(compare)[0]!, oldest) > 0);
+    request += 1
+  ) {
+    if (request >= budget || seenCursors.has(before))
+      throw new ApiError(502, "A conversa mudou enquanto era atualizada. Tente novamente.");
     seenCursors.add(before);
-    const page = await fetchMessageWindow(token,conversationId,{before},signal);
+    const page = await fetchMessageWindow(token, conversationId, { before }, signal);
     if (!page.cursorSupported) return page;
-    if (!page.items.length && page.nextBefore) throw new ApiError(502,"A janela anterior está incompleta.");
-    for (const item of page.items) items.set(item.id,item);
+    if (!page.items.length && page.nextBefore)
+      throw new ApiError(502, "A janela anterior está incompleta.");
+    for (const item of page.items) items.set(item.id, item);
     before = page.nextBefore;
   }
-  return {...latest,items:[...items.values()].sort(compare),nextBefore:before,rangeReconciled:true};
+  return {
+    ...latest,
+    items: [...items.values()].sort(compare),
+    nextBefore: before,
+    rangeReconciled: true,
+  };
 }

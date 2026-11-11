@@ -23,9 +23,7 @@ vi.mock("@/lib/auth-context", () => ({
 }));
 
 vi.mock("@/lib/agent-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/agent-api")>(
-    "@/lib/agent-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/agent-api")>("@/lib/agent-api");
   return {
     ...actual,
     createConfigRequest: mocks.createConfigRequest,
@@ -124,18 +122,28 @@ describe("AgenteScreen: revalidação da BYO", () => {
       expect(container.textContent).toContain("Estado do assistente indisponível");
       expect(container.textContent).not.toContain("Assistente desativado");
       expect(container.textContent).not.toContain("Assistente ativo");
-      expect(container.querySelector(".seg-toggle-row")?.textContent).not.toMatch(/Desativado|Ativo/);
+      expect(container.querySelector(".seg-toggle-row")?.textContent).not.toMatch(
+        /Desativado|Ativo/,
+      );
       expect(container.textContent).not.toContain("Ainda não configurado pela plataforma");
       act(() => findButton("Agendamentos").click());
       const cronName = container.querySelector<HTMLInputElement>("#cronName")!;
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(cronName, "Agendamento sintético");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          cronName,
+          "Agendamento sintético",
+        );
         cronName.dispatchEvent(new Event("input", { bubbles: true }));
       });
       expect(findButton("Criar agendamento").disabled).toBe(true);
-      expect(container.querySelector<HTMLInputElement>('.seg-toggle-row input[type="checkbox"]')?.disabled).toBe(true);
+      expect(
+        container.querySelector<HTMLInputElement>('.seg-toggle-row input[type="checkbox"]')
+          ?.disabled,
+      ).toBe(true);
       await act(async () => {
-        container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        container
+          .querySelector("form")!
+          .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       });
       expect(mocks.createCron).not.toHaveBeenCalled();
       expect(mocks.updateCron).not.toHaveBeenCalled();
@@ -145,7 +153,12 @@ describe("AgenteScreen: revalidação da BYO", () => {
   );
 
   it.each([true, false])("mostra somente o estado confirmado, ativo=%s", async (ativo) => {
-    mocks.fetchAgentConfig.mockResolvedValue({ configured: true, ativo, nome: "Laboratório", comportamento: "Sintético" });
+    mocks.fetchAgentConfig.mockResolvedValue({
+      configured: true,
+      ativo,
+      nome: "Laboratório",
+      comportamento: "Sintético",
+    });
     act(() => root.render(h(AgenteScreen)));
     await flush();
 
@@ -163,7 +176,9 @@ describe("AgenteScreen: revalidação da BYO", () => {
     expect(container.textContent).toContain("Assistente desativado");
     act(() => findButton("Credencial LLM").click());
     await flush();
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Não foi possível carregar esta seção");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Não foi possível carregar esta seção",
+    );
     expect(container.textContent).toContain("Assistente desativado");
     expect(mocks.saveCredential).not.toHaveBeenCalled();
   });
@@ -186,10 +201,7 @@ describe("AgenteScreen: revalidação da BYO", () => {
     });
     await flush();
 
-    expect(mocks.updateLlmModel).toHaveBeenCalledWith(
-      "tenant-token",
-      "gpt-5.6-luna",
-    );
+    expect(mocks.updateLlmModel).toHaveBeenCalledWith("tenant-token", "gpt-5.6-luna");
     expect(mocks.saveCredential).not.toHaveBeenCalled();
     expect(keyInput.value).toBe("");
     expect(container.textContent).toContain("Credencial e modelo revalidados.");

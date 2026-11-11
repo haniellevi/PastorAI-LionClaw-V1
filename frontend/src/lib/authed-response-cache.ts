@@ -65,10 +65,7 @@ export class AuthedResponseCache {
     }
     for (const [key, entry] of this.entries) {
       if (entry.token !== token) continue;
-      if (
-        pathPrefixes?.length &&
-        !pathPrefixes.some((prefix) => entry.path.startsWith(prefix))
-      ) {
+      if (pathPrefixes?.length && !pathPrefixes.some((prefix) => entry.path.startsWith(prefix))) {
         continue;
       }
       this.entries.delete(key);

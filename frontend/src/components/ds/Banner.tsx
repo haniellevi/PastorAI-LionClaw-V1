@@ -24,7 +24,13 @@ const ICONS: Record<DsBannerKind, ReactNode> = {
   ),
   warning: (
     <svg viewBox="0 0 20 20" width="18" height="18">
-      <path d="M10 2.6L18.6 17H1.4L10 2.6z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path
+        d="M10 2.6L18.6 17H1.4L10 2.6z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
       <path d="M10 8v4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <circle cx="10" cy="14.7" r="0.9" fill="currentColor" />
     </svg>
@@ -38,8 +44,23 @@ const ICONS: Record<DsBannerKind, ReactNode> = {
   // Degradação parcial: círculo tracejado (serviço "meio conectado").
   degraded: (
     <svg viewBox="0 0 20 20" width="18" height="18">
-      <circle cx="10" cy="10" r="8.25" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3.4 2.6" />
-      <path d="M10 6.5v4l2.6 1.8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle
+        cx="10"
+        cy="10"
+        r="8.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeDasharray="3.4 2.6"
+      />
+      <path
+        d="M10 6.5v4l2.6 1.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   ),
 };

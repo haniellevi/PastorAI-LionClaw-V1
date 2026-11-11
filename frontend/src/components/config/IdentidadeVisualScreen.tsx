@@ -171,17 +171,21 @@ export function IdentidadeVisualScreen() {
           <Icon name="image" /> Identidade Visual
         </div>
         <p className="sub" style={{ color: "var(--muted)", margin: "var(--s2) 0 var(--s3)" }}>
-          Logo da igreja exibida no sistema. É opcional: sem logo, mostramos o nome da
-          igreja. (Isto não altera a marca do produto “Igreja 12”.)
+          Logo da igreja exibida no sistema. É opcional: sem logo, mostramos o nome da igreja. (Isto
+          não altera a marca do produto “Igreja 12”.)
         </p>
 
         {loading ? (
-          <p className="sub" style={{ color: "var(--muted)" }}>Carregando…</p>
+          <p className="sub" style={{ color: "var(--muted)" }}>
+            Carregando…
+          </p>
         ) : (
           <>
             {/* Nome da igreja — read-only (só o master edita). */}
             <label style={{ display: "block", marginBottom: "var(--s3)" }}>
-              <span className="sub" style={{ color: "var(--muted)" }}>Nome da igreja</span>
+              <span className="sub" style={{ color: "var(--muted)" }}>
+                Nome da igreja
+              </span>
               <input
                 className="input"
                 type="text"
@@ -248,7 +252,11 @@ export function IdentidadeVisualScreen() {
             </p>
 
             {error ? (
-              <p className="sub" role="alert" style={{ color: "var(--danger)", marginBottom: "var(--s3)" }}>
+              <p
+                className="sub"
+                role="alert"
+                style={{ color: "var(--danger)", marginBottom: "var(--s3)" }}
+              >
                 {error}
               </p>
             ) : null}
@@ -283,12 +291,7 @@ export function IdentidadeVisualScreen() {
                     <Icon name="check" />
                     <span>{busy ? "Enviando…" : "Enviar logo"}</span>
                   </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={clearSelection}
-                    disabled={busy}
-                  >
+                  <button type="button" className="btn" onClick={clearSelection} disabled={busy}>
                     <span>Cancelar</span>
                   </button>
                 </>
@@ -297,7 +300,12 @@ export function IdentidadeVisualScreen() {
                   type="button"
                   className="btn btn-danger"
                   onClick={() => {
-                    if (window.confirm(`Remover a logo de ${nome}? O painel passa a exibir o nome da igreja.`)) void remove();
+                    if (
+                      window.confirm(
+                        `Remover a logo de ${nome}? O painel passa a exibir o nome da igreja.`,
+                      )
+                    )
+                      void remove();
                   }}
                   disabled={busy}
                 >

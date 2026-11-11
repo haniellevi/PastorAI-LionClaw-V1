@@ -93,7 +93,9 @@ export function ManageCellsPanel({
     const controller = new AbortController();
     setPublicDataEnabled(false);
     void fetchChurchCadastroCapability(token, controller.signal).then(
-      (enabled) => { if (!controller.signal.aborted) setPublicDataEnabled(enabled); },
+      (enabled) => {
+        if (!controller.signal.aborted) setPublicDataEnabled(enabled);
+      },
       (reason: unknown) => {
         if (!controller.signal.aborted && reason instanceof SessionExpiredError) expireSession();
       },
@@ -117,11 +119,15 @@ export function ManageCellsPanel({
     pessoaId: string;
   } | null>(null);
 
-  const loadCellsPage = useCallback((q: string, page: number, signal: AbortSignal) =>
-    fetchCellListPage(token, { q, page, signal }), [token]);
+  const loadCellsPage = useCallback(
+    (q: string, page: number, signal: AbortSignal) => fetchCellListPage(token, { q, page, signal }),
+    [token],
+  );
   const cellsLookup = useLookupPage(loadCellsPage, query);
   const retryCells = cellsLookup.retry;
-  const load = useCallback(async () => { retryCells(); }, [retryCells]);
+  const load = useCallback(async () => {
+    retryCells();
+  }, [retryCells]);
   useEffect(() => {
     if (cellsLookup.result) {
       setCells(cellsLookup.result.items);
@@ -134,18 +140,23 @@ export function ManageCellsPanel({
   // Only the visible leaders and selected members need full identity labels.
   const tokenRef = useRef(token);
   tokenRef.current = token;
-  const rememberPeople = useCallback(async (ids: string[]) => {
-    const unique = [...new Set(ids)];
-    const people = await Promise.all(unique.map((id) => fetchContactDetail(token, id)));
-    if (tokenRef.current !== token) return;
-    setContacts((previous) => {
-      const byId = new Map(previous.map((person) => [person.id, person]));
-      people.forEach((person) => byId.set(person.id, person));
-      return [...byId.values()];
-    });
-  }, [token]);
+  const rememberPeople = useCallback(
+    async (ids: string[]) => {
+      const unique = [...new Set(ids)];
+      const people = await Promise.all(unique.map((id) => fetchContactDetail(token, id)));
+      if (tokenRef.current !== token) return;
+      setContacts((previous) => {
+        const byId = new Map(previous.map((person) => [person.id, person]));
+        people.forEach((person) => byId.set(person.id, person));
+        return [...byId.values()];
+      });
+    },
+    [token],
+  );
   useEffect(() => {
-    const ids = cells.filter((cell) => cell.liderId && !cell.liderNome).map((cell) => cell.liderId!);
+    const ids = cells
+      .filter((cell) => cell.liderId && !cell.liderNome)
+      .map((cell) => cell.liderId!);
     if (!ids.length) return;
     void rememberPeople(ids).catch((reason: unknown) => {
       if (reason instanceof SessionExpiredError) expireSession();
@@ -154,28 +165,53 @@ export function ManageCellsPanel({
   useEffect(() => {
     if (!showForm) return;
     let active = true;
-    void fetchTeam(token).then((page) => { if (active) setTeam(page.items); }).catch((reason: unknown) => {
-      if (reason instanceof SessionExpiredError) expireSession();
-      else if (active) setFormError(reason instanceof Error ? reason.message : "Não foi possível validar os acessos da equipe.");
-    });
-    return () => { active = false; };
+    void fetchTeam(token)
+      .then((page) => {
+        if (active) setTeam(page.items);
+      })
+      .catch((reason: unknown) => {
+        if (reason instanceof SessionExpiredError) expireSession();
+        else if (active)
+          setFormError(
+            reason instanceof Error
+              ? reason.message
+              : "Não foi possível validar os acessos da equipe.",
+          );
+      });
+    return () => {
+      active = false;
+    };
   }, [showForm, token, expireSession]);
   useEffect(() => {
     if (!showForm || !editing?.liderId) return;
     void rememberPeople([editing.liderId]).catch((reason: unknown) => {
       if (reason instanceof SessionExpiredError) expireSession();
-      else setFormError(reason instanceof Error ? reason.message : "Não foi possível validar o líder atual.");
+      else
+        setFormError(
+          reason instanceof Error ? reason.message : "Não foi possível validar o líder atual.",
+        );
     });
   }, [showForm, editing?.liderId, rememberPeople, expireSession]);
-  const loadLeadersPage = useCallback(async (q: string, page: number, signal: AbortSignal) => {
-    const result = await fetchContactLookupPage(token, { q, page, signal, view: "aptos" });
-    return { ...result, items: buildCellLeaderOptions(result.items, team, editing?.liderId) };
-  }, [token, team, editing?.liderId]);
-  const loadCoveragePage = useCallback((q: string, page: number, signal: AbortSignal) =>
-    fetchContactLookupPage(token, { q, page, signal, view: "pastor" }).then((result) =>
-      ({ ...result, items: result.items.filter((person) => !person.semInteresse) })), [token]);
-  const loadContactsPage = useCallback((q: string, page: number, signal: AbortSignal) =>
-    fetchContactLookupPage(token, { q, page, signal }), [token]);
+  const loadLeadersPage = useCallback(
+    async (q: string, page: number, signal: AbortSignal) => {
+      const result = await fetchContactLookupPage(token, { q, page, signal, view: "aptos" });
+      return { ...result, items: buildCellLeaderOptions(result.items, team, editing?.liderId) };
+    },
+    [token, team, editing?.liderId],
+  );
+  const loadCoveragePage = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchContactLookupPage(token, { q, page, signal, view: "pastor" }).then((result) => ({
+        ...result,
+        items: result.items.filter((person) => !person.semInteresse),
+      })),
+    [token],
+  );
+  const loadContactsPage = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchContactLookupPage(token, { q, page, signal }),
+    [token],
+  );
 
   // A Central cruza Pessoa + Equipe completa. Convites pendentes, acessos
   // revogados, ausentes ou duplicados ficam visíveis com o motivo, sem poderem
@@ -186,23 +222,34 @@ export function ManageCellsPanel({
   );
 
   const leaderName = useCallback(
-    (id: string | null) => (id ? cells.find((cell) => cell.liderId === id)?.liderNome ?? contacts.find((c) => c.id === id)?.nome ?? "Carregando nome…" : "Sem líder"),
+    (id: string | null) =>
+      id
+        ? (cells.find((cell) => cell.liderId === id)?.liderNome ??
+          contacts.find((c) => c.id === id)?.nome ??
+          "Carregando nome…")
+        : "Sem líder",
     [cells, contacts],
   );
 
   const [selectedRecord, setSelectedRecord] = useState<CellSummary | null>(null);
   useEffect(() => {
-    setCells([]); setContacts([]); setTeam([]); setLoaded(false);
-    setSelectedId(null); setSelectedRecord(null); setShowForm(false); setShowInvite(false);
+    setCells([]);
+    setContacts([]);
+    setTeam([]);
+    setLoaded(false);
+    setSelectedId(null);
+    setSelectedRecord(null);
+    setShowForm(false);
+    setShowInvite(false);
     setMemberAction(null);
   }, [token]);
   const selectedCell = useMemo(
-    () => cells.find((c) => c.id === selectedId) ?? (selectedRecord?.id === selectedId ? selectedRecord : null),
+    () =>
+      cells.find((c) => c.id === selectedId) ??
+      (selectedRecord?.id === selectedId ? selectedRecord : null),
     [cells, selectedId, selectedRecord],
   );
-  const addMemberBlockReason = selectedCell
-    ? cellMemberAddBlockReason(selectedCell)
-    : null;
+  const addMemberBlockReason = selectedCell ? cellMemberAddBlockReason(selectedCell) : null;
 
   // Nome do vínculo resolvido pelos contatos já carregados (membros só têm id).
   const membroNome = useCallback(
@@ -303,15 +350,12 @@ export function ManageCellsPanel({
     [token, onToast, onChanged, expireSession, retryCells],
   );
 
-  const handleMemberAdded = useCallback(
-    () => {
-      // O modal mantém o sucesso visível; aqui apenas sincronizamos as leituras.
-      void load();
-      setMembrosNonce((n) => n + 1);
-      onChanged();
-    },
-    [onChanged, load],
-  );
+  const handleMemberAdded = useCallback(() => {
+    // O modal mantém o sucesso visível; aqui apenas sincronizamos as leituras.
+    void load();
+    setMembrosNonce((n) => n + 1);
+    onChanged();
+  }, [onChanged, load]);
 
   const handleMemberActionDone = useCallback(() => {
     setMembrosNonce((n) => n + 1);
@@ -320,10 +364,7 @@ export function ManageCellsPanel({
   }, [load, onChanged]);
 
   const memberActionPessoa = useMemo(
-    () =>
-      memberAction
-        ? (contacts.find((c) => c.id === memberAction.pessoaId) ?? null)
-        : null,
+    () => (memberAction ? (contacts.find((c) => c.id === memberAction.pessoaId) ?? null) : null),
     [memberAction, contacts],
   );
 
@@ -378,14 +419,28 @@ export function ManageCellsPanel({
         <section className="card" aria-label="Selecionar célula existente">
           <div className="panel-title">
             <Icon name="central-celula" /> Selecionar célula existente
-            {cellsLookup.result ? <span className="count">· {cellsLookup.result.total}</span> : null}
+            {cellsLookup.result ? (
+              <span className="count">· {cellsLookup.result.total}</span>
+            ) : null}
           </div>
           <div className="ops-search" style={{ padding: "var(--s4)", marginBottom: 0 }}>
             <label htmlFor="central-cell-search">Buscar célula</label>
-            <input type="search" id="central-cell-search" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <input
+              type="search"
+              id="central-cell-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
           </div>
           <div>
-            {visibleCells.length === 0 ? <div className="section-body"><p>Nenhuma célula corresponde à busca.</p><DsButton variant="secondary" onClick={() => setQuery("")}>Limpar busca</DsButton></div> : null}
+            {visibleCells.length === 0 ? (
+              <div className="section-body">
+                <p>Nenhuma célula corresponde à busca.</p>
+                <DsButton variant="secondary" onClick={() => setQuery("")}>
+                  Limpar busca
+                </DsButton>
+              </div>
+            ) : null}
             {visibleCells.map((c) => {
               const selected = c.id === selectedId;
               return (
@@ -393,7 +448,10 @@ export function ManageCellsPanel({
                   type="button"
                   key={c.id}
                   className={`cc-cell-row${selected ? " cc-cell-row--active" : ""}`}
-                  onClick={() => { setSelectedRecord(c); setSelectedId(selected ? null : c.id); }}
+                  onClick={() => {
+                    setSelectedRecord(c);
+                    setSelectedId(selected ? null : c.id);
+                  }}
                   aria-pressed={selected}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -408,11 +466,23 @@ export function ManageCellsPanel({
             })}
           </div>
 
-          <div style={{ padding: "var(--s4)" }}><LookupPager result={cellsLookup.result} loading={cellsLookup.loading} onPage={cellsLookup.setPage} /></div>
+          <div style={{ padding: "var(--s4)" }}>
+            <LookupPager
+              result={cellsLookup.result}
+              loading={cellsLookup.loading}
+              onPage={cellsLookup.setPage}
+            />
+          </div>
           {selectedCell ? (
             <>
-              <p className="ops-selected-context" role="status">Célula selecionada: <strong>{selectedCell.nome}</strong>. As ações abaixo se aplicam a ela.</p>
-              <div className="cell-detail-actions" style={{ padding: "var(--s3) var(--s4)", marginBottom: 0 }}>
+              <p className="ops-selected-context" role="status">
+                Célula selecionada: <strong>{selectedCell.nome}</strong>. As ações abaixo se aplicam
+                a ela.
+              </p>
+              <div
+                className="cell-detail-actions"
+                style={{ padding: "var(--s3) var(--s4)", marginBottom: 0 }}
+              >
                 <DsButton variant="secondary" onClick={() => openEdit(selectedCell)} block>
                   <Icon name="document" />
                   <span>Editar célula</span>
@@ -499,21 +569,26 @@ export function ManageCellsPanel({
                             <Icon name="transfer" />
                             <span>Transferir</span>
                           </DsButton>
-                          <details><summary aria-label={`Mais ações para ${membroNome(m.pessoaId)}`}>Mais ações</summary><DsButton
-                            variant="danger"
-                            size="md"
-                            onClick={() =>
-                              setMemberAction({
-                                mode: "remover",
-                                pessoaId: m.pessoaId,
-                              })
-                            }
-                            aria-label={`Remover ${membroNome(m.pessoaId)}`}
-                            title="Remover da célula"
-                          >
-                            <Icon name="close" />
-                            <span>Remover</span>
-                          </DsButton></details>
+                          <details>
+                            <summary aria-label={`Mais ações para ${membroNome(m.pessoaId)}`}>
+                              Mais ações
+                            </summary>
+                            <DsButton
+                              variant="danger"
+                              size="md"
+                              onClick={() =>
+                                setMemberAction({
+                                  mode: "remover",
+                                  pessoaId: m.pessoaId,
+                                })
+                              }
+                              aria-label={`Remover ${membroNome(m.pessoaId)}`}
+                              title="Remover da célula"
+                            >
+                              <Icon name="close" />
+                              <span>Remover</span>
+                            </DsButton>
+                          </details>
                         </div>
                       </div>
                     ))}
@@ -527,7 +602,10 @@ export function ManageCellsPanel({
 
       <details className="ops-disclosure" ref={healthDisclosure}>
         <summary>Saúde e multiplicações</summary>
-        <div className="ops-disclosure-body ops-support"><CellHealthList token={token} /><MultiplicationsList token={token} /></div>
+        <div className="ops-disclosure-body ops-support">
+          <CellHealthList token={token} />
+          <MultiplicationsList token={token} />
+        </div>
       </details>
       <PendingReportsList token={token} focusOnOpen={focusSection === "reports"} />
 

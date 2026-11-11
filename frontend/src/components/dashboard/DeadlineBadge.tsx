@@ -29,10 +29,7 @@ export function DeadlineBadge({
   const label = prefix ? `${prefix} · ${info.label}` : info.label;
 
   return (
-    <span
-      className={`ddl ${TONE_CLASS[info.tone]}`.trim()}
-      data-state={info.state}
-    >
+    <span className={`ddl ${TONE_CLASS[info.tone]}`.trim()} data-state={info.state}>
       <Icon name="clock" />
       {label}
     </span>

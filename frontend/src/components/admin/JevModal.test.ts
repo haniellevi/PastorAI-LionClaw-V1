@@ -92,9 +92,7 @@ function setValue(el: HTMLInputElement, value: string) {
 }
 
 function checkbox(label: string): HTMLInputElement {
-  const found = [...document.querySelectorAll("label")].find((l) =>
-    l.textContent!.includes(label),
-  );
+  const found = [...document.querySelectorAll("label")].find((l) => l.textContent!.includes(label));
   return found!.querySelector("input") as HTMLInputElement;
 }
 

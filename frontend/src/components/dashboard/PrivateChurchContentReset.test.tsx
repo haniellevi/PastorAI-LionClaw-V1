@@ -5,8 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PrivateChurchContentReset } from "./PrivateChurchContentReset";
 
 const api = vi.hoisted(() => ({ fetch: vi.fn(), clear: vi.fn() }));
-vi.mock("@/lib/dashboard-api", async original => ({
-  ...await original<typeof import("@/lib/dashboard-api")>(),
+vi.mock("@/lib/dashboard-api", async (original) => ({
+  ...(await original<typeof import("@/lib/dashboard-api")>()),
   authedFetch: api.fetch,
   clearAuthedResponseCache: api.clear,
 }));
@@ -18,7 +18,9 @@ const close = vi.fn();
 const erased = vi.fn();
 const sessionError = vi.fn();
 const receipt = {
-  id: "receipt-church-1", estado: "pendente", escopo: "igreja",
+  id: "receipt-church-1",
+  estado: "pendente",
+  escopo: "igreja",
   camadas: { mensagens: { encontradas: 4, apagadas: 4, pendentes: 0, falhas: 0 } },
 };
 
@@ -28,17 +30,30 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); });
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
 
 async function render(open = true) {
-  await act(async () => root.render(h(PrivateChurchContentReset, {
-    open, token: "synthetic", churchName: "Igreja sintética", onClose: close,
-    onErased: erased, onSessionError: sessionError,
-  })));
+  await act(async () =>
+    root.render(
+      h(PrivateChurchContentReset, {
+        open,
+        token: "synthetic",
+        churchName: "Igreja sintética",
+        onClose: close,
+        onErased: erased,
+        onSessionError: sessionError,
+      }),
+    ),
+  );
 }
 
 function button(label: string) {
-  return [...container.querySelectorAll("button")].find(item => item.textContent?.includes(label))!;
+  return [...container.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes(label),
+  )!;
 }
 
 async function setInput(index: number, value: string) {
@@ -91,7 +106,9 @@ it("reuses the operation after an ambiguous failure and starts a distinct delibe
   expect(api.fetch.mock.calls[2]![1]).toBe("/igreja/private-deletions/receipt-church-1");
 
   await act(async () => button("Iniciar novo reset").click());
-  const operationLine = [...container.querySelectorAll("p")].find(item => item.textContent?.startsWith("Operação:"));
+  const operationLine = [...container.querySelectorAll("p")].find((item) =>
+    item.textContent?.startsWith("Operação:"),
+  );
   expect(operationLine?.textContent).not.toContain(firstId);
   expect(button("Confirmar reset privado").disabled).toBe(true);
 });
