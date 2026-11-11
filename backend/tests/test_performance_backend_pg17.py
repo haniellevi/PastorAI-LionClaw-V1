@@ -21,7 +21,9 @@ from app.domain.cell_meetings_schedule import meeting_has_passed
 from app.domain.cell_report_snapshot import build_cell_report_snapshot_v2
 from app.routers._common import PaginationParams
 from app.routers.auth import bootstrap
-from app.routers.cell_central import _past_meeting_filter, get_dashboard, get_pending_reports
+from app.routers.cell_central import get_dashboard, get_pending_reports
+from app.routers.cell_discipulo import get_my_history
+from app.routers.cell_meetings import past_meeting_filter
 from app.routers.cells import cells_summary, led_cells_today, list_cells, lookup_cells
 from app.routers.contacts import list_contacts, lookup_contacts
 from app.routers.events import IndividualTargetInput, _resolve_contatos, list_events
@@ -154,6 +156,7 @@ def test_bootstrap_effective_matrix_is_tenant_filtered(read_session):
     assert result.permissions.matriz["membro"] == ["dashboard", "calendario"]
     assert "central-celula" not in result.permissions.matriz["lider_celula"]
     assert len(queries) == 1
+    assert queries[0].splitlines()[0].strip() == "SELECT role_permissions.papel, role_permissions.tela"
 
 
 def test_setup_one_statement_retains_owner_complimentary_and_revoked_rules(read_session):
@@ -346,7 +349,7 @@ def test_past_meeting_sql_matches_domain_at_time_and_missing_hour_boundaries(rea
     db.rollback()
     # This check uses an unscoped connection to seed a dense boundary sample.
     now = dt.datetime(2026,10,2,13,0,tzinfo=dt.timezone.utc)  # 10:00 São Paulo
-    hours = [None,"09:59","10:00","10:01","invalid"," 09:59 "]
+    hours = [None, "09:59", "10:00", "10:01", "invalid", " 09:59 ", "\t09:59\r", "\u200309:59\u00a0"]
     rows = []
     for day_delta in (-1,0,1):
         for n, hour in enumerate(hours):
@@ -354,9 +357,12 @@ def test_past_meeting_sql_matches_domain_at_time_and_missing_hour_boundaries(rea
                 "data":dt.date(2026,10,2)+dt.timedelta(days=day_delta),"hora":hour})
     conn.execute(m.CelulaReuniao.__table__.insert(), rows)
     mark_tenant_scoped(db, TENANT, source="synthetic-performance-boundary")
-    found = set(db.execute(select(m.CelulaReuniao.id).where(m.CelulaReuniao.id.in_([r["id"] for r in rows]), _past_meeting_filter(now))).scalars())
+    selected = select(m.CelulaReuniao.id).where(m.CelulaReuniao.id.in_([r["id"] for r in rows]))
+    found = set(db.execute(selected.where(past_meeting_filter(now, strip_python_whitespace=True))).scalars())
     expected = {r["id"] for r in rows if meeting_has_passed(data=r["data"],hora=r["hora"],now=now)}
     assert found == expected
+    central = set(db.execute(selected.where(past_meeting_filter(now))).scalars())
+    assert central == expected - {uid(1006), uid(1007)}
 
 
 def test_reports_page_is_bounded_and_invalid_sent_snapshot_outside_page_fails_closed(read_session):
@@ -385,6 +391,79 @@ def test_led_today_fetches_one_future_slot_for_all_led_cells(read_session):
     assert result.meeting.data == "2999-01-01"
     assert result.meeting.tema == "Árvore: Reunião da célula"
     assert len(queries) == 3
+
+
+def test_disciple_history_paginates_without_fetching_other_members_data(read_session):
+    db, queries, conn = read_session
+    db.rollback()
+    conn.execute(m.CelulaMembro.__table__.insert().values(
+        id=uid(701), igreja_id=TENANT, celula_id=CELL, pessoa_id=ACTOR, ativo=True,
+    ))
+    recent = dt.date(2000, 1, 2)
+    conn.execute(m.CelulaReuniao.__table__.insert(), [
+        {"id": uid(702), "igreja_id": TENANT, "celula_id": CELL, "data": recent,
+         "hora": "19:30", "tema": "Primeira", "observacoes": "Relatório reservado"},
+        {"id": uid(703), "igreja_id": TENANT, "celula_id": CELL, "data": recent,
+         "hora": "19:30", "tema": "Segunda", "observacoes": "Relatório reservado"},
+    ])
+    conn.execute(m.CelulaReuniao.__table__.insert(), [
+        {"id": uid(800 + day), "igreja_id": TENANT, "celula_id": CELL,
+         "data": dt.date(1999, 1, 1) + dt.timedelta(days=day)}
+        for day in range(100)
+    ])
+    conn.execute(m.CelulaPresenca.__table__.insert(), [
+        {"id": uid(704), "igreja_id": TENANT, "reuniao_id": uid(702),
+         "pessoa_id": ACTOR, "estado": "compareceu"},
+        {"id": uid(705), "igreja_id": TENANT, "reuniao_id": uid(703),
+         "pessoa_id": ACTOR, "estado": "ausente"},
+        {"id": uid(706), "igreja_id": TENANT, "reuniao_id": uid(41),
+         "pessoa_id": uid(22), "estado": "compareceu"},
+        {"id": uid(707), "igreja_id": OTHER, "reuniao_id": uid(41),
+         "pessoa_id": ACTOR, "estado": "ausente"},
+    ])
+    conn.execute(m.CelulaExpectativaVisitante.__table__.insert(), [
+        {"id": uid(708), "igreja_id": TENANT, "reuniao_id": uid(702),
+         "pessoa_id": ACTOR, "nome_visitante": "Segunda indicação",
+         "created_at": dt.datetime(2000, 1, 2, 14)},
+        {"id": uid(709), "igreja_id": TENANT, "reuniao_id": uid(702),
+         "pessoa_id": ACTOR, "nome_visitante": "Primeira indicação",
+         "created_at": dt.datetime(2000, 1, 2, 13)},
+        {"id": uid(710), "igreja_id": TENANT, "reuniao_id": uid(702),
+         "pessoa_id": uid(22), "nome_visitante": "Indicação de outro membro",
+         "created_at": dt.datetime(2000, 1, 2, 12)},
+        {"id": uid(711), "igreja_id": OTHER, "reuniao_id": uid(702),
+         "pessoa_id": ACTOR, "nome_visitante": "Indicação de outra igreja",
+         "created_at": dt.datetime(2000, 1, 2, 11)},
+    ])
+    mark_tenant_scoped(db, TENANT, source="synthetic-disciple-history")
+    user = principal("membro")
+
+    def fetch(page, page_size):
+        queries.clear()
+        return get_my_history(page=page, page_size=page_size, db=db, current_user=user)
+
+    first = fetch(1, 1)
+    assert first.total == 103
+    assert first.page == 1 and first.page_size == 1
+    assert first.items[0].model_dump() == {
+        "data": "2000-01-02", "tema": "Primeira", "minha_presenca": "participou",
+        "meus_visitantes_indicados": ["Primeira indicação", "Segunda indicação"],
+    }
+    narrow_queries = len(queries)
+    tail = fetch(2, 1)
+    assert tail.total == 103 and len(tail.items) == 1
+    assert tail.items[0].tema == "Segunda" and tail.items[0].minha_presenca == "faltou"
+    whole = fetch(1, 100)
+    assert whole.total == 103 and len(whole.items) == 100
+    assert whole.items[2].data == "2000-01-01"
+    assert whole.items[2].minha_presenca == "nao_confirmou"
+    assert whole.items[2].meus_visitantes_indicados == []
+    assert len(queries) == narrow_queries == 5
+    assert any("LIMIT" in query for query in queries)
+    assert all("celula_reuniao.observacoes" not in query for query in queries)
+
+    empty = fetch(999, 100)
+    assert empty.total == 103 and empty.items == []
 
 
 def test_team_page_does_not_eager_fetch_igreja_or_all_tenant_roles(read_session):

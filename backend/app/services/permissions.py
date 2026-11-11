@@ -17,11 +17,13 @@ MATRIX_ROLES = {
 
 def effective_permissions(db: Session, igreja_id: str) -> dict[str, list[str]]:
     rows = db.execute(
-        select(RolePermission).where(RolePermission.igreja_id == uuid.UUID(igreja_id))
-    ).scalars().all()
+        select(RolePermission.papel, RolePermission.tela).where(
+            RolePermission.igreja_id == uuid.UUID(igreja_id)
+        )
+    ).all()
     stored: dict[str, set[str]] = {}
-    for row in rows:
-        stored.setdefault(row.papel, set()).add(row.tela)
+    for role, screen in rows:
+        stored.setdefault(role, set()).add(screen)
     result: dict[str, list[str]] = {}
     for role in sorted(MATRIX_ROLES):
         effective = screens_for_role(role, stored)
