@@ -171,7 +171,7 @@ def test_platform_auth_checks_session_and_allowlist_without_loading_tenant_relat
     jti = "synthetic-platform-session"
     now = dt.datetime.now(dt.timezone.utc)
     clerk = SimpleNamespace(verify_session_token=lambda _token: ClerkIdentity(subject, {"jti": jti}))
-    with query_engine.connect() as conn, Session(bind=conn) as db:
+    with query_engine.connect() as conn:
         conn.execute(m.Igreja.__table__.insert().values(id=TENANT, nome="Sintética"))
         conn.execute(m.AppUser.__table__.insert().values(
             id=USER, igreja_id=TENANT, clerk_user_id=subject,
@@ -194,20 +194,25 @@ def test_platform_auth_checks_session_and_allowlist_without_loading_tenant_relat
             if statement.lstrip().upper().startswith("SELECT"):
                 statements.append(statement.lower())
 
-        authorized = get_platform_admin(authorization="Bearer synthetic-token", db=db, clerk=clerk)
-        assert authorized.app_user_id == str(USER)
+        def authorize():
+            with Session(bind=conn) as db:
+                return get_platform_admin(authorization="Bearer synthetic-token", db=db, clerk=clerk)
+
+        assert authorize().app_user_id == str(USER)
         assert len(statements) == 3
         assert all("user_roles" not in statement and "join igrejas" not in statement for statement in statements)
 
+        session_update = m.AuthSession.__table__.update().where(m.AuthSession.jti == jti)
+        conn.execute(session_update.values(revoked_at=now))
+        with pytest.raises(HTTPException) as revoked:
+            authorize()
+        assert revoked.value.status_code == 401
+
+        conn.execute(session_update.values(revoked_at=None))
         conn.execute(m.PlatformAdmin.__table__.delete().where(m.PlatformAdmin.app_user_id == USER))
         with pytest.raises(HTTPException) as denied:
-            get_platform_admin(authorization="Bearer synthetic-token", db=db, clerk=clerk)
+            authorize()
         assert denied.value.status_code == 403
-
-        conn.execute(m.AuthSession.__table__.update().where(m.AuthSession.jti == jti).values(revoked_at=now))
-        with pytest.raises(HTTPException) as revoked:
-            get_platform_admin(authorization="Bearer synthetic-token", db=db, clerk=clerk)
-        assert revoked.value.status_code == 401
 
 
 def test_lookups_and_pipeline_search_count_before_page_and_do_not_leak_tenant(read_session):
