@@ -49,6 +49,11 @@ import {
   type MeResult,
 } from "./api";
 import { AuthProvider, useAuth, type AuthStatus } from "./auth-context";
+import {
+  clearConsolidations,
+  getConsolidation,
+  upsertConsolidation,
+} from "./consolidacao-store";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -132,6 +137,57 @@ describe("AuthProvider — restauração de sessão", () => {
     expect(latest?.status).toBe("unauthenticated");
     expect(latest?.user).toBeNull();
     expect(window.localStorage.getItem("pastorai:token")).toBeNull();
+  });
+
+  it("esquece as consolidações da pessoa anterior ao sair", async () => {
+    apiMocks.fetchMe.mockResolvedValue(me);
+    clearConsolidations();
+    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    await waitForState(() => expect(latest?.status).toBe("authenticated"));
+    act(() => {
+      upsertConsolidation({
+        consolidacaoId: "cons-1",
+        pessoaId: "pessoa-ficticia-1",
+        responsavelId: null,
+        prazoConexao: null,
+        vinculo: "visitante",
+        confirmedStages: [],
+        concluida: false,
+      });
+    });
+    expect(getConsolidation("pessoa-ficticia-1")).toBeDefined();
+
+    await act(async () => {
+      await latest?.logout();
+    });
+
+    expect(getConsolidation("pessoa-ficticia-1")).toBeUndefined();
+  });
+
+  it("esquece as consolidações de antes ao entrar com outra conta", async () => {
+    window.localStorage.removeItem("pastorai:token");
+    apiMocks.login.mockResolvedValue({ ...me, token: "outra-conta" });
+    clearConsolidations();
+    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    await waitForState(() => expect(latest?.status).toBe("unauthenticated"));
+    act(() => {
+      upsertConsolidation({
+        consolidacaoId: "cons-2",
+        pessoaId: "pessoa-ficticia-2",
+        responsavelId: null,
+        prazoConexao: null,
+        vinculo: "visitante",
+        confirmedStages: [],
+        concluida: false,
+      });
+    });
+
+    await act(async () => {
+      await latest?.login("outra@example.com", "senha-ficticia");
+    });
+
+    expect(latest?.status).toBe("authenticated");
+    expect(getConsolidation("pessoa-ficticia-2")).toBeUndefined();
   });
 
   it("revoga a sessão no servidor antes de limpar o token local", async () => {

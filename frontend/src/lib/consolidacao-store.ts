@@ -57,6 +57,17 @@ export function patchConsolidation(
   emit();
 }
 
+/**
+ * Esquece todas as consolidações da sessão. Chamado em login, logout e sessão
+ * expirada: o store é global ao módulo e, sem isso, dados de uma pessoa
+ * continuariam na aba depois da troca de usuário sem recarregar a página.
+ */
+export function clearConsolidations(): void {
+  if (store.size === 0) return;
+  store.clear();
+  emit();
+}
+
 /** Lê a consolidação conhecida de uma pessoa (ou undefined). */
 export function getConsolidation(pessoaId: string): SessionConsolidation | undefined {
   return store.get(pessoaId);
