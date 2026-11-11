@@ -357,9 +357,12 @@ def test_past_meeting_sql_matches_domain_at_time_and_missing_hour_boundaries(rea
                 "data":dt.date(2026,10,2)+dt.timedelta(days=day_delta),"hora":hour})
     conn.execute(m.CelulaReuniao.__table__.insert(), rows)
     mark_tenant_scoped(db, TENANT, source="synthetic-performance-boundary")
-    found = set(db.execute(select(m.CelulaReuniao.id).where(m.CelulaReuniao.id.in_([r["id"] for r in rows]), past_meeting_filter(now))).scalars())
+    selected = select(m.CelulaReuniao.id).where(m.CelulaReuniao.id.in_([r["id"] for r in rows]))
+    found = set(db.execute(selected.where(past_meeting_filter(now, strip_python_whitespace=True))).scalars())
     expected = {r["id"] for r in rows if meeting_has_passed(data=r["data"],hora=r["hora"],now=now)}
     assert found == expected
+    central = set(db.execute(selected.where(past_meeting_filter(now))).scalars())
+    assert central == expected - {uid(1006), uid(1007)}
 
 
 def test_reports_page_is_bounded_and_invalid_sent_snapshot_outside_page_fails_closed(read_session):

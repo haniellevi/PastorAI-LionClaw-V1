@@ -323,7 +323,7 @@ def get_my_history(
     filters = (
         CelulaReuniao.celula_id == cell_id,
         CelulaReuniao.igreja_id == igreja_id,
-        past_meeting_filter(),
+        past_meeting_filter(strip_python_whitespace=True),
     )
     total = db.execute(
         select(func.count()).select_from(CelulaReuniao).where(*filters)
