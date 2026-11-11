@@ -1290,7 +1290,7 @@ vínculo Pessoa e ordem de aplicação), para transformar estoque em uso real.
 | Arquivos de produção gigantes | `models.py` 5,0k, `queue_worker.py` 5,0k, `cell_report_audio_service.py` 4,1k, `routers/subscription.py` 3,7k, `notification_outbox.py` 3,5k, `agent/runtime.py` 2,3k linhas | arquivo tocado não cresce além de ~800 linhas; extrair uma responsabilidade coesa por PR quando a área for tocada |
 | Camadas | acesso direto ao banco em 31/41 routers; inversões serviço→router eliminadas, com teste de camadas que cobre import relativo e alias (#555) | eliminar as 2 inversões; mover consulta para o serviço ao tocar a rota |
 | Isolamento por igreja | helpers RLS novos e legados convivem | migrar um caminho por PR com teste PG de duas igrejas |
-| Código pausado | ~5k linhas E4B/purpose consent no app | decidido em 11/11 (Raniel): arquivar em PR própria (PR 7 do plano de qualidade); volta pelo histórico do Git |
+| Código pausado | ~5k linhas E4B/purpose consent no app | decidido em 11/11 (Raniel): arquivar em PR própria (PR 7 do plano de qualidade, #651); volta pelo histórico do Git |
 | Migrations | 17 nomes legados | checar padrão só nos arquivos novos; não renomear histórico |
 | E2E do painel | Playwright usa API simulada | um E2E sintético navegador → FastAPI de um fluxo crítico |
 
@@ -1405,16 +1405,20 @@ autorização. Leitura por amostragem: sem testes, typecheck nem lint na anális
 
 | # | PR | Escopo | Estado |
 |---|---|---|---|
-| 1 | Erros do backend | "Hoje" pelo dia da igreja (`app.datas.hoje_da_igreja`) no desligamento de pessoa, no catálogo privilegiado do agente e no DPA do Jev; `igreja_id` explícito na troca de plano do worker de cobrança e nos telefones do SLA (defesa além da RLS); teto de páginas com falha nas listagens do Asaas e do Storage | em andamento |
-| 2 | Erros do painel | limpar o store de consolidação no logout; erro explícito sem `NEXT_PUBLIC_API_URL` em produção; tirar o harness do build; conferir trava no backend de cada tela escondida por `isOwner` | falta |
-| 3 | CSP | primeiro `Content-Security-Policy-Report-Only`, depois bloqueando. Cookie de sessão HttpOnly (hoje legível por script, em `.igreja12.com.br` e no `localStorage`) fica como item próprio, com revisão independente de autenticação | falta |
-| 4 | Verificação Python | ruff ampliado (fuso, `except` amplo, import sem uso) só em código novo ou alterado | falta |
-| 5 | CI | `backend-tests` em partes paralelas; instalação reaproveitada entre workflows | falta |
-| 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | falta |
-| 7 | Arquivar E4B | retirar do app o código de consentimento E4B sem uso | falta |
-| 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | falta |
-| 9 | Tipagem Python | checagem de tipos começando por poucas pastas | falta |
-| 10 | Formatador | formatador no painel, por último | falta |
+| 1 | Erros do backend | "Hoje" pelo dia da igreja (`app.datas.hoje_da_igreja`) no desligamento de pessoa, no catálogo privilegiado do agente e no DPA do Jev; `igreja_id` explícito na troca de plano do worker de cobrança e nos telefones do SLA (defesa além da RLS); teto de páginas com falha nas listagens do Asaas e do Storage | feita (#645) |
+| 2 | Erros do painel | limpar o store de consolidação no logout; erro explícito sem `NEXT_PUBLIC_API_URL` em produção; tirar o harness do build; conferir trava no backend de cada tela escondida por `isOwner` | PR #646 aberta |
+| 3 | CSP | primeiro `Content-Security-Policy-Report-Only`, depois bloqueando. Cookie de sessão HttpOnly (hoje legível por script, em `.igreja12.com.br` e no `localStorage`) fica como item próprio, com revisão independente de autenticação | PR #647 aberta |
+| 4 | Verificação Python | ruff ampliado (fuso, `except` amplo, import sem uso) só em código novo ou alterado | PR #648 aberta |
+| 5 | CI | `backend-tests` em partes paralelas; instalação reaproveitada entre workflows | PR #649 aberta |
+| 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | PR #650 aberta |
+| 7 | Arquivar E4B | retirar do app o código de consentimento E4B sem uso | PR #651 aberta |
+| 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | PR #652 aberta |
+| 9 | Tipagem Python | checagem de tipos começando por poucas pastas | PR #653 aberta |
+| 10 | Formatador | formatador no painel, por último | PR #654 aberta |
+
+Ordem de integração: #648 antes da #649 (as duas mudam `backend-tests.yml`;
+a #649 se ajusta depois); #654 por último, com a formatação refeita sobre a
+`main` atualizada.
 
 Regras que seguem: arquivos gigantes e os cinco pacotes `*_whatsapp`
 duplicados só são divididos quando a área for tocada (metas da seção 2);
