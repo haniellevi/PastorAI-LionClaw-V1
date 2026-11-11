@@ -36,7 +36,9 @@ test("mede a abertura do painel e a primeira visita e revisita ao atendimento", 
   request,
 }, testInfo) => {
   test.setTimeout(90_000);
-  const samples = [];
+  const metrics = ["dashboardMs", "firstInboxMs", "firstConversationMs",
+    "revisitInboxMs", "revisitConversationMs"] as const;
+  const samples: Record<(typeof metrics)[number], number>[] = [];
   for (let index = 0; index < 5; index += 1) {
     await resetHarness(request, { performance: true });
     const fixture = await request.post(`${API_URL}/__e2e/ux-inbox`, { data: { enabled: true } });
@@ -65,8 +67,6 @@ test("mede a abertura do painel e a primeira visita e revisita ao atendimento", 
     }
   }
 
-  const metrics = ["dashboardMs", "firstInboxMs", "firstConversationMs",
-    "revisitInboxMs", "revisitConversationMs"] as const;
   const summary = Object.fromEntries(metrics.map(metric => {
     const sorted = samples.map(sample => sample[metric]).sort((a, b) => a - b);
     return [metric, { median: sorted[Math.floor(sorted.length / 2)], p75: percentile75(sorted) }];
