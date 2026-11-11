@@ -85,7 +85,8 @@ const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
 /** Inicia o download do chunk sem bloquear o clique nem alterar a rota. */
 export function preloadScreenModule(route: string): void {
   const load = SCREEN_MODULE_LOADERS[route];
-  if (load) void load();
+  // Speculative download is best-effort; the screen owns loading on navigation.
+  if (load) void load().catch(() => {});
 }
 
 export const loadConhecimentoScreen = () => import("@/components/conhecimento/ConhecimentoScreen");

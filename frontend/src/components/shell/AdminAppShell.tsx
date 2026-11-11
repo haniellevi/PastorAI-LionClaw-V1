@@ -8,13 +8,15 @@
  * operacionais (#dashboard/#inbox) não vazem para dentro do admin. 'assinatura'
  * segue OWNER_ONLY (admin não basta — só o dono).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/lib/auth-context";
 import { ADMIN_NAV_SECTIONS, SCREEN_META } from "@/lib/navigation";
+import { isAdmin } from "@/lib/roles";
 import { appSurfaceHref } from "@/lib/surface";
 import { useHashRoute } from "@/lib/use-hash-route";
 
+import { preloadScreenModule } from "./screen-loaders";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -58,6 +60,27 @@ export function AdminAppShell() {
   const resolvedRoute = allowed ? route : ADMIN_HOME;
   const resolvedParam = allowed ? param : null;
   const mainRef = useRouteMainFocus(resolvedRoute);
+
+  const warmRoute = useCallback(
+    (target: string) => {
+      if (!user || !isAdmin(user.roles) || document.visibilityState === "hidden") return;
+      const connection = (navigator as Navigator & {
+        connection?: { saveData?: boolean; effectiveType?: string };
+      }).connection;
+      if (connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType ?? "")) return;
+
+      const targetBase = target.split("/", 1)[0] ?? target;
+      if (
+        targetBase === resolvedBase ||
+        !(targetBase in SCREEN_META) ||
+        (!ALWAYS_ALLOWED.has(targetBase) && !ADMIN_SCREENS.has(targetBase)) ||
+        (OWNER_ONLY.has(targetBase) && !user.isOwner)
+      ) return;
+
+      preloadScreenModule(targetBase);
+    },
+    [user, resolvedBase],
+  );
 
   useEffect(() => {
     if (route !== resolvedRoute) navigate(resolvedRoute);
@@ -111,6 +134,7 @@ export function AdminAppShell() {
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         onNavigate={navigate}
+        onPreload={warmRoute}
         onToggleCollapse={() => setCollapsed((v) => !v)}
         onLogout={() => {
           void logout({ revokeServer: true }).then(() => navigate("login"));
