@@ -366,6 +366,31 @@ def test_config_recusa_valores_invalidos(
     assert not db.committed
 
 
+def test_config_dpa_futuro_usa_o_dia_da_igreja(app, monkeypatch, cifra) -> None:
+    # O "hoje" do DPA é o dia civil de Brasília, não o do servidor: com o host
+    # em UTC às 01:30 de 12/11, ainda é 11/11 na igreja e 12/11 é futuro.
+    monkeypatch.setattr("app.datas.hoje_da_igreja", lambda: dt.date(2026, 11, 11))
+    _use_settings(monkeypatch)
+    db = _admin_db(igrejas=[SimpleNamespace(id=_IGREJA, nome="Igreja Piloto")])
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    futuro = client.put(
+        "/admin/jev/config",
+        headers=_AUTH,
+        json={"igrejaIds": [str(_IGREJA)], "dpaAssinadoEm": "2026-11-12"},
+    )
+    hoje = client.put(
+        "/admin/jev/config",
+        headers=_AUTH,
+        json={"igrejaIds": [str(_IGREJA)], "dpaAssinadoEm": "2026-11-11"},
+    )
+
+    assert futuro.status_code == 422
+    assert "futuro" in futuro.json()["detail"]
+    assert hoje.status_code == 200
+    assert db.jev_settings.dpa_assinado_em == dt.date(2026, 11, 11)
+
+
 def test_config_lista_igrejas_com_dpa(app, monkeypatch, cifra) -> None:
     _use_settings(monkeypatch)
     db = _admin_db(igrejas=[SimpleNamespace(id=_IGREJA, nome="Igreja Piloto")])

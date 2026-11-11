@@ -26,10 +26,11 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import uuid
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -53,6 +54,7 @@ from app.routers.cell_meetings import (
     _find_presenca,
     _get_reuniao_or_404,
     _has_active_membership,
+    past_meeting_filter,
 )
 
 logger = logging.getLogger("pastorai.cell_discipulo")
@@ -165,25 +167,6 @@ def _active_cell_id(
         )
     ).scalar_one_or_none()
     return membro.celula_id if membro is not None else None
-
-
-def _my_visitor_names(
-    db: Session, igreja_id: uuid.UUID, reuniao_id: uuid.UUID, pessoa_id: uuid.UUID
-) -> list[str]:
-    """Nomes dos visitantes que O PRÓPRIO membro indicou para a reunião.
-
-    Escopado a ``pessoa_id`` = nunca expõe expectativa de terceiros (RF-30).
-    """
-    rows = db.execute(
-        select(CelulaExpectativaVisitante)
-        .where(
-            CelulaExpectativaVisitante.igreja_id == igreja_id,
-            CelulaExpectativaVisitante.reuniao_id == reuniao_id,
-            CelulaExpectativaVisitante.pessoa_id == pessoa_id,
-        )
-        .order_by(CelulaExpectativaVisitante.created_at.asc())
-    ).scalars().all()
-    return [r.nome_visitante for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -337,35 +320,57 @@ def get_my_history(
     if cell_id is None:
         return empty
 
-    rows = db.execute(
-        select(CelulaReuniao)
-        .where(
-            CelulaReuniao.celula_id == cell_id,
-            CelulaReuniao.igreja_id == igreja_id,
+    filters = (
+        CelulaReuniao.celula_id == cell_id,
+        CelulaReuniao.igreja_id == igreja_id,
+        past_meeting_filter(strip_python_whitespace=True),
+    )
+    total = db.execute(
+        select(func.count()).select_from(CelulaReuniao).where(*filters)
+    ).scalar_one()
+    offset = (page - 1) * page_size
+    if offset >= total:
+        return HistoryPage(items=[], page=page, page_size=page_size, total=total)
+
+    window = db.execute(
+        select(CelulaReuniao.id, CelulaReuniao.data, CelulaReuniao.tema, CelulaPresenca.estado)
+        .select_from(CelulaReuniao)
+        .outerjoin(
+            CelulaPresenca,
+            and_(
+                CelulaPresenca.igreja_id == igreja_id,
+                CelulaPresenca.reuniao_id == CelulaReuniao.id,
+                CelulaPresenca.pessoa_id == pessoa_id,
+            ),
         )
-        .order_by(CelulaReuniao.data.desc(), CelulaReuniao.hora.desc())
-    ).scalars().all()
-
-    # "Passada" no fuso America/Sao_Paulo (E4). Mais recentes primeiro.
-    past = [r for r in rows if meeting_has_passed(data=r.data, hora=r.hora)]
-    total = len(past)
-    start = (page - 1) * page_size
-    window = past[start : start + page_size]
-
-    items: list[HistoryItem] = []
-    for r in window:
-        presenca = _find_presenca(db, igreja_id, r.id, pessoa_id)
-        estado = presenca.estado if presenca is not None else None
-        items.append(
-            HistoryItem(
-                data=r.data.isoformat(),
-                tema=r.tema,
-                minha_presenca=_map_minha_presenca(estado),
-                meus_visitantes_indicados=_my_visitor_names(
-                    db, igreja_id, r.id, pessoa_id
-                ),
+        .where(*filters)
+        .order_by(CelulaReuniao.data.desc(), CelulaReuniao.hora.desc(), CelulaReuniao.id.asc())
+        .offset(offset)
+        .limit(page_size)
+    ).all()
+    visitors_by_meeting: dict[uuid.UUID, list[str]] = defaultdict(list)
+    if window:
+        visitors = db.execute(
+            select(CelulaExpectativaVisitante.reuniao_id, CelulaExpectativaVisitante.nome_visitante)
+            .where(
+                CelulaExpectativaVisitante.igreja_id == igreja_id,
+                CelulaExpectativaVisitante.pessoa_id == pessoa_id,
+                CelulaExpectativaVisitante.reuniao_id.in_([row.id for row in window]),
             )
+            .order_by(CelulaExpectativaVisitante.created_at.asc(), CelulaExpectativaVisitante.id.asc())
         )
+        for meeting_id, name in visitors:
+            visitors_by_meeting[meeting_id].append(name)
+
+    items = [
+        HistoryItem(
+            data=row.data.isoformat(),
+            tema=row.tema,
+            minha_presenca=_map_minha_presenca(row.estado),
+            meus_visitantes_indicados=visitors_by_meeting[row.id],
+        )
+        for row in window
+    ]
     return HistoryPage(items=items, page=page, page_size=page_size, total=total)
 
 
