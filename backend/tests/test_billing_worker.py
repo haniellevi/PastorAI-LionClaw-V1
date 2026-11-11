@@ -841,6 +841,35 @@ def test_worker_skips_operation_closed_between_discovery_and_claim(
     assert tenant.closed is True
 
 
+def test_worker_skips_operation_whose_subscription_belongs_to_another_igreja(
+    monkeypatch,
+) -> None:
+    # A operação foi descoberta para a igreja B, mas a assinatura é da igreja A.
+    # Mesmo que o escopo da sessão falhe, o backend não toca a cobrança alheia.
+    op = _op()
+    sub = _sub(igreja_id=_IGREJA_A)
+    igreja_b = SimpleNamespace(id=_IGREJA_B, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja_b, plan_changes=[op])
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_B)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0
+    assert asaas.gets == 0
+    assert op.status == "prepared"
+    assert sub.plano == "ate_100"
+    assert igreja_b.plano == "ate_100"
+    assert notified == []
+    assert tenant.closed is True
+
+
 def test_worker_tenant_failure_does_not_break_other_tenants(monkeypatch) -> None:
     op_a = _op()
     op_b = _op(

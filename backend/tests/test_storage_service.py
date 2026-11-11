@@ -308,6 +308,40 @@ def test_tenant_media_namespace_cleanup_lists_all_pages_and_subdirectories(
     assert set(list_calls) == set(pages)
 
 
+def test_tenant_namespace_cleanup_fails_when_listing_never_ends(monkeypatch) -> None:
+    # Listagem travada (sempre página cheia): falha sem apagar nada, em vez de
+    # ficar em loop ou apagar a igreja a partir de uma lista parcial.
+    igreja_id = uuid.uuid4()
+    prefix = f"{igreja_id}/"
+    list_calls: list[int] = []
+    deleted: list[str] = []
+    monkeypatch.setattr(storage_service, "_TENANT_LIST_PAGE_SIZE", 2)
+    monkeypatch.setattr(storage_service, "_TENANT_LIST_MAX_PAGES", 3)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/storage/v1/object/list/whatsapp-media"):
+            body = json.loads(request.content)
+            offset = body["offset"]
+            list_calls.append(offset)
+            return httpx.Response(
+                200,
+                json=[
+                    {"name": f"{prefix}a-{offset}.bin", "id": f"a-{offset}"},
+                    {"name": f"{prefix}b-{offset}.bin", "id": f"b-{offset}"},
+                ],
+            )
+        deleted.extend(json.loads(request.content)["prefixes"])
+        return httpx.Response(200, json=[])
+
+    _use_transport(monkeypatch, handler)
+
+    with pytest.raises(StorageError):
+        SupabaseStorage(_settings()).remove_tenant_media_namespace(igreja_id)
+
+    assert list_calls == [0, 2, 4]
+    assert deleted == []
+
+
 def test_tenant_logo_namespace_cleanup_removes_orphan_under_exact_uuid_prefix(
     monkeypatch,
 ) -> None:

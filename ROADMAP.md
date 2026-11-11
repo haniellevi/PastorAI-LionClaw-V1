@@ -1285,11 +1285,12 @@ vínculo Pessoa e ordem de aplicação), para transformar estoque em uso real.
 | Meta | Medida em 22/10 (atualizada em 23/10) | Alvo |
 |---|---|---|
 | Tempo do `rls-integration` | 16–23 min serial em 22/10; 23/10: ~9–10 min com 4 partes paralelas (#550) e `backend-tests` ~4 min sem apt (#553), 0 skip | ≤ 8 min com divisão em partes paralelas, sem `skip` |
-| Verificação estática do backend | ruff com regras de erro no CI (#554); tipagem ainda não | ruff só com regras de erro no CI; tipagem depois, por pasta |
+| Tempo do `backend-tests` | 11–16 min por execução na main em 10–11/11 (seis execuções), com limite de 20 min no job | ≤ 10 min com partes paralelas e instalação reaproveitada (PR 5 do plano de qualidade) |
+| Verificação estática do backend | ruff com regras de erro no CI (#554); tipagem ainda não. Em 11/11: `# noqa: BLE001` sem efeito, porque a regra não está ativa | ruff ampliado só em código novo/alterado (fuso, erro escondido; PR 4); tipagem depois, por pasta (PR 9) |
 | Arquivos de produção gigantes | `models.py` 5,0k, `queue_worker.py` 5,0k, `cell_report_audio_service.py` 4,1k, `routers/subscription.py` 3,7k, `notification_outbox.py` 3,5k, `agent/runtime.py` 2,3k linhas | arquivo tocado não cresce além de ~800 linhas; extrair uma responsabilidade coesa por PR quando a área for tocada |
 | Camadas | acesso direto ao banco em 31/41 routers; inversões serviço→router eliminadas, com teste de camadas que cobre import relativo e alias (#555) | eliminar as 2 inversões; mover consulta para o serviço ao tocar a rota |
 | Isolamento por igreja | helpers RLS novos e legados convivem | migrar um caminho por PR com teste PG de duas igrejas |
-| Código pausado | ~5k linhas E4B/purpose consent no app | decidir: manter isolado ou arquivar em PR própria |
+| Código pausado | ~5k linhas E4B/purpose consent no app | decidido em 11/11 (Raniel): arquivar em PR própria (PR 7 do plano de qualidade, #651); volta pelo histórico do Git |
 | Migrations | 17 nomes legados | checar padrão só nos arquivos novos; não renomear histórico |
 | E2E do painel | Playwright usa API simulada | um E2E sintético navegador → FastAPI de um fluxo crítico |
 
@@ -1396,6 +1397,37 @@ ficam no snapshot histórico.
 - CD entre versões: conclusões de versão anterior valem na nova mediante equivalência da coordenação (implementado nesta fatia; produção não verificada).
 - Enviar: avaliação exige UV, CD certificado e Reencontro como critérios distintos, com decisão humana final; aprova pastor/admin distinto do autor e do candidato; líderes atuais preservados como legado e revisados caso a caso; aprovar executa na hora com confirmação; evidência revogada barra novas nomeações e abre revisão, sem destituição automática.
 - Tela Enviar: o líder não vê a avaliação (decisão/motivo) dos discípulos; vê só aptidão e pendências (opção padrão adotada; reversível).
+
+**Plano de qualidade de 11/11/2026 (análise do código por amostragem, aprovado por Raniel):**
+
+Uma PR por vez, na ordem abaixo; cada uma começa e é commitada só com
+autorização. Leitura por amostragem: sem testes, typecheck nem lint na análise.
+
+| # | PR | Escopo | Estado |
+|---|---|---|---|
+| 1 | Erros do backend | "Hoje" pelo dia da igreja (`app.datas.hoje_da_igreja`) no desligamento de pessoa, no catálogo privilegiado do agente e no DPA do Jev; `igreja_id` explícito na troca de plano do worker de cobrança e nos telefones do SLA (defesa além da RLS); teto de páginas com falha nas listagens do Asaas e do Storage | feita (#645) |
+| 2 | Erros do painel | limpar o store de consolidação no logout; erro explícito sem `NEXT_PUBLIC_API_URL` em produção; tirar o harness do build; conferir trava no backend de cada tela escondida por `isOwner` | PR #646 aberta |
+| 3 | CSP | primeiro `Content-Security-Policy-Report-Only`, depois bloqueando. Cookie de sessão HttpOnly (hoje legível por script, em `.igreja12.com.br` e no `localStorage`) fica como item próprio, com revisão independente de autenticação | PR #647 aberta |
+| 4 | Verificação Python | ruff ampliado (fuso, `except` amplo, import sem uso) só em código novo ou alterado | PR #648 aberta |
+| 5 | CI | `backend-tests` em partes paralelas; instalação reaproveitada entre workflows | PR #649 aberta |
+| 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | PR #650 aberta |
+| 7 | Arquivar E4B | retirar do app o código de consentimento E4B sem uso | PR #651 aberta |
+| 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | PR #652 aberta |
+| 9 | Tipagem Python | checagem de tipos começando por poucas pastas | PR #653 aberta |
+| 10 | Formatador | formatador no painel, por último | PR #654 aberta |
+
+Ordem de integração: #648 antes da #649 (as duas mudam `backend-tests.yml`;
+a #649 se ajusta depois); #654 por último, com a formatação refeita sobre a
+`main` atualizada.
+
+Regras que seguem: arquivos gigantes e os cinco pacotes `*_whatsapp`
+duplicados só são divididos quando a área for tocada (metas da seção 2);
+testes do painel que leem CSS como texto são trocados por testes do que a tela
+mostra quando a tela for alterada, e não se criam novos. Fora do plano, sem
+decisão: duplicação em `docs/` e pastas de configuração de agentes. Limpeza
+local de ~19 GB em `.git/local-preservation/` segue em conferência própria,
+item por item com aprovação. Conhecido e sem ação: resposta do agente pode
+duplicar se a Evolution der timeout (sem chave de idempotência no provedor).
 
 ## 5. No final: banco, latência, infraestrutura e release
 
