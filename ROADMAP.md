@@ -1415,9 +1415,10 @@ dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta 
 (`deploy/offsite-encrypt-backup.sh` e `deploy/pull-offsite-backup.sh`). Os scripts,
 a avaliação Jev de 26/09 e as evidências de 04/10 estão somente na referência
 local `refs/archive/checkout-principal-20261016`, nos caminhos originais;
-preservação conferida, integração e funcionamento **não verificados** nesta
-entrega. Os demais candidatos continuam sem nova conferência de recuperação;
-não são correções declaradas entregues.
+preservação conferida. A rotina versionada reaproveita da VPS-07A a validação
+do diretório e a criação exclusiva da execução. A instalação e o funcionamento
+na VPS continuam **não verificados**. As demais propostas do candidato foram
+preservadas para a etapa de infraestrutura.
 
 Governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 de governança permanecem
 pausados; reavaliação somente por necessidade e decisão próprias. Isso não

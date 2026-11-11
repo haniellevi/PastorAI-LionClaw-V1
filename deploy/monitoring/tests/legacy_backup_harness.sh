@@ -6,7 +6,7 @@ set -euo pipefail
 TEST_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 DEPLOY_DIR="$(CDPATH= cd -- "${TEST_DIR}/../.." && pwd)"
 INSTALL_SCRIPT="${DEPLOY_DIR}/install-legacy-backup.sh"
-SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/pastorai-legacy-backup-test.XXXXXX")"
+SANDBOX="$(mktemp -d /root/pastorai-legacy-backup-test.XXXXXX)"
 trap 'rm -rf -- "${SANDBOX}"' EXIT INT TERM
 
 LEGACY_ROOT="${SANDBOX}/legacy"
@@ -15,13 +15,14 @@ HELPER_DIR="${LEGACY_ROOT}/usr/local/libexec/pastorai-backup"
 HELPER="${HELPER_DIR}/prepare-database-service.py"
 HELPER_SHA256="${HELPER}.sha256"
 BACKUP_ROOT="${SANDBOX}/backups"
+LOCK_FILE="${SANDBOX}/backup.lock"
 ENV_FILE="${SANDBOX}/deploy.env"
 COMPOSE_FILE="${SANDBOX}/docker-compose.yml"
 LOG="${SANDBOX}/docker.log"
 BIN_DIR="${SANDBOX}/bin"
 SECRET='postgresql://synthetic-user:synthetic-secret@example.invalid/database?sslmode=require'
 
-mkdir -p "${BACKUP_ROOT}" "${BIN_DIR}"
+mkdir -p "${BIN_DIR}"
 printf 'DATABASE_URL=%s\nSUPABASE_URL=https://unused.invalid\nSUPABASE_SERVICE_ROLE_KEY=unused\n' "${SECRET}" >"${ENV_FILE}"
 printf 'services: {}\n' >"${COMPOSE_FILE}"
 chmod 0600 "${ENV_FILE}" "${COMPOSE_FILE}"
@@ -44,9 +45,8 @@ install_package() {
   bash "${INSTALL_SCRIPT}" >/dev/null
 }
 
-run_backup_expect_preflight_failure() {
+run_backup() {
   : >"${LOG}"
-  set +e
   (
     cd /
     PATH="${BIN_DIR}:$PATH" \
@@ -54,18 +54,21 @@ run_backup_expect_preflight_failure() {
     PASTORAI_BACKUP_ROOT="${BACKUP_ROOT}" \
     PASTORAI_ENV_FILE="${ENV_FILE}" \
     PASTORAI_COMPOSE_FILE="${COMPOSE_FILE}" \
-    PASTORAI_BACKUP_LOCK_FILE="${SANDBOX}/backup.lock" \
+    PASTORAI_BACKUP_LOCK_FILE="${LOCK_FILE}" \
     PASTORAI_BACKUP_MONITOR_MANIFEST="${SANDBOX}/backup-status.json" \
     PASTORAI_BACKUP_HELPER="${HELPER}" \
     PASTORAI_BACKUP_HELPER_SHA256="${HELPER_SHA256}" \
     bash "${BACKUP_SCRIPT}" >"${SANDBOX}/output" 2>&1
   )
-  status=$?
-  set -e
+}
+
+run_backup_expect_preflight_failure() {
+  local status=0
+  run_backup || status=$?
   [[ "${status}" -ne 0 ]]
-  ! grep -Eq '(^| )pause( |$)' "${LOG}"
+  [[ ! -s "${LOG}" ]]
   ! grep -Fq "${SECRET}" "${SANDBOX}/output"
-  if find "${BACKUP_ROOT}" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
+  if [[ -d "${BACKUP_ROOT}" ]] && find "${BACKUP_ROOT}" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
     echo 'temporary credentials leaked after preflight' >&2
     exit 71
   fi
@@ -80,24 +83,12 @@ install_package
 [[ "$(stat -c '%u:%g:%a' "${HELPER_SHA256}")" == '0:0:600' ]]
 [[ "$(stat -c '%h' "${HELPER}")" == '1' ]]
 [[ "$(stat -c '%h' "${HELPER_SHA256}")" == '1' ]]
-: >"${LOG}"
-set +e
-(
-  cd /
-  PATH="${BIN_DIR}:$PATH" \
-  FAKE_DOCKER_LOG="${LOG}" \
-  PASTORAI_BACKUP_ROOT="${BACKUP_ROOT}" \
-  PASTORAI_ENV_FILE="${ENV_FILE}" \
-  PASTORAI_COMPOSE_FILE="${COMPOSE_FILE}" \
-  PASTORAI_BACKUP_LOCK_FILE="${SANDBOX}/backup.lock" \
-  PASTORAI_BACKUP_MONITOR_MANIFEST="${SANDBOX}/backup-status.json" \
-  PASTORAI_BACKUP_HELPER="${HELPER}" \
-  PASTORAI_BACKUP_HELPER_SHA256="${HELPER_SHA256}" \
-  bash "${BACKUP_SCRIPT}" >"${SANDBOX}/output" 2>&1
-)
-status=$?
-set -e
+LOCK_FILE="${BACKUP_ROOT}/backup.lock"
+status=0
+run_backup || status=$?
 [[ "${status}" -eq 23 ]]
+[[ -f "${LOCK_FILE}" ]]
+LOCK_FILE="${SANDBOX}/backup.lock"
 grep -Eq '(^| )run( |$)' "${LOG}"
 ! grep -Eq '(^| )pause( |$)' "${LOG}"
 ! grep -Fq "${SECRET}" "${SANDBOX}/output"
@@ -105,6 +96,12 @@ if find "${BACKUP_ROOT}" -maxdepth 1 -name '.pg-credentials.*' -print -quit | gr
   echo 'temporary credentials leaked after installed backup' >&2
   exit 72
 fi
+
+[[ "$(stat -c '%a' "${BACKUP_ROOT}")" == 700 ]]
+run_dir="$(find "${BACKUP_ROOT}" -mindepth 1 -maxdepth 1 -type d -name '20??????T??????Z')"
+[[ -n "${run_dir}" && "$(stat -c '%a' "${run_dir}")" == 700 ]]
+BACKUP_ROOT="${SANDBOX}/failure-backups"
+mkdir -m 0700 "${BACKUP_ROOT}"
 
 # Missing, changed and permissive helpers must fail before Docker can reach a
 # pause action.  Reinstall a complete package between each independent case.
@@ -128,6 +125,67 @@ install_package
 ln "${HELPER_SHA256}" "${SANDBOX}/checksum-hardlink"
 run_backup_expect_preflight_failure
 rm -f -- "${SANDBOX}/checksum-hardlink"
+
+# The destination is checked before the first Docker command. Preserve an
+# existing tree and refuse symlinks, writable ancestors and permissive roots.
+valid_root="${BACKUP_ROOT}"
+BACKUP_ROOT="${SANDBOX}/symlinked-root"
+ln -s "${valid_root}" "${BACKUP_ROOT}"
+run_backup_expect_preflight_failure
+[[ -z "$(ls -A "${valid_root}")" ]]
+
+ln -s "${SANDBOX}" "${SANDBOX}/symlinked-parent"
+BACKUP_ROOT="${SANDBOX}/symlinked-parent/absent"
+run_backup_expect_preflight_failure
+[[ ! -e "${SANDBOX}/absent" ]]
+
+BACKUP_ROOT="${SANDBOX}/permissive-root"
+mkdir -m 0750 "${BACKUP_ROOT}"
+run_backup_expect_preflight_failure
+[[ "$(stat -c '%a' "${BACKUP_ROOT}")" == 750 && -z "$(ls -A "${BACKUP_ROOT}")" ]]
+
+mkdir -m 0770 "${SANDBOX}/writable-parent"
+BACKUP_ROOT="${SANDBOX}/writable-parent/absent"
+run_backup_expect_preflight_failure
+[[ ! -e "${BACKUP_ROOT}" ]]
+
+printf 'fixture-lock\n' >"${SANDBOX}/backup.lock"
+exec 8>>"${SANDBOX}/backup.lock"
+flock -n 8
+BACKUP_ROOT="${SANDBOX}/locked-backup"
+run_backup
+[[ -d "${BACKUP_ROOT}" && -z "$(ls -A "${BACKUP_ROOT}")" && ! -s "${LOG}" ]]
+[[ "$(cat "${SANDBOX}/backup.lock")" == fixture-lock ]]
+flock -u 8
+exec 8>&-
+
+cat >"${BIN_DIR}/date" <<'EOF'
+#!/bin/sh
+printf '%s\n' 20261005T120000Z
+EOF
+chmod 0755 "${BIN_DIR}/date"
+stamp=20261005T120000Z
+BACKUP_ROOT="${valid_root}"
+mkdir -m 0700 "${BACKUP_ROOT}/${stamp}"
+printf 'preserve-run\n' >"${BACKUP_ROOT}/${stamp}/fixture"
+run_backup_expect_preflight_failure
+[[ "$(cat "${BACKUP_ROOT}/${stamp}/fixture")" == preserve-run ]]
+
+for suffix in '' .sha256; do
+  BACKUP_ROOT="${SANDBOX}/occupied${suffix}"
+  mkdir -m 0700 "${BACKUP_ROOT}"
+  artifact="${BACKUP_ROOT}/pastorai-backup-${stamp}.tar.gz${suffix}"
+  printf 'preserve-artifact\n' >"${artifact}"
+  run_backup_expect_preflight_failure
+  [[ ! -e "${BACKUP_ROOT}/${stamp}" && "$(cat "${artifact}")" == preserve-artifact ]]
+done
+
+BACKUP_ROOT="${SANDBOX}/linked-artifact"
+mkdir -m 0700 "${BACKUP_ROOT}"
+artifact="${BACKUP_ROOT}/pastorai-backup-${stamp}.tar.gz"
+ln -s "${SANDBOX}/absent-artifact" "${artifact}"
+run_backup_expect_preflight_failure
+[[ -L "${artifact}" && ! -e "${SANDBOX}/absent-artifact" ]]
 
 # Installation must reject a hardlinked source helper before it snapshots or
 # overwrites the live package.  Use a copied source so the repository file is

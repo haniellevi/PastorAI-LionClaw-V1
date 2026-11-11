@@ -57,6 +57,28 @@ def _wsl_harness_command(harness: Path) -> list[str]:
     return [wsl, "-u", "root", "-e", "sh", "-lc", script]
 
 
+@pytest.mark.parametrize(
+    ("root", "stamp"),
+    [
+        ("relative-backups", "20261005T120000Z"),
+        ("/", "20261005T120000Z"),
+        ("/tmp/../backup", "20261005T120000Z"),
+        ("/never-created", "../other"),
+    ],
+)
+def test_backup_prepare_run_rejects_invalid_destination(root: str, stamp: str) -> None:
+    result = subprocess.run(
+        [sys.executable, str(HELPER), "prepare-run", root, stamp],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 1
+    assert not result.stdout
+    assert "ValueError" in result.stderr
+
+
 def test_database_service_helper_writes_restricted_libpq_files_without_output(
     tmp_path: Path,
 ) -> None:
