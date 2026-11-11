@@ -312,7 +312,7 @@ def test_charge_ignores_leader_registered_in_another_igreja() -> None:
             pessoa_id=leader_pessoa,
         )},
         pessoas={leader_pessoa: Pessoa(
-            igreja_id=outra_igreja, nome="Líder", telefone="+5511999990001"
+            igreja_id=outra_igreja, nome="Líder", telefone="+5500000000000"
         )},
     )
     evo = FakeEvolution()
@@ -336,7 +336,7 @@ def test_charge_ignores_person_phone_from_another_igreja() -> None:
             pessoa_id=leader_pessoa,
         )},
         pessoas={leader_pessoa: Pessoa(
-            igreja_id=outra_igreja, nome="Líder", telefone="+5511999990001"
+            igreja_id=outra_igreja, nome="Líder", telefone="+5500000000000"
         )},
     )
     evo = FakeEvolution()
