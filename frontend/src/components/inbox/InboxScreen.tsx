@@ -342,6 +342,10 @@ function InboxSession() {
     [token, handleSessionError],
   );
 
+  const loadMore = useCallback(() => {
+    void load("more");
+  }, [load]);
+
   const loadConnection = useCallback(async () => {
     if (!token || !canReadConnection) return;
     if (connectionRequestRef.current) return;
@@ -1083,7 +1087,7 @@ function InboxSession() {
             total={listTotal}
             hasMore={hasMorePages}
             loadingMore={loading}
-            onLoadMore={() => void load("more")}
+            onLoadMore={loadMore}
           />
         )}
 

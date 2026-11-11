@@ -9,7 +9,7 @@
  * selection-soft + aria-current; "aguardando" comunicado por ÍCONE + TEXTO
  * (nunca só cor). Nenhum filtro, busca, dado ou callback mudou.
  */
-import { useEffect, useId, useRef } from "react";
+import { memo, useEffect, useId, useRef } from "react";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
@@ -28,7 +28,7 @@ import {
 
 export type ConvFilter = "todas" | "aguardando" | "ia";
 
-export function ConversationList({
+export const ConversationList = memo(function ConversationList({
   conversations,
   selectedId,
   filter,
@@ -204,4 +204,4 @@ export function ConversationList({
       ) : null}
     </div>
   );
-}
+});
