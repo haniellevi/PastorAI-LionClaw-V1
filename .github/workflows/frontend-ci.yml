@@ -56,6 +56,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Tipos da API gerados do openapi.json do backend
+        run: npm run api:types:check
+
       - name: Testes (Vitest)
         run: npm test
 

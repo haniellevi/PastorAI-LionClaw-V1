@@ -1,0 +1,4 @@
+# Arquivos gerados: o GitHub recolhe o diff deles na revisão.
+# Gere de novo com backend/scripts/export_openapi.py e `npm run api:types`.
+frontend/openapi.json linguist-generated=true
+frontend/src/lib/api-schema.gen.ts linguist-generated=true
