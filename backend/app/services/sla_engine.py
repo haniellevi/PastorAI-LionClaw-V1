@@ -187,21 +187,36 @@ def _already_dispatched(session: Session, igreja_id: uuid.UUID, evento: str) -> 
     return existing is not None
 
 
-def _user_phone(session: Session, user_id: uuid.UUID | None) -> str | None:
+def _user_phone(
+    session: Session, igreja_id: uuid.UUID, user_id: uuid.UUID | None
+) -> str | None:
+    """Telefone do usuário, só se ele e a pessoa vinculada forem desta igreja.
+
+    A sessão já é tenant-scoped (RLS); a checagem explícita de ``igreja_id`` é
+    a defesa no backend exigida pelo AGENTS.md para não cobrar ninguém de
+    outra igreja se o escopo da sessão falhar.
+    """
     if user_id is None:
         return None
     app_user = session.get(AppUser, user_id)
-    if app_user is None or app_user.pessoa_id is None:
+    if (
+        app_user is None
+        or app_user.igreja_id != igreja_id
+        or app_user.pessoa_id is None
+    ):
         return None
-    pessoa = session.get(Pessoa, app_user.pessoa_id)
-    return pessoa.telefone if pessoa else None
+    return _pessoa_phone(session, igreja_id, app_user.pessoa_id)
 
 
-def _pessoa_phone(session: Session, pessoa_id: uuid.UUID | None) -> str | None:
+def _pessoa_phone(
+    session: Session, igreja_id: uuid.UUID, pessoa_id: uuid.UUID | None
+) -> str | None:
     if pessoa_id is None:
         return None
     pessoa = session.get(Pessoa, pessoa_id)
-    return pessoa.telefone if pessoa else None
+    if pessoa is None or pessoa.igreja_id != igreja_id:
+        return None
+    return pessoa.telefone
 
 
 def _coordination_phones(session: Session, igreja_id: uuid.UUID) -> list[str]:
@@ -214,7 +229,7 @@ def _coordination_phones(session: Session, igreja_id: uuid.UUID) -> list[str]:
     ).scalars().all()
     phones: list[str] = []
     for uid in set(user_ids):
-        phone = _user_phone(session, uid)
+        phone = _user_phone(session, igreja_id, uid)
         if phone:
             phones.append(phone)
     return phones
@@ -368,9 +383,9 @@ class SlaEngine:
                 evento=_coordination_item_event_name(breach),
             )
         else:
-            phone = _user_phone(session, breach.responsavel_user_id) or _pessoa_phone(
-                session, breach.pessoa_id
-            )
+            phone = _user_phone(
+                session, breach.igreja_id, breach.responsavel_user_id
+            ) or _pessoa_phone(session, breach.igreja_id, breach.pessoa_id)
             recipients = [phone] if phone else []
             texto = _charge_text(breach)
 

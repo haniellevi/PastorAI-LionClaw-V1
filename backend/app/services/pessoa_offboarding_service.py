@@ -30,6 +30,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app import datas
 from app.db.models import (
     AppUser,
     Celula,
@@ -440,7 +441,9 @@ def preflight_archive(
         )
 
     # 13) alvo futuro de evento/notificação (recorrente sem data ou data >= hoje).
-    hoje = dt.date.today()
+    # Dia civil da igreja, não do processo: com o host em UTC, `date.today()`
+    # avançaria o dia até 3h antes da meia-noite de Brasília.
+    hoje = datas.hoje_da_igreja()
     alvos_evento = db.execute(
         select(Event)
         .join(EventNotifyTarget, EventNotifyTarget.event_id == Event.id)

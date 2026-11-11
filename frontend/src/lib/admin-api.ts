@@ -9,7 +9,7 @@
 
 import { fetchWithDeadline } from "./request-with-deadline";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE } from "./api-base";
 // Cobre Clerk (até ~10s) + rate limit + banco frio sem afetar deadlines do Inbox.
 const ADMIN_AUTH_TIMEOUT_MS = 20_000;
 const ADMIN_LOGOUT_TIMEOUT_MS = 5_000;

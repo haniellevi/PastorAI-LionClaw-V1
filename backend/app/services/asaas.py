@@ -35,6 +35,11 @@ SETUP_CHARGE_DESCRIPTION = "PastorAI — taxa de setup"
 # Cobrança avulsa que recupera uma mensalidade ESTORNADA (nunca uma assinatura).
 MONTHLY_RECOVERY_DESCRIPTION = "PastorAI — recuperação de mensalidade"
 _SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
+# Teto de páginas por listagem (100 itens cada = 50 mil itens). Uma igreja nunca
+# chega perto disso; passar do teto indica provedor travado em `hasMore=true`.
+# Falha em vez de devolver lista parcial, que levaria a reconciliação errada.
+_ASAAS_LIST_PAGE_SIZE = 100
+_ASAAS_MAX_PAGES = 500
 
 
 def _sao_paulo_today(now: dt.datetime | None = None) -> dt.date:
@@ -253,11 +258,11 @@ class AsaasClient:
         """Read every page of an Asaas list endpoint with a bounded page size."""
         offset = 0
         items: list[dict] = []
-        while True:
+        for _page_number in range(_ASAAS_MAX_PAGES):
             response = client.get(
                 path,
                 headers=headers,
-                params={**params, "limit": 100, "offset": offset},
+                params={**params, "limit": _ASAAS_LIST_PAGE_SIZE, "offset": offset},
             )
             response.raise_for_status()
             body = response.json()
@@ -268,6 +273,8 @@ class AsaasClient:
             if not body.get("hasMore") or not page:
                 return items
             offset += len(page)
+        logger.error("Asaas list %s exceeded %d pages", path, _ASAAS_MAX_PAGES)
+        raise AsaasError("Listagem do Asaas não terminou")
 
     def create_checkout(
         self,
@@ -870,11 +877,11 @@ class AsaasClient:
         offset = 0
         latest: dict | None = None
         latest_key: tuple[str, str, str] | None = None
-        while True:
+        for _page_number in range(_ASAAS_MAX_PAGES):
             resp = client.get(
                 f"/subscriptions/{subscription_id}/payments",
                 headers=headers,
-                params={"limit": 100, "offset": offset},
+                params={"limit": _ASAAS_LIST_PAGE_SIZE, "offset": offset},
             )
             resp.raise_for_status()
             body = resp.json()
@@ -895,6 +902,11 @@ class AsaasClient:
             if not bool(body.get("hasMore")):
                 break
             offset += len(payments)
+        else:
+            logger.error(
+                "Asaas subscription payments exceeded %d pages", _ASAAS_MAX_PAGES
+            )
+            raise AsaasError("Listagem de cobranças do Asaas não terminou")
         return latest
 
     def _create_one_time_charge(

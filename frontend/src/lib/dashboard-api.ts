@@ -19,7 +19,7 @@ import { SessionExpiredError } from "./api";
 import { AuthedResponseCache } from "./authed-response-cache";
 import { fetchWithDeadline, waitForRequest } from "./request-with-deadline";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE } from "./api-base";
 const responseCache = new AuthedResponseCache();
 const inFlightReads = new Map<string, Promise<Response>>();
 const legacyQueueUntil = new Map<string, number>();
