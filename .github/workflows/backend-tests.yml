@@ -89,6 +89,13 @@ jobs:
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements.lock
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements-audit.lock
 
+      # Pastas e regras ficam em backend/mypy.ini. O mypy vem do lock de
+      # ferramentas e lê os pacotes instalados no ambiente runtime.
+      - name: Checar tipos nas pastas iniciais do backend (mypy)
+        run: >-
+          "$RUNNER_TEMP/pip-audit-venv/bin/mypy"
+          --python-executable "$RUNNER_TEMP/backend-runtime-venv/bin/python"
+
       - name: Verificar erros estáticos no backend (Ruff)
         working-directory: .
         run: PATH="$RUNNER_TEMP/pip-audit-venv/bin:$PATH" ruff check backend
