@@ -6,6 +6,7 @@ prove queries and isolation, not the production migration catalog or data.
 
 import datetime as dt
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.db.tenant_session import mark_tenant_scoped
-from app.deps import CurrentUser
+from app.deps import CurrentUser, get_platform_admin
 from app.domain.cell_meetings_schedule import meeting_has_passed
 from app.domain.cell_report_snapshot import build_cell_report_snapshot_v2
 from app.routers._common import PaginationParams
@@ -29,6 +30,7 @@ from app.routers.pipeline import list_pipeline, pipeline_summary
 from app.routers.reports import list_reports
 from app.routers.setup import get_setup_checklist
 from app.routers.team import list_members
+from app.services.clerk import ClerkIdentity
 from tests.conftest_rls import rls_database_url  # noqa: F401
 
 pytestmark = pytest.mark.rls_integration
@@ -52,7 +54,8 @@ def query_engine(rls_database_url):
     models = [m.Igreja, m.AppUser, m.UserRole, m.RolePermission, m.Pessoa, m.Celula, m.CelulaMembro,
         m.CelulaReuniao, m.CelulaSolicitacao, m.CelulaAviso, m.CelulaMaterial,
         m.CelulaPresenca, m.CelulaVisitante, m.CelulaExpectativaVisitante,
-        m.WhatsappConnection, m.LlmCredential, m.Subscription, m.Plano, m.Event, m.Conversation, m.AiUsageLog]
+        m.WhatsappConnection, m.LlmCredential, m.Subscription, m.Plano, m.Event, m.Conversation, m.AiUsageLog,
+        m.AuthSession, m.PlatformAdmin]
     with engine.begin() as conn:
         assert conn.execute(text("show server_version_num")).scalar_one().startswith("17")
         conn.execute(text("CREATE SCHEMA performance_backend"))
@@ -161,6 +164,55 @@ def test_setup_one_statement_retains_owner_complimentary_and_revoked_rules(read_
         "agente": True, "assinatura": True,
     }
     assert len(queries) == 1
+
+
+def test_platform_auth_checks_session_and_allowlist_without_loading_tenant_relationships(query_engine):
+    subject = "synthetic-platform-admin"
+    jti = "synthetic-platform-session"
+    now = dt.datetime.now(dt.timezone.utc)
+    clerk = SimpleNamespace(verify_session_token=lambda _token: ClerkIdentity(subject, {"jti": jti}))
+    with query_engine.connect() as conn:
+        conn.execute(m.Igreja.__table__.insert().values(id=TENANT, nome="Sintética"))
+        conn.execute(m.AppUser.__table__.insert().values(
+            id=USER, igreja_id=TENANT, clerk_user_id=subject,
+            nome="Admin sintético", email="admin@example.invalid", status="ativo",
+        ))
+        conn.execute(m.UserRole.__table__.insert().values(
+            id=uid(111), igreja_id=TENANT, user_id=USER, papel="admin",
+        ))
+        conn.execute(m.PlatformAdmin.__table__.insert().values(
+            id=uid(112), app_user_id=USER, email="admin@example.invalid",
+        ))
+        conn.execute(m.AuthSession.__table__.insert().values(
+            jti=jti, igreja_id=TENANT, app_user_id=USER,
+            expires_at=now + dt.timedelta(minutes=10),
+        ))
+        statements = []
+
+        @event.listens_for(conn, "before_cursor_execute")
+        def record(_conn, _cursor, statement, _params, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement.lower())
+
+        def authorize():
+            with Session(bind=conn) as db:
+                return get_platform_admin(authorization="Bearer synthetic-token", db=db, clerk=clerk)
+
+        assert authorize().app_user_id == str(USER)
+        assert len(statements) == 3
+        assert all("user_roles" not in statement and "join igrejas" not in statement for statement in statements)
+
+        session_update = m.AuthSession.__table__.update().where(m.AuthSession.jti == jti)
+        conn.execute(session_update.values(revoked_at=now))
+        with pytest.raises(HTTPException) as revoked:
+            authorize()
+        assert revoked.value.status_code == 401
+
+        conn.execute(session_update.values(revoked_at=None))
+        conn.execute(m.PlatformAdmin.__table__.delete().where(m.PlatformAdmin.app_user_id == USER))
+        with pytest.raises(HTTPException) as denied:
+            authorize()
+        assert denied.value.status_code == 403
 
 
 def test_lookups_and_pipeline_search_count_before_page_and_do_not_leak_tenant(read_session):
