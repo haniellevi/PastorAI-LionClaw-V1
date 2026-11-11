@@ -297,6 +297,55 @@ def test_charge_sends_whatsapp_to_responsible_leader() -> None:
     assert any(isinstance(o, AgentConversationLog) for o in session.added)
 
 
+def test_charge_ignores_leader_registered_in_another_igreja() -> None:
+    # O usuário e a pessoa vinculada são de outra igreja: nenhuma cobrança
+    # pode sair para esse telefone, mesmo que o escopo da sessão falhe.
+    outra_igreja = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    leader_user = uuid.uuid4()
+    leader_pessoa = uuid.uuid4()
+    item = _work_item(tipo="relatorio", prazo=_T0, responsavel_id=leader_user)
+    session = FakeSlaSession(
+        work_items=[item],
+        connection=SimpleNamespace(instance="igreja-1"),
+        users={leader_user: AppUser(
+            igreja_id=outra_igreja, nome="Líder", email="lider@example.test",
+            pessoa_id=leader_pessoa,
+        )},
+        pessoas={leader_pessoa: Pessoa(
+            igreja_id=outra_igreja, nome="Líder", telefone="+5511999990001"
+        )},
+    )
+    evo = FakeEvolution()
+    engine = SlaEngine(evolution=evo)
+    engine.run_for_igreja(session, _IGREJA, now=_T0 + _hours(1))
+
+    assert evo.sent == []
+
+
+def test_charge_ignores_person_phone_from_another_igreja() -> None:
+    # Usuário desta igreja apontando para pessoa de outra igreja: sem envio.
+    outra_igreja = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    leader_user = uuid.uuid4()
+    leader_pessoa = uuid.uuid4()
+    item = _work_item(tipo="relatorio", prazo=_T0, responsavel_id=leader_user)
+    session = FakeSlaSession(
+        work_items=[item],
+        connection=SimpleNamespace(instance="igreja-1"),
+        users={leader_user: AppUser(
+            igreja_id=_IGREJA, nome="Líder", email="lider@example.test",
+            pessoa_id=leader_pessoa,
+        )},
+        pessoas={leader_pessoa: Pessoa(
+            igreja_id=outra_igreja, nome="Líder", telefone="+5511999990001"
+        )},
+    )
+    evo = FakeEvolution()
+    engine = SlaEngine(evolution=evo)
+    engine.run_for_igreja(session, _IGREJA, now=_T0 + _hours(1))
+
+    assert evo.sent == []
+
+
 def test_escalation_notifies_coordination_and_opens_work_item() -> None:
     coord_user = uuid.uuid4()
     coord_pessoa = uuid.uuid4()
