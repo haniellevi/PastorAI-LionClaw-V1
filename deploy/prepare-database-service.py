@@ -173,13 +173,13 @@ def _require_backup_directory(descriptor: int, *, private: bool = False) -> None
         raise ValueError("permissao insegura no diretorio de backup")
 
 
-def prepare_backup_run(root: str, stamp: str) -> None:
-    """Create one new backup directory below a root-owned hierarchy."""
+def prepare_backup_run(root: str, stamp: str | None) -> None:
+    """Prepare the private root and, when requested, an exclusive run."""
     parts = root.split("/")[1:]
     if (not root.startswith("/") or any(part in ("", ".", "..") for part in parts)
             or any(character in root for character in "\x00\r\n\\")):
         raise ValueError("raiz de backup invalida")
-    if not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", stamp):
+    if stamp is not None and not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", stamp):
         raise ValueError("identidade de execucao invalida")
 
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -196,10 +196,16 @@ def prepare_backup_run(root: str, stamp: str) -> None:
         try:
             backup = os.open(leaf, flags, dir_fd=parent)
         except FileNotFoundError:
-            os.mkdir(leaf, 0o700, dir_fd=parent)
+            try:
+                os.mkdir(leaf, 0o700, dir_fd=parent)
+            except FileExistsError:
+                # Another invocation may prepare the same root before flock.
+                pass
             backup = os.open(leaf, flags, dir_fd=parent)
         descriptors.callback(os.close, backup)
         _require_backup_directory(backup, private=True)
+        if stamp is None:
+            return
 
         archive = f"pastorai-backup-{stamp}.tar.gz"
         for name in (archive, archive + ".sha256"):
@@ -214,14 +220,15 @@ def prepare_backup_run(root: str, stamp: str) -> None:
 def main() -> int:
     if len(sys.argv) == 4 and sys.argv[1] == "prepare-run":
         try:
-            prepare_backup_run(sys.argv[2], sys.argv[3])
+            stamp = None if sys.argv[3] == "--root-only" else sys.argv[3]
+            prepare_backup_run(sys.argv[2], stamp)
         except (OSError, ValueError) as exc:
             print(f"falha ao preparar diretorio do backup ({type(exc).__name__})", file=sys.stderr)
             return 1
         return 0
     if len(sys.argv) != 3:
         print(
-            "uso: prepare-database-service.py ENV_FILE TARGET_DIR ou prepare-run BACKUP_ROOT STAMP",
+            "uso: prepare-database-service.py ENV_FILE TARGET_DIR ou prepare-run BACKUP_ROOT STAMP|--root-only",
             file=sys.stderr,
         )
         return 2

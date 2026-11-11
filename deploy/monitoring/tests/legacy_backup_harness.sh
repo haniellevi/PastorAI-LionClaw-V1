@@ -15,6 +15,7 @@ HELPER_DIR="${LEGACY_ROOT}/usr/local/libexec/pastorai-backup"
 HELPER="${HELPER_DIR}/prepare-database-service.py"
 HELPER_SHA256="${HELPER}.sha256"
 BACKUP_ROOT="${SANDBOX}/backups"
+LOCK_FILE="${SANDBOX}/backup.lock"
 ENV_FILE="${SANDBOX}/deploy.env"
 COMPOSE_FILE="${SANDBOX}/docker-compose.yml"
 LOG="${SANDBOX}/docker.log"
@@ -53,7 +54,7 @@ run_backup() {
     PASTORAI_BACKUP_ROOT="${BACKUP_ROOT}" \
     PASTORAI_ENV_FILE="${ENV_FILE}" \
     PASTORAI_COMPOSE_FILE="${COMPOSE_FILE}" \
-    PASTORAI_BACKUP_LOCK_FILE="${SANDBOX}/backup.lock" \
+    PASTORAI_BACKUP_LOCK_FILE="${LOCK_FILE}" \
     PASTORAI_BACKUP_MONITOR_MANIFEST="${SANDBOX}/backup-status.json" \
     PASTORAI_BACKUP_HELPER="${HELPER}" \
     PASTORAI_BACKUP_HELPER_SHA256="${HELPER_SHA256}" \
@@ -82,9 +83,12 @@ install_package
 [[ "$(stat -c '%u:%g:%a' "${HELPER_SHA256}")" == '0:0:600' ]]
 [[ "$(stat -c '%h' "${HELPER}")" == '1' ]]
 [[ "$(stat -c '%h' "${HELPER_SHA256}")" == '1' ]]
+LOCK_FILE="${BACKUP_ROOT}/backup.lock"
 status=0
 run_backup || status=$?
 [[ "${status}" -eq 23 ]]
+[[ -f "${LOCK_FILE}" ]]
+LOCK_FILE="${SANDBOX}/backup.lock"
 grep -Eq '(^| )run( |$)' "${LOG}"
 ! grep -Eq '(^| )pause( |$)' "${LOG}"
 ! grep -Fq "${SECRET}" "${SANDBOX}/output"
@@ -150,7 +154,7 @@ exec 8>>"${SANDBOX}/backup.lock"
 flock -n 8
 BACKUP_ROOT="${SANDBOX}/locked-backup"
 run_backup
-[[ ! -e "${BACKUP_ROOT}" && ! -s "${LOG}" ]]
+[[ -d "${BACKUP_ROOT}" && -z "$(ls -A "${BACKUP_ROOT}")" && ! -s "${LOG}" ]]
 [[ "$(cat "${SANDBOX}/backup.lock")" == fixture-lock ]]
 flock -u 8
 exec 8>&-

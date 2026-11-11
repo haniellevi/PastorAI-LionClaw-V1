@@ -70,6 +70,8 @@ validate_database_service_helper() {
 # container, or beginning a backup.  No checkout-relative file is trusted.
 validate_database_service_helper
 
+# A configured lock may live directly in the backup root.
+python3 "${DATABASE_SERVICE_HELPER}" prepare-run "${BACKUP_ROOT}" --root-only
 exec 9>>"${LOCK_FILE}"
 if ! flock -n 9; then
   echo "INFO: outro backup já está em execução"
