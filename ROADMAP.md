@@ -1384,9 +1384,10 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 
 **Trabalhos a preservar fora da main, conforme inventário de 15/10:** medições,
 ferramentas de avaliação da interpretação e demonstração V1a de 13/10 em
-`integracao-incremental-20261013`; auditoria em
-`arquitetura-performance-seguranca-20261003`. Integração desse material e estado
-dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta entrega.
+`integracao-incremental-20261013`. Integração desse material e estado dos
+arquivos não salvos: **não verificado**.
+A auditoria e os planos de outubro de `arquitetura-performance-seguranca-20261003`
+ficam no snapshot histórico.
 
 **Decisões pastorais aprovadas em 18/10 (Raniel):**
 
@@ -1408,6 +1409,12 @@ dos arquivos não salvos: **não verificado**. Nenhuma cópia ou descarte nesta 
 | Publicação automática no DEV e explícita em PROD | falta | Operar o caminho preparado e acertar a publicação do frontend com a API (B9/B13). Não alterar agora a automação atual ou gates. |
 | Backup diário e restauração | em andamento | PROD agora é a VPS `<vps-host>` (a `srv1728329` será desativada); runbooks atualizados (#545). Em 21/10, leitura somente: backup diário com manifesto recente e monitor de produção instalado e saudável na VPS nova. Faltam restaurar em alvo isolado, aceitar a chave do host novo no backup externo (Windows) e incluir novas tabelas privadas. |
 | Revisão antes de ampliar o piloto ou lançar | falta | Conferir autenticação/Clerk Production, configurações, gates e privacidade; canários Asaas/Brevo/broadcast/agente independentes. Governança pausada não é reativada automaticamente. |
+
+**Recuperação dos snapshots de painel:** o histórico de Minha Célula pagina no
+banco e lê em lote só a presença e as indicações do próprio membro. A matriz de
+menus seleciona apenas papel e tela. O teste E2E de navegação registra mediana e
+p75 de Hoje, Conversas e abertura do atendimento com API fictícia. Latência e
+comportamento em produção **não verificados**.
 
 **Preservar para esta etapa:** pré-checagem de backup em
 `vps07a-source-20261005`, guarda de rede em `vps04a-network-guard`,

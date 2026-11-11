@@ -16,11 +16,11 @@ class _Rows:
     def __init__(self, rows: list[RolePermission]) -> None:
         self._rows = rows
 
-    def scalars(self) -> _Rows:
-        return self
+    def scalars(self) -> SimpleNamespace:
+        return SimpleNamespace(all=lambda: list(self._rows))
 
-    def all(self) -> list[RolePermission]:
-        return list(self._rows)
+    def all(self) -> list[tuple[str, str]]:
+        return [(row.papel, row.tela) for row in self._rows]
 
 
 class _Session:
