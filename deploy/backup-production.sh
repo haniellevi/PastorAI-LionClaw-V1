@@ -70,14 +70,13 @@ validate_database_service_helper() {
 # container, or beginning a backup.  No checkout-relative file is trusted.
 validate_database_service_helper
 
-mkdir -p "${BACKUP_ROOT}" "${BACKUP_DIR}"
-chmod 700 "${BACKUP_ROOT}" "${BACKUP_DIR}"
-
-exec 9>"${LOCK_FILE}"
+exec 9>>"${LOCK_FILE}"
 if ! flock -n 9; then
   echo "INFO: outro backup já está em execução"
   exit 0
 fi
+
+python3 "${DATABASE_SERVICE_HELPER}" prepare-run "${BACKUP_ROOT}" "${STAMP}"
 
 paused=0
 DATABASE_CREDENTIALS_DIR=""
