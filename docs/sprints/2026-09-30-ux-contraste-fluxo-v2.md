@@ -66,7 +66,7 @@ sem compensação de dados. A versão anterior continua na base citada.
 
 ## Aceite visual e atualização do designer
 
-Após a prévia, Raniel confirmou: "ficou excelente, pode atualizar o designer do projeto". Em 30/09, o [design system](../../DESIGN.md) e o [Plan Designer](../../Plan-Designer-Igreja12/README.md) foram reconciliados com os tokens e a composição de Hoje e Conversas. A escala de títulos passou a documentar 28/22/18 px; contraste, foco, disclosure e hierarquia de ações agora orientam as próximas fatias. Wireframes de agosto permanecem identificados como intenção histórica.
+Após a prévia, Raniel confirmou: "ficou excelente, pode atualizar o designer do projeto". Em 30/09, o [design system](../../DESIGN.md) e o [Plan Designer](../historico/Plan-Designer-Igreja12/README.md) foram reconciliados com os tokens e a composição de Hoje e Conversas. A escala de títulos passou a documentar 28/22/18 px; contraste, foco, disclosure e hierarquia de ações agora orientam as próximas fatias. Wireframes de agosto permanecem identificados como intenção histórica.
 
 O candidato de implementação `66a56cc0b601bf14f8e3036e9cede11f54b32087` está na [PR #447](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/447), em rascunho. Os checks `backend-tests`, `frontend-ci`, `e2e-critical` e `rls-integration` concluíram com sucesso nesse SHA; o E2E de CI passou os dez cenários. Essa evidência pertence ao candidato citado, sem atribuí-la antecipadamente à atualização documental posterior.
 
