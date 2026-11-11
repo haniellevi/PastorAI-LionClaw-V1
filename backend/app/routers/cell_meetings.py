@@ -28,7 +28,7 @@ from typing import Literal, NoReturn
 
 from fastapi import Response, Query, APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import nulls_last, select
+from sqlalchemy import Time, and_, case, cast, func, nulls_last, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -52,7 +52,7 @@ from app.deps import (
     get_current_user,
     resolve_actor_pessoa_id,
 )
-from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_date
+from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_date, now_in_sao_paulo
 from app.domain.cell_report_limits import (
     MAX_CELL_REPORT_OBSERVATIONS_LENGTH,
     MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT,
@@ -83,6 +83,29 @@ from app.routers.cells import (
 logger = logging.getLogger("pastorai.cell_meetings")
 
 router = APIRouter(tags=["cell-meetings"])
+
+
+def past_meeting_filter(now: dt.datetime | None = None, *, strip_python_whitespace: bool = False):
+    """Filter past meetings, preserving the caller's existing hour normalization."""
+    local = now_in_sao_paulo(now)
+    hour = func.btrim(CelulaReuniao.hora)
+    if strip_python_whitespace:
+        # The disciple history already uses str.strip() in the domain parser.
+        whitespace = (
+            "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680"
+            "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+            "\u2028\u2029\u202f\u205f\u3000"
+        )
+        hour = func.btrim(CelulaReuniao.hora, whitespace)
+    valid_time = case(
+        (hour.op("~")(r"^([01][0-9]|2[0-3]):[0-5][0-9]$"), cast(hour, Time)),
+        else_=None,
+    )
+    return or_(
+        CelulaReuniao.data < local.date(),
+        and_(CelulaReuniao.data == local.date(), valid_time < local.time().replace(tzinfo=None)),
+    )
+
 
 # Constantes de estado no estilo de events.py (strings do enum/CHECK do DB).
 # STATUS_* pertence a celula_reuniao; ESTADO_/ORIGEM_ a celula_presenca (Domínio

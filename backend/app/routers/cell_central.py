@@ -19,7 +19,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
-from sqlalchemy import Time, and_, case, cast, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -32,8 +32,8 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import CurrentUser, require_central
-from app.domain.cell_meetings_schedule import now_in_sao_paulo
 from app.domain.cell_requests import STATUS_AGUARDANDO, TIPO_MULTIPLICACAO
+from app.routers.cell_meetings import past_meeting_filter
 from app.services import cell_health_service
 from app.services.hoje import escopo_vigente
 from app.services.cell_health_service import (
@@ -99,17 +99,6 @@ class HealthOut(BaseModel):
     cells: list[CellHealthOut]
 
 
-def _past_meeting_filter(now: dt.datetime):
-    """SQL equivalent of meeting_has_passed, including null/malformed hours."""
-    local = now_in_sao_paulo(now)
-    hora = func.btrim(CelulaReuniao.hora)
-    valid_time = case((hora.op("~")(r"^([01][0-9]|2[0-3]):[0-5][0-9]$"), cast(hora, Time)), else_=None)
-    return or_(
-        CelulaReuniao.data < local.date(),
-        and_(CelulaReuniao.data == local.date(), valid_time < local.time().replace(tzinfo=None)),
-    )
-
-
 # ---------------------------------------------------------------------------
 # GET /cell-central/dashboard
 # ---------------------------------------------------------------------------
@@ -132,7 +121,7 @@ def get_dashboard(
 
     counters = db.execute(select(
         counter(CelulaReuniao, CelulaReuniao.status.is_distinct_from(STATUS_CANCELADA),
-            CelulaReuniao.relatorio_status.is_distinct_from(RELATORIO_ENVIADO), _past_meeting_filter(now)).label("central_pending"),
+            CelulaReuniao.relatorio_status.is_distinct_from(RELATORIO_ENVIADO), past_meeting_filter(now)).label("central_pending"),
         counter(CelulaSolicitacao, CelulaSolicitacao.status == STATUS_AGUARDANDO).label("central_requests"),
         counter(CelulaSolicitacao, CelulaSolicitacao.status == STATUS_AGUARDANDO,
             CelulaSolicitacao.tipo == TIPO_MULTIPLICACAO).label("central_multiplications"),
@@ -189,7 +178,7 @@ def get_pending_reports(
         CelulaReuniao.igreja_id == igreja_id,
         CelulaReuniao.status.is_distinct_from(STATUS_CANCELADA),
         CelulaReuniao.relatorio_status == RELATORIO_PENDENTE,
-        _past_meeting_filter(dt.datetime.now(dt.timezone.utc)),
+        past_meeting_filter(),
     )
     total = int(db.execute(select(func.count()).select_from(CelulaReuniao).where(*filters)).scalar_one())
     window = db.execute(
