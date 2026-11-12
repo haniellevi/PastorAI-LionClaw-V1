@@ -61,6 +61,26 @@ export const CENTRAL_ONLY = ["central-celula", "relatorios", "responsabilidades"
 /** Papel que enxerga as telas CENTRAL_ONLY (espelha CENTRAL_ROLE do backend). */
 export const CENTRAL_ROLE = "pastor";
 
+/**
+ * Decisão B3 (12/11/2026): Conversas (inbox) só existe para os papéis FIXOS que
+ * a inbox honra (espelha INBOX_ROLES de `backend/app/domain/conversations.py`;
+ * admin é implícito). A matriz pode remover de um papel fixo, nunca conceder a
+ * outro papel — não amplia acesso a conversas.
+ */
+export const INBOX_SCREEN = "inbox";
+export const INBOX_ROLES: readonly Role[] = [
+  "pastor",
+  "lider_g12",
+  "lider_consol",
+  "lider_celula",
+  "operador",
+];
+
+/** True quando o papel pode ter a tela Conversas (B3). */
+export function hasFixedInbox(role: Role): boolean {
+  return INBOX_ROLES.includes(role);
+}
+
 export const ALL_SCREENS: readonly string[] = [
   ...MENU_SCREENS,
   ...LEGACY,
@@ -175,6 +195,8 @@ export function allowedScreens(
     const isCentral = role === CENTRAL_ROLE;
 
     for (const screen of perms[role] ?? []) {
+      // Conversas só para os papéis fixos da inbox (B3).
+      if (screen === INBOX_SCREEN && !hasFixedInbox(role)) continue;
       // Só o papel `pastor` pode contribuir com uma tela Central-only.
       if (!isCentral && CENTRAL_ONLY_SET.has(screen)) continue;
       if (
