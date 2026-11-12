@@ -12,6 +12,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from typing import NoReturn
 
 
 class ConsentLedgerReceiptValidationError(ValueError):
@@ -36,7 +37,7 @@ class ConsentLedgerReceiptIdempotencyDisposition(str, Enum):
 _PERSISTED_KEY_RE = re.compile(r"[a-z0-9][a-z0-9:._-]{0,127}")
 
 
-def _reject(field: str, message: str) -> None:
+def _reject(field: str, message: str) -> NoReturn:
     raise ConsentLedgerReceiptValidationError(f"{field}: {message}")
 
 

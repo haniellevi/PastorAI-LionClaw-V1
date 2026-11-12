@@ -100,7 +100,7 @@ def _descriptions(db, tenant, people):
     meetings = _by_id(db, CelulaReuniao, tenant, {e.reuniao_id for e in events})
     visitors = _by_id(db, CelulaVisitante, tenant, {e.visitante_id for e in events})
     cells = _by_id(db, Celula, tenant, {m.celula_id for m in meetings.values()})
-    memberships = {}
+    memberships: dict[uuid.UUID, list[uuid.UUID]] = {}
     for person_id, cell_id in db.execute(select(CelulaMembro.pessoa_id, CelulaMembro.celula_id).where(
         CelulaMembro.igreja_id == tenant, CelulaMembro.pessoa_id.in_(ids), CelulaMembro.ativo.is_(True),
     )):
