@@ -829,20 +829,18 @@ O que a janela faz em cada um, e por que não atinge os outros:
 `restart` de `nginx`, `docker`, `containerd` ou `cron`; `ufw`/`iptables`;
 `docker compose down` ou `docker system/network/volume prune`; reiniciar a VPS.
 
-**Edição única do site (antes do V1, com SIM próprio):** o arquivo do site da
-API da Igreja 12 precisa, uma vez, do `include /etc/nginx/igreja12-window/*.conf;`
-dentro do `server` HTTPS, antes do `location /`, sem os comentários no fim das
-linhas e com o `server` da porta 80 reduzido a `listen 80;`, `listen [::]:80;`,
-`server_name` e `return 301 https://$host$request_uri;`. O certificado continua
-**dentro do arquivo da Igreja 12**: nunca mover `ssl_certificate` para o
-`nginx.conf` ou `conf.d`, porque isso muda o certificado padrão dos outros
-sites. Depois da edição, `check-bindings` precisa responder `open`.
+**Edição única do site (passo V6, SIM próprio):** o certificado continua
+**dentro do arquivo da Igreja 12**, como o certbot deixou: nunca mover
+`ssl_certificate` para o `nginx.conf` ou `conf.d`, porque isso muda o
+certificado padrão dos outros sites. A pasta `/etc/nginx/igreja12-window`
+só pode ser incluída pelo site da Igreja 12; a ferramenta confere isso a
+cada observação.
 
 **Carga:** o backup da janela com restore em clone usa CPU e disco da mesma
-VPS. Os outros sistemas podem ficar mais lentos nesse trecho; o V6/J10 mostra
+VPS. Os outros sistemas podem ficar mais lentos nesse trecho; o V7/J10 mostra
 se algum deixou de responder.
 
-#### Conferência dos outros sistemas (V6 antes, J10 depois; só leitura)
+#### Conferência dos outros sistemas (V7 antes, J10 depois; só leitura)
 
 Na VPS, gravar a foto antes da janela e repetir no fim:
 
@@ -876,7 +874,8 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 | V3 | Ensaio sintético verde no SHA escolhido e os quatro checks do CI. | — |
 | V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
 | V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado. | dentro do SIM 1 (só leitura) |
-| V6 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
+| V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). Na configuração dos bindings: `site_path` = `/etc/nginx/sites-available/pastorai-api-http` e `enabled_path` = `/etc/nginx/sites-enabled/pastorai-api-http` (é atalho na VPS, conferido em 12/11). | **SIM próprio** (edição na VPS) |
+| V7 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
 
 ### 12.2 Janela
 
@@ -892,7 +891,7 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 | J7 | A10 (seção 12.3). | **SIM 4** (religar workers e envios como estavam) |
 | J8 | Publicar o painel no mesmo SHA do backend e fazer o smoke dele (seção 12.5). Se falhar, voltar só o painel ao deployment anterior. | **SIM 5** (publicar o painel; inclui voltar o painel se o smoke falhar) |
 | J9 | Religar o backup do host (`sudo mv /root/pastorai-backup.cron.pausado /etc/cron.d/pastorai-backup`, dono root e modo 644), conferir `AgentConfig` e Jev, registrar o encerramento. | — |
-| J10 | Repetir a foto dos outros sistemas (seção 12.0) e comparar com a do V6: nenhuma diferença. | — |
+| J10 | Repetir a foto dos outros sistemas (seção 12.0) e comparar com a do V7: nenhuma diferença. | — |
 
 **SIM 3** cobre o `run` inteiro: contenção, backup, migrations e A9. Como o
 `run` não para entre o backup e a primeira migration, dizer SIM 3 é aceitar o
