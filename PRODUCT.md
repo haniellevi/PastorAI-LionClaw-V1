@@ -108,7 +108,7 @@ Esta seção limita o ciclo de refatoração visual que originou este documento.
 
 ## Fontes de verdade
 
-- `SPEC.md`
+- `ROADMAP.md` (planejamento e estado atual; o antigo `SPEC.md` está em `docs/historico/`)
 - `docs/Docs20260611_163530/PRD20260611_163530.md`
 - `docs/Docs20260611_163530/design/design-brief.md`
 - `docs/design/RECONCILIACAO-igreja12.md`
