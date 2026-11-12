@@ -16,6 +16,7 @@
  */
 
 import { SessionExpiredError } from "./api";
+import type { components } from "./api-schema.gen";
 import { AuthedResponseCache } from "./authed-response-cache";
 import { fetchWithDeadline, waitForRequest } from "./request-with-deadline";
 
@@ -115,19 +116,13 @@ export interface Cell {
   ativo: boolean;
 }
 
-/** Visão geral do dashboard (#2): totais por tipo/etapa + KPIs, escopados por papel. */
-export interface OverviewStats {
-  /** "igreja" (admin/pastor/sênior) ou "celula" (líder de célula, só as suas). */
-  scope: string;
-  total: number;
-  decisoesJesus: number;
-  celulasAtivas: number;
-  /** Líderes de célula DERIVADOS (celulas.lider_id em célula ativa). */
-  lideresCelula: number;
-  semInteresse: number;
-  porTipo: Record<string, number>;
-  porEtapa: Record<string, number>;
-}
+/**
+ * Visão geral do dashboard (#2): totais por tipo/etapa + KPIs, escopados por papel.
+ * `scope` é "igreja" (admin/pastor/sênior) ou "celula" (líder de célula, só as suas);
+ * `lideresCelula` é derivado de celulas.lider_id em célula ativa.
+ * Tipo gerado do contrato do backend (`OverviewOut`); atualize com `npm run api:types`.
+ */
+export type OverviewStats = components["schemas"]["OverviewOut"];
 
 export interface QueueActionResult {
   conviteId?: string;

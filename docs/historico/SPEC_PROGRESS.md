@@ -1,5 +1,8 @@
 # SPEC_PROGRESS - PastorAi-1.0
 
+> **Histórico (arquivado em 11/11/2026).** Não é fonte ativa de planejamento;
+> o [ROADMAP](../../ROADMAP.md) é o único roteiro vigente.
+
 ## Registro historico: 5/5 sprints concluidas (pipeline architecture-review C1/RLS — run 20260707_112731-2c3953)
 Ultima atualizacao do registro historico: 2026-07-07T19:14:45.251Z
 
@@ -282,7 +285,7 @@ mesmos 388390 bytes, o SHA-256
 `7040a54d80c0ee4f37e1986ff0a579db275e45c129f4fdafcd66788e22a3eb3e` e o
 fingerprint `8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370`.
 A evidencia e os limites estao na
-[`decisao de derivacao offline`](docs/decisions/2026-08-29-offline-canonical-schema-derivation.md).
+[`decisao de derivacao offline`](../decisions/2026-08-29-offline-canonical-schema-derivation.md).
 Isso nao atesta DEV, PROD, Data API ou Realtime; `OPERATIONAL_AUTHORIZATION=BLOCKED`
 permanece obrigatorio.
 
@@ -292,7 +295,7 @@ merge `c8427b1a505c0aad2a5f675d3bf456ee33716690`; o Git registra
 `mergedAt=2026-08-29T21:21:16Z`. Os seis checks da PR e os seis pós-merge
 concluíram com `SUCCESS`; os detalhes da API do deployment automático Vercel
 frontend Production `6160229001` estão na evidência detalhada em
-[`decisao de derivacao offline`](docs/decisions/2026-08-29-offline-canonical-schema-derivation.md).
+[`decisao de derivacao offline`](../decisions/2026-08-29-offline-canonical-schema-derivation.md).
 Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
 deployment prova somente o frontend e não prova backend, banco, migration,
 runtime ou atestação de ambiente.
@@ -320,7 +323,7 @@ prova backend, banco ou runtime. O estado corrente e
 `INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
 
 O tooling integrado permanece fail-closed, conforme a
-[`decisao de atestacao read-only`](docs/decisions/2026-08-30-read-only-environment-attestation-tooling.md).
+[`decisao de atestacao read-only`](../decisions/2026-08-30-read-only-environment-attestation-tooling.md).
 Nenhum DEV ou PROD foi consultado e nenhum artefato ambiental foi produzido.
 O schema JSON valida somente o envelope; o verificador Python continua
 obrigatorio. O HMAC serve para correlacao e anti-swap, sem substituir
@@ -389,7 +392,7 @@ A prova PG17 ampliada tem SHA-256
 `ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e`.
 Essa prova local nao reclassifica DEV nem determina a causa do bloqueio. A
 evidencia detalhada esta em
-[`2026-08-30-dev-identity-preflight-diagnostics.md`](docs/decisions/2026-08-30-dev-identity-preflight-diagnostics.md).
+[`2026-08-30-dev-identity-preflight-diagnostics.md`](../decisions/2026-08-30-dev-identity-preflight-diagnostics.md).
 Estado: `DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO
 CONSULTADO / OPERACAO BLOQUEADA`.
 
@@ -430,7 +433,7 @@ Sarah concluiu `GO`, sem P0, P1 ou P2. As duas execucoes DEV historicas com
 exit `7` nao podem ser retroclassificadas. A unica `query_logs` anterior
 retornou vazio e continua `EVIDENCE_INSUFFICIENT`. Esta missao nao repetiu a
 consulta e nao acessou DEV ou PROD. A evidencia detalhada esta em
-[`2026-08-30-dev-preflight-failure-phase-diagnostics.md`](docs/decisions/2026-08-30-dev-preflight-failure-phase-diagnostics.md).
+[`2026-08-30-dev-preflight-failure-phase-diagnostics.md`](../decisions/2026-08-30-dev-preflight-failure-phase-diagnostics.md).
 
 O enum foi integrado pela PR #344 no `main`
 `bab031a7e0067a257eedb4a24c786cc925801463`. Em `2026-08-31`, uma terceira e
@@ -450,7 +453,7 @@ worktree operacionais temporarios; o checkout ficou limpo, sem `__pycache__` ou
 O probe para separar somente DNS, TCP e TLS foi preparado offline e permanece
 `execution_disabled=true`; ele nao foi executado e nao possui autorizacao viva.
 O contrato e os limites estao em
-[`2026-08-31-dev-connect-tls-auth-transport-probe.md`](docs/decisions/2026-08-31-dev-connect-tls-auth-transport-probe.md).
+[`2026-08-31-dev-connect-tls-auth-transport-probe.md`](../decisions/2026-08-31-dev-connect-tls-auth-transport-probe.md).
 `OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false` permanecem
 obrigatorios.
 

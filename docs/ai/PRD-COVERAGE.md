@@ -1487,9 +1487,9 @@ futuros, não correntes e não autorizados.
 - `docs/audits/2026-08-27-d1-security-scope-audit.md`
 - [arquivo histórico: `docs/ops/POST-V1-MISSION-REGISTER.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/POST-V1-MISSION-REGISTER.md)
 - `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md`
-- `Plan-Designer-Igreja12/01-ESTADO-ATUAL-E-GAPS.md`
-- `Plan-Designer-Igreja12/03-AGENTE-IA-WHATSAPP.md`
-- `Plan-Designer-Igreja12/08-ROADMAP-PRIORIZADO.md`
+- `docs/historico/Plan-Designer-Igreja12/01-ESTADO-ATUAL-E-GAPS.md`
+- `docs/historico/Plan-Designer-Igreja12/03-AGENTE-IA-WHATSAPP.md`
+- `docs/historico/Plan-Designer-Igreja12/08-ROADMAP-PRIORIZADO.md`
 - código e testes do SHA auditado
 
 ## Atualização pós-merge da segurança de autoria e replay (2026-09-04)

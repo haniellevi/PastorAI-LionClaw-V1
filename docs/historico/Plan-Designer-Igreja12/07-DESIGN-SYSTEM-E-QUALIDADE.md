@@ -2,7 +2,7 @@
 
 ## 1. Direção preservada
 
-Atualizado em 01/10/2026 com a direção expressiva v3 aprovada e aplicada às 42 unidades existentes. [DESIGN.md](../DESIGN.md) é o contrato visual canônico; este capítulo descreve sua aplicação e as metas de qualidade. A identidade Diamante Lapidado permanece como base.
+Atualizado em 01/10/2026 com a direção expressiva v3 aprovada e aplicada às 42 unidades existentes. [DESIGN.md](../../../DESIGN.md) é o contrato visual canônico; este capítulo descreve sua aplicação e as metas de qualidade. A identidade Diamante Lapidado permanece como base.
 
 Nome da direção: **Farol de Hoje sobre Diamante Lapidado**.
 
@@ -21,7 +21,7 @@ A imagem em `assets/concepts/conceito-farol-de-hoje.png` explora essa direção.
 
 ## 2. O que já é canônico
 
-A referência vigente é a [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md), com [tokens](../frontend/src/app/design-tokens.css), [estilos de base](../frontend/src/app/globals.css) e [composição v3](../frontend/src/app/expressive-ux-v3.css). A tabela abaixo resume a paleta canônica. Os valores tipográficos legados dos tokens permanecem por compatibilidade; as famílias de telas aplicam a hierarquia v3.
+A referência vigente é a [execução v3](../../sprints/2026-10-01-ux-expressiva-v3.md), com [tokens](../../../frontend/src/app/design-tokens.css), [estilos de base](../../../frontend/src/app/globals.css) e [composição v3](../../../frontend/src/app/expressive-ux-v3.css). A tabela abaixo resume a paleta canônica. Os valores tipográficos legados dos tokens permanecem por compatibilidade; as famílias de telas aplicam a hierarquia v3.
 
 ### Cor
 
@@ -52,7 +52,7 @@ Estados semânticos atuais, verde, âmbar, coral e azul, permanecem independente
 - corpo, identidade de linha e campos: 16 pixels; apoio e metadado de linha: 14 pixels;
 - rótulo: 14 pixels; título de tela: 32 pixels no desktop e 28 no mobile;
 - acesso: headline de marca de 48 a 56 pixels no desktop, título do formulário de 28 pixels;
-- títulos, pesos e entrelinhas seguem a tabela de [DESIGN.md](../DESIGN.md);
+- títulos, pesos e entrelinhas seguem a tabela de [DESIGN.md](../../../DESIGN.md);
 - nenhum texto operacional abaixo de 12 pixels.
 
 ### Espaçamento
@@ -313,7 +313,7 @@ Para cada fatia:
 
 Uma aprovação visual não aprova a regra de negócio. Uma autorização correta também não prova que a tela é utilizável.
 
-No [recorte v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md), a evidência local cobre 390/768/1024/1440 px, contraste renderizado, teclado, foco, reduced motion e continuidade mobile com dados sintéticos. A largura de 360 px, zoom real de 200%, leitor de tela e smoke com papéis/backend reais permanecem sem evidência nesta entrega. Os critérios acima continuam sendo metas, sem declarar esses itens concluídos.
+No [recorte v2](../../sprints/2026-09-30-ux-contraste-fluxo-v2.md), a evidência local cobre 390/768/1024/1440 px, contraste renderizado, teclado, foco, reduced motion e continuidade mobile com dados sintéticos. A largura de 360 px, zoom real de 200%, leitor de tela e smoke com papéis/backend reais permanecem sem evidência nesta entrega. Os critérios acima continuam sendo metas, sem declarar esses itens concluídos.
 
 ## 11. Fontes oficiais
 
@@ -328,6 +328,6 @@ No [recorte v2](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md), a evidênc
 
 ## 12. Gate de direção
 
-Em 01/10/2026, Raniel aprovou o conjunto concreto v3 e autorizou a aplicação global e a publicação frontend. A [execução e evidência](../docs/sprints/2026-10-01-ux-expressiva-v3.md) controla o candidato, QA e recibo; a [referência do programa](README.md) mantém os limites de produto e das operações externas.
+Em 01/10/2026, Raniel aprovou o conjunto concreto v3 e autorizou a aplicação global e a publicação frontend. A [execução e evidência](../../sprints/2026-10-01-ux-expressiva-v3.md) controla o candidato, QA e recibo; a [referência do programa](README.md) mantém os limites de produto e das operações externas.
 
 A exploração histórica de teal e as composições ainda não implementadas não passam a ser capacidades aprovadas por essa atualização.

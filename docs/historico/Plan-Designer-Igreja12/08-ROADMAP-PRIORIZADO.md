@@ -1,5 +1,8 @@
 # Roadmap priorizado
 
+> **Histórico (arquivado em 11/11/2026).** Não é fonte ativa de planejamento;
+> o [ROADMAP](../../../ROADMAP.md) é o único roteiro vigente.
+
 ## 1. Gates antes de qualquer PR
 
 1. aprovar a direção visual;
