@@ -877,7 +877,7 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 | V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). Na configuração dos bindings: `site_path` = `/etc/nginx/sites-available/pastorai-api-http` e `enabled_path` = `/etc/nginx/sites-enabled/pastorai-api-http` (é atalho na VPS, conferido em 12/11). | **SIM próprio** (edição na VPS) |
 | V7 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
 | V8 | Preparar a VPS com o kit (seção 12.6): ferramenta no SHA aprovado, três arquivos de configuração, pastas do backup, imagem do Postgres, arquivo privado do aplicador, correção da linha repetida no arquivo do candidato e `prepare-layout`. Não toca no sistema antigo, no banco, no nginx nem nos gates. | **SIM próprio** (escrita na VPS) |
-| V9 | Conferências sem efeito com o kit instalado: `prepare`, `check` (duas leituras do banco) e `check-bindings`; ensaio do backup da janela (`rehearse-backup`: cópia do banco, restore e as 51 migrations num clone isolado, na própria VPS). | dentro do SIM V8 |
+| V9 | Conferências sem efeito com o kit instalado: `prepare`, `check` (duas leituras do banco) e `check-bindings`; ensaio do backup da janela (`rehearse-backup`: cópia do banco, restore e as 51 migrations num clone isolado, na própria VPS). Regra de parada do timeout: o `seconds` do recibo precisa ficar abaixo de 60 (§12.6, fato 2). | dentro do SIM V8 |
 
 ### 12.2 Janela
 
@@ -1128,7 +1128,23 @@ consulta), 78 migrations no ledger, banco com 23 MB, PostgreSQL 17.6.
      com os 2 min da role.
    - O pooler do Supabase também ignora `PGOPTIONS` (regra no topo deste
      runbook).
-   - Conferido no código em 12/11. Decisão com o orquestrador.
+   - Conferido no código em 12/11.
+   - **Decisão de 12/11 (orquestrador, opção a):** ficam os 2 min da role.
+     Não muda o executor nem a role.
+   - **Regra de parada do V9:** o `rehearse-backup` não mostra o tempo de cada
+     migration. O recibo mostra só `seconds`, que é o total do ensaio (cópia,
+     restore e as 51 migrations no clone). Como nenhuma migration dura mais
+     que o total:
+     - `seconds` abaixo de 60: todas ficaram abaixo de 60 s. Segue.
+     - `seconds` de 60 ou mais: não dá para provar que cada uma ficou abaixo
+       de 60 s. A janela **não abre**. Volta para a opção (b): a ferramenta
+       passa a aceitar o timeout explícito, com nova revisão.
+     - Quem dá o SIM do V8/V9 confere esse número antes do SIM 2.
+3. Risco conhecido, aceito pelo orquestrador em 12/11: no backend
+   `afdfb78d`, o envio humano pelo painel para contato com opt-out **não** é
+   bloqueado, igual à produção de hoje. O bloqueio (#665) existe só no backend
+   da `main` e chega no release seguinte. O painel da `main` não muda isso: o
+   bloqueio é do backend.
 
 #### Preparação (V8, SIM próprio; V9 dentro dele)
 
