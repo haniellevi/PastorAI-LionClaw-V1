@@ -459,11 +459,18 @@ cd <checkout-limpo>/frontend
 vercel --prod
 ```
 
-No projeto Vercel, confirmar sem revelar valores:
+No projeto Vercel `pastorai-frontend-prod`, confirmar sem revelar valores:
 
-- `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br`;
-- autenticação apontando para a mesma instância Clerk PROD usada pelo backend;
-- aliases `app.`, `admin.` e `painel.igreja12.com.br`.
+- `NEXT_PUBLIC_API_URL` presente em Production, apontando para
+  `https://api.igreja12.com.br`. É a única variável que o código do painel lê;
+  sem ela o build de produção falha de propósito;
+- aliases `app.`, `admin.` e `painel.igreja12.com.br`;
+- publicação automática continua desligada (`frontend/vercel.json`,
+  `git.deploymentEnabled: false`). Não religar.
+
+O painel envia o login à API por `Authorization: Bearer`, sem cookie; a CSP
+(só relatório) é definida pelo próprio painel. Na primeira virada, a publicação
+do painel é o passo J8, com SIM próprio (seção 12.5).
 
 ## 8. Smokes sem efeitos externos
 
@@ -802,6 +809,7 @@ contenção até a A9 numa execução só. O modo `a10` é uma execução separa
 | V2 | Conferir que o arquivo privado do candidato tem os mesmos gates por finalidade do antigo (piloto, agenda, V1a, V3). Os quatro gates principais ficam fechados nele; a A10 os sobrepõe com os valores antigos. Se algum gate por finalidade diferir, a verificação da A10 pode acusar cancelamento e conter. | dentro do SIM 1 |
 | V3 | Ensaio sintético verde no SHA escolhido e os quatro checks do CI. | — |
 | V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
+| V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado. | dentro do SIM 1 (só leitura) |
 
 ### 12.2 Janela
 
@@ -815,7 +823,8 @@ contenção até a A9 numa execução só. O modo `a10` é uma execução separa
 | J5 | **PONTO DE NÃO RETORNO:** marcador da DDL e primeira migration. Depois dele o sistema antigo nunca volta (`post-ddl-resume-forbidden`). | dentro do SIM 3 |
 | J6 | 51 migrations, uma por vez; candidato criado parado; só o backend sobe, com envios fechados, e passa no smoke; workers continuam parados; entradas continuam bloqueadas (A9). O resultado imprime `a10_token`. | dentro do SIM 3 |
 | J7 | A10 (seção 12.3). | **SIM 4** (religar workers e envios como estavam) |
-| J8 | Religar o backup do host, conferir `AgentConfig` e Jev, registrar o encerramento. | — |
+| J8 | Publicar o painel no mesmo SHA do backend e fazer o smoke dele (seção 12.5). Se falhar, voltar só o painel ao deployment anterior. | **SIM 5** (publicar o painel; inclui voltar o painel se o smoke falhar) |
+| J9 | Religar o backup do host, conferir `AgentConfig` e Jev, registrar o encerramento. | — |
 
 **SIM 3** cobre o `run` inteiro: contenção, backup, migrations e A9. Como o
 `run` não para entre o backup e a primeira migration, dizer SIM 3 é aceitar o
@@ -893,10 +902,73 @@ primeira migration); o 5 é limite técnico registrado.
    respondem 503. Não está verificado se a Evolution e o Asaas reenviam depois;
    mensagens e avisos de pagamento podem se perder.
 3. **Backup automático da VPS:** precisa ser pausado antes do J2 e religado no
-   J8. Um `pg_dump` durante as migrations pode segurar lock e fazer uma
+   J9. Um `pg_dump` durante as migrations pode segurar lock e fazer uma
    migration falhar (`lock_timeout` de 2 s), o que para a janela depois do
    ponto de não retorno.
 4. **Depois da primeira migration não há volta ao sistema antigo:** só manter
    contido e corrigir adiante, ou restaurar o backup da janela por decisão.
 5. **Proteção das pendências é por contagem:** a verificação olha dois
    contadores. Ela não substitui o inventário por finalidade do item V1.
+
+### 12.5 J8: publicar o painel (SIM 5)
+
+Decisão do Raniel em 12/11/2026: o painel novo vai ao ar logo depois da A10,
+na mesma janela e com o **mesmo SHA** do backend. Só começa depois que a A10
+terminou verde. Não mexe no backend, no banco nem nos gates.
+
+**Pré-requisitos (V5, na véspera, só leitura):**
+
+1. Vercel CLI instalada no computador do operador (`vercel --version`) e
+   logada na conta/equipe dona do projeto `pastorai-frontend-prod`
+   (`vercel whoami`; conferir a equipe com `vercel teams ls`).
+2. Checkout limpo do SHA do backend, fora do checkout de trabalho, por
+   exemplo `git worktree add --detach <pasta> <SHA>`; `git status` sem
+   alterações. Em `<pasta>/frontend`, `vercel link` escolhendo o projeto
+   `pastorai-frontend-prod` (nunca criar projeto novo).
+3. Variáveis de Production conferidas **só por nome**
+   (`vercel env ls production`): `NEXT_PUBLIC_API_URL` presente. Não usar
+   `vercel env pull` nem imprimir valores.
+4. Publicação automática segue desligada (`git.deploymentEnabled: false` em
+   `frontend/vercel.json` do SHA) e nenhum deploy por Git foi religado.
+5. Anotar o ID/URL do deployment de produção atual (hoje: o de 27/10, SHA
+   `afdfb78d`). É o alvo da volta.
+
+**Passo (depois do SIM 5):**
+
+```bash
+cd <pasta>/frontend
+vercel --prod
+```
+
+Conferir que o deployment novo ficou em Production e que `app.`, `admin.` e
+`painel.igreja12.com.br` apontam para ele.
+
+**Smoke do painel contra a API nova (o Raniel entra com a conta dele; ninguém
+digita senha por ele):** abrir `app.` e `admin.`; entrar; a tela inicial
+carrega nome, igreja e menus do papel, sem "sessão indisponível"; abrir as
+telas principais do menu (inclusive `/gestao`) só para leitura; sair e
+confirmar que voltou ao login. Não enviar mensagem, não confirmar ações e não
+mudar configurações durante o smoke. Registrar horário, deployment e resultado.
+
+**Se o smoke falhar:** voltar só o painel ao deployment anotado no V5, pelo
+Instant Rollback da Vercel (painel do projeto ou `vercel rollback <url>`).
+É reversível e está coberto pelo SIM 5. Não mexer no backend, nos workers nem
+nos gates: a A10 já terminou e continua valendo. Depois de um rollback, a
+Vercel deixa de apontar os domínios para deploys novos até um "undo"/promote;
+a próxima tentativa exige SIM próprio. Registrar o motivo.
+
+**Janela de incompatibilidade entre o SIM 3 e o J8:** a comparação do código
+de `afdfb78d` (painel no ar) com o SHA da janela não achou mudança no login
+nem na sessão: as rotas `/auth/*` usadas pelo painel antigo e pelo novo são as
+mesmas; `routers/auth.py`, `main.py` (CORS) e `config.py` do backend não
+mudaram; nenhuma rota foi criada ou removida; o token vai por `Bearer`, sem
+cookie; a CSP é do próprio painel, em modo relatório; e a única variável do
+painel continua `NEXT_PUBLIC_API_URL`. Do J4 até a A10 a API responde 503 e o
+painel antigo só mostra indisponibilidade. Entre a A10 (que reabre o site) e o
+fim do J8, o painel antigo fala com a API nova: pelo código deve funcionar,
+mas não foi testado ao vivo e não tem as correções de tela feitas depois de
+`afdfb78d`. Para encurtar esse intervalo: V5 feito na véspera, J8 logo depois
+da A10 e o aviso V4 pedindo que a equipe só use o painel depois do smoke do J8.
+Manter o site em manutenção até o J8 não é possível sem mudar a A10, que reabre
+as entradas do WhatsApp e do site juntas; pelo resultado acima, não é
+necessário.
