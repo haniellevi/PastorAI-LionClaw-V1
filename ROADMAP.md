@@ -1,5 +1,66 @@
 # Igreja 12 — roteiro único
 
+## Decisões do dono de 12/11/2026 (vigentes)
+
+Decididas por Raniel em entrevista; prevalecem sobre trechos anteriores deste
+roteiro e dos registros históricos que digam o contrário.
+
+**Ordem do trabalho:**
+
+1. Arrumar a casa: documentação fiel ao estado real e triagem de branches.
+2. Preparar e fazer a primeira publicação do que já está na `main`. Pela
+   leitura de 27/10 (não reverificada) há 51 migrations pendentes em PROD;
+   desde `afdfb78d` não entrou migration nova na `main`.
+3. Logo após o deploy, desenvolver as lacunas do PRD, sem esperar o aceite
+   pastoral das 20 conversas.
+
+**Produção:**
+
+- Cada ação em PROD exige autorização explícita do dono, uma por ação.
+- Raniel é o operador nomeado da janela; janela em horário comercial.
+- Envios pausados durante a janela e religados exatamente como estavam.
+- Rollback imediato pré-autorizado se o smoke pós-deploy falhar.
+- Leitura técnica de produção (sem dados de pessoas) autorizada.
+- Antes de PROD, rodar o ensaio sintético existente; DEV online fica para depois.
+
+**Escopo:** todo o PRD em código, com os gates fechados e o piloto Filadélfia
+restrito à equipe interna. Abrir gate ou ampliar o piloto continua exigindo
+decisão nominal própria.
+
+**Itens antes pausados:** controlador A8/C2 e contenção de escritores,
+governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 serão retomados e
+concluídos depois da primeira publicação. Antes dela, só se antecipa o que for
+exigido para o deploy ser seguro.
+
+**Regras de produto decididas:**
+
+- B3: a inbox fica visível só para os papéis fixos atuais; remover da
+  configuração a opção de acesso customizado que a tela não honra.
+- B4: envio humano pelo painel bloqueia contato com opt-out; visitante em
+  reunião já passada é aceito no painel e recusado no WhatsApp.
+- Decisão 21 (conhecimento oficial): dúvida sem resposta vai ao responsável
+  configurado do setor; o admin recebe as que não têm responsável ou foram
+  escaladas.
+- RF-26: gatilhos iniciais configuráveis e editáveis pelo admin: visitante
+  novo a acompanhar, liderado em consolidação, relatório de célula pendente,
+  prazo vencendo e meta atingida.
+- Confirmadas (antes provisórias): sigilo de oração (só pastores leem; líder
+  só com SIM da pessoa e enquanto durar o vínculo; admin e secretaria não
+  leem); tela Enviar (líder vê só aptidão e pendências); conhecimento (admin
+  elabora e publica; pastor revisa a própria área).
+- B17: decidido levar o banco para São Paulo. Execução só após medição nova,
+  plano com custo e tempo de parada e autorização própria, em janela separada
+  da primeira publicação.
+
+**Pendências abertas:**
+
+- O termo "G2b" da agenda não está definido em nenhum arquivo do repositório
+  (conferido em 12/11); investigar o significado antes de usar Google.
+- EVT-7 segue a regra: conciliar com provedor/logs antes de decidir reenvio.
+
+**Branches antigas:** triagem em modo leitura; o dono decide o que trazer para
+a `main`. Nenhuma branch remota é apagada.
+
 ## Estado vigente da consolidação e do piloto (10/11/2026)
 
 A consolidação está na `main` até `6088efb1`, com os seis workflows desse
@@ -16,15 +77,17 @@ commit aprovados.
 A [#619](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/619) foi
 fechada como trabalho pausado. A branch foi preservada em `9ce9a5d9`. A9 e os
 ajustes de fixtures entraram pelas #634 a #636. O controlador A8/C2 e a
-contenção de escritores continuam pausados.
+contenção de escritores serão retomados após a primeira publicação (decisão de
+12/11 acima).
 
 Raniel confirmou o recorte V1a por texto e painel para a Filadélfia nos
 [cenários 19 e 20](docs/ops/ACEITE-PASTORAL-PILOTO.md) e assumiu o aceite
 pastoral. Ele fará pessoalmente os testes, somente após um deploy autorizado.
 O aceite real dos cenários segue pendente.
 
-Migrations de produção, deploy e ativação seguem suspensos. Não enviar as
-perguntas preparadas ao suporte do Supabase.
+Migrations de produção e deploy: em preparação para a primeira publicação,
+cada ação com autorização própria do dono (decisões de 12/11). Ativação segue
+suspensa. Não enviar as perguntas preparadas ao suporte do Supabase.
 
 O mapa de escritores e os pedidos preparados ficam como histórico, nos
 [registros de 24/10 a 06/11](docs/historico/ROADMAP-registros-ate-2026-11-06.md).
@@ -58,7 +121,8 @@ antigos, como `SPEC.md` e `Plan-Designer-Igreja12/`, estão em
    não solicitar identificadores nem executar correção cadastral.
 5. A equipe prepara o pacote, a transição inicial testada e o plano de
    contenção dos gates, e pede autorizações separadas (backup, migrations e
-   deploy) quando estiver pronto; nada a autorizar nem fechar agora.
+   deploy) quando estiver pronto; cada ação em PROD será apresentada a Raniel
+   para autorização própria (decisões de 12/11).
 6. Aceite das 20 conversas e do G12 após release autorizado à equipe interna;
    não enviar conversas reais ao chat.
 
@@ -80,7 +144,8 @@ Consolidação local de 27/10, autorizada pelo dono:
   as alterações locais preservadas em stash retido;
 - o lote 1 de limpeza removeu 17 worktrees integradas, preservando as branches;
 - o plano, o runbook do lote e o painel foram reunidos no checkout principal
-  como trabalho local, **ainda não integrado na `main` remota**;
+  e depois integrados na `main` pela #597 (merge em 28/10, conferido no
+  GitHub em 12/11);
 - as worktrees com trabalho local, as divergentes e as sem prova continuam
   preservadas até decisão própria.
 
@@ -103,12 +168,13 @@ aprovados. A fatia seguinte passou localmente: ciclo de vida do entrypoint
 real do queue-worker de `07a3f4d`, Redis descartável e dependências do legado;
 88 testes (novo controlador + regressão da contenção) e sete verificações
 físicas aprovados, limpeza sem sobras. Entrega na branch
-`test/legacy-queue-entrypoint-20261024`; integração depende dos checks da PR.
+`test/legacy-queue-entrypoint-20261024`, integrada pela #574 em 25/10
+(`3f21b20a`).
 Não inclui turno ativo, envio externo ou produção. Próxima prova: ingestão
 ativa com barreira transacional em PostgreSQL sintético.
 Ver [runbook atualizado e limites](docs/ops/RELEASE-LOTE-2026-10.md).
 
-Em 25/10, a #574 (`94a4b9ec`) está aberta com todos os checks aprovados.
+Em 25/10, a #574 (`94a4b9ec`) foi integrada na `main` (`3f21b20a`).
 A etapa de ingestão ativa foi validada localmente na branch
 `test/legacy-queue-active-ingestion-20261025`, baseada nesse commit.
 Prova independente de ingestão ativa passou localmente em 25/10: espera no
@@ -240,10 +306,10 @@ reais desse piloto; (4) abertura ampliada por nova decisão nominal;
 humana nominal e nunca são inferidos de merge ou teste verde.
 
 **Estoque desligado:** UV, CD, Enviar, oração, células próximas, memória,
-conhecimento e agenda pelo WhatsApp estão prontos só no passo 1. Antes de abrir
-novas frentes grandes, priorizar o aceite das 20 conversas e um release em lote
-planejado (migrations acumuladas, backup, reconciliação de duplicidades de
-vínculo Pessoa e ordem de aplicação), para transformar estoque em uso real.
+conhecimento e agenda pelo WhatsApp estão prontos só no passo 1. Ordem de 12/11:
+primeiro o release em lote planejado (migrations acumuladas, backup,
+reconciliação de duplicidades de vínculo Pessoa e ordem de aplicação); depois
+dele, as lacunas do PRD, sem esperar o aceite das 20 conversas.
 
 **Saúde técnica (metas medidas, uma fatia por PR, sem reescrita geral):**
 
@@ -263,7 +329,7 @@ vínculo Pessoa e ordem de aplicação), para transformar estoque em uso real.
 
 | Entrega | Estado | Implementação / teste | Produção |
 |---|---|---|---|
-| Pedido de oração pelo WhatsApp (V4) | feito | Primeira versão de texto e pedido próprio integrada na main pela [PR #484](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/484), merge `2d408d92`; implementação e testes registrados. DESLIGADO por igreja e por trava de release; sem produção. Sigilo da coleta/histórico integrado pela #515; áudio protegido retido e excluído pela fila privada (#529) (backend/RLS, marcador, prévia e mídia; exclusão privada #509 e fila durável). Fatia 2 integrada pela #519: inbox mostra marcador acessível e orientação ao pastor, reconcilia a cada poll (texto e mídia protegidos somem no mesmo ciclo), mantém leitura autorizada pelo servidor, paginação/handoff/busca e mostra recibo de exclusão atualizável; sem backend/migration ou ativação. Decisões pastorais provisórias. Pendente: aceite pastoral (áudio já integrado pela #529). | não verificado em produção |
+| Pedido de oração pelo WhatsApp (V4) | feito | Primeira versão de texto e pedido próprio integrada na main pela [PR #484](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/484), merge `2d408d92`; implementação e testes registrados. DESLIGADO por igreja e por trava de release; sem produção. Sigilo da coleta/histórico integrado pela #515; áudio protegido retido e excluído pela fila privada (#529) (backend/RLS, marcador, prévia e mídia; exclusão privada #509 e fila durável). Fatia 2 integrada pela #519: inbox mostra marcador acessível e orientação ao pastor, reconcilia a cada poll (texto e mídia protegidos somem no mesmo ciclo), mantém leitura autorizada pelo servidor, paginação/handoff/busca e mostra recibo de exclusão atualizável; sem backend/migration ou ativação. Regra de sigilo confirmada em 12/11 (só pastores; líder só com SIM da pessoa e enquanto durar o vínculo; admin/secretaria não leem); conferir o código contra ela ao tocar a área. Pendente: aceite pastoral (áudio já integrado pela #529). | não verificado em produção |
 | Indicar células próximas | feito | Indicação guiada somente por bairro integrada na main pela [PR #486](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/486), merge `1caf4a36`; implementação e testes registrados. Só células ativas com divulgação autorizada, sem endereço ou dados do líder; sem cálculo de distância ou vínculo automático. DESLIGADO por igreja e por trava de release; sem produção. | não verificado em produção |
 | Fluxo G12: ganhar, consolidar e célula | em andamento | Implementado na main, desligado e sem produção: evento real de visita de célula ligado à Pessoa ([PR #487](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/487), merge `05eb07b9`); aceite explícito da fonovisita com convite de 24h, troca após aceite e autoatribuição ([PR #488](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/488), merge `8d3d13f2`); primeira visita sugere vínculo com a célula, confirmado por pastor/admin ([PR #489](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/489), merge `b3fdd6fc`). G12 PR 5 integrada na [PR #490](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/490): percurso reunião → atraso → lembrete → baixa comprovado pelo agente e painel com provedor simulado; supressão terminal registrada só para igrejas da release/lista V1a; handoff e conexão indisponível são transitórios; nenhum gate aberto. Falta aceitar com o piloto o caminho completo. | Fluxo completo: não verificado |
 | Aceite pastoral do atendimento | falta | Aprovar 20 conversas reais, incluindo visitante, oração, horário, opt-out e crise; corrigir os problemas encontrados. Roteiro preparado, não executado: [aceite pastoral do piloto](docs/ops/ACEITE-PASTORAL-PILOTO.md). | não verificado |
@@ -287,19 +353,19 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Simulador e prova integrada de visitante | feito | Transporte falso, fila Redis, worker, catálogo, autorização, banco com isolamento entre igrejas e acesso autenticado; testes locais/CI registrados (#462/#466). Não prova aceite online pelo navegador nem lembretes com gates fechados. | Simulador não se destina a PROD. |
 | Ferramentas de desenvolvimento e testes | feito | Versões alinhadas ao CI; `test-local.sh` recusa alvo desconhecido (#464), com teste registrado. Corrige o falso sucesso sem executar testes. | Ferramenta de desenvolvimento. |
 | Refatorações de visitante e leitura da resposta | feito | Validação de nome no domínio e leitura fora do worker, com regressão registrada (#465/#467). | não verificado |
-| Universidade da Vida | feito (código) | Integrada na main em 18/10 (#491–#494, #496): turmas, calendário de oito aulas + Encontro, responsáveis, matrícula explícita, chamada com reposição e correção com histórico, marcos Encontro/batismo, conclusão humana com aptidão à CD e WhatsApp do responsável **desligado** (`UV_WHATSAPP_APPROVED_RELEASE_ID=None`). Migrations `20261017_210500`, `_220000`, `_230000` validadas só em PostgreSQL local sintético. Corrida em 26/10: dois pedidos iguais de criação de turma ao mesmo tempo podiam gerar exceção não tratada na rota, comprovada em simulação (`unique(igreja_id,id)` fora do árbitro de `on conflict(id)`; HTTP de produção não testado). Correção na PR #596 (`fix/uv-turma-race-20261026`, `on conflict do nothing`), com teste PG real pela rota (24 pares por papel, admin e líder; vermelho no código antigo e verde com a correção; 89 testes do arquivo UV aprovados, rodada local na base `2c47c160`); ainda não integrada. `uv_matriculas` e `cd.create_turma`: padrões semelhantes a diagnosticar, não verificados. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
-| Capacitação Destino | feito (código) | Base integrada em 18/10 (#495, #497–#501): currículo versionado, turmas, matrícula, frequência/reposição, conclusão, progressão, equivalência e certificado revogável. Integrada em 19/10 (#511): equivalência entre versões da mesma família sem matrícula nova, origem rastreada, pré-requisitos/certificado e matrícula concluída fora do índice de andamento. CD não promove liderança; WhatsApp **desligado** (`CD_WHATSAPP_APPROVED_RELEASE_ID=None`). Migrations CD `20261018_010000`–`_040000` e `_090000` só em PostgreSQL local sintético. Corrida em 26/10 (falha RLS da main `87ba1e42`): criação idêntica concorrente de currículo podia dar 409, porque `on conflict(id)` só arbitrava a PK e `unique(igreja_id,id)` levantava violação. Corrigida pela #595, integrada em 27/10 (merge `7bc7fa72`; `on conflict do nothing`, releitura e 409 preservados), com teste PG real que sincroniza o INSERT (16 pares, vermelho no código antigo e verde com a correção); produção não verificada. `uv_turmas`: correção na PR #596, ainda não integrada. `cd_turmas` e `uv_matriculas`: padrões semelhantes a diagnosticar, não verificados. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
+| Universidade da Vida | feito (código) | Integrada na main em 18/10 (#491–#494, #496): turmas, calendário de oito aulas + Encontro, responsáveis, matrícula explícita, chamada com reposição e correção com histórico, marcos Encontro/batismo, conclusão humana com aptidão à CD e WhatsApp do responsável **desligado** (`UV_WHATSAPP_APPROVED_RELEASE_ID=None`). Migrations `20261017_210500`, `_220000`, `_230000` validadas só em PostgreSQL local sintético. Corrida em 26/10: dois pedidos iguais de criação de turma ao mesmo tempo podiam gerar exceção não tratada na rota, comprovada em simulação (`unique(igreja_id,id)` fora do árbitro de `on conflict(id)`; HTTP de produção não testado). Corrigida pela #596 (`fix/uv-turma-race-20261026`, `on conflict do nothing`), integrada em 27/10 (merge `afdfb78d`, conferido no GitHub em 12/11), com teste PG real pela rota (24 pares por papel, admin e líder; vermelho no código antigo e verde com a correção); produção não verificada. `uv_matriculas` e `cd.create_turma`: padrões semelhantes a diagnosticar, não verificados. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
+| Capacitação Destino | feito (código) | Base integrada em 18/10 (#495, #497–#501): currículo versionado, turmas, matrícula, frequência/reposição, conclusão, progressão, equivalência e certificado revogável. Integrada em 19/10 (#511): equivalência entre versões da mesma família sem matrícula nova, origem rastreada, pré-requisitos/certificado e matrícula concluída fora do índice de andamento. CD não promove liderança; WhatsApp **desligado** (`CD_WHATSAPP_APPROVED_RELEASE_ID=None`). Migrations CD `20261018_010000`–`_040000` e `_090000` só em PostgreSQL local sintético. Corrida em 26/10 (falha RLS da main `87ba1e42`): criação idêntica concorrente de currículo podia dar 409, porque `on conflict(id)` só arbitrava a PK e `unique(igreja_id,id)` levantava violação. Corrigida pela #595, integrada em 27/10 (merge `7bc7fa72`; `on conflict do nothing`, releitura e 409 preservados), com teste PG real que sincroniza o INSERT (16 pares, vermelho no código antigo e verde com a correção); produção não verificada. `uv_turmas`: corrigida pela #596, integrada em 27/10 (`afdfb78d`). `cd_turmas` e `uv_matriculas`: padrões semelhantes a diagnosticar, não verificados. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
 | Enviar e multiplicação | feito (código) | Integrado em 19/10 (#502–#507, #510, #520): contrato de aptidão, avaliação humana com eventos imutáveis, nomeação de líder e abertura de célula por solicitação com aprovação web de pastor/admin distinto do autor/candidato, tela Enviar, evidências oficiais UV/CD/Reencontro (Reencontro validado/revogado/revalidado com histórico; revogação bloqueia novas operações, sem promoção/destituição automática) e WhatsApp **desligado** (`ENVIAR_WHATSAPP_APPROVED_RELEASE_ID=None`, lista por igreja vazia): consulta mínima de pendências/evidências e solicitações após SIM literal, com idempotência e recibo após commit; avaliação, validação e aprovação ficam no painel autenticado. Pré-requisito de release: usuários da coordenação vinculados a uma Pessoa ativa (`app_users.pessoa_id`). Ajustes P2 do WhatsApp integrados pela #521 (`c7166cd1`): roteamento restrito ao catálogo, confirmação objetiva e aviso de paginação. Migrations `20261018_050000`–`_080000` e `_100000` só em PostgreSQL sintético; aplicar UV/CD/Enviar antes do deploy do backend; `_080000` valida FK em `celula_solicitacao` e pode falhar com linha legada inconsistente. | Aplicação das migrations: **não verificado**; ativação não autorizada. |
 | Memória privada durável | em andamento | Exclusão antes de memória nova. Integradas: fila durável de exclusão (#509), exclusão por pessoa e igreja/reset (#518), resumo privado por conversa (#526), retomada privada pelo comando exato "retomar conversa" (#531), pedido de exclusão com decisão web do admin (#535) e reset privado por pessoa no painel (#541). Contagens privadas agregadas no Hoje do admin (#546) e reset privado por igreja com confirmação pelo nome, SLA dos pedidos e quitação atômica dos pedidos pendentes cobertos pelo recibo (#561, migration nova, não aplicada). Tudo DESLIGADO (release None, lista vazia, flag false, teto 0). Integrada pela #582 (`1a5cb9c9`; checks do SHA `c37972d9` verdes antes do merge): 2xx do Storage após o prazo resolve a ownership do upload de áudio, sem transcrição; resultado desconhecido segue retido. Integrada pela #583 (`ae15449d`; checks do SHA `02335e89` verdes antes do merge; migration `20261030_100000` só em PG sintético, não aplicada em PROD): tarefas de limpeza e uploads de áudio usam só o login dedicado `private_storage_runtime` (NOBYPASSRLS, RLS por igreja, `search_path` fixo com `pg_temp` por último, sem fallback); sem ele novas entradas de áudio ficam pendentes sem download/upload/transcrição e a limpeza não roda (recibos pendentes); recuperação e reenvio de respostas seguem. Integrada pela #584 (`a5c1b06b`; checks do SHA `9ae8032a` verdes antes do merge; migration `20261030_110000` só em PG sintético, não aplicada em PROD): reconhecimento positivo PARCIAL de upload de áudio commitado cuja resposta se perdeu (token por tentativa commitado antes do POST em `x-metadata`, info do Storage estrito, CAS do token também no finish, liberação só com tarefa pendente); ausência/erro/tempo nunca liberam; abortado/em voo e legado seguem retidos; ensaio só contra storage-api `6dd28b4` local, hospedado não verificado. Integrada pela #585 (`5d4e735e`; checks do SHA `0190cd00` verdes antes do merge; migration `20261030_120000` só em PG sintético, não aplicada em PROD): a liberação da ownership de envio usa só o login dedicado `private_send_runtime` por função com chave e igreja; `authenticated` perde só o DELETE; INSERT/renovação seguem nas transações do domínio; a liberação não mascara mais retry/perda de claim. Sem o login, respostas seguem, mas a ownership fica retida (recibo `pendente_envio`, retentável não reenviado). Não protege contra dono/BYPASSRLS. Integrada pela #588 (`bd673afa`; checks do SHA `b2978c5b` verdes antes do merge; migration `20261030_140000` só em PG sintético, não aplicada em PROD): todo o ciclo de geração de resumos do cron (descoberta, claim, reserva, projeções e publicação) usa só o login dedicado `private_summary_runtime`, sem fallback; grants mínimos em quatro tabelas privadas, orçamento só por função de custo fixo, tabelas centrais só por seis projeções tipadas; orquestração, ordem de locks, HTTP sem sessão e revalidações inalteradas; `enqueue`, solicitante NULL e permissões antigas de `authenticated` intactos (login principal com BYPASS segue capaz: limite declarado). Sem o login, a geração não roda. Integrada pela #590 (`383115d1`; checks do SHA `8a59a796` verdes antes do merge; migration `20261030_160000` só em PG 17.6 sintético, não aplicada em PROD): modo explícito `QUEUE_WORKER_DATABASE_MODE` (`legacy` padrão, piloto inalterado; `dedicated` só com `QUEUE_WORKER_DATABASE_URL`, sem fallback) em que toda a fila normal (ingestão, turno, fences, retomada, CAS/ownership/renovação de envio e lease) roda no login `queue_worker_runtime` (NOBYPASSRLS, NOINHERIT, uma membership em `authenticated` sem ADMIN, papéis e estado da conexão provados a cada checkout/BEGIN; igreja descoberta só por função tipada); configuração Jev ilegível no turno privilegiado vira handoff de gate fechado. Não operacional: LOGIN não provisionado, modo do pooler/versão/memberships de PROD não verificados ([runbook](docs/ops/FILA-LOGIN-DEDICADO.md)). Pré-requisitos de ativação abertos: reconciliação de upload com resultado desconhecido (abortado/em voo/legado; versão, gateway e versionamento do Storage hospedado), identidade dos fences, do INSERT/renovação de envios e da retomada privada (só a geração de resumos foi isolada; tarefas, uploads, liberação de envios e geração de resumos integrados; fila normal integrada pela #590 em modo `dedicated` opcional, não operacional), provisionar os logins nominalmente e separar a URL por processo (API/queue/cron/broadcast compartilham o mesmo `env_file`), expiração de tombstones, dono/BYPASSRLS das funções no release (integrada pela #587 (`2c47c160`; checks do SHA `e9117752` verdes antes do merge): prova em PG sintético de que, com dono sem BYPASSRLS, liberação de envio, limpeza do Storage e exclusão falham fechadas, sem recibo verde nos cenários provados; o preflight somente leitura acusa dono sem SUPERUSER/BYPASSRLS nos contratos privados presentes (dez: cinco da #587, dois da #584 e três da #588, cujo corpo lê tabela com FORCE RLS; o resolvedor `queue_resolve_instance` da #590 lê só tabela sem FORCE e é exclusão explícita, válida se o dono da função for dono da tabela ou tiver BYPASSRLS, com os logins da aplicação sem BYPASSRLS; dez contratos + cinco exclusões = 15 definers `row_security=off` classificados) e lista como não verificados os ausentes; dono real em PROD e preflight pós-migration: não verificados). Ver [operação/limites](docs/ops/RESUMOS-PRIVADOS.md). | não verificado |
-| Conhecimento oficial | em andamento | Base versionada e API editorial (#513/#514), busca autorizada (#516), painel editorial (#517), exclusão definitiva admin com confirmação (#524) e consulta pelo WhatsApp com fontes autorizadas (#525), DESLIGADA (`CONHECIMENTO_WHATSAPP_APPROVED_RELEASE_ID=None`, lista vazia), sem ingestão de conversas. Falta aceite pastoral e decisão 21 definitiva. | não verificado |
+| Conhecimento oficial | em andamento | Base versionada e API editorial (#513/#514), busca autorizada (#516), painel editorial (#517), exclusão definitiva admin com confirmação (#524) e consulta pelo WhatsApp com fontes autorizadas (#525), DESLIGADA (`CONHECIMENTO_WHATSAPP_APPROVED_RELEASE_ID=None`, lista vazia), sem ingestão de conversas. Decisão 21 definida em 12/11 (dúvida sem resposta vai ao responsável do setor; admin recebe as sem responsável ou escaladas) e autoria confirmada (admin elabora e publica; pastor revisa a própria área); falta implementar esse encaminhamento e o aceite pastoral. | não verificado |
 | Ferramentas e especialistas por área | em andamento | Ampliar rotinas pelo WhatsApp usando os mesmos serviços do painel; comportamento global versionado, dados e execução por igreja, credencial OpenAI própria da igreja. | não verificado |
-| Pessoas, responsabilidades, Minha Célula, Central e Hoje | em andamento | Integradas: pendências da Central em Hoje (#528), responsabilidade por setor com vigência (#530), pendências por responsabilidade vigente (#534) e gestão web de responsabilidades (#539). O aviso de contas da coordenação sem Pessoa ativa já foi entregue pela #557. Integrada pela #589 (`8a5dcada`; checks do SHA `868fecd1` verdes antes do merge): a baixa de alerta de célula passa a seguir a regra da leitura (pastor/admin ou líder direto, escopo do detalhe, `igreja_id` explícito); superior na cadeia deixa de baixar alerta que não vê. Faltam planejamento e o gerador de alertas (RF-26), que depende de decisão sobre gatilhos. | Cobertura completa: não verificado. |
+| Pessoas, responsabilidades, Minha Célula, Central e Hoje | em andamento | Integradas: pendências da Central em Hoje (#528), responsabilidade por setor com vigência (#530), pendências por responsabilidade vigente (#534) e gestão web de responsabilidades (#539). O aviso de contas da coordenação sem Pessoa ativa já foi entregue pela #557. Integrada pela #589 (`8a5dcada`; checks do SHA `868fecd1` verdes antes do merge): a baixa de alerta de célula passa a seguir a regra da leitura (pastor/admin ou líder direto, escopo do detalhe, `igreja_id` explícito); superior na cadeia deixa de baixar alerta que não vê. Faltam planejamento e o gerador de alertas (RF-26); gatilhos iniciais decididos em 12/11 (ver topo). | Cobertura completa: não verificado. |
 | Triagem semântica Jev | em andamento | S1 implementada/testada com simulações; falta avaliar qualidade real, crise/humano e falsos opt-outs, contrato de tratamento de dados e autorização específica. Jev B/C/D continuam condicionados. | não verificado; não autoriza ativação. |
 | Comunicados, assinatura/Asaas e e-mail/Brevo | em andamento | Bases implementadas; faltam aceite por finalidade, domínio/remetente e canários separados. Não envolver a igreja em cortesia em cobrança real. | não verificado |
 | Onboarding da igreja, equipe, permissões e console | em andamento | Integradas: autorização de telas isolada por igreja (#536), reenvio de convite isolado (#538) e vínculo Pessoa ↔ usuário pelo admin, com auditoria e índice único (#543); ativação trava a igreja antes de Pessoa/usuário, eliminando a espera mútua com a gestão de equipe, com teste da corrida com convite que já traz Pessoa (#556). A tela de equipe sinaliza contas sem Pessoa vinculada (#557). Leitura após reset em 27/10: zero duplicidades de (igreja, pessoa). Correção nominal cancelada; revalidar ausência antes da migration da #543. | Cobertura completa: não verificado. |
 | Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatias integradas: #509, #518, pedido da pessoa com decisão admin (#535) e reset privado por pessoa (#541). Reset privado preserva cadastros/opt-out/consentimento e não autoriza reset cadastral. A trilha de vínculo Pessoa (#543) guarda UUIDs após exclusão aprovada; contrato atual documentado (#594) no [runbook de exclusão](docs/ops/EXCLUSAO-PRIVADA.md#trilha-de-vínculo-pessoa-543-após-exclusão), sem anonimização nem purga; produção não verificada. Novos derivados acompanham sua implementação. | não verificado |
 | UX, acessibilidade e desempenho do painel | em andamento | Integradas: teclado nas abas da Central (#527) e foco/anúncios/reflow no atendimento (#532). Faltam leitor de tela e celular reais, zoom e métricas autenticadas de campo. | Frontend publicado conforme registros; backend/telemetria e operação completa: não verificado. |
-| Agenda completa e importação Google | em andamento | Operações locais pelo WhatsApp com SIM e recibo integradas (#540), desligadas. Lembretes pela outbox com gate próprio fechado (#547) e janela configurável por evento (2h/24h/72h/168h, públicos existentes, invalidação de pendentes; #560). Faltam G2b e credencial Google isolada por igreja antes de usar Google. | não verificado |
+| Agenda completa e importação Google | em andamento | Operações locais pelo WhatsApp com SIM e recibo integradas (#540), desligadas. Lembretes pela outbox com gate próprio fechado (#547) e janela configurável por evento (2h/24h/72h/168h, públicos existentes, invalidação de pendentes; #560). Faltam G2b (termo sem definição em nenhum arquivo; investigar antes) e credencial Google isolada por igreja antes de usar Google. | não verificado |
 | Observabilidade de IA e operação | em andamento | Há logs/custos/filas, consumo de IA por igreja (#537) e idade/contagem agregada de mensagens e tarefas pendentes por igreja (#544, só admin, sem conteúdo); outbox e webhooks entram na medição, com DLQ separada e função de métricas restrita a admin ativo da igreja (#562, migration nova, não aplicada); alerta `stuck_flow` preparado e DESLIGADO até existir credencial dedicada de leitura. Faltam métricas por rota, retenção e metas de serviço. | não verificado |
 
 **Segurança e decisões que permanecem abertas:**
@@ -315,10 +381,11 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 - **em andamento:** dependências corrigidas e triadas (#463/#469/#470; Next 15.5.28 em #552);
   auditorias das dependências de produção registradas como limpas em 10/10, mas permaneciam cinco
   alertas altos nas ferramentas ligados a `braces`. Situação atual **não verificado**.
-- **falta:** decidir a divergência de acesso customizado ao inbox, opt-out no
-  envio humano e expectativa de visitante em reunião passada (backlog técnico
-  B3/B4). Preservar opt-out global e regras por canal até decisão; refatoração
-  não muda comportamento silenciosamente.
+- **falta (decidido em 12/11, implementar):** B3 inbox só para os papéis fixos
+  atuais, removendo da configuração a opção de acesso customizado; B4 envio
+  humano bloqueia contato com opt-out e visitante em reunião passada é aceito
+  no painel e recusado no WhatsApp. Preservar opt-out global e regras por
+  canal; refatoração não muda comportamento silenciosamente.
 - **em andamento:** B5 (CSIM comercial) integrado pela #591 (`de437cf2`; checks
   do SHA `a9ca7c0a` verdes antes do merge): "comercial" passa a exigir
   oferta explícita do próprio contato (verbo em 1ª pessoa ou após auxiliar em
@@ -361,7 +428,7 @@ ficam no snapshot histórico.
 - UV: conclusão confirmada pelo responsável da turma ou admin/pastor; `lider_consol` pode criar turma e ver elegíveis (risco aceito).
 - CD entre versões: conclusões de versão anterior valem na nova mediante equivalência da coordenação (implementado nesta fatia; produção não verificada).
 - Enviar: avaliação exige UV, CD certificado e Reencontro como critérios distintos, com decisão humana final; aprova pastor/admin distinto do autor e do candidato; líderes atuais preservados como legado e revisados caso a caso; aprovar executa na hora com confirmação; evidência revogada barra novas nomeações e abre revisão, sem destituição automática.
-- Tela Enviar: o líder não vê a avaliação (decisão/motivo) dos discípulos; vê só aptidão e pendências (opção padrão adotada; reversível).
+- Tela Enviar: o líder não vê a avaliação (decisão/motivo) dos discípulos; vê só aptidão e pendências (confirmada pelo dono em 12/11).
 
 **Plano de qualidade de 11/11/2026 (análise do código por amostragem, aprovado por Raniel):**
 
@@ -400,12 +467,12 @@ duplicar se a Evolution der timeout (sem chave de idempotência no provedor).
 |---|---|---|
 | Banco Supabase e histórico de migrations | em andamento | Leitura somente leitura de 27/10 após reset externo: 129 migrations ativas no SHA `afdfb78d`, 78 no ledger, 51 pendentes (4 antigas + 47 novas), 0 desconhecidas e 0 pausadas aplicadas; 0 grupos duplicados e 0 vínculos de célula inválidos. As duas classificações antigas têm 0 candidatos neste instante. Decisão 23/10 de aplicar as quatro antigas preservada; cada aplicação continua sujeita à janela, backup e autorização. Contagens não provam igualdade integral do schema ou configurações; preflight integral e backup pós-reset ainda pendentes. Lista exata e condições no runbook do release; Neon cancelada. |
 | Reconciliação da virada da agenda V2b | falta | Visibilidade/inventário de usuários, gates e entrega dos 11 eventos EVT-7: **não verificado**. Conciliar com provedor/logs antes de decidir qualquer reenvio, que pode duplicar. |
-| Resposta rápida (B17), capacidade e estabilidade | falta | Meta abaixo de 10 s adiada para esta etapa; medir região de servidor/banco e decidir infraestrutura. Investigar incidentes e falhas de prontidão da API: monitor verde registrado não prova causa resolvida. |
-| DEV online isolado | em andamento | Preparação integrada e ensaio sintético registrados (#468/#471); ambiente disponível **não verificado**, registrado como ainda inexistente. Faltam executor exclusivo, região, teto de custo, recursos e aceite de login/Storage/navegador com duas igrejas. Local continua opcional para depuração/testes. |
+| Resposta rápida (B17), capacidade e estabilidade | falta | Meta abaixo de 10 s adiada para esta etapa. Decidido em 12/11 levar o banco para São Paulo; executar só após medição nova, plano com custo e parada e autorização própria, em janela separada. Investigar incidentes e falhas de prontidão da API: monitor verde registrado não prova causa resolvida. |
+| DEV online isolado | em andamento (depois da primeira publicação, decisão de 12/11) | Preparação integrada e ensaio sintético registrados (#468/#471); ambiente disponível **não verificado**, registrado como ainda inexistente. Faltam executor exclusivo, região, teto de custo, recursos e aceite de login/Storage/navegador com duas igrejas. Local continua opcional para depuração/testes. |
 | Publicação coordenada de backend/frontend e recuperação | em andamento | Preparação e ensaio integrados (#472/#473; merge de #473 confirmado no Git). Checagens só leitura (#563, `61e84383`) e runbook com ensaio de restauração sintético (#565, `100463ba`) integrados; ensaios de parada, transição, topologia e retomada integrados (#574–#581, #586). [Runbook do lote](docs/ops/RELEASE-LOTE-2026-10.md) com o plano e a prévia de 27/10. Execução contra PROD: **não verificado**. Falta pacote validado, versão viva anterior, compatibilidade de banco, contenção dos consumidores, janela e autorização nominal. Não prometer rollback universal. |
 | Publicação automática no DEV e explícita em PROD | falta | Operar o caminho preparado e acertar a publicação do frontend com a API (B9/B13). Não alterar agora a automação atual ou gates. |
 | Backup diário e restauração | em andamento | PROD agora é a VPS `<vps-host>` (a `srv1728329` será desativada); runbooks atualizados (#545). Em 21/10, leitura somente: backup diário com manifesto recente e monitor de produção instalado e saudável na VPS nova. Faltam restaurar em alvo isolado, aceitar a chave do host novo no backup externo (Windows) e incluir novas tabelas privadas. |
-| Revisão antes de ampliar o piloto ou lançar | falta | Conferir autenticação/Clerk Production, configurações, gates e privacidade; canários Asaas/Brevo/broadcast/agente independentes. Governança pausada não é reativada automaticamente. |
+| Revisão antes de ampliar o piloto ou lançar | falta | Conferir autenticação/Clerk Production, configurações, gates e privacidade; canários Asaas/Brevo/broadcast/agente independentes. Governança retomada após a primeira publicação (decisão de 12/11). |
 
 **Recuperação dos snapshots de painel:** o histórico de Minha Célula pagina no
 banco e lê em lote só a presença e as indicações do próprio membro. A matriz de
@@ -424,9 +491,9 @@ do diretório e a criação exclusiva da execução. A instalação e o funciona
 na VPS continuam **não verificados**. As demais propostas do candidato foram
 preservadas para a etapa de infraestrutura.
 
-Governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 de governança permanecem
-pausados; reavaliação somente por necessidade e decisão próprias. Isso não
-adianta banco/infra nem impede desenvolver UV/CD após a etapa 3.
+Governança E4B/D3/D6/D2A, atestações, catálogos e F1/F2 de governança: o dono
+decidiu em 12/11 retomar e concluir depois da primeira publicação; antes dela,
+só o que for exigido para o deploy ser seguro.
 
 ## Evidências e manutenção
 
