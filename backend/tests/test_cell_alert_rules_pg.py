@@ -157,12 +157,21 @@ def _alerts(w):
         ).all()
 
 
-def test_rule_tables_force_rls(world):
+@pytest.mark.parametrize("table", ["celula_alerta_regras", "cell_alerts"])
+def test_alert_tables_force_rls_and_narrow_grants(world, table):
     with world["db"].connect() as c:
         row = c.execute(text(
-            "select relrowsecurity, relforcerowsecurity from pg_class where relname='celula_alerta_regras'"
-        )).one()
-    assert tuple(row) == (True, True)
+            "select relrowsecurity, relforcerowsecurity from pg_class where relname=:t"
+        ), dict(t=table)).one()
+        assert tuple(row) == (True, True)
+        for role in ("anon", "service_role"):
+            assert c.execute(text(
+                "select has_table_privilege(:r, :t, 'select') or has_table_privilege(:r, :t, 'insert')"
+                " or has_table_privilege(:r, :t, 'update') or has_table_privilege(:r, :t, 'delete')"
+            ), dict(r=role, t=f"public.{table}")).scalar_one() is False
+        assert c.execute(text(
+            "select has_table_privilege('authenticated', :t, 'delete')"
+        ), dict(t=f"public.{table}")).scalar_one() is False
 
 
 def test_admin_configures_rules_others_refused(world):
@@ -268,3 +277,33 @@ def test_leader_sees_only_own_cell_alerts(world, monkeypatch):
         mark_tenant_scoped(s, w["t"], source="test")
         seen = s.execute(text("select distinct igreja_id from cell_alerts")).scalars().all()
     assert seen == [w["t"]]
+
+
+def test_my_alerts_lists_only_direct_leader_cells(world, monkeypatch):
+    w = world
+    monkeypatch.setenv(svc.ENV_ALLOWLIST, f"{w['t']},{w['b']}")
+    _activate_all(w, "admin")
+    _activate_all(w, "admin_b")
+    _cycle(w)
+
+    mine = w["client"].get("/cells/me/alerts", headers=_as(w, "lider"))
+    assert mine.status_code == 200, mine.text
+    body = mine.json()
+    assert len(body) == 4 and {a["celulaId"] for a in body} == {str(w["cell"])}
+
+    other = w["client"].get("/cells/me/alerts", headers=_as(w, "lider2")).json()
+    assert {a["celulaId"] for a in other} == {str(w["cell2"])}
+    foreign = w["client"].get("/cells/me/alerts", headers=_as(w, "lider_b")).json()
+    assert {a["celulaId"] for a in foreign} == {str(w["cell_b"])}
+    # Sem Pessoa vinculada (admin/pastor sem célula própria): lista vazia.
+    assert w["client"].get("/cells/me/alerts", headers=_as(w, "pastor")).json() == []
+
+    first = body[0]
+    r = w["client"].post(f"/cells/{first['celulaId']}/alerts/{first['id']}/baixar", headers=_as(w, "lider"))
+    assert r.status_code == 200
+    # Outro líder não baixa alerta da célula alheia.
+    other_id = other[0]
+    refused = w["client"].post(f"/cells/{other_id['celulaId']}/alerts/{other_id['id']}/baixar", headers=_as(w, "lider"))
+    assert refused.status_code in (403, 404)
+    left = w["client"].get("/cells/me/alerts", headers=_as(w, "lider")).json()
+    assert first["id"] not in {a["id"] for a in left} and len(left) == 3

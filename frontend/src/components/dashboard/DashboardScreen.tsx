@@ -82,6 +82,7 @@ import { normalizeRoles, ROLE_DEFS, sortedRoles } from "@/lib/roles";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 import { CentralPendingContext } from "./CentralPendingContext";
+import { LeaderAlertsContext } from "./LeaderAlertsContext";
 import { NextActions } from "./NextActions";
 import { PrivateMemoryIndicator } from "./PrivateMemoryIndicator";
 import { TodayContext } from "./TodayContext";
@@ -1212,6 +1213,13 @@ export function DashboardScreen() {
                 key={`${token}:${rolesKey}`}
                 token={token}
                 onNavigate={navigate}
+                onSessionError={handleSessionError}
+              />
+            ) : null}
+            {cellContextMode === "leader" && token ? (
+              <LeaderAlertsContext
+                key={`${token}:${rolesKey}`}
+                token={token}
                 onSessionError={handleSessionError}
               />
             ) : null}

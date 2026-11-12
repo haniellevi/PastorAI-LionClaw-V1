@@ -18,7 +18,6 @@ migration aplicada, deploy ou ativação em produção, que ficam **não verific
 
 Lacunas restantes do PRD em 12/11/2026 (uma por linha):
 
-- RF-26: gerador de alertas configurável com os gatilhos decididos em 12/11.
 - RF-33: executores das ações e dos gatilhos dos agendamentos do agente (hoje só SLA).
 - RF-47: interface do assistente do sistema no painel.
 - RF-49: provisionamento automático da igreja após pagamento confirmado.
@@ -181,7 +180,7 @@ significa ativa em produção.
 | Painel de Hoje (RF-18..20) | `IMPLEMENTADO / PARCIAL` | dashboard, fila por responsabilidade, pendências da Central (#528), contagens privadas (#546) | Lacunas de conhecimento por responsável (depende da decisão 21) |
 | Visitantes e contato (RF-21..23) | `IMPLEMENTADO` | lista, detalhe, vínculo a célula; simulador de visitante (#462/#466) | Produção: não verificado |
 | Células, Minha Célula e Central (RF-24, RF-25) | `IMPLEMENTADO / PARCIAL` | gestão, solicitações, transferência, eventos append-only, presença e expectativa próprias pelo WhatsApp | Especialista WhatsApp completo da Central e planejamento |
-| Alertas ao líder (RF-26) | `PARCIAL` | sinais de saúde da célula (`services/cell_health_service.py`) e baixa do alerta com regra de leitura (#589) | Gerador configurável ausente; gatilhos iniciais decididos em 12/11 (visitante novo, liderado em consolidação, relatório pendente, prazo vencendo, meta atingida), editáveis pelo admin |
+| Alertas ao líder (RF-26) | `IMPLEMENTADO` | regras por igreja editáveis pelo admin (`routers/cell_alert_rules.py`), avaliação por estado do banco no cron (`services/cell_alert_rules.py`), leitura/baixa pelo líder direto em Hoje e no detalhe (#589) | Desligado (`CELL_ALERT_ENABLED_IGREJA_IDS` vazia); migration e produção: não verificados |
 | Relatório de célula (RF-27..29) | `IMPLEMENTADO / GATE OPERACIONAL` | web, texto V1a e áudio V1b, pendências e lembretes pela outbox | B15 parcial (gatilho por palavra + dígito); aceite e ativação |
 | Agente IA: credencial e comportamento (RF-30..32) | `IMPLEMENTADO` | `routers/agent.py`: credencial OpenAI BYO por igreja, modelo, configuração e perfil público | Produção: não verificado |
 | Agendamentos do agente (RF-33) | `PARCIAL` | `routers/agent.py`: criar, listar e editar/desativar (`/agent/crons`); tela em `components/config/AgenteScreen.tsx`; `workers/cron_worker.py` executa só a ação de SLA e registra "sem handler" para as demais | Executores para as demais ações e para os gatilhos de estado; último disparo guardado só em memória do processo |

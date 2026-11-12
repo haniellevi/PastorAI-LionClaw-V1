@@ -2572,6 +2572,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cells/me/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Cell Alerts
+         * @description Alertas em aberto das células ATIVAS que o ator lidera diretamente (RF-26).
+         *
+         *     Mesma regra do detalhe para o líder: só o líder direto; superior na cadeia
+         *     não recebe. Pastor/admin consultam pela Central. ``igreja_id`` explícito
+         *     além da RLS.
+         */
+        get: operations["my_cell_alerts_cells_me_alerts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cells/me/history": {
         parameters: {
             query?: never;
@@ -7958,6 +7982,21 @@ export interface components {
             pendentes: components["schemas"]["MultiplicacaoPendenteOut"][];
             /** Registradas */
             registradas: components["schemas"]["MultiplicacaoRegistradaOut"][];
+        };
+        /** MyCellAlertOut */
+        MyCellAlertOut: {
+            /** Acaoesperada */
+            acaoEsperada?: string | null;
+            /** Celulaid */
+            celulaId: string;
+            /** Celulanome */
+            celulaNome: string;
+            /** Gatilho */
+            gatilho?: string | null;
+            /** Id */
+            id: string;
+            /** Pessoaid */
+            pessoaId?: string | null;
         };
         /** NextMeetingBody */
         NextMeetingBody: {
@@ -14517,6 +14556,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_CellLookupOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_cell_alerts_cells_me_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCellAlertOut"][];
                 };
             };
             /** @description Validation Error */

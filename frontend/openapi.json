@@ -8037,6 +8037,62 @@
         "title": "MultiplicacoesListOut",
         "type": "object"
       },
+      "MyCellAlertOut": {
+        "properties": {
+          "acaoEsperada": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acaoesperada"
+          },
+          "celulaId": {
+            "title": "Celulaid",
+            "type": "string"
+          },
+          "celulaNome": {
+            "title": "Celulanome",
+            "type": "string"
+          },
+          "gatilho": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gatilho"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pessoaId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pessoaid"
+          }
+        },
+        "required": [
+          "id",
+          "celulaId",
+          "celulaNome"
+        ],
+        "title": "MyCellAlertOut",
+        "type": "object"
+      },
       "NextMeetingBody": {
         "properties": {
           "celula_id": {
@@ -21828,6 +21884,60 @@
           }
         },
         "summary": "Lookup Cells",
+        "tags": [
+          "cells"
+        ]
+      }
+    },
+    "/cells/me/alerts": {
+      "get": {
+        "description": "Alertas em aberto das células ATIVAS que o ator lidera diretamente (RF-26).\n\nMesma regra do detalhe para o líder: só o líder direto; superior na cadeia\nnão recebe. Pastor/admin consultam pela Central. ``igreja_id`` explícito\nalém da RLS.",
+        "operationId": "my_cell_alerts_cells_me_alerts_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MyCellAlertOut"
+                  },
+                  "title": "Response My Cell Alerts Cells Me Alerts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Cell Alerts",
         "tags": [
           "cells"
         ]

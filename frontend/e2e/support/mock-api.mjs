@@ -53,6 +53,62 @@ let nextRequestId = 1;
 let selectedModel = "gpt-5.6-luna";
 let publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
 let churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
+// RF-26: regras de alerta e alertas do líder, todos sintéticos.
+const ALERT_RULE_SPECS = [
+  [
+    "visitante_novo",
+    "Visitante novo a acompanhar",
+    [["janela_dias", "Considerar reuniões dos últimos", "dias", 1, 30, 7]],
+  ],
+  ["liderado_em_consolidacao", "Liderado em consolidação", []],
+  [
+    "relatorio_pendente",
+    "Relatório de célula pendente",
+    [["horas_apos_reuniao", "Avisar depois de", "horas", 1, 168, 24]],
+  ],
+  [
+    "prazo_vencendo",
+    "Prazo de conexão vencendo",
+    [["antecedencia_horas", "Avisar com antecedência de", "horas", 1, 336, 48]],
+  ],
+  [
+    "meta_atingida",
+    "Meta de membros atingida",
+    [["meta_membros", "Meta de membros ativos", "membros", 2, 200, 12]],
+  ],
+];
+function initialAlertRules() {
+  return ALERT_RULE_SPECS.map(([tipo, titulo, params]) => ({
+    tipo,
+    titulo,
+    descricao: `Descrição sintética: ${titulo}.`,
+    ativo: false,
+    atualizadoEm: null,
+    parametros: params.map(([nome, rotulo, unidade, minimo, maximo, padrao]) => ({
+      nome,
+      rotulo,
+      unidade,
+      minimo,
+      maximo,
+      padrao,
+      valor: padrao,
+    })),
+  }));
+}
+function initialLeaderAlerts() {
+  return [
+    {
+      id: "00000000-0000-4000-8000-0000000000a1",
+      celulaId: "00000000-0000-4000-8000-000000000020",
+      celulaNome: "Célula E2E",
+      pessoaId: null,
+      gatilho: "Relatório de célula pendente",
+      acaoEsperada: "Reunião de 10/11 sem relatório. Envie o relatório da reunião.",
+    },
+  ];
+}
+let alertRules = initialAlertRules();
+let leaderAlerts = initialLeaderAlerts();
 let identityChallengeConsumed = false;
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
 // Opt-in, loopback-only synthetic inbox for visual UX verification.
@@ -112,6 +168,8 @@ function resetState() {
   selectedModel = "gpt-5.6-luna";
   publicProfile = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
   churchCadastro = { enderecoInstitucional: null, horariosCulto: null };
+  alertRules = initialAlertRules();
+  leaderAlerts = initialLeaderAlerts();
   identityChallengeConsumed = false;
   whatsapp = { numero: null, status: "offline", ultimaSync: null };
   resetUxInbox();
@@ -482,6 +540,66 @@ const server = createServer(async (request, response) => {
     if (method === "GET" && pathname === "/setup/checklist") {
       record.status = 200;
       sendJson(response, 200, { items: [], pendingCount: 0 });
+      return;
+    }
+    if (method === "GET" && pathname === "/cell-alert-rules") {
+      record.status = 200;
+      sendJson(response, 200, { processamentoLiberado: false, regras: alertRules });
+      return;
+    }
+    const alertRuleMatch = pathname.match(/^\/cell-alert-rules\/([a-z_]+)$/);
+    if (method === "PUT" && alertRuleMatch) {
+      const rule = alertRules.find((item) => item.tipo === alertRuleMatch[1]);
+      if (!rule) {
+        record.status = 404;
+        sendJson(response, 404, { detail: "Regra de alerta não encontrada" });
+        return;
+      }
+      const values = body?.parametros ?? {};
+      const invalid = rule.parametros.find(
+        (p) =>
+          !Number.isInteger(values[p.nome]) ||
+          values[p.nome] < p.minimo ||
+          values[p.nome] > p.maximo,
+      );
+      if (invalid) {
+        record.status = 422;
+        sendJson(response, 422, { detail: `${invalid.rotulo}: valor inválido` });
+        return;
+      }
+      Object.assign(rule, {
+        ativo: body?.ativo === true,
+        atualizadoEm: "2026-11-12T12:00:00Z",
+        parametros: rule.parametros.map((p) => ({ ...p, valor: values[p.nome] })),
+      });
+      record.status = 200;
+      sendJson(response, 200, rule);
+      return;
+    }
+    if (method === "GET" && pathname === "/cells/me/alerts") {
+      record.status = 200;
+      sendJson(response, 200, leaderAlerts);
+      return;
+    }
+    const baixaMatch = pathname.match(/^\/cells\/([^/]+)\/alerts\/([^/]+)\/baixar$/);
+    if (method === "POST" && baixaMatch) {
+      const alert = leaderAlerts.find(
+        (item) => item.celulaId === baixaMatch[1] && item.id === baixaMatch[2],
+      );
+      if (!alert) {
+        record.status = 404;
+        sendJson(response, 404, { detail: "Alerta não encontrado" });
+        return;
+      }
+      leaderAlerts = leaderAlerts.filter((item) => item !== alert);
+      record.status = 200;
+      sendJson(response, 200, {
+        id: alert.id,
+        pessoaId: alert.pessoaId,
+        gatilho: alert.gatilho,
+        acaoEsperada: alert.acaoEsperada,
+        tratado: true,
+      });
       return;
     }
     if (method === "GET" && pathname === "/igreja/cadastro/capabilities") {

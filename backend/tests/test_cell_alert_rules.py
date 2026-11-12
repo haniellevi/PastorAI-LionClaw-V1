@@ -182,6 +182,7 @@ def test_cycle_isolates_failing_church(monkeypatch):
         return 2
 
     monkeypatch.setattr(svc, "evaluate_igreja", fake_eval)
-    assert svc.run_cell_alert_cycle(FakeSession, scope=scope) == 2
+    monkeypatch.setattr(svc, "_scope_session", scope)
+    assert svc.run_cell_alert_cycle(FakeSession) == 2
     assert ("rollback", a) in events and ("commit", b) in events
     assert ("close", a) in events and ("close", b) in events

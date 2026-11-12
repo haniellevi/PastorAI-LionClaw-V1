@@ -717,6 +717,62 @@ def led_cells_today(
     return result
 
 
+class MyCellAlertOut(BaseModel):
+    id: str
+    celulaId: str  # noqa: N815
+    celulaNome: str  # noqa: N815
+    pessoaId: str | None = None  # noqa: N815
+    gatilho: str | None = None
+    acaoEsperada: str | None = None  # noqa: N815
+
+
+MY_CELL_ALERTS_LIMIT = 50
+
+
+@router.get("/cells/me/alerts", response_model=list[MyCellAlertOut])
+def my_cell_alerts(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[MyCellAlertOut]:
+    """Alertas em aberto das células ATIVAS que o ator lidera diretamente (RF-26).
+
+    Mesma regra do detalhe para o líder: só o líder direto; superior na cadeia
+    não recebe. Pastor/admin consultam pela Central. ``igreja_id`` explícito
+    além da RLS.
+    """
+    tenant = uuid.UUID(current_user.igreja_id)
+    actor = _actor_pessoa_id(db, current_user)
+    if actor is None:
+        return []
+    rows = db.execute(
+        select(CellAlert, Celula.nome)
+        .join(
+            Celula,
+            (Celula.igreja_id == CellAlert.igreja_id) & (Celula.id == CellAlert.celula_id),
+        )
+        .where(
+            CellAlert.igreja_id == tenant,
+            Celula.igreja_id == tenant,
+            Celula.lider_id == uuid.UUID(actor),
+            Celula.ativo.is_(True),
+            CellAlert.tratado.is_(False),
+        )
+        .order_by(CellAlert.created_at.desc(), CellAlert.id)
+        .limit(MY_CELL_ALERTS_LIMIT)
+    ).all()
+    return [
+        MyCellAlertOut(
+            id=str(a.id),
+            celulaId=str(a.celula_id),
+            celulaNome=nome,
+            pessoaId=str(a.pessoa_id) if a.pessoa_id else None,
+            gatilho=a.gatilho,
+            acaoEsperada=a.acao_esperada,
+        )
+        for a, nome in rows
+    ]
+
+
 class CellsSummaryOut(BaseModel):
     total: int
     ativas: int

@@ -34,9 +34,31 @@ alter table public.cell_alerts add constraint cell_alerts_regra_fato_check
  check((regra_tipo is null and fato_chave is null) or (regra_tipo is not null and fato_chave is not null and length(fato_chave) <= 200));
 create unique index cell_alerts_regra_fato_uniq on public.cell_alerts(igreja_id,regra_tipo,fato_chave);
 
--- Rollback (somente depois de remover o código que grava regra_tipo/fato_chave;
--- alertas sem Pessoa precisam ser tratados ou removidos sob procedimento próprio
--- antes de restaurar o NOT NULL):
+-- cell_alerts passa a receber dados pastorais gerados automaticamente: aplica o
+-- mesmo padrão endurecido das tabelas novas (FORCE RLS, policy só para
+-- authenticated com GUC do tenant e trava de session_user, grants por coluna).
+-- Exclusões seguem por cascata de pessoas/celulas (ações referenciais).
+alter table public.cell_alerts force row level security;
+drop policy if exists tenant_isolation on public.cell_alerts;
+create policy tenant_isolation on public.cell_alerts for all to authenticated
+ using(igreja_id=public.current_igreja_id() and igreja_id=nullif(current_setting('app.tenant_igreja_id',true),'')::uuid and session_user not in ('authenticator','authenticated','anon'))
+ with check(igreja_id=public.current_igreja_id() and igreja_id=nullif(current_setting('app.tenant_igreja_id',true),'')::uuid and session_user not in ('authenticator','authenticated','anon'));
+revoke all on public.cell_alerts from public,anon,authenticated,service_role;
+grant select on public.cell_alerts to authenticated;
+grant insert(igreja_id,celula_id,pessoa_id,gatilho,acao_esperada,regra_tipo,fato_chave) on public.cell_alerts to authenticated;
+grant update(tratado) on public.cell_alerts to authenticated;
+
+-- Rollback (somente depois de remover o código que grava regra_tipo/fato_chave).
+-- Antes de restaurar o NOT NULL, conferir alertas sem Pessoa
+-- (select count(*) from public.cell_alerts where pessoa_id is null) e, com
+-- autorização própria, removê-los:
+-- delete from public.cell_alerts where regra_tipo is not null and pessoa_id is null;
+-- Proteção de cell_alerts: voltar à policy original de 0003 e aos grants amplos.
+-- drop policy tenant_isolation on public.cell_alerts;
+-- create policy tenant_isolation on public.cell_alerts for all
+--  using (igreja_id = current_igreja_id()) with check (igreja_id = current_igreja_id());
+-- alter table public.cell_alerts no force row level security;
+-- grant all on public.cell_alerts to anon, authenticated, service_role;
 -- drop index public.cell_alerts_regra_fato_uniq;
 -- alter table public.cell_alerts drop constraint cell_alerts_regra_fato_check;
 -- alter table public.cell_alerts drop column fato_chave;

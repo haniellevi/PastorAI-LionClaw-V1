@@ -23,7 +23,6 @@ import os
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -503,25 +502,27 @@ def evaluate_igreja(session: Session, igreja_id: uuid.UUID, *, now: dt.datetime)
     return persist_candidates(session, igreja_id, collect_candidates(session, igreja_id, rules, now=now))
 
 
+def _scope_session(session: Session, igreja_id: uuid.UUID) -> None:
+    """Fixa a sessão na igreja (papel authenticated + GUC) e confere o escopo."""
+    from app.db.rls_observability import require_tenant_scope
+    from app.db.tenant_session import mark_tenant_scoped
+
+    mark_tenant_scoped(session, igreja_id, source="cell_alert_rules")
+    require_tenant_scope(session, expected_igreja_id=igreja_id, source="cell_alert_rules")
+
+
 def run_cell_alert_cycle(
     session_factory: Callable[[], Session],
     *,
     now: dt.datetime | None = None,
-    scope: Callable[[Session, uuid.UUID], Any] | None = None,
 ) -> int:
     """Um ciclo do cron: cada igreja liberada numa sessão própria, isolada."""
     current = now or dt.datetime.now(dt.timezone.utc)
-    if scope is None:
-        from app.db.tenant_session import mark_tenant_scoped
-
-        def scope(s: Session, igreja_id: uuid.UUID) -> None:
-            mark_tenant_scoped(s, igreja_id, source="cell_alert_rules")
-
     created = 0
     for igreja_id in enabled_igreja_ids():
         session = session_factory()
         try:
-            scope(session, igreja_id)
+            _scope_session(session, igreja_id)
             created += evaluate_igreja(session, igreja_id, now=current)
             session.commit()
         except Exception:  # noqa: BLE001 - uma igreja não derruba as outras
